@@ -693,6 +693,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             &mut None,
             &mut BTreeMap::new(),
             Boundary::Namespace,
+            &Default::default(),
         )
         .is_err());
     }
@@ -712,6 +713,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         &mut None,
         &mut BTreeMap::new(),
         Boundary::Namespace,
+        &Default::default(),
     ))
     .contains("does not declare"));
     assert_eq!(
@@ -724,6 +726,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             &mut None,
             &mut BTreeMap::new(),
             Boundary::Namespace,
+            &Default::default(),
         )
         .unwrap()
         .0
@@ -759,6 +762,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
                 secrets: &[],
                 dialect: None,
                 boundary: Boundary::Namespace,
+                charters: &Default::default(),
             }
         )
         .is_err());
@@ -783,6 +787,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             secrets: &[],
             dialect: None,
             boundary: Boundary::Namespace,
+            charters: &Default::default(),
         },
     ));
     assert!(refusal.contains("can emit 'pass'"), "{refusal}");
@@ -804,6 +809,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             secrets: &[],
             dialect: None,
             boundary: Boundary::Namespace,
+            charters: &Default::default(),
         },
     ));
     assert!(
@@ -827,6 +833,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             secrets: &[],
             dialect: None,
             boundary: Boundary::Namespace,
+            charters: &Default::default(),
         },
     )
     .unwrap();
@@ -839,7 +846,13 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
 fn role_secret_command_and_confinement_boundaries_are_explicit() {
     let fixture = Fixture::new();
     let dir = fixture.dir.path();
-    assert!(parse_role(dir, "work", &json!({"role":"missing.md"})).is_err());
+    assert!(parse_role(
+        dir,
+        "work",
+        &json!({"role":"missing.md"}),
+        &Default::default()
+    )
+    .is_err());
 
     for raw in [
         json!({"secrets": "bad"}),
@@ -1402,6 +1415,7 @@ fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
             &serde_json::Map::new(),
             Boundary::Namespace,
             None,
+            &BTreeMap::new(),
         )
         .is_ok());
     }

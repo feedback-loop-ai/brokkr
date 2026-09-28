@@ -3258,6 +3258,81 @@ Production: `bundle.rs` and `bundle/compose.rs` only.
   MI, and the socket row's "uncategorized error" wording. Remote CI and the
   council.
 
+Unit 16-fix-b (2026-09-28, run `0065-rebuild-unit-16-see-the-uni-f91ce8a1`,
+based on `e04637a6`; evidence.md, "Unit 16-fix-b"). **Result: complete, with
+the pending items below.** It repairs the chief's F1–F5 on unit 16-fix's
+SECURITY-HOLD. F6 is not acted on: this record argues for no gate outcome.
+16.1, 16.2 and 16.3 stay closed on this visit's evidence. Production:
+`bundle.rs` and `bundle/compose.rs` only.
+
+- **Correction of 16.1's claims (F5).** Two earlier notes overstated the
+  binding:
+  - Unit 16-fix said "any replacement after the open is refused".
+  - Unit 16-fix said "nothing reopens the path".
+
+  The guarantee is narrower. The buffer a caller parses, and whose digest
+  its layer's walk takes, is the one read from the file the resolution
+  held; if the reference no longer resolves to that file in the same steps,
+  there is a refusal. A swap made after the open and undone before the
+  check is not seen, and the buffer is still the held file's
+  (`a_bound_read_supplies_…`). Until this visit the walk did reopen consumed
+  files by path (F3).
+- **F2, owner-rooted.** `observe` resolves a reference from its layer's
+  directory handle one name at a time. Each name is opened inside the handle
+  before it, with `openat` and `O_NOFOLLOW | O_NONBLOCK`. A link's text
+  comes from `readlinkat` and is followed by this code: `..` above the
+  layer, an absolute text outside it, or more than 40 links is refused.
+  Nothing is canonicalized and then opened.
+  - Both calls are declared through FFI in `bundle.rs`, so there is no new
+    dependency. This is the crate's first `unsafe`: two calls and one
+    `from_raw_fd`.
+  - A host other than Linux or macOS refuses.
+- **F1, one observation.** Both keys, and whether a written step was a link,
+  come from that observation. After the read, the reference is observed
+  again and must take the same steps. At the walk the input is verified
+  once more (`Held::intact`): observed again, and its bytes read back
+  through the held handle. A reference entry replaced after the read is
+  refused, for tables, declaring documents, charters and ancestors.
+  Observation errors fail closed.
+- **F3, one set of bytes.**
+  - `walk_files` takes each consumed key's digest from its bound buffer and
+    never reads that path.
+  - `parse_role` keeps each charter's read (`CharterRead`).
+  - Ancestors are sealed in `Resolved::seal`, once the compile has bound
+    every charter, so no walk reads a charter that was consumed. Ancestor
+    refusals now carry the chain note.
+  - `resolve` keeps its old contract by sealing with no charters.
+- **F4.** The alias rows run on `cfg!(target_os = "macos")`, not on a probe.
+  Linux accepts no alias here, so their proof, and M14's (MI's analogue),
+  is macOS's. That is stated in the test.
+- **Tests** (`bundle/compose_tests.rs`). Five new:
+  `a_reference_replaced_after_its_bound_read_is_refused`,
+  `a_charter_is_pinned_from_the_buffer_it_was_read_into`,
+  `the_walk_never_reads_what_a_bound_read_supplied`,
+  `a_resolution_descends_the_directory_handles_it_holds` and
+  `a_link_loop_names_no_file_and_an_absolute_contained_link_is_followed`.
+  Changed assertions:
+  - Four ancestor rows now expect the chain note:
+    `a_declaring_document_replaced_…` (ancestor and overridden ancestor),
+    `a_table_changed_…` and `a_table_link_retargeted_…` (overridden
+    ancestor). They are bound by M11.
+  - One exhaustive `match` in `a_bound_read_supplies_…` gains `_ => {}`.
+    No assertion moves.
+- **Proof.**
+  - Baseline on `e04637a6`: 8 reds. Every F1 and F3 row (19) compiled. F1's
+    and the walk's rows needed a scratch stage hook at F1's window and
+    before the walk's read.
+  - Mutations M1–M16 each compile and are restored. All are caught except
+    M14 (the alias key), which survives on Linux as expected. M9 hangs and
+    is killed at 60 s.
+- **Standing admission (2026-09-25):** nine compiler-forced arguments in
+  `bundle/tests.rs` (evidence.md lists each). None adds or removes an
+  assertion. Fixture migrations: none.
+- **Gates:** see evidence.md, "Unit 16-fix-b", "Gates".
+- **Pending.** Exact coverage outside the box. macOS: the alias rows and M14,
+  the socket row's wording, the `openat`/`readlinkat` FFI and `O_NOFOLLOW`
+  (0x0100) on a macOS host. Remote CI and the council.
+
 ## 17. Unit 17 — Select charter owner and source at compile
 
 - [ ] 17.1 Unit 17 binds selected charter owner/reference/target/digest, no longest-prefix guess. Verify external/nested/overlapping owners and all site/candidate paths. Requirements: [Library charter pins are enforced at consumption][MPL], [A new manifest version records capabilities per executable seat][MP1]. Reopened/remaining: operator ruling 3. (previous 6.2)

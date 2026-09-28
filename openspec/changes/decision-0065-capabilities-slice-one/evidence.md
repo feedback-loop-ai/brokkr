@@ -17703,3 +17703,291 @@ suite (39), the runtime suite, fmt and clippy were run again (`final-*.txt`).
 - Dispatch still reads a role by its written path (unit 18).
 - The walk still re-reads every file it pins. For consumed files that read
   is compared with the consumed digest, never substituted for it.
+
+## Unit 16-fix-b — one observation, one set of bytes, 2026-09-28
+
+Run `0065-rebuild-unit-16-see-the-uni-f91ce8a1`, based on `e04637a6`.
+**Result: complete, with the pending items at the end.** This visit repairs
+the chief's F1–F5 on unit 16-fix's SECURITY-HOLD. F6 (verdict and routing
+advocacy in member notes) is not acted on, and nothing here argues for a
+gate outcome.
+
+The production files are `bundle.rs` and `bundle/compose.rs`. The tests are
+in `bundle/compose_tests.rs`, plus the nine compiler-forced arguments in
+`bundle/tests.rs` listed below. Scratch logs are `.forge/u16b-*` (not
+committed). The baseline ran in the scratch worktree `.forge/u16b-base`
+(`e04637a6`), and the mutations in `.forge/u16b-mut`.
+
+### What changed, finding by finding
+
+**F2 — owner-rooted resolution.** `observe(root, reference)`:
+
+- It opens the layer's canonical directory and records that directory's
+  `(dev, ino)` as the first step.
+- Each name of the reference is then opened INSIDE the handle before it,
+  with `openat(parent, name, O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC)`.
+- An open that fails is asked, by `readlinkat` on the same parent handle,
+  whether the name is a link. If it is, the text's names are queued: from
+  the link's directory, or, for an absolute text standing under the layer,
+  from the layer's directory.
+- It refuses:
+  - a `..` above the layer, and an absolute text outside it (both OUTWARD);
+  - more than 40 links ("which resolves through more than 40 links, so it
+    names no file").
+
+  An absent name, or a parent that is not a directory, is the caller's
+  missing clause, as before. Any other open failure is "which cannot be
+  read (…)".
+- Every step is recorded as `Entry(name, (dev, ino))` or `Link(name, text)`.
+  Every handle is held until the input is consumed.
+- Nothing is canonicalized and then opened.
+- `openat` and `readlinkat` are declared in `bundle.rs` through FFI. No
+  dependency moves, and `Cargo.toml` and `Cargo.lock` are untouched. They,
+  and one `from_raw_fd` each, are the crate's only `unsafe`, with `SAFETY`
+  notes.
+- The flags are per host. On Linux, `O_NOFOLLOW` is `0o100000` on
+  arm/aarch64/m68k/powerpc and `0o400000` on every other architecture. On
+  macOS it is `0x0100`. A host other than Linux or macOS refuses (design D7).
+- One pathname operation remains, and it only names: `listed` reads a
+  directory to find the entry whose `(dev, ino)` is the opened handle's, so
+  an accepted alias is keyed by the name the directory lists. A name that
+  lists no such entry stays as written, and the walk, which lists no such
+  key, refuses it.
+
+**F1 — the reference bound to the read.**
+
+- `BoundInput.key`, `target_key` and whether a WRITTEN step was a link all
+  come from that one observation. `through_link` (a later
+  `symlink_metadata` of the path, which failed open) is deleted.
+- After the read, the reference is observed again, and its steps must
+  equal the first observation's, or the input is *replaced*.
+- At the layer's walk, `Held::intact` is asked again: the steps must be
+  equal once more, and the held file's bytes, read back through the held
+  handle, must hash to the buffer's digest.
+- Any error while observing or reading back is a change.
+- So a link `L -> T` replaced after its read by a regular file is refused:
+  for a table, a declaring document and a charter, standalone, in an
+  ancestor, and in an overridden ancestor.
+
+**F3 — the manifest takes the bound buffers.**
+
+- `walk_files(dir, scope, consumed)` takes each consumed key's digest from
+  `consumed` and never opens that path. Every other file is read and hashed
+  as before, after a test-only `ReadStage::Walked` hook.
+- `manifest_for` carries `consumed`. `layer_drift` passes an empty map, so
+  the spawn-time re-walk is unchanged.
+- `parse_role` keeps each charter's read as a `CharterRead`: the declaring
+  layer, the bounded seat and reference, the keys, the digest and the held
+  observation. The compile collects them through `BodyCompile`,
+  `SelectCompile` and `parse_panel`.
+- Ancestors are sealed after the seats are parsed (`resolve_unsealed`, then
+  `Resolved::seal(charters)`). Each ancestor's walk takes its document's,
+  table's and charters' digests from their buffers, and `Consumed::check`
+  verifies each before the digest exists.
+  - A consequence: an ancestor's refusal is raised inside `assemble`, so it
+    now carries the chain note like any other. Four existing rows change
+    for exactly that, and M11 binds them.
+- The leaf's walk takes `Resolved::leaf_digests()`, and `check_leaf`
+  verifies it.
+- `resolve` (tests and `table_lints`) seals with no charters, since it
+  consumes none.
+- A consumed charter gets its own refusal: "… names role …, which the walk
+  that pinned the layer does not hold as it was read: its entry was
+  replaced, retargeted or removed, or its bytes changed, after the read
+  that bound it …".
+- For unchanged trees the identities are the same by construction:
+  `bundles/self` (`45dc1c7e…`) and `bundles/verify` (`f7cbd4bb…`) are
+  unchanged.
+
+**F4 — the alias proof.** `a_reference_is_keyed_by_the_entry_its_directory_lists`
+now takes its alias rows on `cfg!(target_os = "macos")`, not on a runtime
+probe, so macOS runs them unconditionally. No Linux filesystem this suite
+runs on accepts an alias. The test says so, and the alias acceptance and M14
+(the analogue of MI) cannot be bound here: they are pending on macOS. The
+socket row's "uncategorized error" stays a pending macOS portability check,
+as the chief recorded.
+
+**F5 — the guarantee, as documented.** `bound_input`'s documentation now
+says exactly what holds: the buffer is the one read from the file the
+observation held, and if the reference no longer resolves to it in the same
+steps, there is a refusal. A swap undone before the check is not seen, and
+the buffer stays the held file's. tasks.md corrects unit 16-fix's two
+overstatements ("any replacement after the open is refused"; "nothing
+reopens the path").
+
+### Tests
+
+New, in `bundle/compose_tests.rs`:
+
+- `a_reference_replaced_after_its_bound_read_is_refused` (F1).
+  - At `Verified`, a link is replaced by a regular file, with equal and
+    with changed bytes. Three links: `table.json -> a.json`,
+    `bundle.json -> doc.json` and `roles/linked.md -> target.md`.
+  - Rows: the table standalone, inherited and overridden; the document
+    standalone and inherited; the charter standalone and inherited.
+- `a_charter_is_pinned_from_the_buffer_it_was_read_into` (F3).
+  - `review`'s charter is rewritten in place, or renamed over, at `work`'s
+    charter's `Read`. Refused standalone and inherited.
+  - An ancestor's charter is rewritten at its own `Opened`, before its read.
+    The raced compile must equal a stable compile of the rewritten tree.
+- `the_walk_never_reads_what_a_bound_read_supplied` (F3). A composed
+  compile's `Walked` paths are exactly `base/notes.md` and
+  `derived/roles/role.md`.
+- `a_resolution_descends_the_directory_handles_it_holds` (F2). At `Entered`
+  for `tables`, the directory is moved aside and a new one holding another
+  ruling takes its place.
+  - Restored at `Entered` for the table: the compile equals the undisturbed
+    identity.
+  - Not restored: *replaced*.
+- `a_link_loop_names_no_file_and_an_absolute_contained_link_is_followed`.
+  - An absolute link inside the layer is followed, and both entries pin the
+    target's digest.
+  - A `./roles/target.md` role compiles.
+  - An `a.md <-> b.md` loop is refused with the 40-link clause.
+
+Changed:
+
+- Four ancestor rows now expect `bundle: bundle: … (composed: … -> base)`:
+  `a_declaring_document_replaced_…` (`ancestor`, `overridden ancestor`),
+  `a_table_changed_…` (overridden ancestor) and `a_table_link_retargeted_…`
+  (`overridden ancestor`).
+- `a_bound_read_supplies_…`: the exhaustive `match` on `ReadStage` gains
+  `_ => {}` for the new stages. No assertion moves.
+- The alias test: the probe becomes `cfg!(target_os = "macos")` (F4).
+
+### Baseline reds on `e04637a6`
+
+`e04637a6`'s production ran under this visit's `compose_tests.rs`, in the
+scratch worktree `.forge/u16b-base`. The stage names this visit adds do not
+exist there, so three **scratch, uncommitted** instrumentation lines were
+added to its `bundle.rs`:
+
+- the variants `Entered`, `Verified` and `Walked`;
+- `at_stage(Verified, &target)` right after `read_bound` returns, which is
+  F1's window, before `through_link`;
+- `at_stage(Walked, &path)` before the walk's `std::fs::read`.
+
+`Entered` fires nowhere there. `cargo test … bundle::compose_tests` gave 36
+passed and 8 failed (`u16b-baseline.log`):
+
+- `a_reference_replaced_…` (table, equal, `base`): left `"compiled to
+  672c07a7…"`.
+- `a_charter_is_pinned_…` (in place, `base`): left `"compiled to
+  88ff8f76…"`.
+- `the_walk_never_reads_…`: left lists every consumed file too (both
+  `bundle.json`, `policy.json`, `roles/linked.md`, `roles/role.md` and
+  `roles/target.md`).
+- `a_link_loop_…`: left "which cannot be resolved (filesystem loop or
+  indirection limit (e.g. symlink loop))".
+- `a_resolution_descends_…` (not restored): left `"compiled to 4c4f64ac…"`.
+  This is not a meaningful baseline, because the swap never ran: there is
+  no `Entered` stage there. F2 was commissioned without a baseline red.
+- `a_declaring_document_replaced_…` (ancestor), `a_table_changed_…` and
+  `a_table_link_retargeted_…` (overridden ancestor): the unwrapped wording.
+
+Each test stops at its first failing row. So a scratch copy that prints
+every row without panicking (`soft_eq!`, baseline worktree only) was run
+(`u16b-baseline-rows.log`). **All 19 F1 and F3 rows compiled on
+`e04637a6`:** table ×6, document ×4, charter ×4, charter race ×4, and the
+ancestor race. The raced ancestor compile sealed `d584522c…`, which is the
+identity naming the OLD charter bytes, while its seat was bound to the new.
+
+### Mutations
+
+Each mutation is one compiling edit to production, in `.forge/u16b-mut`
+(the candidate copied in). Each ran `cargo test … --lib bundle::`, and each
+was restored by copying the candidate back, with `git diff --no-index
+--quiet` clean. Unmutated there: 229 passed (`u16b-mut0.log`).
+
+| Mutation | Fails (exact assertion) | Log |
+| --- | --- | --- |
+| M1: key always the target's (`through_link` ignored) | `the_walk_never_reads_…` (`roles/linked.md` walked); `a_reference_is_keyed_…` `:2685` (the removed link said "bytes changed"). 227 passed | `u16b-m1.log` |
+| M2: `intact` ignores the re-observation | `a_reference_replaced_…` table/equal/`base`: left `"compiled to 672c07a7…"` (`e04637a6`'s identity); `a_charter_is_pinned_…` renamed over; `a_table_link_retargeted_…` leaf. 226 passed | `u16b-m2.log` |
+| M3: the walk ignores `consumed` (re-reads by path) | `the_walk_never_reads_…`: every consumed file walked. 228 passed | `u16b-m3.log` |
+| M4: `intact` ignores the held bytes | `a_charter_is_pinned_…` in place; `a_declaring_document_replaced_…` leaf; `a_table_changed_…` `:2292`. 226 passed | `u16b-m4.log` |
+| M5: `parse_role` keeps no `CharterRead` | `a_charter_is_pinned_…` (`88ff8f76…`, as `e04637a6`); `a_reference_replaced_…` charter (`10f31c66…`, as `e04637a6`); `the_walk_never_reads_…`. 226 passed | `u16b-m5.log` |
+| M6: each name opened by a path from the layer root, not inside the held handle | `a_resolution_descends_…` restored row: *replaced*. 228 passed | `u16b-m6.log` |
+| M7: `O_NOFOLLOW` dropped | 7 tests, the outward-link and skipped-tree ones among them (`a_table_link_out_…`: `"compiled to d33b9631…"`). 222 passed | `u16b-m7.log` |
+| M8: an absolute text does not restart at the layer | `a_link_loop_…`: `Bundle::compile(&base).unwrap()` on "… 'roles/absolute.md', which does not exist". 228 passed | `u16b-m8.log` |
+| M9: the 40-link limit never reached | `a_link_loop_…` hung and was killed at 60 s; no orphaned test process (`pgrep`) | `u16b-m9.log` |
+| M10: `..` above the layer not refused | 3 outward tests fail (the stack invariant panics). 226 passed | `u16b-m10.log` |
+| M11: an ancestor's check discarded in `seal` | 5 tests, including every changed ancestor row: `a_declaring_document_replaced_…` `ancestor` `:2449`, `a_table_changed_…` `:2306`, `a_table_link_retargeted_…` `:2373`. The `overridden ancestor` document row sits behind `ancestor`, so with that row neutralized in the scratch copy it fails too, at the scratch copy's `:2460` (the committed `:2464`), with `"compiled to 0fd2651b…"`. 224 passed | `u16b-m11.log`, `u16b-m11b.log` |
+| M12: the leaf's check discarded | 6 tests. 223 passed | `u16b-m12.log` |
+| M13: the post-read re-observation off | 4 replacement tests. The walk still refuses them, under the walk clause, not *replaced*. 225 passed | `u16b-m13.log` |
+| M14: `listed` keeps the written name | **none: 229 passed.** No alias exists on Linux. Pending macOS | `u16b-m14.log` |
+| M15: `./` not dropped | `a_link_loop_…` `./roles/target.md` row: refused as not held. 228 passed | `u16b-m15.log` |
+| M16: an unlisted key judged as changed | `a_reference_is_keyed_…` `:2685`. 228 passed | `u16b-m16.log` |
+
+Line numbers are the logs' own. The scratch copy matched the committed test
+file, except that the baseline copy predates the `./` row, which moves
+`a_link_loop_…`'s loop assertion by six lines.
+
+### Coverage diagnostic (not the gate)
+
+`cargo +nightly-2026-09-05 llvm-cov -p brokkr-runtime --lib --all-features
+--branch` was run after deleting `target/llvm-cov-target`: an earlier
+session's instrumented objects there had reported `e04637a6`'s function
+layout. It was exported to JSON, then as LCOV (`u16b.lcov`,
+`u16b-cov.json`). In the code this visit added or changed:
+
+- no unhit line;
+- no branch with a zero side;
+- no function whose every record is zero.
+
+The rest of this lib-only run's unhit lines and branches are in older code
+that the integration tests reach, and it covers nothing outside
+`brokkr-runtime`. It does not stand in for `scripts/coverage-exact.sh`.
+
+### Standing-admission lines and fixture migrations
+
+The operator's 2026-09-25 admission covers nine compiler-forced arguments
+in `crates/brokkr-runtime/src/bundle/tests.rs`. Each adds no assertion,
+removes none, and changes no tested behaviour: a fresh sink collects
+charter reads that no one reads.
+
+- Three `parse_panel(…)` calls gain `&Default::default()` (the new
+  `charters: &Charters` parameter).
+- Four `BodyCompile { … }` literals gain `charters: &Default::default()` (the
+  new field).
+- `parse_role(dir, "work", …)` gains `&Default::default()`. rustfmt then
+  spreads the call over seven lines, and its `.is_err()` is unchanged.
+- `manifest_for(…)` gains `&BTreeMap::new()` (the new `consumed` parameter).
+
+Fixture migrations: none.
+
+### Gates
+
+All on the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean (`u16b-clippy.log`).
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 results, 0
+  failed, lib 593 (`u16b-runtime.log`, before the `./` row was added to
+  `a_link_loop_…`). After that row:
+  - `cargo test --workspace --all-features --locked`: 77 results, 0
+    failed, runtime lib 593 (`u16b-workspace.log`).
+  - `cargo test --workspace --locked`: 77 results, 0 failed
+    (`u16b-workspace-default.log`).
+- `compile --bundle bundles/self`: `45dc1c7e…`. `bundles/verify`:
+  `f7cbd4bb…`. Both are unchanged.
+- `openspec validate --all --strict --no-interactive`: 18 passed.
+- `git diff --check`: clean.
+
+**Pending.**
+
+- Exact coverage outside the box (`scripts/coverage-exact.sh`).
+- macOS: the alias rows and M14; the socket row's wording; the FFI
+  declarations and the flag values (`O_NOFOLLOW` `0x0100`, `O_CLOEXEC`
+  `0x01000000`) on a macOS host.
+- Remote CI.
+- The council. The SECURITY-HOLD stands until it rules.
+
+### Follow-ups, not built here
+
+- Dispatch still reads a role by its written path (unit 18).
+- The walk still lists by path. A consumed key it lists is verified through
+  `Held::intact`; files nothing consumed are hashed by path, as before.
+- The resolution opens the layer's own directory by its canonical path, and
+  the observation records that directory's identity. One held handle per
+  layer, shared by all of its reads, would remove that repeated open.

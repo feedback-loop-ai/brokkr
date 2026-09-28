@@ -7,6 +7,7 @@
 
 use brokkr_protocol::hands::HandsSpec;
 use std::collections::BTreeMap;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::sha256_bytes;
@@ -1247,7 +1248,7 @@ impl Bundle {
         // Composition resolves FIRST, into one flat bundle; everything
         // below this line compiles a single bundle and never learns that
         // composition happened (decision 0017).
-        let resolved = compose::resolve(&dir)?;
+        let resolved = compose::resolve_unsealed(&dir)?;
         let note = resolved.chain_note();
         match Bundle::assemble(
             &dir,
@@ -1281,7 +1282,7 @@ impl Bundle {
     #[allow(clippy::too_many_arguments)]
     fn assemble(
         dir: &Path,
-        resolved: compose::Resolved,
+        mut resolved: compose::Resolved,
         library_root: &Path,
         adapters_root: &Path,
         realm_name: Option<&str>,
@@ -1459,6 +1460,7 @@ impl Bundle {
         let mut verify_agent_hands: Option<HandsSpec> = None;
 
         let mut seats = BTreeMap::new();
+        let charters = Charters::default();
         for (phase, raw) in &resolved.seats {
             // An inherited seat's `role` and `./`-prefixed argv resolve
             // against the layer that WROTE them, found by name — the
@@ -1570,6 +1572,7 @@ impl Bundle {
                     &mut agents,
                     &mut sites,
                     boundary,
+                    &charters,
                 )?;
                 SeatBody::Panel { members, aggregate }
             } else if has_sequence {
@@ -1585,6 +1588,7 @@ impl Bundle {
                             secrets: &secrets,
                             dialect,
                             boundary,
+                            charters: &charters,
                         },
                     )?,
                 }
@@ -1602,6 +1606,7 @@ impl Bundle {
                         case_origin: &resolved.case_origin,
                         dialect,
                         boundary,
+                        charters: &charters,
                     },
                 )?
             } else {
@@ -1615,7 +1620,7 @@ impl Bundle {
                     &mut sites,
                 )?;
                 SeatBody::Single {
-                    role_path: parse_role(dir, phase, raw)?,
+                    role_path: parse_role(dir, phase, raw, &charters)?,
                     command: parse_command(dir, phase, raw, &secrets)?,
                     candidates: Vec::new(),
                 }
@@ -2016,6 +2021,12 @@ impl Bundle {
         let mut drivers: Map<String, Value> = Map::new();
         fold_driver_facts(&mut drivers, &sites);
         let drivers = (!drivers.is_empty()).then_some(&drivers);
+        // Design D7 (rebuild unit 16-fix-b, F3): every layer's identity is
+        // sealed from the buffers it was composed from and the charters its
+        // seats were bound to, ancestors first, so no consumed file is read
+        // again by a walk. The leaf's walk takes its own the same way, and
+        // each input must still stand as it was read or nothing seals.
+        resolved.seal(charters.into_inner())?;
         let manifest = manifest_for(
             dir,
             &name,
@@ -2026,13 +2037,9 @@ impl Bundle {
             &select_records,
             boundary,
             Some(capability_record),
+            &resolved.leaf_digests(),
         )?;
-        // Design D7: the leaf's declaring document and its table were each
-        // parsed from one bound buffer before this walk hashed the leaf; the
-        // walk agrees with both or nothing seals.
-        resolved
-            .leaf_read
-            .check(manifest["files"].as_object().expect("manifest files"))?;
+        resolved.check_leaf(manifest["files"].as_object().expect("manifest files"))?;
         // Second council H6: every agent charter this compile bound, kept
         // where a projection of the site facts cannot lose it.
         let charters: CharterPins = sites
@@ -4423,20 +4430,79 @@ fn skipped_top_level(root: &Path, path: &Path) -> Option<String> {
     })
 }
 
-/// One consumed input, read through a handle bound to its contained target
-/// (operator ruling 3; decision 0065 slice one, design D7).
+/// One consumed input, resolved from its layer's directory handle a name at
+/// a time and read through the handle that resolution ended at (operator
+/// ruling 3; decision 0065 slice one, design D7).
 pub(crate) struct BoundInput {
     /// The file-map key under which the declaring layer's walk pins what the
     /// reference names: the entry the layer's identity names the input by.
     /// Where no step of the written path is a link it is the target's own
     /// key, so a case or normalization alias the filesystem accepted is
     /// bound to the name its directory lists; through a link it is the
-    /// written spelling, which is the link's own entry.
+    /// written spelling, which is the link's own entry. It comes from the
+    /// same observation as `target_key` (rebuild unit 16-fix-b, F1).
     pub(crate) key: String,
     /// The file-map key the declaring layer's walk writes for the target.
     pub(crate) target_key: String,
-    /// The bytes the handle supplied: the buffer a caller hashes and parses.
+    /// The bytes the handle supplied: the buffer a caller hashes and parses,
+    /// and whose digest the layer's walk takes for both keys.
     pub(crate) bytes: Vec<u8>,
+    /// What the resolution observed and the handles it holds, so the walk
+    /// can verify the input without opening its path to read it.
+    pub(crate) held: Held,
+}
+
+/// One step of an owner-rooted resolution, in the order it was taken: an
+/// entry opened by the name it was looked up by, with the `(dev, ino)` its
+/// handle holds, or a link, with the text it was followed by. The layer's
+/// own directory is the first entry.
+#[derive(PartialEq, Eq)]
+enum Step {
+    Entry(OsString, (u64, u64)),
+    Link(OsString, OsString),
+}
+
+/// A handle a resolution stands in, with the name it was looked up by and
+/// the `(dev, ino)` it holds.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+type Hold = (std::fs::File, OsString, (u64, u64));
+
+/// What one bound read observed, and every handle it opened, the layer's
+/// directory first and the read file last. They stay open while the input
+/// is consumed, so no file they hold can give its number to another.
+pub(crate) struct Held {
+    root: PathBuf,
+    reference: PathBuf,
+    steps: Vec<Step>,
+    handles: Vec<std::fs::File>,
+}
+
+impl Held {
+    /// Whether the input still stands as it was read: its reference, resolved
+    /// again from the layer's directory, takes exactly the same steps (every
+    /// entry the same file, every link the same text), and the held file
+    /// still holds exactly the bytes whose digest is `digest`. Those bytes
+    /// are read back through the held handle, never by opening the path, and
+    /// any failure to observe or read is a change: this fails closed.
+    pub(crate) fn intact(&self, digest: &str) -> bool {
+        use std::io::{Read, Seek};
+        let mut file = self.handles.last().expect("a resolution ends at a handle");
+        let mut again = Vec::new();
+        let reread = file.rewind().and_then(|()| file.read_to_end(&mut again));
+        let held = reread.map(|_| sha256_bytes(&again));
+        let observed = observe(&self.root, &self.reference).map(|now| now.steps);
+        (held.ok().as_deref(), observed.ok().as_ref()) == (Some(digest), Some(&self.steps))
+    }
+}
+
+/// What one owner-rooted resolution saw.
+struct Observation {
+    steps: Vec<Step>,
+    handles: Vec<std::fs::File>,
+    /// The target's file-map key, spelled as its directories list it.
+    target_key: String,
+    /// Whether a step of the reference as written was a link.
+    through_link: bool,
 }
 
 /// Why an active input was not bound. `Missing` is said by
@@ -4491,9 +4557,12 @@ fn walk_key(root: &Path, path: &Path) -> Option<String> {
 }
 
 /// Where a bound read stands, for the tests' controlled replacements, in
-/// the order a read reaches them.
+/// the order a read reaches them; and where the walk stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReadStage {
+    /// The resolution holds a handle on the entry at this path, looked up
+    /// in the directory handle before it.
+    Entered,
     /// A handle is open on the contained target; nothing is checked yet.
     Opened,
     /// The handle's own kind was checked: it holds a regular file.
@@ -4501,6 +4570,11 @@ pub(crate) enum ReadStage {
     /// The handle's bytes are in the buffer, and the binding is about to be
     /// verified again.
     Read,
+    /// The binding was verified and both keys are fixed; the input is about
+    /// to be handed to its caller.
+    Verified,
+    /// The walk is about to read and hash a file no bound read supplied.
+    Walked,
 }
 
 #[cfg(test)]
@@ -4528,13 +4602,267 @@ fn at_stage(stage: ReadStage, target: &Path) {
 fn at_stage(_: ReadStage, _: &Path) {}
 
 /// `O_NONBLOCK` as each supported host spells it (decision 0063). Opening
-/// a FIFO for reading waits for a writer; a FIFO renamed over the checked
-/// file between the check and the open must be refused by the handle's
-/// kind, not wait there.
+/// a FIFO for reading waits for a writer; a FIFO met on the way to an input
+/// must be refused by the handle's kind, not wait there.
 #[cfg(target_os = "linux")]
 const O_NONBLOCK: i32 = 0o4000;
 #[cfg(target_os = "macos")]
 const O_NONBLOCK: i32 = 0x0004;
+/// `O_NOFOLLOW`: every name is looked up without following a link, so each
+/// link on the way is seen, its text read, and followed by this code. Linux
+/// spells it per architecture family.
+#[cfg(all(
+    target_os = "linux",
+    any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "m68k",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    )
+))]
+const O_NOFOLLOW: i32 = 0o100_000;
+#[cfg(all(
+    target_os = "linux",
+    not(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "m68k",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    ))
+))]
+const O_NOFOLLOW: i32 = 0o400_000;
+#[cfg(target_os = "macos")]
+const O_NOFOLLOW: i32 = 0x0100;
+/// `O_CLOEXEC`, which the standard library sets on every file it opens.
+#[cfg(target_os = "linux")]
+const O_CLOEXEC: i32 = 0o2_000_000;
+#[cfg(target_os = "macos")]
+const O_CLOEXEC: i32 = 0x0100_0000;
+
+/// The most links one resolution follows, as Linux's own lookup does.
+const MAX_LINKS: usize = 40;
+
+/// The clause a consumed input whose resolved target leaves its layer
+/// carries (operator ruling 3).
+const OUTWARD: &str = "which resolves through a link to a file outside the layer's own \
+                       directory; the walk pins such a link only by the bytes it reaches, so \
+                       retargeting it to equal bytes moves nothing, and it is refused rather \
+                       than pinned and admitted (operator ruling 3)";
+
+/// The clause a FIFO, device or directory carries.
+const NONREGULAR: &str = "which is not a regular file; only a regular file's bytes are read, \
+                          hashed and pinned, and a FIFO, device or directory could supply bytes \
+                          the walk never hashed";
+
+/// The clause a read whose reference no longer resolves as it did carries.
+const REPLACED: &str = "which was replaced while it was read: the file the read holds is no \
+                        longer the contained target that was checked, so its bytes are not the \
+                        ones verified";
+
+// The two library calls the owner-rooted resolution is made of, which the
+// standard library does not expose: a lookup of one name inside an open
+// directory, and the text of a link standing there.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+extern "C" {
+    fn openat(
+        dirfd: std::ffi::c_int,
+        path: *const std::ffi::c_char,
+        flags: std::ffi::c_int,
+        ...
+    ) -> std::ffi::c_int;
+    fn readlinkat(
+        dirfd: std::ffi::c_int,
+        path: *const std::ffi::c_char,
+        buf: *mut std::ffi::c_char,
+        size: usize,
+    ) -> isize;
+}
+
+/// Open `name` inside the directory `parent` holds, non-blocking, never
+/// following a link it names.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn open_at(parent: &std::fs::File, name: &OsStr) -> std::io::Result<std::fs::File> {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::{AsRawFd, FromRawFd};
+    let name = std::ffi::CString::new(name.as_bytes())?;
+    // SAFETY: `parent` stays open for the call, `name` is NUL-terminated and
+    // outlives it, and no mode argument is read because `O_CREAT` is unset.
+    let fd = unsafe {
+        openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `fd` was just returned by `openat`, and nothing else owns it.
+    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+/// The text of the link `name` inside the directory `parent` holds.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn link_at(parent: &std::fs::File, name: &OsStr) -> std::io::Result<OsString> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    use std::os::unix::io::AsRawFd;
+    let name = std::ffi::CString::new(name.as_bytes())?;
+    let mut text = vec![0u8; 4096];
+    // SAFETY: `parent` stays open for the call, `name` is NUL-terminated, and
+    // `text` is writable for the length passed.
+    let length = unsafe {
+        readlinkat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            text.as_mut_ptr().cast(),
+            text.len(),
+        )
+    };
+    let length = usize::try_from(length).map_err(|_| std::io::Error::last_os_error())?;
+    text.truncate(length);
+    Ok(OsString::from_vec(text))
+}
+
+/// Why an entry on the way to an input could not be opened or read: an
+/// absent entry, or a parent that is not a directory, is a reference that
+/// resolves to nothing, said in the caller's own words; anything else is a
+/// file that cannot be read, with its cause.
+fn unopened(error: std::io::Error) -> InputFault {
+    match error.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => {
+            InputFault::Missing(error)
+        }
+        kind => InputFault::Place(format!("which cannot be read ({kind})")),
+    }
+}
+
+/// Put `text`'s names on `pending`, the first on top, each marked `written`
+/// or not. An absolute `text` restarts at the layer's directory, which it
+/// must stand under; a relative one continues from the current handle.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn queue(
+    root: &Path,
+    text: &Path,
+    written: bool,
+    stack: &mut Vec<Hold>,
+    pending: &mut Vec<(OsString, bool)>,
+) -> Result<(), InputFault> {
+    let relative = if text.is_absolute() {
+        stack.truncate(1);
+        text.strip_prefix(root)
+            .map_err(|_| InputFault::Place(OUTWARD.to_string()))?
+    } else {
+        text
+    };
+    pending.extend(
+        relative
+            .components()
+            .rev()
+            .filter(|part| *part != std::path::Component::CurDir)
+            .map(|part| (part.as_os_str().to_os_string(), written)),
+    );
+    Ok(())
+}
+
+/// The name `parent` lists for the entry looked up there as `name`, whose
+/// handle holds `id`: `name` itself wherever the directory lists it, and
+/// otherwise the entry the filesystem accepted `name` as an alias of (a
+/// case or normalization alias, as on macOS). Where no entry holds that file
+/// any more, `name` stands, and the walk, which lists no such entry, refuses
+/// it.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn listed(parent: &Path, name: &OsStr, id: (u64, u64)) -> OsString {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::read_dir(parent)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| {
+            entry
+                .metadata()
+                .is_ok_and(|meta| (meta.dev(), meta.ino()) == id)
+        })
+        .map(|entry| entry.file_name())
+        .min_by_key(|entry| entry != name)
+        .unwrap_or(name.to_os_string())
+}
+
+/// Resolve `reference` from the layer's directory at `root` a name at a
+/// time: each name is looked up inside the directory handle before it,
+/// without following a link; a link's text is read and its names are looked
+/// up in turn, from the link's own directory or, when absolute, from the
+/// layer's. A `..` that would step above the layer, an absolute text outside
+/// it, or more than [`MAX_LINKS`] links is refused. No path is canonicalized
+/// and then opened: every handle is found inside the one before it.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn observe(root: &Path, reference: &Path) -> Result<Observation, InputFault> {
+    use std::os::unix::fs::MetadataExt;
+    let identity = |file: &std::fs::File| file.metadata().map(|meta| (meta.dev(), meta.ino()));
+    let top = std::fs::File::open(root).map_err(InputFault::Missing)?;
+    let id = identity(&top).map_err(InputFault::Missing)?;
+    let mut steps = vec![Step::Entry(OsString::new(), id)];
+    let mut stack: Vec<Hold> = vec![(top, OsString::new(), id)];
+    let mut pending = Vec::new();
+    queue(root, reference, true, &mut stack, &mut pending)?;
+    let (mut links, mut through_link) = (0, false);
+    while let Some((name, written)) = pending.pop() {
+        if name == ".." {
+            if stack.len() == 1 {
+                return Err(InputFault::Place(OUTWARD.to_string()));
+            }
+            stack.pop();
+            continue;
+        }
+        let parent = &stack.last().expect("the layer's directory stays").0;
+        match open_at(parent, &name) {
+            Ok(file) => {
+                let id = identity(&file).map_err(InputFault::Missing)?;
+                steps.push(Step::Entry(name.clone(), id));
+                stack.push((file, name, id));
+                let path = stack[1..]
+                    .iter()
+                    .fold(root.to_path_buf(), |path, (_, name, _)| path.join(name));
+                at_stage(ReadStage::Entered, &path);
+            }
+            Err(error) => {
+                let text = link_at(parent, &name).map_err(|_| unopened(error))?;
+                links += 1;
+                if links > MAX_LINKS {
+                    return Err(InputFault::Place(format!(
+                        "which resolves through more than {MAX_LINKS} links, so it names no file"
+                    )));
+                }
+                through_link |= written;
+                steps.push(Step::Link(name, text.clone()));
+                queue(root, Path::new(&text), false, &mut stack, &mut pending)?;
+            }
+        }
+    }
+    let mut place = root.to_path_buf();
+    let mut names = Vec::new();
+    for (_, name, id) in &stack[1..] {
+        let entry = listed(&place, name, *id);
+        names.push(entry.to_string_lossy().into_owned());
+        place.push(entry);
+    }
+    Ok(Observation {
+        steps,
+        handles: stack.into_iter().map(|(file, ..)| file).collect(),
+        target_key: names.join("/"),
+        through_link,
+    })
+}
+
+/// No supported host lacks the resolution; any other refuses rather than
+/// reading an input it cannot bind (design D7).
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn observe(_: &Path, _: &Path) -> Result<Observation, InputFault> {
+    Err(InputFault::Place(
+        "which this host cannot read through a handle bound to its contained target".to_string(),
+    ))
+}
 
 /// Decision 0065 slice one, design D7, under operator ruling 3 ("It is not
 /// pinned and admitted"): resolve what `reference` names against the
@@ -4542,123 +4870,74 @@ const O_NONBLOCK: i32 = 0x0004;
 /// that layer and outside every tree the walk skips, and read it ONCE,
 /// through one handle, into the one buffer a caller parses and hashes.
 ///
-/// A link inside the layer is followed; one whose target leaves the layer
-/// is refused even where the walk would pin the bytes it reaches, because
-/// the walk pins a link only by those bytes and a retarget to equal bytes
-/// moves nothing. What is checked is the handle, never the path: the
-/// target is opened non-blocking, so a FIFO never blocks the compile, and
-/// the handle's own kind must be a regular file before a byte is read, so a
-/// FIFO, device or directory never supplies any. After the read, while the
-/// handle still holds its file, so no other file can take that file's
-/// number, the written path is resolved again from the layer's root: it
-/// must still resolve to the same contained target, and that target must
-/// still be the file the handle holds. So the bytes returned are the bytes
-/// of a regular file that stood at the contained target from the open to
-/// the end of the read, or the read is refused.
+/// The target is found by [`observe`], from the layer's directory handle a
+/// name at a time, never by canonicalizing a path and opening it: a link
+/// inside the layer is followed, and one that leads out of it is refused
+/// even where the walk would pin the bytes it reaches, because the walk
+/// pins a link only by those bytes and a retarget to equal bytes moves
+/// nothing. Every name is opened non-blocking, so a FIFO never blocks the
+/// compile, and the handle the resolution ends at must hold a regular file
+/// before a byte is read, so a FIFO, device or directory never supplies
+/// any. Both file-map keys come from that one observation (the chief's F1):
+/// whether a written step was a link is what it saw, never a later look at
+/// the path.
 ///
-/// What this does not claim: the resolution is not descended by directory
-/// handle (the standard library has no `openat`), so the binding is by the
-/// held file's identity, not by the path's. A file put at the target
-/// BEFORE the open is the file opened and checked; a file, link or parent
-/// replaced AFTER the open is refused, with equal bytes too. Bytes written
-/// in place into the held file are its bytes: the declaring layer's walk,
-/// compared with the buffer's digest before its identity is sealed, is what
-/// refuses them.
-///
-/// The answer carries two file-map keys: the target's, and the entry under
-/// which the declaring layer's walk pins what the reference names.
+/// After the read, while every handle is still held, the reference is
+/// resolved again from the layer's directory and must take exactly the same
+/// steps. What is guaranteed is exactly this: the bytes returned are the
+/// buffer read from the file the observation held, and when the reference
+/// no longer resolves to that file in the same steps, the read is refused.
+/// A file put in place BEFORE the resolution is the file resolved; one
+/// swapped in and back again between the open and the check is not seen,
+/// and the buffer is still the held file's. Bytes written in place into the
+/// held file after the read are refused where the layer's walk verifies it
+/// ([`Held::intact`]), before that layer's identity is sealed.
 pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, InputFault> {
+    use std::io::Read;
     if let Some(place) = unpinned_active_input(root, reference) {
         return Err(InputFault::Place(place));
     }
-    let written = root.join(reference);
-    let target = written.canonicalize().map_err(InputFault::Missing)?;
-    let Some(target_key) = walk_key(root, &target) else {
-        return Err(InputFault::Place(
-            "which resolves through a link to a file outside the layer's own directory; the \
-             walk pins such a link only by the bytes it reaches, so retargeting it to equal \
-             bytes moves nothing, and it is refused rather than pinned and admitted (operator \
-             ruling 3)"
-                .to_string(),
-        ));
-    };
+    let reference = PathBuf::from(reference);
+    let observed = observe(root, &reference)?;
+    let target = root.join(&observed.target_key);
     if let Some(place) = skipped_top_level(root, &target) {
         return Err(InputFault::Place(place));
     }
-    let bytes = read_bound(&written, &target)?;
+    let mut file = observed
+        .handles
+        .last()
+        .expect("a resolution ends at a handle");
+    at_stage(ReadStage::Opened, &target);
+    if !file.metadata().map_err(unopened)?.is_file() {
+        return Err(InputFault::Place(NONREGULAR.to_string()));
+    }
+    at_stage(ReadStage::Checked, &target);
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(unopened)?;
+    at_stage(ReadStage::Read, &target);
+    if !observe(root, &reference).is_ok_and(|now| now.steps == observed.steps) {
+        return Err(InputFault::Place(REPLACED.to_string()));
+    }
     // Through a link, the link's own entry as written: `unpinned_active_input`
     // has refused every spelling that leaves the layer or steps up. Without
     // one, the written path IS the target, and the target's key is the name
     // its directory lists, whatever spelling the filesystem accepted.
-    let key = match through_link(root, reference) {
-        true => walk_key(root, &folded(&written)).unwrap_or_default(),
-        false => target_key.clone(),
+    let key = match observed.through_link {
+        true => walk_key(root, &folded(&root.join(&reference))).unwrap_or_default(),
+        false => observed.target_key.clone(),
     };
+    at_stage(ReadStage::Verified, &target);
     Ok(BoundInput {
         key,
-        target_key,
+        target_key: observed.target_key,
         bytes,
+        held: Held {
+            root: root.to_path_buf(),
+            reference,
+            steps: observed.steps,
+            handles: observed.handles,
+        },
     })
-}
-
-/// Whether any step of `reference`, taken from `root` as written, is a link.
-fn through_link(root: &Path, reference: &str) -> bool {
-    let mut step = root.to_path_buf();
-    Path::new(reference).components().any(|part| {
-        step.push(part);
-        std::fs::symlink_metadata(&step).is_ok_and(|meta| meta.file_type().is_symlink())
-    })
-}
-
-/// The handle half of [`bound_input`] on a supported host: one open, the
-/// handle's kind, one read from that handle, and then — the handle still
-/// holding its file — the written path must resolve to the same contained
-/// target, which must be the held file. Nothing reopens the path.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn read_bound(written: &Path, target: &Path) -> Result<Vec<u8>, InputFault> {
-    use std::io::Read;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let unreadable = |error: std::io::Error| {
-        InputFault::Place(format!("which cannot be read ({})", error.kind()))
-    };
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(O_NONBLOCK)
-        .open(target)
-        .map_err(unreadable)?;
-    at_stage(ReadStage::Opened, target);
-    let held = file.metadata().map_err(unreadable)?;
-    if !held.is_file() {
-        return Err(InputFault::Place(
-            "which is not a regular file; only a regular file's bytes are read, hashed and \
-             pinned, and a FIFO, device or directory could supply bytes the walk never hashed"
-                .to_string(),
-        ));
-    }
-    at_stage(ReadStage::Checked, target);
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes).map_err(unreadable)?;
-    at_stage(ReadStage::Read, target);
-    let still = written.canonicalize().ok().as_deref() == Some(target)
-        && std::fs::metadata(target)
-            .is_ok_and(|now| (now.dev(), now.ino()) == (held.dev(), held.ino()));
-    if !still {
-        return Err(InputFault::Place(
-            "which was replaced while it was read: the file the read holds is no longer the \
-             contained target that was checked, so its bytes are not the ones verified"
-                .to_string(),
-        ));
-    }
-    Ok(bytes)
-}
-
-/// No supported host lacks the binding; any other refuses rather than
-/// reading an input it cannot bind (design D7).
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn read_bound(_: &Path, _: &Path) -> Result<Vec<u8>, InputFault> {
-    Err(InputFault::Place(
-        "which this host cannot read through a handle bound to its contained target".to_string(),
-    ))
 }
 
 /// A path with its `.` and `..` folded away, without touching the disk:
@@ -4805,7 +5084,7 @@ pub fn layer_drift(bundle: &Bundle, directory: &Path) -> Option<(String, String)
             .find(|ancestor| &ancestor.dir == layer)?;
         (&ancestor.name, &ancestor.files)
     };
-    let current = match walk_files(layer, directory) {
+    let current = match walk_files(layer, directory, &BTreeMap::new()) {
         Ok(files) => files,
         Err(error) => return Some((name.clone(), error.to_string())),
     };
@@ -5319,6 +5598,7 @@ struct BodyCompile<'a> {
     secrets: &'a [String],
     dialect: Option<&'a Dialect>,
     boundary: Boundary,
+    charters: &'a Charters,
 }
 
 fn parse_selected_body(
@@ -5333,6 +5613,7 @@ fn parse_selected_body(
         results,
         secrets,
         boundary,
+        charters,
         ..
     } = compile;
     refuse_boundary_key(what, raw)?;
@@ -5386,8 +5667,9 @@ fn parse_selected_body(
         };
         Ok(body)
     } else if has_panel {
-        let (members, aggregate) =
-            parse_panel(dir, what, raw, results, secrets, agents, sites, boundary)?;
+        let (members, aggregate) = parse_panel(
+            dir, what, raw, results, secrets, agents, sites, boundary, charters,
+        )?;
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Panel { members, aggregate })
     } else if has_sequence {
@@ -5412,7 +5694,7 @@ fn parse_selected_body(
         enforce_model_policy(what, raw, &[], secrets, agents, law, sites)?;
         record_hands(what, raw, None, secrets, sites)?;
         let body = SeatBody::Single {
-            role_path: parse_role(dir, what, raw)?,
+            role_path: parse_role(dir, what, raw, charters)?,
             command: parse_command(dir, what, raw, secrets)?,
             candidates: Vec::new(),
         };
@@ -5427,6 +5709,7 @@ struct SelectCompile<'a> {
     case_origin: &'a BTreeMap<String, usize>,
     dialect: Option<&'a Dialect>,
     boundary: Boundary,
+    charters: &'a Charters,
 }
 
 fn parse_select(
@@ -5496,6 +5779,7 @@ fn parse_select(
                     secrets: compile.secrets,
                     dialect: compile.dialect,
                     boundary: compile.boundary,
+                    charters: compile.charters,
                 },
             )?,
         );
@@ -5514,6 +5798,7 @@ fn parse_select(
                     secrets: compile.secrets,
                     dialect: compile.dialect,
                     boundary: compile.boundary,
+                    charters: compile.charters,
                 },
             )
             .map(Box::new)
@@ -5538,6 +5823,7 @@ fn parse_panel(
     agents: &mut Option<AgentContext>,
     sites: &mut BTreeMap<String, SiteFacts>,
     boundary: Boundary,
+    charters: &Charters,
 ) -> Result<(Vec<PanelMember>, Aggregate), CompileError> {
     let members_raw = raw
         .get("panel")
@@ -5608,7 +5894,7 @@ fn parse_panel(
                     sites,
                 )?;
                 (
-                    parse_role(dir, &site, member_raw)?,
+                    parse_role(dir, &site, member_raw, charters)?,
                     parse_command(dir, &site, member_raw, secrets)?,
                     Vec::new(),
                     None,
@@ -5667,6 +5953,7 @@ fn parse_sequence(
         secrets,
         dialect,
         boundary,
+        charters,
     } = compile;
     let steps_raw = raw
         .get("sequence")
@@ -5865,6 +6152,7 @@ fn parse_sequence(
                 agents,
                 sites,
                 boundary,
+                charters,
             )?;
             StepBody::Panel { members, aggregate }
         } else {
@@ -5878,7 +6166,7 @@ fn parse_sequence(
                 sites,
             )?;
             StepBody::Single {
-                role_path: parse_role(dir, &what, step_raw)?,
+                role_path: parse_role(dir, &what, step_raw, charters)?,
                 command: parse_command(dir, &what, step_raw, secrets)?,
                 candidates: Vec::new(),
             }
@@ -5921,7 +6209,16 @@ fn parse_sequence(
     Ok(steps)
 }
 
-fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileError> {
+/// The charters a compile bound, each kept with the layer that declared it
+/// until that layer's identity is sealed from its buffer (design D7).
+type Charters = std::cell::RefCell<Vec<compose::CharterRead>>;
+
+fn parse_role(
+    dir: &Path,
+    what: &str,
+    raw: &Value,
+    charters: &Charters,
+) -> Result<PathBuf, CompileError> {
     let Some(role_rel) = raw.get("role").and_then(Value::as_str) else {
         if raw
             .pointer("/driver/command")
@@ -5955,10 +6252,16 @@ fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileErr
     // (operator ruling 3; design D7), so a link out of the layer, a FIFO
     // or a replacement mid-read refuses here rather than at the seat. Every
     // refusal names the declaring file, the seat and the reference, bounded.
+    // The verified buffer's digest is what the declaring layer's walk takes
+    // for the charter's keys (rebuild unit 16-fix-b, F3), so it is kept.
     let source = dir.join("bundle.json");
     let (site, reference) = (bounded_site(what), bounded_reference(role_rel));
     match bound_input(dir, role_rel) {
-        Ok(_) => Ok(dir.join(role_rel)),
+        Ok(bound) => {
+            let read = compose::CharterRead::of(dir, site, reference, bound);
+            charters.borrow_mut().push(read);
+            Ok(dir.join(role_rel))
+        }
         Err(InputFault::Missing(error)) => Err(CompileError::Invalid(format!(
             "{}: seat {site} names role {reference}, {}",
             source.display(),
@@ -6199,6 +6502,8 @@ fn fold_driver_facts(drivers: &mut Map<String, Value>, sites: &BTreeMap<String, 
 /// everything derived from it — and so the chain survives the dispatch
 /// manifest round-trip, which copies `files` verbatim. `agents` is the
 /// resolution record (decision 0016), pinned for the same reason.
+/// `consumed` carries the digests of the layer's bound buffers into its
+/// walk ([`walk_files`]).
 #[allow(clippy::too_many_arguments)]
 fn manifest_for(
     dir: &Path,
@@ -6210,6 +6515,7 @@ fn manifest_for(
     select: &Map<String, Value>,
     boundary: Boundary,
     capabilities: Option<Value>,
+    consumed: &BTreeMap<String, String>,
 ) -> Result<Value, CompileError> {
     let mut files = Map::new();
     for (index, ancestor) in chain.iter().enumerate() {
@@ -6227,7 +6533,7 @@ fn manifest_for(
             Value::String(ancestor.digest.clone()),
         );
     }
-    for (rel, digest) in walk_files(dir, dir)? {
+    for (rel, digest) in walk_files(dir, dir, consumed)? {
         files.insert(rel, Value::String(digest));
     }
     let mut manifest = json!({
@@ -6295,7 +6601,17 @@ fn manifest_for(
 /// under `scope`, keyed relative to the layer `dir` and digested, in
 /// sorted key order. Compile walks the layer; spawn walks the script's
 /// directory with the same filename and byte identity rules.
-fn walk_files(dir: &Path, scope: &Path) -> Result<BTreeMap<String, String>, CompileError> {
+///
+/// A key in `consumed` is a file a bound read already supplied (design D7;
+/// rebuild unit 16-fix-b, F3): its digest is the digest of the buffer that
+/// was parsed, and the walk never opens its path to hash it again. The
+/// caller verifies that each such input still stands as it was read, and
+/// that the walk listed its keys, before the digest is sealed.
+fn walk_files(
+    dir: &Path,
+    scope: &Path,
+    consumed: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, String>, CompileError> {
     let mut stack = vec![scope.to_path_buf()];
     let mut paths = Vec::new();
     while let Some(current) = stack.pop() {
@@ -6361,7 +6677,14 @@ fn walk_files(dir: &Path, scope: &Path) -> Result<BTreeMap<String, String>, Comp
                  supplied by a bundle"
             )));
         }
-        files.insert(rel, sha256_bytes(&std::fs::read(&path)?));
+        let digest = match consumed.get(&rel) {
+            Some(digest) => digest.clone(),
+            None => {
+                at_stage(ReadStage::Walked, &path);
+                sha256_bytes(&std::fs::read(&path)?)
+            }
+        };
+        files.insert(rel, digest);
     }
     Ok(files)
 }
