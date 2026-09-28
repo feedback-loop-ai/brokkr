@@ -46,10 +46,10 @@ pub(super) enum TableError {
     #[cfg(not(target_os = "linux"))]
     #[error("ps could not be run: {0}")]
     Ps(std::io::Error),
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(any(test, not(target_os = "linux")))]
     #[error("ps exited {0}")]
     Status(std::process::ExitStatus),
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(any(test, not(target_os = "linux")))]
     #[error("the ps row {row:?} could not be read")]
     Unparsed { row: String },
     #[error("the table has no row for the engine itself (pid {pid})")]
@@ -150,9 +150,9 @@ fn refusal(signalled: rustix::io::Result<()>) -> std::io::Result<()> {
         .map_or(Ok(()), Err)
 }
 
-/// Reap `pid`, a zombie the engine adopted as the attempt's subreaper
-/// (`attempts`), so the pid is released. Never called on a child the
-/// engine spawned: those are reaped by their own handle.
+/// Reap `pid`, a zombie the engine adopted as a subreaper (`attempts`),
+/// so the pid is released. Never called on a child the engine spawned:
+/// those are reaped by their own handle.
 #[cfg(target_os = "linux")]
 pub(super) fn reap(pid: i32) {
     use rustix::process::{waitpid, WaitOptions};
@@ -179,9 +179,10 @@ fn ps(args: &[&str]) -> Result<std::process::Output, TableError> {
 }
 
 /// The rows `ps` printed. A nonzero status is a table that was not read,
-/// whatever it printed, and every row must parse.
-#[cfg(not(target_os = "linux"))]
-fn listed(output: std::process::Output) -> Result<Vec<Entry>, TableError> {
+/// whatever it printed, and every row must parse. Compiled for Linux's
+/// tests too, which stand it in as the table macOS reads.
+#[cfg(any(test, not(target_os = "linux")))]
+pub(super) fn listed(output: std::process::Output) -> Result<Vec<Entry>, TableError> {
     if !output.status.success() {
         return Err(TableError::Status(output.status));
     }
@@ -196,21 +197,52 @@ fn listed(output: std::process::Output) -> Result<Vec<Entry>, TableError> {
 }
 
 /// One `ps` row: pid, ppid, pgid, state, then the start time, which is
-/// several words long and is kept whole as the stamp.
-#[cfg(not(target_os = "linux"))]
+/// several words long and is kept whole as the stamp. A row without a
+/// start time, or with one that is not `lstart`'s date (BSD `ps` prints
+/// `-` for a process it cannot inspect), is not read whole: its stamp
+/// names no process, so a recorded one would read as gone (#403).
+#[cfg(any(test, not(target_os = "linux")))]
 fn parse_ps(line: &str) -> Option<Entry> {
     let mut fields = line.split_whitespace();
     let pid = fields.next()?.parse().ok()?;
     let ppid = fields.next()?.parse().ok()?;
     let pgid = fields.next()?.parse().ok()?;
     let zombie = fields.next()?.starts_with('Z');
-    let start = fields.collect::<Vec<_>>().join(" ");
-    Some(Entry {
-        id: Identity { pid, start },
+    let start: Vec<&str> = fields.collect();
+    lstart(&start).then(|| Entry {
+        id: Identity {
+            pid,
+            start: start.join(" "),
+        },
         ppid,
         pgid,
         zombie,
     })
+}
+
+/// Is `words` a start time as `ps` prints `lstart` under `LC_ALL=C`, by
+/// `%c`: weekday, month, day, `hh:mm:ss`, year?
+#[cfg(any(test, not(target_os = "linux")))]
+fn lstart(words: &[&str]) -> bool {
+    const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let [weekday, month, day, time, year] = words else {
+        return false;
+    };
+    let clock = time
+        .split(':')
+        .map(str::parse)
+        .collect::<Result<Vec<u8>, _>>();
+    WEEKDAYS.contains(weekday)
+        && MONTHS.contains(month)
+        && day.parse().is_ok_and(|day: u8| (1..=31).contains(&day))
+        && clock.is_ok_and(|clock| {
+            matches!(clock[..], [hour, minute, second] if hour < 24 && minute < 60 && second <= 60)
+        })
+        && year.len() == 4
+        && year.bytes().all(|digit| digit.is_ascii_digit())
 }
 
 /// SIGKILL `id` once `ps` has confirmed its start stamp. macOS has no
@@ -219,7 +251,21 @@ fn parse_ps(line: &str) -> Option<Entry> {
 #[cfg(not(target_os = "linux"))]
 pub(super) fn kill(id: &Identity) -> std::io::Result<()> {
     let pid = id.pid.to_string();
-    let rows = match ps(&["-o", COLUMNS, "-p", pid.as_str()]).and_then(listed) {
+    kill_listed(
+        id,
+        ps(&["-o", COLUMNS, "-p", pid.as_str()]).and_then(listed),
+    )
+}
+
+/// SIGKILL `id` when `rows`, `ps`'s listing of its pid, shows it running.
+/// A listing that cannot be read, a row without its stamp among them, is
+/// returned: it cannot confirm that the pid is not `id`'s.
+#[cfg(any(test, not(target_os = "linux")))]
+pub(super) fn kill_listed(
+    id: &Identity,
+    rows: Result<Vec<Entry>, TableError>,
+) -> std::io::Result<()> {
+    let rows = match rows {
         Ok(rows) => rows,
         // `ps -p` lists nothing, and exits 1, when the pid is gone.
         Err(TableError::Status(status)) if status.code() == Some(1) => Vec::new(),

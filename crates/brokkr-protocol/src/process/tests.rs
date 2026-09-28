@@ -646,12 +646,13 @@ impl Seats {
     /// leaves the session too (`setsid`, as Node's `detached` spawn does);
     /// `job` moves to a group of its own in the same session, as shell job
     /// control does; `joiner` tries to join the engine's own group, whose
-    /// id it is handed. The shell that starts either exits at once, so it
+    /// id it is handed, empty where the group cannot be named
+    /// (`engine_group`). The shell that starts either exits at once, so it
     /// is orphaned before the tracker can see its parent.
     fn role_driver(&self, tag: &str, role: &str, handshake: &str, then: &str) -> Vec<String> {
         let exe = std::env::current_exe().unwrap();
         let background = if role == "detached" { "" } else { " &" };
-        let group = rustix::process::getpgrp().as_raw_pid();
+        let group = engine_group().map_or_else(String::new, |group| group.to_string());
         self.stub(
             tag,
             handshake,
@@ -1056,8 +1057,73 @@ fn role() {
         "blind-engine" => stopped_engine(&dir, libc::SIG_DFL, in_group, blind),
         "job-engine" => orphaning_engine(&dir, "job"),
         "joiner-engine" => orphaning_engine(&dir, "joiner"),
+        "stampless-engine" => stampless_engine(&dir),
         _ => {}
     }
+}
+
+/// The table as macOS's `ps` prints it, of every process or of `only`,
+/// each stamp `lstart`'s date. Once the seat's grandchild has been listed
+/// whole, its row reads without its stamp, and as launchd's orphan: on
+/// macOS nothing but its recorded identity then ties it to the attempt.
+fn as_ps(only: Option<i32>) -> Result<Vec<table::Entry>, table::TableError> {
+    use std::os::unix::process::ExitStatusExt;
+    static SEEN: AtomicBool = AtomicBool::new(false);
+    let dir = std::env::var(ROLE_DIR).unwrap_or_default();
+    let file = Seats::at(&dir).file("seat", "grandchild");
+    let grandchild = std::fs::read_to_string(file).unwrap_or_default();
+    let grandchild = grandchild.trim().parse::<i32>().ok();
+    let rows: Vec<table::Entry> = table::snapshot()?
+        .into_iter()
+        .filter(|entry| only.is_none_or(|pid| pid == entry.id.pid))
+        .collect();
+    let listed = rows.iter().any(|entry| Some(entry.id.pid) == grandchild);
+    let stripped = grandchild.filter(|_| listed && SEEN.swap(true, Ordering::SeqCst));
+    let printed: String = rows
+        .iter()
+        .map(|entry| {
+            let (pid, pgid) = (entry.id.pid, entry.pgid);
+            let stat = if entry.zombie { "Z" } else { "S" };
+            if Some(pid) == stripped {
+                format!("{pid} 1 {pgid} {stat}\n")
+            } else {
+                format!(
+                    "{pid} {} {pgid} {stat} Mon Sep 28 10:00:00 2026\n",
+                    entry.ppid
+                )
+            }
+        })
+        .collect();
+    table::listed(std::process::Output {
+        status: std::process::ExitStatus::from_raw(0),
+        stdout: printed.into_bytes(),
+        stderr: Vec::new(),
+    })
+}
+
+/// An engine whose table and kill are macOS's, read through `as_ps`, and
+/// whose attempt's grandchild is a job that left the group. It writes
+/// down the cleanup its deadline kill reports, then ends the grandchild
+/// the parked attempt left running: were it to come to the test process
+/// running, a concurrent test's attempt would take it for its stray.
+fn stampless_engine(dir: &str) {
+    let seats = Seats::at(dir);
+    let host = Host {
+        kill: |id| table::kill_listed(id, as_ps(Some(id.pid))),
+        table: || as_ps(None),
+        ..Host::REAL
+    };
+    let driver = seats.role_driver("seat", "job", &accepting(), "read -r never");
+    let deadline = Some(Duration::from_secs(1));
+    let process =
+        DriverProcess::spawn_with(&driver, &seats.dir, deadline, &SpawnEnv::Inherit, host);
+    let report = attempt(process.unwrap());
+    let written = format!("{:?}", report.cleanup);
+    std::fs::write(seats.file("seat", "report"), written).unwrap();
+    let tree = seats.pids("seat");
+    let grandchild = Pid::from_raw(tree[1]).expect("a recorded pid is positive");
+    rustix::process::kill_process(grandchild, rustix::process::Signal::KILL).unwrap();
+    assert!(all_gone(tree), "tree {tree:?} survived");
 }
 
 /// The table the spawn reads, and nothing after it: a spawn without the
@@ -1080,14 +1146,27 @@ fn own_group() {
     rustix::process::setpgid(None, None).expect("a job leads a group of its own");
 }
 
+/// This process's group, as the table reads it. Inside a pid namespace
+/// whose group leader is outside it, the table reads the group as 0: it
+/// cannot be named there, and `getpgrp` would panic on it.
+fn engine_group() -> Option<i32> {
+    let me = i32::try_from(std::process::id()).unwrap();
+    let rows = table::snapshot().unwrap();
+    let row = rows.into_iter().find(|entry| entry.id.pid == me);
+    row.map(|entry| entry.pgid).filter(|group| *group > 0)
+}
+
 /// Try to move into the engine's own group, and write down the errno the
-/// kernel answered with, or `joined`.
+/// kernel answered with, or `joined`; or `unnamed`, without trying, when
+/// no group was handed (`engine_group`): `setpgid` would read no group as
+/// its own pid, and lead a group of its own.
 fn join_the_engine() {
     let var = |name: &str| std::env::var(name).unwrap_or_default();
     let group = var(ROLE_GROUP).parse().ok().and_then(Pid::from_raw);
-    let answer = match rustix::process::setpgid(None, group) {
-        Ok(()) => "joined".to_string(),
-        Err(errno) => errno.raw_os_error().to_string(),
+    let answer = match group.map(|group| rustix::process::setpgid(None, Some(group))) {
+        None => "unnamed".to_string(),
+        Some(Ok(())) => "joined".to_string(),
+        Some(Err(errno)) => errno.raw_os_error().to_string(),
     };
     std::fs::write(Seats::at(&var(ROLE_DIR)).file("seat", "joined"), answer).unwrap();
 }
@@ -1346,9 +1425,38 @@ fn a_job_orphaned_before_the_tracker_saw_it_is_ended_before_the_report() {
 /// exit before the tracker can see it.
 #[test]
 fn a_grandchild_cannot_join_the_engines_group_to_outlive_the_report() {
+    // The engine is this process's child, in its group.
+    if engine_group().is_none() {
+        eprintln!(
+            "skipped: this process's group leader is outside its pid namespace, \
+             so the group a grandchild would try to join cannot be named here"
+        );
+        return;
+    }
     let seats = orphaned("joiner");
     let answer = std::fs::read_to_string(seats.file("seat", "joined")).unwrap();
     assert_eq!(answer, rustix::io::Errno::PERM.raw_os_error().to_string());
+}
+
+/// #403: on macOS a recorded descendant whose `ps` row loses its stamp
+/// cannot be confirmed, so it is neither signalled as a stranger nor read
+/// as gone: the kill that could not confirm it is carried, and the
+/// attempt parks rather than settles while it runs. The engine is a child
+/// process, so its tracker and its kill read this table alone.
+#[test]
+fn a_recorded_descendant_whose_row_loses_its_stamp_parks_the_attempt() {
+    let seats = Seats::new();
+    let mut engine = engine(&seats, "stampless-engine").spawn().unwrap();
+    assert_eq!(exit_code(&mut engine), Some(0));
+    let [_, grandchild] = seats.pids("seat");
+    let parked = Cleanup::Unresolved {
+        reason: Unsettled::Signal {
+            pid: grandchild,
+            error: format!("the ps row \"{grandchild} 1 {grandchild} S\" could not be read"),
+        },
+    };
+    let written = std::fs::read_to_string(seats.file("seat", "report")).unwrap();
+    assert_eq!(written, format!("{parked:?}"));
 }
 
 /// The engine, a child process so that no other test's attempt is live

@@ -158,15 +158,14 @@ fn a_row_that_cannot_be_read_fails_the_snapshot() {
     );
 }
 
-#[cfg(not(target_os = "linux"))]
 #[test]
 fn a_ps_row_keeps_its_start_time_whole() {
     assert_eq!(
-        parse_ps(" 7  1  7 Z+  Mon Sep 28 10:00:00 2026"),
+        parse_ps(" 7  1  7 Z+  Mon Sep  8 10:00:00 2026"),
         Some(Entry {
             id: Identity {
                 pid: 7,
-                start: "Mon Sep 28 10:00:00 2026".into(),
+                start: "Mon Sep 8 10:00:00 2026".into(),
             },
             ppid: 1,
             pgid: 7,
@@ -176,17 +175,80 @@ fn a_ps_row_keeps_its_start_time_whole() {
     assert_eq!(parse_ps("7 1"), None);
 }
 
-/// #403: a `ps` that exits nonzero read no table, whatever it printed,
-/// and a row it printed that does not parse fails the read.
-#[cfg(not(target_os = "linux"))]
+/// #403: a row whose start time is missing, is `-` (what BSD `ps` prints
+/// for a process it cannot inspect), or is not `lstart`'s date is not
+/// read whole: its stamp would name no process.
 #[test]
-fn a_failed_or_unparsed_ps_is_no_table() {
+fn a_ps_row_without_its_start_time_is_not_read() {
+    assert_eq!(parse_ps(" 7  1  7 S"), None, "four fields");
+    assert_eq!(parse_ps(" 7  1  7 S  -"), None, "a dash for the stamp");
+    for stamp in [
+        "Mon Sep 28 10:00:00",
+        "Xyz Sep 28 10:00:00 2026",
+        "Mon Xyz 28 10:00:00 2026",
+        "Mon Sep x 10:00:00 2026",
+        "Mon Sep 0 10:00:00 2026",
+        "Mon Sep 32 10:00:00 2026",
+        "Mon Sep 28 10:0x:00 2026",
+        "Mon Sep 28 10:00 2026",
+        "Mon Sep 28 24:00:00 2026",
+        "Mon Sep 28 10:60:00 2026",
+        "Mon Sep 28 10:00:61 2026",
+        "Mon Sep 28 10:00:00 226",
+        "Mon Sep 28 10:00:00 2o26",
+    ] {
+        assert_eq!(parse_ps(&format!("7 1 7 S {stamp}")), None, "{stamp}");
+    }
+    assert!(parse_ps("7 1 7 S Sat Dec 31 23:59:60 2016").is_some());
+}
+
+/// The rows `ps` printed, as `output` with exit status `code`.
+fn output(code: i32, stdout: &str) -> std::process::Output {
     use std::os::unix::process::ExitStatusExt;
-    let output = |code: i32, stdout: &str| std::process::Output {
+    std::process::Output {
         status: std::process::ExitStatus::from_raw(code << 8),
         stdout: stdout.as_bytes().to_vec(),
         stderr: Vec::new(),
-    };
+    }
+}
+
+/// #403: macOS's kill signals only an identity `ps` lists running; a pid
+/// `ps` no longer lists (exit 1) is gone, and a listing that cannot be
+/// read, such as a row without its stamp, is returned rather than read as
+/// the identity gone.
+#[test]
+fn a_kill_by_listing_needs_the_row_whole() {
+    let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+    let pid = i32::try_from(child.id()).unwrap();
+    let row = format!("{pid} 1 {pid} S Mon Sep 28 10:00:00 2026");
+    let id = parse_ps(&row).unwrap().id;
+    assert!(kill_listed(&id, listed(output(1, ""))).is_ok());
+    let zombie = row.replace(" S ", " Z ");
+    assert!(kill_listed(&id, listed(output(0, &zombie))).is_ok());
+    assert_eq!(
+        kill_listed(&id, listed(output(2, &row)))
+            .unwrap_err()
+            .to_string(),
+        format!("ps exited {}", output(2, "").status)
+    );
+    let stampless = kill_listed(&id, listed(output(0, &format!("{pid} 1 {pid} S\n"))));
+    assert_eq!(
+        stampless.unwrap_err().to_string(),
+        format!("the ps row \"{pid} 1 {pid} S\" could not be read")
+    );
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(child.try_wait().unwrap().is_none(), "signalled unconfirmed");
+    assert!(kill_listed(&id, listed(output(0, &row))).is_ok());
+    assert!(
+        child.wait().unwrap().code().is_none(),
+        "the listed identity was not killed"
+    );
+}
+
+/// #403: a `ps` that exits nonzero read no table, whatever it printed,
+/// and a row it printed that does not parse fails the read.
+#[test]
+fn a_failed_or_unparsed_ps_is_no_table() {
     let row = " 7  1  7 S  Mon Sep 28 10:00:00 2026";
     assert_eq!(
         listed(output(0, row)).unwrap(),

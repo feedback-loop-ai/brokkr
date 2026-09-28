@@ -290,6 +290,52 @@ fn an_orphan_no_attempt_could_have_left_is_the_engines_own() {
     assert_eq!(unnoted.attempts[&0].ended, Some(born(STRANGER + 5)));
 }
 
+/// #403: a zombie the engine adopted is reaped at the next read, whatever
+/// attempt explains it, or none. Here an orphan leaves the attempt's
+/// group (`setsid`) and exits under a driver that never reaps it (`exec
+/// sleep`), before any read could see it run, so nothing records it. It
+/// comes to the engine once the driver exits, and no attempt explains it,
+/// live or dropped. The read is the engine's own, so no live attempt's
+/// leader is taken for an orphan.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_orphan_that_exited_before_its_first_read_is_reaped() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("orphan");
+    let mut driver = Command::new("sh");
+    driver
+        .args([
+            "-c",
+            "setsid true & printf '%s\\n' \"$!\" > \"$1\"; exec sleep 0.2",
+        ])
+        .arg("driver")
+        .arg(&file);
+    let (mut leader, attempt) = Attempt::spawn(&mut driver, Host::REAL).unwrap();
+    leader.wait().unwrap();
+    drop(attempt);
+    let orphan: i32 = std::fs::read_to_string(&file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let listed = || {
+        let entries = live().read(Host::REAL.table).unwrap();
+        entries.into_iter().find(|entry| entry.id.pid == orphan)
+    };
+    let adopted = listed();
+    assert!(
+        adopted
+            .as_ref()
+            .is_none_or(|entry| entry.zombie && entry.ppid == me()),
+        "{adopted:?}"
+    );
+    assert_eq!(
+        listed(),
+        None,
+        "the orphan {orphan} stayed the engine's zombie"
+    );
+}
+
 /// #403 finding 3: a host that refused the engine a means parks an
 /// attempt that had descendants, naming the means, and leaves one that
 /// had none settled.

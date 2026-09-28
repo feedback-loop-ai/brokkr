@@ -149,15 +149,12 @@ impl Attempt {
 
     /// What of the attempt a fresh read shows still running, once what it
     /// shows is recorded and attributed and every identity the attempt
-    /// owns that still runs is signalled again. The attempt's own adopted
-    /// zombies are reaped on the way.
+    /// owns that still runs is signalled again.
     pub(super) fn survivors(&self, host: Host) -> Result<(), Unsettled> {
         let since = Instant::now();
         let mut live = live();
         let entries = live.read_since(host.table, since)?;
-        let this = &live.attempts[&self.key];
-        this.reap(&entries);
-        this.running(&entries, host.kill)
+        live.attempts[&self.key].running(&entries, host.kill)
     }
 
     /// Once nothing of the attempt runs: what still casts doubt on it.
@@ -217,7 +214,8 @@ impl Registry {
 
     /// Record what `entries` shows of every live attempt's tree, attribute
     /// each orphan the engine adopted that none explains, once, as it
-    /// first appears, and then note which attempts ended.
+    /// first appears, note which attempts ended, and reap the adopted
+    /// zombies.
     fn observe(&mut self, entries: &[Entry]) {
         for live in self.attempts.values_mut() {
             live.record(entries);
@@ -234,6 +232,24 @@ impl Registry {
         for live in self.attempts.values_mut() {
             live.note(entries, youngest);
         }
+        self.reap(entries);
+    }
+
+    /// Reap every zombie the engine adopted (`adopted`), whatever attempt
+    /// explains it, or none: an orphan that exited before any read saw it
+    /// run, and the engine's own once they exit, would otherwise hold
+    /// their pids until the engine exits. A live attempt's leader is the
+    /// engine's own child, reaped by its handle.
+    fn reap(&self, entries: &[Entry]) {
+        let leads = |entry: &Entry| {
+            let pid = entry.id.pid;
+            self.attempts
+                .values()
+                .any(|live| live.group.as_raw_pid() == pid)
+        };
+        adopted(entries)
+            .filter(|entry| entry.zombie && !leads(entry))
+            .for_each(|entry| table::reap(entry.id.pid));
     }
 
     /// Attribute the orphan `id` to the attempts that could have left it
@@ -402,19 +418,6 @@ impl Live {
             .filter(|_| !self.recorded.is_empty())
             .map_or(Ok(()), Err)
     }
-
-    /// Reap the zombies the engine adopted from this attempt: recorded,
-    /// doubted, or left in its group. The leader is never one of them: it
-    /// is the engine's own child, reaped by its handle.
-    fn reap(&self, entries: &[Entry]) {
-        let me = getpid().as_raw_pid();
-        let group = self.group.as_raw_pid();
-        entries
-            .iter()
-            .filter(|entry| entry.zombie && entry.ppid == me && entry.id.pid != group)
-            .filter(|entry| self.explains(entry))
-            .for_each(|entry| table::reap(entry.id.pid));
-    }
 }
 
 fn pids<'a>(ids: impl IntoIterator<Item = &'a Identity>) -> Vec<i32> {
@@ -435,14 +438,12 @@ fn signal<'a>(
     .fold(Ok(()), Result::and)
 }
 
-/// The orphans the engine adopted as a subreaper that no live attempt
-/// explains and that are not already the engine's own: its running
-/// children outside its own process group, whatever their session. A
-/// child the engine spawns stays in the engine's group, and nothing of an
-/// attempt can join it: its driver leads a session of its own (`detach`),
-/// and `setpgid` refuses a group in another session. A driver leads a
-/// group that is a live attempt's.
-fn strays<'a>(entries: &'a [Entry], registry: &'a Registry) -> impl Iterator<Item = &'a Entry> {
+/// The engine's children outside its own process group, whatever their
+/// session: the orphans it adopted as a subreaper, and its attempts'
+/// leaders. A child the engine spawns stays in the engine's group, and
+/// nothing of an attempt can join it: its driver leads a session of its
+/// own (`detach`), and `setpgid` refuses a group in another session.
+fn adopted(entries: &[Entry]) -> impl Iterator<Item = &Entry> {
     let me = getpid().as_raw_pid();
     let mine = entries
         .iter()
@@ -450,7 +451,15 @@ fn strays<'a>(entries: &'a [Entry], registry: &'a Registry) -> impl Iterator<Ite
         .map(|entry| entry.pgid);
     entries
         .iter()
-        .filter(move |entry| entry.ppid == me && !entry.zombie && Some(entry.pgid) != mine)
+        .filter(move |entry| entry.ppid == me && Some(entry.pgid) != mine)
+}
+
+/// The running orphans the engine adopted that no live attempt explains
+/// and that are not already the engine's own. A driver leads a group that
+/// is a live attempt's.
+fn strays<'a>(entries: &'a [Entry], registry: &'a Registry) -> impl Iterator<Item = &'a Entry> {
+    adopted(entries)
+        .filter(|entry| !entry.zombie)
         .filter(|entry| !registry.unowned.contains(&entry.id))
         .filter(|entry| !registry.attempts.values().any(|live| live.explains(entry)))
 }
