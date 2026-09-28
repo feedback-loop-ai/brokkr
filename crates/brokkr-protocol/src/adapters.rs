@@ -2742,16 +2742,19 @@ fn codex_launch_and_cold(
     let rejoin = plan.rejoining.is_some();
     inline_codex_final(input, &composed, workdir, &plan.command, rejoin)?;
     inline_codex_final(input, &composed, workdir, &cold, false)?;
-    // A cold launch serves only what the final check returns (rebuild unit
-    // 14); a rejoin and its cold replacement are checked in unit 15.
-    if plan.rejoining.is_none() {
-        let chosen = crate::native_controls::Serving {
-            program: bin,
-            workdir,
-            ..Default::default()
-        };
-        plan.command = served_cold("codex", plan.command, input, chosen)?;
-    }
+    // Each serves only what the final check returns, checked on its own
+    // (rebuild units 14 and 15): the rejoin with the session it rejoins, and
+    // the cold replacement with none, so a replacement is never checked, or
+    // counted, as the rejoin it replaces.
+    let chosen = |session| crate::native_controls::Serving {
+        program: bin,
+        workdir,
+        session,
+        ..Default::default()
+    };
+    let session = plan.rejoining.clone();
+    plan.command = served("codex", plan.command, input, chosen(session.as_deref()))?;
+    let cold = served("codex", cold, input, chosen(None))?;
     Ok((plan, cold))
 }
 
@@ -2987,16 +2990,18 @@ const UNPAIRED: &str =
      command cannot be checked; a sealed launch is never served unchecked (rebuild unit 14; \
      design D6)";
 
-/// Rebuild unit 14 (operator ruling 2 of 2026-09-23; design D6): the cold
-/// command a launch spawns, once [`check_final`] has proved that it
-/// expresses exactly its sealed plan. Where the engine sealed the launch,
-/// the record and the typed serving inputs sealed beside it (rebuild unit
-/// 14a2) are decoded and the check is handed them with the engine's serving
-/// choices: `chosen`'s executable, workdir and, for DSH, overlay, stream
-/// reading and prompt; the recipe's words by their recorded origin; the
-/// result path where the door is the capture; and the box's hands bound to
-/// this executable and workdir. Nothing is read back from the argv. The
-/// spawn is handed [`Checked::into_argv`] and nothing else.
+/// Rebuild units 14 and 15 (operator ruling 2 of 2026-09-23; design D6):
+/// the command a launch spawns, cold, rejoining or a rejected rejoin's cold
+/// replacement, once [`check_final`] has proved that it expresses exactly
+/// its sealed plan. Where the engine sealed the launch, the record and the
+/// typed serving inputs sealed beside it (rebuild unit 14a2) are decoded
+/// and the check is handed them with the engine's serving choices:
+/// `chosen`'s executable, workdir, the session it rejoins (`None` cold)
+/// and, for DSH, overlay, stream reading and prompt; the recipe's words by
+/// their recorded origin; the result path where the door is the capture;
+/// and the box's hands bound to this executable and workdir. Nothing is
+/// read back from the argv. The spawn is handed [`Checked::into_argv`] and
+/// nothing else.
 ///
 /// A launch with no record and no serving inputs was not sealed: a driver
 /// run by hand, which this check gives no guarantee, is served as composed,
@@ -3005,7 +3010,7 @@ const UNPAIRED: &str =
 ///
 /// [`check_final`]: crate::native_controls::check_final
 /// [`Checked::into_argv`]: crate::native_controls::Checked::into_argv
-fn served_cold(
+fn served(
     harness: &str,
     command: Vec<String>,
     input: &Value,
@@ -3050,7 +3055,6 @@ fn served_cold(
             pins: &sealed.pins,
             output: last_message_door(input)
                 .then(|| input["result_path"].as_str().unwrap_or_default()),
-            session: None,
             hands: sealed.spec.as_ref().map(|spec| Transport {
                 brokkr: &brokkr,
                 workdir: Path::new(chosen.workdir),
@@ -3456,38 +3460,39 @@ fn claude_launch(
         confirms_from_locator: true,
         effort: None,
     };
-    // A cold launch serves only what the final check returns (rebuild unit
-    // 14); a rejoin is checked in unit 15.
+    // A launch serves only what the final check returns (rebuild units 14
+    // and 15): a cold one with no session, a rejoin with the one it rejoins.
     let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
-    let cold = |mut launch: LaunchPlan| {
+    let served_plan = |mut launch: LaunchPlan| {
         let chosen = crate::native_controls::Serving {
             program: bin,
             workdir,
+            session: launch.rejoining.as_deref(),
             ..Default::default()
         };
-        launch.command = served_cold(provider, launch.command, input, chosen)?;
+        launch.command = served(provider, launch.command, input, chosen)?;
         Ok(launch)
     };
     let Some(session) = session else {
         let qualification = qualify(&gate, &probe, None);
-        return cold(plan(None, None, qualification.observed));
+        return served_plan(plan(None, None, qualification.observed));
     };
     // The gate first, as on the codex and dsh paths: a closed gate names
     // its own reason, whatever the offered id or the seat's argv looks
     // like.
     if let ResumeGate::Disabled(reason) = &gate {
-        return cold(plan(None, Some(reason), None));
+        return served_plan(plan(None, Some(reason), None));
     }
     if !plain_claude_session(session) {
-        return cold(plan(None, Some("invalid-session-id"), None));
+        return served_plan(plan(None, Some("invalid-session-id"), None));
     }
     if !persistent {
-        return cold(plan(None, Some("nonpersistent-session"), None));
+        return served_plan(plan(None, Some("nonpersistent-session"), None));
     }
     let qualification = qualify(&gate, &probe, originating_harness_version(input));
     match qualification.refusal {
-        Some(refusal) => cold(plan(None, Some(refusal), qualification.observed)),
-        None => Ok(plan(
+        Some(refusal) => served_plan(plan(None, Some(refusal), qualification.observed)),
+        None => served_plan(plan(
             Some(session.to_string()),
             None,
             qualification.observed,
@@ -4481,8 +4486,8 @@ fn invoke_dsh_with(
 }
 
 /// The command one DSH launch spawns: its command, then the prompt as data,
-/// and for a cold launch only what the final check returns (rebuild unit
-/// 14). A rejoin is checked in unit 15.
+/// and only what the final check returns, cold or with the session it
+/// rejoins (rebuild units 14 and 15).
 fn dsh_served(
     bin: &str,
     launch: &DshLaunch,
@@ -4492,19 +4497,17 @@ fn dsh_served(
 ) -> Result<Vec<String>, String> {
     let mut command = launch.command.clone();
     command.push(prompt.to_string());
-    if launch.rejoining.is_some() {
-        return Ok(command);
-    }
     let overlay = launch.overlay.path().to_string_lossy();
     let chosen = crate::native_controls::Serving {
         program: bin,
         workdir,
+        session: launch.rejoining.as_deref(),
         overlay: Some(&overlay),
         stream: launch.stream_json,
         prompt: Some(prompt),
         ..Default::default()
     };
-    served_cold("dsh", command, input, chosen)
+    served("dsh", command, input, chosen)
 }
 
 /// `invoke_dsh_with` over an already-settled launch, so the qualified
@@ -5402,6 +5405,8 @@ fn invoke_with_stager(
                 // so the replacement carries the same delivered control,
                 // and nothing is decoded a second time where an error
                 // could degrade to no control (decision 0066 ruling 2).
+                // It is the command the final check returned for a cold
+                // launch, checked on its own (rebuild unit 15).
                 let cold =
                     LaunchPlan::cold(validated_cold, "codex-thread", Some("harness-refused"));
                 let command = cold.command.clone();

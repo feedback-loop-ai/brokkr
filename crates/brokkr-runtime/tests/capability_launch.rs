@@ -4480,6 +4480,415 @@ fn an_eligible_rejoin_of_a_compiled_codex_seat_carries_the_control_either_way_ro
     }
 }
 
+/// A stand-in `claude` answering the version probe, as [`codex_reporting`]
+/// answers Codex's.
+#[cfg(unix)]
+fn claude_reporting(dir: &Path, version: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let staged = dir.join("claude.staged");
+    std::fs::write(
+        &staged,
+        format!("#!/bin/sh\nprintf '{version} (Claude Code)\\n'\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let shim = dir.join("claude");
+    std::fs::rename(&staged, &shim).unwrap();
+    shim
+}
+
+/// [`tampered_launch`] offered `session`: the site's spawn sealed as
+/// dispatch seals it and the input the door admits, with the site's
+/// confinement markers and a resume `assessment` beside it, changed by
+/// `tamper` and handed to its provider's driver run as `bin`.
+#[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
+fn sealed_rejoin(
+    bundle: &Bundle,
+    label: &str,
+    candidate: usize,
+    bin: &Path,
+    session: &str,
+    markers: [&str; 2],
+    assessment: Value,
+    tamper: impl FnOnce(&mut Value),
+) -> Result<Vec<String>, String> {
+    use brokkr_protocol::native_controls::SERVING_INPUTS;
+    use brokkr_runtime::engine::{verify_record, LAUNCH_RECORD};
+    let facts = &bundle.sites[label];
+    let (mut spawn, sealing) = sealing(bundle, label, candidate, facts);
+    assert_eq!(sealing, Ok(()), "{label}[{candidate}]");
+    let serving = seal_serving(bundle, &mut spawn, facts, facts.chain.get(candidate));
+    let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
+    let mut input = json!({LAUNCH_RECORD: spawn.launch_record(), SERVING_INPUTS: serving,
+                           "workdir": "/w", "seat": label, "native_controls": outcome.controls(),
+                           "launch_arguments": spawn.launch_arguments()});
+    assert_eq!(
+        verify_record(&spawn, &input),
+        Ok(()),
+        "{label}[{candidate}]"
+    );
+    input["boundary"] = json!(markers[0]);
+    input["hands"] = json!(markers[1]);
+    input["resume_context"] = json!({"assessment": assessment});
+    tamper(&mut input);
+    let argv = &spawn.argv;
+    let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
+    let bin = bin.to_str().unwrap();
+    match outcome.provider.as_str() {
+        "codex" => {
+            brokkr_protocol::adapters::codex_command(bin, extra, "/w", Some(session), &input)
+        }
+        _ => brokkr_protocol::adapters::claude_command(bin, extra, Some(session), &input),
+    }
+}
+
+/// Rebuild unit 15 (tasks 15.1 and 15.2): a compiled, sealed launch offered
+/// its session is served only as the final check returns it, checked with
+/// the session it rejoins, and written out here independently of any
+/// composer. An eligible Codex rejoin, inline and agent-backed, is an actual
+/// `exec resume` that carries the OFF exactly where search is not held; an
+/// eligible Claude rejoin, unboxed and boxed, is its cold command then
+/// `--resume <id>`, the prompt staying on stdin. The selected fallback, a
+/// boxed Codex lane its shipped assessment does not admit, is declined and
+/// served its checked cold command with its OFF, which is no resume. A
+/// dropped OFF, an unreadable sealed input, a record missing beside its
+/// serving inputs, and a record that counterfeits an origin (the engine's
+/// segment as the recipe's, or the recipe's words as the engine's) each
+/// refuse the rejoin with the whole reason. The Codex
+/// assessments are the ones the bundle compiled from the shipped adapter;
+/// Claude's shipped shape is unmeasured, so its rows are handed a supported
+/// one to reach the rejoin at all.
+#[cfg(unix)]
+#[test]
+fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
+    let operator = Operator::new();
+    let codex = codex_reporting(operator.root(), "0.154.0");
+    let claude = claude_reporting(operator.root(), "2.1.266");
+    let denied_context = CapabilityContext::no_grants("private", operator.root());
+    let wants = Some(json!({"web-search": "wants"}));
+    let denied = operator
+        .compile(&denied_context, Boundary::Harness, wants.clone(), None)
+        .unwrap();
+    let held = operator
+        .compile(
+            &operator.context(json!({"web-search": {"dialect": "codex-native-search"}})),
+            Boundary::Harness,
+            wants,
+            None,
+        )
+        .unwrap();
+    let boxed = operator
+        .compile(&denied_context, Boundary::Namespace, None, Some(json!({})))
+        .unwrap();
+    one_inline_seat(
+        &operator,
+        &[
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+        ],
+    );
+    let unboxed = solo_bundle(&operator, &workspace().join("adapters"), &denied_context).unwrap();
+    let session = "019c4b7e-0000-7000-8000-000000000001";
+    let words = |program: &Path, words: &[&str]| {
+        [
+            vec![program.to_str().unwrap().to_string()],
+            words.iter().map(|word| word.to_string()).collect(),
+        ]
+        .concat()
+    };
+    let refused = |harness: &str, problem: &str| {
+        Err(format!(
+            "refusing to invoke the agent CLI: the final command of harness '{harness}' \
+             {problem}; a complete command is parsed back before its spawn and must express \
+             exactly the capability state its sealed plan records, so it is refused rather than \
+             spawned (operator ruling 2 of 2026-09-23; design D6)"
+        ))
+    };
+
+    // The Codex rejoin, with and without the OFF before its positionals.
+    let resumed = |off: bool| {
+        let mut argv = words(
+            &codex,
+            &[
+                "exec",
+                "resume",
+                "--json",
+                "-c",
+                "sandbox_mode=\"workspace-write\"",
+                "-c",
+                "model_reasoning_effort=\"high\"",
+                "--model",
+                "gpt-6-astra",
+            ],
+        );
+        if off {
+            argv.extend(OFF.map(String::from));
+        }
+        argv.extend([THREAD.to_string(), "-".to_string()]);
+        Ok(argv)
+    };
+    let compiled = |bundle: &Bundle, label: &str, candidate: usize| match bundle.sites[label]
+        .chain
+        .get(candidate)
+    {
+        Some(link) => link.resume.value(),
+        None => bundle.sites[label].inline_resume.clone().unwrap(),
+    };
+    // The selected fallback's cold command, its hands expanded for the box.
+    let mut fallback = checked_codex(&boxed_hands(&boxed, "boxed"));
+    fallback[0] = codex.to_str().unwrap().to_string();
+
+    // The Claude rejoin: the cold command, then the session it rejoins.
+    let enabled = |boundary: &str, hands: &str| {
+        json!({"boxed-workspace": {
+            "status": "supported",
+            "identity": {"version": "2.1.266", "applies_to": "2.1.266"},
+            "classes": ["work"], "boundaries": [boundary], "hands": hands,
+            "evidence": {"interface": "i", "restrictions": "r", "root": "o", "accounting": "a"},
+            "limitations": [], "reason": null}})
+    };
+    let adapter: Value =
+        serde_json::from_slice(&std::fs::read(workspace().join("adapters/claude.json")).unwrap())
+            .unwrap();
+    let fragment: Vec<String> =
+        serde_json::from_value(adapter["hands"]["workspace"].clone()).unwrap();
+    let claude_hands = brokkr_protocol::native_controls::Transport {
+        brokkr: &std::env::current_exe().unwrap(),
+        workdir: Path::new("/w"),
+        spec: &boxed.hands["chain"],
+    }
+    .expand(&fragment)
+    .unwrap();
+    let rejoined_claude = |mode: &[&str], hands: &[String]| {
+        Ok([
+            words(
+                &claude,
+                &["-p", "--output-format", "stream-json", "--verbose"],
+            ),
+            mode.iter().map(|word| word.to_string()).collect(),
+            ["--model", "claude-opus-5-5", "--effort", "high"]
+                .map(String::from)
+                .to_vec(),
+            hands.to_vec(),
+            [
+                "--disallowedTools",
+                "WebFetch,WebSearch",
+                "--resume",
+                session,
+            ]
+            .map(String::from)
+            .to_vec(),
+        ]
+        .concat())
+    };
+    let mode = ["--permission-mode", "acceptEdits"];
+
+    type Tamper = Box<dyn FnOnce(&mut Value)>;
+    type Row<'a> = (
+        &'static str,
+        &'a Bundle,
+        &'static str,
+        usize,
+        [&'static str; 2],
+        Tamper,
+        Result<Vec<String>, String>,
+    );
+    let untouched = || -> Tamper { Box::new(|_| {}) };
+    let rows: Vec<Row> = vec![
+        (
+            "codex inline, denied",
+            &denied,
+            "inline",
+            0,
+            ["not applicable", "none"],
+            untouched(),
+            resumed(true),
+        ),
+        (
+            "codex agent, denied",
+            &denied,
+            "agent",
+            0,
+            ["harness", "none"],
+            untouched(),
+            resumed(true),
+        ),
+        (
+            "codex inline, held",
+            &held,
+            "inline",
+            0,
+            ["not applicable", "none"],
+            untouched(),
+            resumed(false),
+        ),
+        (
+            "codex agent, held",
+            &held,
+            "agent",
+            0,
+            ["harness", "none"],
+            untouched(),
+            resumed(false),
+        ),
+        (
+            "codex agent, the OFF dropped",
+            &denied,
+            "agent",
+            0,
+            ["harness", "none"],
+            Box::new(|input| input["native_controls"]["argv"] = json!([])),
+            refused(
+                "codex",
+                "carries no measured OFF for native capability 'web-search', which its plan \
+                 denies",
+            ),
+        ),
+        (
+            "codex inline, its serving inputs unreadable",
+            &denied,
+            "inline",
+            0,
+            ["not applicable", "none"],
+            Box::new(|input| input["serving_inputs"]["dialect"]["sandbox"] = json!("x\nsecret")),
+            Err(
+                "refusing the sealed serving inputs: 'serving.dialect.sandbox' is not an array; the \
+                 inputs a final command is rebuilt from are never repaired into empty or \
+                 default ones, nor recovered from its argv (rebuild unit 14a2; design D5.7, D6)"
+                    .to_string(),
+            ),
+        ),
+        (
+            "codex agent, its engine segment counterfeited as the recipe's",
+            &denied,
+            "agent",
+            0,
+            ["harness", "none"],
+            Box::new(|input| {
+                let segments = input["launch_record"]["segments"].as_array_mut().unwrap();
+                segments.last_mut().unwrap()["origin"] = json!("authored");
+            }),
+            refused(
+                "codex",
+                "is served with the recipe's words or its adapter's pins carrying what cannot be \
+                 read, a session or a capability-bearing effect, which only its sealed plan \
+                 composes",
+            ),
+        ),
+        (
+            "codex inline, the recipe's words counterfeited as the engine's",
+            &denied,
+            "inline",
+            0,
+            ["not applicable", "none"],
+            Box::new(|input| input["launch_record"]["segments"][0]["origin"] = json!("local")),
+            refused(
+                "codex",
+                "departs at argument 7 from the complete command its sealed inputs and the \
+                 engine's serving choices rebuild: missing, extra, reordered and respelled \
+                 arguments are refused alike",
+            ),
+        ),
+        (
+            "the selected fallback, declined and served cold",
+            &boxed,
+            "chain",
+            1,
+            ["namespace", "boxed"],
+            untouched(),
+            Ok(fallback),
+        ),
+        (
+            "the selected fallback, the OFF dropped",
+            &boxed,
+            "chain",
+            1,
+            ["namespace", "boxed"],
+            Box::new(|input| input["native_controls"]["argv"] = json!([])),
+            refused(
+                "codex",
+                "carries no measured OFF for native capability 'web-search', which its plan \
+                 denies",
+            ),
+        ),
+        (
+            "claude, rejoined",
+            &unboxed,
+            "work",
+            0,
+            ["harness", "none"],
+            untouched(),
+            rejoined_claude(&[], &[]),
+        ),
+        (
+            "boxed claude, rejoined",
+            &boxed,
+            "chain",
+            0,
+            ["namespace", "boxed"],
+            untouched(),
+            rejoined_claude(&mode, &claude_hands),
+        ),
+        (
+            "claude, the OFF dropped",
+            &unboxed,
+            "work",
+            0,
+            ["harness", "none"],
+            Box::new(|input| input["native_controls"]["selection"]["deny"] = json!([])),
+            refused(
+                "claude",
+                "leaves tool 'WebFetch' available, which its plan denies as native capability \
+                 'web-fetch'",
+            ),
+        ),
+        (
+            "claude, its record missing beside its serving inputs",
+            &unboxed,
+            "work",
+            0,
+            ["harness", "none"],
+            Box::new(|input| {
+                input.as_object_mut().unwrap().remove("launch_record");
+            }),
+            Err(
+                "refusing to invoke the agent CLI: the input carries a sealed launch record or \
+                 sealed serving inputs without the capability plan and the record they are \
+                 sealed beside, so its final command cannot be checked; a sealed launch is never \
+                 served unchecked (rebuild unit 14; design D6)"
+                    .to_string(),
+            ),
+        ),
+    ];
+    assert_eq!(rows.len(), 14);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(
+            |(label, bundle, site, candidate, markers, tamper, expected)| {
+                let provider =
+                    &bundle.sites[site].capabilities.as_ref().unwrap().outcomes[candidate].provider;
+                let (bin, offered, assessment) = match provider.as_str() {
+                    "codex" => (&codex, THREAD, compiled(bundle, site, candidate)),
+                    _ => (&claude, session, enabled(markers[0], markers[1])),
+                };
+                let observed = sealed_rejoin(
+                    bundle, site, candidate, bin, offered, markers, assessment, tamper,
+                );
+                (observed != expected)
+                    .then(|| format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}"))
+            },
+        )
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// An authored control that reaches the capability is refused at compile,
 /// naming the seat — `--search` and the OFF pair itself alike. Operator
 /// ruling 1 of 2026-09-23 (rebuild unit 12): the refusal names the

@@ -15999,3 +15999,153 @@ After each restore, the suites below passed.
 
 **Pending.** Exact coverage outside the box, macOS, remote CI and the
 council. Unit 15 checks rejoins and the cold replacement.
+
+## Unit 15 — eligible resume and replacement, each served as checked, 2026-09-28
+
+Run `0065-rebuild-unit-15-see-the-uni-4a097606`, based on `51dcf6b5`. Named
+production file: `crates/brokkr-protocol/src/adapters.rs`, and no other
+production file moved. **Result: complete.** 15.1 and 15.2 close here.
+Scratch output is in `.forge/unit-15/*.txt`.
+
+### What was built
+
+`served_cold` is now `served` (`adapters.rs:3013`). It hands `check_final`
+the session of the engine's serving choice instead of forcing `None`, so
+one function checks a cold command, a rejoin and a cold replacement. Every
+seam now spawns only `Checked::into_argv`:
+
+- **Codex** (`codex_launch_and_cold`, `:2745-2758`): the plan's command is
+  checked with the session it rejoins (`None` when the offer was declined).
+  The cold command a rejected rejoin is replaced by is checked on its own,
+  with no session. The one pre-work replacement in `invoke_with_stager`
+  (`:5380`) spawns that checked cold command, and its launch row stays
+  `cold` with `resume_refusal: harness-refused`. A replacement is never
+  published or counted as a resume.
+- **Claude and LaneTally** (`claude_launch`, `:3388`): every return,
+  including the eligible `--resume <id>` rejoin, goes through one closure
+  that checks it with `launch.rejoining`.
+- **DSH** (`dsh_served`, `:4491`): the early return for a rejoin is gone.
+  The rejoin is checked with its session and the prompt as data, like the
+  cold launch.
+
+Eligibility did not move. The resume gate, the session grammar, the
+version and originating-version qualification, persistence, the Codex
+class and effort re-imposition, the accounting gate and the DSH owned-root
+checks all run before the check, as before. The check runs only on the
+command they settle.
+
+### New tests
+
+- `an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked`
+  (`adapters/tests.rs:16627`), a sealed inline Codex launch:
+  - The eligible rejoin is an exact `exec resume`. It carries the class and
+    effort as assignments, then the OFF, then the offered thread and the
+    stdin `-`. The cold replacement is exact and has no session.
+  - Each fails as the other: a rejoin checked with no session, and the cold
+    command checked with the thread, each depart at argument 2.
+  - These refuse the rejoin with their whole reasons: a dropped OFF, an
+    unreadable `serving_inputs`, and the record without its serving inputs
+    (`UNPAIRED`).
+  - A root opened under another version still declines the rejoin
+    (`unverified-harness`), and the checked cold command is served.
+  - End to end, a shim refuses the rejoin before any work. The two
+    recorded attempts are exactly the rejoin and the checked cold command,
+    and the one launch row is the cold replacement's.
+- `a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it`
+  (`adapters/tests.rs:16801`). The exact rejoin is `--output-format
+  stream-json --session <id>`, then an option-like prompt as the one last
+  positional. Two structural substitutions each depart at argument 7: a
+  rejoin whose command opens `--new`, and a cold launch whose command names
+  a session.
+- `a_compiled_rejoin_is_served_only_as_its_final_check_returns_it`
+  (`capability_launch.rs:4564`, through `sealed_rejoin` at `:4506` and a
+  `claude_reporting` version shim at `:4486`). It has fourteen rows over
+  compiled bundles, each with an exact value:
+  - **Codex, inline and agent, ON and OFF.** The compiled shipped assessment
+    admits the rejoin. It carries the OFF before its positionals exactly
+    where search is not held.
+  - **The selected fallback** (`chain` 1 under `namespace`, boxed Codex).
+    Its shipped assessment does not admit boxed hands, so the offer is
+    declined, and the checked cold command with its OFF is served. That
+    command is no resume. With its OFF dropped, it refuses.
+  - **Claude, unboxed and boxed.** The shipped shape is unmeasured, so these
+    rows get a supported assessment to reach the rejoin at all. Each serves
+    the cold command, then `--resume <id>`, and the prompt stays on stdin.
+  - **Refusals, each with the whole reason:** a dropped OFF (Codex agent;
+    Claude, whose `WebFetch` is then left available); an unreadable sealed
+    member (`serving.dialect.sandbox`); a record missing beside its serving
+    inputs; the agent's engine `hands` segment relabelled `authored`; and
+    the inline seat's authored words relabelled `local`.
+  - A scratch row relabelled an agent's `template` segment as `local`. That
+    is an engine origin moved to another engine origin, and it launched:
+    the check rebuilds the agent's pins from the sealed serving inputs, not
+    from the segment's label. The row was not committed. The inline row
+    above is the authored-counterfeit case.
+
+### Baseline reds
+
+HEAD's `adapters.rs` was restored beside the new tests. The unit tests call
+`served`, so a test-only alias to HEAD's `served_cold` was appended for
+them. The committed file was restored afterwards and checked with `cmp`.
+
+- Codex unit test (`baseline-protocol-codex.txt`): red at the assertion
+  that checks the cold command with the offered thread (`:16719`). HEAD
+  forced no session, so it returned the cold command.
+- DSH unit test (`baseline-protocol.txt`): red at the `opened` row
+  (`:16886`). HEAD served the rejoin unchecked, and it launched.
+- Compiled test (`baseline-runtime-3.txt`, 14 rows): six rows red. They are
+  "codex agent, the OFF dropped", "codex inline, its serving inputs
+  unreadable", both counterfeit rows, "claude, the OFF dropped" and
+  "claude, its record missing beside its serving inputs". Each launched
+  unchecked. The rest pass on HEAD: the positives, and the fallback, which
+  is served cold and was already checked.
+
+### Mutations
+
+Each was one compiling edit to `adapters.rs`, restored from
+`.forge/unit-15/adapters.rs.mine` and confirmed with `cmp`. M1, M2 and M4
+ran with the compiled table at 12 rows, and M6 at 13. The later rows are
+bound by the baseline above.
+
+| Mutation | Result |
+| --- | --- |
+| M1: the Codex rejoin checked with no session | failed: the Codex unit test at `:16691`; four compiled Codex positives |
+| M2: the cold replacement checked with the rejoin's session | failed: the same test and rows |
+| M3: the cold replacement's check removed | **survived** |
+| M4: the Claude rejoin checked with no session | failed: "claude, rejoined" and "boxed claude, rejoined" |
+| M5: the DSH rejoin checked with no session | failed: the DSH positive (`:16868`) |
+| M6: the Codex rejoin served unchecked (its check skipped when rejoining) | **survived** |
+
+M3 and M6 are equivalent mutants over every input this driver can reach.
+The rejoin and its cold replacement are both built from one validated
+composition, by the same `codex_rejoin` and `codex_cold` that the check's
+rebuild calls. Either check alone refuses every tampered input for the
+whole launch, before anything spawns. What binds the wiring is M1 and M2,
+which show each check uses its own session, and the baseline, which shows
+the rejoin and replacement unchecked. Each spawn is still handed only a
+`Checked` argv.
+
+### Standing-admission lines and fixture migrations
+
+None. No file outside the three named ones moved.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean.
+- `cargo test -p brokkr-protocol --all-features --locked`: 541, 99 (2
+  ignored) and 1 passed, none failed (`gate-protocol.txt`).
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 summaries, all
+  `ok` (`gate-runtime.txt`). `capability_launch` was re-run alone after the
+  last test edit: 58 passed.
+- `cargo test -p brokkr-cli --all-features --locked`: 33 summaries, all
+  `ok` (`gate-cli.txt`).
+- `bundles/self` and `bundles/verify` compile.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+**Pending.** Exact coverage outside the box, macOS, remote CI and the
+council. Whether a resumed provider honours the re-imposed controls is
+still unmeasured and owed to the controller. This is composition and
+launch evidence only.

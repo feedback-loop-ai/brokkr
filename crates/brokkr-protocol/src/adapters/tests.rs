@@ -16611,6 +16611,292 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
     }
 }
 
+/// Rebuild unit 15 (tasks 15.1 and 15.2) at the Codex seam: an eligible
+/// rejoin of a sealed inline launch and the cold command a rejected rejoin
+/// is replaced by are each served only as the final check returns them,
+/// each checked with its own session. The rejoin is an actual `exec
+/// resume`: the class and effort re-imposed as assignments, the OFF before
+/// the offered thread and the stdin `-`. The cold replacement carries no
+/// session, and neither command passes as the other. A dropped OFF, an
+/// unreadable sealed input and half the sealed pair refuse the rejoin; a
+/// version the root was not opened under still declines it. End to end, the
+/// harness refusing the rejoin before any work gets exactly the checked cold
+/// command, published as cold, never as a resume.
+#[cfg(unix)]
+#[test]
+fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked() {
+    use crate::native_controls::{HandsIntent, SandboxIntent, Serving, SERVING_INPUTS};
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let workdir = root.to_str().unwrap();
+    let attempts = root.join("attempts");
+    let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
+    // Each attempt's argv on one line; the rejoin is refused before any work.
+    let shim = executable(
+        &root,
+        "codex-rejecting",
+        &format!(
+            "#!/bin/sh\n{version}cat >/dev/null\nprintf '%s\\n' \"$*\" >> {attempts}\n\
+             case \"$*\" in\n\
+             *resume*) printf 'Error: no rollout found for thread id\\n' >&2; exit 1 ;;\n\
+             esac\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n",
+            attempts = attempts.display()
+        ),
+    );
+    let bin = shim.to_str().unwrap();
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let (extra, input) = inline_codex_input(
+        enabled_input(CODEX_SHAPE, CODEX_VERSION, &root),
+        &["--model", "gpt-6-astra", "--effort", "high"],
+        &["--sandbox", "workspace-write"],
+        codex_denied(),
+        SandboxIntent::WorkspaceWrite,
+        HandsIntent::None,
+    );
+    let rejoined = s(&[
+        bin,
+        "exec",
+        "resume",
+        "--json",
+        "-c",
+        "sandbox_mode=\"workspace-write\"",
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt-6-astra",
+        CODEX_OFF[0],
+        CODEX_OFF[1],
+        THREAD,
+        "-",
+    ]);
+    let cold = s(&[
+        bin,
+        "exec",
+        "--json",
+        "-C",
+        workdir,
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt-6-astra",
+        "--sandbox",
+        "workspace-write",
+        CODEX_OFF[0],
+        CODEX_OFF[1],
+    ]);
+
+    let (plan, replacement) = codex_launch_and_cold(bin, &extra, workdir, Some(THREAD), &input)
+        .expect("an eligible, sealed rejoin");
+    assert_eq!(plan.rejoining.as_deref(), Some(THREAD));
+    assert_eq!(plan.refusal, None);
+    assert_eq!(plan.command, rejoined);
+    assert_eq!(replacement, cold);
+
+    // Each is checked with its own session: the rejoin is not a cold
+    // command, and the cold replacement is never a rejoin.
+    let chosen = |session| Serving {
+        program: bin,
+        workdir,
+        session,
+        ..Default::default()
+    };
+    let departs = |at: usize| {
+        Err(checked_refusal(
+            "codex",
+            &format!(
+                "departs at argument {at} from the complete command its sealed inputs and the \
+                 engine's serving choices rebuild: missing, extra, reordered and respelled \
+                 arguments are refused alike"
+            ),
+        ))
+    };
+    assert_eq!(
+        served("codex", rejoined.clone(), &input, chosen(None)),
+        departs(2)
+    );
+    assert_eq!(
+        served("codex", cold.clone(), &input, chosen(Some(THREAD))),
+        departs(2)
+    );
+
+    // What refuses the rejoin itself, each with its whole reason.
+    let rejoin = |input: &Value| {
+        codex_launch_and_cold(bin, &extra, workdir, Some(THREAD), input).map(|(plan, _)| plan)
+    };
+    let mut undenied = input.clone();
+    undenied["native_controls"]["argv"] = json!([]);
+    assert_eq!(
+        rejoin(&undenied).map(|plan| plan.command),
+        Err(checked_refusal(
+            "codex",
+            "carries no measured OFF for native capability 'web-search', which its plan denies"
+        ))
+    );
+    let mut unreadable = input.clone();
+    unreadable[SERVING_INPUTS] = json!("x\nsecret");
+    assert_eq!(
+        rejoin(&unreadable).map(|plan| plan.command),
+        Err(
+            "refusing the sealed serving inputs: 'serving' is not an object; the inputs \
+             a final command is rebuilt from are never repaired into empty or default ones, nor \
+             recovered from its argv (rebuild unit 14a2; design D5.7, D6)"
+                .to_string()
+        )
+    );
+    let mut unpaired = input.clone();
+    unpaired.as_object_mut().unwrap().remove(SERVING_INPUTS);
+    assert_eq!(
+        rejoin(&unpaired).map(|plan| plan.command),
+        Err(UNPAIRED.to_string())
+    );
+
+    // Eligibility is still the driver's: a root opened under another
+    // version declines the rejoin, and the launch is the checked cold one.
+    let mut drifted = input.clone();
+    drifted["resume_context"]["originating_harness_version"] = json!("0.153.4");
+    let declined = rejoin(&drifted).unwrap();
+    assert_eq!(declined.rejoining, None);
+    assert_eq!(declined.refusal, Some("unverified-harness"));
+    assert_eq!(declined.command, cold);
+
+    // End to end: the harness refuses the rejoin before any work, and the
+    // one replacement is the checked cold command, published as cold.
+    let mut emitted = Vec::new();
+    let invocation = with_codex_bin(&shim, || {
+        invoke(
+            AdapterKind::Codex,
+            &extra,
+            "prompt",
+            &input,
+            Some(THREAD),
+            &[],
+            &mut |event| emitted.push(event.clone()),
+        )
+        .unwrap()
+    });
+    let spawned: Vec<String> = [&rejoined, &cold]
+        .iter()
+        .map(|command| command[1..].join(" "))
+        .collect();
+    assert_eq!(recorded(&attempts), spawned);
+    assert_eq!(
+        launch_rows(&emitted),
+        vec![
+            &json!({"step": "harness-started", "harness": "codex", "launch": "cold",
+                     "resume_refusal": "harness-refused"})
+        ]
+    );
+    assert_eq!(invocation.exit_code, 0);
+}
+
+/// Rebuild unit 15 (tasks 15.1 and 15.2) at the DSH seam: a rejoin is
+/// served only as the final check returns it, with the session it rejoins:
+/// `--session <id>` where a cold stream opens `--new`, then the prompt as
+/// data. A rejoin whose command opens a new session, and a cold launch whose
+/// command names one, each depart from what the check rebuilds.
+#[cfg(unix)]
+#[test]
+fn a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it() {
+    use crate::native_controls::{
+        AllowIntent, Application, Expected, HandsIntent, Identity, LaunchRecord, LocalExpectation,
+        NativeExpectation, SandboxIntent, SealedServing, TemplateExpectation, SERVING_INPUTS,
+    };
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let workdir = root.to_str().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", &root);
+
+    let reason = "unsupported mcp and tool_permissions do not establish absence of native egress";
+    let mut input = engine_input(
+        json!({"workdir": workdir}),
+        json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
+               "reason": reason}),
+        &[],
+        0,
+    );
+    let record = LaunchRecord {
+        segments: Vec::new(),
+        expected: Expected {
+            identity: Identity {
+                provider: "dsh".into(),
+                harness: "dsh".into(),
+                model: None,
+            },
+            native: NativeExpectation::Unmeasured(reason.into()),
+            local: LocalExpectation {
+                allow: AllowIntent::Unspecified,
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Unrestricted,
+            },
+            hands: HandsIntent::None,
+            template: TemplateExpectation::None,
+        },
+    };
+    input["launch_record"] = record.value();
+    input[SERVING_INPUTS] = SealedServing::default().value();
+    let bin = "/nonexistent/dsh";
+    let session = "dsh-session-0001";
+    // The composer settles a cold launch here (its gate is disabled); the
+    // rejoin is the same launch as an owned, qualified root settles it.
+    let launch = |rejoining: Option<&str>, spelled: Option<&str>| {
+        let mut launch = dsh_launch_with(bin, &[], workdir, None, &input, || {
+            panic!("the disabled gate must not recompute the composite")
+        })
+        .unwrap();
+        launch.stream_json = true;
+        launch.rejoining = rejoining.map(str::to_string);
+        let overlay = launch.overlay.path().to_str().unwrap().to_string();
+        launch.command = dsh_command(bin, &overlay, true, spelled);
+        (launch, overlay)
+    };
+    let prompt = "--new --session x";
+    let departs = |at: usize| {
+        Err(checked_refusal(
+            "dsh",
+            &format!(
+                "departs at argument {at} from the complete command its sealed inputs and the \
+                 engine's serving choices rebuild: missing, extra, reordered and respelled \
+                 arguments are refused alike"
+            ),
+        ))
+    };
+
+    let (rejoin, overlay) = launch(Some(session), Some(session));
+    assert_eq!(
+        dsh_served(bin, &rejoin, prompt, workdir, &input),
+        Ok([
+            bin,
+            "--profile",
+            "headless",
+            "--patch",
+            &overlay,
+            "--output-format",
+            "stream-json",
+            "--session",
+            session,
+            prompt,
+        ]
+        .map(str::to_string)
+        .to_vec())
+    );
+    let (opened, _) = launch(Some(session), None);
+    assert_eq!(
+        dsh_served(bin, &opened, prompt, workdir, &input),
+        departs(7)
+    );
+    let (named, _) = launch(None, Some(session));
+    assert_eq!(dsh_served(bin, &named, prompt, workdir, &input), departs(7));
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
 /// Rebuild unit 5d-fix-c2 (chief F2): the REJOIN the driver composes for an
 /// inline Codex site is judged as the harness receives it — `exec resume`,
 /// the class moved into its one assignment, the translated effort, the

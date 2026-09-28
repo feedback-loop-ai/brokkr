@@ -2855,9 +2855,53 @@ complete.** 14.1 closes here. Production: `adapters.rs` only.
 
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
-- [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
+- [x] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
 
-- [ ] 15.2 Units 12–15 integrate refusal/provenance across compile and private launch input; close only after unit 15 covers cold, actual resume and replacement. Verify counterfeit/missing origins, structural substitutions and candidate replacement before work. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 4.7)
+- [x] 15.2 Units 12–15 integrate refusal/provenance across compile and private launch input; close only after unit 15 covers cold, actual resume and replacement. Verify counterfeit/missing origins, structural substitutions and candidate replacement before work. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 4.7)
+
+Unit 15 (2026-09-28, run `0065-rebuild-unit-15-see-the-uni-4a097606`, based
+on `51dcf6b5`; evidence.md, "Unit 15"). **Result: complete.** 15.1 and 15.2
+close here. Production: `adapters.rs` only.
+
+- `served` (formerly `served_cold`) checks with the engine's chosen session.
+  - The Codex rejoin is checked with its thread.
+  - Its cold replacement is checked on its own, with none. That checked
+    command is the one pre-work replacement's, published `cold` and never
+    as a resume.
+  - The Claude/LaneTally `--resume` rejoin and the DSH `--session` rejoin
+    are checked like their cold launches.
+  - Eligibility (gate, session, version, persistence, class and effort,
+    accounting, owned DSH root) is unchanged and runs first.
+- Tests:
+  - Two in `adapters/tests.rs`:
+    - Codex: rejoin and replacement exact; each departs as the other; OFF
+      dropped, unreadable and unpaired inputs refuse; version drift
+      declines; the end-to-end replacement.
+    - DSH: the exact rejoin, and two structural substitutions.
+  - A fourteen-row compiled table in `capability_launch.rs`:
+    - Codex inline and agent rejoins, ON and OFF.
+    - The selected fallback, declined and served cold with its OFF.
+    - Claude rejoins, unboxed and boxed.
+    - Refusals: dropped OFF, an unreadable member, a missing record, and
+      counterfeit origins both ways.
+- Baseline reds on HEAD's `adapters.rs`: both unit tests, and six compiled
+  rows.
+- Mutations: M1, M2, M4 and M5 fail named rows. M3 and M6 (either Codex
+  check removed alone) survive as equivalent mutants: both commands come
+  from one validated composition, so the other check refuses every tampered
+  input first. They are recorded as such.
+- Fixture migrations and standing-admission lines: none.
+- **Gates.**
+  - fmt and clippy: clean.
+  - Protocol suite: 541, 99 and 1 passed.
+  - `brokkr-runtime`: 25 `ok`.
+  - `brokkr-cli`: 33 `ok`.
+  - Both bundles compile.
+  - Strict OpenSpec: 18 passed.
+  - `git diff --check`: clean.
+- **Pending.** Exact coverage outside the box, macOS, remote CI and the
+  council. Whether a resumed provider honours the controls is still owed
+  to the controller.
 
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
