@@ -1077,6 +1077,8 @@ fn detach_and_record(dir: &str) {
 /// its own. It is played under a shell that waits for it: were this
 /// process its parent, a concurrent test's attempt would read it, once in
 /// a session of its own, as an orphan this process adopted, and reap it.
+/// This process's own session is not read: in a pid namespace whose
+/// session leader lies outside it, `getsid` reads 0.
 #[test]
 fn a_detached_child_leads_a_session_of_its_own() {
     let seats = Seats::new();
@@ -1102,8 +1104,6 @@ fn a_detached_child_leads_a_session_of_its_own() {
         .try_into()
         .unwrap();
     assert_eq!(session, pid);
-    let ours = rustix::process::getsid(None).unwrap().as_raw_pid();
-    assert_ne!(session, ours);
 }
 
 /// The table as macOS's `ps` prints it, of every process or of `only`,
