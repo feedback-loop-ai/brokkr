@@ -11,7 +11,8 @@
 //! decision it amends or supersedes, answered by a back-pointer in that
 //! decision. The index row repeats the status and renders the marker, and
 //! a number with no file is a gap the index explains. Each rule is one
-//! function in `CHECKS`, returning the findings it refuses.
+//! function in `CHECKS`, returning the findings it refuses, each named by
+//! its file and, where one line is at fault, that line.
 //!
 //! Titles are not compared: a decision's heading is never edited (the
 //! rename guard lets history keep its old names), while the index row is
@@ -28,6 +29,9 @@ use numbered::{linked_row, numbered_files};
 
 /// Where an issue number in the index's `Built` column links to.
 const ISSUES: &str = "https://github.com/feedback-loop-ai/brokkr/issues/";
+
+/// The registry directory, from the workspace root.
+const DECISIONS: &str = "docs/decisions";
 
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -232,6 +236,14 @@ impl Verb {
     }
 }
 
+/// A header marker, for the line it was read from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Marker {
+    Status,
+    Built,
+    Pointer(Pointer),
+}
+
 /// One decision file, read.
 #[derive(Debug)]
 struct Decision {
@@ -241,6 +253,8 @@ struct Decision {
     status: String,
     built: Option<Built>,
     pointers: BTreeMap<Pointer, Vec<u16>>,
+    /// The line each marker was read from, counted from 1.
+    lines: BTreeMap<Marker, usize>,
     text: String,
 }
 
@@ -249,6 +263,18 @@ impl Decision {
         self.pointers
             .get(&pointer)
             .is_some_and(|numbers| numbers.contains(&number))
+    }
+
+    fn place(&self, line: Option<usize>) -> Place {
+        Place {
+            file: self.file.clone(),
+            line,
+        }
+    }
+
+    /// The marker's line; a marker the header lacks names the file alone.
+    fn at(&self, marker: Marker) -> Place {
+        self.place(self.lines.get(&marker).copied())
     }
 }
 
@@ -259,6 +285,7 @@ struct Row {
     file: String,
     status: String,
     built: String,
+    line: usize,
 }
 
 /// One row of the gap table: a number no decision holds. Its reason is
@@ -266,6 +293,48 @@ struct Row {
 #[derive(Debug)]
 struct Gap {
     number: u16,
+    line: usize,
+}
+
+/// Where a finding stands: a file in `docs/decisions`, and the line at
+/// fault when one is (a missing marker or gap row has none to name).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Place {
+    file: String,
+    line: Option<usize>,
+}
+
+impl Place {
+    fn index(line: Option<usize>) -> Place {
+        Place {
+            file: "README.md".into(),
+            line,
+        }
+    }
+
+    fn holds(self, finding: Finding) -> Located {
+        Located {
+            place: self,
+            finding,
+        }
+    }
+}
+
+/// A finding and the place that holds it, as the failing test prints it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Located {
+    place: Place,
+    finding: Finding,
+}
+
+impl fmt::Display for Located {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Place { file, line } = &self.place;
+        match line {
+            Some(line) => write!(f, "{DECISIONS}/{file}:{line}: {}", self.finding),
+            None => write!(f, "{DECISIONS}/{file}: {}", self.finding),
+        }
+    }
 }
 
 /// What the ledger refuses, in the words the failing test prints.
@@ -416,14 +485,15 @@ enum StatusLine {
     NoColon(String),
 }
 
-/// The header's `Status` line, bold or plain: the first word after its
-/// colon, up to the first space (`accepted-ish` is read whole, so the
-/// vocabulary refuses it). A line without the colon is not read.
-fn status_line(text: &str) -> Option<StatusLine> {
-    header(text).find_map(|line| {
+/// The header's `Status` line, bold or plain, and its line number: the
+/// first word after its colon, up to the first space (`accepted-ish` is
+/// read whole, so the vocabulary refuses it). A line without the colon is
+/// not read.
+fn status_line(text: &str) -> Option<(usize, StatusLine)> {
+    header(text).zip(1..).find_map(|(line, at)| {
         let rest = line.trim_start_matches('*').strip_prefix("Status")?;
         let Some(value) = rest.trim_start_matches('*').strip_prefix(':') else {
-            return Some(StatusLine::NoColon(line.to_string()));
+            return Some((at, StatusLine::NoColon(line.to_string())));
         };
         let word = value
             .trim()
@@ -431,7 +501,7 @@ fn status_line(text: &str) -> Option<StatusLine> {
             .split_whitespace()
             .next()
             .unwrap_or_default();
-        Some(StatusLine::Word(word.to_string()))
+        Some((at, StatusLine::Word(word.to_string())))
     })
 }
 
@@ -465,35 +535,48 @@ fn near_marker(key: &str) -> bool {
             .any(|marker| edit_distance(&key, &marker.to_lowercase()) <= 2)
 }
 
-/// A header line shaped `Key: value` whose key is words alone.
-fn key_value(line: &str) -> Option<(&str, &str)> {
+/// Markdown a key may be dressed in (`**Built**`, `Supersedes_in_part`,
+/// `` `Amends` ``, `Amends/Supersedes`). A dressed key is never a marker,
+/// and the near-miss net reads it undressed.
+const DRESSING: [char; 4] = ['*', '_', '`', '/'];
+
+/// A header line shaped `Key: value` whose key, undressed, is words alone:
+/// the key as written, the key undressed, and the value.
+fn key_value(line: &str) -> Option<(&str, String, &str)> {
     let (key, value) = line.split_once(':')?;
-    key.chars()
+    let undressed: String = key.chars().filter(|c| !DRESSING.contains(c)).collect();
+    undressed
+        .chars()
         .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '-')
-        .then_some((key, value.trim()))
+        .then_some((key, undressed, value.trim()))
 }
 
-/// The ledger markers in one decision's header. A key `near_marker` reads
-/// as a misspelt marker is refused, never skipped.
-fn read_markers(decision: &mut Decision, findings: &mut Vec<Finding>) {
+/// The ledger markers in one decision's header, each with the line it was
+/// read from. A key `near_marker` reads as a misspelt or dressed marker is
+/// refused, never skipped.
+fn read_markers(decision: &mut Decision, findings: &mut Vec<Located>) {
     let number = decision.number;
     let lines: Vec<String> = header(&decision.text).map(str::to_string).collect();
-    for line in lines {
-        let Some((key, value)) = key_value(&line) else {
+    for (line, at) in lines.into_iter().zip(1..) {
+        let Some((key, undressed, value)) = key_value(&line) else {
             continue;
         };
+        let place = decision.place(Some(at));
         let malformed = || Finding::MalformedMarker {
             decision: number,
             line: line.clone(),
         };
         if key == "Built" {
             match (decision.built.is_some(), Built::parse(value)) {
-                (true, _) => findings.push(Finding::RepeatedMarker {
+                (true, _) => findings.push(place.holds(Finding::RepeatedMarker {
                     decision: number,
                     key: "Built",
-                }),
-                (false, None) => findings.push(malformed()),
-                (false, built) => decision.built = built,
+                })),
+                (false, None) => findings.push(place.holds(malformed())),
+                (false, built) => {
+                    decision.built = built;
+                    decision.lines.insert(Marker::Built, at);
+                }
             }
         } else if let Some(pointer) = Pointer::ALL
             .into_iter()
@@ -501,63 +584,66 @@ fn read_markers(decision: &mut Decision, findings: &mut Vec<Finding>) {
         {
             let numbers: Option<Vec<u16>> = value.split(", ").map(decision_number).collect();
             match (decision.pointers.contains_key(&pointer), numbers) {
-                (true, _) => findings.push(Finding::RepeatedMarker {
+                (true, _) => findings.push(place.holds(Finding::RepeatedMarker {
                     decision: number,
                     key: pointer.key(),
-                }),
-                (false, None) => findings.push(malformed()),
+                })),
+                (false, None) => findings.push(place.holds(malformed())),
                 (false, Some(numbers)) => {
                     decision.pointers.insert(pointer, numbers);
+                    decision.lines.insert(Marker::Pointer(pointer), at);
                 }
             }
-        } else if near_marker(key) {
-            findings.push(Finding::UnknownMarker {
+        } else if near_marker(&undressed) {
+            findings.push(place.holds(Finding::UnknownMarker {
                 decision: number,
                 line: line.clone(),
-            });
+            }));
         }
     }
 }
 
 /// Read one decision file; what its header cannot say becomes a finding.
-fn read_decision(file: &str, text: &str, findings: &mut Vec<Finding>) -> Decision {
+fn read_decision(file: &str, text: &str, findings: &mut Vec<Located>) -> Decision {
     let number = decision_number(&file[..4]).expect("a decision file starts with its number");
-    let status = match status_line(text).unwrap_or_else(|| panic!("{file} carries no Status line"))
-    {
-        StatusLine::Word(word) => word,
-        StatusLine::NoColon(line) => {
-            findings.push(Finding::MalformedMarker {
-                decision: number,
-                line,
-            });
-            String::new()
-        }
-    };
+    let (at, status) = status_line(text).unwrap_or_else(|| panic!("{file} carries no Status line"));
     let mut decision = Decision {
         number,
         file: file.to_string(),
-        status,
+        status: String::new(),
         built: None,
         pointers: BTreeMap::new(),
+        lines: BTreeMap::from([(Marker::Status, at)]),
         text: text.to_string(),
     };
+    match status {
+        StatusLine::Word(word) => decision.status = word,
+        StatusLine::NoColon(line) => {
+            findings.push(decision.place(Some(at)).holds(Finding::MalformedMarker {
+                decision: number,
+                line,
+            }))
+        }
+    }
     read_markers(&mut decision, findings);
     decision
 }
 
-/// An index row: `| [0001](0001-….md) | title | rules | status | built |`.
-fn read_row(line: &str) -> Row {
+/// An index row: `| [0001](0001-….md) | title | rules | status | built |`,
+/// on line `at` of the index.
+fn read_row((line, at): (&str, usize)) -> Row {
     let (number, file, cells) = linked_row(line, 5);
     Row {
         number,
         file,
         status: cells[3].clone(),
         built: cells[4].clone(),
+        line: at,
     }
 }
 
-/// A gap row: `| 0024 | why the number is empty |`.
-fn read_gap(line: &str) -> Gap {
+/// A gap row: `| 0024 | why the number is empty |`, on line `at`.
+fn read_gap((line, at): (&str, usize)) -> Gap {
     let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
     assert_eq!(cells.len(), 2, "a gap row has two cells: {line}");
     let number =
@@ -566,7 +652,7 @@ fn read_gap(line: &str) -> Gap {
         !cells[1].is_empty(),
         "gap {number:04} says nothing about why"
     );
-    Gap { number }
+    Gap { number, line: at }
 }
 
 /// Every decision, the index's rows and gaps, and what reading them found.
@@ -574,7 +660,7 @@ struct Ledger {
     decisions: Vec<Decision>,
     rows: Vec<Row>,
     gaps: Vec<Gap>,
-    read: Vec<Finding>,
+    read: Vec<Located>,
 }
 
 impl Ledger {
@@ -588,14 +674,16 @@ impl Ledger {
             .collect();
         let rows = readme
             .lines()
-            .filter(|line| line.starts_with("| ["))
+            .zip(1..)
+            .filter(|(line, _)| line.starts_with("| ["))
             .map(read_row)
             .collect();
         // A gap row opens on its bare number; every other table row opens
         // on a link, a `#` header or a `---` rule.
         let gaps = readme
             .lines()
-            .filter(|line| {
+            .zip(1..)
+            .filter(|(line, _)| {
                 line.strip_prefix("| ")
                     .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
             })
@@ -610,7 +698,7 @@ impl Ledger {
     }
 
     fn read() -> Ledger {
-        let dir = workspace().join("docs/decisions");
+        let dir = workspace().join(DECISIONS);
         let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
         Ledger::parse(numbered_files(&dir), &readme)
     }
@@ -622,15 +710,15 @@ impl Ledger {
     }
 
     /// What reading found, then what every rule in `CHECKS` refuses.
-    fn findings(&self) -> Vec<Finding> {
+    fn findings(&self) -> Vec<Located> {
         let mut findings = self.read.clone();
         findings.extend(CHECKS.iter().flat_map(|check| check(self)));
         findings
     }
 }
 
-/// One rule of the ledger: the findings it refuses.
-type Check = fn(&Ledger) -> Vec<Finding>;
+/// One rule of the ledger: the findings it refuses, each where it stands.
+type Check = fn(&Ledger) -> Vec<Located>;
 
 /// Every rule, in the order the failing test prints them. A new rule is
 /// one function here.
@@ -646,32 +734,35 @@ const CHECKS: [Check; 9] = [
     built_cells_render_the_marker,
 ];
 
-fn status_is_in_the_vocabulary(ledger: &Ledger) -> Vec<Finding> {
+fn status_is_in_the_vocabulary(ledger: &Ledger) -> Vec<Located> {
     ledger
         .decisions
         .iter()
         .filter(|decision| Status::parse(&decision.status).is_none())
-        .map(|decision| Finding::UnknownStatus {
-            decision: decision.number,
-            word: decision.status.clone(),
+        .map(|decision| {
+            decision.at(Marker::Status).holds(Finding::UnknownStatus {
+                decision: decision.number,
+                word: decision.status.clone(),
+            })
         })
         .collect()
 }
 
-fn built_is_declared(ledger: &Ledger) -> Vec<Finding> {
+fn built_is_declared(ledger: &Ledger) -> Vec<Located> {
     ledger
         .decisions
         .iter()
-        .filter_map(|Decision { number, built, .. }| {
+        .filter_map(|this @ Decision { number, built, .. }| {
             let decision = *number;
-            let Some(built) = built else {
-                return Some(Finding::NoBuilt { decision });
+            let finding = match built {
+                None => Finding::NoBuilt { decision },
+                Some(built) => match (built.build, built.issues.is_empty()) {
+                    (Build::Built, false) => Finding::IssueOnBuilt { decision },
+                    (Build::Partial | Build::Unbuilt, true) => Finding::WithoutIssue { decision },
+                    (Build::Built, true) | (Build::Partial | Build::Unbuilt, false) => return None,
+                },
             };
-            match (built.build, built.issues.is_empty()) {
-                (Build::Built, false) => Some(Finding::IssueOnBuilt { decision }),
-                (Build::Partial | Build::Unbuilt, true) => Some(Finding::WithoutIssue { decision }),
-                (Build::Built, true) | (Build::Partial | Build::Unbuilt, false) => None,
-            }
+            Some(this.at(Marker::Built).holds(finding))
         })
         .collect()
 }
@@ -690,37 +781,45 @@ fn every_pointer(ledger: &Ledger) -> impl Iterator<Item = (&Decision, Pointer, u
     })
 }
 
-fn pointers_resolve(ledger: &Ledger) -> Vec<Finding> {
+fn pointers_resolve(ledger: &Ledger) -> Vec<Located> {
     every_pointer(ledger)
         .filter(|(decision, _, number)| {
             *number == decision.number || ledger.decision(*number).is_none()
         })
-        .map(|(decision, pointer, number)| Finding::DanglingPointer {
-            decision: decision.number,
-            key: pointer.key(),
-            number,
+        .map(|(decision, pointer, number)| {
+            decision
+                .at(Marker::Pointer(pointer))
+                .holds(Finding::DanglingPointer {
+                    decision: decision.number,
+                    key: pointer.key(),
+                    number,
+                })
         })
         .collect()
 }
 
-fn pointers_are_paired(ledger: &Ledger) -> Vec<Finding> {
+fn pointers_are_paired(ledger: &Ledger) -> Vec<Located> {
     every_pointer(ledger)
         .filter_map(|(decision, pointer, number)| {
             let other = ledger
                 .decision(number)
                 .filter(|other| other.number != decision.number)?;
             let counterpart = pointer.counterpart();
-            (!other.points(counterpart, decision.number)).then_some(Finding::MissingCounterpart {
-                decision: decision.number,
-                key: pointer.key(),
-                number,
-                counterpart: counterpart.key(),
+            (!other.points(counterpart, decision.number)).then(|| {
+                decision
+                    .at(Marker::Pointer(pointer))
+                    .holds(Finding::MissingCounterpart {
+                        decision: decision.number,
+                        key: pointer.key(),
+                        number,
+                        counterpart: counterpart.key(),
+                    })
             })
         })
         .collect()
 }
 
-fn superseded_names_its_successor(ledger: &Ledger) -> Vec<Finding> {
+fn superseded_names_its_successor(ledger: &Ledger) -> Vec<Located> {
     ledger
         .decisions
         .iter()
@@ -728,8 +827,12 @@ fn superseded_names_its_successor(ledger: &Ledger) -> Vec<Finding> {
             let superseded = Status::parse(&decision.status) == Some(Status::Superseded);
             superseded != decision.pointers.contains_key(&Pointer::SupersededBy)
         })
-        .map(|decision| Finding::SupersededStatus {
-            decision: decision.number,
+        .map(|decision| {
+            decision
+                .at(Marker::Status)
+                .holds(Finding::SupersededStatus {
+                    decision: decision.number,
+                })
         })
         .collect()
 }
@@ -781,8 +884,9 @@ fn target(word: &str) -> Option<Target> {
 /// its subject (`the way 0021 amends a tier`). A number its punctuation
 /// ends is a target even when a verb follows (`0046; supersedes`,
 /// `0004, supersedes`), and a word that is not one number is never a
-/// subject: it is refused wherever it stands.
-fn clause_targets(words: &[&str]) -> Vec<Target> {
+/// subject: it is refused wherever it stands. Each target comes with its
+/// word's index in `words`.
+fn clause_targets(words: &[&str]) -> Vec<(usize, Target)> {
     let mut targets = Vec::new();
     for (at, word) in words.iter().enumerate() {
         if is_amending(word) {
@@ -792,7 +896,7 @@ fn clause_targets(words: &[&str]) -> Vec<Target> {
             && words.get(at + 1).is_some_and(|next| is_amending(next));
         match target(word) {
             Some(Target::Number(_)) if subject => {}
-            Some(target) => targets.push(target),
+            Some(target) => targets.push((at, target)),
             None => {}
         }
         if closes_clause(word) {
@@ -804,66 +908,79 @@ fn clause_targets(words: &[&str]) -> Vec<Target> {
 
 /// Every number a decision's own text says it amends or supersedes, with
 /// the verb that says so (`amends decision 0001`, `Amends the read
-/// surfaces of decisions 0026 and 0047 in part:`): the numbers its header
-/// must point at, each by a pointer of its verb's kind. Only a full stop
-/// leaves a verb without an object (`what it amends.`); a comma does not,
-/// so `amends, in part, decision 0004` reads 0004, and a sentence that
-/// only mentions a number after `amends,` is refused until it is split.
-fn prose_targets(text: &str) -> BTreeSet<(Verb, Target)> {
-    let words: Vec<&str> = text.split_whitespace().collect();
-    words
+/// surfaces of decisions 0026 and 0047 in part:`), and the line it first
+/// stands on: the numbers its header must point at, each by a pointer of
+/// its verb's kind. Only a full stop leaves a verb without an object
+/// (`what it amends.`); a comma does not, so `amends, in part, decision
+/// 0004` reads 0004, and a sentence that only mentions a number after
+/// `amends,` is refused until it is split.
+fn prose_targets(text: &str) -> BTreeMap<(Verb, Target), usize> {
+    let (words, lines): (Vec<&str>, Vec<usize>) = text
+        .lines()
+        .zip(1..)
+        .flat_map(|(line, at)| line.split_whitespace().map(move |word| (word, at)))
+        .unzip();
+    let mut targets = BTreeMap::new();
+    let verbs = words
         .iter()
         .enumerate()
         .filter(|(_, word)| !word.ends_with('.'))
-        .filter_map(|(at, word)| Some((at, Verb::parse(word)?)))
-        .flat_map(|(at, verb)| {
-            clause_targets(&words[at + 1..])
-                .into_iter()
-                .map(move |target| (verb, target))
-        })
-        .collect()
+        .filter_map(|(at, word)| Some((at, Verb::parse(word)?)));
+    for (at, verb) in verbs {
+        for (offset, target) in clause_targets(&words[at + 1..]) {
+            targets
+                .entry((verb, target))
+                .or_insert(lines[at + 1 + offset]);
+        }
+    }
+    targets
 }
 
-fn prose_amendments_are_declared(ledger: &Ledger) -> Vec<Finding> {
+fn prose_amendments_are_declared(ledger: &Ledger) -> Vec<Located> {
     ledger
         .decisions
         .iter()
         .flat_map(|decision| {
             prose_targets(&decision.text)
                 .into_iter()
-                .filter_map(|(verb, target)| match target {
-                    Target::Number(number) => (!verb
-                        .declared_by()
-                        .iter()
-                        .any(|pointer| decision.points(*pointer, number)))
-                    .then_some(Finding::UndeclaredProse {
-                        decision: decision.number,
-                        verb,
-                        number,
-                    }),
-                    Target::Unreadable(word) => Some(Finding::UnreadableTarget {
-                        decision: decision.number,
-                        verb,
-                        word,
-                    }),
+                .filter_map(|((verb, target), line)| {
+                    let finding = match target {
+                        Target::Number(number) => (!verb
+                            .declared_by()
+                            .iter()
+                            .any(|pointer| decision.points(*pointer, number)))
+                        .then_some(Finding::UndeclaredProse {
+                            decision: decision.number,
+                            verb,
+                            number,
+                        })?,
+                        Target::Unreadable(word) => Finding::UnreadableTarget {
+                            decision: decision.number,
+                            verb,
+                            word,
+                        },
+                    };
+                    Some(decision.place(Some(line)).holds(finding))
                 })
         })
         .collect()
 }
 
-fn each_number_names_one_decision(ledger: &Ledger) -> Vec<Finding> {
+fn each_number_names_one_decision(ledger: &Ledger) -> Vec<Located> {
     let mut seen = BTreeSet::new();
     ledger
         .decisions
         .iter()
         .filter(|decision| !seen.insert(decision.number))
-        .map(|decision| Finding::DuplicateNumber {
-            number: decision.number,
+        .map(|decision| {
+            decision.place(None).holds(Finding::DuplicateNumber {
+                number: decision.number,
+            })
         })
         .collect()
 }
 
-fn every_gap_is_explained(ledger: &Ledger) -> Vec<Finding> {
+fn every_gap_is_explained(ledger: &Ledger) -> Vec<Located> {
     let taken: BTreeSet<u16> = ledger
         .decisions
         .iter()
@@ -873,15 +990,16 @@ fn every_gap_is_explained(ledger: &Ledger) -> Vec<Finding> {
     let last = taken.last().copied().unwrap_or_default();
     let unexplained = (1..last)
         .filter(|number| !taken.contains(number) && !explained.contains(number))
-        .map(|number| Finding::UnexplainedGap { number });
-    let not_gaps = explained
+        .map(|number| Place::index(None).holds(Finding::UnexplainedGap { number }));
+    let not_gaps = ledger
+        .gaps
         .iter()
-        .filter(|number| taken.contains(number) || **number > last)
-        .map(|number| Finding::NotAGap { number: *number });
+        .filter(|gap| taken.contains(&gap.number) || gap.number > last)
+        .map(|gap| Place::index(Some(gap.line)).holds(Finding::NotAGap { number: gap.number }));
     unexplained.chain(not_gaps).collect()
 }
 
-fn built_cells_render_the_marker(ledger: &Ledger) -> Vec<Finding> {
+fn built_cells_render_the_marker(ledger: &Ledger) -> Vec<Located> {
     ledger
         .rows
         .iter()
@@ -891,10 +1009,12 @@ fn built_cells_render_the_marker(ledger: &Ledger) -> Vec<Finding> {
                 .iter()
                 .find(|decision| decision.file == row.file)?;
             let expected = decision.built.as_ref()?.cell();
-            (row.built != expected).then(|| Finding::BuiltCell {
-                number: decision.number,
-                cell: row.built.clone(),
-                expected,
+            (row.built != expected).then(|| {
+                Place::index(Some(row.line)).holds(Finding::BuiltCell {
+                    number: decision.number,
+                    cell: row.built.clone(),
+                    expected,
+                })
             })
         })
         .collect()
@@ -958,7 +1078,7 @@ fn the_ledger_in_the_tree_breaks_no_rule() {
     let findings: Vec<String> = Ledger::read()
         .findings()
         .iter()
-        .map(Finding::to_string)
+        .map(Located::to_string)
         .collect();
     assert_eq!(
         findings,
@@ -1017,7 +1137,20 @@ impl Fixture {
     }
 
     fn findings(self) -> Vec<Finding> {
-        Ledger::parse(self.files, &self.readme).findings()
+        Ledger::parse(self.files, &self.readme)
+            .findings()
+            .into_iter()
+            .map(|located| located.finding)
+            .collect()
+    }
+
+    /// Each finding as the failing test prints it, file and line first.
+    fn located(self) -> Vec<String> {
+        Ledger::parse(self.files, &self.readme)
+            .findings()
+            .iter()
+            .map(Located::to_string)
+            .collect()
     }
 }
 
@@ -1448,7 +1581,18 @@ fn a_marker_is_read_once_and_exactly() {
 
 #[test]
 fn a_misspelt_marker_is_refused_not_skipped() {
-    for key in ["Amens", "Suprsedes", "Superseding by"] {
+    // A key dressed in markdown is a marker the reader would skip, so it is
+    // refused as one: bold, underscored, quoted or joined by a slash.
+    for key in [
+        "Amens",
+        "Suprsedes",
+        "Superseding by",
+        "**Supersedes in part**",
+        "Supersedes_in_part",
+        "`Amends`",
+        "Amends/Supersedes",
+        "**Built**",
+    ] {
         let line = format!("{key}: 0001");
         let findings = Fixture::new()
             .edit("0003", "Amends: 0001", &line)
@@ -1516,6 +1660,58 @@ fn the_built_cell_renders_the_files_marker() {
             "unbuilt ([#7]({ISSUES}7), [#8]({ISSUES}8))"
         ))]
     );
+}
+
+#[test]
+fn every_refusal_names_its_file_and_line() {
+    let three = "docs/decisions/0003-three.md";
+    let cases = [
+        (
+            Fixture::new().edit("0001", "Status: accepted", "Status: enacted"),
+            vec![
+                "docs/decisions/0001-one.md:3: 0001: status 'enacted' is not one of proposed, accepted, superseded, withdrawn".to_string(),
+            ],
+        ),
+        (
+            Fixture::new().edit("0003", "partial (#7)", "partial (#+7)"),
+            vec![
+                format!("{three}:4: 0003: the marker 'Built: partial (#+7) — the rest' does not parse"),
+                format!("{three}: 0003: no 'Built:' marker in its header"),
+            ],
+        ),
+        (
+            Fixture::new().edit("0003", "Amends: 0001", "Amends: 0001, 0009"),
+            vec![format!("{three}:5: 0003: 'Amends: 0009' names no other decision")],
+        ),
+        (
+            Fixture::new().edit_readme("| 0002 | never written |\n", ""),
+            vec![
+                "docs/decisions/README.md: 0002: no decision holds this number and the index does not say why".to_string(),
+            ],
+        ),
+        (
+            Fixture::new().edit_readme("never written |\n", "never written |\n| 0004 | ahead |\n"),
+            vec![
+                "docs/decisions/README.md:9: 0004: the gap table names a number that is not a gap below the last decision".to_string(),
+            ],
+        ),
+        // The line is the unreadable word's, not its verb's.
+        (
+            Fixture::new().edit("0003", "decision 0001.", "decision 0001 and\n(0004–0006)."),
+            vec![format!(
+                "{three}:10: 0003: its text amends '0004–0006', which is not one decision number; name each decision on its own"
+            )],
+        ),
+        (
+            Fixture::new().edit("0003", "partial (#7)", "unbuilt (#7)"),
+            vec![format!(
+                "docs/decisions/README.md:4: 0003: the index's Built cell reads 'partial ([#7]({ISSUES}7))', and the file's marker renders 'unbuilt ([#7]({ISSUES}7))'"
+            )],
+        ),
+    ];
+    for (fixture, expected) in cases {
+        assert_eq!(fixture.located(), expected);
+    }
 }
 
 #[test]
