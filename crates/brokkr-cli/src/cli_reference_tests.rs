@@ -517,7 +517,7 @@ enum Program {
         words: Vec<usize>,
         argv: Vec<String>,
     },
-    /// A cargo subcommand other than `run`, such as `cargo build -p
+    /// One of [`PACKAGE_SUBCOMMANDS`], such as `cargo build -p
     /// brokkr-cli`: it runs no `brokkr`, and may name the crate only in the
     /// words at these indices, the values of [`crate_word`]'s options.
     Cargo { words: Vec<usize> },
@@ -525,7 +525,8 @@ enum Program {
     /// before `--`, a word outside [`RUN_OPTIONS`] and the package, which
     /// may change what runs.
     Unread { word: usize },
-    /// Any other command, a `cargo run` in any other form among them.
+    /// Any other command, a `cargo run` in any other form and a cargo
+    /// subcommand outside [`PACKAGE_SUBCOMMANDS`] among them.
     Other,
 }
 
@@ -555,24 +556,32 @@ const RUN_OPTIONS: [&str; 6] = [
     "--quiet",
 ];
 
+/// The cargo subcommands that build, test or install the crate and run
+/// no `brokkr`, which may name it as their package. Any other
+/// subcommand, `cargo watch` among them, may run one, so a word of it
+/// that names the crate is refused.
+const PACKAGE_SUBCOMMANDS: [&str; 3] = ["build", "install", "test"];
+
 /// The index of the word that names the `brokkr-cli` crate as the value
-/// of the cargo option at `index`, past which the next option stands:
-/// `-p brokkr-cli`, `--package brokkr-cli`, `--package=brokkr-cli` or
-/// `-pbrokkr-cli`, and, outside `cargo run`, the crate's manifest after
-/// `--manifest-path` or its directory after `--path`.
-fn crate_word(options: &[String], index: usize, run: bool) -> Option<usize> {
+/// of the option at `index` of cargo's subcommand `options[0]`, past
+/// which the next option stands: `-p brokkr-cli`, `--package brokkr-cli`,
+/// `--package=brokkr-cli` or `-pbrokkr-cli`, outside `cargo run` the
+/// crate's manifest after `--manifest-path`, and after `cargo install`'s
+/// `--path` its directory.
+fn crate_word(options: &[String], index: usize) -> Option<usize> {
     match (
+        options[0].as_str(),
         options[index].as_str(),
         options.get(index + 1).map(String::as_str),
     ) {
-        ("--package=brokkr-cli" | "-pbrokkr-cli", _) => Some(index),
-        ("-p" | "--package", Some("brokkr-cli")) => Some(index + 1),
-        ("--manifest-path", Some("crates/brokkr-cli/Cargo.toml"))
-        | ("--path", Some("crates/brokkr-cli"))
-            if !run =>
+        (_, "--package=brokkr-cli" | "-pbrokkr-cli", _) => Some(index),
+        (_, "-p" | "--package", Some("brokkr-cli")) => Some(index + 1),
+        (sub, "--manifest-path", Some("crates/brokkr-cli/Cargo.toml"))
+            if !matches!(sub, "run" | "r") =>
         {
             Some(index + 1)
         }
+        ("install", "--path", Some("crates/brokkr-cli")) => Some(index + 1),
         _ => None,
     }
 }
@@ -584,7 +593,7 @@ fn run_options(options: &[String]) -> Result<Vec<usize>, usize> {
     let mut words = Vec::new();
     let mut index = 1;
     while let Some(word) = options.get(index) {
-        if let Some(named) = crate_word(options, index, true) {
+        if let Some(named) = crate_word(options, index) {
             words.push(named);
             index = named + 1;
         } else if RUN_OPTIONS.contains(&word.as_str()) {
@@ -600,8 +609,9 @@ fn run_options(options: &[String]) -> Result<Vec<usize>, usize> {
 /// after it; `cargo run`, or its alias `cargo r`, whose options before
 /// `--` are the package and [`RUN_OPTIONS`] alone, is read as `brokkr`,
 /// one that names the crate beside any other option is
-/// [`Program::Unread`], and a subcommand this reader cannot place,
-/// behind an option or a `+toolchain`, is [`Program::Other`].
+/// [`Program::Unread`], and a subcommand outside
+/// [`PACKAGE_SUBCOMMANDS`], or one this reader cannot place, behind an
+/// option or a `+toolchain`, is [`Program::Other`].
 fn cargo(argv: &[String], at: usize) -> Program {
     let rest = &argv[at + 1..];
     let dashes = rest.iter().position(|word| word == "--");
@@ -620,9 +630,9 @@ fn cargo(argv: &[String], at: usize) -> Program {
             }
             _ => Program::Other,
         },
-        Some(sub) if !sub.starts_with(['-', '+']) => Program::Cargo {
+        Some(sub) if PACKAGE_SUBCOMMANDS.contains(&sub) => Program::Cargo {
             words: (1..options.len())
-                .filter_map(|index| crate_word(options, index, false))
+                .filter_map(|index| crate_word(options, index))
                 .map(place)
                 .collect(),
         },
@@ -1468,8 +1478,9 @@ fn the_fence_reader_refuses_a_path_to_brokkr_or_its_crate_it_did_not_parse() {
 
 /// `cargo run`, or its alias `cargo r`, is read as `brokkr` only when
 /// every option before `--` is the package or one of [`RUN_OPTIONS`]; any
-/// other word there is refused by name. Any other cargo subcommand may
-/// name the crate as its package, manifest or path, and nowhere else.
+/// other word there is refused by name. One of [`PACKAGE_SUBCOMMANDS`] may
+/// name the crate as its package or manifest, `cargo install` as its
+/// path, and nowhere else; any other subcommand may not name it at all.
 #[test]
 fn the_fence_reader_reads_cargo_run_only_beside_options_that_keep_its_binary() {
     let wacth = "error: unrecognized subcommand 'wacth'";
@@ -1484,6 +1495,9 @@ fn the_fence_reader_reads_cargo_run_only_beside_options_that_keep_its_binary() {
                cargo run -p brokkr-cli --example x -- runs\n\
                cargo run -p brokkr-cli --bin brokkr -- runs\n\
                cargo watch -x \"run -p brokkr-cli -- wacth\"\n\
+               cargo watch -x run -p brokkr-cli -- wacth\n\
+               cargo watch -x r -pbrokkr-cli -- wacth\n\
+               cargo build --path crates/brokkr-cli\n\
                cargo install --path crates/brokkr-cli\n\
                cargo test --manifest-path crates/brokkr-cli/Cargo.toml\n\
                ```\n";
@@ -1513,6 +1527,17 @@ fn the_fence_reader_reads_cargo_run_only_beside_options_that_keep_its_binary() {
                 11,
                 "cargo watch -x \"run -p brokkr-cli -- wacth\"",
                 "run -p brokkr-cli -- wacth"
+            ),
+            line(
+                12,
+                "cargo watch -x run -p brokkr-cli -- wacth",
+                "brokkr-cli"
+            ),
+            line(13, "cargo watch -x r -pbrokkr-cli -- wacth", "-pbrokkr-cli"),
+            line(
+                14,
+                "cargo build --path crates/brokkr-cli",
+                "crates/brokkr-cli"
             ),
         ]
     );
