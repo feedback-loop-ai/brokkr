@@ -17358,3 +17358,94 @@ council.
 - The first visit's follow-ups stand: dispatch reads a role by its written
   path (unit 18), and the walk still follows links out of a layer for files
   no compile consumes.
+
+## Unit 16, third visit — re-verification of `9075fb60`, 2026-09-28
+
+Run `0065-rebuild-unit-16-see-the-uni-f7be5d6c`, at `9075fb60`.
+**Result: complete. No production or test file moved.** The second visit's
+review failed twice on the classifier (security and correctness seats), so
+no review of `9075fb60` has completed. This visit re-checks the repair
+against the three returned positions (S16-1..3, C1..2, SC1..4). The second
+visit's records above keep their run and revision; the rows below are this
+visit's own observations. Scratch logs are in `.forge/unit-16c/` (not
+committed).
+
+### Finding by finding, as read at `9075fb60`
+
+- **S16-1 / C1 / SC2.** `bound_input` returns `key` (the written reference,
+  folded) and `target_key`. `Consumed::check` requires the parsed digest
+  under both. `a_table_link_retargeted_after_its_read_is_refused` retargets
+  `table.json` from `a.json` to `b.json` at `ReadStage::Read`, leaves
+  `a.json` in place, and asserts the whole pin refusal at the leaf and at
+  the overridden ancestor.
+- **S16-2 / C2 / SC1.** `read_bound` requires the handle's `(dev, ino)` to
+  equal the kind check's. `a_replacement_before_the_open_is_refused_with_equal_or_changed_bytes`
+  renames a file over the table and swaps its parent directory at
+  `ReadStage::Checked`, with equal and changed bytes, and renames a file
+  over the inherited charter. Every row asserts the whole *replaced*
+  refusal.
+- **SC3.** Missing or unresolvable role and table inputs name the declaring
+  `bundle.json`, the seat, the kind and the bounded reference.
+  `a_missing_or_unresolvable_input_names_its_source_kind_and_reference`
+  asserts the standalone and inherited rows and the 5,000-step references.
+- **S16-3 / SC4.** The `expect("contained target")` is gone: containment is
+  the `let … else` on `walk_key`. The outward test is split into role and
+  table tests.
+
+### Observed in this session
+
+The focused suite at `9075fb60`: 34 passed, 0 failed (`head.txt`).
+
+Baseline: `d9751252`'s `bundle.rs` and `compose.rs` were checked out under
+`9075fb60`'s tests, then restored with `git checkout HEAD -- …`
+(`baseline.txt`). 31 passed and 3 failed, the same three the second visit
+recorded:
+
+- `a_missing_or_unresolvable_…` at `compose_tests.rs:1993`: left `"bundle:
+  seat 'work' role file 'roles/absent.md' does not exist"`.
+- `a_replacement_before_the_open_…` at `:2201`: left `"compiled to
+  c4061ec5…"`.
+- `a_table_link_retargeted_…` at `:2338`: left `"compiled to 133ffff8…"`.
+
+Mutations: each was one compiling edit made with the editor, run with
+`cargo test -p brokkr-runtime --all-features --locked --lib
+bundle::compose_tests`, and restored by `git checkout HEAD -- <file>`.
+After each restore `git status --short` was empty.
+
+| Mutation (this visit) | Second visit's row | Fails (exact assertion) | Log |
+| --- | --- | --- | --- |
+| R1: `.skip(1)` over `Consumed.keys` | N1 | `a_table_link_retargeted_…` `:2338` (leaf): left `"compiled to 133ffff8…"`. 33 passed | `r1.txt` |
+| R2: ancestor `consumed.remove(&index).filter(\|_\| false)` | N2 | `a_table_link_retargeted_…` `:2354` `overridden ancestor`: left `"compiled to 1b856bde…"`. Also `a_table_changed_…` `:2292`. 32 passed | `r2.txt` |
+| R5: checked `(dev, ino)` `\|\| true` | N5 | `a_replacement_before_the_open_…` `:2201` `file:` (equal bytes): left `"compiled to c4061ec5…"`. 33 passed | `r5.txt` |
+| R5b: … `\|\| target` contains `/tables/` | N5b | same test `:2220` `parent:`: left `"compiled to 0f40e321…"`. 33 passed | `r5b.txt` |
+| R5d: … `\|\| held.len() != checked.len()` | N5d | same test `:2201` `file:` (changed bytes): left `"compiled to 465f103f…"`. 33 passed | `r5d.txt` |
+| R7: `walk_key(…).or(reference.ends_with(".md").then(String::new))` | N7 | `a_role_link_out_…` `:1864`: left `"compiled to 66fee5e8…"`; `a_symlink_and_a_parent_step_…` `:1762`: left `"compiled to 572ad5bc…"`. 32 passed, no panic | `r7.txt` |
+| R8: the same for `.json` | N8 | `a_table_link_out_…` `:1894` only: left is the pin clause, right the outward clause. 33 passed | `r8.txt` |
+| R9: table `Missing` as `error.into()` | N9 | `a_missing_or_unresolvable_…` `:2009` `absent.json`: left `"bundle io: No such file or directory (os error 2)"`. 33 passed | `r9.txt` |
+| R12a: table reference `format!("'{relative}'")` | N12a | same test `:2044` `policy`: the `left:` line is 10,412 bytes. 33 passed | `r12a.txt` |
+
+N3, N4, N5c, N6, N10, N11 and N12b were not re-run in this session. Their
+second-visit logs stay in `.forge/unit-16b/`.
+
+### Standing-admission lines and fixture migrations
+
+None.
+
+### Gates at `9075fb60`, this session
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 results, all
+  ok, lib 583 passed (`runtime.txt`).
+- `cargo test --workspace --all-features --locked`: 77 results, all ok, 0
+  failed (`workspace.txt`). `cargo test --workspace`: 77 results, all ok
+  (`workspace-default.txt`).
+- `compile --bundle bundles/self`: `45dc1c7e…`. `compile --bundle
+  bundles/verify`: `f7cbd4bb…`. Both match the second visit.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+**Pending.** Exact coverage (`scripts/coverage-exact.sh`) outside the box,
+macOS, remote CI and the council, whose review of `9075fb60` has not yet
+completed.

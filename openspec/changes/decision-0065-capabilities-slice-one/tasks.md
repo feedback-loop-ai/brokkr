@@ -3168,6 +3168,25 @@ and S16-3/SC4. 16.1, 16.2 and 16.3 stay closed. Production: `bundle.rs` and
   `git diff --check` are clean.
 - Pending: exact coverage outside the box, macOS, remote CI and the council.
 
+Unit 16, third visit (2026-09-28, run `0065-rebuild-unit-16-see-the-uni-f7be5d6c`,
+at `9075fb60`; evidence.md, "Unit 16, third visit"). **Result: complete.**
+It re-verifies the review return against `9075fb60`, whose review never
+completed because of the classifier. No production or test file moved.
+16.1, 16.2 and 16.3 stay closed.
+
+- The focused suite passed (34). With `d9751252`'s production under the
+  current tests, the same three baseline reds were observed.
+- Nine mutations were re-run: R1, R2, R5, R5b, R5d, R7, R8, R9 and R12a,
+  matching N1, N2, N5, N5b, N5d, N7, N8, N9 and N12a. Each failed its
+  recorded assertion with the recorded value and was restored.
+- Standing-admission lines and fixture migrations: none.
+- Gates: fmt and clippy are clean. The runtime suite (25 results, 583 lib)
+  and the workspace suite, with and without all features (77 results each,
+  0 failed), pass. `bundles/self` (`45dc1c7e…`) and `bundles/verify`
+  (`f7cbd4bb…`) compile. Strict OpenSpec (18) and `git diff --check` are
+  clean.
+- Pending: exact coverage outside the box, macOS, remote CI and the council.
+
 ## 17. Unit 17 — Select charter owner and source at compile
 
 - [ ] 17.1 Unit 17 binds selected charter owner/reference/target/digest, no longest-prefix guess. Verify external/nested/overlapping owners and all site/candidate paths. Requirements: [Library charter pins are enforced at consumption][MPL], [A new manifest version records capabilities per executable seat][MP1]. Reopened/remaining: operator ruling 3. (previous 6.2)
