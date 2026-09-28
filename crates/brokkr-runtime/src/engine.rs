@@ -561,11 +561,24 @@ impl Engine {
     /// whole patience — which is a fourth ending, and it is an ending,
     /// not a death. See [`Engine::lawful_end_under_contention`].
     pub fn drive(&mut self) -> Result<DriveEnd, EngineError> {
+        self.drive_racing(|_| {})
+    }
+
+    /// [`Engine::drive`] with the lawful end's window held open:
+    /// `before_lawful_end` sees each error a turn ends on, before the
+    /// lawful end is tried. Production passes a no-op; a test passes the
+    /// peer that lets go of its lock there, so a terminal event the lock
+    /// outlasted can only land by the lawful end.
+    fn drive_racing(
+        &mut self,
+        mut before_lawful_end: impl FnMut(&EngineError),
+    ) -> Result<DriveEnd, EngineError> {
         loop {
             match self.drive_once() {
                 Ok(Some(end)) => return Ok(end),
                 Ok(None) => {}
                 Err(error) => {
+                    before_lawful_end(&error);
                     if let Some(end) = self.lawful_end_under_contention(error)? {
                         return Ok(end);
                     }

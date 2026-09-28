@@ -800,27 +800,40 @@ fn finishing_behind_a_lock(dir: &Path) -> SeatBody {
     signalling_driver(&middle, &[signal_line(dir, "exited")])
 }
 
-/// The lawful end, end to end: the peer holds the lock past every
-/// patience of the terminal event and lets go within the lawful end's.
-/// The attempt's real outcome lands there, nothing names the lock, and
-/// the drive goes on to the run's own ending.
+/// The lawful end, end to end: the peer holds the lock from before the
+/// seat's result until the drive meets it, past every patience of the
+/// terminal event, and lets go only as the lawful end begins. The
+/// attempt's real outcome can land nowhere else: it lands there, once,
+/// nothing names the lock, and the drive goes on to the run's own ending.
+/// A clock never decides the route, however slowly the seat's tree ends.
 #[test]
 fn a_terminal_event_the_lock_outlasts_lands_its_real_outcome_in_the_lawful_end() {
     let dir = tempfile::tempdir().unwrap();
-    let patience = std::time::Duration::from_millis(200);
     let body = finishing_behind_a_lock(dir.path());
-    let mut engine = driving(dir.path(), body, patience);
+    let mut engine = driving(dir.path(), body, std::time::Duration::from_millis(50));
+    let peer = std::sync::Mutex::new(None);
+    let mut lawful_ends = Vec::new();
 
-    let ended = drive_beside(&mut engine, || {
-        let holder = lock_at(dir.path(), "finishing");
-        arrive(dir.path(), "exited");
-        // Past the terminal event's three patiences, within the lawful
-        // end's three.
-        std::thread::sleep(patience * 9 / 2);
-        drop(holder);
+    let ended = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            arrive(dir.path(), "finishing");
+            *peer.lock().unwrap() = Some(write_lock_on(&dir.path().join("realm.db")));
+            std::fs::write(dir.path().join("locked"), "").unwrap();
+        });
+        engine.drive_racing(|error| {
+            lawful_ends.push(matches!(
+                error,
+                EngineError::Store(StoreError::Contended {
+                    operation: "append",
+                    ..
+                })
+            ));
+            drop(peer.lock().unwrap().take());
+        })
     })
     .expect("a held outcome that lands in the lawful end does not end the engine");
 
+    assert_eq!(lawful_ends, [true]);
     assert_eq!(
         work_events(&engine),
         [
