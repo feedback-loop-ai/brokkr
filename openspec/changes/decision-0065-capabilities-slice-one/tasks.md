@@ -3079,7 +3079,7 @@ for. No production file moved.
 
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
-- [x] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1)
+- [ ] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1) Reopened by unit 16-fix-c (2026-09-28): the alias acceptance's proof (baseline red, caught mutation, restored pass on a filesystem that accepts a case alias) is pending, so this task is not claimed complete.
 
 - [x] 16.2 Unit 16 binds regular policy read/hash/parse to owner pin, comparing later walk before sealing. Verify FIFO/changed-buffer refusal and allowed identity movement. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 3. (previous 5.2)
 
@@ -3265,6 +3265,17 @@ SECURITY-HOLD. F6 is not acted on: this record argues for no gate outcome.
 16.1, 16.2 and 16.3 stay closed on this visit's evidence. Production:
 `bundle.rs` and `bundle/compose.rs` only.
 
+*Corrected by unit 16-fix-c (chief F2):* those claims were not all
+observed.
+
+- F1 was not fully repaired. A hard link could stand in for a hidden
+  reference; on `c908db9d` that reproduced as a sealed identity equal to a
+  stable compile of other bytes.
+- F4's alias proof stayed pending (M14 survived).
+
+So "repairs F1–F5" and "16.1 … stay closed" did not hold. 16.1 is reopened
+above.
+
 - **Correction of 16.1's claims (F5).** Two earlier notes overstated the
   binding:
   - Unit 16-fix said "any replacement after the open is refused".
@@ -3332,6 +3343,61 @@ SECURITY-HOLD. F6 is not acted on: this record argues for no gate outcome.
 - **Pending.** Exact coverage outside the box. macOS: the alias rows and M14,
   the socket row's wording, the `openat`/`readlinkat` FFI and `O_NOFOLLOW`
   (0x0100) on a macOS host. Remote CI and the council.
+
+Unit 16-fix-c (2026-09-28, run `0065-rebuild-unit-16-see-the-uni-0a952e68`,
+based on `c908db9d`; evidence.md, "Unit 16-fix-c"). It answers the chief's
+F1–F5 on unit 16-fix-b's SECURITY-HOLD; F6 is not acted on. Production:
+`bundle.rs` and `bundle/compose.rs` only. **16.2 and 16.3 stay closed on
+this visit's evidence. 16.1 is reopened: F2's alias proof is pending.** So
+this record does not claim F1–F5 repaired.
+
+- **F1, the key belongs to the handle.**
+  - `observe` builds one `Binding`: both keys and the `(dev, ino)` of the
+    handle read.
+  - Each name is found by listing the held directory handle
+    (`fdopendir`/`readdir`), never a path. It is the name read by where
+    that is listed; otherwise exactly one other entry holding the file (an
+    alias). None is *replaced*; two or more are refused naming two. A
+    listing error refuses.
+  - The post-read check and `Held::intact` compare the whole binding.
+  - The walk refuses a file that is a consumed file under another name,
+    naming both.
+  - On `c908db9d` the chief's interleaving reproduced: the raced compile
+    sealed `32393b07…`, which is a stable compile of the other ruling. It
+    is refused now.
+  - K1, which drops the key comparison, compiles to `32393b07…` again.
+- **F2, F3.** The alias rows are gated by a probe of the fixture's own
+  canonical root (`accepts_case_alias`), not by `target_os` or TMPDIR.
+  Where the root accepts no alias, the exact missing error is asserted.
+  - T1 (probe forced to "accepts") fails on this host.
+  - The positive rows never ran: this seat refused `unshare`, `chattr` and
+    a moved TMPDIR. Their proof is **PENDING**.
+- **F4.** A table's *changed* refusal now says "entry, target or bytes".
+  Three assertions take it (K6).
+- **F5.** `Held` documents only the handles it retains.
+- **Tests.** Two new: `a_hard_link_cannot_stand_in_for_a_hidden_reference`
+  and `a_consumed_file_has_one_name_in_its_layer`. Changed: the three F4
+  assertions and the alias test's gate.
+- **Proof.**
+  - Baseline on `c908db9d`: 5 reds.
+  - Mutations K1–K7 and T1 each compile, fail their assertion, and are
+    restored (231 passed unmutated).
+- **Behaviour note.** A hard link inside a layer to a consumed file is now
+  refused (design D7). `bundles/self` (`45dc1c7e…`) and `bundles/verify`
+  (`f7cbd4bb…`) are unchanged.
+- **Standing-admission lines and fixture migrations:** none.
+- **Gates.**
+  - fmt and clippy are clean.
+  - Runtime: 25 results, lib 595.
+  - Workspace, with and without all features: 77 results each, 0 failed.
+  - Strict OpenSpec (18) and `git diff --check` are clean.
+- **Pending.**
+  - The F2 alias proof, and with it 16.1.
+  - macOS: the FFI link names, the `d_name` offset, `__error`, and the
+    socket wording.
+  - 32-bit Linux.
+  - Exact coverage outside the box.
+  - Remote CI and the council.
 
 ## 17. Unit 17 — Select charter owner and source at compile
 

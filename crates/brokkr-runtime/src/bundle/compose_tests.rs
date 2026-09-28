@@ -2274,15 +2274,7 @@ fn a_replacement_before_the_open_is_refused_with_equal_or_changed_bytes() {
 fn a_table_changed_between_its_read_and_its_walk_is_refused() {
     let library = Library::new();
     let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
-    let changed = |layer: &Path| {
-        format!(
-            "bundle: {}: 'policy' names 'policy.json', whose bytes changed between the read \
-             that parsed them and the walk that pinned them. The table a run is ruled by must \
-             be the table its identity names, so it is refused (decision 0065 slice one, design \
-             D7)",
-            layer.join("bundle.json").display()
-        )
-    };
+    let changed = |layer: &Path| format!("bundle: {}", table_changed(layer, "policy.json"));
     let rewrite = |policy: PathBuf| {
         move || {
             std::fs::write(&policy, serde_json::to_vec(&other_policy()).unwrap()).unwrap();
@@ -2345,12 +2337,7 @@ fn a_table_link_retargeted_after_its_read_is_refused() {
             symlink("b.json", &link).unwrap();
         }
     };
-    let retargeted = format!(
-        "bundle: {}: 'policy' names 'table.json', whose bytes changed between the read that \
-         parsed them and the walk that pinned them. The table a run is ruled by must be the \
-         table its identity names, so it is refused (decision 0065 slice one, design D7)",
-        base.join("bundle.json").display()
-    );
+    let retargeted = format!("bundle: {}", table_changed(&base, "table.json"));
     symlink("a.json", &link).unwrap();
     let charter = base.join("roles/role.md");
     assert_eq!(
@@ -2621,11 +2608,12 @@ fn a_bound_read_supplies_its_handles_bytes_and_never_a_second_reads() {
 /// — never as changed bytes. On every host, a link removed after the read
 /// is refused as unlisted, not as changed.
 ///
-/// Unit 16-fix-b (F4): the alias rows run unconditionally on macOS, whose
-/// default volume accepts a case alias, and are not skipped by a probe. No
-/// Linux filesystem this suite runs on accepts one, so there both spellings
-/// are missing, which is said as missing: the alias acceptance cannot be
-/// exercised on Linux, and its proof is macOS's.
+/// Unit 16-fix-c (F2, F3): which rows run is decided by the FILESYSTEM the
+/// fixture stands on, probed on the fixture's own canonical root, never by
+/// the host's name or the ambient temporary directory. Where it accepts a
+/// case alias, the alias rows assert acceptance and the linked alias's
+/// refusal; where it does not, both spellings are missing, and the test
+/// asserts exactly that. The removed-link row runs on every filesystem.
 #[cfg(unix)]
 #[test]
 fn a_reference_is_keyed_by_the_entry_its_directory_lists() {
@@ -2642,8 +2630,8 @@ fn a_reference_is_keyed_by_the_entry_its_directory_lists() {
         )
     };
     let library = Library::new();
+    let accepts_alias = accepts_case_alias(library.path());
     let (base, _) = active_inputs(&library, "roles/role.md", "POLICY.JSON");
-    let accepts_alias = cfg!(target_os = "macos");
     if accepts_alias {
         let bundle = Bundle::compile(&base).unwrap();
         let bytes = std::fs::read(base.join("policy.json")).unwrap();
@@ -2661,10 +2649,13 @@ fn a_reference_is_keyed_by_the_entry_its_directory_lists() {
             format!(
                 "bundle: {}: 'policy' names 'POLICY.JSON', which does not exist",
                 base.join("bundle.json").display()
-            )
+            ),
+            "{} accepts no case alias, so the alias is missing",
+            library.path().display()
         );
     }
     let library = Library::new();
+    assert_eq!(accepts_case_alias(library.path()), accepts_alias);
     let (base, _) = active_inputs(&library, "roles/role.md", "TABLE.JSON");
     symlink("policy.json", base.join("table.json")).unwrap();
     let expected = match accepts_alias {
@@ -2686,6 +2677,24 @@ fn a_reference_is_keyed_by_the_entry_its_directory_lists() {
         said_replacing(&base, &base.join("roles/role.md"), ReadStage::Read, remove),
         unlisted(&base, "table.json")
     );
+}
+
+/// Whether the filesystem under `root`, a fixture's canonical root, accepts
+/// a case alias: one spelling is created there and the other looked up.
+/// Absent is "no"; any other answer is not a decision, and panics.
+fn accepts_case_alias(root: &Path) -> bool {
+    let probe = root.join("alias-probe");
+    std::fs::write(&probe, "").unwrap();
+    let other = std::fs::symlink_metadata(root.join("ALIAS-PROBE"));
+    std::fs::remove_file(&probe).unwrap();
+    match other {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => panic!(
+            "the alias probe on {} decided nothing: {error}",
+            root.display()
+        ),
+    }
 }
 
 // ------------------------- unit 16-fix-b: one observation, one set of bytes
@@ -2725,6 +2734,19 @@ fn charter_changed(layer: &Path, site: &str, reference: &str) -> String {
          not hold as it was read: its entry was replaced, retargeted or removed, or its bytes \
          changed, after the read that bound it. What a seat is told must be what its identity \
          names, so it is refused (decision 0065 slice one, design D7)",
+        layer.join("bundle.json").display()
+    )
+}
+
+/// The refusal of a table its declaring layer's walk does not hold as it
+/// was read (unit 16-fix-c, F4: an entry or a name, not only bytes).
+fn table_changed(layer: &Path, reference: &str) -> String {
+    format!(
+        "{}: 'policy' names '{reference}', whose entry, target or bytes changed between the \
+         read that parsed it and the walk that pinned it: an entry on its way was replaced, \
+         removed or retargeted, a name it was read by changed, or the bytes read changed. The \
+         table a run is ruled by must be the table its identity names, so it is refused \
+         (decision 0065 slice one, design D7)",
         layer.join("bundle.json").display()
     )
 }
@@ -2769,12 +2791,7 @@ fn a_reference_replaced_after_its_bound_read_is_refused() {
         let tabled = overriding_leaf(&library);
         std::fs::write(base.join("a.json"), ruling(base_policy())).unwrap();
         let bytes = ruling(if equal { base_policy() } else { other_policy() });
-        let refused = format!(
-            "{}: 'policy' names 'table.json', whose bytes changed between the read that parsed \
-             them and the walk that pinned them. The table a run is ruled by must be the table \
-             its identity names, so it is refused (decision 0065 slice one, design D7)",
-            base.join("bundle.json").display()
-        );
+        let refused = table_changed(&base, "table.json");
         for (compiled, expected) in [
             (&base, format!("bundle: {refused}")),
             (
@@ -3049,6 +3066,139 @@ fn a_link_loop_names_no_file_and_an_absolute_contained_link_is_followed() {
                 "which resolves through more than 40 links, so it names no file"
             )
         )
+    );
+}
+
+// ------------------------- unit 16-fix-c: the key belongs to the handle
+
+/// A hard link at `link` to `file`, then `file` moved to `aside`: the
+/// directory lists the file only as `link`.
+fn hide_behind(file: &Path, link: &Path, aside: &Path) {
+    std::fs::hard_link(file, link).unwrap();
+    std::fs::rename(file, aside).unwrap();
+}
+
+/// Rebuild unit 16-fix-c, F1 (16.1, 16.2; design D7): the chief's
+/// interleaving. Once `policy.json`'s handle is open, `h.json` is made a
+/// hard link to the same file and `policy.json` is moved out of the layer,
+/// so its directory lists the held file only as `h.json`; once the read is
+/// done, `policy.json` is put back. Where both keys were then `h.json`, the
+/// walk took `policy.json` for a file nothing consumed: another valid
+/// ruling was put there for the walk alone, and the held file restored
+/// before the walk's verification. The compile consumed one ruling while
+/// its map named the other — the map a stable compile of that other seals.
+/// Refused now as replaced: observed again after the read, the reference is
+/// bound under another name.
+#[cfg(unix)]
+#[test]
+fn a_hard_link_cannot_stand_in_for_a_hidden_reference() {
+    let library = Library::new();
+    let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
+    let later = base.join("zz.md");
+    std::fs::write(&later, "# walked after the table\n").unwrap();
+    let (policy, link) = (base.join("policy.json"), base.join("h.json"));
+    let (aside, held) = (library.path().join("aside"), library.path().join("held"));
+    let other = serde_json::to_vec(&other_policy()).unwrap();
+    let hide: Box<dyn FnOnce()> = {
+        let (policy, link, aside) = (policy.clone(), link.clone(), aside.clone());
+        Box::new(move || hide_behind(&policy, &link, &aside))
+    };
+    let restore: Box<dyn FnOnce()> = {
+        let policy = policy.clone();
+        Box::new(move || std::fs::rename(&aside, &policy).unwrap())
+    };
+    let swap_in: Box<dyn FnOnce()> = {
+        let (policy, held) = (policy.clone(), held.clone());
+        Box::new(move || {
+            std::fs::rename(&policy, &held).unwrap();
+            std::fs::write(&policy, &other).unwrap();
+        })
+    };
+    let swap_back: Box<dyn FnOnce()> = {
+        let policy = policy.clone();
+        Box::new(move || std::fs::rename(&held, &policy).unwrap())
+    };
+    let acts: Vec<Act> = vec![
+        (ReadStage::Entered, policy.clone(), hide),
+        (ReadStage::Read, link, restore),
+        (ReadStage::Walked, policy, swap_in),
+        (ReadStage::Walked, later, swap_back),
+    ];
+    assert_eq!(
+        said_acting(&base, acts),
+        format!("bundle: {}", policy_escape(&base, "policy.json", REPLACED))
+    );
+}
+
+/// Rebuild unit 16-fix-c, F1 (16.1; design D7): a consumed file has one
+/// name in its layer, the one it was read by. Its directory is listed
+/// through the held handle; where the name read by is not listed, exactly
+/// one other entry holding the file is an alias, none is a replaced entry,
+/// and two are refused naming both. A second name the walk meets is refused
+/// naming both, standalone and inherited, rather than walked as a file
+/// nothing consumed.
+#[cfg(unix)]
+#[test]
+fn a_consumed_file_has_one_name_in_its_layer() {
+    // The walk: a hard link to the table, in the layer and in a directory.
+    for other in ["h.json", "copies/p.json"] {
+        let library = Library::new();
+        let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+        std::fs::create_dir_all(base.join("copies")).unwrap();
+        std::fs::hard_link(base.join("policy.json"), base.join(other)).unwrap();
+        let refused = format!(
+            "bundle file '{other}' is another name for 'policy.json', the file a bound read \
+             consumed: a layer's identity names a consumed file by the entry it was read by, \
+             and a second name for it inside the layer is refused rather than walked as a file \
+             nothing consumed (decision 0065 slice one, design D7)"
+        );
+        assert_eq!(said(&base), format!("bundle: {refused}"), "{other}");
+        assert_eq!(
+            said(&leaf),
+            format!("bundle: bundle: {refused} (composed: derived -> base)"),
+            "{other}, inherited"
+        );
+    }
+    // The resolution: the name read by is gone, and two others hold the file.
+    let library = Library::new();
+    let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
+    let policy = base.join("policy.json");
+    let hide: Box<dyn FnOnce()> = {
+        let (policy, aside) = (policy.clone(), library.path().join("aside"));
+        let second = base.join("h2.json");
+        Box::new(move || {
+            std::fs::hard_link(&policy, second).unwrap();
+            hide_behind(&policy, &policy.with_file_name("h1.json"), &aside);
+        })
+    };
+    let many = "which its directory no longer lists by the name it was read by, while 'h1.json' \
+                and 'h2.json' both name the file that was read, so no one entry names it; \
+                another name for a consumed file inside the layer is refused rather than \
+                guessed between (design D7)";
+    assert_eq!(
+        said_acting(&base, vec![(ReadStage::Entered, policy.clone(), hide)]),
+        format!("bundle: {}", policy_escape(&base, "policy.json", many))
+    );
+    // And no other: the entry is gone, even when it is back after the read.
+    let library = Library::new();
+    let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
+    let policy = base.join("policy.json");
+    let aside = library.path().join("aside");
+    let away: Box<dyn FnOnce()> = {
+        let (policy, aside) = (policy.clone(), aside.clone());
+        Box::new(move || std::fs::rename(&policy, &aside).unwrap())
+    };
+    let back: Box<dyn FnOnce()> = {
+        let policy = policy.clone();
+        Box::new(move || std::fs::rename(&aside, &policy).unwrap())
+    };
+    let acts: Vec<Act> = vec![
+        (ReadStage::Entered, policy.clone(), away),
+        (ReadStage::Read, policy, back),
+    ];
+    assert_eq!(
+        said_acting(&base, acts),
+        format!("bundle: {}", policy_escape(&base, "policy.json", REPLACED))
     );
 }
 

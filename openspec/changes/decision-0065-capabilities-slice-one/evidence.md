@@ -17712,6 +17712,19 @@ the chief's F1–F5 on unit 16-fix's SECURITY-HOLD. F6 (verdict and routing
 advocacy in member notes) is not acted on, and nothing here argues for a
 gate outcome.
 
+*Corrected by unit 16-fix-c (chief F2):* those two claims went further than
+what was observed.
+
+- F1 was not fully repaired. `listed` could key both of an input's keys
+  by a hard link while the name was hidden. On `c908db9d` that sealed the
+  identity of a stable compile of other bytes (`32393b07…`; "Unit 16-fix-c",
+  "Baseline reds").
+- F4's alias proof was never observed. Its baseline red, caught mutation
+  and restored pass stayed pending, and M14 survived.
+
+So F1–F5 were not all repaired, and 16.1's closure did not rest on observed
+evidence.
+
 The production files are `bundle.rs` and `bundle/compose.rs`. The tests are
 in `bundle/compose_tests.rs`, plus the nine compiler-forced arguments in
 `bundle/tests.rs` listed below. Scratch logs are `.forge/u16b-*` (not
@@ -17991,3 +18004,256 @@ All on the final tree, in this session:
 - The resolution opens the layer's own directory by its canonical path, and
   the observation records that directory's identity. One held handle per
   layer, shared by all of its reads, would remove that repeated open.
+
+## Unit 16-fix-c — the key belongs to the handle, 2026-09-28
+
+Run `0065-rebuild-unit-16-see-the-uni-0a952e68`, based on `c908db9d`.
+This visit answers the chief's F1–F5 on unit 16-fix-b's SECURITY-HOLD. F6
+(verdict and routing advocacy in member notes) is not acted on, and nothing
+here argues for a gate outcome.
+
+**What is and is not claimed.** F1, F3 (the probe), F4 and F5 are
+implemented, and each is observed below. F2's proof is not: the alias
+acceptance still has no observed baseline red, caught mutation or restored
+pass. No filesystem that accepts a case alias could be reached from this
+seat (see "Pending"). F2 therefore stays **PENDING**, and so does task 16.1.
+This record does not say F1–F5 are repaired.
+
+The production files are `bundle.rs` and `bundle/compose.rs`, and the tests
+are in `bundle/compose_tests.rs`. Scratch logs are `.forge/u16c/*` (not
+committed). The baseline and the mutations ran in this worktree. The two
+production files were replaced by `c908db9d`'s, or by a mutated copy, and
+each was restored afterwards from the saved candidate
+(`.forge/u16c/*.cand`).
+
+### What changed, finding by finding
+
+**F1 — the key belongs to the handle.**
+
+- A new `Binding` holds the reference's key, the target's key and the
+  `(dev, ino)` of the handle that was read. Only `observe` builds one, and
+  it builds all three together from the handles that resolution holds.
+- `BoundInput` now carries only `bytes` and `held`. `Held` owns the binding;
+  compose reads the keys through `Held::binding().keys()`.
+- The target's key is no longer chosen by `read_dir` on a path. `listed`
+  reads the directory through a copy of its held handle, with
+  `fdopendir`/`readdir`/`closedir` declared through FFI, and fails closed
+  when the listing fails. For each name:
+  - The name it was looked up by, where the listing holds it.
+  - Otherwise, exactly one other entry that holds the same file, confirmed
+    by `openat` and `fstat` through the same handle. That is an alias.
+  - No such entry: *replaced*.
+  - Two or more: refused, naming two (`many_names`).
+- `Held::stands` compares the whole observation, steps and binding (both
+  keys and the file read). The post-read check and `Held::intact` both use
+  it. Before this visit, both compared only the steps.
+- The walk knows a consumed file by its binding. `walk_files` takes
+  `Supplied` (digest, identity, target key) for each consumed key. A file
+  under no consumed key whose own entry (`symlink_metadata`) is a consumed
+  file is refused, naming both paths. So a hard link cannot make a
+  consumed file look unconsumed and get it re-read.
+- The `Walked` hook now fires before that judgement, so a test's
+  replacement gets the widest window.
+- Effect on existing bundles: a hard link inside a layer to a file a bound
+  read consumed is now refused. `bundles/self` and `bundles/verify`
+  compile unchanged.
+
+**F2, F3 — the alias proof decided by the filesystem.**
+`a_reference_is_keyed_by_the_entry_its_directory_lists` gates its alias rows
+on `accepts_case_alias(library.path())`. The probe runs on the fixture's own
+canonical root: it creates `alias-probe` there and looks up `ALIAS-PROBE`.
+
+- Found: the positive rows run.
+- `NotFound`: the test asserts the exact missing-file error, with a message
+  saying the root accepts no alias.
+- Any other answer panics as undecided.
+
+Neither `target_os` nor the ambient TMPDIR decides anything. The second
+fixture's root is probed too, and the test asserts it gives the same
+answer.
+
+**F4 — wording.** `TableRead::check`'s `Standing::Changed` now says: "whose
+entry, target or bytes changed … an entry on its way was replaced, removed
+or retargeted, a name it was read by changed, or the bytes read changed".
+The `Standing::Changed` doc says the same.
+
+**F5 — wording.** `Held`'s documentation now describes only the handles
+the resolution ends holding. A handle for a step it left again (`..`, or
+an absolute link's restart) was closed when it was left.
+
+### Tests
+
+New, in `bundle/compose_tests.rs`:
+
+- `a_hard_link_cannot_stand_in_for_a_hidden_reference` (F1), the chief's
+  interleaving, with these acts:
+  - at `Entered` for `policy.json`: hard-link `h.json` to it, then move
+    `policy.json` out of the layer;
+  - at `Read` for `h.json`: move `policy.json` back;
+  - at `Walked` for `policy.json`: move it aside and write ruling B there;
+  - at `Walked` for `zz.md`: restore the held file.
+
+  Expected: the table refusal with the *replaced* clause.
+- `a_consumed_file_has_one_name_in_its_layer` (F1). Rows:
+  - `h.json` and `copies/p.json` hard-linked to the table, standalone and
+    inherited: refused by the walk, naming both;
+  - at `Entered`, two other names and the original gone: refused naming
+    `h1.json` and `h2.json`;
+  - at `Entered`, the original gone with no other name, and back at `Read`:
+    *replaced*.
+
+Changed:
+
+- Three assertions take the F4 wording through a new `table_changed`
+  helper:
+  - `a_table_changed_…` (`:2284`);
+  - `a_table_link_retargeted_…` (`:2343`);
+  - `a_reference_replaced_…` (`:2810`).
+- The alias test's gate (F2, F3), as above.
+
+### Baseline reds on `c908db9d`
+
+`c908db9d`'s `bundle.rs` and `bundle/compose.rs` ran under this visit's
+test file. No instrumentation was needed: every stage these tests use
+exists there. `cargo test -p brokkr-runtime --all-features --locked --lib
+bundle::compose_tests` gave 41 passed and 5 failed (`baseline.log`):
+
+- `a_hard_link_cannot_stand_in_…` `:3124`: left `"compiled to 32393b07…"`.
+- `a_consumed_file_has_one_name_…` `:3152` (the `h.json` row): left
+  `"compiled to 26e5121b…"`.
+- The three F4 rows, at `:2284`, `:2343` and `:2807`, on the old wording.
+
+A scratch test printed every row without stopping (`baseline-rows.log`; it
+was not committed and was removed before the mutations).
+
+- **F1 reproduced.** The raced compile sealed `32393b07…`. A stable compile
+  of the tree its map describes (`policy.json` holding ruling B, `h.json`
+  holding A) seals the same `32393b07…`. So the chief's interleaving is
+  observed here, not only derived from the code.
+- Two other names: *replaced*, not the two-names refusal.
+- No other name, back after the read: `"compiled to c4061ec5…"`.
+- The walk rows compiled: `26e5121b…` and `e464db56…` standalone,
+  `c7e6ffae…` and `8a0d1e71…` inherited.
+
+On the candidate, the same scratch rows all refused with the committed
+reasons (`candidate-rows.log`), and the B tree still compiles to
+`32393b07…`.
+
+### Mutations
+
+Each mutation is one compiling edit, run with `cargo test -p brokkr-runtime
+--all-features --locked --lib bundle::`, then restored from the saved
+candidate. Unmutated: 231 passed (`mut0.log`).
+
+| Mutation | Fails (exact assertion) | Log |
+| --- | --- | --- |
+| K1: `Held::stands` compares the steps only (the key comparison dropped, post-read and in `intact`) | `a_hard_link_…` `:3124`: left `"compiled to 32393b07…"`, the baseline's identity. 230 passed | `k1.log` |
+| K2: the walk finds no other name | `a_consumed_file_…` `:3152` (`h.json`): left `"compiled to 26e5121b…"`. 230 passed | `k2.log` |
+| K3: two other names resolve to the first | `a_consumed_file_…` `:3175`: left *replaced*. 230 passed | `k3.log` |
+| K4: no other name keeps the name read by | `a_consumed_file_…` `:3196`: left `"compiled to c4061ec5…"`. 230 passed | `k4.log` |
+| K5: the listed name read by is not preferred | `a_consumed_file_…` `:3152`: left the two-names refusal (`'h.json'` and `'policy.json'`). 230 passed | `k5.log` |
+| K6: F4's old wording | the three changed rows (`:2284`, `:2343`, `:2807`). 228 passed | `k6.log` |
+| K7: only the post-read check drops the binding | `a_hard_link_…` `:3124`: left the F4 *changed* refusal. `intact` still refuses, at the walk. 230 passed | `k7.log` |
+| T1 (test side): the probe always says "accepts" | `a_reference_is_keyed_…` `:2636`: `unwrap` on "… 'POLICY.JSON', which does not exist". The rows follow the probe. 230 passed | `t1.log` |
+
+Line numbers are the logs' own. The runs used the test file before
+rustfmt, which then added three lines above `:2690`. The committed lines
+are `:3127`, `:3155`, `:3178`, `:3199` and `:2810`. `:2284`, `:2343` and
+`:2636` do not move.
+
+An earlier K1 run hooked `Walked` after the walk's judgement. There the
+walk's new other-name refusal caught K1 first (left: "'policy.json' is
+another name for 'h.json'"). `Walked` was moved before the judgement, so
+the key comparison carries the regression alone. K1 was then run again
+(the row above).
+
+### Coverage diagnostic (not the gate)
+
+Command: `cargo +nightly-2026-09-05 llvm-cov -p brokkr-runtime --lib
+--all-features --branch --lcov`, after deleting `target/llvm-cov-target`
+(`u16c.lcov`). On the lines this visit added or changed in `bundle.rs` and
+`compose.rs`:
+
+- no `DA` record is zero;
+- no `BRDA` record is untaken.
+
+The zero records it does list are on unchanged lines that the integration
+tests reach. For example, `bounded_reference`'s branches at `:4585–4586`
+sit among this visit's hunks but were not edited. This is not
+`scripts/coverage-exact.sh`.
+
+### Standing-admission lines and fixture migrations
+
+None. `bundle/tests.rs`'s `manifest_for(…, &BTreeMap::new())` infers the
+new `BTreeMap<String, Supplied>` without an edit. Fixture migrations: none.
+
+### Gates
+
+All on the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean, after `cargo fmt --all` reflowed two
+  expressions.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean (`clippy.log`).
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 results, 0
+  failed, lib 595 (`runtime.log`).
+- `cargo test --workspace --all-features --locked`: 77 results, 0 failed
+  (`workspace.log`).
+- `cargo test --workspace --locked`: 77 results, 0 failed
+  (`workspace-default.log`).
+- `compile --bundle bundles/self`: `45dc1c7e…`. `bundles/verify`:
+  `f7cbd4bb…`. Both are unchanged.
+- `openspec validate --all --strict --no-interactive`: 18 passed.
+- `git diff --check`: clean.
+
+One edit came after the mutations: `listing` reads `d_ino` with
+`read_unaligned` instead of `read`, so it does not rely on how the C
+library aligns its buffer. After that edit these were run again:
+
+- fmt and workspace clippy: clean (`clippy2.log`);
+- the runtime suite: 25 results, lib 595 (`runtime-final.log`);
+- both workspace suites: 77 results each, 0 failed.
+
+In the first default-feature rerun, one test failed:
+`brokkr-protocol`'s
+`hands::tests::the_network_prefix_is_eight_tokens_and_the_probe_asks_the_dispatchs_path`
+(`:1199`, `workspace-default-flake.log`). That test plants a script and
+runs it. `brokkr-protocol` does not depend on `brokkr-runtime`. The test
+passed alone (`protocol-probe.log`), and the whole suite passed on the next
+run. This looks like the known concurrent-exec flake (#255). It is not
+repaired here.
+
+Fixtures ran on this host's `/tmp` (tmpfs). A second run with TMPDIR on
+the ext4 root was not possible: this seat refuses environment-prefixed
+commands.
+
+### Pending
+
+- **F2, the alias proof, and with it task 16.1.** A baseline red, a caught
+  mutation and a restored pass for the positive alias rows all need a
+  filesystem that accepts a case alias. This seat refused every way to
+  reach one: `unshare -rm` (for a `casefold` tmpfs), `chattr +F`, and
+  running the suite with TMPDIR elsewhere. The probe is committed; the
+  proof is not done. It needs one of two runs:
+  - macOS, whose default volume accepts a case alias;
+  - Linux with TMPDIR on a casefolded directory.
+
+  The mutation to bind: `listed` refuses where the name read by is not
+  listed (M14's analogue).
+- macOS, never run here:
+  - `fdopendir$INODE64` and `readdir$INODE64` on x86_64;
+  - `d_name` at 21;
+  - `__error`;
+  - the socket row's wording;
+  - `openat`/`readlinkat` and the flag values.
+- 32-bit Linux: `readdir64`'s layout is assumed, not run.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`).
+- Remote CI.
+- The council. The SECURITY-HOLD stands until it rules.
+
+### Follow-ups, not built here
+
+- Dispatch still reads a role by its written path (unit 18).
+- The walk lists a layer by path, and hashes files nothing consumed by
+  path, as before. Such a file is now also refused when it is a consumed
+  file under another name.

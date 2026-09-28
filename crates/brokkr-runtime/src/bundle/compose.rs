@@ -183,7 +183,7 @@ impl Resolved {
     }
 
     /// The digests the leaf's own walk takes from its bound buffers.
-    pub(crate) fn leaf_digests(&self) -> BTreeMap<String, String> {
+    pub(crate) fn leaf_digests(&self) -> BTreeMap<String, super::Supplied> {
         self.reads[0].digests()
     }
 
@@ -550,11 +550,11 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
 
 /// Where one consumed buffer must stand in its layer's file map: the
 /// walk's key for the entry the reference names and for the target that
-/// was read, and the digest of the buffer that was parsed. The walk takes
-/// that digest for both keys and never reads either path; `held` is what
-/// the read observed, verified before the layer is sealed.
+/// was read, as `held`'s binding names them, and the digest of the buffer
+/// that was parsed. The walk takes that digest for both keys and never
+/// reads either path; `held` is what the read observed, verified before the
+/// layer is sealed.
 struct Pinned {
-    keys: [String; 2],
     digest: String,
     held: super::Held,
 }
@@ -565,8 +565,8 @@ enum Standing {
     /// stands as it was read.
     Held,
     /// Under both keys, but the input no longer stands as it was read: an
-    /// entry on its way was replaced, removed or retargeted, or the held
-    /// file's bytes changed.
+    /// entry on its way was replaced, removed or retargeted, a name it was
+    /// bound by changed, or the held file's bytes changed.
     Changed,
     /// Not under one of its keys at all: the walk lists no entry by that
     /// name.
@@ -577,7 +577,6 @@ impl Pinned {
     /// Where `bound`'s buffer must stand, and the buffer, for its one parse.
     fn of(bound: super::BoundInput) -> (Pinned, Vec<u8>) {
         let pinned = Pinned {
-            keys: [bound.key, bound.target_key],
             digest: brokkr_core::canonical::sha256_bytes(&bound.bytes),
             held: bound.held,
         };
@@ -586,9 +585,11 @@ impl Pinned {
 
     fn standing(&self, files: &Map<String, Value>) -> Standing {
         let pinned: Vec<Option<&str>> = self
-            .keys
+            .held
+            .binding()
+            .keys()
             .iter()
-            .map(|key| files.get(key).and_then(Value::as_str))
+            .map(|key| files.get(*key).and_then(Value::as_str))
             .collect();
         if pinned.contains(&None) {
             return Standing::Unlisted;
@@ -653,9 +654,10 @@ struct Consumed {
 
 impl Consumed {
     /// The digest the layer's walk takes for each consumed key, from the
-    /// buffer that was read (rebuild unit 16-fix-b, F3). Where two reads
-    /// name one key the first stands, and the other is judged against it.
-    fn digests(&self) -> BTreeMap<String, String> {
+    /// buffer that was read (rebuild unit 16-fix-b, F3), with the file that
+    /// read held (16-fix-c, F1). Where two reads name one key the first
+    /// stands, and the other is judged against it.
+    fn digests(&self) -> BTreeMap<String, super::Supplied> {
         let tables = self.table.iter().map(|table| &table.pinned);
         let charters = self.charters.iter().map(|charter| &charter.pinned);
         let mut digests = BTreeMap::new();
@@ -663,8 +665,11 @@ impl Consumed {
             .chain(tables)
             .chain(charters)
         {
-            for key in &pinned.keys {
-                digests.entry(key.clone()).or_insert(pinned.digest.clone());
+            let binding = pinned.held.binding();
+            for key in binding.keys() {
+                digests
+                    .entry(key.to_string())
+                    .or_insert_with(|| binding.supplied(&pinned.digest));
             }
         }
         digests
@@ -716,10 +721,11 @@ impl TableRead {
         match self.pinned.standing(files) {
             Standing::Held => Ok(()),
             Standing::Changed => Err(invalid(format!(
-                "{file}: 'policy' names {reference}, whose bytes changed between the read that \
-                 parsed them and the walk that pinned them. The table a run is ruled by must be \
-                 the table its identity names, so it is refused (decision 0065 slice one, design \
-                 D7)"
+                "{file}: 'policy' names {reference}, whose entry, target or bytes changed between \
+                 the read that parsed it and the walk that pinned it: an entry on its way was \
+                 replaced, removed or retargeted, a name it was read by changed, or the bytes \
+                 read changed. The table a run is ruled by must be the table its identity names, \
+                 so it is refused (decision 0065 slice one, design D7)"
             ))),
             Standing::Unlisted => Err(invalid(format!(
                 "{file}: 'policy' names {reference}, which the walk that pinned the layer lists \
