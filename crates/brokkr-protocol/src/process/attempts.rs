@@ -6,7 +6,7 @@
 //! Linux, starts the thread that records every live attempt's
 //! descendants and attributes the orphans the engine adopts, and installs
 //! the stop handler: SIGINT, SIGTERM and SIGHUP end every live attempt
-//! before the engine exits. The driver leads a group of its own, so a
+//! before the engine exits. The driver leads a session of its own, so a
 //! signal to the engine's group, a terminal's Ctrl-C or hangup, no longer
 //! reaches it; the handler is what does.
 //!
@@ -89,27 +89,35 @@ pub(super) struct Attempt {
     key: u64,
 }
 
+/// Why a driver was not spawned.
+#[derive(Debug)]
+pub(super) enum Unspawned {
+    /// The read before it could not be taken: without it, nothing would
+    /// tell the attempt's orphans from what ran before it.
+    Table(Unsettled),
+    Spawn(std::io::Error),
+}
+
 impl Attempt {
-    /// Spawn the driver, its tree's subreaper, and register its group
-    /// under one lock, so the stop handler never misses a driver that is
-    /// already running. The first attempt's `host` serves the tracker and
-    /// the stop handler.
-    pub(super) fn spawn(builder: &mut Command, host: Host) -> std::io::Result<(Child, Attempt)> {
+    /// Spawn the driver, leading a session of its own and its tree's
+    /// subreaper, and register its group under one lock, so the stop
+    /// handler never misses a driver that is already running. The first
+    /// attempt's `host` serves the tracker and the stop handler.
+    pub(super) fn spawn(builder: &mut Command, host: Host) -> Result<(Child, Attempt), Unspawned> {
         START.call_once(|| start(host));
-        // SAFETY: `subreaper` runs between fork and exec, and makes one
-        // system call and allocates nothing.
-        #[cfg(target_os = "linux")]
-        unsafe {
-            std::os::unix::process::CommandExt::pre_exec(builder, subreaper)
-        };
+        // SAFETY: `detach` runs between fork and exec, and makes system
+        // calls and allocates nothing.
+        unsafe { std::os::unix::process::CommandExt::pre_exec(builder, detach) };
         // A read from the last tracker interval serves: an orphan that
         // comes to the engine after it meets this attempt's running leader,
         // which rules the attempt out as its source (`Live::left`).
         let now = Instant::now();
         let since = now.checked_sub(TRACK).unwrap_or(now);
         let mut live = live();
-        let before = live.read_since(host.table, since).unwrap_or_default();
-        let child = builder.spawn()?;
+        let before = live
+            .read_since(host.table, since)
+            .map_err(Unspawned::Table)?;
+        let child = builder.spawn().map_err(Unspawned::Spawn)?;
         let key = NEXT.fetch_add(1, Ordering::Relaxed);
         let attempt = Live {
             group: Pid::from_child(&child),
@@ -430,8 +438,10 @@ fn signal<'a>(
 /// The orphans the engine adopted as a subreaper that no live attempt
 /// explains and that are not already the engine's own: its running
 /// children outside its own process group, whatever their session. A
-/// child the engine spawns stays in the engine's group, and a driver
-/// leads a group that is a live attempt's.
+/// child the engine spawns stays in the engine's group, and nothing of an
+/// attempt can join it: its driver leads a session of its own (`detach`),
+/// and `setpgid` refuses a group in another session. A driver leads a
+/// group that is a live attempt's.
 fn strays<'a>(entries: &'a [Entry], registry: &'a Registry) -> impl Iterator<Item = &'a Entry> {
     let me = getpid().as_raw_pid();
     let mine = entries
@@ -463,10 +473,20 @@ fn start(host: Host) {
     });
 }
 
+/// Run in each driver between its fork and its exec: lead a session of
+/// its own, so no process of its tree can join the engine's group, and on
+/// Linux adopt its own tree's orphans. Async-signal-safe: system calls,
+/// and an error that allocates nothing.
+fn detach() -> std::io::Result<()> {
+    rustix::process::setsid()?;
+    #[cfg(target_os = "linux")]
+    subreaper()?;
+    Ok(())
+}
+
 /// Make the calling process a child subreaper: the engine, and each
-/// driver between its fork and its exec, so a running leader adopts its
-/// own tree's orphans. Async-signal-safe: one `prctl`, and an error that
-/// allocates nothing.
+/// driver (`detach`), so a running leader adopts its own tree's orphans.
+/// Async-signal-safe: one `prctl`, and an error that allocates nothing.
 #[cfg(target_os = "linux")]
 fn subreaper() -> std::io::Result<()> {
     rustix::process::set_child_subreaper(Some(getpid()))?;

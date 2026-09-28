@@ -16,7 +16,6 @@
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::process::CommandExt;
 use std::process::{Child, ChildStderr, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
@@ -33,7 +32,7 @@ mod attempts;
 mod table;
 mod tree;
 
-use attempts::Attempt;
+use attempts::{Attempt, Unspawned};
 pub use tree::Unsettled;
 use tree::{Bounds, Host};
 
@@ -50,6 +49,10 @@ pub enum SpawnError {
         command: String,
         source: std::io::Error,
     },
+    /// #403: the process table could not be read before the spawn, so the
+    /// attempt's tree could not be told from what ran before it.
+    #[error("refused to spawn driver {command}: {source}")]
+    Unwatched { command: String, source: Unsettled },
 }
 
 /// The environment a driver starts in (decision 0046 ruling 4; design
@@ -143,7 +146,8 @@ fn read_stderr(mut stderr: ChildStderr) -> mpsc::Receiver<String> {
 }
 
 impl DriverProcess {
-    /// Spawn the driver as the leader of its own process group. With a
+    /// Spawn the driver as the leader of a session, and so a process
+    /// group, of its own (`attempts`). With a
     /// deadline, a watchdog kills the group when it expires; the attempt
     /// then reports Failed(timeout) rather than hanging the run forever.
     pub fn spawn(
@@ -170,18 +174,19 @@ impl DriverProcess {
         builder
             .args(args)
             .current_dir(workdir)
-            .process_group(0)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         if let SpawnEnv::Exactly(table) = env {
             builder.env_clear().envs(table);
         }
-        let (mut child, attempt) =
-            Attempt::spawn(&mut builder, host).map_err(|source| SpawnError::Spawn {
-                command: command.join(" "),
-                source,
-            })?;
+        let (mut child, attempt) = Attempt::spawn(&mut builder, host).map_err(|unspawned| {
+            let command = command.join(" ");
+            match unspawned {
+                Unspawned::Table(source) => SpawnError::Unwatched { command, source },
+                Unspawned::Spawn(source) => SpawnError::Spawn { command, source },
+            }
+        })?;
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = read_stdout(child.stdout.take().expect("piped stdout"));
         let stderr = read_stderr(child.stderr.take().expect("piped stderr"));

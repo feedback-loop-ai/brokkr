@@ -109,6 +109,35 @@ fn spawn_refuses_empty_and_missing_commands() {
         Err(error) => error,
     };
     assert!(matches!(error, SpawnError::Spawn { .. }));
+
+    // #403: a table that cannot be read before the spawn refuses it, and
+    // nothing runs. An attempt on the real host starts the tracker first,
+    // so the blind one serves only this spawn.
+    run("exit 0");
+    let dir = tempfile::tempdir().unwrap();
+    let ran = dir.path().join("ran");
+    let driver = command(&format!("printf x > '{}'", ran.display()));
+    let blind = Host {
+        table: || Ok(Vec::new()),
+        ..Host::REAL
+    };
+    let refused = DriverProcess::spawn_with(&driver, dir.path(), None, &SpawnEnv::Inherit, blind);
+    let Err(error) = refused else {
+        panic!("a spawn without the read before it must be refused")
+    };
+    let source = Unsettled::Table {
+        error: format!(
+            "the table has no row for the engine itself (pid {})",
+            std::process::id()
+        ),
+    };
+    assert_eq!(
+        error.to_string(),
+        format!("refused to spawn driver {}: {source}", driver.join(" "))
+    );
+    assert!(matches!(error, SpawnError::Unwatched { source: found, .. } if found == source));
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(!ran.exists(), "the refused driver ran");
 }
 
 #[test]
@@ -564,6 +593,7 @@ const ROLE: &str = "BROKKR_PROCESS_TEST_ROLE";
 const ROLE_PID: &str = "BROKKR_PROCESS_TEST_PID";
 const ROLE_MARKER: &str = "BROKKR_PROCESS_TEST_MARKER";
 const ROLE_DIR: &str = "BROKKR_PROCESS_TEST_DIR";
+const ROLE_GROUP: &str = "BROKKR_PROCESS_TEST_GROUP";
 
 /// Seat stubs for #403, in one directory as concurrent runs in one
 /// checkout would be. A stub records its own pid, answers the handshake,
@@ -615,18 +645,20 @@ impl Seats {
     /// `role`, which leaves the group before it records itself: `detached`
     /// leaves the session too (`setsid`, as Node's `detached` spawn does);
     /// `job` moves to a group of its own in the same session, as shell job
-    /// control does, and the shell that starts it exits at once, so it is
-    /// orphaned before the tracker can see its parent.
+    /// control does; `joiner` tries to join the engine's own group, whose
+    /// id it is handed. The shell that starts either exits at once, so it
+    /// is orphaned before the tracker can see its parent.
     fn role_driver(&self, tag: &str, role: &str, handshake: &str, then: &str) -> Vec<String> {
         let exe = std::env::current_exe().unwrap();
-        let background = if role == "job" { " &" } else { "" };
+        let background = if role == "detached" { "" } else { " &" };
+        let group = rustix::process::getpgrp().as_raw_pid();
         self.stub(
             tag,
             handshake,
             &format!(
                 "{ROLE}={role} {ROLE_PID}=\"$GRANDCHILD\" {ROLE_MARKER}=\"$MARKER\" \
-                 {ROLE_DIR}=\"$DIR\" sh -c '\"$0\" --exact process::tests::role \
-                 --ignored{background}' '{}'",
+                 {ROLE_DIR}=\"$DIR\" {ROLE_GROUP}={group} sh -c '\"$0\" --exact \
+                 process::tests::role --ignored{background}' '{}'",
                 exe.display()
             ),
             then,
@@ -1012,17 +1044,31 @@ fn role() {
         |seats: &Seats| seats.role_driver("seat", "detached", &accepting(), "read -r never");
     let in_group = |seats: &Seats| seats.driver("seat", &accepting(), "read -r never");
     let blind = Host {
-        table: || Ok(Vec::new()),
+        table: blind_after_the_spawn,
         ..Host::REAL
     };
     match var(ROLE).as_str() {
         "detached" => left(setsid, &var(ROLE_PID), &var(ROLE_MARKER), &dir),
         "job" => left(own_group, &var(ROLE_PID), &var(ROLE_MARKER), &dir),
+        "joiner" => left(join_the_engine, &var(ROLE_PID), &var(ROLE_MARKER), &dir),
         "engine" => stopped_engine(&dir, libc::SIG_DFL, detached, Host::REAL),
         "nohup-engine" => stopped_engine(&dir, libc::SIG_IGN, detached, Host::REAL),
         "blind-engine" => stopped_engine(&dir, libc::SIG_DFL, in_group, blind),
-        "job-engine" => orphaning_engine(&dir),
+        "job-engine" => orphaning_engine(&dir, "job"),
+        "joiner-engine" => orphaning_engine(&dir, "joiner"),
         _ => {}
+    }
+}
+
+/// The table the spawn reads, and nothing after it: a spawn without the
+/// read before is refused. The first read is the spawn's, because the
+/// tracker reads only once an attempt is registered.
+fn blind_after_the_spawn() -> Result<Vec<table::Entry>, table::TableError> {
+    static READ: AtomicBool = AtomicBool::new(false);
+    if READ.swap(true, Ordering::SeqCst) {
+        Ok(Vec::new())
+    } else {
+        table::snapshot()
     }
 }
 
@@ -1032,6 +1078,18 @@ fn setsid() {
 
 fn own_group() {
     rustix::process::setpgid(None, None).expect("a job leads a group of its own");
+}
+
+/// Try to move into the engine's own group, and write down the errno the
+/// kernel answered with, or `joined`.
+fn join_the_engine() {
+    let var = |name: &str| std::env::var(name).unwrap_or_default();
+    let group = var(ROLE_GROUP).parse().ok().and_then(Pid::from_raw);
+    let answer = match rustix::process::setpgid(None, group) {
+        Ok(()) => "joined".to_string(),
+        Err(errno) => errno.raw_os_error().to_string(),
+    };
+    std::fs::write(Seats::at(&var(ROLE_DIR)).file("seat", "joined"), answer).unwrap();
 }
 
 /// A descendant that leaves the attempt's group by `leave`, its stdio
@@ -1076,13 +1134,14 @@ fn stopped_engine(
     unreachable!("the driver never ends on its own");
 }
 
-/// An engine whose attempt's grandchild is an orphaned `job`, and whose
-/// driver exits as soon as the job has recorded itself, so the job comes
-/// to the engine. It writes down the cleanup, the outcome and what of the
-/// tree it still reads running once the report has returned.
-fn orphaning_engine(dir: &str) {
+/// An engine whose attempt's grandchild is an orphaned `role`, and whose
+/// driver exits as soon as the grandchild has recorded itself, so the
+/// grandchild comes to the engine. It writes down the cleanup, the outcome
+/// and what of the tree it still reads running once the report has
+/// returned.
+fn orphaning_engine(dir: &str, role: &str) {
     let seats = Seats::at(dir);
-    let driver = seats.role_driver("seat", "job", &accepting(), "exit 0");
+    let driver = seats.role_driver("seat", role, &accepting(), "exit 0");
     let report = attempt(spawned(&driver, &seats.dir, None));
     let tree = seats.pids("seat");
     let survivors: Vec<i32> = tree.into_iter().filter(|pid| !gone(*pid)).collect();
@@ -1103,14 +1162,13 @@ fn engine(seats: &Seats, role: &str) -> Command {
     engine
 }
 
-/// The engine, in a process group of its own, once its attempt's tree has
-/// formed and the tracker has had time to record the detached grandchild.
-/// It is registered as one of this process's attempts: in a group of its
-/// own and this process's child, it would otherwise read, to another
-/// test's attempt, as an orphan this process adopted.
+/// The engine, in a session and group of its own, once its attempt's tree
+/// has formed and the tracker has had time to record the detached
+/// grandchild. It is registered as one of this process's attempts: in a
+/// group of its own and this process's child, it would otherwise read, to
+/// another test's attempt, as an orphan this process adopted.
 fn engine_in_its_own_group(seats: &Seats, role: &str) -> (Child, Attempt, [i32; 2]) {
-    let (engine, registered) =
-        Attempt::spawn(engine(seats, role).process_group(0), Host::REAL).unwrap();
+    let (engine, registered) = Attempt::spawn(&mut engine(seats, role), Host::REAL).unwrap();
     let tree = seats.pids("seat");
     std::thread::sleep(Duration::from_millis(500));
     (engine, registered, tree)
@@ -1154,9 +1212,9 @@ fn assert_ended(seats: &Seats, tree: [i32; 2], signal: i32) {
     );
 }
 
-/// #403: the driver leads a group of its own, so a signal to the engine's
-/// group (a terminal's Ctrl-C or hangup, a supervisor's SIGTERM) does not
-/// reach its tree. The engine ends every live attempt, the detached
+/// #403: the driver leads a session of its own, so a signal to the
+/// engine's group (a terminal's Ctrl-C or hangup, a supervisor's SIGTERM)
+/// does not reach its tree. The engine ends every live attempt, the detached
 /// grandchild included, and exits 128 plus the signal.
 #[test]
 fn a_stopped_engine_ends_its_attempts_before_it_exits() {
@@ -1277,8 +1335,28 @@ fn a_running_driver_adopts_its_trees_orphans() {
 /// is a child process, so that no other test's attempt is live beside it.
 #[test]
 fn a_job_orphaned_before_the_tracker_saw_it_is_ended_before_the_report() {
+    orphaned("job");
+}
+
+/// #403: a grandchild that tries to join the engine's own group, the one
+/// group whose members are never strays, is refused by the kernel: its
+/// driver leads a session of its own, and `setpgid` refuses a group in
+/// another session. So it stays in the attempt's group, and is ended
+/// with it before the report returns, though its shell and its driver
+/// exit before the tracker can see it.
+#[test]
+fn a_grandchild_cannot_join_the_engines_group_to_outlive_the_report() {
+    let seats = orphaned("joiner");
+    let answer = std::fs::read_to_string(seats.file("seat", "joined")).unwrap();
+    assert_eq!(answer, rustix::io::Errno::PERM.raw_os_error().to_string());
+}
+
+/// The engine, a child process so that no other test's attempt is live
+/// beside it, playing an `orphaning_engine` of `role`: the report settled
+/// only because the tree is gone, and the grandchild's marker stopped.
+fn orphaned(role: &str) -> Seats {
     let seats = Seats::new();
-    let mut engine = engine(&seats, "job-engine").spawn().unwrap();
+    let mut engine = engine(&seats, &format!("{role}-engine")).spawn().unwrap();
     assert_eq!(exit_code(&mut engine), Some(0));
     let written = std::fs::read_to_string(seats.file("seat", "report")).unwrap();
     assert_eq!(
@@ -1290,7 +1368,8 @@ fn a_job_orphaned_before_the_tracker_saw_it_is_ended_before_the_report() {
     assert_eq!(tree.map(gone), [true, true], "tree {tree:?}");
     let marker = seats.marker("seat");
     std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(seats.marker("seat"), marker, "the job kept writing");
+    assert_eq!(seats.marker("seat"), marker, "the {role} kept writing");
+    seats
 }
 
 /// A pipe, and how many bytes it holds before a write blocks, handed back

@@ -1,9 +1,10 @@
 //! The attempt's process tree (#403). Two means reach it, and the attempt
 //! is over only when both read it gone.
 //!
-//! The group. The driver leads a process group of its own, so the harness
-//! under it, the harness's tool subprocesses and any workspace-tool child
-//! that stays in the group are reached by one signal to the group. The
+//! The group. The driver leads a session, and so a process group, of its
+//! own, so the harness under it, the harness's tool subprocesses and any
+//! workspace-tool child that stays in the group are reached by one signal
+//! to the group. The
 //! group id is the leader's pid, which is not reused while the leader is
 //! unreaped, so the group is SIGNALLED only then: by the watchdog, which
 //! `finish` joins before the reap, by `end` before its reap, and by the
@@ -22,8 +23,10 @@
 //! orphan of the tree goes to its driver while the driver runs, where the
 //! tracker records it as a descendant, and to the engine once the driver
 //! is gone, whatever its session or group. Every running child of the
-//! engine outside the engine's own group (a child the engine spawns stays
-//! in it) that no live attempt leads, records or began after is a stray.
+//! engine outside the engine's own group that no live attempt leads,
+//! records or began after is a stray. A child the engine spawns stays in
+//! that group, and nothing of an attempt can join it: the driver's
+//! session is its own, and `setpgid` refuses a group in another session.
 //! A stray is attributed to the attempts that could have left it: those
 //! it does not predate, whose leader no longer runs, and that had not yet
 //! ended when it was born (its start stamp is no later than the youngest
@@ -42,8 +45,10 @@
 //! Every read fails closed. A table that cannot be read, a row that
 //! cannot be read or parsed, a `ps` that exits nonzero and a snapshot
 //! without the engine's own row prove nothing; a row that vanished
-//! between the listing and its read is gone. A kill the kernel refuses on
-//! a live identity leaves the cleanup unresolved.
+//! between the listing and its read is gone. A read before the spawn that
+//! fails refuses the spawn: without it, nothing tells the attempt's
+//! orphans from what ran before it. A kill the kernel refuses on a live
+//! identity leaves the cleanup unresolved.
 //!
 //! macOS has no subreaper and no pidfd. There the engine reads the table
 //! synchronously at the kill, ends what it attributes, and parks on any

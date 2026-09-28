@@ -29,13 +29,13 @@ fn ended(pid: i32) -> bool {
 /// The table names a child that leads a group of its own with its parent,
 /// its group and a start stamp that reads the same twice, whatever group
 /// the harness put this process in. The child is registered as an
-/// attempt: in a group of its own, it would otherwise read, to another
-/// test's attempt, as an orphan this process adopted.
+/// attempt, which leads a session and group of its own: it would
+/// otherwise read, to another test's attempt, as an orphan this process
+/// adopted.
 #[test]
 fn the_table_reads_a_child_that_leads_its_group() {
-    use std::os::unix::process::CommandExt;
     let mut sleep = Command::new("sleep");
-    sleep.arg("30").process_group(0);
+    sleep.arg("30");
     let host = super::super::tree::Host::REAL;
     let (mut child, _registered) =
         super::super::attempts::Attempt::spawn(&mut sleep, host).unwrap();

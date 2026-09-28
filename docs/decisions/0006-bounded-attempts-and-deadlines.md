@@ -69,8 +69,8 @@ journal recorded its attempt killed, and a retry could start beside it
 in the same worktree. The non-completion this decision calls
 determinate was not.
 
-- Two means reach the tree. The driver leads a process group of its
-  own, and the kill is SIGKILL to the group. While the attempt runs, the
+- Two means reach the tree. The driver leads a session, and so a
+  process group, of its own, and the kill is SIGKILL to the group. While the attempt runs, the
   engine also records every descendant by pid and start time, a
   descendant that left the group (`setsid`, as Node's `detached` spawn
   does, or a job that shell job control moves to a group of its own)
@@ -82,9 +82,11 @@ determinate was not.
   of the tree goes to its driver while the driver runs, where it is
   recorded as a descendant. Once the driver is gone, it goes to the
   engine and not to init, whatever its session. Every running child of
-  the engine outside the engine's own group (a child the engine spawns
-  stays in it) that no live attempt leads, records or began after is a
-  stray. A stray is attributed to the attempts that could have left it:
+  the engine outside the engine's own group that no live attempt leads,
+  records or began after is a stray. A child the engine spawns stays in
+  that group, and nothing of an attempt can join it: the driver's session
+  is its own, and the kernel refuses `setpgid` into a group of another
+  session. A stray is attributed to the attempts that could have left it:
   those it does not predate, whose driver no longer runs, and that had
   not yet ended when it was born, as the start stamps order it. One such
   attempt ends it with its own tree. When there are several, the stray
@@ -106,7 +108,7 @@ determinate was not.
   SIGHUP tells it to stop, strays included. It then waits, within the
   settle bound, for the table to read every attempt gone, and exits with
   128 plus the signal. When it cannot prove that, it says why and exits
-  125. The driver no longer shares the engine's group, so a terminal's
+  125. The driver no longer shares the engine's session, so a terminal's
   Ctrl-C or hangup would not otherwise reach it. A signal the engine
   inherited as ignored (`nohup`) stays ignored.
 - The report returns only once the tree is proven gone, so the retry
@@ -119,7 +121,10 @@ determinate was not.
   outside the tree still holds. It also covers a table that cannot be
   read whole: a row that cannot be read or parsed, a `ps` that exits
   nonzero, and a snapshot without the engine's own row. A row that
-  vanished between the listing and its read is gone. The report keeps
+  vanished between the listing and its read is gone. A table that cannot
+  be read before a driver starts refuses the spawn, so nothing runs
+  without the read that tells its orphans from what ran before it. The
+  report keeps
   the outcome the attempt reached, typed, beside an unresolved cleanup,
   and the engine journals both. A checkpoint the journal refused changes
   the outcome acted on, never the outcome received. The engine never
