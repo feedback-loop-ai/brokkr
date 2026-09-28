@@ -3079,7 +3079,7 @@ for. No production file moved.
 
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
-- [ ] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1) Reopened by unit 16-fix-c (2026-09-28): the alias acceptance's proof (baseline red, caught mutation, restored pass on a filesystem that accepts a case alias) is pending, so this task is not claimed complete.
+- [x] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1) Reopened by unit 16-fix-c (2026-09-28): the alias acceptance's proof (baseline red, caught mutation, restored pass on a filesystem that accepts a case alias) is pending, so this task is not claimed complete. Closed by unit 16-fix-d (2026-09-28): the alias surface was removed under the refusal ruling, so the pending alias-positive proof is retired, not claimed; a spelling its directory does not list is refused on every filesystem. The case-insensitive row of that refusal is pending on macOS (see the unit 16-fix-d note).
 
 - [x] 16.2 Unit 16 binds regular policy read/hash/parse to owner pin, comparing later walk before sealing. Verify FIFO/changed-buffer refusal and allowed identity movement. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 3. (previous 5.2)
 
@@ -3351,6 +3351,16 @@ F1–F5 on unit 16-fix-b's SECURITY-HOLD; F6 is not acted on. Production:
 this visit's evidence. 16.1 is reopened: F2's alias proof is pending.** So
 this record does not claim F1–F5 repaired.
 
+*Corrected by unit 16-fix-d (chief F1–F3 on 16-fix-c):* F1 was not
+repaired. Its committed test put the name back before the second
+observation, so it proved only that interleaving. With the name hidden at
+each observation and put back between them, both observations bound the
+other entry `h.json`, and the compile sealed ruling B's bytes under
+`policy.json` while it parsed A: observed on `95d4ff19` as `compiled to
+32393b07…`. Two consumed hard-link names were admitted (F2), and a failed
+candidate lookup was discarded (F3). 16.2's policy binding was therefore
+also affected. Unit 16-fix-d removes the alias search and repairs these.
+
 - **F1, the key belongs to the handle.**
   - `observe` builds one `Binding`: both keys and the `(dev, ino)` of the
     handle read.
@@ -3396,6 +3406,59 @@ this record does not claim F1–F5 repaired.
   - macOS: the FFI link names, the `d_name` offset, `__error`, and the
     socket wording.
   - 32-bit Linux.
+  - Exact coverage outside the box.
+  - Remote CI and the council.
+
+Unit 16-fix-d (2026-09-28, run `0065-rebuild-unit-16-see-the-uni-1d9ed775`,
+based on `95d4ff19`; evidence.md, "Unit 16-fix-d"). It answers the chief's
+F1–F4 on unit 16-fix-c's SECURITY-HOLD by removing the alias surface, not
+patching it; F5 is not acted on. Production: `bundle.rs` and
+`bundle/compose.rs` only. **16.1 closes, and 16.2 and 16.3 stay closed, on
+this visit's evidence; the pending items below stay pending.**
+
+- **F1, F3: the alias search is deleted.** `listed`, `listing`,
+  `many_names` and the `fdopendir`/`readdir`/`closedir`/`errno` FFI are
+  gone. Each name is bound exactly as it was looked up in the held
+  directory; no listing, search or inode match substitutes another entry.
+  A name that does not resolve, or resolves to another file when observed
+  again, is refused. There are no candidate lookups left to swallow.
+- **F1, F2: one name per consumed file, checked at the walk.**
+  `walk_files` refuses a consumed key it lists no entry for; a name under
+  no consumed key that is a consumed file ("another name"); and a consumed
+  file met under a second name, consumed or not ("two names"). A link is
+  its own entry, so contained link bindings still compile.
+  `Standing::Unlisted` could no longer be reached and is removed.
+- **F4.** The alias-positive test is now a refusal test,
+  `a_spelling_its_directory_does_not_list_is_refused`. The pending
+  alias-positive proof is **retired, not claimed**, because the surface
+  was removed under the refusal ruling.
+- **Regressions.** Three new tests, each red on `95d4ff19`, each caught by
+  a compiling mutation, each passing again once restored:
+  - `a_name_hidden_at_every_observation_binds_no_other_entry` (F1). On
+    `95d4ff19` it compiled to `32393b07…`. Mutation M1 drops the
+    another-name refusal.
+  - `two_consumed_names_for_one_file_are_refused` (F2), standalone and
+    inherited. On `95d4ff19` it compiled. Mutation M2 drops the two-names
+    refusal.
+  - `a_name_that_no_longer_resolves_is_refused_not_found_elsewhere` (F3).
+    On `95d4ff19` it gave the *changed* refusal. Mutation M3 drops the
+    unlisted-key refusal.
+- **Changed assertions, all in `bundle/compose_tests.rs`.**
+  - The alias test's rows.
+  - `a_consumed_file_has_one_name_in_its_layer`. Two other names are now
+    *replaced*. A name moved away and back between the two observations
+    now compiles to the undisturbed identity.
+  - 16-fix-c's `a_hard_link_cannot_stand_in_for_a_hidden_reference` is
+    replaced by the F1 regression.
+- **Standing-admission lines and fixture migrations:** none.
+- **Gates:** fmt and clippy are clean. The runtime suite gave 25 results
+  (lib 597); the workspace suite gave 77 results, 0 failed. `bundles/self`
+  (`45dc1c7e…`) and `bundles/verify` (`f7cbd4bb…`) are unchanged. Strict
+  OpenSpec (18) and `git diff --check` are clean.
+- **Pending.**
+  - The case-insensitive rows of the spelling refusal (macOS, or Linux on
+    a casefolded directory). This host's fixture root accepts no alias.
+  - macOS `openat`/`readlinkat`, the flag values and the socket wording.
   - Exact coverage outside the box.
   - Remote CI and the council.
 

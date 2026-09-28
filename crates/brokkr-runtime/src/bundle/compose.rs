@@ -564,13 +564,11 @@ enum Standing {
     /// Under both keys, with the buffer's digest, and the input still
     /// stands as it was read.
     Held,
-    /// Under both keys, but the input no longer stands as it was read: an
-    /// entry on its way was replaced, removed or retargeted, a name it was
-    /// bound by changed, or the held file's bytes changed.
+    /// The input no longer stands as it was read: an entry on its way was
+    /// replaced, removed or retargeted, a name it was bound by changed, or
+    /// the held file's bytes changed. (A key the walk lists no entry for
+    /// never reaches here: the walk refuses it, rebuild unit 16-fix-d.)
     Changed,
-    /// Not under one of its keys at all: the walk lists no entry by that
-    /// name.
-    Unlisted,
 }
 
 impl Pinned {
@@ -591,9 +589,6 @@ impl Pinned {
             .iter()
             .map(|key| files.get(*key).and_then(Value::as_str))
             .collect();
-        if pinned.contains(&None) {
-            return Standing::Unlisted;
-        }
         // Not short-circuited: the held input is verified whatever the map
         // says, and either disagreement is a change.
         let digests = pinned.iter().all(|at| *at == Some(self.digest.as_str()));
@@ -676,9 +671,10 @@ impl Consumed {
     }
 
     /// Refuse a layer whose walk does not hold its document, its table or a
-    /// charter as it was read: pinned under other bytes, no longer standing
-    /// as the read observed it, or under no entry of the name it was read
-    /// by. A link retargeted or replaced after the read moves the
+    /// charter as it was read: pinned under other bytes, or no longer
+    /// standing as the read observed it. (Under no entry of the name it was
+    /// read by, the walk has already refused it.) A link retargeted or
+    /// replaced after the read moves the
     /// reference's own entry while the file that was read keeps the
     /// target's, so both are asked, and the whole resolution is observed
     /// again.
@@ -726,14 +722,6 @@ impl TableRead {
                  replaced, removed or retargeted, a name it was read by changed, or the bytes \
                  read changed. The table a run is ruled by must be the table its identity names, \
                  so it is refused (decision 0065 slice one, design D7)"
-            ))),
-            Standing::Unlisted => Err(invalid(format!(
-                "{file}: 'policy' names {reference}, which the walk that pinned the layer lists \
-                 under no entry of the name it was read by: the reference reached its table \
-                 through a case or normalization alias the filesystem accepted, or that entry \
-                 was removed after the read. The table a run is ruled by must be named by an \
-                 entry its identity pins, so it is refused; write the reference as its \
-                 directory lists it (decision 0065 slice one, design D7)"
             ))),
         }
     }

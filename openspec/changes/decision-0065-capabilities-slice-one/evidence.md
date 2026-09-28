@@ -18019,6 +18019,13 @@ pass. No filesystem that accepts a case alias could be reached from this
 seat (see "Pending"). F2 therefore stays **PENDING**, and so does task 16.1.
 This record does not say F1–F5 are repaired.
 
+*Corrected by unit 16-fix-d:* "F1 … implemented" did not hold. The test
+below put the name back before the second observation. Hidden at *each*
+observation instead, the name was bound to `h.json` both times, and the
+compile sealed ruling B under `policy.json` after parsing A. That was
+observed on `95d4ff19` as `compiled to 32393b07…`. The alias search was
+removed, not patched; see "Unit 16-fix-d".
+
 The production files are `bundle.rs` and `bundle/compose.rs`, and the tests
 are in `bundle/compose_tests.rs`. Scratch logs are `.forge/u16c/*` (not
 committed). The baseline and the mutations ran in this worktree. The two
@@ -18240,6 +18247,10 @@ commands.
 
   The mutation to bind: `listed` refuses where the name read by is not
   listed (M14's analogue).
+
+  *Retired by unit 16-fix-d, not claimed:* the alias surface was removed
+  under the refusal ruling. The proof now owed is a refusal on a
+  case-insensitive filesystem; see "Unit 16-fix-d", "Pending".
 - macOS, never run here:
   - `fdopendir$INODE64` and `readdir$INODE64` on x86_64;
   - `d_name` at 21;
@@ -18257,3 +18268,203 @@ commands.
 - The walk lists a layer by path, and hashes files nothing consumed by
   path, as before. Such a file is now also refused when it is a consumed
   file under another name.
+
+## Unit 16-fix-d — one name, looked up exactly, 2026-09-28
+
+Run `0065-rebuild-unit-16-see-the-uni-1d9ed775`, based on `95d4ff19`.
+This visit answers the chief's F1–F4 on unit 16-fix-c's SECURITY-HOLD.
+Three holds had attacked one mechanism: accepting an absent name by
+searching its directory for another entry holding the same file. No
+requirement asks for that, and the refusal ruling says refuse, never
+reconcile, so this visit **removes the surface rather than patching it**.
+F5 (verdict advocacy in member notes) is not acted on, and nothing here
+argues for a gate outcome.
+
+The production files are `bundle.rs` and `bundle/compose.rs`. The tests
+are in `bundle/compose_tests.rs`. Scratch logs are in `.forge/u16d/*`
+(not committed). The baseline ran this visit's test file against the
+production files as committed at `95d4ff19`. Each mutation edited the
+candidate, ran the tests, and was then restored by copying back the saved
+candidate (`.forge/u16d/*.cand`). After the last restore, `cmp` showed
+`bundle.rs` equal to its candidate, and the unmutated suite passed again.
+
+### What changed
+
+**The alias search is deleted (F1, F3).**
+
+- Removed from `bundle.rs`: `listed`, `listing`, `many_names`, `NAME_AT`,
+  and the `fdopendir`/`readdir`/`closedir`/`errno` FFI.
+- `observe` binds the target's key from the names in its handle stack,
+  each exactly as `openat` looked it up in the held directory before it.
+- No listing, search or inode match ever puts another entry in a name's
+  place.
+- The post-read re-observation and `Held::intact` are unchanged. They
+  look up the same names from the layer's directory and compare the
+  whole observation. A name that no longer resolves, or resolves to
+  another file, is refused.
+- With no candidates there are no swallowed candidate errors. Every
+  lookup error is a refusal (F3).
+
+**One name per consumed file, checked once at the walk (F1, F2).**
+`walk_files` sees every name in the layer. Before it hashes anything, it
+refuses:
+
+- **Unlisted key.** A consumed key the walk lists no entry for (new
+  message). Examples: a case-insensitive filesystem where the on-disk
+  spelling differs, or an entry removed after the read.
+
+While it walks, for each entry whose own `(dev, ino)` (`symlink_metadata`)
+is a consumed file (`consumed_entry`, renamed from
+`consumed_under_another_name`), it refuses:
+
+- **Another name.** The entry is not that file's consumed key. This is
+  16-fix-c's message, unchanged.
+- **Two names.** The file was already met under another name, consumed or
+  not (new message). This closes F2: two consumed hard-link roles.
+
+A link is its own entry, so a contained link to a consumed file is one
+name whose target is the other, and it still compiles. The `Walked` hook
+still fires before the judgement, for files under no consumed key.
+
+**`compose.rs`.** The walk now refuses a consumed key it does not list,
+so `Standing::Unlisted` could no longer be reached. It was removed, along
+with the table's "lists under no entry" refusal. `Changed` and the
+`Consumed::check` documentation say why.
+
+**F4.** `a_reference_is_keyed_by_the_entry_its_directory_lists` became
+`a_spelling_its_directory_does_not_list_is_refused`. `POLICY.JSON` and a
+link reached as `TABLE.JSON` are refused on every filesystem, and the
+fixture-root probe picks the exact reason:
+
+- a root that accepts no alias: "which does not exist";
+- a root that accepts one: the walk's unlisted-key refusal.
+
+The removed-link row now takes the walk's refusal on every host. The
+pending alias-positive proof is **retired, not claimed**, because the
+surface it would have proved was removed under the refusal ruling.
+
+### Tests
+
+New, in `bundle/compose_tests.rs`:
+
+- **`a_name_hidden_at_every_observation_binds_no_other_entry` (F1).** The
+  chief's repeated interleaving, driven by `hidden_at_every_observation`
+  with `supply`:
+  - at each `Entered` for `policy.json` that finds the held file A there,
+    `h.json` is hard-linked to A (once) and `policy.json` is moved out of
+    the layer;
+  - at the read's `Read`, A is put back;
+  - at its `Verified`, ruling B is written at `policy.json`;
+  - at `Walked` for `zz.md`, B is moved away and A put back.
+
+  The hook matches the read's stages at `policy.json` or `h.json`,
+  because `95d4ff19` reached them at the target it bound. Expected: the
+  walk's another-name refusal for `h.json`.
+- **`a_name_that_no_longer_resolves_is_refused_not_found_elsewhere`
+  (F3).** The same, without `supply`: `policy.json` is gone at the walk,
+  while `h.json` holds the file that was read. Expected: the unlisted-key
+  refusal for `policy.json`.
+- **`two_consumed_names_for_one_file_are_refused` (F2).** `review`'s
+  charter `roles/review.md` is a hard link to `work`'s `roles/role.md`.
+  Expected: the two-names refusal, standalone and inherited.
+
+Changed:
+
+- `a_spelling_its_directory_does_not_list_is_refused`, as above.
+- `a_consumed_file_has_one_name_in_its_layer`. The walk rows now use an
+  `another_name` helper with unchanged text. Two other names at `Entered`
+  now give *replaced*: the exact name is gone on re-observation, and
+  nothing is guessed. A name moved away at `Entered` and back at `Read`
+  now compiles to the undisturbed identity. It is the same file under the
+  same name at both observations, so nothing was substituted.
+- `a_hard_link_cannot_stand_in_for_a_hidden_reference` was removed. Its
+  narrower interleaving is subsumed by the F1 regression.
+
+### Baseline reds on `95d4ff19`
+
+Command: `cargo test -p brokkr-runtime --all-features --locked --lib
+bundle::compose_tests`, with this visit's test file and `95d4ff19`'s
+production files. Result: 43 passed, 5 failed (`baseline.log`).
+
+- F1, `:3142`: left `"compiled to
+  32393b0704f488f81e03bb3e1a8a9e5867b004c5b2dbb58bdc955178564fe6b2"`. That
+  is the digest the adversarial member reported, now reproduced here.
+- F3, `:3160`: left the table's *changed* refusal. On `95d4ff19` the
+  observations had bound `h.json`.
+- F2, `:3183`: left `"compiled to 2662257a…"`.
+- `a_consumed_file_…`, `:3228` (two other names): left 16-fix-c's
+  two-names clause (`'h1.json' and 'h2.json'`).
+- `a_spelling_…`, `:2663` (link removed): left the old table "lists under
+  no entry" refusal.
+
+The moved-away-and-back row (`:3252`) was not reached, because its test
+stopped at `:3228`. It was then run alone with `95d4ff19`'s three files
+(`baseline-moved-row.log`, 1 passed). On `95d4ff19` that row is refused as
+*replaced*.
+
+### Mutations
+
+Each mutation is one compiling edit. Each run used `cargo test -p
+brokkr-runtime --all-features --locked --lib bundle::`.
+
+| Mutation | Fails (exact assertion) | Log |
+| --- | --- | --- |
+| M1: the another-name refusal is disabled (`&& false`) | F1 `:3142`: left `"compiled to 4066ed79…"`. Also `a_consumed_file_…` `:3209`, which takes the two-names refusal instead. 231 passed | `m1.log` |
+| M2: the two-names refusal is disabled (`.filter(\|_\| false)`) | F2 `:3183`: left `"compiled to 2662257a…"`. 232 passed | `m2.log` |
+| M3: the unlisted-key refusal is disabled (`&& false`) | F3 `:3160`: left the another-name refusal for `h.json`. `a_spelling_…` `:2663`: left the table's *changed* refusal. 231 passed | `m3.log` |
+| T1 (test side): the probe always says "accepts" | `a_spelling_…` `:2646`: left "… 'POLICY.JSON', which does not exist". The rows follow the probe. 232 passed | `t1.log` |
+
+Unmutated and restored: 233 passed (`cand.log`, `restored.log`,
+`final.log`).
+
+### Coverage diagnostic (not the gate)
+
+Command: `cargo +nightly-2026-09-05 llvm-cov -p brokkr-runtime --lib
+--all-features --branch --lcov` (`u16d.lcov`). On the changed ranges of
+`bundle.rs`, `observe`'s key (`:4874–4882`) and `walk_files` through
+`consumed_entry` (`:6695–6795`), the report holds 99 `DA`/`BRDA` records
+at those line numbers, across all its files. None of them is zero or
+untaken. No record at `:560–739` in any file, which includes
+`compose.rs`'s changed ranges, is zero or untaken either. The check was a
+`grep` over the whole report. This is not `scripts/coverage-exact.sh`.
+
+### Standing-admission lines and fixture migrations
+
+None.
+
+### Gates
+
+All on the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean (`clippy.log`).
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 results, 0
+  failed, lib 597 (`runtime.log`).
+- `cargo test --workspace --all-features --locked`: 77 results, 0 failed
+  (`workspace.log`).
+- `compile --bundle bundles/self`: `45dc1c7e…`. `bundles/verify`:
+  `f7cbd4bb…`. Both are unchanged.
+- `openspec validate --all --strict --no-interactive`: 18 passed.
+- `git diff --check`: clean.
+
+The default-feature workspace suite was not run on this visit.
+
+### Pending
+
+- **The case-insensitive rows of the spelling refusal.** This host's
+  fixture root accepts no case alias (the probe says `NotFound`). The
+  unlisted-key reason for `POLICY.JSON` and `TABLE.JSON` still needs a run
+  on macOS or on a casefolded Linux directory. It is now a refusal to
+  observe, not an acceptance to prove.
+- macOS: `openat`/`readlinkat`, the flag values and the socket row's
+  wording. The macOS-only listing FFI is gone.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`).
+- Remote CI.
+- The council. The SECURITY-HOLD stands until it rules.
+
+### Follow-ups, not built here
+
+- Dispatch still reads a role by its written path (unit 18).
+- The walk still lists a layer by path and hashes unconsumed files by
+  path. Only its judgement of consumed identities changed.

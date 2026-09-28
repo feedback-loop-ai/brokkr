@@ -4451,14 +4451,15 @@ pub(crate) struct BoundInput {
 pub(crate) struct Binding {
     /// The file-map key under which the declaring layer's walk pins what the
     /// reference names: the entry the layer's identity names the input by.
-    /// Where no step of the written path is a link it is `target_key`, so a
-    /// case or normalization alias the filesystem accepted is bound to the
-    /// name its directory lists; through a link it is the written spelling,
-    /// which is the link's own entry.
+    /// Where no step of the written path is a link it is `target_key`;
+    /// through a link it is the written spelling, which is the link's own
+    /// entry.
     key: String,
     /// The file-map key the declaring layer's walk writes for the target:
-    /// each name as the held directory before it lists the entry its handle
-    /// holds.
+    /// each name exactly as it was looked up in the held directory before
+    /// it. A spelling the filesystem accepted for an entry its directory
+    /// lists otherwise (a case or normalization alias) is bound as written,
+    /// and the walk, listing no entry of that name, refuses it.
     target_key: String,
     /// The `(dev, ino)` of the handle that was read.
     id: (u64, u64),
@@ -4714,23 +4715,9 @@ const REPLACED: &str = "which was replaced while it was read: the file the read 
                         longer the contained target that was checked, so its bytes are not the \
                         ones verified";
 
-/// The clause an entry its held directory lists under more than one other
-/// name carries, naming two of them (rebuild unit 16-fix-c, F1).
-fn many_names(first: &str, second: &str) -> String {
-    format!(
-        "which its directory no longer lists by the name it was read by, while {} and {} both \
-         name the file that was read, so no one entry names it; another name for a consumed \
-         file inside the layer is refused rather than guessed between (design D7)",
-        bounded_reference(first),
-        bounded_reference(second)
-    )
-}
-
 // The library calls the owner-rooted resolution is made of, which the
 // standard library does not expose: a lookup of one name inside an open
-// directory, the text of a link standing there, and the listing of an open
-// directory through its handle, with the `errno` that says a listing ended
-// in error.
+// directory, and the text of a link standing there.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 extern "C" {
     fn openat(
@@ -4745,74 +4732,6 @@ extern "C" {
         buf: *mut std::ffi::c_char,
         size: usize,
     ) -> isize;
-    #[cfg_attr(
-        all(target_os = "macos", target_arch = "x86_64"),
-        link_name = "fdopendir$INODE64"
-    )]
-    fn fdopendir(fd: std::ffi::c_int) -> *mut std::ffi::c_void;
-    #[cfg_attr(all(target_os = "linux", target_env = "gnu"), link_name = "readdir64")]
-    #[cfg_attr(
-        all(target_os = "macos", target_arch = "x86_64"),
-        link_name = "readdir$INODE64"
-    )]
-    fn readdir(dir: *mut std::ffi::c_void) -> *const u8;
-    fn closedir(dir: *mut std::ffi::c_void) -> std::ffi::c_int;
-    #[cfg_attr(target_os = "linux", link_name = "__errno_location")]
-    #[cfg_attr(target_os = "macos", link_name = "__error")]
-    fn errno() -> *mut std::ffi::c_int;
-}
-
-/// Where `d_name` stands in the entry each host's `readdir` returns, after
-/// its 64-bit `d_ino` (at 0) and `d_off`/`d_seekoff` (at 8): Linux's
-/// `dirent64` then has `d_reclen` and `d_type`, macOS's 64-bit-inode
-/// `dirent` `d_reclen`, `d_namlen` and `d_type`.
-#[cfg(target_os = "linux")]
-const NAME_AT: usize = 19;
-#[cfg(target_os = "macos")]
-const NAME_AT: usize = 21;
-
-/// Every name the directory `parent` holds lists, with the inode number its
-/// entry records, read through a copy of that handle and never by a path.
-/// A listing that cannot be opened or ends in error is an error: the caller
-/// fails closed.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn listing(parent: &std::fs::File) -> std::io::Result<Vec<(OsString, u64)>> {
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::io::{AsRawFd, IntoRawFd};
-    let copy = parent.try_clone()?;
-    // SAFETY: `copy` is a descriptor nothing else uses. On success the
-    // stream owns it, so it is released from `copy`; on failure `copy`
-    // still owns it and closes it.
-    let dir = unsafe { fdopendir(copy.as_raw_fd()) };
-    let dir = std::ptr::NonNull::new(dir).ok_or_else(std::io::Error::last_os_error)?;
-    let _owned_by_the_stream = copy.into_raw_fd();
-    let mut names = Vec::new();
-    let ended = loop {
-        // SAFETY: `errno` is this thread's; `dir` is an open stream, and an
-        // entry it returns is valid until the next call, a NUL-terminated
-        // name at `NAME_AT` after a 64-bit inode number at its start.
-        let entry = unsafe {
-            *errno() = 0;
-            readdir(dir.as_ptr())
-        };
-        let Some(entry) = std::ptr::NonNull::new(entry.cast_mut()) else {
-            break std::io::Error::last_os_error();
-        };
-        // SAFETY: as above, `entry` is the entry `readdir` just returned.
-        let (ino, name) = unsafe {
-            let name = std::ffi::CStr::from_ptr(entry.as_ptr().add(NAME_AT).cast());
-            (
-                entry.as_ptr().cast::<u64>().read_unaligned(),
-                name.to_bytes(),
-            )
-        };
-        names.push((OsStr::from_bytes(name).to_os_string(), ino));
-    };
-    // SAFETY: `dir` is open and closed exactly once, here.
-    unsafe { closedir(dir.as_ptr()) };
-    (ended.raw_os_error() == Some(0))
-        .then_some(names)
-        .ok_or(ended)
 }
 
 /// Open `name` inside the directory `parent` holds, non-blocking, never
@@ -4901,54 +4820,6 @@ fn queue(
     Ok(())
 }
 
-/// The name the directory `parent` holds lists for the entry looked up there
-/// as `name`, whose handle holds `id`, found through `parent` itself, never
-/// by listing a path (rebuild unit 16-fix-c, F1): `name` wherever the
-/// listing holds it, and otherwise the one other entry that holds the same
-/// file, which the filesystem accepted `name` as an alias of (a case or
-/// normalization alias, as on macOS). No such entry is a read whose entry
-/// was replaced; more than one is refused naming two, `above` being the
-/// keys of the directories before. A listing that fails refuses.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn listed(
-    parent: &std::fs::File,
-    name: &OsStr,
-    id: (u64, u64),
-    above: &[String],
-) -> Result<OsString, InputFault> {
-    use std::os::unix::fs::MetadataExt;
-    let listing = listing(parent)
-        .map_err(|error| InputFault::Place(format!("which cannot be listed ({})", error.kind())))?;
-    if listing.iter().any(|(entry, _)| entry == name) {
-        return Ok(name.to_os_string());
-    }
-    let mut holding: Vec<OsString> = listing
-        .into_iter()
-        .filter(|(_, ino)| *ino == id.1)
-        .map(|(entry, _)| entry)
-        .filter(|entry| {
-            open_at(parent, entry)
-                .and_then(|file| file.metadata())
-                .is_ok_and(|meta| (meta.dev(), meta.ino()) == id)
-        })
-        .collect();
-    holding.sort();
-    let key = |entry: &OsString| {
-        let entry = entry.to_string_lossy();
-        above
-            .iter()
-            .map(String::as_str)
-            .chain([&*entry])
-            .collect::<Vec<_>>()
-            .join("/")
-    };
-    match holding.as_slice() {
-        [one] => Ok(one.clone()),
-        [] => Err(InputFault::Place(REPLACED.to_string())),
-        [first, second, ..] => Err(InputFault::Place(many_names(&key(first), &key(second)))),
-    }
-}
-
 /// Resolve `reference` from the layer's directory at `root` a name at a
 /// time: each name is looked up inside the directory handle before it,
 /// without following a link; a link's text is read and its names are looked
@@ -5000,15 +4871,15 @@ fn observe(root: &Path, reference: &Path) -> Result<Observation, InputFault> {
             }
         }
     }
-    // Each name as the held directory before it lists the entry its handle
-    // holds; the keys, and the file read, are bound here and nowhere else.
-    let mut names = Vec::new();
-    for pair in stack.windows(2) {
-        let ((parent, ..), (_, name, id)) = (&pair[0], &pair[1]);
-        let entry = listed(parent, name, *id, &names)?;
-        names.push(entry.to_string_lossy().into_owned());
-    }
-    let target_key = names.join("/");
+    // Each name exactly as it was looked up in the held directory before it
+    // (rebuild unit 16-fix-d): no listing, search or inode match ever puts
+    // another entry in its place. The keys, and the file read, are bound
+    // here and nowhere else.
+    let target_key = stack[1..]
+        .iter()
+        .map(|(_, name, _)| name.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
     // Through a link, the link's own entry as written: `unpinned_active_input`
     // has refused every spelling that leaves the layer or steps up. Without
     // one, the written path IS the target, and its key is the target's.
@@ -5053,8 +4924,8 @@ fn observe(_: &Path, _: &Path) -> Result<Observation, InputFault> {
 /// before a byte is read, so a FIFO, device or directory never supplies
 /// any. Both file-map keys come from that one observation, bound with the
 /// file it read ([`Binding`]): whether a written step was a link is what it
-/// saw, and each name is the one its held directory lists, never a later
-/// look at the path.
+/// saw, and each name is exactly the one it looked up, never another entry
+/// found by a later look at the directory or the path.
 ///
 /// After the read, while the handles are still held, the reference is
 /// resolved again from the layer's directory and must take exactly the same
@@ -6767,12 +6638,18 @@ fn manifest_for(
 /// A key in `consumed` is a file a bound read already supplied (design D7;
 /// rebuild unit 16-fix-b, F3): its digest is the digest of the buffer that
 /// was parsed, and the walk never opens its path to hash it again. The
-/// caller verifies that each such input still stands as it was read, and
-/// that the walk listed its keys, before the digest is sealed. A file under
-/// no consumed key that IS a consumed file, another name for the one a
-/// bound read held, is refused naming both (rebuild unit 16-fix-c, F1):
-/// what was consumed is known by its binding, not by the name the walk
-/// happens to list it under.
+/// caller verifies that each such input still stands as it was read before
+/// the digest is sealed.
+///
+/// The walk is the one place that sees every name in the layer, so it holds
+/// each consumed file to exactly one name (rebuild unit 16-fix-d): a
+/// consumed key it lists no entry for is refused, a file under no consumed
+/// key that IS a consumed file is refused as another name for it (16-fix-c,
+/// F1), and a consumed file met under a second name, consumed or not, is
+/// refused naming both. What was consumed is known by its binding, not by
+/// the name the walk happens to list it under. A link is its own entry, so
+/// a contained link to a consumed file is one name whose target is the
+/// other, never a second name.
 fn walk_files(
     dir: &Path,
     scope: &Path,
@@ -6815,7 +6692,7 @@ fn walk_files(
         }
     }
     paths.sort();
-    let mut files = BTreeMap::new();
+    let mut walked = Vec::with_capacity(paths.len());
     for path in paths {
         // Join actual components, never replace bytes inside a name:
         // Unix `scripts\gate.sh` is a different file from `scripts/gate.sh`.
@@ -6843,22 +6720,54 @@ fn walk_files(
                  supplied by a bundle"
             )));
         }
-        let digest = match consumed.get(&rel) {
-            Some(supplied) => supplied.digest.clone(),
-            None => {
-                at_stage(ReadStage::Walked, &path);
-                if let Some(supplied) = consumed_under_another_name(&path, consumed)? {
-                    return Err(CompileError::Invalid(format!(
-                        "bundle file {} is another name for {}, the file a bound read consumed: \
-                         a layer's identity names a consumed file by the entry it was read by, \
-                         and a second name for it inside the layer is refused rather than \
-                         walked as a file nothing consumed (decision 0065 slice one, design D7)",
-                        bounded_reference(&rel),
-                        bounded_reference(&supplied.target)
-                    )));
-                }
-                sha256_bytes(&std::fs::read(&path)?)
+        walked.push((path, rel));
+    }
+    if let Some(key) = consumed
+        .keys()
+        .find(|key| !walked.iter().any(|(_, rel)| rel == *key))
+    {
+        return Err(CompileError::Invalid(format!(
+            "bundle file {} is the name a bound read consumed its file by, and the walk that pins \
+             the layer lists no entry of that name: the name reached the file through a case or \
+             normalization alias the filesystem accepted, or the entry was removed after the \
+             read. A layer's identity names a consumed file by the entry its directory lists, so \
+             it is refused; write the reference as its directory lists it (decision 0065 slice \
+             one, design D7)",
+            bounded_reference(key)
+        )));
+    }
+    let mut named: BTreeMap<(u64, u64), String> = BTreeMap::new();
+    let mut files = BTreeMap::new();
+    for (path, rel) in walked {
+        let supplied = consumed.get(&rel);
+        if supplied.is_none() {
+            at_stage(ReadStage::Walked, &path);
+        }
+        if let Some(held) = consumed_entry(&path, consumed)? {
+            if supplied.map(|supplied| supplied.id) != Some(held.id) {
+                return Err(CompileError::Invalid(format!(
+                    "bundle file {} is another name for {}, the file a bound read consumed: a \
+                     layer's identity names a consumed file by the entry it was read by, and a \
+                     second name for it inside the layer is refused rather than walked as a file \
+                     nothing consumed (decision 0065 slice one, design D7)",
+                    bounded_reference(&rel),
+                    bounded_reference(&held.target)
+                )));
             }
+            if let Some(first) = named.insert(held.id, rel.clone()) {
+                return Err(CompileError::Invalid(format!(
+                    "bundle files {} and {} are two names for one file a bound read consumed: a \
+                     layer's identity names a consumed file by exactly one entry, and a second \
+                     name for it inside the layer, consumed or not, is refused rather than bound \
+                     twice (decision 0065 slice one, design D7)",
+                    bounded_reference(&first),
+                    bounded_reference(&rel)
+                )));
+            }
+        }
+        let digest = match supplied {
+            Some(supplied) => supplied.digest.clone(),
+            None => sha256_bytes(&std::fs::read(&path)?),
         };
         files.insert(rel, digest);
     }
@@ -6870,7 +6779,7 @@ fn walk_files(
 /// never a link's target, so a link to a consumed file is walked as the
 /// link it is.
 #[cfg(unix)]
-fn consumed_under_another_name<'a>(
+fn consumed_entry<'a>(
     path: &Path,
     consumed: &'a BTreeMap<String, Supplied>,
 ) -> std::io::Result<Option<&'a Supplied>> {
@@ -6883,7 +6792,7 @@ fn consumed_under_another_name<'a>(
 /// No supported host lacks the identity; any other consumes nothing, since
 /// its every bound read refuses (design D7).
 #[cfg(not(unix))]
-fn consumed_under_another_name<'a>(
+fn consumed_entry<'a>(
     _: &Path,
     _: &'a BTreeMap<String, Supplied>,
 ) -> std::io::Result<Option<&'a Supplied>> {
