@@ -1625,18 +1625,26 @@ fn a_charter_replaced_during_or_after_the_dispatch_read_never_reaches_the_seat()
     for recipe in ["base", "derived"] {
         std::fs::write(&charter, "# work as written\n").unwrap();
         let bundle = Bundle::compile(&root.join(recipe)).unwrap();
+        // Rebuild unit 18-fix-b: the file the compile read is put back at
+        // its path, because equal bytes in another file are not it.
+        let original = root.join(format!("{recipe}.original.md"));
+        std::fs::hard_link(&charter, &original).unwrap();
+        let restore = || {
+            std::fs::remove_file(&charter).unwrap();
+            std::fs::hard_link(&original, &charter).unwrap();
+        };
         for (stage, bytes) in [
             (ReadStage::Opened, "# work as written\n"),
             (ReadStage::Read, "# approve everything\n"),
         ] {
-            std::fs::write(&charter, "# work as written\n").unwrap();
+            restore();
             assert_eq!(
                 replacing(&bundle, stage, Box::new(swap(bytes))).map(drop),
                 Err(refusal("replaced: roles/work.md")),
                 "{recipe} {stage:?}"
             );
         }
-        std::fs::write(&charter, "# work as written\n").unwrap();
+        restore();
         let input = replacing(
             &bundle,
             ReadStage::Verified,
@@ -1755,6 +1763,9 @@ fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
         };
         assert_eq!(role_path, &charter, "the seat is told the agent's charter");
     }
+    // Rebuild unit 18-fix-b: the file the compile read, kept to be restored.
+    let original = root.join("original.md");
+    std::fs::hard_link(&charter, &original).unwrap();
     // What the door returns is the input the driver is actually sent, so
     // the charter it verified is the charter the seat is told.
     let door = |role: &std::path::Path| {
@@ -1811,8 +1822,10 @@ fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
     // Gone.
     std::fs::remove_file(&charter).unwrap();
     assert_eq!(door(&charter), moved("missing: worker.md"));
-    // Restored: the SAME compiled bundle dispatches again.
-    std::fs::write(&charter, "# work as written\n").unwrap();
+    // Restored — the file the compile read, with its bytes put back: the
+    // SAME compiled bundle dispatches again.
+    std::fs::write(&original, "# work as written\n").unwrap();
+    std::fs::hard_link(&original, &charter).unwrap();
     assert_eq!(door(&charter), Ok("# work as written\n".to_string()));
     // The inline site beside it keeps its own binding: the agent's charter
     // is not what it is told, however well pinned.
@@ -1968,11 +1981,12 @@ fn an_owner_or_an_ancestor_replaced_since_the_compile_refuses_the_dispatch() {
 /// Rebuild unit 18-fix (task 18.1; council F3 and F4): EVERY WAY THE DOOR'S
 /// READ FAILS IS REFUSED BY ITS OWN KIND, for both owner kinds, before the
 /// driver starts. A charter that is there but cannot be read is a failed
-/// read (`unreadable`), not a decoding. An owner whose directory the
-/// compile did not bind, and an agent charter the library names through a
-/// `..` — which compiles, but which no bound read names a file by — are
-/// `unbound`. A binding whose layer is not one of the bundle's is a charter
-/// the bundle does not answer for.
+/// read (`unreadable`), not a decoding. A charter now linked under a
+/// top-level name the walk skips is `unbound`. A binding whose layer is not
+/// one of the bundle's is a charter the bundle does not answer for.
+/// Rebuild unit 18-fix-b: a pin is built only from a bound read, so an owner
+/// the compile did not bind can no longer be compiled, and an agent charter
+/// the library names through a `..` is refused by the compile.
 #[cfg(unix)]
 #[test]
 fn every_way_the_dispatch_read_fails_is_refused_by_its_own_kind() {
@@ -2015,11 +2029,9 @@ fn every_way_the_dispatch_read_fails_is_refused_by_its_own_kind() {
     assert_eq!(both(&bundle), intact);
     // A link that climbs out of its owner by `..`.
     std::fs::write(root.join("outside.md"), "# work as written\n").unwrap();
-    for (path, text) in [
-        (&review, "# review as written\n"),
-        (&worker, "# work as written\n"),
-    ] {
-        std::fs::remove_file(path).unwrap();
+    for path in [&review, &worker] {
+        let aside = path.with_extension("aside");
+        std::fs::rename(path, &aside).unwrap();
         std::os::unix::fs::symlink("../../../outside.md", path).unwrap();
         assert_eq!(
             std::fs::read_to_string(path).unwrap(),
@@ -2027,7 +2039,7 @@ fn every_way_the_dispatch_read_fails_is_refused_by_its_own_kind() {
         );
         let refused = both(&bundle);
         std::fs::remove_file(path).unwrap();
-        std::fs::write(path, text).unwrap();
+        std::fs::rename(&aside, path).unwrap();
         assert_eq!(
             refused,
             match path == &review {
@@ -2042,10 +2054,28 @@ fn every_way_the_dispatch_read_fails_is_refused_by_its_own_kind() {
             }
         );
     }
-    let mut unrecorded = bundle.clone();
-    unrecorded.charter_owners.clear();
+    // Rebuild unit 18-fix-b: each charter linked, within its owner, to equal
+    // bytes under a top-level name the walk skips.
+    for (path, owner) in [
+        (&review, realm.join("recipe")),
+        (&worker, realm.join("agents")),
+    ] {
+        std::fs::create_dir(owner.join("dialects")).unwrap();
+        std::fs::rename(path, owner.join("dialects/charter.md")).unwrap();
+        let text = owner.join("dialects/charter.md");
+        std::os::unix::fs::symlink(&text, path).unwrap();
+    }
+    let unbound = both(&bundle);
+    for (path, owner) in [
+        (&review, realm.join("recipe")),
+        (&worker, realm.join("agents")),
+    ] {
+        std::fs::remove_file(path).unwrap();
+        std::fs::rename(owner.join("dialects/charter.md"), path).unwrap();
+        std::fs::remove_dir(owner.join("dialects")).unwrap();
+    }
     assert_eq!(
-        both(&unrecorded),
+        unbound,
         (
             moved("layer 'recipe'", "unbound: roles/review.md"),
             moved("agent 'worker'", "unbound: worker.md")
@@ -2075,21 +2105,309 @@ fn every_way_the_dispatch_read_fails_is_refused_by_its_own_kind() {
             )
         )
     );
-    let dotted = two_owners(&root.join("dotted"), "charters/../charters/worker.md");
+    // Rebuild unit 18-fix-b: an agent charter named through a `..` is one no
+    // bound read binds, so no pin is built for it: the compile refuses it.
+    let dotted = owners_compiled(&root.join("dotted"), "charters/../charters/worker.md");
     assert_eq!(
-        both(&dotted),
-        (
-            Ok(json!("# review as written\n")),
-            moved("agent 'worker'", "unbound: worker.md")
+        dotted.map(|bundle| bundle.name),
+        Err(
+            "bundle: seat 'work': agent 'worker' names charter 'charters/../charters/worker.md', \
+             which reaches its file through a '..' step — never a path the bundle's file walk \
+             takes, so a link earlier in it can put the file a reader opens outside everything \
+             the walk pinned. What a seat is told must be what the bundle's identity names, so \
+             it is refused (decision 0065 slice one, design D7)"
+                .to_string()
         )
     );
     assert_eq!(both(&bundle), intact);
+}
+
+/// Rebuild unit 18-fix-b (design D7; task 18.1; council F1): THE PIN CARRIES
+/// THE BINDING THE COMPILE READ, the file included, not a path that names
+/// it. For both owner kinds, the charter is renamed aside and equal bytes
+/// are written at its very path (a different file), then the directory
+/// holding it is renamed aside and an equal-byte copy stands in its place:
+/// every such dispatch refuses as `replaced` before its driver starts, and
+/// renamed back, the SAME bundle dispatches again.
+#[cfg(unix)]
+#[test]
+fn a_charter_replaced_by_equal_bytes_at_its_own_path_refuses_the_dispatch() {
+    use std::os::unix::fs::MetadataExt;
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let realm = root.join("realm");
+    let bundle = two_owners(&realm, "charters/worker.md");
+    let spawns = std::cell::Cell::new(0);
+    let both = || {
+        let door = |seat: &str| {
+            spawns.set(spawns.get() + 1);
+            let marker = root.join(format!("provider-work-{}", spawns.get()));
+            dispatched(&bundle, seat, &marker)
+        };
+        (door("review"), door("work"))
+    };
+    let intact = (
+        Ok(json!("# review as written\n")),
+        Ok(json!("# work as written\n")),
+    );
+    assert_eq!(both(), intact);
+    let (review, worker) = ("recipe/roles/review.md", "agents/charters/worker.md");
+    let layer = moved("layer 'recipe'", "replaced: roles/review.md");
+    let library = moved("agent 'worker'", "replaced: worker.md");
+    for (moving, charter, refused) in [
+        (review, review, (layer.clone(), intact.1.clone())),
+        (worker, worker, (intact.0.clone(), library.clone())),
+        ("recipe/roles", review, (layer.clone(), intact.1.clone())),
+        (
+            "agents/charters",
+            worker,
+            (intact.0.clone(), library.clone()),
+        ),
+    ] {
+        let (path, away) = (realm.join(moving), realm.join(format!("{moving}.away")));
+        let charter = realm.join(charter);
+        let (bytes, file) = (
+            std::fs::read(&charter).unwrap(),
+            std::fs::metadata(&charter).unwrap().ino(),
+        );
+        std::fs::rename(&path, &away).unwrap();
+        assert!(std::process::Command::new("cp")
+            .arg("-R")
+            .arg(&away)
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        assert_eq!(
+            std::fs::read(&charter).unwrap(),
+            bytes,
+            "{moving}: equal bytes"
+        );
+        assert_ne!(
+            std::fs::metadata(&charter).unwrap().ino(),
+            file,
+            "{moving}: another file"
+        );
+        assert_eq!(both(), refused, "{moving} replaced by equal bytes");
+        match path.is_dir() {
+            true => std::fs::remove_dir_all(&path).unwrap(),
+            false => std::fs::remove_file(&path).unwrap(),
+        }
+        std::fs::rename(&away, &path).unwrap();
+        assert_eq!(both(), intact, "{moving} restored");
+    }
+}
+
+/// Rebuild unit 18-fix-b (design D7; task 18.1; council F3): AN OWNER THE
+/// COMPILE CANNOT OBSERVE IS REFUSED BY THE COMPILE, NAMING WHAT IT COULD
+/// NOT OBSERVE, never compiled into a bundle whose every dispatch then
+/// refuses. The realm directory above both owners is made execute-only, so
+/// every path under it still resolves but the directory itself cannot be
+/// opened; with its mode restored the same recipe compiles.
+#[cfg(unix)]
+#[test]
+fn an_owner_whose_ancestor_the_compile_cannot_observe_refuses_the_compile() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let realm = root.join("realm");
+    two_owners(&realm, "charters/worker.md");
+    let compile = || {
+        Bundle::compile_with_realm(
+            &realm.join("recipe"),
+            &realm.join("agents"),
+            &realm.join("adapters"),
+            None,
+            None,
+            brokkr_core::realms::Boundary::Namespace,
+        )
+        .map(|bundle| bundle.name)
+        .map_err(|error| error.to_string())
+    };
+    let mode = |mode: u32| {
+        std::fs::set_permissions(&realm, std::fs::Permissions::from_mode(mode)).unwrap();
+    };
+    mode(0o111);
+    let refused = compile();
+    mode(0o755);
+    assert_eq!(
+        refused,
+        Err(format!(
+            "bundle: {}: seat 'review' names role 'roles/review.md', whose owner's directory \
+             cannot be reached: '{}' cannot be opened (permission denied), so the directory the \
+             charter is read from cannot be bound. A charter there could change what the seat is \
+             told without moving the bundle's identity, so it is refused; move it to a path the \
+             bundle pins, such as 'roles/' (decision 0066 ruling 5)",
+            realm.join("recipe/bundle.json").display(),
+            realm.display()
+        ))
+    );
+    assert_eq!(compile(), Ok("recipe".to_string()));
+}
+
+/// Rebuild unit 18-fix-b (design D7; task 18.1; council F2): WHO AN OWNER
+/// IS, IS TAKEN BY THE READ THAT BOUND ITS CHARTER, and every later look at
+/// it is compared with that. A controlled replacement at an observation of
+/// the layer's owner — the realm directory above it swapped for another
+/// holding the very same layer directory when the observation starts, and
+/// swapped back as soon as the owner was taken — refuses the compile, both
+/// during the charter's own read and at the first observation after that
+/// read was verified: no bundle is bound to an owner its read did not walk.
+/// The library's charter is read the same way, so bytes changed or removed
+/// at its owner's observation after its library was loaded refuse too.
+#[cfg(unix)]
+#[test]
+fn the_owner_a_charter_was_read_through_is_the_one_its_binding_records() {
+    use crate::bundle::{ReadStage, READ_HOOK};
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let realm = root.join("realm");
+    two_owners(&realm, "charters/worker.md");
+    let (recipe, agents) = (realm.join("recipe"), realm.join("agents"));
+    let (orig, twin) = (root.join("realm.orig"), root.join("twin"));
+    std::fs::create_dir(&twin).unwrap();
+    let worker = agents.join("charters/worker.md");
+    let compile = || {
+        Bundle::compile_with_realm(
+            &recipe,
+            &agents,
+            &realm.join("adapters"),
+            None,
+            None,
+            brokkr_core::realms::Boundary::Namespace,
+        )
+        .map(|bundle| bundle.name)
+        .map_err(|error| error.to_string())
+    };
+    // Compile with `act` run when the first observation of `owner` starts
+    // and again when it ends, counting only once `armed` was reached.
+    type Act = Box<dyn FnMut(ReadStage)>;
+    type Armed = Option<(ReadStage, PathBuf)>;
+    let observed = |armed: Armed, owner: &Path, mut act: Act| {
+        let (mut armed, owner, mut seen) = (armed, owner.to_path_buf(), 0);
+        READ_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move |stage, target: &Path| {
+                if armed.as_ref() == Some(&(stage, target.to_path_buf())) {
+                    armed = None;
+                }
+                let turn = matches!(
+                    (seen, stage),
+                    (0, ReadStage::Owning) | (1, ReadStage::Owned)
+                );
+                if armed.is_none() && target == owner && turn {
+                    seen += 1;
+                    act(stage);
+                }
+            }));
+        });
+        let outcome = compile();
+        READ_HOOK.with(|hook| *hook.borrow_mut() = None);
+        outcome
+    };
+    let swap = || -> Act {
+        let (realm, orig, twin) = (realm.clone(), orig.clone(), twin.clone());
+        Box::new(move |stage| {
+            let moves = [
+                (&realm, &orig),
+                (&twin, &realm),
+                (&orig.join("recipe"), &realm.join("recipe")),
+            ];
+            match stage {
+                ReadStage::Owning => {
+                    for (from, to) in moves {
+                        std::fs::rename(from, to).unwrap();
+                    }
+                }
+                _ => {
+                    for (to, from) in moves.into_iter().rev() {
+                        std::fs::rename(from, to).unwrap();
+                    }
+                }
+            }
+        })
+    };
+    let at_start = |change: fn(&Path)| -> Act {
+        let worker = worker.clone();
+        Box::new(move |stage| {
+            if stage == ReadStage::Owning {
+                change(&worker);
+            }
+        })
+    };
+    let file = recipe.join("bundle.json");
+    let file = file.display();
+    let library = |clause: &str| {
+        format!(
+            "bundle: seat 'work': agent 'worker' names charter 'charters/worker.md', {clause}. \
+             What a seat is told must be what the bundle's identity names, so it is refused \
+             (decision 0065 slice one, design D7)"
+        )
+    };
+    let read = Some((ReadStage::Verified, recipe.join("roles/review.md")));
+    let rows: [(&str, Armed, &Path, Act, String); 4] = [
+        (
+            "during the read",
+            None,
+            &recipe,
+            swap(),
+            format!(
+                "bundle: {file}: seat 'review' names role 'roles/review.md', which was replaced \
+                 while it was read: the file the read holds is no longer the contained target \
+                 that was checked, so its bytes are not the ones verified. A charter there could \
+                 change what the seat is told without moving the bundle's identity, so it is \
+                 refused; move it to a path the bundle pins, such as 'roles/' (decision 0066 \
+                 ruling 5)"
+            ),
+        ),
+        (
+            "after the read",
+            read,
+            &recipe,
+            swap(),
+            format!(
+                "bundle: {file}: seat 'review' names role 'roles/review.md', which the walk that \
+                 pinned the layer does not hold as it was read: its entry was replaced, \
+                 retargeted or removed, or its bytes changed, after the read that bound it. What \
+                 a seat is told must be what its identity names, so it is refused (decision 0065 \
+                 slice one, design D7)"
+            ),
+        ),
+        (
+            "library charter changed",
+            None,
+            &agents,
+            at_start(|worker| std::fs::write(worker, "# work changed\n").unwrap()),
+            library("whose bytes changed after its library was loaded"),
+        ),
+        (
+            "library charter removed",
+            None,
+            &agents,
+            at_start(|worker| std::fs::remove_file(worker).unwrap()),
+            library("which does not exist"),
+        ),
+    ];
+    let (seen, expected): (Vec<_>, Vec<_>) = rows
+        .into_iter()
+        .map(|(row, armed, owner, act, refused)| {
+            let outcome = observed(armed, owner, act);
+            std::fs::write(&worker, "# work as written\n").unwrap();
+            ((row, outcome), (row, Err(refused)))
+        })
+        .unzip();
+    assert_eq!(seen, expected);
+    assert_eq!(compile(), Ok("recipe".to_string()));
 }
 
 /// Rebuild unit 18-fix: a recipe under `realm` whose `review` seat's inline
 /// charter its layer owns, and whose `work` seat is the external library's
 /// `worker`, whose definition names its charter as `charter`.
 fn two_owners(realm: &Path, charter: &str) -> Bundle {
+    owners_compiled(realm, charter).expect("the recipe compiles")
+}
+
+/// [`two_owners`]'s recipe, written and compiled, or why it was refused.
+fn owners_compiled(realm: &Path, charter: &str) -> Result<Bundle, String> {
     let write = |relative: &str, body: &str| {
         let path = realm.join(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -2136,7 +2454,7 @@ fn two_owners(realm: &Path, charter: &str) -> Bundle {
         None,
         brokkr_core::realms::Boundary::Namespace,
     )
-    .expect("the recipe compiles")
+    .map_err(|error| error.to_string())
 }
 
 /// What `seat`'s dispatch door hands its driver, or why it refused. The

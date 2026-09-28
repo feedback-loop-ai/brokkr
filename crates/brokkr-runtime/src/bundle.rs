@@ -496,15 +496,19 @@ pub type CharterPins = BTreeMap<PathBuf, BTreeSet<CharterPin>>;
 
 /// One charter as the compile bound it (second council H6; rebuild unit 17,
 /// design D7): the owner selected with the site, the reference as written,
-/// the path the seat is told, the canonical target the compile read, and the
-/// digest the owner already pins for those bytes.
+/// the path the seat is told, and the digest the owner already pins for
+/// those bytes. Rebuild unit 18-fix-b (council F1, F2): with the [`Binding`]
+/// the compile's bound read verified — both keys and the file it read — and
+/// who the owner's directory was when that same read reached it. A pin is
+/// built only from such a read ([`CharterPin::of`]), never from a path.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CharterPin {
     pub owner: CharterOwner,
     pub reference: String,
     pub path: PathBuf,
-    pub target: PathBuf,
     pub digest: String,
+    pub(crate) binding: Binding,
+    pub(crate) directory: OwnerIdentity,
 }
 
 /// Who pins a charter (rebuild unit 17): the layer that declared an inline
@@ -528,6 +532,29 @@ impl CharterOwner {
 }
 
 impl CharterPin {
+    /// The pin of the charter `bound` read from `owner`'s directory by
+    /// [`owned_input`]: its digest, its binding and who that read found the
+    /// owner's directory to be, all from the one read.
+    pub(crate) fn of(
+        owner: CharterOwner,
+        reference: &str,
+        path: PathBuf,
+        bound: &BoundInput,
+    ) -> CharterPin {
+        CharterPin {
+            owner,
+            reference: reference.to_string(),
+            path,
+            digest: sha256_bytes(&bound.bytes),
+            binding: bound.held.binding.clone(),
+            directory: bound
+                .held
+                .owner
+                .clone()
+                .expect("a charter is read through its owner's directory"),
+        }
+    }
+
     /// The owner and the key a dispatch refusal names. A layer is found by
     /// its exact directory, never by the longest root a path starts with;
     /// `None` where no layer of this bundle is that directory.
@@ -632,11 +659,6 @@ pub struct Bundle {
     /// compile resolved, consulted at the dispatch door for a charter no
     /// layer's file map keys.
     pub charters: CharterPins,
-    /// Rebuild unit 18-fix (council F1): the directory of every owner those
-    /// charters are bound to, as the compile found it, which the dispatch
-    /// door requires each owner still to be. Held outside the manifest, for
-    /// the reason the pins are: the path is the host's.
-    pub charter_owners: CharterOwners,
     /// The phase every path to a non-stop terminal must traverse.
     pub protected_phase: String,
     /// Dialect-owned prose, resolved once at compile time and keyed by the
@@ -2090,18 +2112,9 @@ impl Bundle {
         // seats were bound to, ancestors first, so no consumed file is read
         // again by a walk. The leaf's walk takes its own the same way, and
         // each input must still stand as it was read or nothing seals.
-        // Rebuild unit 18-fix (council F1): each charter owner's directory
-        // is bound first, so the seal's check covers the directory its
-        // charters were read from; one that cannot be bound is left out,
-        // and its charters refuse at the door.
-        let charter_owners: CharterOwners = sites
-            .values()
-            .filter_map(|site| site.charter.as_ref())
-            .filter_map(|pin| {
-                let root = pin.owner.root();
-                Some((root.clone(), owner_identity(root)?))
-            })
-            .collect();
+        // Rebuild unit 18-fix-b (council F2): who each charter's owner is
+        // was taken by the read that bound the charter, and the seal's check
+        // compares it; no later walk records another.
         resolved.seal(charters.into_inner())?;
         let manifest = manifest_for(
             dir,
@@ -2131,7 +2144,6 @@ impl Bundle {
             inline_resume,
             sites,
             charters,
-            charter_owners,
             name,
             description,
             cost,
@@ -2734,17 +2746,36 @@ fn resolve_reference(
     // Rebuild unit 17: its owner is the library the office was loaded
     // from, with that library's own root, whether it stands outside the
     // recipe or inside it.
+    // Rebuild unit 18-fix-b (council F1, F2): the pin is the binding of a
+    // bound read from the library's directory, which must supply the bytes
+    // the library record pins; a charter no such read binds is refused here
+    // rather than compiled into a seat every dispatch refuses.
     let source = &resolution.charter_source;
-    site_facts(sites, site_key).charter = Some(CharterPin {
-        owner: CharterOwner::Library {
-            agent: resolution.agent.clone(),
-            root: source.library.clone(),
-        },
-        reference: source.reference.clone(),
-        path: resolution.charter.clone(),
-        target: source.target.clone(),
-        digest: source.digest.clone(),
-    });
+    let refused = |clause: String| {
+        CompileError::Invalid(format!(
+            "seat '{what}': agent '{}' names charter {}, {clause}. What a seat is told must be \
+             what the bundle's identity names, so it is refused (decision 0065 slice one, design \
+             D7)",
+            resolution.agent,
+            bounded_reference(&source.reference)
+        ))
+    };
+    let bound = match owned_input(&source.library, &source.reference) {
+        Ok(bound) if sha256_bytes(&bound.bytes) == source.digest => bound,
+        Ok(_) => {
+            return Err(refused(
+                "whose bytes changed after its library was loaded".into(),
+            ))
+        }
+        Err(InputFault::Missing(error)) => return Err(refused(missing_clause(&error))),
+        Err(InputFault::Place(place)) => return Err(refused(place.to_string())),
+    };
+    let owner = CharterOwner::Library {
+        agent: resolution.agent.clone(),
+        root: source.library.clone(),
+    };
+    let pin = CharterPin::of(owner, &source.reference, resolution.charter.clone(), &bound);
+    site_facts(sites, site_key).charter = Some(pin);
     // The capability pass judges exactly the chain this site will run
     // (decision 0065): one outcome per candidate, never their union.
     site_facts(sites, site_key).chain = candidates.clone();
@@ -4533,7 +4564,9 @@ pub(crate) struct BoundInput {
 /// (rebuild unit 16-fix-c, F1): built only by [`observe`], in one value,
 /// from the handles that resolution holds, and compared whole whenever the
 /// input is observed again. A key is never chosen by listing a path.
-#[derive(PartialEq, Eq)]
+/// Rebuild unit 18-fix-b (council F1): a charter's pin keeps its binding
+/// whole, and the dispatch door compares it whole.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Binding {
     /// The file-map key under which the declaring layer's walk pins what the
     /// reference names, as written. Where no step of the written path is a
@@ -4566,6 +4599,21 @@ impl Binding {
             id: self.id,
             target: self.target_key.clone(),
             consumer,
+        }
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+impl Binding {
+    /// The binding a read under `root` names the file at `target` by,
+    /// spelled `key`: a test's expected pin (rebuild unit 18-fix-b).
+    pub(crate) fn expected(root: &Path, key: &str, target: &str) -> Binding {
+        use std::os::unix::fs::MetadataExt;
+        let meta = std::fs::metadata(root.join(target)).unwrap();
+        Binding {
+            key: key.to_string(),
+            target_key: target.to_string(),
+            id: (meta.dev(), meta.ino()),
         }
     }
 }
@@ -4610,6 +4658,9 @@ pub(crate) struct Held {
     reference: PathBuf,
     steps: Vec<Step>,
     binding: Binding,
+    /// Who the owner's directory was when this read reached it from `/`
+    /// ([`owned_input`]); `None` for a read given its directory by its path.
+    owner: Option<OwnerIdentity>,
     handles: Vec<std::fs::File>,
 }
 
@@ -4621,24 +4672,29 @@ impl Held {
 
     /// Whether `now`, the reference observed again, stands as it stood when
     /// it was read: the same steps (every entry the same file, every link
-    /// the same text) and the same binding, both keys and the file read.
+    /// the same text), the same binding, both keys and the file read, and
+    /// the same owner, it and every directory above it.
     fn stands(&self, now: &Observation) -> bool {
-        (&now.steps, &now.binding) == (&self.steps, &self.binding)
+        (&now.steps, &now.binding, &now.owner) == (&self.steps, &self.binding, &self.owner)
     }
 
     /// Whether the input still stands as it was read: its reference, resolved
-    /// again from the layer's directory, [`Held::stands`], and the held file
-    /// still holds exactly the bytes whose digest is `digest`. Those bytes
-    /// are read back through the held handle, never by opening the path, and
-    /// any failure to observe or read is a change: this fails closed.
+    /// again from the layer's directory — reached as the read reached it —
+    /// [`Held::stands`], and the held file still holds exactly the bytes
+    /// whose digest is `digest`. Those bytes are read back through the held
+    /// handle, never by opening the path, and any failure to observe or read
+    /// is a change: this fails closed.
     pub(crate) fn intact(&self, digest: &str) -> bool {
         use std::io::{Read, Seek};
         let mut file = self.handles.last().expect("a resolution ends at a handle");
         let mut again = Vec::new();
         let reread = file.rewind().and_then(|()| file.read_to_end(&mut again));
         let held = reread.map(|_| sha256_bytes(&again));
-        let stands = observe(&self.root, &|| by_path(&self.root), &self.reference)
-            .is_ok_and(|now| self.stands(&now));
+        let open = || match self.owner {
+            Some(_) => owner_open(&self.root),
+            None => by_path(&self.root),
+        };
+        let stands = observe(&self.root, &open, &self.reference).is_ok_and(|now| self.stands(&now));
         (held.ok().as_deref(), stands) == (Some(digest), true)
     }
 }
@@ -4648,6 +4704,7 @@ struct Observation {
     steps: Vec<Step>,
     handles: Vec<std::fs::File>,
     binding: Binding,
+    owner: Option<OwnerIdentity>,
 }
 
 /// Why an active input was not bound. `Missing` is said by
@@ -4772,6 +4829,11 @@ pub(crate) enum ReadStage {
     /// The walk listed this entry in a tree it skips, and is about to ask
     /// what it is without following a link.
     Skipped,
+    /// An owner's directory is about to be reached from `/`, and who it is
+    /// taken (rebuild unit 18-fix-b, F2).
+    Owning,
+    /// An owner's directory was reached, and who it is was taken.
+    Owned,
 }
 
 #[cfg(test)]
@@ -5111,7 +5173,7 @@ fn queue(
 fn observe(root: &Path, open: Opener<'_>, reference: &Path) -> Result<Observation, InputFault> {
     use std::os::unix::fs::MetadataExt;
     let identity = |file: &std::fs::File| file.metadata().map(|meta| (meta.dev(), meta.ino()));
-    let top = open()?;
+    let (top, owner) = open()?;
     let id = identity(&top).map_err(InputFault::Missing)?;
     let mut steps = vec![Step::Entry(OsString::new(), id)];
     let mut stack: Vec<Hold> = vec![(top, OsString::new(), id)];
@@ -5180,6 +5242,7 @@ fn observe(root: &Path, open: Opener<'_>, reference: &Path) -> Result<Observatio
             target_key,
             id,
         },
+        owner,
     })
 }
 
@@ -5193,14 +5256,18 @@ fn observe(_: &Path, _: Opener<'_>, _: &Path) -> Result<Observation, InputFault>
     ))
 }
 
-/// How a resolution is given its layer's directory: [`by_path`], or
-/// [`owner_read`]'s checked handle.
-type Opener<'a> = &'a dyn Fn() -> Result<std::fs::File, InputFault>;
+/// How a resolution is given its layer's directory: [`by_path`], or reached
+/// as an owner's ([`owner_open`], and [`owner_read`]'s checked handle), with
+/// who that owner is.
+type Opener<'a> = &'a dyn Fn() -> Result<(std::fs::File, Option<OwnerIdentity>), InputFault>;
 
 /// The layer's directory opened by its canonical path, as the compile
 /// opens it: the compile has just canonicalized that path.
-fn by_path(root: &Path) -> Result<std::fs::File, InputFault> {
-    std::fs::File::open(root).map_err(InputFault::Missing)
+fn by_path(root: &Path) -> Result<(std::fs::File, Option<OwnerIdentity>), InputFault> {
+    Ok((
+        std::fs::File::open(root).map_err(InputFault::Missing)?,
+        None,
+    ))
 }
 
 /// Decision 0065 slice one, design D7, under operator ruling 3 ("It is not
@@ -5256,6 +5323,7 @@ fn bound_through(root: &Path, open: Opener<'_>, reference: &str) -> Result<Bound
         reference,
         steps: observed.steps,
         binding: observed.binding,
+        owner: observed.owner,
         handles: observed.handles,
     };
     let mut file = held.handles.last().expect("a resolution ends at a handle");
@@ -5276,15 +5344,12 @@ fn bound_through(root: &Path, open: Opener<'_>, reference: &str) -> Result<Bound
 
 /// Who an owner's directory is (rebuild unit 18-fix, F1; design D7): the
 /// `(dev, ino)` of every directory from `/` down to it, the owner's own
-/// last, as the compile found them. Recorded before the layers' identities
-/// are sealed, so the seal's check that each consumed input still stands
-/// covers the directory it was read from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OwnerIdentity(Vec<(u64, u64)>);
-
-/// Each charter owner's directory by its canonical path, as the compile
-/// found it.
-pub type CharterOwners = BTreeMap<PathBuf, OwnerIdentity>;
+/// last. Rebuild unit 18-fix-b (council F2): taken by the very read that
+/// bound a charter, when it reached the owner's directory, and compared by
+/// that read's second resolution, by the seal's check and at the door — never
+/// recorded by a walk of its own.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct OwnerIdentity(Vec<(u64, u64)>);
 
 /// The clause an owner's directory that is no longer the one bound carries.
 const OWNER_REPLACED: &str = "whose owner's directory, or a directory above it, is no longer \
@@ -5296,7 +5361,8 @@ const OWNER_REPLACED: &str = "whose owner's directory, or a directory above it, 
 /// following a link, and opened as a directory. A link where a directory of
 /// the compiled path stood is a replaced component and refuses; nothing is
 /// opened by the stored path. The handle comes with the [`OwnerIdentity`] of
-/// the directories it was reached through.
+/// the directories it was reached through. A directory on the way that is
+/// there but cannot be opened is named (rebuild unit 18-fix-b, F3).
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn owner_directory(root: &Path) -> Result<(std::fs::File, OwnerIdentity), InputFault> {
     use std::os::unix::fs::MetadataExt;
@@ -5305,16 +5371,39 @@ fn owner_directory(root: &Path) -> Result<(std::fs::File, OwnerIdentity), InputF
             .map(|meta| (meta.dev(), meta.ino()))
             .map_err(unopened)
     };
-    let mut handle = directory(Path::new("/")).map_err(unopened)?;
+    at_stage(ReadStage::Owning, root);
+    let mut reached = PathBuf::from("/");
+    let mut handle = directory(&reached).map_err(|error| unreached(&reached, error))?;
     let mut ancestry = vec![identity(&handle)?];
     for name in root.strip_prefix("/").unwrap_or(root) {
+        reached.push(name);
         handle = directory_at(&handle, name).map_err(|error| match link_at(&handle, name) {
             Ok(_) => Place::of(FaultKind::Replaced, OWNER_REPLACED),
-            Err(_) => unopened(error),
+            Err(_) => unreached(&reached, error),
         })?;
         ancestry.push(identity(&handle)?);
     }
+    at_stage(ReadStage::Owned, root);
     Ok((handle, OwnerIdentity(ancestry)))
+}
+
+/// Why the directory at `path`, on the way from `/` to an owner's, could not
+/// be opened: gone, as [`unopened`] says it, or there but not observable —
+/// an ancestor without read permission — named, bounded, with its cause
+/// (rebuild unit 18-fix-b, F3), so a compile refuses it by name.
+fn unreached(path: &Path, error: std::io::Error) -> InputFault {
+    let kind = error.kind();
+    match unopened(error) {
+        InputFault::Place(_) => Place::of(
+            FaultKind::Unreadable,
+            format!(
+                "whose owner's directory cannot be reached: {} cannot be opened ({kind}), so the \
+                 directory the charter is read from cannot be bound",
+                bounded_reference(&path.to_string_lossy())
+            ),
+        ),
+        missing => missing,
+    }
 }
 
 /// No supported host lacks the lookup; any other binds no owner.
@@ -5326,17 +5415,27 @@ fn owner_directory(_: &Path) -> Result<(std::fs::File, OwnerIdentity), InputFaul
     ))
 }
 
-/// The owner identity the compile records for `root`: `None` where the
-/// directory cannot be bound, which every later consumption then refuses.
-pub(crate) fn owner_identity(root: &Path) -> Option<OwnerIdentity> {
-    owner_directory(root).ok().map(|(_, identity)| identity)
+/// The owner's directory at `root`, reached by [`owner_directory`], with who
+/// it is.
+fn owner_open(root: &Path) -> Result<(std::fs::File, Option<OwnerIdentity>), InputFault> {
+    let (handle, owner) = owner_directory(root)?;
+    Ok((handle, Some(owner)))
 }
 
-/// Rebuild unit 18-fix (F1): unit 16's bound read of `reference`, from the
-/// owner's directory at `root` — which each of the read's two resolutions
-/// reaches by [`owner_directory`] and which must be `owner`, the directory
-/// the compile bound, or the read refuses as replaced. One resolver: the
-/// compile's read, given its directory by its path.
+/// Rebuild unit 18-fix-b (council F1, F2): unit 16's bound read of
+/// `reference`, as the compile reads a charter — from its owner's directory
+/// at `root`, reached from `/` by [`owner_directory`] in each of the read's
+/// two resolutions. Who the owner is is taken by that read and nowhere else:
+/// the second resolution must find the same owner, as the seal's check and
+/// the dispatch door must, or the read refuses as replaced. An owner the
+/// compile cannot observe refuses the read, by name (F3).
+pub(crate) fn owned_input(root: &Path, reference: &str) -> Result<BoundInput, InputFault> {
+    bound_through(root, &|| owner_open(root), reference)
+}
+
+/// Rebuild unit 18-fix (F1): the same read at the dispatch door, whose
+/// owner's directory must be `owner`, the one the compile's read found, or
+/// the read refuses as replaced before anything is read. One resolver.
 fn owner_read(
     root: &Path,
     owner: &OwnerIdentity,
@@ -5347,7 +5446,7 @@ fn owner_read(
         if &now != owner {
             return Err(Place::of(FaultKind::Replaced, OWNER_REPLACED));
         }
-        Ok(handle)
+        Ok((handle, Some(now)))
     };
     bound_through(root, &open, reference)
 }
@@ -5484,21 +5583,28 @@ fn unbound_charter(bundle: &Bundle, role: &Path) -> Result<String, (String, Stri
 /// equal-byte tree outside, or such a tree renamed into place. Both of the
 /// read's resolutions reach it from `/` without following a link, and it
 /// must be the directory the compile bound, it and every directory above it
-/// ([`owner_read`]). An owner the compile could not bind is `unbound`.
+/// ([`owner_read`]).
+///
+/// Rebuild unit 18-fix-b (council F1): the owner the door requires is the
+/// one the compile's read found, carried on the pin, and the read's WHOLE
+/// binding must be the pin's — both keys and the file read. Equal bytes at
+/// the same path in another file, or in a replaced directory, are
+/// `replaced`; a target reached under another key is `retargeted`.
 fn pinned_charter(bundle: &Bundle, pin: &CharterPin) -> Result<String, (String, String)> {
     let (name, key) = owned(bundle, pin)?;
     let refused = |cause: &str| (name.clone(), format!("{cause}: {key}"));
     let root = pin.owner.root();
-    let Some(owner) = bundle.charter_owners.get(root) else {
-        return Err(refused("unbound"));
-    };
-    let bound =
-        owner_read(root, owner, &pin.reference).map_err(|fault| refused(fault_kind(&fault)))?;
+    let bound = owner_read(root, &pin.directory, &pin.reference)
+        .map_err(|fault| refused(fault_kind(&fault)))?;
     if sha256_bytes(&bound.bytes) != pin.digest {
         return Err(refused("changed"));
     }
-    if root.join(&bound.held.binding.target_key) != pin.target {
-        return Err(refused("retargeted"));
+    let now = bound.held.binding();
+    if now != &pin.binding {
+        return Err(refused(match now.target_key == pin.binding.target_key {
+            true => "replaced",
+            false => "retargeted",
+        }));
     }
     // The pin is over BYTES; what a seat is told is text. A charter whose
     // bytes are not text is refused rather than rendered with its
@@ -6719,21 +6825,20 @@ fn parse_role(
     // Rebuild unit 17: the site is bound here to that layer, the key its
     // map pins the reference under, the target the read resolved and the
     // buffer's digest, so no later reader has to guess its owner.
+    // Rebuild unit 18-fix-b (council F1, F2): read from the layer's directory
+    // as its owner, so the pin carries that read's binding and who the owner
+    // was when it was read, and the seal compares both.
     let source = dir.join("bundle.json");
     let (site, reference) = (bounded_site(what), bounded_reference(role_rel));
-    match bound_input(dir, role_rel) {
+    match owned_input(dir, role_rel) {
         Ok(bound) => {
             let role = dir.join(role_rel);
-            site_facts(sites, what).charter = Some(CharterPin {
-                owner: CharterOwner::Layer {
-                    dir: dir.to_path_buf(),
-                    key: bound.held.binding.key.clone(),
-                },
-                reference: role_rel.to_string(),
-                path: role.clone(),
-                target: dir.join(&bound.held.binding.target_key),
-                digest: sha256_bytes(&bound.bytes),
-            });
+            let owner = CharterOwner::Layer {
+                dir: dir.to_path_buf(),
+                key: bound.held.binding.key.clone(),
+            };
+            let pin = CharterPin::of(owner, role_rel, role.clone(), &bound);
+            site_facts(sites, what).charter = Some(pin);
             let read = compose::CharterRead::of(dir, site, reference, bound);
             charters.borrow_mut().push(read);
             Ok(role)

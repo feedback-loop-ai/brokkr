@@ -1616,7 +1616,8 @@ fn holdings(label: &str, office: Value, seat: Option<Value>) -> SiteCapabilities
 
 /// A site's charter as the compile binds an inline role (rebuild unit 17):
 /// written under the bundle's own directory and bound to its layer by
-/// owner, reference, target and digest. `served` plants the site's
+/// owner, reference, digest and the binding of the read that bound it
+/// (rebuild unit 18-fix-b). `served` plants the site's
 /// capability facts beside it, with the inline site's typed declaration
 /// judged and declaring nothing; a site without them is one the capability
 /// pass never resolved.
@@ -1632,19 +1633,18 @@ fn chartered(
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let text = format!("# the {name} charter\n");
     std::fs::write(&path, &text).unwrap();
-    let owner = crate::bundle::owner_identity(&dir).unwrap();
-    engine.bundle.charter_owners.insert(dir.clone(), owner);
+    let bound = crate::bundle::owned_input(&dir, &key).ok().unwrap();
+    let owner = crate::bundle::CharterOwner::Layer {
+        dir,
+        key: key.clone(),
+    };
     let site = engine.bundle.sites.entry(label.into()).or_default();
-    site.charter = Some(crate::bundle::CharterPin {
-        owner: crate::bundle::CharterOwner::Layer {
-            dir,
-            key: key.clone(),
-        },
-        reference: key,
-        path: path.clone(),
-        target: path.clone(),
-        digest: brokkr_core::canonical::sha256_bytes(text.as_bytes()),
-    });
+    site.charter = Some(crate::bundle::CharterPin::of(
+        owner,
+        &key,
+        path.clone(),
+        &bound,
+    ));
     if let Some(served) = served {
         site.capabilities = Some(served);
         site.local = Some(crate::agents::LocalTools {

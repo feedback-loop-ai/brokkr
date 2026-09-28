@@ -6314,7 +6314,8 @@ fn layer_pin(dir: &Path, reference: &str, target: &str) -> CharterPin {
         },
         reference: reference.to_string(),
         path: dir.join(reference),
-        target: dir.join(target),
+        binding: Binding::expected(dir, reference, target),
+        directory: owner_directory(dir).ok().unwrap().1,
         digest: sha256_bytes(b"# work\n"),
     }
 }
@@ -6329,7 +6330,8 @@ fn library_pin(agent: &str, root: &Path, reference: &str) -> CharterPin {
         },
         reference: reference.to_string(),
         path: root.join("charters/work.md"),
-        target: root.join("charters/work.md"),
+        binding: Binding::expected(root, reference, "charters/work.md"),
+        directory: owner_directory(root).ok().unwrap().1,
         digest: sha256_bytes(b"# work\n"),
     }
 }

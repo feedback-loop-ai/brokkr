@@ -3833,7 +3833,12 @@ Unit 18-fix (2026-09-29, run `0065-rebuild-unit-18-see-the-uni-b39bb56a`,
 based on `56873c18`; evidence.md, "Unit 18-fix"). Answers the unit 18
 council's SECURITY-HOLD (F1–F4). Production: `bundle.rs` only. Tests:
 `engine/boundary_tests.rs`, `engine/capability_tests.rs`. **18.1, 18.2 and
-18.3 stay closed, now on what is observed below.**
+18.3 stay closed, now on what is observed below.** (Corrected by unit
+18-fix-b: F1 was NOT closed here. The pin kept a path, not the compile's
+binding, so an equal-byte file at the same path, or an equal-byte
+`roles`/`charters` directory, was accepted; the owner identity came from a
+separate walk (F2); and an unobservable ancestor compiled an ownerless
+bundle (F3). They are closed at unit 18-fix-b below.)
 
 - **F1.** The dispatch door no longer opens a charter's owner by its stored
   path. Both of unit 16's resolutions in the door's read (`owner_read`, one
@@ -3870,6 +3875,58 @@ council's SECURITY-HOLD (F1–F4). Production: `bundle.rs` only. Tests:
 - **Follow-up.** The compile still opens a layer by its canonical path and
   the library still loads its charter by path (units 16–17). A library
   `..` charter compiles and then refuses at dispatch.
+- **Pending.** Start and resume (unit 19); macOS; exact coverage outside
+  the box; remote CI and the council.
+
+Unit 18-fix-b (2026-09-29, run `0065-rebuild-unit-18-see-the-uni-e580ec40`,
+based on `5ae91c6f`; evidence.md, "Unit 18-fix-b"). Answers the unit
+18-fix council's SECURITY-HOLD (F1–F3). Production: `bundle.rs` only.
+Tests: `engine/boundary_tests.rs`, `engine/capability_tests.rs`. **18.1,
+18.2 and 18.3 stay closed, on what is observed below.**
+
+- **F1.** `CharterPin` carries the compile read's whole `Binding` (both
+  keys and the file read) and the owner identity, and has no target path.
+  It is built only by `CharterPin::of` from a bound read. Both the inline
+  role and, new, the agent's library charter are read by `owned_input` at
+  compile. The dispatch door re-reads through the same resolver and
+  compares the whole binding. An equal-byte file at the same path, or an
+  equal-byte `roles`/`charters` directory, refuses as `replaced` for both
+  owner kinds before any driver starts.
+- **F2.** The owner identity is taken by the read's own opener, compared
+  by its second resolution, by the seal (`Held::intact`) and by the door.
+  The separate recording walk and `Bundle::charter_owners` are gone. A
+  deterministic swap at the owner's observation (the `Owning`/`Owned`
+  seam), during the read or at the first observation after it, refuses the
+  compile.
+- **F3.** An owner directory the compile cannot open refuses AT COMPILE,
+  naming the directory and its cause (`… '{dir}' cannot be opened
+  (permission denied) …`). The 18-fix evidence's `unreadable` prediction
+  was wrong (the compile succeeded, ownerless) and is corrected there.
+- A library charter named through `..` now refuses at compile. It used to
+  compile and then refuse at dispatch.
+- Baseline reds on `5ae91c6f`: B1 (F1, all four rows accepted), B3 (F3,
+  the compile succeeded). B2 (F2) ran on `5ae91c6f` plus only the inert
+  seam: all four rows compiled, and a probe dispatched the twin owner.
+  Mutations M1–M10 each fail the named rows; all restored.
+- Changed own-file tests: `every_way…` (an unconstructible
+  unrecorded-owner row is replaced by a skipped-tree `unbound` row, bound
+  by M9; the library `..` row expects the compile refusal, bound by M10).
+  Two tests' restores now put back the compiled file rather than rewriting
+  equal bytes; no assertion changed.
+- Standing-admission lines: `charter_owners: Default::default(),` removed
+  from `engine/resume_tests.rs:291`, `engine/tests.rs:102` and
+  `brokkr-cli/src/recipes/tests.rs:70` (the field is gone);
+  `bundle/agent_tests.rs:6317–6318` and `:6333–6334` name `binding` and
+  `directory` for `target` in `layer_pin`/`library_pin`. No assertion was
+  added or removed. Fixture migrations: none.
+- Gates: fmt and clippy clean; workspace 77 results, all ok (runtime lib
+  619, protocol lib 543, cli lib 482); `bundles/self`/`verify` digests
+  unchanged; strict OpenSpec (18) and `git diff --check` clean. A lib-only
+  branch-coverage diagnostic found no unhit line or branch in the changed
+  ranges (not the gate).
+- **Follow-up.** `CharterSource::target` (`agents.rs`) is no longer read by
+  the pin. The library still loads its charter by canonical path before
+  the pin's bound read, which now re-reads it and requires the same bytes.
 - **Pending.** Start and resume (unit 19); macOS; exact coverage outside
   the box; remote CI and the council.
 

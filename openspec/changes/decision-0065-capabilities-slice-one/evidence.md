@@ -19810,6 +19810,12 @@ material is under `.forge/unit-18-fix/` (not committed).
     compared by the names the handle-bound resolution took from the verified
     owner, not by inode. The spec's MPL scenario requires that "unchanged
     and restored bytes pass", and a restore rewrites the file.
+    (Corrected by unit 18-fix-b, council F1: this substituted path identity
+    for the commissioned binding. The chief reproduced an equal-byte file
+    at the same path, and an equal-byte `roles`/`charters` directory, both
+    accepted; so did this unit's baseline on `5ae91c6f`, all four rows. The
+    MPL scenario changes the text of THAT file and restores it; it does not
+    authorize dropping the file's identity. See "Unit 18-fix-b".)
 - **F3: one missing-owner arm.** `owned` (`:5444`) names a pin's owner, or
   refuses a pin whose layer is not one of the bundle's as `bundle '{name}'`
   / `unpinned: {path}`. `site_charter_text` calls it before its role-path
@@ -19949,10 +19955,17 @@ each was restored, `git diff --stat` listed neither file. A grep of
   reached name by name from that owner. Its bytes must match the digest. The
   target file's own inode is not compared, because the spec requires
   restored bytes to pass: `a_library_charter_that_moved…`'s restore
-  rewrites a removed file.
+  rewrites a removed file. (Corrected by unit 18-fix-b, F1: that reading
+  is withdrawn. The pin now carries the read's whole `Binding`, file
+  identity included, and the restore puts back the file the compile read.)
 - The owner's ancestors are opened read-only as directories. An ancestor
   its user cannot list, such as an execute-only directory, would refuse at
   dispatch as `unreadable`. This fails closed. None was observed.
+  (Corrected by unit 18-fix-b, F3: the chief observed otherwise. Under an
+  execute-only ancestor the compile SUCCEEDED with no owner recorded
+  (`owner_identity` discarded the error), and both dispatches then refused
+  as `unbound`, not `unreadable`. This unit's baseline on `5ae91c6f` saw
+  the compile succeed. The compile now refuses, naming the directory.)
 - **Follow-up.** The compile still opens a layer by its canonical path
   (unit 16's `by_path`), and the library still loads its charter by
   canonical path (unit 17). A library `..` charter compiles and then
@@ -19979,5 +19992,222 @@ On the final tree, in this session:
   `/private/var` roots are unobserved.
 - Exact coverage outside the box (`scripts/coverage-exact.sh`). No coverage
   diagnostic was run this visit.
+- Remote CI.
+- The council.
+
+## Unit 18-fix-b — the pin carries the binding the compile read, 2026-09-29
+
+Run `0065-rebuild-unit-18-see-the-uni-e580ec40`, based on `5ae91c6f`. It
+answers the unit 18-fix council's SECURITY-HOLD, findings F1–F3 (F4 was a
+run defect and asks nothing of the code). Production: `crates/brokkr-runtime/src/bundle.rs`
+only (`engine.rs` and `adapters.rs` did not need to move). Tests: runtime
+`engine/boundary_tests.rs` and `engine/capability_tests.rs`, plus the
+admitted lines below. Scratch material is under `.forge/unit-18-fix-b/`
+(not committed). Line numbers are of the committed tree unless a log is
+cited.
+
+### Production (`bundle.rs`)
+
+- **F1: provenance is a type.** `CharterPin` (`:505`) no longer has a
+  `target: PathBuf`. It holds `binding: Binding` (unit 16's type: both keys
+  and the `(dev, ino)` of the file the read held) and `directory:
+  OwnerIdentity`. Both fields are `pub(crate)`, and `Binding`'s fields are
+  private to `bundle`, so outside that module a pin is built only by
+  `CharterPin::of` (`:538`) from a `BoundInput`. Its digest, binding and
+  owner identity all come from that one read. `pinned_charter` (`:5593`)
+  re-reads through `owner_read` (`:5439`), the same resolver, and compares
+  the read's WHOLE binding with the pin's: a different file under the same
+  keys is `replaced`, a different target key is `retargeted`. The digest
+  (`changed`) is checked first, as before. The target-path comparison is
+  gone.
+- **Every charter's pin comes from a bound read through its owner.** The
+  inline role (`:6833`) and, new, the agent's library charter (`:2763`) are
+  both read by `owned_input` (`:5432`). Before this, the library pin copied
+  `CharterSource`'s canonicalized path and digest from the loader, and no
+  bound read of it existed at compile. The library read must supply the
+  bytes the library record pins, or the compile refuses (`whose bytes
+  changed after its library was loaded`). A missing file, or a reference
+  the resolver refuses, refuses with its clause. A library charter named
+  through `..` therefore no longer compiles (it used to compile and then
+  refuse at every dispatch as `unbound`).
+- **F2: the owner identity is the read's own.** The `Opener` (`:5262`) now
+  returns the directory handle and `Option<OwnerIdentity>`. `owner_open`
+  (`:5420`) takes it from `owner_directory`, so the identity is the one the
+  walk that opened the read's directory found. `Observation` and `Held`
+  carry it, and `Held::stands` (`:4677`) compares `(steps, binding,
+  owner)`. So the read's second resolution, the seal's `Held::intact`
+  (`:4687`, which reopens the owner the way the read did), and the dispatch
+  door (`owner_read`) all compare the identity the read took. The separate
+  walk before `resolved.seal` (`:2118`), `Bundle::charter_owners`,
+  `CharterOwners` and `owner_identity` are removed. `by_path` (`:5266`)
+  reads carry `None` and are unchanged.
+- **F3: an unobservable owner refuses at compile, by name.**
+  `owner_directory` (`:5367`) tracks the path it has reached. When a
+  directory on the way cannot be opened, `unreached` (`:5394`) keeps
+  `unopened`'s `missing` for NotFound/NotADirectory, and otherwise names
+  the directory, bounded, with its io kind: "whose owner's directory cannot
+  be reached: '{dir}' cannot be opened ({kind}), so the directory the
+  charter is read from cannot be bound". The compile's charter read goes
+  through it and propagates the error. At dispatch the same case is
+  `unreadable`.
+- **Seam.** `ReadStage::Owning`/`Owned` (`:4834`/`:4836`), fired at the
+  start and end of `owner_directory`. As with every stage, `at_stage` is a
+  no-op outside `cfg(test)`.
+- `Binding` and `OwnerIdentity` gained `Debug, Clone, PartialOrd, Ord`
+  derives, for the pin's derives. `Binding::expected` (`:4610`) is
+  `cfg(test)` only: a test's expected binding, from the file's metadata.
+- Nothing enters the manifest. `CharterSource::target` (in `agents.rs`,
+  not this unit's file) is no longer read by the pin.
+
+### Tests (`engine/boundary_tests.rs`, new)
+
+- **`a_charter_replaced_by_equal_bytes_at_its_own_path_refuses_the_dispatch`
+  (F1, `:2134`).** Over `two_owners` (layer and external library), with no
+  recompile:
+  - `recipe/roles/review.md` renamed aside and copied back to its path;
+  - `agents/charters/worker.md` the same;
+  - `recipe/roles` renamed aside and copied back to its path;
+  - `agents/charters` the same.
+
+  Each row first asserts equal bytes and a different inode. It then
+  expects `replaced: roles/review.md` or `replaced: worker.md` for the
+  owner concerned, the other site `Ok`, and no provider marker. Renamed
+  back, both `Ok`.
+- **`an_owner_whose_ancestor_the_compile_cannot_observe_refuses_the_compile`
+  (F3, `:2209`).** `realm` (above both owners) is made mode `0o111`. The
+  compile refuses with exactly `bundle: {recipe}/bundle.json: seat 'review'
+  names role 'roles/review.md', whose owner's directory cannot be reached:
+  '{realm}' cannot be opened (permission denied), so the directory the
+  charter is read from cannot be bound. A charter there could change …
+  (decision 0066 ruling 5)`. With the mode restored, it compiles.
+- **`the_owner_a_charter_was_read_through_is_the_one_its_binding_records`
+  (F2, `:2260`).** This uses the `Owning`/`Owned` seam, deterministically.
+  At the first observation of an owner (after an optional arming stage),
+  the realm directory is swapped for a twin holding the very same layer
+  directory, and swapped back when the owner has been taken. Rows, compared
+  as one vector at `:2398`:
+  - `during the read` (the charter read's own owner walk): the compile
+    refuses, `which was replaced while it was read …`;
+  - `after the read` (the first owner walk after `Verified` of
+    `roles/review.md`, i.e. the seal's): the compile refuses, `which the
+    walk that pinned the layer does not hold as it was read …`;
+  - `library charter changed` (rewritten at its owner's first walk): the
+    compile refuses, `whose bytes changed after its library was loaded`;
+  - `library charter removed`: the compile refuses, `which does not exist`.
+
+  After the rows it compiles again.
+
+### Tests (changed, own files)
+
+- `every_way_the_dispatch_read_fails_is_refused_by_its_own_kind`. The
+  `charter_owners.clear()` row is removed: a pin without an owner identity
+  can no longer be built. In its place (`:2068`), each charter is renamed
+  into `dialects/` in its own owner, a top-level name the walk skips, and
+  linked from its path. Both refuse as `unbound: …`, which keeps the
+  dispatch `unbound` arm observed. The library `..` row (`:2110`) now
+  expects the compile refusal, with its exact text, instead of a compiled
+  bundle that refuses at dispatch. `two_owners` became a wrapper over
+  `owners_compiled`, which returns the refusal. The `..`-link loop moves the
+  charter aside and back (`rename`) instead of rewriting it.
+- `a_charter_replaced_during_or_after_the_dispatch_read_never_reaches_the_seat`
+  and `a_library_charter_that_moved_since_the_compile_refuses_the_dispatch`.
+  Their restores used to rewrite equal bytes, which is a new file and now
+  `replaced`. They now put back the file the compile read, through a hard
+  link kept outside the recipe (and, for the library, its bytes written
+  back into it). No assertion changed. The chief ruled that restored bytes
+  do not excuse identity. MPL's "restored bytes pass" is observed on the
+  compiled file itself (`a_library_charter_that_moved…`, last `Ok`).
+- `engine/capability_tests.rs::chartered` builds its pin with
+  `owned_input` + `CharterPin::of` instead of a literal with `target` and a
+  `charter_owners` insert. The capability tests' assertions are unchanged.
+
+### Baseline (`5ae91c6f`)
+
+- **B1 (F1).** Only the new F1 and F3 tests were added; `bundle.rs` was at
+  `HEAD`. F1 failed at :2147 (`recipe/roles/review.md replaced by equal
+  bytes`) with both sites `Ok` (`.forge/unit-18-fix-b/baseline-f1-f3.log`).
+  A temporary copy that printed each row instead of asserting showed all
+  four rows accepted with `Ok` text (`baseline-f1-rows.log`: `ROW …
+  refused-as-expected=false`, ×4). The assertion was restored from the
+  saved copy.
+- **B3 (F3).** In the same run, F3 failed at :2189 with `left: Ok("recipe")`:
+  the compile succeeded under the execute-only ancestor.
+- **B2 (F2).** The F2 test needs the seam, so the baseline is `5ae91c6f`
+  plus only the two inert `at_stage` lines and their two `ReadStage`
+  variants. It failed at :2350 with all four rows `Ok("recipe")`
+  (`baseline-f2.log`). A scratch probe on that tree (not committed,
+  `baseline-f2-probe.log`) swapped in at the `Owning` stage of the
+  recording walk and back at `Owned`. The compiled bundle then refused its
+  genuine owner (`replaced: roles/review.md`) and, with the twin realm
+  standing, dispatched `Ok("# review as written\n")`. That is the chief's
+  F2 association, observed.
+
+### Mutations (each compiles; restored from the saved clean copy)
+
+| Mutation | Fails (exact assertion) |
+| --- | --- |
+| M1: `pinned_charter` compares only the two keys, not the file | F1 `recipe/roles/review.md replaced by equal bytes`: both `Ok` for `replaced` (`mut-M1.log`) |
+| M2: the binding comparison removed (`&& false`) | F1 same row; `a_charter_that_moved…` :1458 `Ok(())` for `retargeted: roles/linked.md`; library test :1817 `Ok` for `retargeted: worker.md` |
+| M3: a moved target key named `replaced` | :1458 and library test: `replaced` for `retargeted` |
+| M4: `Held::stands` without the owner | F2 `during the read` and `after the read`: `Ok("recipe")` for the refusals |
+| M5: `owner_read` identity comparison removed | 18-fix `an ancestor replaced` (:1971): both `Ok` |
+| M6: `unreached` replaced by `unopened` | F3: `which cannot be read (permission denied)` for the naming clause |
+| M7: `owned_input` falls back to the path-opened directory | F3: the seal's refusal text for the naming clause |
+| M8: the library read's digest guard always true | F2 `library charter changed`: `Ok("recipe")` |
+| M9: `FaultKind::Unbound` named `unreadable` | `every_way…` :2077: `unreadable` for `unbound` (skipped-tree row) |
+| M10: `bound_through`'s unpinned-input check disabled | `every_way…` :2111: `Ok("recipe")` for the library `..` refusal |
+
+Logs are `.forge/unit-18-fix-b/mut-M{1..10}.log`. After M10 was restored,
+a grep of `bundle.rs`'s diff for each mutation's marker (`filter(|_|
+false)`, `&& false`, `=> "unreadable",`, `|| true`) found nothing.
+
+### Standing-admission lines and fixture migrations
+
+- `crates/brokkr-runtime/src/engine/resume_tests.rs:291`,
+  `crates/brokkr-runtime/src/engine/tests.rs:102` and
+  `crates/brokkr-cli/src/recipes/tests.rs:70`: the
+  `charter_owners: Default::default(),` line is removed from each. The
+  compiler forced it: the `Bundle` field no longer exists. No assertion
+  added or removed; those fixtures bind no charter.
+- `crates/brokkr-runtime/src/bundle/agent_tests.rs:6317–6318` and
+  `:6333–6334`: in `layer_pin` and `library_pin`, `target: …` is replaced by
+  `binding: Binding::expected(…)` and `directory: owner_directory(…)`,
+  because `CharterPin` no longer has `target` and requires both. The
+  expected keys are the ones the helpers already named (reference, target).
+  No assertion added or removed. The existing whole-pin comparisons now
+  compare the binding the compile read where they compared its target
+  path.
+- Fixture migrations under the 2026-09-26 admission: none.
+
+### Coverage diagnostic
+
+`cargo +nightly-2026-09-05 llvm-cov -p brokkr-runtime --lib --branch
+--lcov`, run after `cargo llvm-cov clean --workspace` (an earlier run
+without the clean mixed in stale profiles and is discarded). In
+`bundle.rs`, no `DA` or `BRDA` record with zero hits falls in this unit's
+changed ranges. The zero-hit records left in the lib-only run are
+pre-existing code (e.g. `refuse_permission_pins`, `bounded_reference`).
+This is a diagnostic, not the gate.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test --workspace --all-features --locked`: 77 results, all ok,
+  no `FAILED` (runtime lib 619, protocol lib 543, cli lib 482;
+  `gate-workspace-final.log`).
+- `compile --bundle bundles/self`: `45dc1c7e…`, unchanged.
+  `bundles/verify`: `f7cbd4bb…`, unchanged.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+### Pending
+
+- Start and pinned-resume integrity over the binding: unit 19.
+- macOS: the seam, the constants and `/private/var` roots are unobserved.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`).
 - Remote CI.
 - The council.
