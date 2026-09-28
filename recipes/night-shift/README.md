@@ -123,6 +123,12 @@ bound to one.
 
 ## Running it
 
+**Unavailable until
+[#264](https://github.com/feedback-loop-ai/brokkr/issues/264) is fixed.**
+The implement seat pins `deepseek/deepseek-flash`, the dsh adapter maps
+no `deepseek/` route, and #264 records dsh refusing that prefix with
+`NO_ADAPTER` at launch. The command below is the one to use once it is.
+
 ```
 brokkr run --recipe night-shift --repo . --feature "<the queued task>"
 ```

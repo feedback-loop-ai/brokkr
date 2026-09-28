@@ -26,7 +26,7 @@ and a realm that names none gets `namespace`:
 | `seatbelt` | **Refused.** macOS's `sandbox-exec` box is not built. |
 | `container` | **Refused.** The container box is not built. |
 | `harness` | Nothing of Brokkr's. The harness's own sandbox stands, as its adapter's fragment addresses it. |
-| `open` | Nothing at all. A model gate is refused under `open`. |
+| `open` | Nothing at all. A model gate whose agent declares hands is refused under `open`; a gate that declares a tool list or no tools runs unboxed, as it does under every boundary. |
 
 A realm may declare `seatbelt` or `container` and compile. A run whose
 seats declare hands under either is refused before any row is written,
@@ -69,8 +69,9 @@ adapter cannot express boxed hands, never does.
   removed after it. The host home is not bound. The worktree is
   read-write at its own path. An exec seat's bundle is read-only at
   `/runtime/bundle`. The git directory's `hooks` sit behind an empty
-  tmpfs and its `config` is read-only. A declared bind is `ro`, `rw`,
-  `overlay` (an upper layer that never reaches the host) or `mask`.
+  tmpfs and its `config` is read-only. A declared bind's mode is `ro`,
+  `rw` or `overlay` (an upper layer that never reaches the host), and
+  its `mask` names files under it that the box covers with `/dev/null`.
 - **Bounds.** A call times out after 30 seconds by default and 600 at
   most, and each output stream is capped at 256 KiB.
 
@@ -179,8 +180,10 @@ an instruction:
 - **A gate is a trusted model or a pinned script.** Only a `trusted`
   adapter's declared judges may sit at a gate, and an untrusted harness
   such as dsh can never judge. An `exec` gate runs a pinned script.
-- **The journal is hash-chained, not signed.** A verified chain shows a
-  journal was not edited after the fact. It does not say who wrote it:
+- **The journal is hash-chained, not signed.** The chain is unkeyed
+  SHA-256, so a verified chain detects an edit that did not recompute
+  the hashes, not one that did: whoever can write the journal can
+  rewrite it and recompute every link. Nor does it say who wrote it:
   operator events and anchors are unsigned, and decision 0008 defers the
   signing service. A green gate is not independent acceptance either.
 - **What the engine does not check.** It does not read a diff for

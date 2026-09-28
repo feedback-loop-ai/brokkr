@@ -3,10 +3,14 @@
 This page says what each harness does on `main` today: claude, codex or
 dsh, plus `lanetally` (Claude Code through LaneTally's session-capture
 wrapper) and `exec` (a deterministic command with no model). It states
-what the code does, not what a decision intends. Where a capability is
-missing or unverified, the [known limitations](#known-limitations) name
-the issue that owns it. The [security model](security-model.md) says what
-the box does and does not contain.
+what the code does, not what a decision intends. Where an adapter lacks a
+capability, its [measured gaps](#measured-gaps) quote the reason its file
+records. Where an open issue or pull request owns a fix, the
+[known limitations](#known-limitations) link it. A measured gap with no
+entry there, such as Codex's tool allow-list or LaneTally's boxed hands,
+is the adapter's own measured record and names no owner here. The
+[security model](security-model.md) says what the box does and does not
+contain.
 
 ## What each adapter declares
 
@@ -14,7 +18,10 @@ The adapter files under [`adapters/`](../adapters/) are the engine's own
 record of each harness. The table below is those files rendered. A test
 (`crates/brokkr-cli/tests/status_pages.rs`) loads them through the
 engine's loader and holds this block to its rendering byte for byte, so
-a capability an adapter gains or loses cannot go unlisted here.
+a change to a rendered value shows here. A field the loader grows fails
+the test's compile until the matrix renders it or names it as not a
+capability. A resume shape's `limitations` are dated prose notes, and
+they are read in the adapter file, not here.
 
 - **Trust**: only a `trusted` adapter may seat a model at a gate
   (decision 0021 ruling 2). An adapter that declares no tier is
@@ -34,17 +41,19 @@ a capability an adapter gains or loses cannot go unlisted here.
   harness sandbox stands in for the box under the `harness` boundary
   (decision 0046 ruling 4).
 - **Resume shapes**: each named shape's measured status and the version
-  it was measured on. Only `supported` rejoins a session. Every other
-  shape starts cold on a retry and says so in the record.
+  it was measured on, the seat classes and boundaries it covers, the
+  hands mode in force, and which evidence axes it records. Only
+  `supported` rejoins a session. Every other shape starts cold on a
+  retry and says so in the record.
 
 <!-- adapter-matrix:start -->
 | Harness | Trust | Egress | Holds a model gate | Efforts | Tool allow-list | MCP servers | Boxed hands | Own sandbox for | Resume shapes |
 |---|---|---|---|---|---|---|---|---|---|
-| `claude` | trusted | contracted | yes: `fable`, `opus` | low, medium, high, xhigh, max | `cargo`, `codex`, `dsh`, `git`, `ls`, `mkdir`, `rg`, `specify`, `webfetch`, `websearch` | yes | yes | — | `boxed-workspace`: unmeasured (2.1.266) |
-| `codex` | trusted | uncontracted | yes: `astra`, `sol` | none, minimal, low, medium, high, xhigh, max | no (measured) | no | yes | gate, work | `work-site`: supported (0.154.0) |
-| `dsh` | untrusted | uncontracted; `spark`: local; `spark-glm`: local | no: untrusted | low, medium, high, xhigh; none on `spark`, `spark-glm` | no | no | no (measured) | — | `headless-work`: unmeasured (0.1.5-rc.1) |
+| `claude` | trusted | contracted | yes: `fable`, `opus` | low, medium, high, xhigh, max | `cargo`, `codex`, `dsh`, `git`, `ls`, `mkdir`, `rg`, `specify`, `webfetch`, `websearch` | yes | yes | — | `boxed-workspace`: unmeasured (2.1.266); classes `work`; boundaries `namespace`, `seatbelt`, `container`; hands `boxed`; evidence `interface` |
+| `codex` | trusted | uncontracted | yes: `astra`, `sol` | none, minimal, low, medium, high, xhigh, max | no (measured) | no | yes | gate, work | `work-site`: supported (0.154.0); classes `work`; boundaries `harness`, `not applicable`; hands `none`; evidence `interface`, `restrictions`, `root`, `accounting` |
+| `dsh` | untrusted | uncontracted; `spark`: local; `spark-glm`: local | no: untrusted | low, medium, high, xhigh; none on `spark`, `spark-glm` | no | no | no (measured) | — | `headless-work`: unmeasured (0.1.5-rc.1); classes `work`; boundaries `not applicable`; hands `none`; evidence `interface` |
 | `exec` | untrusted | contracted | no: untrusted | — | no | no | yes | — | — |
-| `lanetally` | untrusted | uncontracted | no: untrusted | low, medium, high, xhigh, max | `cargo`, `git`, `ls`, `mkdir`, `rg`, `specify` | yes | no (measured) | — | `wrapper-work-site`: unmeasured (version unknown) |
+| `lanetally` | untrusted | uncontracted | no: untrusted | low, medium, high, xhigh, max | `cargo`, `git`, `ls`, `mkdir`, `rg`, `specify` | yes | no (measured) | — | `wrapper-work-site`: unmeasured (version unknown); classes `work`; boundaries `harness`, `open`, `not applicable`; hands `none`; evidence — |
 <!-- adapter-matrix:end -->
 
 ### Measured gaps

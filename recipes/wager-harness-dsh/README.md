@@ -28,6 +28,12 @@ results, class, the phase table, and every gate are `fast`'s, inherited.
   launching environment only, never into argv, the recipe, or the
   journal (decision 0012).
 
+**Unavailable until
+[#264](https://github.com/feedback-loop-ai/brokkr/issues/264) is fixed.**
+The dsh adapter maps no `deepseek/` route, and #264 records dsh refusing
+this arm's `deepseek/deepseek-flash` prefix with `NO_ADAPTER` at launch.
+Once it is fixed:
+
 Run as the harness README says: `brokkr run --recipe fast` for the
 incumbent, `brokkr rerun --run <id> --recipe wager-harness-dsh` for
 this arm, `brokkr compare` for the trails, then judge the artifacts.

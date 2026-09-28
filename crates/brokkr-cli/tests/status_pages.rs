@@ -6,13 +6,14 @@
 //! it does not know, renders every `Adapter` field it reads, and holds the
 //! page's block to that rendering byte for byte. Each adapter struct is
 //! destructured without `..`, so a field the loader grows fails this
-//! file's compile until the matrix rules on it: a capability an adapter
-//! gains cannot go unlisted.
+//! file's compile until the matrix rules on it: a field an adapter grows
+//! cannot go unlisted, and a rendered value that changes shows on the page.
 
 use std::collections::BTreeSet;
 
 use brokkr_runtime::agents::{
-    Adapter, ResumeAssessment, ResumeIdentity, ResumeShape, ResumeStatus, ToolPermissions,
+    Adapter, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus,
+    ToolPermissions,
 };
 use brokkr_runtime::{Adapters, HarnessHands, TrustTier};
 
@@ -176,17 +177,25 @@ fn resume_shapes(provider: &str, resume: &ResumeAssessment, gaps: &mut Vec<Strin
             status,
             identity,
             reason,
-            classes: _,
-            boundaries: _,
-            hands: _,
-            evidence: _,
+            classes,
+            boundaries,
+            hands,
+            evidence,
+            // The adapter's dated prose notes on the shape; the page
+            // points to the file for them.
             limitations: _,
         } = resume.shape(&name).expect("a named shape");
         let version = match identity {
             ResumeIdentity::Measured { version, .. } => version.as_str(),
             ResumeIdentity::Unknown { .. } => "version unknown",
         };
-        cells.push(format!("`{name}`: {} ({version})", status.word()));
+        cells.push(format!(
+            "`{name}`: {} ({version}); classes {}; boundaries {}; hands `{hands}`; evidence {}",
+            status.word(),
+            names(classes),
+            names(boundaries),
+            evidence_axes(evidence),
+        ));
         match (status, reason) {
             (ResumeStatus::Supported, _) | (_, None) => {}
             (ResumeStatus::Unmeasured | ResumeStatus::Unsupported, Some(reason)) => {
@@ -195,6 +204,27 @@ fn resume_shapes(provider: &str, resume: &ResumeAssessment, gaps: &mut Vec<Strin
         }
     }
     words(&cells)
+}
+
+/// The evidence axes a resume shape records, by name, or [`EMPTY`].
+fn evidence_axes(evidence: &ResumeEvidence) -> String {
+    let ResumeEvidence {
+        interface,
+        restrictions,
+        root,
+        accounting,
+    } = evidence;
+    let axes: Vec<String> = [
+        ("interface", interface),
+        ("restrictions", restrictions),
+        ("root", root),
+        ("accounting", accounting),
+    ]
+    .into_iter()
+    .filter(|(_, recorded)| recorded.is_some())
+    .map(|(axis, _)| axis.to_string())
+    .collect();
+    names(&axes)
 }
 
 /// The matrix and gap blocks as the adapter data renders them.

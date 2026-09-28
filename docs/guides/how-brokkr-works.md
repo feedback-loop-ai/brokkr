@@ -8,8 +8,9 @@ on each typed result with a pinned first-match-wins policy. Unknowns
 never advance: schema violations, unmatched results, exhausted retries,
 and security findings park or stop the run with raw evidence attached.
 The operator's judgment enters only as journal events. They are
-hash-chained, not signed: decision 0008 defers the signing service, so a
-verified chain shows the journal was not edited, not who wrote it.
+hash-chained, not signed: decision 0008 defers the signing service. The
+chain is unkeyed, so a verified chain detects an edit that left the
+hashes stale, not a rewrite that recomputed them, and not who wrote it.
 
 ```
 brokkr run --recipe fast --repo . --feature "…"     # deliver
