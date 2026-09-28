@@ -11,8 +11,9 @@
 //! prompts anywhere holds output too and so only its `$ ` lines are
 //! commands), in a blockquote as well as out of one, and every `brokkr`
 //! command a line joins with `&&`, `;` or a pipe is parsed; one standing
-//! in any other fence, a fence that never closes, and a shell construct
-//! the word splitter does not know are each refused rather than skipped.
+//! in any other fence, one without a prompt in a console fence that
+//! prompts, a fence that never closes, and a shell construct the word
+//! splitter does not know are each refused rather than skipped.
 
 use std::path::{Path, PathBuf};
 
@@ -62,17 +63,18 @@ fn exits() -> Vec<Exit> {
 /// left out of the table: its name, the code column and its meaning.
 fn exit_row(exit: Exit) -> (&'static str, String, &'static str) {
     let code = exit.code().to_string();
-    match exit {
-        Exit::Completed => ("completed", code, "The command did what it was asked; a driven run completed."),
-        Exit::Failed => ("failed", code, "An error, a refused operator command, an unhealthy `doctor`, an unreadable transcript, or a Muninn reading with nothing usable to record."),
-        Exit::Running => ("running", code, "The run was still running when the command stopped following it."),
-        Exit::Parked => ("parked", code, "The run parked and awaits the operator."),
-        Exit::Stopped => ("stopped", code, "The run stopped."),
-        Exit::Contended => ("contended", code, "A peer held the shared journal's write lock. Nothing was written; the same command run again is likely to land."),
-        Exit::Usage => ("usage", code, "The command line did not parse (clap's own code, shared with `parked`: stderr tells them apart)."),
-        Exit::RunnerFailed => ("runner failed", code, "The dsh sandbox runner could not build or start bubblewrap."),
-        Exit::Boxed(_) => ("boxed", "its own".to_string(), "`hands exec`: the boxed command's own exit code, passed through."),
-    }
+    let (name, code) = match exit {
+        Exit::Completed => ("completed", code),
+        Exit::Failed => ("failed", code),
+        Exit::Running => ("running", code),
+        Exit::Parked => ("parked", code),
+        Exit::Stopped => ("stopped", code),
+        Exit::Contended => ("contended", code),
+        Exit::Usage => ("usage", code),
+        Exit::RunnerFailed => ("runner failed", code),
+        Exit::Boxed(_) => ("boxed", "its own".to_string()),
+    };
+    (name, code, exit.meaning())
 }
 
 fn workspace() -> PathBuf {
@@ -384,22 +386,31 @@ fn fences(doc: &str) -> Result<Vec<Fence<'_>>, (usize, String)> {
     }
 }
 
+/// Why a fence that prompts cannot hold an unprompted `brokkr` line.
+const UNPROMPTED: &str = "a `brokkr` line without a `$ ` prompt in a console fence \
+                          that prompts elsewhere; prompt it, or move output into a text fence";
+
 /// A line that runs `brokkr`, with any `$ ` prompt taken off: it starts
 /// with `brokkr` or joins a `brokkr` command after another. In a fence
-/// that prompts, a line without a prompt is output.
-fn command_of(line: &str, prompted: bool) -> Option<&str> {
+/// that prompts, a line without a prompt is output, and one that reads
+/// as a `brokkr` command is refused: a forgotten prompt and output that
+/// looks like a command are told apart by the author, not guessed.
+fn command_of(line: &str, prompted: bool) -> Result<Option<&str>, &'static str> {
     let line = line.trim_start();
-    let line = match line.strip_prefix("$ ") {
-        Some(command) => command,
-        None if prompted => return None,
-        None => line,
+    let (line, unprompted) = match line.strip_prefix("$ ") {
+        Some(command) => (command, false),
+        None => (line, prompted),
     };
     let runs = line == "brokkr"
         || line.starts_with("brokkr ")
         || JOINS
             .iter()
             .any(|join| line.contains(&format!("{join} brokkr")));
-    runs.then_some(line)
+    match (runs, unprompted) {
+        (false, _) => Ok(None),
+        (true, false) => Ok(Some(line)),
+        (true, true) => Err(UNPROMPTED),
+    }
 }
 
 /// Every `brokkr` command in one fence, continuation lines joined, or
@@ -418,7 +429,9 @@ fn commands_in(fence: &Fence<'_>) -> Result<Vec<Fenced>, (usize, String)> {
     let mut found = Vec::new();
     let mut lines = fence.lines.iter();
     while let Some(&(number, line)) = lines.next() {
-        let Some(command) = command_of(line, prompted) else {
+        let Some(command) =
+            command_of(line, prompted).map_err(|problem| (number, problem.to_string()))?
+        else {
             continue;
         };
         if !SHELLS.contains(&language) {
@@ -659,7 +672,7 @@ fn every_fenced_brokkr_command_in_a_living_doc_parses() {
 #[test]
 fn the_fence_reader_joins_continuations_and_reads_prompts_only_in_console() {
     let doc = "```sh\nbrokkr inspect \\\n  --run latest # the newest\n```\n\
-               ```console\n$ brokkr runs\nbrokkr is output here\n```\n";
+               ```console\n$ brokkr runs\nRUN  STATUS  # output\n```\n";
     assert_eq!(
         fenced_commands(doc).unwrap(),
         [
@@ -674,6 +687,13 @@ fn the_fence_reader_joins_continuations_and_reads_prompts_only_in_console() {
         ]
     );
     assert_eq!(refusals_in("doc.md", doc), Vec::<String>::new());
+    assert_eq!(
+        refusals_in(
+            "doc.md",
+            "```console\n$ brokkr runs\nbrokkr wacth --run latest\n```\n"
+        ),
+        [format!("doc.md:3: {UNPROMPTED}")]
+    );
 }
 
 #[test]

@@ -7,36 +7,40 @@ use std::process::ExitCode;
 
 use brokkr_core::fold::Status;
 
-/// How an invocation ended, as its exit code says it.
+/// How an invocation ended, as its exit code says it. What each variant
+/// means is written once, in [`Exit::meaning`], the text the reference
+/// page's table prints.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Exit {
-    /// The command did what it was asked; a driven run completed.
     Completed,
-    /// The command failed: an error, a refused operator command, an
-    /// unhealthy `doctor`, an unreadable transcript, a Muninn reading
-    /// with nothing usable to record.
     Failed,
-    /// The run was still running when the command stopped following it.
     Running,
-    /// The run parked and awaits the operator.
     Parked,
-    /// The run stopped.
     Stopped,
-    /// A peer held the shared journal's write lock when this process ran
-    /// out of patience for it. Its own code because it is its own thing:
-    /// nothing was written, nothing is wrong, and the same command run
-    /// again is likely to land.
     Contended,
-    /// The command line did not parse. clap's own code, which is also
-    /// [`Exit::Parked`]'s: a script tells them apart by stderr.
     Usage,
-    /// The dsh sandbox runner could not build or start bubblewrap.
     RunnerFailed,
-    /// `brokkr hands exec`: the boxed command's own code, passed through.
     Boxed(u8),
 }
 
 impl Exit {
+    /// What the exit tells its caller. Only the reference page reads it,
+    /// so it is built with the tests that render the page.
+    #[cfg(test)]
+    pub(crate) const fn meaning(self) -> &'static str {
+        match self {
+            Exit::Completed => "The command did what it was asked; a driven run completed.",
+            Exit::Failed => "An error, a refused operator command, an unhealthy `doctor`, an unreadable transcript, or a Muninn reading with nothing usable to record.",
+            Exit::Running => "The run was still running when the command stopped following it.",
+            Exit::Parked => "The run parked and awaits the operator.",
+            Exit::Stopped => "The run stopped.",
+            Exit::Contended => "A peer held the shared journal's write lock. Nothing was written; the same command run again is likely to land.",
+            Exit::Usage => "The command line did not parse (clap's own code, shared with `parked`: stderr tells them apart).",
+            Exit::RunnerFailed => "The dsh sandbox runner could not build or start bubblewrap.",
+            Exit::Boxed(_) => "`hands exec`: the boxed command's own exit code, passed through.",
+        }
+    }
+
     /// The number the process exits with.
     pub(crate) const fn code(self) -> u8 {
         match self {

@@ -129,6 +129,9 @@ fragment before compilation reaches the review gate.
 
 ```console
 $ brokkr --version
+```
+
+```text
 brokkr 0.8.0
 ```
 
