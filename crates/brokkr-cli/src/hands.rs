@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use brokkr_protocol::hands::{self, Session, SessionError};
 
-use crate::HandsCommand;
+use crate::{Exit, HandsCommand};
 
 pub(crate) fn run(command: HandsCommand) -> anyhow::Result<ExitCode> {
     run_with(command, Session::create)
@@ -50,9 +50,7 @@ fn run_with(
             };
             let code = hands::run_boxed(&spec, &workdir, bundle_root.as_deref(), &command)
                 .map_err(anyhow::Error::msg)?;
-            Ok(ExitCode::from(
-                u8::try_from(code.clamp(0, 255)).unwrap_or(1),
-            ))
+            Ok(Exit::Boxed(u8::try_from(code.clamp(0, 255)).unwrap_or(1)).into())
         }
     }
 }

@@ -490,6 +490,8 @@ fn first_divergence(a: &[String], b: &[String]) -> Value {
 
 pub(crate) fn compare(run_a: &str, run_b: &str, db: &Path) -> Result<()> {
     let store = crate::open_journal(db, crate::Access::Read)?;
+    let run_a = &crate::selector::resolve_run(&store, run_a)?;
+    let run_b = &crate::selector::resolve_run(&store, run_b)?;
     let a = run_facts(&store, run_a)?;
     let b = run_facts(&store, run_b)?;
     let mut runs = Map::new();

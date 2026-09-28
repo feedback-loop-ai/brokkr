@@ -189,13 +189,9 @@ changing a default, or changing the shape of a `--json` payload is a
 breaking change. Adding a subcommand, adding an optional flag, or adding
 a field to a `--json` payload is not.
 
-The exit codes are part of that surface and are already fixed in code
-as one shared mapping: **0** completed, **2** parked (operator needed),
-**3** stopped, **1** error or still running, **4** contended — a peer
-held the shared journal's write lock past this process's whole patience,
-so nothing was written and nothing was lost. Its own code because it is
-its own thing: 1 says a defect, and a command that met a busy peer has
-not found one.
+The exit codes are part of that surface and are fixed in code as one
+enum, `crates/brokkr-cli/src/exit.rs`, which the
+[CLI reference](../reference/cli.md#exit-codes) renders as its table.
 
 **The contracts, individually.** Each contract carries its own version
 number and moves on its own schedule; none of them is tied to the crate

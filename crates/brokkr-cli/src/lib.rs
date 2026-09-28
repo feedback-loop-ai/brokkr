@@ -16,6 +16,7 @@ mod budget_frame;
 mod cli_args;
 mod compare;
 mod doctor;
+mod exit;
 mod fleet;
 mod hands;
 mod init;
@@ -49,6 +50,7 @@ use brokkr_store::Store;
 use brokkr_view::transcript::{LegacyProvenance, TranscriptRead, Unavailable};
 use clap::{ArgGroup, Parser, Subcommand};
 use cli_args::*;
+use exit::Exit;
 use serde_json::{json, Value};
 
 /// The workspace journal a command opens when neither a map nor `--db`
@@ -73,8 +75,7 @@ pub const DEFAULT_DB: &str = ".forge/forge.db";
 /// their workdir; doctor has no workdir of its own.
 pub const DEFAULT_SECRETS: &str = ".forge/secrets.env";
 
-/// Exit codes: 0 completed/ok · 2 parked (operator needed) · 3 stopped ·
-/// 1 error.
+/// The command line. Its exit codes are [`exit::Exit`]'s.
 #[derive(Parser)]
 // `bin_name` is pinned, not inferred from argv[0]: a renamed or
 // symlinked copy still prints the name this engine answers to
@@ -490,17 +491,6 @@ fn summarize(state: &RunState) -> Value {
     })
 }
 
-/// Exit codes: 0 completed · 2 parked (operator needed) · 3 stopped ·
-/// 1 still running. One mapping, shared by `finish` and `watch`.
-fn status_exit(status: &Status) -> ExitCode {
-    match status {
-        Status::Completed => ExitCode::SUCCESS,
-        Status::AwaitingOperator => ExitCode::from(2),
-        Status::Stopped => ExitCode::from(3),
-        Status::Running => ExitCode::from(1),
-    }
-}
-
 /// Drive a started run to its ending. The start first reaps the scratch
 /// trees of hands servers whose owners died and says each on stderr,
 /// journaling nothing (#415). Then the conclusion's anchor and keep-ref
@@ -519,7 +509,7 @@ fn finish(state: &RunState) -> ExitCode {
         "{}",
         serde_json::to_string_pretty(&summarize(state)).unwrap()
     );
-    status_exit(&state.status)
+    Exit::of_status(&state.status).into()
 }
 
 /// The one clock read that keeps the derivation pure: `brokkr-view` has
@@ -624,7 +614,7 @@ fn watch_loop(
                         // hang. The park reason printed first is the
                         // frame's own header.
                         if state.status != Status::Running {
-                            return Ok(status_exit(&state.status));
+                            return Ok(Exit::of_status(&state.status).into());
                         }
                     }
                 }
@@ -641,7 +631,7 @@ fn watch_loop(
             }
         }
     }
-    Ok(ExitCode::from(1))
+    Ok(Exit::Running.into())
 }
 
 /// `--run` for the reading and releasing verbs. Keep-refs outlive
@@ -787,13 +777,6 @@ fn driver_payload(kind: brokkr_protocol::adapters::AdapterKind, args: Vec<String
     }
 }
 
-/// A peer still held the shared journal's write lock when this process
-/// ran out of patience for it. Its own exit code because it is its own
-/// thing: nothing was written, nothing is wrong, and the same command
-/// run again is likely to land. Distinct from 1 (a defect), from 2 (a
-/// park the run itself decided on) and from 3 (stopped).
-pub const CONTENDED_EXIT: u8 = 4;
-
 /// Did this error come from a peer holding the journal's lock?
 ///
 /// Asked of the whole chain and answered by the store's own typed
@@ -843,11 +826,11 @@ fn report_to(error: &anyhow::Error, stderr: &mut impl std::io::Write) -> ExitCod
                 "contended: {store}\nA peer is writing this journal. Nothing was \
                  written and nothing was lost — resume when it is done."
             );
-            ExitCode::from(CONTENDED_EXIT)
+            Exit::Contended.into()
         }
         None => {
             let _ = writeln!(stderr, "{}", failure_line(error));
-            ExitCode::from(1)
+            Exit::Failed.into()
         }
     }
 }
@@ -879,9 +862,10 @@ pub fn main() -> ExitCode {
     if let Some(args) = dsh_sandbox_runner_args() {
         return dsh_sandbox_runner(args);
     }
-    match run(Cli::parse()) {
-        Ok(code) => code,
-        Err(e) => report(&e),
+    match Cli::try_parse().map(run) {
+        Ok(Ok(code)) => code,
+        Ok(Err(e)) => report(&e),
+        Err(usage) => Exit::of_parse(&usage).into(),
     }
 }
 
@@ -903,7 +887,7 @@ fn dsh_sandbox_runner(args: Vec<String>) -> ExitCode {
         Ok(argv) => exec_bwrap(&argv, signature),
         Err(problem) => {
             eprintln!("{signature}{problem}");
-            ExitCode::from(127)
+            Exit::RunnerFailed.into()
         }
     }
 }
@@ -913,7 +897,7 @@ fn exec_bwrap(argv: &[String], signature: &str) -> ExitCode {
     let (program, rest) = (&argv[0], &argv[1..]);
     let error = std::process::Command::new(program).args(rest).exec();
     eprintln!("{signature}{error}");
-    ExitCode::from(127)
+    Exit::RunnerFailed.into()
 }
 
 /// The in-memory stamp of the selected transcript source: the subject
@@ -1531,7 +1515,7 @@ fn transcript_command(
                 line.push_str(render::Safe::new(notice).as_str());
             }
             eprintln!("{line}");
-            Ok(ExitCode::FAILURE)
+            Ok(Exit::Failed.into())
         }
     }
 }
@@ -1711,6 +1695,7 @@ fn supersede(
             })?,
     };
     let mut store = Store::open(&invocation.journal)?;
+    let run = &selector::resolve_run(&store, run)?;
     // The cited journal is opened READ-ONLY: a citation is checked
     // against a world this command only looks at (decision 0026 ruling
     // 5), and the one journal it writes to is the annotated run's.
@@ -2006,5 +1991,7 @@ fn run_with(
     }
 }
 
+#[cfg(test)]
+mod cli_reference_tests;
 #[cfg(test)]
 mod tests;

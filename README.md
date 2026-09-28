@@ -63,7 +63,7 @@ git add -A && git commit -m "brokkr starter"   # ship closes out on a clean tree
 brokkr run --bundle . --repo . --feature "add one visible improvement" && brokkr inspect --run latest
 ```
 
-From a clone of this repository skip `init`: `brokkr run --recipe fast --repo . --feature "…"` resolves the library's own Rust recipe under `./recipes`. The run exits `0` at `done`, `2` when it parks for you, `3` when a rule stops it.
+From a clone of this repository skip `init`: `brokkr run --recipe fast --repo . --feature "…"` resolves the library's own Rust recipe under `./recipes`. Its [exit code](docs/reference/cli.md#exit-codes) says whether the run completed, parked for you or stopped; every verb and flag is in the [CLI reference](docs/reference/cli.md).
 
 The inspection is derived from the journal; it shows the reviewer's verdict, the exact rule that accepted it and the phase graph. The sample is abridged: a real trail lists every event, and each finished seat carries its duration.
 

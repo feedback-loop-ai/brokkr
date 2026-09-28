@@ -994,7 +994,7 @@ pub(crate) fn run(
                 "muninn produced no report and recorded nothing: {}",
                 Safe::new(&reason).as_str()
             );
-            return Ok(ExitCode::from(1));
+            return Ok(crate::Exit::Failed.into());
         }
         OneShot::Produced {
             result,
@@ -1008,7 +1008,7 @@ pub(crate) fn run(
                 "muninn's report was not usable and was not recorded: {}",
                 Safe::new(&problem).as_str()
             );
-            return Ok(ExitCode::from(1));
+            return Ok(crate::Exit::Failed.into());
         }
     };
     let entry = entry(now, &seat, &dossier, &report, usage(&checkpoints));

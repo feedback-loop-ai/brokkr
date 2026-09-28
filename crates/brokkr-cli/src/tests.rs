@@ -153,7 +153,7 @@ pub(crate) fn stopped_mid_flight_run(db: &std::path::Path, run_id: &str, manifes
     }
 }
 
-fn cli(command: Cmd) -> Cli {
+pub(crate) fn cli(command: Cmd) -> Cli {
     Cli { command }
 }
 
@@ -346,7 +346,7 @@ fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd
 }
 
 /// `--db <path>` and no `--realms`: the journal a test names outright.
-fn at(db: &std::path::Path) -> JournalArgs {
+pub(crate) fn at(db: &std::path::Path) -> JournalArgs {
     JournalArgs {
         realms: None,
         db: Some(db.to_path_buf()),
@@ -3890,7 +3890,7 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     let found = contention(&deep).expect("contention buried in a chain is still contention");
     assert!(found.is_contention());
     assert!(found.to_string().contains("nothing was written"));
-    assert_eq!(report(&deep), ExitCode::from(CONTENDED_EXIT));
+    assert_eq!(report(&deep), ExitCode::from(Exit::Contended));
 
     // And straight out of a store call, which is how every reading verb
     // in this file would meet one.
@@ -3901,7 +3901,7 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     // busy journal leaves `brokkr import` with the contended exit.
     let import =
         anyhow::Error::from(brokkr_store::ImportError::Store(contended())).context("importing r1");
-    assert_eq!(report(&import), ExitCode::from(CONTENDED_EXIT));
+    assert_eq!(report(&import), ExitCode::from(Exit::Contended));
     let collision: anyhow::Error = brokkr_store::ImportError::Collision("r1".into()).into();
     assert!(contention(&collision).is_none());
     let import_moved: anyhow::Error = brokkr_store::ImportError::Store(moved()).into();
@@ -3919,7 +3919,7 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     let defect = anyhow::anyhow!("a real defect");
     assert!(contention(&defect).is_none());
     assert_eq!(report(&defect), ExitCode::from(1));
-    assert_eq!(CONTENDED_EXIT, 4);
+    assert_eq!(Exit::Contended.code(), 4);
 }
 
 /// Decision 0043 through the in-process verb: a boxed command runs whole

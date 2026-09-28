@@ -11,7 +11,7 @@ use brokkr_runtime::realms::World;
 use crate::cli_args::{CompileArgs, DoctorArgs, DriverArgs, FakeDriverArgs, InitArgs};
 use crate::{agents, doctor, init, muninn, recipes};
 use crate::{compile_in, compile_in_realm, compiled_view, driver_payload, now_rfc3339};
-use crate::{world_and_hearths, AgentsCmd, MuninnCmd, RecipesCmd, SecretsCmd};
+use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCmd};
 
 /// `brokkr init`: scaffold a reviewable bundle for the workspace.
 pub(crate) fn init(workspace: &Path, InitArgs { dir }: InitArgs) -> Result<ExitCode> {
@@ -78,7 +78,7 @@ pub(crate) fn doctor(
     Ok(if report.healthy {
         ExitCode::SUCCESS
     } else {
-        ExitCode::from(1)
+        Exit::Failed.into()
     })
 }
 

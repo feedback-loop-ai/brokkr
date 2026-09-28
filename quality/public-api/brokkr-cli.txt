@@ -9,7 +9,6 @@ pub brokkr_cli::HandsCommand::Exec::workdir: std::path::PathBuf
 pub brokkr_cli::HandsCommand::Serve
 pub brokkr_cli::HandsCommand::Serve::spec: alloc::string::String
 pub brokkr_cli::HandsCommand::Serve::workdir: std::path::PathBuf
-pub const brokkr_cli::CONTENDED_EXIT: u8
 pub const brokkr_cli::DEFAULT_DB: &str
 pub const brokkr_cli::DEFAULT_SECRETS: &str
 pub fn brokkr_cli::main() -> std::process::ExitCode

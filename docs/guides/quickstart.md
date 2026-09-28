@@ -127,7 +127,7 @@ record of that split. The fifth refusal is `recipes/release`: its boxed
 `implement` office reaches claude without a measured `hands.harness.work`
 fragment before compilation reaches the review gate.
 
-```
+```console
 $ brokkr --version
 brokkr 0.8.0
 ```
@@ -310,9 +310,10 @@ start a run.
 
 ### Step 4 — read the journal
 
-`brokkr run` exits **0** when the run reaches `done`, **2** when it
-parks for the operator, **3** when it stops, and **1** on an error — so
-a shell script can tell them apart without parsing anything.
+`brokkr run`'s exit code says whether the run reached `done`, parked
+for the operator, stopped, or met an error — so a shell script can tell
+them apart without parsing anything. The codes are
+[one table](../reference/cli.md#exit-codes) in the CLI reference.
 
 Then ask the run what happened:
 
@@ -494,16 +495,20 @@ Add `.forge/` to your `.gitignore`. It is evidence, not source.
 
 ### The escape hatches
 
-#### Operator commands — `retry` and `stop`
+#### Operator commands — `retry`, `stop` and `supersede`
 
 ```
 brokkr operator --run <id> retry --reason "the flaky test passes on re-run"
 brokkr operator --run <id> stop  --reason "requirements changed"
+brokkr operator --run <id> supersede --reason "fixed on main" \
+  --findings 41 --by-run <other id> --by-seq 97
 ```
 
 The command is a **positional argument** and `--reason` is **required**;
-`--db` defaults to `.forge/forge.db`. There are exactly two commands:
-`retry` re-runs the current phase, `stop` ends the run. Both are
+`--db` defaults to `.forge/forge.db`. There are three commands:
+`retry` re-runs the current phase, `stop` ends the run, and `supersede`
+records that residual findings on a run that has already finished were
+closed by another run's ruling (decision 0047). `retry` and `stop` are
 recorded as `operator/commanded` plus the engine's disposition —
 `operator/accepted` when it lands, `operator/rejected` when it does not.
 Approval is an entry in the record, not a prose convention, and so is a
@@ -531,7 +536,7 @@ never an operator verb. A run parks when the machine cannot rule:
   `forge.phase-machine/v2`).
 
 A parked run sits in `awaiting_operator` with the raw evidence attached
-and leaves only through one of the two commands above.
+and leaves only through `retry` or `stop`.
 
 #### Resume
 
@@ -731,19 +736,19 @@ ok       agent implementer: would run opus via claude here (chain opus → sonne
 ok       dialect brokkr: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0
 …
 
-$ brokkr init my-bundle                   # scaffold a reviewable starter recipe
-initialized reviewable bundle at my-bundle (digest …)
+$ brokkr init .                           # scaffold a reviewable starter recipe
+initialized reviewable bundle at . (digest …)
 
-$ brokkr run --bundle my-bundle --repo . --feature "prefix selectors for the read surfaces"
+$ brokkr run --bundle . --repo . --feature "prefix selectors for the read surfaces"
 run started: prefix-selectors-for-the-read-su-8bf6d692
 …
 
 $ brokkr tui                              # explore what just happened
 ```
 
-`brokkr run` exits 0 when the run reaches `done`, 2 when it parks for the
-operator, and 3 when it stops — so a shell script can tell the three
-apart without parsing anything.
+`brokkr run`'s [exit code](../reference/cli.md#exit-codes) tells a shell
+script whether the run reached `done`, parked for the operator or
+stopped, without parsing anything.
 
 `brokkr init` writes a starter recipe you are meant to read: a seven-phase
 policy table (five working phases plus `done` and `stop`) with the review

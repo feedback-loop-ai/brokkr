@@ -189,6 +189,7 @@ pub(crate) fn bridge(
     bridge_iteration_limit: Option<usize>,
 ) -> Result<ExitCode> {
     let db = journal.journal(workspace)?;
+    let run = selector::resolve_run(&open_journal(&db, Access::Append)?, &run)?;
     let token = std::env::var(&token_env)
         .with_context(|| format!("reading producer credential from {token_env}"))?;
     anyhow::ensure!(!token.trim().is_empty(), "producer credential is empty");
