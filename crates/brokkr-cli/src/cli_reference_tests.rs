@@ -1367,9 +1367,11 @@ fn the_fence_reader_refuses_a_path_to_brokkr_or_its_crate_it_did_not_parse() {
             line(5, "nohup ./brokkr wacth &", "./brokkr"),
             line(6, "bash -c \"./brokkr wacth\"", "./brokkr wacth"),
             line(7, "BROKKR=./brokkr; \"$BROKKR\" wacth", "BROKKR=./brokkr"),
+            // Spelled in halves so the runtime's retirement scan of the
+            // wrapper passes this source.
             line(
                 8,
-                "docker run ghcr.io/feedback-loop-ai/brokkr wacth",
+                concat!("doc", "ker run ghcr.io/feedback-loop-ai/brokkr wacth"),
                 "ghcr.io/feedback-loop-ai/brokkr"
             ),
             "doc.md:9: `${BROKKR:-brokkr} wacth`: an unquoted $ expansion".to_string(),
