@@ -14,7 +14,7 @@ mod workflow;
 
 #[path = "contributing/inline_copies.rs"]
 mod inline_copies;
-use inline_copies::{assert_first_words_listed, assert_inline_copies};
+use inline_copies::{assert_first_words_listed, assert_inline_copies, text_reads_as_command};
 
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -612,12 +612,12 @@ fn block_lines(block: &str) -> Vec<String> {
 
 /// The commands a row writes: its cell's code spans, and every line of a
 /// code block in a section it links.
-fn written_commands(guide: &str, cell: &str) -> Vec<String> {
+fn written_commands(check: &str, guide: &str, cell: &str) -> Vec<String> {
     cell.split('`')
         .skip(1)
         .step_by(2)
         .chain(
-            links(guide, cell)
+            links(check, guide, cell)
                 .into_iter()
                 .flat_map(|link| code_lines(link.section)),
         )
@@ -632,18 +632,30 @@ struct Link<'a> {
     section: &'a str,
 }
 
-/// The guide sections a row's command cell links to.
-fn links<'a>(guide: &'a str, cell: &'a str) -> Vec<Link<'a>> {
+/// The guide sections `check`'s row links to from its command cell. A
+/// link this cannot read, or one to a section the guide does not have,
+/// fails the test with the row and the link.
+fn links<'a>(check: &str, guide: &'a str, cell: &'a str) -> Vec<Link<'a>> {
     let parts: Vec<&str> = cell.split("](#").collect();
     parts
         .windows(2)
         .map(|pair| {
-            let text = pair[0].rsplit_once('[').expect("an opened link").1;
-            let anchor = pair[1].split_once(')').expect("a closed link").0;
+            let anchor = pair[1]
+                .split_once(')')
+                .unwrap_or_else(|| panic!("{check}'s row leaves a link to #{} open", pair[1]))
+                .0;
+            let text = pair[0]
+                .rsplit_once('[')
+                .unwrap_or_else(|| {
+                    panic!("{check}'s row links #{anchor} from text this test cannot read")
+                })
+                .1;
             let section = guide
                 .split("\n#")
                 .find(|section| heading_anchor(section) == anchor)
-                .unwrap_or_else(|| panic!("the guide has no section #{anchor}"));
+                .unwrap_or_else(|| {
+                    panic!("{check}'s row links #{anchor}, a section the guide does not have")
+                });
             Link {
                 text,
                 anchor,
@@ -656,21 +668,26 @@ fn links<'a>(guide: &'a str, cell: &'a str) -> Vec<Link<'a>> {
 /// A link whose text is a command is a promise that the section writes
 /// that command: each such link's command is a line of a code block in the
 /// section it points at, so deleting the block that "this same command"
-/// stands beside fails here.
+/// stands beside fails here. Link text that reads as a command but is not
+/// one code span is refused as unreadable rather than taken for prose.
 fn assert_linked_blocks(check: &str, cell: &str, guide: &str) {
-    for link in links(guide, cell) {
+    for link in links(check, guide, cell) {
+        let unreadable = || {
+            panic!(
+                "{check}'s row links [{}] to #{}, which this test cannot read",
+                link.text, link.anchor
+            )
+        };
         let Some(command) = link.text.strip_prefix('`') else {
+            if text_reads_as_command(link.text) {
+                unreadable();
+            }
             continue;
         };
         let command = command
             .strip_suffix('`')
             .filter(|command| !command.contains('`'))
-            .unwrap_or_else(|| {
-                panic!(
-                    "{check}'s row links [{}], which this test cannot read",
-                    link.text
-                )
-            });
+            .unwrap_or_else(unreadable);
         assert!(
             code_lines(link.section).contains(&command),
             "{check}'s row links `{command}` to #{}, whose code blocks do not write it",
@@ -834,6 +851,7 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         })
         .collect();
     assert_first_words_listed(&root, &runs);
+    let mut every_written = Vec::new();
     for (at, (row, runs)) in rows.iter().zip(&runs).enumerate() {
         let check = &row.check;
         assert_eq!(
@@ -843,7 +861,7 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         );
         assert_linked_blocks(check, &row.command, &guide);
         assert_inline_copies(&root, row, &guide, runs);
-        let written = written_commands(&guide, &row.command);
+        let written = written_commands(check, &guide, &row.command);
         for run in runs {
             assert!(
                 written.contains(run),
@@ -859,6 +877,15 @@ fn the_by_hand_checks_are_the_workflows_checks() {
                 "{check}'s row writes `{line}`, which its job does not run"
             );
         }
+        every_written.extend(written);
+    }
+    // A local extra is a copy too: deleting the block that writes one
+    // fails, as a stale allowance does.
+    for line in LOCAL_ONLY {
+        assert!(
+            every_written.iter().any(|written| written == line),
+            "no row writes `{line}`, which LOCAL_ONLY holds as a local extra"
+        );
     }
     let contributing = std::fs::read_to_string(root.join("CONTRIBUTING.md")).unwrap();
     assert!(contributing.contains("preserves the twelve exact checks"));

@@ -14,13 +14,13 @@ use super::{links, CheckRow, Line, Link, LEG_LINES};
 /// compared, and a mistyped first word beside a flag or a path fails
 /// rather than going unread. Any other span is a name, a path, a flag or
 /// output, and is not compared. A span left open fails the test.
-fn inline_commands(link: &Link) -> Vec<String> {
+fn inline_commands(check: &str, link: &Link) -> Vec<String> {
     let prose: Vec<&str> = link.section.split("```").step_by(2).collect();
     let prose = prose.concat();
     let spans: Vec<&str> = prose.split('`').collect();
     assert!(
         spans.len() % 2 == 1,
-        "#{} leaves a code span open, which this test cannot read",
+        "{check}'s row links #{}, which leaves a code span open that this test cannot read",
         link.anchor
     );
     spans
@@ -28,8 +28,13 @@ fn inline_commands(link: &Link) -> Vec<String> {
         .skip(1)
         .step_by(2)
         .map(|span| span.split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|span| reads_as_command(&command_words(span)))
+        .filter(|span| text_reads_as_command(span))
         .collect()
+}
+
+/// Whether `text` reads as a command, as `inline_commands` states.
+pub(super) fn text_reads_as_command(text: &str) -> bool {
+    reads_as_command(&command_words(text))
 }
 
 /// Whether a span's words read as a command, as `inline_commands` states.
@@ -169,13 +174,13 @@ fn script_commands(root: &Path, script: &str) -> Vec<String> {
 /// drifts from its command fails here.
 pub(super) fn assert_inline_copies(root: &Path, row: &CheckRow, guide: &str, runs: &[String]) {
     let held = unwritten_lines(&row.check);
-    for link in links(guide, &row.command) {
+    for link in links(&row.check, guide, &row.command) {
         let script = SECTION_SCRIPTS
             .iter()
             .filter(|(anchor, _)| *anchor == link.anchor)
             .flat_map(|(_, script)| script_commands(root, script))
             .collect::<Vec<_>>();
-        for command in inline_commands(&link) {
+        for command in inline_commands(&row.check, &link) {
             assert!(
                 runs.contains(&command)
                     || held.contains(&command.as_str())
