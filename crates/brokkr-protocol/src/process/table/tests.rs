@@ -101,6 +101,7 @@ fn a_stat_line_is_read_from_its_last_parenthesis() {
             ppid: 1,
             pgid: 7,
             zombie: false,
+            exiting: false,
         })
     );
     assert_eq!(parse_stat(7, "7 (cut short) Z 1"), None);
@@ -170,9 +171,30 @@ fn a_ps_row_keeps_its_start_time_whole() {
             ppid: 1,
             pgid: 7,
             zombie: true,
+            exiting: false,
         })
     );
     assert_eq!(parse_ps("7 1"), None);
+}
+
+/// #403 on macOS: BSD `ps` flags a process trying to exit `E`, after its
+/// state letter, and the listing reads it exiting, not a zombie.
+#[test]
+fn a_ps_row_flagged_e_reads_as_exiting() {
+    let stamp = "Mon Sep 28 10:00:00 2026";
+    let rows = listed(output(
+        0,
+        &format!("7 1 7 RE {stamp}\n8 7 7 SE+ {stamp}\n9 7 7 Ss {stamp}\n"),
+    ))
+    .unwrap();
+    let states: Vec<(i32, bool, bool)> = rows
+        .iter()
+        .map(|entry| (entry.id.pid, entry.zombie, entry.exiting))
+        .collect();
+    assert_eq!(
+        states,
+        [(7, false, true), (8, false, true), (9, false, false)]
+    );
 }
 
 /// #403: a row whose start time is missing, is `-` (what BSD `ps` prints

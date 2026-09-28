@@ -23,6 +23,7 @@ fn row(pid: i32, ppid: i32, pgid: i32) -> Entry {
         ppid,
         pgid,
         zombie: false,
+        exiting: false,
     }
 }
 
@@ -469,9 +470,10 @@ fn a_closed_group_is_not_signalled_and_every_refusal_is_carried() {
 }
 
 /// #403 on macOS: Darwin answers a signal to a group whose members are
-/// all zombies with EPERM. A fresh read of the table decides it: a group
-/// with no member running is gone, as ESRCH's is; one with a member
-/// running, or a table that cannot be read, is a refusal, and parks.
+/// all zombies or exiting with EPERM. A fresh read of the table decides
+/// it: a group with no member running is gone, as ESRCH's is; one with a
+/// member running, or a table that cannot be read, is a refusal, and
+/// parks.
 #[test]
 fn a_group_refused_with_eperm_is_gone_only_when_the_table_shows_it_gone() {
     fn zombies() -> Result<Vec<Entry>, TableError> {
@@ -479,6 +481,15 @@ fn a_group_refused_with_eperm_is_gone_only_when_the_table_shows_it_gone() {
             zombie(row(GROUP, me(), GROUP)),
             zombie(row(RECORDED, GROUP, GROUP)),
             row(STRANGER, 1, STRANGER),
+        ]))
+    }
+    fn exiting() -> Result<Vec<Entry>, TableError> {
+        Ok(table([
+            zombie(row(GROUP, me(), GROUP)),
+            Entry {
+                exiting: true,
+                ..row(RECORDED, GROUP, GROUP)
+            },
         ]))
     }
     let refused = |table| Host {
@@ -496,6 +507,7 @@ fn a_group_refused_with_eperm_is_gone_only_when_the_table_shows_it_gone() {
         errno: Errno::PERM.raw_os_error(),
     };
     assert_eq!(live.kill(refused(zombies)), Ok(()));
+    assert_eq!(live.kill(refused(exiting)), Ok(()));
     assert_eq!(live.kill(refused(populated)), Err(kill.clone()));
     assert_eq!(
         live.kill(refused(|| Err(TableError::NoSelf { pid: 0 }))),

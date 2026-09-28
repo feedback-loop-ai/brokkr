@@ -25,13 +25,17 @@ impl Identity {
 }
 
 /// One row of a snapshot. A zombie has exited: it holds a pid until its
-/// parent reaps it, and it runs nothing, so it counts as gone.
+/// parent reaps it, and it runs nothing, so it counts as gone. An exiting
+/// process is one BSD `ps` flags `E`, trying to exit but not yet a
+/// zombie: Darwin's group signal skips it (`tree::group_refused`). Linux
+/// lists no such state, and reads none exiting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Entry {
     pub(super) id: Identity,
     pub(super) ppid: i32,
     pub(super) pgid: i32,
     pub(super) zombie: bool,
+    pub(super) exiting: bool,
 }
 
 /// Why the table could not be read whole.
@@ -114,6 +118,7 @@ fn parse_stat(pid: i32, stat: &str) -> Option<Entry> {
         ppid: fields.get(1)?.parse().ok()?,
         pgid: fields.get(2)?.parse().ok()?,
         zombie: ["Z", "X"].contains(fields.first()?),
+        exiting: false,
     })
 }
 
@@ -197,7 +202,9 @@ pub(super) fn listed(output: std::process::Output) -> Result<Vec<Entry>, TableEr
 }
 
 /// One `ps` row: pid, ppid, pgid, state, then the start time, which is
-/// several words long and is kept whole as the stamp. A row without a
+/// several words long and is kept whole as the stamp. The state is a
+/// letter, `Z` for a zombie, then flags, `E` among them for a process
+/// trying to exit. A row without a
 /// start time, or with one that is not `lstart`'s date (BSD `ps` prints
 /// `-` for a process it cannot inspect), is not read whole: its stamp
 /// names no process, so a recorded one would read as gone (#403).
@@ -207,7 +214,7 @@ fn parse_ps(line: &str) -> Option<Entry> {
     let pid = fields.next()?.parse().ok()?;
     let ppid = fields.next()?.parse().ok()?;
     let pgid = fields.next()?.parse().ok()?;
-    let zombie = fields.next()?.starts_with('Z');
+    let state = fields.next()?;
     let start: Vec<&str> = fields.collect();
     lstart(&start).then(|| Entry {
         id: Identity {
@@ -216,7 +223,8 @@ fn parse_ps(line: &str) -> Option<Entry> {
         },
         ppid,
         pgid,
-        zombie,
+        zombie: state.starts_with('Z'),
+        exiting: state.chars().skip(1).any(|flag| flag == 'E'),
     })
 }
 
