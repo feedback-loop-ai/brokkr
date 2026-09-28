@@ -459,26 +459,39 @@ fn count(text: &str, named: fn(&str) -> bool) -> usize {
         .count()
 }
 
-/// How many times `text` names `brokkr` as a word of its own, wherever
-/// it stands: quoted, escaped, inside a substitution, in a comment, or
-/// before a `:`. A path or a URL that passes through or ends in a
-/// `brokkr` directory names a file, and `brokkr-cli` the crate, not it.
-fn mentions(text: &str) -> usize {
-    count(text, |token| token == "brokkr")
-}
-
 /// Whether a word runs `brokkr` when it is a command's program word:
 /// `brokkr` itself, or a path to it such as `./brokkr` or
-/// `target/release/brokkr`. As an argument, such a path names a file.
+/// `target/release/brokkr`.
 fn executable(word: &str) -> bool {
     word == "brokkr" || word.ends_with("/brokkr")
 }
 
-/// How many words in `text` could run `brokkr`: an [`executable`] one,
-/// or the `brokkr-cli` crate [`cargo_run`] runs. Every line that holds
-/// one is read.
-fn executables(text: &str) -> usize {
-    count(text, |token| executable(token) || token == "brokkr-cli")
+/// Whether a token names the `brokkr-cli` crate, whose `cargo run` runs
+/// `brokkr`: the name, `-pbrokkr-cli`, or a path through its directory.
+fn names_crate(token: &str) -> bool {
+    token.contains("brokkr-cli")
+}
+
+/// Whether a token ends in `brokkr`, and so may run it: `brokkr`, a path
+/// to it, or a word an expansion joins it to, as `${NAME-brokkr}` or
+/// `"$DIR"brokkr` does. A path through a `brokkr` directory, or
+/// `brokkr/`, names no file that runs.
+fn ends_in_brokkr(token: &str) -> bool {
+    token.ends_with("brokkr")
+}
+
+/// How many times `text` [`ends_in_brokkr`], wherever it stands: quoted,
+/// escaped, inside a substitution or an expansion, in a comment, or
+/// before a `:`.
+fn mentions(text: &str) -> usize {
+    count(text, ends_in_brokkr)
+}
+
+/// How many times `text` names `brokkr` or its crate. Every line that
+/// names one is read, and every word that names one outside what
+/// [`program`] allows it is refused.
+fn names(text: &str) -> usize {
+    count(text, |token| ends_in_brokkr(token) || names_crate(token))
 }
 
 /// A shell assignment word, `NAME=value`, which may lead a command.
@@ -499,63 +512,112 @@ fn program_word(argv: &[String]) -> usize {
         .unwrap_or(argv.len())
 }
 
-/// The `brokkr` command one split command runs, as clap is handed it, or
-/// nothing when it runs another program: from an [`executable`] program
-/// word on, or what [`cargo_run`] runs. A `brokkr` anywhere else is
-/// [`stray`]: this reader cannot tell whether it runs.
-fn program(argv: &[String]) -> Option<Vec<String>> {
-    let argv = &argv[program_word(argv)..];
-    match argv.first() {
-        Some(word) if executable(word) => Some(argv.to_vec()),
-        _ => cargo_run(argv),
+/// What one split command runs, as far as `brokkr` goes.
+enum Program {
+    /// A `brokkr` command, as clap is handed it, and the index of the one
+    /// word that runs it: an [`executable`] program word, or the package
+    /// word of the `cargo run -p brokkr-cli` that runs `brokkr` with the
+    /// words after `--`.
+    Brokkr { word: usize, argv: Vec<String> },
+    /// A cargo subcommand other than `run`, such as `cargo build -p
+    /// brokkr-cli`: it may name the crate, and it runs no `brokkr`.
+    Cargo,
+    /// Any other command, a `cargo run` in any other form among them.
+    Other,
+}
+
+/// What one split command runs. A word naming `brokkr` or its crate that
+/// the [`Program`] does not allow is [`stray`]: this reader cannot tell
+/// whether it runs.
+fn program(argv: &[String]) -> Program {
+    let at = program_word(argv);
+    match argv.get(at).map(String::as_str) {
+        Some(word) if executable(word) => Program::Brokkr {
+            word: at,
+            argv: argv[at..].to_vec(),
+        },
+        Some("cargo") => cargo(argv, at),
+        _ => Program::Other,
     }
 }
 
-/// The `brokkr` command a `cargo run -p brokkr-cli` runs: `brokkr` and
-/// the words after `--`, parsed as any other `brokkr` command is.
-fn cargo_run(argv: &[String]) -> Option<Vec<String>> {
-    let dashes = argv.iter().position(|word| word == "--");
-    let (cargo, arguments) = argv.split_at(dashes.unwrap_or(argv.len()));
-    let package = cargo
-        .windows(2)
-        .any(|pair| matches!(pair[0].as_str(), "-p" | "--package") && pair[1] == "brokkr-cli")
-        || cargo
-            .iter()
-            .any(|word| matches!(word.as_str(), "-pbrokkr-cli" | "--package=brokkr-cli"));
-    let runs = cargo.first().is_some_and(|word| word == "cargo")
-        && cargo.iter().any(|word| word == "run")
-        && package;
-    let brokkr = std::iter::once("brokkr".to_string());
-    runs.then(|| brokkr.chain(arguments.iter().skip(1).cloned()).collect())
+/// What a `cargo` at `at` runs. Its subcommand is the word straight
+/// after it; only `cargo run` with `-p brokkr-cli`, `--package
+/// brokkr-cli` or `--package=brokkr-cli` before any `--` is read as
+/// `brokkr`, and a subcommand this reader cannot place, behind an option
+/// or a `+toolchain`, is [`Program::Other`].
+fn cargo(argv: &[String], at: usize) -> Program {
+    let rest = &argv[at + 1..];
+    let dashes = rest.iter().position(|word| word == "--");
+    let (options, arguments) = rest.split_at(dashes.unwrap_or(rest.len()));
+    let package = options
+        .iter()
+        .enumerate()
+        .find_map(|(index, word)| {
+            match (word.as_str(), options.get(index + 1).map(String::as_str)) {
+                ("--package=brokkr-cli", _) => Some(index),
+                ("-p" | "--package", Some("brokkr-cli")) => Some(index + 1),
+                _ => None,
+            }
+        })
+        .map(|index| at + 1 + index);
+    match (options.first().map(String::as_str), package) {
+        (Some("run"), Some(word)) => Program::Brokkr {
+            word,
+            argv: std::iter::once("brokkr".to_string())
+                .chain(arguments.iter().skip(1).cloned())
+                .collect(),
+        },
+        (Some(sub), _) if sub != "run" && !sub.starts_with(['-', '+']) => Program::Cargo,
+        _ => Program::Other,
+    }
 }
 
-/// The first word on a split line that names `brokkr` and is not the
-/// program word of a `brokkr` command: one nothing parses.
+/// The first word on a split line that names `brokkr` or its crate where
+/// its [`Program`] does not allow it: one nothing parses.
 fn stray(commands: &[Vec<String>]) -> Option<&String> {
-    commands
-        .iter()
-        .flat_map(|argv| {
-            let parsed = program(argv).map(|_| program_word(argv));
-            argv.iter()
-                .enumerate()
-                .filter(move |(index, _)| Some(*index) != parsed)
-                .map(|(_, word)| word)
+    commands.iter().find_map(|argv| {
+        let program = program(argv);
+        argv.iter().enumerate().find_map(|(index, word)| {
+            let allowed = match &program {
+                Program::Brokkr { word, .. } => index == *word,
+                Program::Cargo => mentions(word) == 0,
+                Program::Other => false,
+            };
+            (!allowed && names(word) > 0).then_some(word)
         })
-        .find(|word| mentions(word) > 0)
+    })
 }
 
 /// Why a `brokkr` the word splitter drops, in a comment or a redirect's
 /// target, is refused: it was never handed to clap.
 const DROPPED: &str = "an unparsed `brokkr` the word splitter drops, in a comment or a redirect";
 
-/// Why a word that names `brokkr` outside a parsed `brokkr` command is
-/// refused.
+/// Why a word that names `brokkr` or its crate outside a parsed `brokkr`
+/// command is refused.
 fn unparsed(word: &str) -> String {
     format!(
         "an unparsed `brokkr` in `{word}`: only a command that begins with \
-         `brokkr` is parsed, and every other mention is refused"
+         `brokkr`, a path to it, or `cargo run -p brokkr-cli --` is parsed, \
+         and every other mention is refused"
     )
 }
+
+/// The living-doc lines, continuations joined, that name `brokkr`, a
+/// path to it or its crate as a file, a repository or a package, never
+/// running it. Each is accepted exactly as written, and an edit to one is
+/// refused until it is ruled on here again.
+const NAMED_NOT_RUN: [&str; 8] = [
+    "gh repo fork feedback-loop-ai/brokkr --clone",
+    "cd ./brokkr",
+    "git clone https://github.com/feedback-loop-ai/brokkr ~/src/brokkr",
+    "gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr",
+    "tar xzf brokkr-linux-x86_64.tar.gz            # → ./brokkr",
+    "bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json",
+    "nix profile install github:feedback-loop-ai/brokkr",
+    "for crate in brokkr-core brokkr-store brokkr-protocol brokkr-view              \
+     brokkr-runtime brokkr-bridge brokkr-cli; do",
+];
 
 /// One `brokkr` command a fence carries, continuation lines joined.
 #[derive(Debug, PartialEq, Eq)]
@@ -655,7 +717,7 @@ fn fences(doc: &str) -> Result<Vec<Fence<'_>>, (usize, String)> {
 const UNPROMPTED: &str = "a line naming `brokkr` without a `$ ` prompt in a fence \
                           that prompts elsewhere; prompt it, or move output into a text fence";
 
-/// A line that names `brokkr` or a path to it, with any `$ ` prompt taken
+/// A line that [`names`] `brokkr`, with any `$ ` prompt taken
 /// off, for [`refusal`] to account for every mention. In a fence that
 /// prompts, a line without a prompt is output, and one that names either
 /// is refused: a forgotten prompt and output that looks like a command
@@ -663,7 +725,7 @@ const UNPROMPTED: &str = "a line naming `brokkr` without a `$ ` prompt in a fenc
 fn command_of(line: &str, prompted: bool) -> Result<Option<&str>, &'static str> {
     let line = line.trim_start();
     match line.strip_prefix("$ ") {
-        _ if executables(line) == 0 => Ok(None),
+        _ if names(line) == 0 => Ok(None),
         Some(command) => Ok(Some(command)),
         None if prompted => Err(UNPROMPTED),
         None => Ok(Some(line)),
@@ -878,37 +940,53 @@ fn substitution(
 }
 
 /// Why a documented line does not parse, or nothing when every `brokkr`
-/// on it is the program word of a command clap parses: after the split,
-/// a `brokkr` in any other word, or one the split drops, is refused.
+/// on it is the program word of a command clap parses, or the line is
+/// one of [`NAMED_NOT_RUN`]: after the split, a word naming `brokkr` or
+/// its crate that its [`Program`] does not allow, or one the split drops,
+/// is refused.
 fn refusal(line: &str) -> Option<String> {
+    if NAMED_NOT_RUN.contains(&line) {
+        return None;
+    }
     let commands = match words(line) {
         Ok(commands) => commands,
         Err(problem) => return Some(problem),
     };
-    let parsed: Vec<Vec<String>> = commands.iter().filter_map(|argv| program(argv)).collect();
-    if let Some(problem) = parsed.iter().find_map(|argv| clap_refusal(argv)) {
-        return Some(problem);
+    let problem = commands.iter().find_map(|argv| match program(argv) {
+        Program::Brokkr { argv, .. } => clap_refusal(&argv),
+        Program::Cargo | Program::Other => None,
+    });
+    if problem.is_some() {
+        return problem;
     }
-    let split: usize = commands.iter().flatten().map(|word| mentions(word)).sum();
+    let split: usize = commands.iter().flatten().map(|word| names(word)).sum();
     match stray(&commands) {
         Some(word) => Some(unparsed(word)),
-        None if mentions(line) > split => Some(DROPPED.to_string()),
+        None if names(line) > split => Some(DROPPED.to_string()),
         None => None,
     }
 }
 
+/// Why a `brokkr` with no subcommand is refused: clap prints the help and
+/// fails, and the help's first line names no cause.
+const NO_SUBCOMMAND: &str = "a `brokkr` with no subcommand, which prints its help and fails";
+
 /// Why clap refuses one `brokkr` command, or nothing when it parses.
 /// `--help` and `--version` stop clap's parse but are valid lines.
 fn clap_refusal(argv: &[String]) -> Option<String> {
+    use clap::error::ErrorKind;
     match Cli::try_parse_from(argv) {
         Ok(_) => None,
         Err(error)
             if matches!(
                 error.kind(),
-                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
             ) =>
         {
             None
+        }
+        Err(error) if error.kind() == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
+            Some(NO_SUBCOMMAND.to_string())
         }
         Err(error) => Some(
             error
@@ -955,19 +1033,25 @@ fn every_fenced_brokkr_command_in_a_living_doc_parses() {
     let docs = living_docs(&root);
     assert!(docs.iter().any(|doc| doc == "docs/guides/quickstart.md"));
     assert!(!docs.iter().any(|doc| doc.starts_with("docs/decisions/")));
-    let refused: Vec<String> = docs
-        .iter()
-        .flat_map(|doc| {
-            let text = std::fs::read_to_string(root.join(doc))
-                .unwrap_or_else(|error| panic!("{doc}: {error}"));
-            refusals_in(doc, &text)
-        })
-        .collect();
+    let mut refused = Vec::new();
+    let mut fenced = Vec::new();
+    for doc in &docs {
+        let text = std::fs::read_to_string(root.join(doc))
+            .unwrap_or_else(|error| panic!("{doc}: {error}"));
+        refused.extend(refusals_in(doc, &text));
+        fenced.extend(fenced_commands(&text).unwrap_or_default());
+    }
     assert!(
         refused.is_empty(),
         "documented commands that do not parse:\n{}",
         refused.join("\n")
     );
+    for line in NAMED_NOT_RUN {
+        assert!(
+            fenced.iter().any(|fenced| fenced.text == line),
+            "`{line}` is in no living doc; take it out of NAMED_NOT_RUN"
+        );
+    }
 }
 
 #[test]
@@ -1104,7 +1188,7 @@ fn the_fence_reader_sees_brokkr_past_tabs_assignments_and_wrappers() {
 
 /// A path to `brokkr` as the program word runs it, and `cargo run -p
 /// brokkr-cli` runs it with the words after `--`: both are parsed. As an
-/// argument, the path names a file.
+/// argument, the path is refused as `brokkr` is.
 #[test]
 fn the_fence_reader_parses_a_path_to_brokkr_and_what_cargo_run_runs() {
     let wacth = "error: unrecognized subcommand 'wacth'";
@@ -1118,10 +1202,14 @@ fn the_fence_reader_parses_a_path_to_brokkr_and_what_cargo_run_runs() {
             format!("doc.md:2: `./brokkr wacth`: {wacth}"),
             format!("doc.md:3: `~/.cargo/bin/brokkr wacth`: {wacth}"),
             format!("doc.md:4: `brokkr runs && target/release/brokkr wacth`: {wacth}"),
+            format!(
+                "doc.md:5: `cd ./brokkr && ./brokkr runs`: {}",
+                unparsed("./brokkr")
+            ),
             format!("doc.md:6: `cargo run -p brokkr-cli -- wacth`: {wacth}"),
-            // With no `--`, clap is handed a bare `brokkr` and refuses it
-            // with the help it prints, whose first line is the about.
-            "doc.md:8: `cargo run --package=brokkr-cli`: Deterministic delivery engine".to_string(),
+            // With no `--`, clap is handed a bare `brokkr`, which prints
+            // its help and fails.
+            format!("doc.md:8: `cargo run --package=brokkr-cli`: {NO_SUBCOMMAND}"),
             format!("doc.md:9: `cargo run -p brokkr-cli -- runs # brokkr`: {DROPPED}"),
         ]
     );
@@ -1136,7 +1224,7 @@ fn the_fence_reader_reads_brokkr_wherever_the_word_splitter_finds_it() {
     let wacth = "error: unrecognized subcommand 'wacth'";
     let doc = "```sh\nif brokkr wacth; then :; fi\nfor x in a; do brokkr wacth; done\n\
                'brokkr' wacth\nRUN=$(brokkr costs --run latest)\nsudo \\\n  brokkr runs\n\
-               cd ./brokkr && git commit -m \"brokkr starter\"\n```\n";
+               cd repo && git commit -m \"brokkr starter\"\n```\n";
     assert_eq!(
         refusals_in("doc.md", doc),
         [
@@ -1146,7 +1234,7 @@ fn the_fence_reader_reads_brokkr_wherever_the_word_splitter_finds_it() {
             "doc.md:5: `RUN=$(brokkr costs --run latest)`: a $( substitution".to_string(),
             format!("doc.md:6: `sudo   brokkr runs`: {}", unparsed("brokkr")),
             format!(
-                "doc.md:8: `cd ./brokkr && git commit -m \"brokkr starter\"`: {}",
+                "doc.md:8: `cd repo && git commit -m \"brokkr starter\"`: {}",
                 unparsed("brokkr starter")
             ),
         ]
@@ -1200,7 +1288,8 @@ fn the_fence_reader_refuses_every_brokkr_it_did_not_parse() {
     assert_eq!(
         brokkr,
         "an unparsed `brokkr` in `brokkr`: only a command that begins with \
-         `brokkr` is parsed, and every other mention is refused"
+         `brokkr`, a path to it, or `cargo run -p brokkr-cli --` is parsed, \
+         and every other mention is refused"
     );
     let wacth = unparsed("brokkr wacth");
     assert_eq!(
@@ -1233,6 +1322,93 @@ fn the_fence_reader_refuses_every_brokkr_it_did_not_parse() {
             (3, UNPROMPTED.to_string()),
             "{line}"
         );
+    }
+}
+
+/// A path to `brokkr`, an expansion's default and the crate `cargo run`
+/// runs are refused wherever nothing parses them, as `brokkr` is; a cargo
+/// subcommand that runs nothing may name the crate, and a line of
+/// [`NAMED_NOT_RUN`] is accepted as written and no other way.
+#[test]
+fn the_fence_reader_refuses_a_path_to_brokkr_or_its_crate_it_did_not_parse() {
+    let doc = "```sh\n\
+               sudo ./brokkr wacth\n\
+               sudo -E target/release/brokkr wacth\n\
+               env FOO=1 ./brokkr wacth\n\
+               nohup ./brokkr wacth &\n\
+               bash -c \"./brokkr wacth\"\n\
+               BROKKR=./brokkr; \"$BROKKR\" wacth\n\
+               docker run ghcr.io/feedback-loop-ai/brokkr wacth\n\
+               ${BROKKR:-brokkr} wacth\n\
+               \"${BROKKR-brokkr}\" wacth\n\
+               sudo cargo run -p brokkr-cli -- wacth\n\
+               cargo run --manifest-path crates/brokkr-cli/Cargo.toml -- wacth\n\
+               cargo run -pbrokkr-cli -- wacth\n\
+               cd crates/brokkr-cli && cargo run -- wacth\n\
+               cargo +nightly run -p brokkr-cli -- wacth\n\
+               cargo run -p brokkr-cli --bin brokkr -- runs\n\
+               cargo test -p brokkr-cli run\n\
+               cargo build --release --locked -p brokkr-cli\n\
+               \"$DIR\"brokkr wacth\n\
+               ```\n";
+    let line = |number: usize, text: &str, word: &str| {
+        format!("doc.md:{number}: `{text}`: {}", unparsed(word))
+    };
+    assert_eq!(
+        refusals_in("doc.md", doc),
+        [
+            line(2, "sudo ./brokkr wacth", "./brokkr"),
+            line(
+                3,
+                "sudo -E target/release/brokkr wacth",
+                "target/release/brokkr"
+            ),
+            line(4, "env FOO=1 ./brokkr wacth", "./brokkr"),
+            line(5, "nohup ./brokkr wacth &", "./brokkr"),
+            line(6, "bash -c \"./brokkr wacth\"", "./brokkr wacth"),
+            line(7, "BROKKR=./brokkr; \"$BROKKR\" wacth", "BROKKR=./brokkr"),
+            line(
+                8,
+                "docker run ghcr.io/feedback-loop-ai/brokkr wacth",
+                "ghcr.io/feedback-loop-ai/brokkr"
+            ),
+            "doc.md:9: `${BROKKR:-brokkr} wacth`: an unquoted $ expansion".to_string(),
+            line(10, "\"${BROKKR-brokkr}\" wacth", "${BROKKR-brokkr}"),
+            line(11, "sudo cargo run -p brokkr-cli -- wacth", "brokkr-cli"),
+            line(
+                12,
+                "cargo run --manifest-path crates/brokkr-cli/Cargo.toml -- wacth",
+                "crates/brokkr-cli/Cargo.toml"
+            ),
+            line(13, "cargo run -pbrokkr-cli -- wacth", "-pbrokkr-cli"),
+            line(
+                14,
+                "cd crates/brokkr-cli && cargo run -- wacth",
+                "crates/brokkr-cli"
+            ),
+            line(
+                15,
+                "cargo +nightly run -p brokkr-cli -- wacth",
+                "brokkr-cli"
+            ),
+            line(16, "cargo run -p brokkr-cli --bin brokkr -- runs", "brokkr"),
+            line(19, "\"$DIR\"brokkr wacth", "$DIRbrokkr"),
+        ]
+    );
+    // Edited by one trailing space, each is read and refused.
+    let edited = [
+        unparsed("feedback-loop-ai/brokkr"),
+        unparsed("./brokkr"),
+        unparsed("https://github.com/feedback-loop-ai/brokkr"),
+        unparsed("feedback-loop-ai/brokkr"),
+        DROPPED.to_string(),
+        unparsed("target/release/brokkr"),
+        unparsed("github:feedback-loop-ai/brokkr"),
+        unparsed("brokkr-cli"),
+    ];
+    for (named, refused) in NAMED_NOT_RUN.into_iter().zip(edited) {
+        assert_eq!(refusal(named), None, "{named}");
+        assert_eq!(refusal(&format!("{named} ")), Some(refused), "{named}");
     }
 }
 
