@@ -691,6 +691,49 @@ struct AgentContext {
     /// is exactly what `binding_grant: true` meant, so every bundle on
     /// disk keeps the behaviour it has.
     egress_minimum: EgressClass,
+    /// Every library charter's bound read, held until the bundle is sealed
+    /// (rebuild unit 18-fix-b return, council F2).
+    reads: Vec<LibraryRead>,
+}
+
+/// One library charter a site was bound to, as its read holds it: the site
+/// and agent a refusal names, the reference as written, the digest of the
+/// buffer read and what the read holds. No layer's walk pins a library's
+/// file, so before the bundle is sealed the read itself is checked to still
+/// stand — its owner, every entry on its way and its bytes — as a layer's
+/// charter is by that layer's seal (rebuild unit 18-fix-b return, F2).
+struct LibraryRead {
+    site: String,
+    agent: String,
+    reference: String,
+    digest: String,
+    held: Held,
+}
+
+impl LibraryRead {
+    /// Refused, where the read no longer stands as it was read.
+    fn check(&self) -> Result<(), CompileError> {
+        match self.held.intact(&self.digest) {
+            true => Ok(()),
+            false => Err(library_refusal(
+                &self.site,
+                &self.agent,
+                &self.reference,
+                "which the compile no longer holds as it was read: its library's directory, an \
+                 entry on its way, or its bytes changed after the read that bound it",
+            )),
+        }
+    }
+}
+
+/// The refusal of the charter `reference` the library's `agent` names for
+/// the seat `site`, for the reason `clause`.
+fn library_refusal(site: &str, agent: &str, reference: &str, clause: &str) -> CompileError {
+    CompileError::Invalid(format!(
+        "seat '{site}': agent '{agent}' names charter {}, {clause}. What a seat is told must be \
+         what the bundle's identity names, so it is refused (decision 0065 slice one, design D7)",
+        bounded_reference(reference)
+    ))
 }
 
 /// One resolved agent reference, ready to become an ordinary seat body.
@@ -1504,6 +1547,7 @@ impl Bundle {
                     ))
                 })?,
                 egress_minimum,
+                reads: Vec::new(),
             }),
         };
         // Decision 0065 ruling 1 (CQ2; design D3): a library this compile
@@ -2114,7 +2158,13 @@ impl Bundle {
         // each input must still stand as it was read or nothing seals.
         // Rebuild unit 18-fix-b (council F2): who each charter's owner is
         // was taken by the read that bound the charter, and the seal's check
-        // compares it; no later walk records another.
+        // compares it; no later walk records another. Its return (council
+        // F2): a library charter, which no layer's walk pins, is checked by
+        // the read that bound it, owner included, before any identity is
+        // sealed.
+        for read in agents.iter().flat_map(|context| &context.reads) {
+            read.check()?;
+        }
         resolved.seal(charters.into_inner())?;
         let manifest = manifest_for(
             dir,
@@ -2751,15 +2801,8 @@ fn resolve_reference(
     // the library record pins; a charter no such read binds is refused here
     // rather than compiled into a seat every dispatch refuses.
     let source = &resolution.charter_source;
-    let refused = |clause: String| {
-        CompileError::Invalid(format!(
-            "seat '{what}': agent '{}' names charter {}, {clause}. What a seat is told must be \
-             what the bundle's identity names, so it is refused (decision 0065 slice one, design \
-             D7)",
-            resolution.agent,
-            bounded_reference(&source.reference)
-        ))
-    };
+    let refused =
+        |clause: String| library_refusal(what, &resolution.agent, &source.reference, &clause);
     let bound = match owned_input(&source.library, &source.reference) {
         Ok(bound) if sha256_bytes(&bound.bytes) == source.digest => bound,
         Ok(_) => {
@@ -2776,6 +2819,15 @@ fn resolve_reference(
     };
     let pin = CharterPin::of(owner, &source.reference, resolution.charter.clone(), &bound);
     site_facts(sites, site_key).charter = Some(pin);
+    // Rebuild unit 18-fix-b return (F2): the read is held until the seal,
+    // which checks it still stands, its owner included.
+    context.reads.push(LibraryRead {
+        site: what.to_string(),
+        agent: resolution.agent.clone(),
+        reference: source.reference.clone(),
+        digest: source.digest.clone(),
+        held: bound.held,
+    });
     // The capability pass judges exactly the chain this site will run
     // (decision 0065): one outcome per candidate, never their union.
     site_facts(sites, site_key).chain = candidates.clone();
@@ -4565,7 +4617,10 @@ pub(crate) struct BoundInput {
 /// from the handles that resolution holds, and compared whole whenever the
 /// input is observed again. A key is never chosen by listing a path.
 /// Rebuild unit 18-fix-b (council F1): a charter's pin keeps its binding
-/// whole, and the dispatch door compares it whole.
+/// whole, and the dispatch door compares it whole. Its return (council
+/// F1): whole includes every entry the resolution walked, so a
+/// directory on the way replaced around the very file that was read is a
+/// binding that no longer holds.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Binding {
     /// The file-map key under which the declaring layer's walk pins what the
@@ -4583,6 +4638,10 @@ pub(crate) struct Binding {
     target_key: String,
     /// The `(dev, ino)` of the handle that was read.
     id: (u64, u64),
+    /// Every step the resolution took, in order, from the layer's
+    /// directory to the file read: each directory it stood in is the one
+    /// it held, and each link the text it followed.
+    steps: Vec<Step>,
 }
 
 impl Binding {
@@ -4606,14 +4665,45 @@ impl Binding {
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 impl Binding {
     /// The binding a read under `root` names the file at `target` by,
-    /// spelled `key`: a test's expected pin (rebuild unit 18-fix-b).
+    /// spelled `key`: a test's expected pin (rebuild unit 18-fix-b). Its
+    /// steps are looked at by path, one written name at a time, a link's
+    /// text followed from the link's own directory (its return).
     pub(crate) fn expected(root: &Path, key: &str, target: &str) -> Binding {
         use std::os::unix::fs::MetadataExt;
-        let meta = std::fs::metadata(root.join(target)).unwrap();
+        let id = |path: &Path| {
+            let meta = std::fs::metadata(path).unwrap();
+            (meta.dev(), meta.ino())
+        };
+        let names = |path: &Path| -> Vec<OsString> {
+            path.components()
+                .filter(|part| *part != std::path::Component::CurDir)
+                .rev()
+                .map(|part| part.as_os_str().to_os_string())
+                .collect()
+        };
+        let mut steps = vec![Step::Entry(OsString::new(), id(root))];
+        let (mut at, mut pending) = (root.to_path_buf(), names(Path::new(key)));
+        while let Some(name) = pending.pop() {
+            let path = at.join(&name);
+            match std::fs::read_link(&path) {
+                Ok(text) => {
+                    pending.extend(names(&text));
+                    steps.push(Step::Link(name, text.into_os_string()));
+                }
+                Err(_) if name == ".." => {
+                    at.pop();
+                }
+                Err(_) => {
+                    steps.push(Step::Entry(name, id(&path)));
+                    at = path;
+                }
+            }
+        }
         Binding {
             key: key.to_string(),
             target_key: target.to_string(),
-            id: (meta.dev(), meta.ino()),
+            id: id(&root.join(target)),
+            steps,
         }
     }
 }
@@ -4635,7 +4725,7 @@ pub(crate) struct Supplied {
 /// entry opened by the name it was looked up by, with the `(dev, ino)` its
 /// handle holds, or a link, with the text it was followed by. The layer's
 /// own directory is the first entry.
-#[derive(PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Step {
     Entry(OsString, (u64, u64)),
     Link(OsString, OsString),
@@ -4656,7 +4746,6 @@ type Hold = (std::fs::File, OsString, (u64, u64));
 pub(crate) struct Held {
     root: PathBuf,
     reference: PathBuf,
-    steps: Vec<Step>,
     binding: Binding,
     /// Who the owner's directory was when this read reached it from `/`
     /// ([`owned_input`]); `None` for a read given its directory by its path.
@@ -4671,11 +4760,11 @@ impl Held {
     }
 
     /// Whether `now`, the reference observed again, stands as it stood when
-    /// it was read: the same steps (every entry the same file, every link
-    /// the same text), the same binding, both keys and the file read, and
+    /// it was read: the same binding — both keys, the file read and the same
+    /// steps (every entry the same file, every link the same text) — and
     /// the same owner, it and every directory above it.
     fn stands(&self, now: &Observation) -> bool {
-        (&now.steps, &now.binding, &now.owner) == (&self.steps, &self.binding, &self.owner)
+        (&now.binding, &now.owner) == (&self.binding, &self.owner)
     }
 
     /// Whether the input still stands as it was read: its reference, resolved
@@ -4701,7 +4790,6 @@ impl Held {
 
 /// What one owner-rooted resolution saw.
 struct Observation {
-    steps: Vec<Step>,
     handles: Vec<std::fs::File>,
     binding: Binding,
     owner: Option<OwnerIdentity>,
@@ -4723,6 +4811,10 @@ pub(crate) enum InputFault {
 pub(crate) struct Place {
     kind: FaultKind,
     clause: String,
+    /// What to do about it, where the caller's own remedy does not apply
+    /// (rebuild unit 18-fix-b return, F3): moving a charter within its owner
+    /// cannot make a directory above that owner readable.
+    remedy: Option<&'static str>,
 }
 
 /// The kinds of place a bound read refuses, each the one word a dispatch
@@ -4747,7 +4839,13 @@ impl Place {
         InputFault::Place(Place {
             kind,
             clause: clause.into(),
+            remedy: None,
         })
+    }
+
+    /// The remedy this place carries, if the caller's does not apply.
+    pub(crate) fn remedy(&self) -> Option<&'static str> {
+        self.remedy
     }
 }
 
@@ -5235,12 +5333,12 @@ fn observe(root: &Path, open: Opener<'_>, reference: &Path) -> Result<Observatio
     };
     let id = stack.last().expect("the layer's directory stays").2;
     Ok(Observation {
-        steps,
         handles: stack.into_iter().map(|(file, ..)| file).collect(),
         binding: Binding {
             key,
             target_key,
             id,
+            steps,
         },
         owner,
     })
@@ -5321,7 +5419,6 @@ fn bound_through(root: &Path, open: Opener<'_>, reference: &str) -> Result<Bound
     let held = Held {
         root: root.to_path_buf(),
         reference,
-        steps: observed.steps,
         binding: observed.binding,
         owner: observed.owner,
         handles: observed.handles,
@@ -5391,20 +5488,28 @@ fn owner_directory(root: &Path) -> Result<(std::fs::File, OwnerIdentity), InputF
 /// be opened: gone, as [`unopened`] says it, or there but not observable —
 /// an ancestor without read permission — named, bounded, with its cause
 /// (rebuild unit 18-fix-b, F3), so a compile refuses it by name.
+/// Its return (F3): the remedy is the directory's, not the charter's.
 fn unreached(path: &Path, error: std::io::Error) -> InputFault {
     let kind = error.kind();
     match unopened(error) {
-        InputFault::Place(_) => Place::of(
-            FaultKind::Unreadable,
-            format!(
+        InputFault::Place(_) => InputFault::Place(Place {
+            kind: FaultKind::Unreadable,
+            clause: format!(
                 "whose owner's directory cannot be reached: {} cannot be opened ({kind}), so the \
                  directory the charter is read from cannot be bound",
                 bounded_reference(&path.to_string_lossy())
             ),
-        ),
+            remedy: Some(UNREACHED_REMEDY),
+        }),
         missing => missing,
     }
 }
+
+/// What to do about an owner's directory the compile cannot reach.
+const UNREACHED_REMEDY: &str = "The compile opens every directory from '/' down to the charter's \
+                                owner, so that directory must be readable by the user who \
+                                compiles; grant it, or compile from a realm under directories \
+                                that user can read (decision 0065 slice one, design D7)";
 
 /// No supported host lacks the lookup; any other binds no owner.
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
@@ -5590,6 +5695,9 @@ fn unbound_charter(bundle: &Bundle, role: &Path) -> Result<String, (String, Stri
 /// binding must be the pin's — both keys and the file read. Equal bytes at
 /// the same path in another file, or in a replaced directory, are
 /// `replaced`; a target reached under another key is `retargeted`.
+/// Its return (council F1): the binding carries every directory
+/// the compile's read walked, so the very file read, moved into a directory
+/// that replaced its own, is `replaced` too.
 fn pinned_charter(bundle: &Bundle, pin: &CharterPin) -> Result<String, (String, String)> {
     let (name, key) = owned(bundle, pin)?;
     let refused = |cause: &str| (name.clone(), format!("{cause}: {key}"));
@@ -6849,10 +6957,13 @@ fn parse_role(
             missing_clause(&error)
         ))),
         Err(InputFault::Place(place)) => Err(CompileError::Invalid(format!(
-            "{}: seat {site} names role {reference}, {place}. A charter there could change what \
-             the seat is told without moving the bundle's identity, so it is refused; move it to \
-             a path the bundle pins, such as 'roles/' (decision 0066 ruling 5)",
-            source.display()
+            "{}: seat {site} names role {reference}, {place}. {}",
+            source.display(),
+            place.remedy().unwrap_or(
+                "A charter there could change what the seat is told without moving the bundle's \
+                 identity, so it is refused; move it to a path the bundle pins, such as 'roles/' \
+                 (decision 0066 ruling 5)"
+            )
         ))),
     }
 }

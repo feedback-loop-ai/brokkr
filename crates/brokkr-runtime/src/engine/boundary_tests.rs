@@ -2198,12 +2198,157 @@ fn a_charter_replaced_by_equal_bytes_at_its_own_path_refuses_the_dispatch() {
     }
 }
 
+/// Rebuild unit 18-fix-b return (design D7; task 18.1; F1): THE PIN CARRIES
+/// EVERY DIRECTORY ITS READ WALKED, not only the file it read. For both
+/// owner kinds, the directory holding the charter is renamed aside, a new
+/// directory is made at its path and the ORIGINAL charter is moved into it:
+/// the charter is the very file the compile read, at the very path, under a
+/// directory the compile never walked. Every such dispatch refuses as
+/// `replaced` before its driver starts, and moved back, the SAME bundle
+/// dispatches again.
+#[cfg(unix)]
+#[test]
+fn a_charter_moved_into_a_replaced_directory_refuses_the_dispatch() {
+    use std::os::unix::fs::MetadataExt;
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let realm = root.join("realm");
+    let bundle = two_owners(&realm, "charters/worker.md");
+    let spawns = std::cell::Cell::new(0);
+    let both = || {
+        let door = |seat: &str| {
+            spawns.set(spawns.get() + 1);
+            let marker = root.join(format!("provider-work-{}", spawns.get()));
+            dispatched(&bundle, seat, &marker)
+        };
+        (door("review"), door("work"))
+    };
+    let intact = (
+        Ok(json!("# review as written\n")),
+        Ok(json!("# work as written\n")),
+    );
+    assert_eq!(both(), intact);
+    let layer = moved("layer 'recipe'", "replaced: roles/review.md");
+    let library = moved("agent 'worker'", "replaced: worker.md");
+    for (directory, name, refused) in [
+        ("recipe/roles", "review.md", (layer, intact.1.clone())),
+        ("agents/charters", "worker.md", (intact.0.clone(), library)),
+    ] {
+        let (path, away) = (
+            realm.join(directory),
+            realm.join(format!("{directory}.away")),
+        );
+        let charter = path.join(name);
+        let (was, file) = (
+            std::fs::metadata(&path).unwrap().ino(),
+            std::fs::metadata(&charter).unwrap().ino(),
+        );
+        std::fs::rename(&path, &away).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        std::fs::rename(away.join(name), &charter).unwrap();
+        assert_ne!(
+            std::fs::metadata(&path).unwrap().ino(),
+            was,
+            "{directory}: another directory"
+        );
+        assert_eq!(
+            std::fs::metadata(&charter).unwrap().ino(),
+            file,
+            "{directory}: the same charter"
+        );
+        assert_eq!(both(), refused, "{directory} replaced around its charter");
+        std::fs::rename(&charter, away.join(name)).unwrap();
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::rename(&away, &path).unwrap();
+        assert_eq!(both(), intact, "{directory} restored");
+    }
+}
+
+/// Rebuild unit 18-fix-b return (design D7; task 18.1; F2): A LIBRARY'S
+/// CHARTER READ IS HELD UNTIL THE BUNDLE IS SEALED, and its owner is checked
+/// there as a layer's is. A controlled replacement as soon as the library
+/// charter's read was verified — the library directory renamed aside, a new
+/// one made at its path and every entry of the old one, the charter's own
+/// directory among them, moved into it — refuses the compile; nothing is
+/// moved back until the compile has answered. Restored, the recipe compiles.
+#[cfg(unix)]
+#[test]
+fn a_library_owner_replaced_after_its_charter_was_read_refuses_the_compile() {
+    use crate::bundle::{ReadStage, READ_HOOK};
+    use std::os::unix::fs::MetadataExt;
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let realm = root.join("realm");
+    two_owners(&realm, "charters/worker.md");
+    let (agents, away) = (realm.join("agents"), realm.join("agents.away"));
+    let worker = agents.join("charters/worker.md");
+    let compile = || {
+        Bundle::compile_with_realm(
+            &realm.join("recipe"),
+            &agents,
+            &realm.join("adapters"),
+            None,
+            None,
+            brokkr_core::realms::Boundary::Namespace,
+        )
+        .map(|bundle| bundle.name)
+        .map_err(|error| error.to_string())
+    };
+    fn shift(from: &Path, to: &Path) {
+        for entry in std::fs::read_dir(from).unwrap() {
+            let name = entry.unwrap().file_name();
+            std::fs::rename(from.join(&name), to.join(&name)).unwrap();
+        }
+    }
+    let (was, file) = (
+        std::fs::metadata(&agents).unwrap().ino(),
+        std::fs::metadata(&worker).unwrap().ino(),
+    );
+    {
+        let (agents, away, worker) = (agents.clone(), away.clone(), worker.clone());
+        let mut done = false;
+        READ_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move |stage, target: &Path| {
+                if !done && stage == ReadStage::Verified && target == worker {
+                    done = true;
+                    std::fs::rename(&agents, &away).unwrap();
+                    std::fs::create_dir(&agents).unwrap();
+                    shift(&away, &agents);
+                }
+            }));
+        });
+    }
+    let refused = compile();
+    READ_HOOK.with(|hook| *hook.borrow_mut() = None);
+    let replaced = (
+        std::fs::metadata(&agents).unwrap().ino() != was,
+        std::fs::metadata(&worker).unwrap().ino() == file,
+    );
+    shift(&agents, &away);
+    std::fs::remove_dir(&agents).unwrap();
+    std::fs::rename(&away, &agents).unwrap();
+    assert_eq!(replaced, (true, true), "another owner, the same charter");
+    assert_eq!(
+        refused,
+        Err(
+            "bundle: seat 'work': agent 'worker' names charter 'charters/worker.md', which the \
+             compile no longer holds as it was read: its library's directory, an entry on its \
+             way, or its bytes changed after the read that bound it. What a seat is told must \
+             be what the bundle's identity names, so it is refused (decision 0065 slice one, \
+             design D7)"
+                .to_string()
+        )
+    );
+    assert_eq!(compile(), Ok("recipe".to_string()));
+}
+
 /// Rebuild unit 18-fix-b (design D7; task 18.1; council F3): AN OWNER THE
 /// COMPILE CANNOT OBSERVE IS REFUSED BY THE COMPILE, NAMING WHAT IT COULD
 /// NOT OBSERVE, never compiled into a bundle whose every dispatch then
 /// refuses. The realm directory above both owners is made execute-only, so
 /// every path under it still resolves but the directory itself cannot be
-/// opened; with its mode restored the same recipe compiles.
+/// opened; with its mode restored the same recipe compiles. Its return
+/// (F3): the remedy named is the directory's, never a move of the charter.
 #[cfg(unix)]
 #[test]
 fn an_owner_whose_ancestor_the_compile_cannot_observe_refuses_the_compile() {
@@ -2235,9 +2380,10 @@ fn an_owner_whose_ancestor_the_compile_cannot_observe_refuses_the_compile() {
         Err(format!(
             "bundle: {}: seat 'review' names role 'roles/review.md', whose owner's directory \
              cannot be reached: '{}' cannot be opened (permission denied), so the directory the \
-             charter is read from cannot be bound. A charter there could change what the seat is \
-             told without moving the bundle's identity, so it is refused; move it to a path the \
-             bundle pins, such as 'roles/' (decision 0066 ruling 5)",
+             charter is read from cannot be bound. The compile opens every directory from '/' \
+             down to the charter's owner, so that directory must be readable by the user who \
+             compiles; grant it, or compile from a realm under directories that user can read \
+             (decision 0065 slice one, design D7)",
             realm.join("recipe/bundle.json").display(),
             realm.display()
         ))

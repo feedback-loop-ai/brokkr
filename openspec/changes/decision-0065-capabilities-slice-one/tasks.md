@@ -3891,13 +3891,18 @@ Tests: `engine/boundary_tests.rs`, `engine/capability_tests.rs`. **18.1,
   compile. The dispatch door re-reads through the same resolver and
   compares the whole binding. An equal-byte file at the same path, or an
   equal-byte `roles`/`charters` directory, refuses as `replaced` for both
-  owner kinds before any driver starts.
+  owner kinds before any driver starts. (Corrected by the 18-fix-b return:
+  the directory rows copied the charter too, so they proved only the
+  file's identity. A replaced directory holding the ORIGINAL charter was
+  accepted; the binding held no directory below the owner. Closed there.)
 - **F2.** The owner identity is taken by the read's own opener, compared
   by its second resolution, by the seal (`Held::intact`) and by the door.
   The separate recording walk and `Bundle::charter_owners` are gone. A
   deterministic swap at the owner's observation (the `Owning`/`Owned`
   seam), during the read or at the first observation after it, refuses the
-  compile.
+  compile. (Corrected by the 18-fix-b return: the seal checked only the
+  layers' charter reads. The library read was dropped after its pin was
+  made, so its owner was never checked at the seal. Closed there.)
 - **F3.** An owner directory the compile cannot open refuses AT COMPILE,
   naming the directory and its cause (`… '{dir}' cannot be opened
   (permission denied) …`). The 18-fix evidence's `unreadable` prediction
@@ -3927,6 +3932,41 @@ Tests: `engine/boundary_tests.rs`, `engine/capability_tests.rs`. **18.1,
 - **Follow-up.** `CharterSource::target` (`agents.rs`) is no longer read by
   the pin. The library still loads its charter by canonical path before
   the pin's bound read, which now re-reads it and requires the same bytes.
+- **Pending.** Start and resume (unit 19); macOS; exact coverage outside
+  the box; remote CI and the council.
+
+Unit 18-fix-b return (2026-09-29, run `0065-rebuild-unit-18-see-the-uni-e580ec40`,
+second implement visit, based on `b4cb335b`; evidence.md, "Unit 18-fix-b
+return"). Answers the 18-fix-b council's residual (F1–F3; F4 was a run
+defect). Production: `bundle.rs` only. Tests: `engine/boundary_tests.rs`.
+**18.1, 18.2 and 18.3 stay closed, on what is observed below.**
+
+- **F1.** `Binding` now carries every step its resolution took (each
+  directory's and the file's `(dev, ino)`, each link's text). `Held`'s
+  separate `steps` are gone, so the read's second resolution, the seal and
+  the door all compare one value. A replaced `roles`/`charters` directory
+  holding the ORIGINAL charter (same inode) refuses as `replaced` for both
+  owner kinds before any driver starts.
+- **F2.** The library charter's bound read is held (`LibraryRead`) until
+  the seal. Before any identity is sealed, `Held::intact` checks it: its
+  owner, every entry on its way and its bytes. A library directory
+  replaced right after the read was verified (every entry moved into the
+  new one) refuses the compile.
+- **F3.** An owner the compile cannot reach carries its own remedy: make
+  the directory readable, or compile elsewhere. It no longer says to move
+  the charter to `roles/`.
+- Baseline reds on `b4cb335b` (only the test file changed): F1 both rows
+  `Ok`; F2 `Ok("recipe")`; F3 the old remedy. Mutations R1–R3 each fail
+  their test; all restored.
+- Changed own-file assertion: the F3 test's expected text (new remedy).
+  Standing-admission lines: none (`Binding::expected`, in `bundle.rs`,
+  now derives the steps; `agent_tests.rs` is unchanged). Fixture
+  migrations: none.
+- Gates: fmt and clippy clean; workspace 77 results, all ok (runtime lib
+  621, protocol lib 543, cli lib 482); `bundles/self`/`verify` digests
+  unchanged; strict OpenSpec (18) and `git diff --check` clean.
+- **Follow-up.** The library refusal for an unreachable owner keeps its
+  generic sentence (it names no wrong remedy).
 - **Pending.** Start and resume (unit 19); macOS; exact coverage outside
   the box; remote CI and the council.
 

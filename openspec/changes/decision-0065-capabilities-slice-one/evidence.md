@@ -20037,7 +20037,11 @@ cited.
   carry it, and `Held::stands` (`:4677`) compares `(steps, binding,
   owner)`. So the read's second resolution, the seal's `Held::intact`
   (`:4687`, which reopens the owner the way the read did), and the dispatch
-  door (`owner_read`) all compare the identity the read took. The separate
+  door (`owner_read`) all compare the identity the read took. (Corrected
+  by the 18-fix-b return, council F2: this held for the layers' charter
+  reads only. `resolve_reference` dropped the library read once its pin
+  was made, so no seal check ever reached a library's owner. See "Unit
+  18-fix-b return".) The separate
   walk before `resolved.seal` (`:2118`), `Bundle::charter_owners`,
   `CharterOwners` and `owner_identity` are removed. `by_path` (`:5266`)
   reads carry `None` and are unchanged.
@@ -20072,7 +20076,10 @@ cited.
   Each row first asserts equal bytes and a different inode. It then
   expects `replaced: roles/review.md` or `replaced: worker.md` for the
   owner concerned, the other site `Ok`, and no provider marker. Renamed
-  back, both `Ok`.
+  back, both `Ok`. (Corrected by the 18-fix-b return, council F1: `cp -R`
+  copies the charter too, so the directory rows prove only the file's
+  identity. A replaced directory holding the original charter was
+  accepted. See "Unit 18-fix-b return".)
 - **`an_owner_whose_ancestor_the_compile_cannot_observe_refuses_the_compile`
   (F3, `:2209`).** `realm` (above both owners) is made mode `0o111`. The
   compile refuses with exactly `bundle: {recipe}/bundle.json: seat 'review'
@@ -20080,6 +20087,9 @@ cited.
   '{realm}' cannot be opened (permission denied), so the directory the
   charter is read from cannot be bound. A charter there could change …
   (decision 0066 ruling 5)`. With the mode restored, it compiles.
+  (Corrected by the 18-fix-b return, council F3: that closing sentence
+  told the operator to move a charter that already stood in `roles/`. It
+  now names the directory's remedy. See "Unit 18-fix-b return".)
 - **`the_owner_a_charter_was_read_through_is_the_one_its_binding_records`
   (F2, `:2260`).** This uses the `Owning`/`Owned` seam, deterministically.
   At the first observation of an owner (after an optional arming stage),
@@ -20208,6 +20218,151 @@ On the final tree, in this session:
 
 - Start and pinned-resume integrity over the binding: unit 19.
 - macOS: the seam, the constants and `/private/var` roots are unobserved.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`).
+- Remote CI.
+- The council.
+
+## Unit 18-fix-b return — every directory the read walked, and the library read held to the seal, 2026-09-29
+
+This is run `0065-rebuild-unit-18-see-the-uni-e580ec40`, second implement
+visit, based on `b4cb335b`. It answers the 18-fix-b council's residual. The
+findings were F1 MEDIUM security, F2 LOW security and F3 LOW; F4 was a run
+defect and asks nothing of the code. Production:
+`crates/brokkr-runtime/src/bundle.rs` only. Tests:
+`engine/boundary_tests.rs` only. Scratch logs are `.forge/18fixc-*.log`
+(not committed). Line numbers are of the committed tree.
+
+### Production (`bundle.rs`)
+
+- **F1: the binding is every step the read took.** `Binding` gains
+  `steps: Vec<Step>` (`:4644`): the owner's directory, each directory
+  entered and the file, by `(dev, ino)`, and each link by its text, in
+  order. `Step` (`:4729`) gains `Debug, Clone, PartialOrd, Ord` for the
+  pin's derives. `observe` puts the steps into the `Binding` it builds.
+  `Held` and `Observation` lose their separate `steps`, and
+  `Held::stands` (`:4766`) compares `(binding, owner)`. So one value is
+  compared by the read's second resolution, the seal (`Held::intact`) and
+  the door. The door's check (`pinned_charter`, `:5711`) is unchanged:
+  `now != &pin.binding`. A same-key difference is `replaced`, so the
+  original charter moved into a replaced directory is `replaced` before
+  any driver starts. `Binding::expected` (`:4671`, `cfg(test)`) derives
+  the steps on its own, by path: `read_link`/`metadata` one written name
+  at a time, with a link's text followed from the link's directory.
+- **F2: the library read is held until the seal.** `AgentContext` gains
+  `reads: Vec<LibraryRead>` (`:705`). `resolve_reference` pushes the
+  read's `Held` and the library record's digest (`:2824`) instead of
+  dropping them. Before `resolved.seal`, each read is checked
+  (`:2166`). `LibraryRead::check` calls `Held::intact`, which re-observes
+  from `/` through `owner_open` and compares the owner identity, the
+  binding (steps included) and the held file's bytes. A failure refuses
+  with `library_refusal` (`:731`), which the loader's own refusals now
+  share: "which the compile no longer holds as it was read: its library's
+  directory, an entry on its way, or its bytes changed after the read that
+  bound it".
+- **F3: the unreachable owner's own remedy.** `Place` gains
+  `remedy: Option<&'static str>`, read by `Place::remedy` (`:4847`).
+  `unreached` (`:5492`) sets `UNREACHED_REMEDY` (`:5509`). `parse_role`
+  (`:6962`) uses a place's remedy where it has one, and otherwise the
+  `roles/` sentence as before. No other refusal's text moves.
+- Nothing enters the manifest. `bundles/self` and `bundles/verify`
+  digests are unchanged (below).
+
+### Tests (`engine/boundary_tests.rs`)
+
+- **New: `a_charter_moved_into_a_replaced_directory_refuses_the_dispatch`
+  (F1, `:2211`).** Over `two_owners`, with no recompile, for
+  `recipe/roles` (holding `review.md`) and `agents/charters` (holding
+  `worker.md`) in turn:
+  1. The directory is renamed aside, a new directory is made at its path,
+     and the ORIGINAL charter is renamed into it.
+  2. The test asserts a different directory inode and the same charter
+     inode.
+  3. It expects `replaced: roles/review.md` or `replaced: worker.md` for
+     that owner, the other site `Ok`, and no provider marker.
+  4. The charter is moved back, the new directory removed and the old one
+     renamed back; then both sites are `Ok`.
+- **New: `a_library_owner_replaced_after_its_charter_was_read_refuses_the_compile`
+  (F2, `:2276`).** A `READ_HOOK` fires once, at `Verified` of
+  `agents/charters/worker.md`. It renames `agents` aside, makes a new
+  `agents` and moves every entry of the old one into it. The compile's
+  result is kept, and then everything is moved back. Asserted:
+  - a different `agents` inode and the same charter inode;
+  - exactly `bundle: seat 'work': agent 'worker' names charter
+    'charters/worker.md', which the compile no longer holds as it was
+    read: … (decision 0065 slice one, design D7)`;
+  - after the restore, `Ok("recipe")`.
+- **Changed assertion:
+  `an_owner_whose_ancestor_the_compile_cannot_observe_refuses_the_compile`
+  (F3, `:2354`).** The expected text keeps the naming clause and now ends
+  "The compile opens every directory from '/' down to the charter's owner,
+  so that directory must be readable by the user who compiles; grant it,
+  or compile from a realm under directories that user can read (decision
+  0065 slice one, design D7)". It no longer ends "move it to a path the
+  bundle pins, such as 'roles/'".
+
+### Baseline (`b4cb335b`, production unchanged)
+
+Only `boundary_tests.rs` was edited when these ran.
+
+- **F1, layer row.** `.forge/18fixc-baseline.log`, `:2256` `recipe/roles
+  replaced around its charter`, `left: (Ok("# review as written\n"),
+  Ok("# work as written\n"))`.
+- **F1, library row.** `.forge/18fixc-baseline-library.log`. The test's
+  two rows were temporarily swapped so the library row ran first, then
+  swapped back. It failed at `:2256` `agents/charters replaced around its
+  charter` with both sites `Ok`.
+- **F2.** `.forge/18fixc-baseline.log`, `:2331`, `left: Ok("recipe")`.
+- **F3.** `.forge/18fixc-baseline.log`, `:2377`: the old text, ending
+  "move it to a path the bundle pins, such as 'roles/' (decision 0066
+  ruling 5)".
+
+### Mutations (each compiles; each restored by the inverse edit)
+
+| Mutation | Fails (exact assertion) |
+| --- | --- |
+| R1: `pinned_charter` compares `(key, target_key, id)`, not the whole binding | F1 `:2256` `recipe/roles replaced around its charter`: both `Ok` for `replaced: roles/review.md` (`18fixc-m1.log`) |
+| R2: the library reads' seal check skipped (`.filter(\|_\| false)`) | F2 `:2331`: `Ok("recipe")` for the refusal (`18fixc-m2.log`) |
+| R3: `parse_role` ignores the place's remedy (`.filter(\|_\| false)`) | F3 `:2377`: the `roles/` remedy for the directory's (`18fixc-m3.log`) |
+
+Each ran `cargo test -p brokkr-runtime --lib -- boundary_tests
+capability_tests`: 51 passed, 1 failed, the named test. The restored tree
+passes all three (`.forge/18fixc-green.log`) and the whole suite (below).
+The committed diff contains no `filter(|_| false)`.
+
+### Standing-admission lines and fixture migrations
+
+- None. `agent_tests.rs`'s `layer_pin`/`library_pin` are unchanged:
+  `Binding::expected` (production file, `cfg(test)`) now derives the
+  steps. The existing whole-pin comparisons in
+  `every_selected_site_binds…` and `a_nested_library_owns…` compare them
+  too, links included, and pass.
+- Fixture migrations under the 2026-09-26 admission: none.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean (`18fixc-clippy.log`).
+- `cargo test --workspace --all-features --locked`: 77 results, all ok,
+  no `FAILED` (runtime lib 621, protocol lib 543, cli lib 482;
+  `18fixc-workspace.log`).
+- `compile --bundle bundles/self`: `45dc1c7e…`, unchanged.
+  `bundles/verify`: `f7cbd4bb…`, unchanged.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+### Follow-up
+
+- The library route's refusal for an unreachable owner keeps its generic
+  closing sentence. It names no wrong remedy, and F3 concerned the inline
+  role's.
+
+### Pending
+
+- Start and pinned-resume integrity over the binding: unit 19.
+- macOS: unobserved.
 - Exact coverage outside the box (`scripts/coverage-exact.sh`).
 - Remote CI.
 - The council.
