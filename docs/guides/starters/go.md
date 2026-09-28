@@ -20,6 +20,9 @@ go 1.22
 
 ```
 $ brokkr init my-bundle
+```
+
+```text
 initialized reviewable bundle at my-bundle (digest feac6d904f012e999c22f74277663b1315a57253c43fcf8acdd02f723e60d60b)
 run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```

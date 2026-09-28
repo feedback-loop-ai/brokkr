@@ -140,7 +140,7 @@ brokkr 0.8.0
 > attestation covers. If you want it:
 >
 > ```
-> cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
+> cargo install --path crates/brokkr-cli    # builds and installs the binary
 > ```
 >
 > This is the path for people changing Brokkr, not for people using it.
@@ -149,6 +149,9 @@ brokkr 0.8.0
 
 ```
 $ brokkr doctor
+```
+
+```text
 ok       contracts: engine 0.8.0, event_schema 1, database_schema 1, driver_protocol 1
 ok       git: git version 2.51.0
 ok       claude: 2.1.252 (Claude Code) · serves fable, haiku, opus, sonnet
@@ -182,6 +185,9 @@ model chain and tool grant; deterministic offices carry a boxed exec script.
 
 ```
 $ brokkr init .
+```
+
+```text
 initialized reviewable bundle at . (digest 4a0f568f35fd6efec2fc66574651c3d786fbfcf54fcdc2bb34a247f0fcf426c9)
 run brokkr from inside . — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
@@ -727,20 +733,25 @@ gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 **Or build it.** Rust 1.88 or newer:
 
 ```
-cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
+cargo install --path crates/brokkr-cli    # builds and installs the binary
 ```
 
 **Then deliver something.**
 
 ```
 $ brokkr doctor                           # tools, agent CLIs, database, contracts
+```
+
+```text
 ok       contracts: engine 0.8.0, event_schema 1, database_schema 1, driver_protocol 1
 ok       git: git version 2.51.0
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       agent implementer: would run opus via claude here (chain opus → sonnet)
 ok       dialect brokkr: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0
 …
+```
 
+```
 $ brokkr init .                           # scaffold a reviewable starter recipe
 initialized reviewable bundle at . (digest …)
 

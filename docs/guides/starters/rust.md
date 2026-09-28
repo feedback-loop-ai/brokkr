@@ -33,6 +33,9 @@ edition = "2021"
 
 ```
 $ brokkr init my-bundle
+```
+
+```text
 initialized reviewable bundle at my-bundle (digest d4b6f758d2014a3726a6e9e798fdd3c8aae682d0ada499da536806b38b2f9c52)
 run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```

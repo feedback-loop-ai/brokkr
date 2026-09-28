@@ -65,7 +65,7 @@ Installing it locally is a convenience, not a requirement — see
 
 ```
 gh repo fork feedback-loop-ai/brokkr --clone
-cd brokkr
+cd ./brokkr
 git switch -c <your-branch>
 ```
 

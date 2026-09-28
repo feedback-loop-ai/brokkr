@@ -59,7 +59,7 @@ flowchart LR
 ```console
 brokkr doctor                       # ok / warn / MISSING per tool and driver; executes no agent
 cd your-repo && brokkr init .       # writes bundle.json, policy.json, realms.json, agents/, adapters/, scripts/, .forge/.gitignore (and dialects/ for a spec repo) — open them
-git add -A && git commit -m "brokkr starter"   # ship closes out on a clean tree
+git add -A && git commit -m "starter bundle"   # ship closes out on a clean tree
 brokkr run --bundle . --repo . --feature "add one visible improvement" && brokkr inspect --run latest
 ```
 

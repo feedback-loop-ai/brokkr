@@ -69,6 +69,9 @@ journal the world writes. Read-only, like every other readout, and
 
 ```
 $ brokkr realms
+```
+
+```text
 map      ./realms.json
 journal  ./.forge/forge.db
 realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
@@ -84,6 +87,9 @@ end of the reading; `realms` reports, it does not refuse.
 
 ```
 $ brokkr realms
+```
+
+```text
 map      ./realms.json
 journal  ./.forge/forge.db
 realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7

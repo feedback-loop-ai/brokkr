@@ -27,7 +27,7 @@ from v0.9.0 ([packaging](packaging/README.md)).
 
 ```console
 gh repo fork feedback-loop-ai/brokkr --clone
-cd brokkr
+cd ./brokkr
 git switch -c <your-branch>
 ```
 
