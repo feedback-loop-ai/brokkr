@@ -202,7 +202,12 @@ fn a_killed_servers_tree_is_reaped_at_the_next_start_and_a_live_ones_kept() {
         .status()
         .unwrap();
     assert!(term.success());
+    // `wait` closes the child's stdin first, and an EOF that beat the
+    // signal handler would end the server cleanly with 0. Hold it open,
+    // so only the signal can end it.
+    let stdin = live.stdin.take();
     assert_eq!(live.wait().unwrap().code(), Some(143));
+    drop(stdin);
     assert!(!live_tree.exists(), "SIGTERM removes the server's own tree");
 }
 
