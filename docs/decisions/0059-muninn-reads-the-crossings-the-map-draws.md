@@ -3,6 +3,9 @@
 Status: proposed
 Date: 2026-09-10
 
+Built: built
+Amends: 0020
+
 ## Context
 
 Decision 0020 is accepted, and two of its rulings bound Muninn's evidence

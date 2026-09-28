@@ -3,6 +3,8 @@
 Status: proposed
 Date: 2026-09-08
 
+Built: partial (#429) — the remaining compiler and machine checks
+
 ## Context
 
 On 2026-09-08 the operator asked whether the phase machine is a formal

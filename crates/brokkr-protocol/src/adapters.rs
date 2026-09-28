@@ -136,7 +136,7 @@ pub const DEFAULT_WORKSPACE_TOOL: &str = "mcp__brokkr__workspace";
 /// The longest tool identifier a hands notice may carry, in ASCII bytes.
 pub const TOOL_IDENTIFIER_LIMIT: usize = 128;
 
-/// A provider's hands-discovery declaration (proposed decision 0069): the
+/// A provider's hands-discovery declaration (decision 0069): the
 /// two tool identifiers a boxed seat needs when its harness may defer MCP
 /// tools behind a search tool — the workspace tool, and the tool that
 /// loads it. Exactly two names and nothing else: no prose, no template,
@@ -232,7 +232,7 @@ fn applicable_notice(input: &Value) -> Option<HandsNotice> {
         .and_then(|value| HandsNotice::parse(value).ok())
 }
 
-/// The discovery paragraph (proposed decision 0069): which tool is the
+/// The discovery paragraph (decision 0069): which tool is the
 /// workspace, how to load it when the harness has deferred it, and that
 /// the native writes the box refuses are refused by design.
 fn discovery_paragraph(notice: &HandsNotice) -> String {

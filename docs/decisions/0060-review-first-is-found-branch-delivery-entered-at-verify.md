@@ -3,6 +3,9 @@
 Status: proposed
 Date: 2026-09-12
 
+Built: built
+Amends: 0041
+
 ## Context
 
 The branch already exists. On this firing it is `a3799b6` (the tree

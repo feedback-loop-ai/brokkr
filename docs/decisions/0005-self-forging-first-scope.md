@@ -3,6 +3,8 @@
 **Status**: accepted (operator ruling, 2026-08-23; scope enumeration drafted
 by Claude under that ruling and amendable by the operator)
 
+Built: built
+
 ## Ruling
 
 The first implementation target is the smallest engine that can drive its

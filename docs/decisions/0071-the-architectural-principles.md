@@ -3,6 +3,8 @@
 Status: accepted (operator ruled in chat, 2026-09-25; epic #330, issue #331). Ruling 4's ceilings were ruled final the same day, from #335's baseline.
 Date: 2026-09-25
 
+Built: partial (#330) — the gates stand; the code-health epic carries the debt they baseline
+
 ## Context
 
 Brokkr writes down its control-plane laws and enforces them: fail closed

@@ -3,6 +3,9 @@
 Status: proposed
 Date: 2026-09-14
 
+Built: built
+Amends: 0055
+
 ## Context
 
 Decision 0055 ruling 3 admitted "DSH numeric on-disk version zero only"

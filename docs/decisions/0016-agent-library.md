@@ -2,6 +2,9 @@
 
 Status: accepted (operator ruling in chat, 2026-08-29)
 
+Built: built
+Amended by: 0065
+
 ## Context
 
 Today a seat inlines everything it is: charter text, driver command

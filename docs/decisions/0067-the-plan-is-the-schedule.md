@@ -3,6 +3,9 @@
 Status: accepted (operator ruled in chat, 2026-09-24)
 Date: 2026-09-23
 
+Built: unbuilt (#463)
+Amends: 0006
+
 ## Context
 
 A run's tasks phase writes a plan — ordered tasks, each with the files it

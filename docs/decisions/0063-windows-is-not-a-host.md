@@ -3,6 +3,10 @@
 Status: accepted (operator ruled in chat, 2026-09-21)
 Date: 2026-09-21
 
+Built: built
+Amends: 0043, 0046
+Supersedes in part: 0049
+
 ## Context
 
 Brokkr has carried native Windows as a third host since the first release:

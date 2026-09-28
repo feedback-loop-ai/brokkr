@@ -2599,7 +2599,7 @@ fn an_edited_resume_assessment_moves_the_adapter_digest() {
     );
 }
 
-// ------------------------------- proposed decision 0069: hands.notice
+// ------------------------------- decision 0069: hands.notice
 
 /// A Claude-shaped adapter whose `hands` is the given object.
 fn hands_adapter(hands: Value) -> Tree {
@@ -2714,7 +2714,7 @@ fn a_malformed_hands_notice_is_refused_by_provider_field_and_rule() {
     // A notice names the tool a workspace fragment serves: beside an
     // unsupported or empty fragment there is nothing to discover.
     let needs = "needs a supported, non-empty 'hands.workspace' fragment; a discovery notice \
-                 names the workspace tool that fragment serves (proposed decision 0069)";
+                 names the workspace tool that fragment serves (decision 0069)";
     let valid = json!({"workspace_tool": "w", "discovery_tool": "d"});
     for hands in [
         json!({"unsupported": "no box was measured", "notice": valid}),

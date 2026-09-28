@@ -3,6 +3,9 @@
 **Status**: accepted (operator goal directive, 2026-08-23 — "fully
 autonomous, end-to-end"; enumeration by Claude under that directive)
 
+Built: built
+Amended by: 0067
+
 ## Ruling
 
 Autonomy requires bounded self-recovery. Two per-seat limits become bundle

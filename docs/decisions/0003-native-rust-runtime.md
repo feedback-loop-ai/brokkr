@@ -2,6 +2,8 @@
 
 **Status**: accepted (operator ruling, 2026-08-22)
 
+Built: built
+
 ## Ruling
 
 Forge's production control plane will be a native Rust application shipped as

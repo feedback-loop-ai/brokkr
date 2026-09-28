@@ -3,6 +3,8 @@
 Status: accepted
 Date: 2026-09-02
 
+Built: built
+
 ## Context
 
 The model named in an agent resolution is a plan: it says which mapping

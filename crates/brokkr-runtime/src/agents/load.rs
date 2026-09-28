@@ -1166,7 +1166,7 @@ fn resume_evidence(raw: &Map<String, Value>, what: &str) -> Result<ResumeEvidenc
 /// Why a discovery notice cannot stand without a workspace to discover.
 const NOTICE_NEEDS_WORKSPACE: &str = "needs a supported, non-empty 'hands.workspace' \
      fragment; a discovery notice names the workspace tool that fragment serves \
-     (proposed decision 0069)";
+     (decision 0069)";
 
 /// A `hands.notice` beside `hands.unsupported` names a tool nothing
 /// serves. Refused by name before the closed-key check, so the author
@@ -1178,7 +1178,7 @@ fn no_notice_without_workspace(hands: &Map<String, Value>, what: &str) -> Result
     Ok(())
 }
 
-/// An adapter's optional `hands.notice` (proposed decision 0069): the two
+/// An adapter's optional `hands.notice` (decision 0069): the two
 /// tool identifiers a boxed seat needs to find its workspace when the
 /// harness may defer MCP tools. Presence is inspected before decoding, so
 /// an explicit `null` or `false` is a malformed declaration and never

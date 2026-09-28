@@ -3,6 +3,9 @@
 Status: accepted (ruled 2026-09-03)
 Date: 2026-09-03
 
+Built: built
+Amends: 0021
+
 ## Context
 
 Decision 0021 ruling 4 named egress its own axis and said a driver's

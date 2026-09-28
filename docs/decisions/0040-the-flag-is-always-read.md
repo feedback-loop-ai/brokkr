@@ -3,6 +3,8 @@
 Status: accepted (ruled 2026-09-04)
 Date: 2026-09-03
 
+Built: built
+
 ## Context
 
 Three decisions read the same argv for three different facts. Decision

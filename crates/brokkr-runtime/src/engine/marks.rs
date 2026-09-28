@@ -92,7 +92,7 @@ impl SiteMarks<'_> {
         }
     }
 
-    /// The discovery notice (proposed decision 0069): a boxed seat whose
+    /// The discovery notice (decision 0069): a boxed seat whose
     /// provider may defer MCP tools is told which tool is its workspace
     /// and how to load it. The engine alone writes the private
     /// `hands_notice` carrier, and clears it first, so a reused input, a

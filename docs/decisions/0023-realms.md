@@ -3,6 +3,8 @@
 Status: accepted — operator ruled 2026-08-31/09-01
 Date: 2026-09-01
 
+Built: built
+
 ## Context
 
 The heritage protocol was born polyrepo — per-repo implementation and

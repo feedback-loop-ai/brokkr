@@ -289,7 +289,7 @@ pub struct Adapter {
     /// Every member undeclared for an adapter written before the ruling,
     /// which the loader reads as unsupported, fail-closed.
     pub harness: HarnessHands,
-    /// Proposed decision 0069: the two tool identifiers a boxed seat
+    /// Decision 0069: the two tool identifiers a boxed seat
     /// this provider serves needs to find its workspace when the harness
     /// may defer MCP tools. `None` where the adapter declares none, which
     /// every adapter written before the decision does.

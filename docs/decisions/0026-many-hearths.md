@@ -3,6 +3,9 @@
 Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
+Built: built
+Amended by: 0064
+
 ## Context
 
 The first full-parallel burn — five slices forging at once, each in its

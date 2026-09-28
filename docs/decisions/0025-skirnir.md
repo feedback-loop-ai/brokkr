@@ -3,6 +3,8 @@
 Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
+Built: unbuilt (#363) — no tracking issue exists yet; #363 asks for one, and this link moves to it
+
 ## Context
 
 Fully autonomous delivery does not need an always-awake operator; it needs

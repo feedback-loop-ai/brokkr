@@ -2,6 +2,8 @@
 
 **Status**: accepted (operator ruling, 2026-08-23)
 
+Built: built
+
 ## Ruling
 
 The pure evaluator (`src/forge/machine.py`) closes four gaps found during an

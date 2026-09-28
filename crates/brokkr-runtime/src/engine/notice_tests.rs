@@ -1,4 +1,4 @@
-//! Proposed decision 0069 at the engine: which executing seat hears its
+//! Decision 0069 at the engine: which executing seat hears its
 //! provider's hands-discovery notice. Every integrated case below loads
 //! adapters, ingests an actual temporary recipe, compiles it, dispatches
 //! it through `Engine::drive_once` to a driver that records the start

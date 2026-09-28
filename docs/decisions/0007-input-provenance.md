@@ -3,6 +3,8 @@
 **Status**: accepted (operator goal directive, 2026-08-23 — enumeration by
 Claude under that directive)
 
+Built: built
+
 ## Ruling
 
 Every evaluation input has exactly one declared provenance, closed at

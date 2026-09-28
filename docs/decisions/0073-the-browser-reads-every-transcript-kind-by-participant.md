@@ -3,6 +3,9 @@
 Status: accepted — operator ruled 2026-09-27
 Date: 2026-09-27
 
+Built: built
+Supersedes in part: 0055
+
 ## Context
 
 Decision 0055 ruling 4 kept the browser's transcript body Claude-only: the

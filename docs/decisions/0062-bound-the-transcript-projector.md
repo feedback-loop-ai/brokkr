@@ -3,6 +3,9 @@
 Status: proposed
 Date: 2026-09-17
 
+Built: built
+Amends: 0055
+
 ## Context
 
 Decision 0055 ruling 3 mapped one logical event to one displayed turn and

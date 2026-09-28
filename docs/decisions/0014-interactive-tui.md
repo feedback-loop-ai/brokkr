@@ -2,6 +2,8 @@
 
 Status: accepted (operator ruling in chat, 2026-08-29)
 
+Built: built
+
 ## Context
 
 Decision 0013 gave the terminal two static readouts and a live one, and

@@ -3,6 +3,8 @@
 **Status**: accepted (operator directive, 2026-08-23 — "clean it up;
 shouldn't we be on rust only?")
 
+Built: built
+
 ## Ruling
 
 The repository is Rust-only. Decision 0003's retirement clause is

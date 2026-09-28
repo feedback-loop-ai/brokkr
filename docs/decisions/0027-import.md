@@ -3,6 +3,8 @@
 Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
+Built: built
+
 ## Context
 
 `brokkr export` has always been half a verb. It writes a run's canonical
