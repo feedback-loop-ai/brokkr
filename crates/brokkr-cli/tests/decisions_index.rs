@@ -395,6 +395,9 @@ enum Finding {
     UnexplainedGap {
         number: u16,
     },
+    MalformedGap {
+        line: String,
+    },
     NotAGap {
         number: u16,
     },
@@ -459,6 +462,9 @@ impl fmt::Display for Finding {
             Finding::DuplicateNumber { number } => write!(f, "{number:04}: two decision files hold this number"),
             Finding::UnexplainedGap { number } => {
                 write!(f, "{number:04}: no decision holds this number and the index does not say why")
+            }
+            Finding::MalformedGap { line } => {
+                write!(f, "the gap row '{line}' is not one decision number and one note")
             }
             Finding::NotAGap { number } => write!(
                 f,
@@ -540,46 +546,74 @@ fn near_marker(key: &str) -> bool {
 /// and the near-miss net reads it undressed.
 const DRESSING: [char; 4] = ['*', '_', '`', '/'];
 
+/// `text` with its markdown dressing taken out.
+fn undress(text: &str) -> String {
+    text.chars().filter(|c| !DRESSING.contains(c)).collect()
+}
+
 /// A header line shaped `Key: value` whose key, undressed, is words alone:
 /// the key as written, the key undressed, and the value.
 fn key_value(line: &str) -> Option<(&str, String, &str)> {
     let (key, value) = line.split_once(':')?;
-    let undressed: String = key.chars().filter(|c| !DRESSING.contains(c)).collect();
+    let undressed = undress(key);
     undressed
         .chars()
         .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '-')
         .then_some((key, undressed, value.trim()))
 }
 
-/// A header line that opens on `Status`, undressed, with or without its
-/// colon: the reader takes the first, so any other is a second status.
+/// A header line that opens on `Status`, undressed and in any case, with
+/// or without its colon: the reader takes the first, so any other is a
+/// second status.
 fn is_status(line: &str) -> bool {
-    let undressed: String = line.chars().filter(|c| !DRESSING.contains(c)).collect();
-    undressed.trim_start().starts_with("Status")
+    undress(line)
+        .trim_start()
+        .to_lowercase()
+        .starts_with("status")
+}
+
+/// A header line that is not `Key: value` yet opens, undressed and in any
+/// case, on a ledger marker's key as a whole word: `Built built` or
+/// `Amends 0001` is a marker written without its colon.
+fn is_colonless_marker(line: &str) -> bool {
+    let words = undress(line).trim_start().to_lowercase();
+    Pointer::ALL
+        .map(Pointer::key)
+        .into_iter()
+        .chain(["Built"])
+        .any(|key| {
+            words
+                .strip_prefix(&key.to_lowercase())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+        })
 }
 
 /// The ledger markers in one decision's header, each with the line it was
 /// read from. A key `near_marker` reads as a misspelt or dressed marker is
-/// refused, never skipped, and so is a second `Status` line.
+/// refused, never skipped, and so are a marker without its colon and a
+/// second `Status` line.
 fn read_markers(decision: &mut Decision, findings: &mut Vec<Located>) {
     let number = decision.number;
     let status_at = decision.lines[&Marker::Status];
     let lines: Vec<String> = header(&decision.text).map(str::to_string).collect();
     for (line, at) in lines.into_iter().zip(1..) {
+        let place = decision.place(Some(at));
+        let malformed = || Finding::MalformedMarker {
+            decision: number,
+            line: line.clone(),
+        };
         if at != status_at && is_status(&line) {
-            findings.push(decision.place(Some(at)).holds(Finding::RepeatedMarker {
+            findings.push(place.holds(Finding::RepeatedMarker {
                 decision: number,
                 key: "Status",
             }));
             continue;
         }
         let Some((key, undressed, value)) = key_value(&line) else {
+            if is_colonless_marker(&line) {
+                findings.push(place.holds(malformed()));
+            }
             continue;
-        };
-        let place = decision.place(Some(at));
-        let malformed = || Finding::MalformedMarker {
-            decision: number,
-            line: line.clone(),
         };
         if key == "Built" {
             match (decision.built.is_some(), Built::parse(value)) {
@@ -657,17 +691,25 @@ fn read_row((line, at): (&str, usize)) -> Row {
     }
 }
 
-/// A gap row: `| 0024 | why the number is empty |`, on line `at`.
-fn read_gap((line, at): (&str, usize)) -> Gap {
+/// A gap row: `| 0024 | why the number is empty |`, on line `at`. A row
+/// that is not one number and one note is refused at its line, and so is
+/// a number whose note is empty.
+fn read_gap((line, at): (&str, usize), findings: &mut Vec<Located>) -> Option<Gap> {
+    let place = Place::index(Some(at));
     let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
-    assert_eq!(cells.len(), 2, "a gap row has two cells: {line}");
-    let number =
-        decision_number(cells[0]).unwrap_or_else(|| panic!("a gap row names a number: {line}"));
-    assert!(
-        !cells[1].is_empty(),
-        "gap {number:04} says nothing about why"
-    );
-    Gap { number, line: at }
+    let Some(number) = (cells.len() == 2)
+        .then(|| decision_number(cells[0]))
+        .flatten()
+    else {
+        findings.push(place.holds(Finding::MalformedGap {
+            line: line.to_string(),
+        }));
+        return None;
+    };
+    if cells[1].is_empty() {
+        findings.push(place.holds(Finding::UnexplainedGap { number }));
+    }
+    Some(Gap { number, line: at })
 }
 
 /// Every decision, the index's rows and gaps, and what reading them found.
@@ -702,7 +744,7 @@ impl Ledger {
                 line.strip_prefix("| ")
                     .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
             })
-            .map(read_gap)
+            .filter_map(|row| read_gap(row, &mut read))
             .collect();
         Ledger {
             decisions,
@@ -1715,6 +1757,25 @@ fn every_refusal_names_its_file_and_line() {
             vec!["docs/decisions/0001-one.md:4: 0001: 'Status:' appears more than once".to_string()],
         ),
         (
+            Fixture::new().edit("0001", "Built: built", "status: enacted\nBuilt: built"),
+            vec!["docs/decisions/0001-one.md:4: 0001: 'Status:' appears more than once".to_string()],
+        ),
+        // A marker without its colon is refused at its own line.
+        (
+            Fixture::new().edit("0001", "Built: built", "Built built"),
+            vec![
+                "docs/decisions/0001-one.md:4: 0001: the marker 'Built built' does not parse".to_string(),
+                "docs/decisions/0001-one.md: 0001: no 'Built:' marker in its header".to_string(),
+            ],
+        ),
+        (
+            Fixture::new().edit("0001", "Amended by: 0003", "**Amended by** 0003"),
+            vec![
+                "docs/decisions/0001-one.md:5: 0001: the marker '**Amended by** 0003' does not parse".to_string(),
+                format!("{three}:5: 0003: 'Amends: 0001' has no 'Amended by: 0003' in 0001"),
+            ],
+        ),
+        (
             Fixture::new().edit("0003", "partial (#7)", "partial (#+7)"),
             vec![
                 format!("{three}:4: 0003: the marker 'Built: partial (#+7) — the rest' does not parse"),
@@ -1728,6 +1789,19 @@ fn every_refusal_names_its_file_and_line() {
         (
             Fixture::new().edit_readme("| 0002 | never written |\n", ""),
             vec![
+                "docs/decisions/README.md: 0002: no decision holds this number and the index does not say why".to_string(),
+            ],
+        ),
+        (
+            Fixture::new().edit_readme("| 0002 | never written |\n", "| 0002 |  |\n"),
+            vec![
+                "docs/decisions/README.md:8: 0002: no decision holds this number and the index does not say why".to_string(),
+            ],
+        ),
+        (
+            Fixture::new().edit_readme("| 0002 | never written |\n", "| 0002 | never | written |\n"),
+            vec![
+                "docs/decisions/README.md:8: the gap row '| 0002 | never | written |' is not one decision number and one note".to_string(),
                 "docs/decisions/README.md: 0002: no decision holds this number and the index does not say why".to_string(),
             ],
         ),
@@ -1807,6 +1881,9 @@ fn every_finding_reads_in_the_operators_words() {
         Finding::SupersededStatus { decision: 1 },
         Finding::DuplicateNumber { number: 1 },
         Finding::UnexplainedGap { number: 2 },
+        Finding::MalformedGap {
+            line: "| 0002 |".into(),
+        },
         Finding::NotAGap { number: 3 },
         Finding::BuiltCell {
             number: 3,
@@ -1835,6 +1912,7 @@ fn every_finding_reads_in_the_operators_words() {
             "0001: status 'superseded' and a 'Superseded by:' pointer go together",
             "0001: two decision files hold this number",
             "0002: no decision holds this number and the index does not say why",
+            "the gap row '| 0002 |' is not one decision number and one note",
             "0003: the gap table names a number that is not a gap below the last decision",
             "0003: the index's Built cell reads 'built', and the file's marker renders 'partial'",
         ]
