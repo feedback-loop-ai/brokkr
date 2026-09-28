@@ -189,10 +189,10 @@ pub(crate) fn bridge(
     bridge_iteration_limit: Option<usize>,
 ) -> Result<ExitCode> {
     let db = journal.journal(workspace)?;
-    let run = selector::resolve_run(&open_journal(&db, Access::Read)?, &run)?;
     let token = std::env::var(&token_env)
         .with_context(|| format!("reading producer credential from {token_env}"))?;
     anyhow::ensure!(!token.trim().is_empty(), "producer credential is empty");
+    let run = selector::resolve_run(&open_journal(&db, Access::Read)?, &run)?;
     let transport = brokkr_bridge::HttpTransport::new(looper_url, token);
     let mut bridge = brokkr_bridge::Bridge::new(transport);
     let mut command_cursor = 0;

@@ -5,16 +5,18 @@
 //! holding no run at all it answers with the resolver's own refusal,
 //! matched by its [`Refusal`] variant; `selector`'s tests pin the text.
 
+use std::env::VarError;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use brokkr_core::fold::{fold, Status};
 use brokkr_core::EventType;
-use brokkr_store::Store;
+use brokkr_store::{Store, StoreError};
 use serde_json::json;
 
 use crate::cli_args::*;
 use crate::selector::{refusal_kind, Refusal};
+use crate::tests::env_guard::EnvGuard;
 use crate::tests::{at, bundled, cli, running_store, stopped_mid_flight_run, workspace};
 use crate::{run, Cmd, Exit};
 
@@ -93,12 +95,10 @@ fn conclude_resolves_latest_to_the_run_it_stops_and_refuses_an_empty_run() {
     assert_eq!(fold(&events()).unwrap().status, Status::Stopped);
 }
 
-#[test]
-fn operator_resolves_latest_for_every_command() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("forge.db");
-    running_store(&db, "running-run");
-    let operator = |command: &str, db: &Path| OperatorArgs {
+/// `brokkr operator <command> --run latest` on `journal`, with no
+/// supersede-only argument.
+fn operator(command: &str, journal: JournalArgs) -> OperatorArgs {
+    OperatorArgs {
         run: "latest".into(),
         command: command.into(),
         reason: "requirements changed".into(),
@@ -106,10 +106,17 @@ fn operator_resolves_latest_for_every_command() {
         by_run: None,
         by_seq: None,
         by_realm: None,
-        journal: at(db),
-    };
+        journal,
+    }
+}
+
+#[test]
+fn operator_resolves_latest_for_every_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "running-run");
     assert_eq!(
-        run(cli(Cmd::Operator(operator("stop", &db)))).unwrap(),
+        run(cli(Cmd::Operator(operator("stop", at(&db))))).unwrap(),
         ExitCode::from(Exit::Completed)
     );
     let events = Store::open(&db).unwrap().load("running-run").unwrap();
@@ -123,23 +130,78 @@ fn operator_resolves_latest_for_every_command() {
         findings: vec![7],
         by_run: Some("other".into()),
         by_seq: Some(9),
-        ..operator("supersede", &empty_journal(empty.path()))
+        ..operator("supersede", at(&empty_journal(empty.path())))
     };
     assert_eq!(refusal(Cmd::Operator(supersede)), Some(Refusal::Empty));
 }
 
+/// As at 5ca1e335, bridge reads its credential before it asks for the
+/// run: with both wrong, the credential is what it refuses.
 #[test]
-fn bridge_resolves_latest() {
+fn bridge_reads_its_credential_then_resolves_latest() {
     let dir = tempfile::tempdir().unwrap();
-    let bridge = Cmd::Bridge(BridgeArgs {
-        run: "latest".into(),
-        journal: at(&empty_journal(dir.path())),
-        looper_url: "http://127.0.0.1:1".into(),
-        token_env: "BROKKR_TEST_TOKEN_NEVER_SET".into(),
-        follow: false,
-        interval_ms: 0,
+    let journal = empty_journal(dir.path());
+    let mut env = EnvGuard::lock();
+    let token_env = format!("BROKKR_TEST_TOKEN_LATEST_{}", std::process::id());
+    env.remove(&token_env);
+    let bridge = || {
+        Cmd::Bridge(BridgeArgs {
+            run: "latest".into(),
+            journal: at(&journal),
+            looper_url: "http://127.0.0.1:1".into(),
+            token_env: token_env.clone(),
+            follow: false,
+            interval_ms: 0,
+        })
+    };
+    let unset = run(cli(bridge())).unwrap_err();
+    assert_eq!(
+        unset.root_cause().downcast_ref::<VarError>(),
+        Some(&VarError::NotPresent)
+    );
+    env.set(&token_env, "test-token");
+    assert_eq!(refusal(bridge()), Some(Refusal::Empty));
+}
+
+/// As at 5ca1e335, supersede opens the journal its citation names before
+/// it asks for the run: with both wrong, the journal is what it refuses.
+#[test]
+fn supersede_opens_the_cited_journal_then_resolves_latest() {
+    let world = tempfile::tempdir().unwrap();
+    let map = world.path().join("realms.json");
+    let realm = |name: &str, journal: &str| {
+        json!({
+            "name": name, "path": ".", "default_branch": "main", "journal": journal,
+        })
+    };
+    let realms = json!({
+        "schema": "forge.realms/v2",
+        "realms": [realm("here", "held.db"), realm("next-door", "missing.db")],
+        "journal": "held.db",
     });
-    assert_eq!(refusal(bridge), Some(Refusal::Empty));
+    std::fs::write(&map, realms.to_string()).unwrap();
+    let mapped = || JournalArgs {
+        realms: Some(map.clone()),
+        db: None,
+    };
+    let supersede = |by_realm: &str| {
+        Cmd::Operator(OperatorArgs {
+            findings: vec![6],
+            by_run: Some("later".into()),
+            by_seq: Some(6),
+            by_realm: Some(by_realm.into()),
+            ..operator("supersede", mapped())
+        })
+    };
+    let unopened = run(cli(supersede("next-door"))).unwrap_err();
+    assert!(
+        matches!(
+            unopened.downcast_ref::<StoreError>(),
+            Some(StoreError::Sqlite(_))
+        ),
+        "{unopened:#}"
+    );
+    assert_eq!(refusal(supersede("here")), Some(Refusal::Empty));
 }
 
 #[test]

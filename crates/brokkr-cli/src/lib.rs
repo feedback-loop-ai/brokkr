@@ -1698,11 +1698,11 @@ fn supersede(
             })?,
     };
     let mut store = Store::open(&invocation.journal)?;
-    let run = &selector::resolve_run(&store, run)?;
     // The cited journal is opened READ-ONLY: a citation is checked
     // against a world this command only looks at (decision 0026 ruling
     // 5), and the one journal it writes to is the annotated run's.
     let cited = Store::open_read_only(&cited_journal)?;
+    let run = &selector::resolve_run(&store, run)?;
     let operator = std::env::var("USER").unwrap_or("operator".into());
     let written = brokkr_runtime::operator_supersede(
         &mut store,

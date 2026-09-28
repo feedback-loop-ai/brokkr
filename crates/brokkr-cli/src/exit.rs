@@ -21,6 +21,8 @@ pub(crate) enum Exit {
     Usage,
     RunnerFailed,
     Boxed(u8),
+    /// `hands serve` ended by a termination signal, carrying its number.
+    Signalled(u8),
 }
 
 impl Exit {
@@ -38,6 +40,7 @@ impl Exit {
             Exit::Usage => "The command line did not parse (clap's own code, shared with `parked`: stderr tells them apart).",
             Exit::RunnerFailed => "The dsh sandbox runner could not build or start bubblewrap.",
             Exit::Boxed(_) => "`hands exec`: the boxed command's own exit code, passed through.",
+            Exit::Signalled(_) => "`hands serve` ended by a termination signal: its session tree is removed, and it exits 128 plus the signal's number, as a shell reports a signal death (143 for SIGTERM).",
         }
     }
 
@@ -51,7 +54,18 @@ impl Exit {
             Exit::Contended => 4,
             Exit::RunnerFailed => 127,
             Exit::Boxed(code) => code,
+            Exit::Signalled(signal) => 128u8.saturating_add(signal),
         }
+    }
+
+    /// The code `hands serve` exits with when `signal` ends it, as
+    /// `Session::remove_on_termination` asks for it. A signal number is
+    /// never negative; one that were would read as a failure.
+    pub(crate) fn of_signal(signal: i32) -> i32 {
+        u8::try_from(signal)
+            .map_or(Exit::Failed, Exit::Signalled)
+            .code()
+            .into()
     }
 
     /// A run's status as the code its driving or watching verb exits with.

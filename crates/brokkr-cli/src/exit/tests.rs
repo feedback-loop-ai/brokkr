@@ -14,11 +14,20 @@ fn every_exit_has_its_one_code() {
         (Exit::RunnerFailed, 127),
         (Exit::Boxed(0), 0),
         (Exit::Boxed(42), 42),
+        (Exit::Signalled(15), 143),
     ];
     for (exit, code) in codes {
         assert_eq!(exit.code(), code, "{exit:?}");
         assert_eq!(ExitCode::from(exit), ExitCode::from(code), "{exit:?}");
     }
+}
+
+/// `hands serve` ended by a signal exits as a shell reports one.
+#[test]
+fn a_termination_signal_exits_128_plus_its_number() {
+    assert_eq!(Exit::of_signal(15), 143);
+    assert_eq!(Exit::of_signal(2), 130);
+    assert_eq!(Exit::of_signal(-1), 1);
 }
 
 #[test]

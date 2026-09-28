@@ -28,7 +28,7 @@ fn run_with(
             // here until the harness closes the server's stdin, or a
             // termination signal ends the server (#415).
             let session = session("serve")?;
-            session.remove_on_termination()?;
+            session.remove_on_termination(Exit::of_signal)?;
             let stdin = std::io::stdin();
             let (input, output) = (stdin.lock(), std::io::stdout());
             let path = session.path();

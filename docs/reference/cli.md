@@ -722,3 +722,4 @@ Every code the binary exits with, from `crates/brokkr-cli/src/exit.rs`.
 | 4 | contended | A peer held the shared journal's write lock. Nothing was written; the same command run again is likely to land. |
 | 127 | runner failed | The dsh sandbox runner could not build or start bubblewrap. |
 | its own | boxed | `hands exec`: the boxed command's own exit code, passed through. |
+| 128 + signal | signalled | `hands serve` ended by a termination signal: its session tree is removed, and it exits 128 plus the signal's number, as a shell reports a signal death (143 for SIGTERM). |
