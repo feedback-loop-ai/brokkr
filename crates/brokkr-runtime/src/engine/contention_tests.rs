@@ -162,12 +162,16 @@ fn a_drive_that_meets_the_lock_at_a_park_ends_in_the_lawful_ends_park() {
         .append_next(&run_id, EventType::EffectIndeterminate, settled, None, None)
         .unwrap();
     let before = engine.store.load(&run_id).unwrap().len();
-    let patience = std::time::Duration::from_millis(200);
+    // The clock starts before `drive` reaches its append, so the release
+    // must come after the engine's setup plus the park's one patience and
+    // before the lawful end's park spends one more: at one and a half
+    // patiences, any setup under half a patience (1 s here) is covered.
+    // A 200 ms patience left a slow macOS runner 100 ms, and it missed.
+    let patience = std::time::Duration::from_secs(2);
     engine.store.set_patience(patience).unwrap();
 
     let holder = write_lock_on(&dir.path().join("realm.db"));
     let end = drive_beside(&mut engine, move || {
-        // Past the park's one patience, within the lawful end's.
         std::thread::sleep(patience * 3 / 2);
         drop(holder);
     })
