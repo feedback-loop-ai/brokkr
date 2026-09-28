@@ -32,9 +32,9 @@ use uuid::Uuid;
 #[allow(unused_imports)]
 use crate::agents::{Candidate, HarnessHands, Lowering, ResultDoor};
 use crate::bundle::{
-    charter_text, dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, HandsState,
-    PanelMember, Seat, SeatBody, SeatClass, SequenceStep, SiteFacts, StepBody, ENGINE_VERSION,
-    REALM_FACTS,
+    dialect_results, layer_drift, site_charter_text, Aggregate, Bundle, CharterPin, ExecutableBody,
+    HandsState, PanelMember, Seat, SeatBody, SeatClass, SequenceStep, SiteFacts, StepBody,
+    ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -1653,18 +1653,24 @@ impl Engine {
         } else {
             SeatClass::Work
         };
-        compose_site_at(
-            label.and_then(|label| self.bundle.sites.get(label)),
-            boundary,
-            class,
-            command,
-            hands,
-            link,
-            &workdir,
-            &self.bundle.roots,
-            result_path,
-            unboxed.as_ref(),
-        )
+        let facts = label.and_then(|label| self.bundle.sites.get(label));
+        SiteSpawn {
+            // Rebuild unit 18: the site's own charter binding rides its
+            // spawn to the dispatch door.
+            charter: facts.and_then(|facts| facts.charter.clone()),
+            ..compose_site_at(
+                facts,
+                boundary,
+                class,
+                command,
+                hands,
+                link,
+                &workdir,
+                &self.bundle.roots,
+                result_path,
+                unboxed.as_ref(),
+            )
+        }
     }
 
     /// [`Self::compose_at`] over argv no compiled site owns: the boundary
@@ -4315,10 +4321,29 @@ fn spawn_site(
     // whatever it said by then. An exec site has no charter to load into
     // a prompt; everything else answers to a pin, the layer's file map or
     // the library record.
+    //
+    // Rebuild unit 18 (design D7): the charter checked is the one the
+    // compile bound to THIS site, carried on its spawn, through its owner's
+    // bound read — owner, target and bytes — and the text handed over is
+    // that read's buffer, written here after every merge. An input that
+    // arrives already carrying charter text refuses rather than being
+    // overwritten into looking verified: a recipe, a result or a context
+    // cannot supply what the seat is told.
+    if input
+        .get(brokkr_protocol::native_controls::ROLE_TEXT)
+        .is_some()
+    {
+        return Err(format!(
+            "dispatch refused: the input arrived carrying charter text ('{}') before the \
+             dispatch door read one; what a seat is told is read only here, from the charter \
+             the compile bound to its site (decision 0066 ruling 5)",
+            brokkr_protocol::native_controls::ROLE_TEXT
+        ));
+    }
     let mut input = input.clone();
     let role = input["role_path"].as_str().unwrap_or_default().to_string();
-    if !role.is_empty() {
-        match charter_text(bundle, Path::new(&role)) {
+    if !role.is_empty() || spawn.charter.is_some() {
+        match site_charter_text(bundle, spawn.charter.as_ref(), Path::new(&role)) {
             Err((owner, key)) => {
                 return Err(format!(
                     "dispatch refused: a charter of {owner} moved since the compile ({key}); \
@@ -4375,6 +4400,12 @@ pub struct SiteSpawn {
     /// inputs seal (rebuild unit 14a2); `None` for a spawn no composition
     /// classed.
     pub class: Option<SeatClass>,
+    /// Rebuild unit 18 (design D7): the charter the compile bound to the
+    /// site this spawn was composed for — its owner, reference, target and
+    /// digest — carried from that site's facts so the dispatch door checks
+    /// this site's own binding and no other. `None` for a spawn no compiled
+    /// site owns, or a site without a charter.
+    pub charter: Option<CharterPin>,
 }
 
 /// The engine-private input key the sealed launch record rides under,
@@ -4400,6 +4431,7 @@ impl SiteSpawn {
             record: None,
             serving: None,
             class: None,
+            charter: None,
         }
     }
 

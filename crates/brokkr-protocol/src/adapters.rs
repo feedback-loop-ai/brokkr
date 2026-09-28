@@ -193,8 +193,15 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
     // that names a role and carries no text is refused before this, in
     // `composed_launch`. A driver run by hand over a hand-written input
     // has no such door, and reads the path it was given.
+    //
+    // Rebuild unit 18 (design D7): an ENGINE launch — the managed-launch
+    // contract, whose input the engine always gives `native_controls` —
+    // never reopens the path, whatever else it carries. `run_seat_with`
+    // refuses such a launch that names a role without its verified text
+    // before rendering, so the empty charter below is never sent.
     let role = match input.get(crate::native_controls::ROLE_TEXT) {
         Some(Value::String(text)) => text.clone(),
+        _ if input.get("native_controls").is_some() => String::new(),
         _ => input
             .get("role_path")
             .and_then(Value::as_str)
@@ -6355,6 +6362,28 @@ fn run_seat_with(
         }
     };
 
+    // Rebuild unit 18 (design D7): an engine launch that names a charter
+    // and carries none of its verified text is refused BEFORE its prompt is
+    // rendered, so no prompt is ever built around an empty or reread
+    // charter. A determinate refusal like a missing secret's: the driver
+    // has not spawned, so no turn can have begun.
+    if input.get("native_controls").is_some() {
+        if let Err(error) = crate::native_controls::verified_role(&input) {
+            send(Body::Accepted {
+                effect_id: effect_id.clone(),
+                attempt_id: attempt_id.clone(),
+                session_ref: None,
+            });
+            send(Body::Result {
+                effect_id,
+                attempt_id,
+                status: ResultStatus::Failed,
+                result: None,
+                error: Some(error),
+            });
+            return;
+        }
+    }
     let prompt = render_prompt(&input, kind);
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.

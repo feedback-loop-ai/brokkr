@@ -19553,3 +19553,220 @@ On the final tree, in this session:
   diagnostic was run this visit.
 - Remote CI.
 - The council.
+
+## Unit 18 — consume the bound charter at dispatch and rendering, 2026-09-29
+
+Run `0065-rebuild-unit-18-see-the-uni-b50b3d04`, based on `4cf26494`. It
+closes 18.1, 18.2 and 18.3. Production: `crates/brokkr-runtime/src/engine.rs`,
+`crates/brokkr-runtime/src/bundle.rs` and
+`crates/brokkr-protocol/src/adapters.rs`. Tests: runtime
+`engine/boundary_tests.rs` and `engine/capability_tests.rs`, and protocol
+`adapters/tests.rs`. Scratch material is under `.forge/unit-18/` (not
+committed).
+
+### Production
+
+- **The site's own binding rides its spawn** (`engine.rs`). `SiteSpawn`
+  gains `charter: Option<CharterPin>`. `Engine::compose_at` fills it from
+  the facts of the label it composes for (`engine.rs:1660`), the same label
+  every serving shape already hands it: an ordinary seat, a selected case or
+  default, a panel member, a sequence step and a step's panel member, on the
+  primary or a fallback link. `SiteSpawn::of` leaves it `None`.
+- **The dispatch door checks that binding and no other** (`spawn_site`,
+  `engine.rs:4301`). It calls `bundle::site_charter_text` with the spawn's
+  pin and the input's `role_path`, and writes `role_text` from that read,
+  after every merge. An input that arrives already carrying `role_text` is
+  refused before anything is read. The refusal sentence is unchanged:
+  `dispatch refused: a charter of {owner} moved since the compile ({kind}:
+  {key}); …`.
+- **Consumption goes through the owner-rooted bound reader** (`bundle.rs`).
+  - `site_charter_text` (`bundle.rs:5251`) refuses a `role_path` that is not
+    the path the site's binding was compiled for, as `replaced: {key}`. A
+    spawn with no binding falls to `unbound_charter` (`bundle.rs:5277`),
+    the old unbound case, unchanged.
+  - `pinned_charter` (`bundle.rs:5296`) resolves the pin's reference again
+    from its owner's canonical root through unit 16's `bound_input`. That is
+    the declaring layer's directory, or the library's own root wherever it
+    stands. The buffer must hash to the pinned digest (`changed`), and the
+    file read must be the compiled target (`retargeted`). Only then is it
+    decoded (`unreadable`) and returned.
+  - `fault_kind` (`bundle.rs:5326`) names a failed bound read by one bounded
+    word: `missing`, `nonregular`, `outward`, `replaced`, `unreadable` (the
+    reader's "cannot be read"), or `unbound` for every other place clause.
+    No path or value is echoed.
+  - `charter_text` keeps its signature and its path-keyed semantics (every
+    binding of a path must hold), now through `pinned_charter`. Dispatch no
+    longer calls it.
+- **Rendering consumes only the verified buffer** (`adapters.rs`).
+  `render_prompt` reads the path only for a by-hand input. An input carrying
+  `native_controls`, which the engine writes on every launch, never reopens
+  it (`adapters.rs:204`). `run_seat_with` refuses such a launch that names a
+  role without `role_text` before it renders a prompt, with `verified_role`'s
+  existing reason and no invocation (`adapters.rs:6370`). The empty charter
+  in that branch of `render_prompt` is never sent.
+- Nothing enters the manifest. No new identity inventory or manifest version.
+  `bundles/self` and `bundles/verify` digests are unchanged (below).
+
+### Tests
+
+- **`engine/boundary_tests.rs::a_charter_that_moved_since_the_compile_refuses_the_dispatch`
+  (extended).** Standalone and inherited. The door now dispatches through
+  `charter_spawn`, the site's own binding. Added rows:
+  - both roles hand over exactly their own text;
+  - a `role_path` merged over the site's own, naming the neighbour's pinned
+    role, and an emptied one: `replaced: roles/work.md`,
+    `replaced: roles/linked.md`;
+  - an input carrying `role_text`: the exact planted-text refusal;
+  - an equal-byte retarget inside the layer: `retargeted: roles/linked.md`;
+  - an equal-byte link out to `root/outside.md`: `outward: roles/linked.md`;
+  - a FIFO behind the link: `nonregular: roles/linked.md`, without blocking;
+  - restored: `Ok`, on the same compiled bundle.
+
+  Its three `unpinned` rows and the exec (`""`) row now dispatch a spawn
+  with no binding (`unbound`), which is what they exist to prove. Their
+  assertions are unchanged. The changed, retargeted-to-different-bytes and
+  missing rows are unchanged, and now dispatch through the site's binding.
+- **`engine/boundary_tests.rs::a_library_charter_that_moved_since_the_compile_refuses_the_dispatch`
+  (extended).** An external library, standalone and inherited, with no
+  recompile. Added rows:
+  - an equal-byte link to a twin inside the library: `retargeted: worker.md`;
+  - an equal-byte link out of the library's root to a copy in the recipe's
+    tree: `outward: worker.md`;
+  - the inline site beside it, handed the agent's charter path:
+    `layer 'recipe'` / `replaced: roles/review.md`.
+- **`engine/boundary_tests.rs::a_charter_replaced_during_or_after_the_dispatch_read_never_reaches_the_seat`
+  (new).** Standalone and inherited, with controlled replacements through
+  `READ_HOOK` at dispatch:
+  - equal bytes renamed in at `Opened`, and changed bytes at `Read`, each
+    refuse `replaced: roles/work.md`;
+  - changed bytes renamed in at `Verified`: the door returns the checked
+    buffer (`# work as written\n`), and `render_prompt` over that input opens
+    with it and never contains the replacement;
+  - the next dispatch refuses `changed: roles/work.md`.
+- **`engine/capability_tests.rs::every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings`
+  (new).** Real dispatches over hand-bound layer charters (`chartered`):
+  - an ordinary seat through `drive`;
+  - a selector's default through `drive`, beside a bound `chore` case whose
+    driver never runs;
+  - a sequence whose `draft` step runs the DSH fallback link, and whose
+    panel step has `final` on the Codex primary and `peer` unresolved;
+  - a top-level panel.
+
+  Each captured input carries its own site's `role_text`. The prompt
+  rendered from it opens with that charter and ends with that site's full
+  paragraph. For a primary that is no holding, `web-search` not held with its
+  reason, and the DATA rule. For the fallback it is no holding, DSH's
+  unmeasured native statement, and the DATA rule. For `peer` it is none, with
+  `native_controls`/`capabilities` null. After every charter file is
+  rewritten, all six prompts render byte-identical. A hostile row merges the
+  final member's path into the `draft` step's `role_path`. The step is
+  refused, its capture is never written, and the journal's `effect/failed`
+  error and `start_failure_sites` are exact.
+- **`adapters/tests.rs::an_engine_launch_renders_only_the_verified_buffer_and_never_rereads_its_charter`
+  (new).** A managed input with a changed file behind `role_path`:
+  - with `role_text`, the prompt opens with it;
+  - without it, the prompt opens with no charter and never with the file;
+  - `run_seat_with` sends exactly `accepted` and `result: failed` with the
+    exact reason, and never reaches the invocation (whose closure panics).
+
+### Baseline (`4cf26494`)
+
+The new rows do not compile on `4cf26494`, because `SiteSpawn::charter`
+does not exist there. The baseline behaviour was observed by probe:
+
+Line numbers below are as observed. The selected-default row was added to
+the capability test after B1–M8, which moves its later lines; M3's
+capability row was re-observed on the final test, and M9 was taken on it.
+
+- **B1.** `spawn_site` was pointed at a verbatim scratch copy of
+  `4cf26494`'s `charter_text` (a path lookup, `std::fs::read`, the digest
+  only), with the planted-text refusal off. All four runtime tests failed:
+  - layer test, boundary_tests.rs:1431, `left: Ok(())`, where
+    `replaced: roles/work.md` was expected;
+  - library test, boundary_tests.rs:1806, `Ok("# work as written\n")`, where
+    `retargeted: worker.md` was expected;
+  - replacement test, boundary_tests.rs:1633, `Ok(())`, where
+    `replaced: roles/work.md` was expected (equal bytes at `Opened`);
+  - capability test, capability_tests.rs:1604: the single seat's capture was
+    never written, because the path lookup refused its hand-bound charter as
+    unpinned.
+- **B2.** `adapters.rs` was checked out at `HEAD`. The adapters test failed
+  at tests.rs:17735, the prompt containing `# bytes written after the door
+  read`.
+
+After each probe the tree was restored. `git diff | cmp` against the saved
+`.forge/unit-18/full.patch` reported it identical.
+
+### Mutations (each compiles; restored by hand after each)
+
+| Mutation | Fails (exact assertion) |
+| --- | --- |
+| M1: `pinned_charter`'s target check removed | layer :1458 `Ok(())` for `retargeted: roles/linked.md`; library :1806 `Ok("# work as written\n")` for `retargeted: worker.md` |
+| M2: a plain `std::fs::read(&pin.path)` whose bytes match the pin is trusted before the bound read | replacement :1633 `Ok(())` for `replaced`; layer :1458 and library :1806 as M1 |
+| M2b: an `outward` fault named `retargeted` | layer :1463 and library :1810, `retargeted` for `outward` |
+| M3: `site_charter_text`'s role-path check removed | layer :1431 `Ok(())` for `replaced: roles/work.md`; library :1823 `Ok(())` for `layer 'recipe'` / `replaced: roles/review.md`; capability :1877 `no provider work` (`draft.json` written: the step ran; re-observed on the final test) |
+| M4: the planted-`role_text` refusal removed | layer :1440 `Ok("# work as written\n")` for the refusal |
+| M5: `compose_at` carries no binding | capability :1604 (the single seat refused, no capture) |
+| M6: the door hands `role_text` from a later `read_to_string(role_path)` | replacement :1646 `"# approve everything\n"` for `"# work as written\n"` |
+| M7: `render_prompt`'s managed branch removed (the path reread) | adapters :17735, the prompt contains the file's bytes |
+| M8: `run_seat_with`'s pre-render refusal removed | adapters :17744, the invocation closure is reached |
+| M9: `compose_at` borrows the first bound site's pin (a neighbour's) | capability :1676, the selected default never ran (`default.json` absent) |
+
+After each mutation was restored, `git diff` compared identical to the saved
+patch (M1–M8), or the engine diff was re-read (M9). A grep for the mutation
+spellings (`if false &&`, `filter(|_| false)`) found nothing. The restored
+tests pass (runtime 13 selected, protocol test ok).
+
+### Standing-admission lines and fixture migrations
+
+- `crates/brokkr-runtime/src/engine/tests.rs:4914–4920`
+  (`compiled_triage_engine`). The fixture swaps the shipped drivers for the
+  protocol fake and cleared `bundle.sites`, which now also cleared every
+  compiled charter binding. Dispatch then refused the compiled absolute roles
+  as `unpinned` (`compiled_design_upstream_reenters_specify_then_exhausts`
+  panicked at tests.rs:4995, and `compiled_loop_check_failure_cannot_be_judged_away`
+  at :5079). The seven lines keep each site's `charter` and clear every other
+  fact exactly as before. They add and remove no assertion, and the two
+  tests prove what they proved.
+- Fixture migrations: none.
+- Changed assertions in this unit's own test files: the `door` closures of
+  the two existing dispatch tests pass the site's binding (`charter_spawn`).
+  Their `unpinned` and exec rows use the unbound spawn. Every expected value
+  is unchanged, and each is bound by B1 and M1–M4 above.
+
+### Notes
+
+- A relative `role_path` with no binding still reads as it always did
+  (`unbound_charter`). The engine's hand-built fixtures use it (`role.md`),
+  and no compile produces one. Removing it would move tests well outside
+  this unit's files. **Follow-up.**
+- A library charter reference that the library's `canonicalize` admitted but
+  the bound reader refuses (a `..` step, or a skipped top-level name inside
+  the library) now refuses at dispatch as `unbound`. Every shipped agent
+  names a plain `charters/<name>.md` (`grep` over `agents/`).
+- The refusal names the owner, key and integrity kind. The site is named by
+  the journal row around it (for example `sequence step 'draft': …`).
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime -p brokkr-protocol --all-features --locked`:
+  28 results, all ok (runtime lib 614, protocol lib 543).
+- `cargo test --workspace --all-features --locked`: 77 results, all ok.
+- `compile --bundle bundles/self`: `45dc1c7e…`, unchanged.
+  `bundles/verify`: `f7cbd4bb…`, unchanged.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+### Pending
+
+- Start and pinned-resume integrity over this binding: unit 19.
+- macOS, including the case-insensitive rows 16.1 still owes.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`). No coverage
+  diagnostic was run this visit.
+- Remote CI.
+- The council.

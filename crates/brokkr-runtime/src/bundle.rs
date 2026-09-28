@@ -5223,47 +5223,115 @@ fn folded(path: &Path) -> PathBuf {
 /// `role_path` would read whatever the file said by then — after the door
 /// read what it said at the door — so the bytes that were compared are the
 /// bytes the seat is told, and nothing reopens the path to render them.
+/// Rebuild unit 18: each binding is checked by [`pinned_charter`], through
+/// its owner's bound read; the dispatch door itself checks only the site's
+/// own binding, through [`site_charter_text`].
 ///
 /// `Err((owner, what))` is the pin's complaint, in the two pieces the
 /// dispatch refusal is written from.
 pub fn charter_text(bundle: &Bundle, role: &Path) -> Result<String, (String, String)> {
-    let pins: Vec<((String, String), &String)> = bundle
-        .charters
-        .get(role)
+    let pins: Vec<&CharterPin> = bundle.charters.get(role).into_iter().flatten().collect();
+    if pins.is_empty() {
+        return unbound_charter(bundle, role);
+    }
+    let mut texts = pins
         .into_iter()
-        .flatten()
-        .map(|pin| Some((pin.named(bundle)?, &pin.digest)))
-        .collect::<Option<_>>()
-        .unwrap_or_default();
-    let Some(((name, key), _)) = pins.first().cloned() else {
-        // No site was bound to it. After a compile every role is bound —
-        // an inline charter to the layer that declared it, an agent's to
-        // the library it was loaded from — so reaching here means the
-        // bundle's identity does not answer for
-        // what this seat is about to be told, and the launch stops.
-        //
-        // A RELATIVE role was not produced by this engine at all:
-        // `parse_role` joins its layer's absolute directory and the
-        // library resolves an absolute charter, so an absolute path is the
-        // only shape a compile writes. Such a role reads as it always did.
-        if !role.is_absolute() {
-            return Ok(std::fs::read_to_string(role).unwrap_or_default());
-        }
+        .map(|pin| pinned_charter(bundle, pin))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(texts.swap_remove(0))
+}
+
+/// Rebuild unit 18 (design D7): the charter ONE site is told, from the
+/// binding the compile selected with that site — never from every binding
+/// of a path, and never from the path the input names. `role` is the path
+/// the site's input carries; it must be the path its binding was compiled
+/// for, because an input whose `role_path` was merged over names a charter
+/// the site was never bound to (a neighbour's, pinned or not). A site with
+/// no binding is [`charter_text`]'s unbound case exactly.
+pub fn site_charter_text(
+    bundle: &Bundle,
+    pin: Option<&CharterPin>,
+    role: &Path,
+) -> Result<String, (String, String)> {
+    let Some(pin) = pin else {
+        return unbound_charter(bundle, role);
+    };
+    if role != pin.path {
+        let (name, key) = pin
+            .named(bundle)
+            .unwrap_or_else(|| (format!("bundle '{}'", bundle.name), pin.reference.clone()));
+        return Err((name, format!("replaced: {key}")));
+    }
+    pinned_charter(bundle, pin)
+}
+
+/// A role no site was bound to. After a compile every role is bound — an
+/// inline charter to the layer that declared it, an agent's to the library
+/// it was loaded from — so reaching here means the bundle's identity does
+/// not answer for what this seat is about to be told, and the launch stops.
+///
+/// A RELATIVE role was not produced by this engine at all: `parse_role`
+/// joins its layer's absolute directory and the library resolves an
+/// absolute charter, so an absolute path is the only shape a compile
+/// writes. Such a role reads as it always did.
+fn unbound_charter(bundle: &Bundle, role: &Path) -> Result<String, (String, String)> {
+    if !role.is_absolute() {
+        return Ok(std::fs::read_to_string(role).unwrap_or_default());
+    }
+    Err((
+        format!("bundle '{}'", bundle.name),
+        format!("unpinned: {}", role.display()),
+    ))
+}
+
+/// Rebuild unit 18 (design D7, operator ruling 3): one binding checked at
+/// consumption, and the text of the read that checked it. The reference is
+/// resolved again from its OWNER's canonical root — the declaring layer's,
+/// or the library's own, wherever that library stands — through unit 16's
+/// handle-bound read ([`bound_input`]), so a link that now leaves the owner,
+/// a FIFO, or a replacement mid-read refuses exactly as it does at compile.
+/// The buffer read must hash to the pinned digest, and the file it was read
+/// from must be the target the compile bound: a retarget to equal bytes is
+/// a moved charter, not an unchanged one. Only then is the buffer the text.
+fn pinned_charter(bundle: &Bundle, pin: &CharterPin) -> Result<String, (String, String)> {
+    let Some((name, key)) = pin.named(bundle) else {
         return Err((
             format!("bundle '{}'", bundle.name),
-            format!("unpinned: {}", role.display()),
+            format!("unpinned: {}", pin.path.display()),
         ));
     };
-    let bytes = std::fs::read(role).map_err(|_| (name.clone(), format!("missing: {key}")))?;
-    let read = sha256_bytes(&bytes);
-    if let Some(((name, key), _)) = pins.iter().find(|(_, digest)| **digest != read) {
-        return Err((name.clone(), format!("changed: {key}")));
+    let root = match &pin.owner {
+        CharterOwner::Layer { dir, .. } => dir,
+        CharterOwner::Library { root, .. } => root,
+    };
+    let bound = bound_input(root, &pin.reference)
+        .map_err(|fault| (name.clone(), format!("{}: {key}", fault_kind(&fault))))?;
+    if sha256_bytes(&bound.bytes) != pin.digest {
+        return Err((name, format!("changed: {key}")));
+    }
+    if root.join(&bound.held.binding.target_key) != pin.target {
+        return Err((name, format!("retargeted: {key}")));
     }
     // The pin is over BYTES; what a seat is told is text. A charter whose
     // bytes are not text is refused rather than rendered with its
     // undecodable parts replaced, because what the seat would then read is
     // not what the digest names.
-    String::from_utf8(bytes).map_err(|_| (name, format!("unreadable: {key}")))
+    String::from_utf8(bound.bytes).map_err(|_| (name, format!("unreadable: {key}")))
+}
+
+/// The one word a dispatch refusal names a failed bound read by: bounded,
+/// never the clause's path or the value that failed. `unbound` is every
+/// other place the read refused: a skipped tree, a `..` step, a chain of
+/// links too long to name a file.
+fn fault_kind(fault: &InputFault) -> &'static str {
+    match fault {
+        InputFault::Missing(_) => "missing",
+        InputFault::Place(place) if place == NONREGULAR => "nonregular",
+        InputFault::Place(place) if place == OUTWARD => "outward",
+        InputFault::Place(place) if place == REPLACED => "replaced",
+        InputFault::Place(place) if place.starts_with("which cannot be read") => "unreadable",
+        InputFault::Place(_) => "unbound",
+    }
 }
 
 /// Re-walk the script's directory, including its helpers, against the

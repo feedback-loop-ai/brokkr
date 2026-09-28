@@ -17695,3 +17695,66 @@ fn the_final_judgment_refuses_what_it_cannot_attribute() {
         ))
     );
 }
+
+/// Rebuild unit 18 (design D7; tasks 18.1 and 18.2): an ENGINE launch — the
+/// managed-launch contract, whose input the engine always gives
+/// `native_controls` — renders only the charter text its dispatch door
+/// verified. The path is retained for identity and is never reopened: bytes
+/// written to it after the door read it reach no prompt, and a launch that
+/// names a charter without its verified text is refused before its prompt
+/// is rendered, with no provider work.
+#[test]
+fn an_engine_launch_renders_only_the_verified_buffer_and_never_rereads_its_charter() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let role = root.join("role.md");
+    std::fs::write(&role, "# bytes written after the door read\n").unwrap();
+    let input = |text: Option<&str>| {
+        let mut input = json!({
+            "role_path": role,
+            "native_controls": {"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
+                                "reason": "never probed"},
+            "feature": "f", "phase": "work", "workdir": root,
+            "result_path": root.join("result.json"), "context": {},
+            "allowed_results": ["complete"],
+        });
+        if let Some(text) = text {
+            input["role_text"] = json!(text);
+        }
+        input
+    };
+    // The verified buffer is the charter, whatever the path holds now.
+    let told = render_prompt(&input(Some("# the verified charter\n")), AdapterKind::Dsh);
+    assert!(
+        told.starts_with("# the verified charter\n\n\n---\n## Task\n"),
+        "{told}"
+    );
+    assert!(!told.contains("bytes written after"), "{told}");
+    // Without it, an engine launch never reopens the path.
+    let unread = render_prompt(&input(None), AdapterKind::Dsh);
+    assert!(unread.starts_with("\n\n---\n## Task\n"), "{unread}");
+    assert!(!unread.contains("bytes written after"), "{unread}");
+    // And the driver refuses that launch before rendering it: the invocation
+    // is never reached.
+    let mut bodies = Vec::new();
+    run_seat_with(
+        AdapterKind::Dsh,
+        &json!({"effect_id": "effect", "attempt_id": "attempt", "input": input(None)}),
+        &mut |body| bodies.push(serde_json::to_value(body).unwrap()),
+        |_, _, _, _| panic!("no provider work: the launch is refused before its prompt"),
+    );
+    assert_eq!(
+        bodies,
+        vec![
+            json!({"type": "accepted", "effect_id": "effect", "attempt_id": "attempt",
+                   "session_ref": null}),
+            json!({"type": "result", "effect_id": "effect", "attempt_id": "attempt",
+                   "status": "failed", "result": null,
+                   "error": "refusing to invoke the agent CLI: the engine named a charter for \
+                             this site but handed over none of its text. What a seat is told is \
+                             read once, where the pin is compared; a driver that opened the path \
+                             itself would read whatever it said by then (decision 0066 ruling \
+                             5)"}),
+        ]
+    );
+}

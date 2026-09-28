@@ -3781,11 +3781,50 @@ based on `7f1ab492`; evidence.md, "Unit 17"). Production: `bundle.rs`,
 
 ## 18. Unit 18 — Consume the bound charter and render its buffer
 
-- [ ] 18.1 Unit 18 checks owner/target/bytes at dispatch and sends verified buffer. Verify changed/equal-byte retarget refusal without recompilation and no provider work. Requirements: [Library charter pins are enforced at consumption][MPL], [Active instructions and policy cannot escape bundle identity][MPI], [Capability responses are data and confer no authority][MP4]. Reopened/remaining: operator ruling 3. (previous 6.3)
+- [x] 18.1 Unit 18 checks owner/target/bytes at dispatch and sends verified buffer. Verify changed/equal-byte retarget refusal without recompilation and no provider work. Requirements: [Library charter pins are enforced at consumption][MPL], [Active instructions and policy cannot escape bundle identity][MPI], [Capability responses are data and confer no authority][MP4]. Reopened/remaining: operator ruling 3. (previous 6.3)
 
-- [ ] 18.2 Unit 18 verifies selected binding/holding/prompt across every serving shape; authored merges cannot replace text and rendering cannot reread. Requirements: [Library charter pins are enforced at consumption][MPL], [Prompt capability statements reflect the serving seat's pinned holdings][MP3], [Capability responses are data and confer no authority][MP4]. Reopened/remaining: operator ruling 3. (previous 6.5)
+- [x] 18.2 Unit 18 verifies selected binding/holding/prompt across every serving shape; authored merges cannot replace text and rendering cannot reread. Requirements: [Library charter pins are enforced at consumption][MPL], [Prompt capability statements reflect the serving seat's pinned holdings][MP3], [Capability responses are data and confer no authority][MP4]. Reopened/remaining: operator ruling 3. (previous 6.5)
 
-- [ ] 18.3 Unit 18 verifies full rendered holdings/drops/DATA statements match selected verified charter across paths, no authored replacement/reread. Requirements: [Prompt capability statements reflect the serving seat's pinned holdings][MP3], [Capability responses are data and confer no authority][MP4], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 2–4. (previous 8.1)
+- [x] 18.3 Unit 18 verifies full rendered holdings/drops/DATA statements match selected verified charter across paths, no authored replacement/reread. Requirements: [Prompt capability statements reflect the serving seat's pinned holdings][MP3], [Capability responses are data and confer no authority][MP4], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 2–4. (previous 8.1)
+
+Unit 18 (2026-09-29, run `0065-rebuild-unit-18-see-the-uni-b50b3d04`,
+based on `4cf26494`; evidence.md, "Unit 18"). Production: `engine.rs`,
+`bundle.rs`, `adapters.rs`. Tests: `engine/boundary_tests.rs`,
+`engine/capability_tests.rs`, `adapters/tests.rs`. **18.1, 18.2 and 18.3
+close.**
+
+- `SiteSpawn::charter` carries the binding unit 17 selected for the site
+  that `compose_at` composes, whatever its shape. The dispatch door checks
+  that binding alone. The input's `role_path` must be its path
+  (`replaced`). Its reference is re-read through unit 16's `bound_input`
+  from the owner's own root (layer or library). The buffer must match the
+  digest (`changed`) and the compiled target (`retargeted`), and a failed
+  read is named `missing`, `nonregular`, `outward`, `replaced`,
+  `unreadable` or `unbound`. The text of that read is written after every
+  merge, and an input arriving with `role_text` is refused.
+- An engine launch (one carrying `native_controls`) never rereads
+  `role_path` when rendering. The driver refuses one without `role_text`
+  before rendering, with no invocation.
+- Proved without recompiling, over external libraries, standalone and
+  inherited layers, equal-byte in-tree and outward retargets, FIFO,
+  missing, restored, and controlled replacements at `Opened`, `Read` and
+  `Verified`. Also proved across an ordinary seat, a selected default,
+  a sequence with a fallback step, a nested panel (a primary member and an
+  unresolved one) and a top-level panel. Each site gets its own charter
+  text and full holdings, drops, native and DATA statements, and every
+  prompt re-renders byte-identical after the files change.
+- Baseline probes B1 and B2 and mutations M1–M9 each fail named rows.
+- Standing-admission lines: `engine/tests.rs:4914–4920`
+  (`compiled_triage_engine` keeps each site's `charter` when it clears the
+  facts for the fake driver). No assertion changed. Fixture migrations:
+  none.
+- Gates: fmt and clippy clean; runtime lib 614 and protocol lib 543;
+  workspace 77 results, all ok; `bundles/self`/`verify` digests unchanged;
+  strict OpenSpec (18) and `git diff --check` clean.
+- **Follow-up.** The relative-`role_path` fallback for unbound fixture
+  sites remains.
+- **Pending.** Start and resume (unit 19); macOS; exact coverage outside
+  the box; remote CI and the council.
 
 ## 19. Unit 19 — Enforce charter integrity at start and pinned resume
 

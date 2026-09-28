@@ -4911,7 +4911,13 @@ fn compiled_triage_engine() -> (tempfile::TempDir, Engine) {
     // These unit scenarios replace the compiled commands with the protocol
     // fake below; the box itself has its dedicated boxed proof.
     bundle.hands.clear();
-    bundle.sites.clear();
+    bundle.sites.retain(|_, facts| facts.charter.is_some());
+    bundle.sites.values_mut().for_each(|facts| {
+        *facts = SiteFacts {
+            charter: facts.charter.take(),
+            ..SiteFacts::default()
+        }
+    });
     // Named for its dialect, started with no world at all: the fence reads
     // the realm the bundle was resolved in (decision 0065 ruling 3).
     bundle.manifest["capabilities"]["realm"] = json!(crate::capabilities::UNMAPPED);
