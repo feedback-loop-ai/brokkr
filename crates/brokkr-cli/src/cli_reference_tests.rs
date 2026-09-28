@@ -616,17 +616,19 @@ fn command_of(line: &str, prompted: bool) -> Result<Option<&str>, &'static str> 
 
 /// Whether an output line begins a `brokkr` command, past any
 /// assignments, keywords, wrappers and their flags: a prompt forgotten.
-/// Output is no shell, so only a line that splits as one is read.
+/// A line that names `brokkr` and that [`words`] cannot split is one too:
+/// what cannot be read is not taken for output.
 fn forgotten(line: &str) -> bool {
-    words(line).is_ok_and(|commands| {
-        commands.iter().any(|argv| {
-            argv.iter().map(String::as_str).find(|word| {
-                !assignment(word)
-                    && !KEYWORDS.contains(word)
-                    && !WRAPPERS.contains(word)
-                    && !word.starts_with('-')
-            }) == Some("brokkr")
-        })
+    let Ok(commands) = words(line) else {
+        return mentions(line);
+    };
+    commands.iter().any(|argv| {
+        argv.iter().map(String::as_str).find(|word| {
+            !assignment(word)
+                && !KEYWORDS.contains(word)
+                && !WRAPPERS.contains(word)
+                && !word.starts_with('-')
+        }) == Some("brokkr")
     })
 }
 
@@ -715,6 +717,9 @@ fn words(line: &str) -> Result<Vec<Vec<String>>, String> {
                 word = None;
                 redirect(&mut chars)?;
             }
+            '<' if word.is_none() && chars.peek() == Some(&'(') => {
+                return Err(PROCESS_SUBSTITUTION.to_string());
+            }
             '<' if word.is_none() => word = Some(placeholder(&mut chars)?),
             '\'' | '"' => quoted(character, &mut chars, word.get_or_insert_with(String::new))?,
             '`' => return Err("a backtick substitution".to_string()),
@@ -736,20 +741,23 @@ fn last(commands: &mut [Vec<String>]) -> &mut Vec<String> {
     commands.last_mut().expect("a line starts with one command")
 }
 
+/// Why a `<(` or `>(` is refused: the command inside it runs, and the
+/// words it is split into are not the ones it runs.
+const PROCESS_SUBSTITUTION: &str = "a process substitution";
+
 /// A redirect's operator and target after its `>`: `>>`, `>&` and the
-/// word it writes to, which is no argument of the command.
+/// word it writes to, which is no argument of the command. A target that
+/// opens a `(`, `>(` or `> >(`, runs a command, and is refused.
 fn redirect(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Result<(), String> {
     while chars.next_if(|c| matches!(c, '>' | '&')).is_some() {}
     while chars.next_if(|c| c.is_whitespace()).is_some() {}
-    let mut target = 0;
-    while chars
-        .next_if(|c| !c.is_whitespace() && !matches!(c, '|' | '&' | ';'))
-        .is_some()
-    {
-        target += 1;
+    let mut target = String::new();
+    while let Some(c) = chars.next_if(|c| !c.is_whitespace() && !matches!(c, '|' | '&' | ';')) {
+        target.push(c);
     }
-    match target {
-        0 => Err("a redirect with no target".to_string()),
+    match target.as_str() {
+        "" => Err("a redirect with no target".to_string()),
+        _ if target.contains('(') => Err(PROCESS_SUBSTITUTION.to_string()),
         _ => Ok(()),
     }
 }
@@ -1049,6 +1057,31 @@ fn the_fence_reader_reads_brokkr_wherever_the_word_splitter_finds_it() {
     assert_eq!(
         fenced_commands("```\n$ brokkr runs\nFOO=x brokkr wacth\n```\n").unwrap_err(),
         (3, UNPROMPTED.to_string())
+    );
+}
+
+/// Beside a prompt, a line that names `brokkr` and does not split is not
+/// taken for output, and a process substitution is refused, not read as
+/// a redirect's target.
+#[test]
+fn the_fence_reader_refuses_an_unsplittable_brokkr_line_and_a_process_substitution() {
+    for line in ["brokkr inspect --run $RUN", "brokkr inspect --run `cat id`"] {
+        assert_eq!(
+            fenced_commands(&format!("```console\n$ brokkr runs\n{line}\n```\n")).unwrap_err(),
+            (3, UNPROMPTED.to_string()),
+            "{line}"
+        );
+    }
+    let doc = "```sh\ncat >(brokkr wacth)\ntee >(brokkr wacth)\n\
+               brokkr runs > >(brokkr wacth)\ndiff <(brokkr runs) runs.txt\n```\n";
+    assert_eq!(
+        refusals_in("doc.md", doc),
+        [
+            format!("doc.md:2: `cat >(brokkr wacth)`: {PROCESS_SUBSTITUTION}"),
+            format!("doc.md:3: `tee >(brokkr wacth)`: {PROCESS_SUBSTITUTION}"),
+            format!("doc.md:4: `brokkr runs > >(brokkr wacth)`: {PROCESS_SUBSTITUTION}"),
+            format!("doc.md:5: `diff <(brokkr runs) runs.txt`: {PROCESS_SUBSTITUTION}"),
+        ]
     );
 }
 

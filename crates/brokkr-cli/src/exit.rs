@@ -39,7 +39,7 @@ impl Exit {
             Exit::Contended => "A peer held the shared journal's write lock. Nothing was written; the same command run again is likely to land.",
             Exit::Usage => "The command line did not parse (clap's own code, shared with `parked`: stderr tells them apart).",
             Exit::RunnerFailed => "The dsh sandbox runner could not build or start bubblewrap.",
-            Exit::Boxed(_) => "`hands exec`: the boxed command's own exit code, passed through.",
+            Exit::Boxed(_) => "`hands exec`: the boxed command's own exit code, passed through. A box a signal ended has no code of its own, and exits 1 (`failed`).",
             Exit::Signalled(_) => "`hands serve` ended by a termination signal: its session tree is removed, and it exits 128 plus the signal's number, as a shell reports a signal death (143 for SIGTERM).",
         }
     }
@@ -66,6 +66,12 @@ impl Exit {
             .map_or(Exit::Failed, Exit::Signalled)
             .code()
             .into()
+    }
+
+    /// The exit `hands exec` passes on for the box's `code`: its own, or
+    /// a failure for the `-1` of a box a signal ended, which has none.
+    pub(crate) fn of_box(code: i32) -> Exit {
+        u8::try_from(code).map_or(Exit::Failed, Exit::Boxed)
     }
 
     /// A run's status as the code its driving or watching verb exits with.

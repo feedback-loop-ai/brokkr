@@ -30,6 +30,15 @@ fn a_termination_signal_exits_128_plus_its_number() {
     assert_eq!(Exit::of_signal(-1), 1);
 }
 
+/// `hands exec` passes the box's code on, and a box a signal ended,
+/// which `run_boxed` reports as `-1`, fails rather than succeeding.
+#[test]
+fn a_box_passes_its_code_on_and_a_signalled_box_fails() {
+    assert_eq!(Exit::of_box(0), Exit::Boxed(0));
+    assert_eq!(Exit::of_box(42), Exit::Boxed(42));
+    assert_eq!(Exit::of_box(-1), Exit::Failed);
+}
+
 #[test]
 fn a_run_status_exits_with_its_own_code() {
     assert_eq!(Exit::of_status(&Status::Completed), Exit::Completed);

@@ -50,7 +50,7 @@ fn run_with(
             };
             let code = hands::run_boxed(&spec, &workdir, bundle_root.as_deref(), &command)
                 .map_err(anyhow::Error::msg)?;
-            Ok(Exit::Boxed(u8::try_from(code.clamp(0, 255)).unwrap_or(1)).into())
+            Ok(Exit::of_box(code).into())
         }
     }
 }
