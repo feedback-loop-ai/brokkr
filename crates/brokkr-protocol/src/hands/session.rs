@@ -147,6 +147,9 @@ impl Drop for Session {
     }
 }
 
+/// Why a reaped tree was removed, as the start prints it.
+const REAPED_BECAUSE: &str = "its owner is dead and holds no lock";
+
 /// What one reaping did: the trees it removed, and the trees it kept for
 /// want of an answer from their locks. Displayed one line per tree, for
 /// the start to print on stderr; nothing is journaled.
@@ -160,10 +163,7 @@ impl fmt::Display for Reaped {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for tree in &self.removed {
             let tree = tree.display();
-            writeln!(
-                f,
-                "hands: reaped {tree}: its owner is dead and holds no lock"
-            )?;
+            writeln!(f, "hands: reaped {tree}: {REAPED_BECAUSE}")?;
         }
         for (tree, why) in &self.kept {
             let tree = tree.display();
