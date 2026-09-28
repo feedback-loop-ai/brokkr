@@ -613,26 +613,226 @@ fn written_commands(guide: &str, cell: &str) -> Vec<String> {
         .skip(1)
         .step_by(2)
         .chain(
-            linked_sections(guide, cell)
+            links(guide, cell)
                 .into_iter()
-                .flat_map(code_lines),
+                .flat_map(|link| code_lines(link.section)),
         )
         .map(str::to_string)
         .collect()
 }
 
+/// One link in a row's command cell: its text, and the section it points at.
+struct Link<'a> {
+    text: &'a str,
+    anchor: &'a str,
+    section: &'a str,
+}
+
 /// The guide sections a row's command cell links to.
-fn linked_sections<'a>(guide: &'a str, cell: &str) -> Vec<&'a str> {
-    cell.split("](#")
-        .skip(1)
-        .map(|link| {
-            let anchor = link.split_once(')').expect("a closed link").0;
-            guide
+fn links<'a>(guide: &'a str, cell: &'a str) -> Vec<Link<'a>> {
+    let parts: Vec<&str> = cell.split("](#").collect();
+    parts
+        .windows(2)
+        .map(|pair| {
+            let text = pair[0].rsplit_once('[').expect("an opened link").1;
+            let anchor = pair[1].split_once(')').expect("a closed link").0;
+            let section = guide
                 .split("\n#")
                 .find(|section| heading_anchor(section) == anchor)
-                .unwrap_or_else(|| panic!("the guide has no section #{anchor}"))
+                .unwrap_or_else(|| panic!("the guide has no section #{anchor}"));
+            Link {
+                text,
+                anchor,
+                section,
+            }
         })
         .collect()
+}
+
+/// A link whose text is a command is a promise that the section writes
+/// that command: each such link's command is a line of a code block in the
+/// section it points at, so deleting the block that "this same command"
+/// stands beside fails here.
+fn assert_linked_blocks(check: &str, cell: &str, guide: &str) {
+    for link in links(guide, cell) {
+        let Some(command) = link.text.strip_prefix('`') else {
+            continue;
+        };
+        let command = command
+            .strip_suffix('`')
+            .filter(|command| !command.contains('`'))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{check}'s row links [{}], which this test cannot read",
+                    link.text
+                )
+            });
+        assert!(
+            code_lines(link.section).contains(&command),
+            "{check}'s row links `{command}` to #{}, whose code blocks do not write it",
+            link.anchor
+        );
+    }
+}
+
+/// Every inline code span in a linked section that reads as a command, as
+/// a whitespace-collapsed string: a span whose first word, past its
+/// `NAME=value` prefixes, is one `FIRST_WORDS` lists, and that passes it an
+/// argument. Any other span is a name, a path, a flag or output, and is
+/// not compared. A span left open fails the test.
+fn inline_commands(link: &Link) -> Vec<String> {
+    let prose: Vec<&str> = link.section.split("```").step_by(2).collect();
+    let prose = prose.concat();
+    let spans: Vec<&str> = prose.split('`').collect();
+    assert!(
+        spans.len() % 2 == 1,
+        "#{} leaves a code span open, which this test cannot read",
+        link.anchor
+    );
+    spans
+        .into_iter()
+        .skip(1)
+        .step_by(2)
+        .map(|span| span.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|span| matches!(command_words(span)[..], [program, _, ..] if first_word(program)))
+        .collect()
+}
+
+/// A command's words past its `name=value` prefixes, a double-quoted
+/// string one word.
+fn command_words(command: &str) -> Vec<&str> {
+    let mut quoted = false;
+    command
+        .split(|c: char| {
+            quoted ^= c == '"';
+            c == ' ' && !quoted
+        })
+        .filter(|word| !word.is_empty())
+        .skip_while(|word| is_assignment(word))
+        .collect()
+}
+
+/// Whether `word` is a variable assignment, `name=value`.
+fn is_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| {
+        !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
+}
+
+/// The first word, past its variable assignments, of every line a checked
+/// leg runs, written or held, and of every command a section's script
+/// runs, shell grammar included: `assert_first_words_listed` refuses a
+/// line whose first word this does not list. A word stays listed when its
+/// leg stops running it, so a prose copy the change orphans still reads as
+/// a command and fails as one. `rustup` is listed too: a toolchain override
+/// runs cargo through it.
+const FIRST_WORDS: &str = "*,by-hand,*) bash cargo case docker echo esac exit fi git grep if npm \
+                           quality/ratchet.sh rustup set sw_vers test uname }";
+
+/// Whether `FIRST_WORDS` lists `word`.
+fn first_word(word: &str) -> bool {
+    FIRST_WORDS.split(' ').any(|listed| listed == word)
+}
+
+/// The lines `LEG_LINES` holds word for word for `check`'s leg.
+fn unwritten_lines(check: &str) -> Vec<&'static str> {
+    LEG_LINES
+        .iter()
+        .filter(|(listed, _)| *listed == check)
+        .flat_map(|(_, lines)| lines.iter())
+        .filter_map(|line| match line {
+            Line::Unwritten(text) => Some(*text),
+            Line::Written => None,
+        })
+        .collect()
+}
+
+/// Every first word a checked leg or a section's script runs is one
+/// `FIRST_WORDS` lists, so what reads as a command in prose does not
+/// depend on what the legs run today.
+fn assert_first_words_listed(root: &Path, runs: &[Vec<String>]) {
+    let held = LEG_LINES
+        .iter()
+        .flat_map(|(check, _)| unwritten_lines(check))
+        .map(str::to_string);
+    let scripts = SECTION_SCRIPTS
+        .iter()
+        .flat_map(|(_, script)| script_commands(root, script));
+    for line in runs.iter().flatten().cloned().chain(held).chain(scripts) {
+        if let Some(word) = command_words(&line).first() {
+            assert!(
+                first_word(word),
+                "FIRST_WORDS does not list `{word}`, the first word of `{line}`"
+            );
+        }
+    }
+}
+
+/// Spans a linked section's prose writes that read as commands and that
+/// its row's leg does not run, each with its reason, by the section's
+/// anchor.
+const INLINE_ONLY: [(&str, &str); 5] = [
+    // A test binary's summary line, quoted as output: "reported `test
+    // result: ok` for every one of them".
+    ("the-workspace-suite", "test result: ok"),
+    // The same output line: "a name that selects nothing still prints
+    // `test result: ok`".
+    ("the-macos-startup-gate", "test result: ok"),
+    // The fix for a refusal, not the check: "The fix is `cargo fmt --all`".
+    ("formatting", "cargo fmt --all"),
+    // A step the coverage script takes itself, named to say whose report it is.
+    ("exact-coverage", "cargo llvm-cov clean --workspace"),
+    // The command named, not run: "a `cargo test`-only path".
+    ("the-release-binary", "cargo test"),
+];
+
+/// Linked sections that describe a script rather than their row's leg:
+/// each inline command such a section writes is one the script runs, as
+/// its `if ! <command> > "$output"` lines run them.
+const SECTION_SCRIPTS: [(&str, &str); 1] = [(
+    "the-landing-let-the-machine-finish-what-you-wrote-by-hand",
+    "recipes/fast/scripts/verify-seat.sh",
+)];
+
+/// The commands `script` runs as `if ! <command> > "$output"`.
+fn script_commands(root: &Path, script: &str) -> Vec<String> {
+    let text = std::fs::read_to_string(root.join(script)).unwrap();
+    let commands: Vec<String> = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("if ! ")?.split_once(" > \"$output\""))
+        .map(|(command, _)| command.to_string())
+        .collect();
+    assert!(
+        !commands.is_empty(),
+        "{script} runs no command this test reads"
+    );
+    commands
+}
+
+/// Every inline command a row's linked sections write is a command its
+/// leg runs, written or held, one `INLINE_ONLY` holds, or one the script
+/// `SECTION_SCRIPTS` names for the section runs: a copy in prose that
+/// drifts from its command fails here.
+fn assert_inline_copies(root: &Path, row: &CheckRow, guide: &str, runs: &[String]) {
+    let held = unwritten_lines(&row.check);
+    for link in links(guide, &row.command) {
+        let script = SECTION_SCRIPTS
+            .iter()
+            .filter(|(anchor, _)| *anchor == link.anchor)
+            .flat_map(|(_, script)| script_commands(root, script))
+            .collect::<Vec<_>>();
+        for command in inline_commands(&link) {
+            assert!(
+                runs.contains(&command)
+                    || held.contains(&command.as_str())
+                    || script.contains(&command)
+                    || INLINE_ONLY.contains(&(link.anchor, command.as_str())),
+                "{}'s row links #{}, whose prose writes `{command}`, which neither its leg nor the section's script runs",
+                row.check,
+                link.anchor
+            );
+        }
+    }
 }
 
 /// Every line of every fenced code block in `section`.
@@ -780,20 +980,27 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         listed, defined,
         "a row names a check its workflow does not define"
     );
-    for (at, row) in rows.iter().enumerate() {
+    let runs: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            legs.iter()
+                .find(|leg| (&leg.check, &leg.id, leg.file) == (&row.check, &row.job, row.file))
+                .expect("a defined leg")
+                .local_commands()
+        })
+        .collect();
+    assert_first_words_listed(&root, &runs);
+    for (at, (row, runs)) in rows.iter().zip(&runs).enumerate() {
         let check = &row.check;
         assert_eq!(
             row.number,
             (at + 1).to_string(),
             "{check} is numbered in order"
         );
+        assert_linked_blocks(check, &row.command, &guide);
+        assert_inline_copies(&root, row, &guide, runs);
         let written = written_commands(&guide, &row.command);
-        let leg = legs
-            .iter()
-            .find(|leg| (&leg.check, &leg.id, leg.file) == (&row.check, &row.job, row.file))
-            .expect("a defined leg");
-        let runs = leg.local_commands();
-        for run in &runs {
+        for run in runs {
             assert!(
                 written.contains(run),
                 "{check}'s row does not write `{run}`"

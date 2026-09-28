@@ -105,7 +105,7 @@ each local command is the job's own, and the sections below explain them:
 | 5 | `test (macos-latest)` | `engine` | on a Mac, `cargo test --workspace --all-features --locked --no-fail-fast`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
 | 6 | `exact coverage gate` | `coverage` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
 | 7 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
-| 8 | `non-Rust lints` | `lint-non-rust` | `bash scripts/lint-non-rust.sh`, then [the diagram render and Renovate's validator](#the-non-rust-lints) |
+| 8 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
 | 9 | `baseline ratchets` | `ratchets` | `quality/ratchet.sh files`, `quality/ratchet.sh clones`, `cargo shear --deny-warnings --locked`, `PR_BODY="<your pull request's body>" quality/ratchet.sh baselines origin/main` |
 | 10 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
 | 11 | `release binary artifact` | `release-binary` | [`cargo build --release --locked -p brokkr-cli`](#the-release-binary), then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
