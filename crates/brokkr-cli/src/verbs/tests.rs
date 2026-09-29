@@ -17,7 +17,9 @@ use serde_json::json;
 use crate::cli_args::*;
 use crate::selector::{refusal_kind, Refusal};
 use crate::tests::env_guard::EnvGuard;
-use crate::tests::{at, bundled, cli, running_store, stopped_mid_flight_run, workspace};
+use crate::tests::{
+    at, broken_chain_store, bundled, cli, running_store, stopped_mid_flight_run, workspace,
+};
 use crate::{run, Cmd, Exit};
 
 /// A journal that exists and holds no run.
@@ -69,6 +71,27 @@ fn rerun_resolves_latest() {
         repo: None,
     });
     assert_eq!(refusal(rerun), Some(Refusal::Empty));
+}
+
+/// A run the selector finds but the store cannot load (a broken chain)
+/// is named as the source the rerun could not read.
+#[test]
+fn rerun_names_a_resolved_run_it_cannot_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    broken_chain_store(&db, "broken");
+    let rerun = Cmd::Rerun(RerunArgs {
+        run: "latest".into(),
+        delivery: bundled(workspace().join("recipes/fast")),
+        journal: at(&db),
+        repo: None,
+    });
+    let unloaded = run(cli(rerun)).unwrap_err();
+    assert_eq!(unloaded.to_string(), "loading source run 'broken'");
+    assert_eq!(
+        unloaded.root_cause().to_string(),
+        "event 3: previous_hash does not match event 2"
+    );
 }
 
 #[test]
