@@ -2806,10 +2806,7 @@ fn a_live_node_pulses_and_a_still_terminal_and_a_still_run_never_do() {
 
 // -------------------------------------------- AC-15, AC-17: the boundaries
 
-/// The file itself is the evidence: a renderer that cannot name a store
-/// cannot write to one, and a widget layer with exactly two sanitized
-/// constructors cannot be handed raw journal text.
-const SOURCE: &str = include_str!("../tui.rs");
+use super::source_tests::SOURCE;
 
 #[test]
 fn the_tui_source_names_no_store_no_runtime_and_no_unsanitized_widget() {
@@ -5961,7 +5958,7 @@ fn a_boxed_codex_hint_is_inert_data_and_starts_no_process() {
     assert!(all.contains(&hint), "{all}");
     // The hint is a rendered string and nothing else: the TUI names no
     // process spawn anywhere.
-    assert!(!include_str!("../tui.rs").contains("Command::new"));
+    assert!(!SOURCE.contains("Command::new"));
 }
 
 #[test]

@@ -17,7 +17,19 @@
    293 crates/brokkr-cli/src/recipes.rs
    873 crates/brokkr-cli/src/render.rs
    136 crates/brokkr-cli/src/selector.rs
-  3549 crates/brokkr-cli/src/tui.rs
+   134 crates/brokkr-cli/src/tui.rs
+   150 crates/brokkr-cli/src/tui/footer.rs
+   296 crates/brokkr-cli/src/tui/glyphs.rs
+   336 crates/brokkr-cli/src/tui/keys.rs
+   662 crates/brokkr-cli/src/tui/layout.rs
+   274 crates/brokkr-cli/src/tui/movement.rs
+   361 crates/brokkr-cli/src/tui/painter.rs
+   232 crates/brokkr-cli/src/tui/panes.rs
+   323 crates/brokkr-cli/src/tui/participant.rs
+   167 crates/brokkr-cli/src/tui/seats.rs
+   451 crates/brokkr-cli/src/tui/state.rs
+    94 crates/brokkr-cli/src/tui/style.rs
+   288 crates/brokkr-cli/src/tui/terminal.rs
   1323 crates/brokkr-cli/src/ui.rs
    873 crates/brokkr-cli/src/ui/safe_fs.rs
     16 crates/brokkr-cli/src/verbs.rs
@@ -79,13 +91,14 @@
     84 crates/brokkr-cli/src/selector/tests.rs
   4670 crates/brokkr-cli/src/tests.rs
    312 crates/brokkr-cli/src/tui/snapshot_tests.rs
-  6995 crates/brokkr-cli/src/tui/tests.rs
+    51 crates/brokkr-cli/src/tui/source_tests.rs
+  6986 crates/brokkr-cli/src/tui/tests.rs
   4976 crates/brokkr-cli/src/ui/tests.rs
    611 crates/brokkr-cli/tests/agent_fallback.rs
    408 crates/brokkr-cli/tests/agent_readouts.rs
    158 crates/brokkr-cli/tests/binary_names.rs
    220 crates/brokkr-cli/tests/bootstrap_bench.rs
-   374 crates/brokkr-cli/tests/boundary_readouts.rs
+   400 crates/brokkr-cli/tests/boundary_readouts.rs
    802 crates/brokkr-cli/tests/boundary_verbs.rs
    407 crates/brokkr-cli/tests/contributing.rs
    106 crates/brokkr-cli/tests/decisions_index.rs

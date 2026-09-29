@@ -5,7 +5,7 @@
    13 expect clippy::excessive_nesting
     3 expect clippy::struct_excessive_bools
    23 expect clippy::too_many_arguments
-   37 expect clippy::too_many_lines
+   35 expect clippy::too_many_lines
     2 expect dead_code
 # test
     3 expect clippy::disallowed_macros
