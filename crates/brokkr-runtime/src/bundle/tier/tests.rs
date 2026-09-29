@@ -222,8 +222,8 @@ fn a_provisional_model_reached_only_by_fallback_is_refused_the_same_way() {
 
 /// An inline command names no agent, so it holds no office: its pinned
 /// provisional model is seatable nowhere, and never at a gate. A pin on
-/// a promoted model, no pin, and a command no adapter answers are not
-/// the tier's to judge.
+/// a promoted model and a command no adapter answers are not the tier's
+/// to judge.
 #[test]
 fn an_inline_command_pinning_a_provisional_model_holds_no_office() {
     let workspace = Workspace::new();
@@ -253,8 +253,6 @@ fn an_inline_command_pinning_a_provisional_model_holds_no_office() {
     ));
     for admitted in [
         inline("gate", "steady-1"),
-        json!({"role": "roles/role.md", "results": ["pass"], "class": "gate",
-               "driver": {"command": ["{brokkr}", "driver", "newcomer", "--"]}}),
         json!({"role": "roles/role.md", "results": ["pass"], "class": "gate",
                "driver": {"command": ["./judge.sh"]}}),
         json!({"role": "roles/role.md", "results": ["pass"], "class": "gate",
@@ -313,6 +311,54 @@ fn an_inline_pin_the_tier_cannot_read_is_refused_where_the_adapter_declares_a_pr
             .to_string(),
         "bundle: seat 'work' gate link 1 names model '<unmapped>', which driver 'newcomer' does \
          not declare in 'judges' (decision 0041 ruling 3 — an absent declaration is empty)"
+    );
+}
+
+/// An inline command that pins no model on the adapter's flag leaves the
+/// model to the harness's default, which may be the provisional one, so
+/// it is refused at a work seat as at a gate — whether a later rule would
+/// demand a pin or not. Promoted, the same commands are not the tier's.
+#[test]
+fn an_inline_command_that_pins_no_model_is_refused_where_the_adapter_declares_a_provisional_model()
+{
+    let workspace = Workspace::new();
+    let unpinned = |class: &str, tail: &[&str]| {
+        let mut command = vec!["{brokkr}", "driver", "newcomer", "--"];
+        command.extend(tail);
+        json!({"role": "roles/role.md", "results": ["pass"], "class": class,
+               "driver": {"command": command}})
+    };
+    let refusal = workspace.refusal(unpinned("work", &[]), &[]);
+    assert_eq!(
+        refusal,
+        ProvisionalRefusal::Unpinned {
+            seat: "work".into(),
+            adapter: "newcomer".into(),
+        }
+    );
+    assert_eq!(
+        refusal.to_string(),
+        "seat 'work' pins no model, and adapter 'newcomer' declares a provisional model its own \
+         default may be; pin a promoted model's id on the adapter's model flag, because a seat \
+         whose model the tier cannot read is refused, never read as promoted (proposed decision \
+         0075 ruling 5)"
+    );
+    assert_eq!(workspace.refusal(unpinned("gate", &[]), &[]), refusal);
+    // A flag the model read walks past pins nothing either.
+    assert_eq!(
+        workspace.refusal(unpinned("work", &["--model-x", "fresh-1"]), &[]),
+        refusal
+    );
+
+    workspace.adapter(json!("fresh-1"));
+    assert_eq!(
+        workspace.compile(unpinned("work", &[]), &[]).unwrap().name,
+        "tier"
+    );
+    let gate = workspace.compile(unpinned("gate", &[]), &[]);
+    assert!(
+        !matches!(gate, Err(CompileError::Provisional(_))),
+        "{gate:?}"
     );
 }
 

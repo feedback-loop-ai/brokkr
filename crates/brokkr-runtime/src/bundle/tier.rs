@@ -8,8 +8,9 @@
 //!
 //! An office is an agent, by name. An inline command names no agent, so
 //! it holds no office: a provisional model pinned inline is seatable
-//! nowhere, and an inline pin that cannot be read as one id is refused
-//! wherever its adapter declares a provisional model. The check reads
+//! nowhere, and an inline pin that cannot be read as one id, or no pin
+//! at all, is refused wherever its adapter declares a provisional model.
+//! The check reads
 //! the adapters the compile opened, and
 //! [`opens`] opens them wherever an inline site dispatches a driver and
 //! the adapter data exists, whatever the site's class: a bundle that
@@ -88,6 +89,13 @@ pub enum ProvisionalRefusal {
         adapter: String,
         flags: Vec<String>,
     },
+    #[error(
+        "seat '{seat}' pins no model, and adapter '{adapter}' declares a provisional model its \
+         own default may be; pin a promoted model's id on the adapter's model flag, because a \
+         seat whose model the tier cannot read is refused, never read as promoted (proposed \
+         decision 0075 ruling 5)"
+    )]
+    Unpinned { seat: String, adapter: String },
 }
 
 fn office_named(office: Option<&str>) -> String {
@@ -214,7 +222,10 @@ fn provisional_links<'a>(
 /// reads (decision 0040 ruling 1). A pin those flags cannot read as one
 /// id, pinned twice or illegible, may name the provisional model as well
 /// as any other, so where the adapter declares one it is refused naming
-/// the flags read; the tier fails closed on what it cannot read.
+/// the flags read; the tier fails closed on what it cannot read. No pin
+/// at all leaves the model to the harness's own default, which may be
+/// the provisional one, so it is refused the same way: the tier does not
+/// lean on another rule to demand a pin.
 fn inline_link<'a>(
     what: &str,
     raw: &Value,
@@ -232,6 +243,12 @@ fn inline_link<'a>(
                 seat: what.to_string(),
                 adapter: adapter.provider.clone(),
                 flags,
+            });
+        }
+        ModelPin::Absent if !adapter.provisional.is_empty() => {
+            return Err(ProvisionalRefusal::Unpinned {
+                seat: what.to_string(),
+                adapter: adapter.provider.clone(),
             });
         }
         ModelPin::Unreadable(_) | ModelPin::Absent => return Ok(None),

@@ -264,6 +264,9 @@ pub brokkr_runtime::bundle::ProvisionalRefusal::Unlisted::link: usize
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unlisted::model: alloc::string::String
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unlisted::office: core::option::Option<alloc::string::String>
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unlisted::seat: alloc::string::String
+pub brokkr_runtime::bundle::ProvisionalRefusal::Unpinned
+pub brokkr_runtime::bundle::ProvisionalRefusal::Unpinned::adapter: alloc::string::String
+pub brokkr_runtime::bundle::ProvisionalRefusal::Unpinned::seat: alloc::string::String
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unreadable
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unreadable::adapter: alloc::string::String
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unreadable::flags: alloc::vec::Vec<alloc::string::String>
