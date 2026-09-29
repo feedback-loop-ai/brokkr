@@ -587,8 +587,10 @@ pub(super) struct ProbeHarnessArgs {
     /// from the secrets store (decision 0012). Repeatable.
     #[arg(long = "credential")]
     pub(super) credentials: Vec<String>,
+    /// The secrets store each `--credential` is read from.
     #[arg(long, default_value = DEFAULT_SECRETS)]
     pub(super) secrets_file: PathBuf,
+    /// The directory holding the adapter files `--adapter` names.
     #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
     pub(super) adapters_dir: PathBuf,
 }

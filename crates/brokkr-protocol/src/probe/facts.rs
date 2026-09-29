@@ -42,6 +42,14 @@ impl<T: Serialize> Fact<T> {
         }
     }
 
+    /// What the fact says for itself: its evidence, or why it is unmeasured.
+    pub(crate) fn account(&self) -> &str {
+        match self {
+            Fact::Measured { evidence, .. } | Fact::Unsupported { evidence } => evidence,
+            Fact::Unmeasured { why } => why,
+        }
+    }
+
     /// The reading drift compares: the status and the measured value,
     /// never the evidence, whose wording may change between two runs
     /// that measured the same thing.
@@ -109,7 +117,9 @@ pub(crate) struct Usage {
     /// `<event type> <JSON pointer>` for each place a usage object sat.
     pub(crate) locations: Vec<String>,
     pub(crate) counters: Vec<String>,
-    pub(crate) counting: Counting,
+    /// Unmeasured when no usage-bearing event names its message, since
+    /// then nothing shows whether one message's usage repeats.
+    pub(crate) counting: Fact<Counting>,
 }
 
 /// How one refusal looked: its exit status and the line that said it.
@@ -138,8 +148,8 @@ pub(crate) struct Facts {
     pub(crate) events: Fact<Events>,
     pub(crate) session: Fact<Session>,
     pub(crate) usage: Fact<Usage>,
-    /// `<event type> <JSON pointer>` for each place a cost sat; empty when
-    /// the CLI reports none.
+    /// `<event type> <JSON pointer>` for each place a cost sat; unmeasured
+    /// when no event carries a key the probe knows a cost by.
     pub(crate) cost: Fact<Vec<String>>,
     pub(crate) refusals: Refusals,
     pub(crate) efforts: Fact<Vec<String>>,
@@ -150,11 +160,14 @@ pub(crate) struct Facts {
     pub(crate) boxed_tools: Fact<Vec<String>>,
     /// The status the CLI reported for the hands MCP server it was given.
     pub(crate) mcp_server: Fact<String>,
+    /// The plain turn's egress tools; unmeasured when a tool is named that
+    /// the probe knows neither as egress nor as local.
     pub(crate) native_egress: Fact<Vec<String>>,
     /// True when no native egress tool is left under the hands argv.
     pub(crate) egress_off: Fact<bool>,
-    /// True when a turn ran under a scratch HOME with only the bound
-    /// credentials (#467).
+    /// True when the planted user-scope MCP server stayed out of the
+    /// boxed turn, or, with no boxed turn read, out of the plain one
+    /// (#467).
     pub(crate) config_isolation: Fact<bool>,
     /// Whether a user-scope MCP server planted in the scratch HOME
     /// reached the plain turn, and the boxed one (#467).

@@ -28,6 +28,36 @@ const COST_KEYS: [&str; 2] = ["total_cost_usd", "cost_usd"];
 /// letters and digits: web search, fetch, browsing and grounding.
 const EGRESS_WORDS: [&str; 4] = ["web", "fetch", "browse", "grounding"];
 
+/// The shipped harnesses' own tools that reach no network: Claude Code's,
+/// Codex's and dsh's. A name that is neither one of these nor egress by
+/// [`EGRESS_WORDS`] is not recognised, and egress is then unmeasured.
+const LOCAL_TOOLS: [&str; 24] = [
+    "Agent",
+    "Bash",
+    "BashOutput",
+    "Edit",
+    "ExitPlanMode",
+    "Glob",
+    "Grep",
+    "KillShell",
+    "LS",
+    "MultiEdit",
+    "NotebookEdit",
+    "NotebookRead",
+    "Read",
+    "SlashCommand",
+    "Skill",
+    "Task",
+    "TodoWrite",
+    "ToolSearch",
+    "Write",
+    "apply_patch",
+    "shell",
+    "update_plan",
+    "view_image",
+    "read_file",
+];
+
 /// What refusals list the accepted levels after: clap's, commander's and
 /// serde's wording.
 const LEVEL_MARKERS: [&str; 3] = ["possible values:", "Allowed choices are", "expected one of"];
@@ -301,25 +331,36 @@ fn usage(stream: &Stream) -> Fact<Usage> {
     if locations.is_empty() {
         return Fact::unmeasured("no event of the turn carried a usage object");
     }
-    let (counting, evidence) = match messages.iter().find(|(_, events)| **events > 1) {
-        Some((id, events)) => (
-            Counting::RepeatedPerMessage,
-            format!("message {id} carried its usage on {events} events; count each message once"),
-        ),
-        None => (
-            Counting::PerEvent,
-            "no two usage-bearing events named the same message".to_string(),
-        ),
-    };
-    let counters = counters.into_iter().collect();
+    let evidence = format!("the turn reported its usage at {}", locations.join(", "));
     Fact::measured(
         Usage {
             locations,
-            counters,
-            counting,
+            counters: counters.into_iter().collect(),
+            counting: counting(&messages),
         },
         evidence,
     )
+}
+
+/// How usage counts, from the number of usage-bearing events that named
+/// each message: unmeasured when none named one.
+fn counting(messages: &BTreeMap<String, usize>) -> Fact<Counting> {
+    if messages.is_empty() {
+        return Fact::unmeasured(
+            "no usage-bearing event named its message, so nothing showed whether one \
+             message's usage repeats",
+        );
+    }
+    match messages.iter().find(|(_, events)| **events > 1) {
+        Some((id, events)) => Fact::measured(
+            Counting::RepeatedPerMessage,
+            format!("message {id} carried its usage on {events} events; count each message once"),
+        ),
+        None => Fact::measured(
+            Counting::PerEvent,
+            "no two usage-bearing events named the same message",
+        ),
+    }
 }
 
 fn cost(stream: &Stream) -> Fact<Vec<String>> {
@@ -334,11 +375,10 @@ fn cost(stream: &Stream) -> Fact<Vec<String>> {
             }
         }
     }
-    let evidence = if locations.is_empty() {
-        "no event carried total_cost_usd or cost_usd".to_string()
-    } else {
-        format!("the turn reported its cost at {}", locations.join(", "))
-    };
+    if locations.is_empty() {
+        return Fact::unmeasured("no event carried total_cost_usd or cost_usd");
+    }
+    let evidence = format!("the turn reported its cost at {}", locations.join(", "));
     Fact::measured(locations, evidence)
 }
 
@@ -396,13 +436,60 @@ fn native_tools(stream: &Stream) -> Fact<Vec<String>> {
     })
 }
 
-fn is_egress(tool: &str) -> bool {
-    let folded: String = tool
-        .chars()
+/// What the probe knows a tool's name to be.
+#[derive(Clone, Copy, PartialEq)]
+enum ToolClass {
+    Egress,
+    Local,
+    Unrecognised,
+}
+
+fn folded(tool: &str) -> String {
+    tool.chars()
         .filter(char::is_ascii_alphanumeric)
         .collect::<String>()
-        .to_ascii_lowercase();
-    EGRESS_WORDS.iter().any(|word| folded.contains(word))
+        .to_ascii_lowercase()
+}
+
+fn tool_class(tool: &str) -> ToolClass {
+    let name = folded(tool);
+    if EGRESS_WORDS.iter().any(|word| name.contains(word)) {
+        ToolClass::Egress
+    } else if LOCAL_TOOLS.iter().any(|local| folded(local) == name) {
+        ToolClass::Local
+    } else {
+        ToolClass::Unrecognised
+    }
+}
+
+/// The plain turn's egress tools, unmeasured when it named a tool the
+/// probe knows neither as egress nor as local: that tool may reach the
+/// network under a name no scanner rule matches.
+fn native_egress(tools: &Fact<Vec<String>>) -> Fact<Vec<String>> {
+    let Fact::Measured {
+        value: listed,
+        evidence,
+    } = tools
+    else {
+        return tools.clone();
+    };
+    let unrecognised: Vec<&str> = listed
+        .iter()
+        .filter(|tool| tool_class(tool) == ToolClass::Unrecognised)
+        .map(String::as_str)
+        .collect();
+    if !unrecognised.is_empty() {
+        return Fact::unmeasured(format!(
+            "the plain turn listed {}, which the probe knows neither as egress nor as local",
+            unrecognised.join(", ")
+        ));
+    }
+    let egress = listed
+        .iter()
+        .filter(|tool| tool_class(tool) == ToolClass::Egress)
+        .cloned()
+        .collect();
+    Fact::measured(egress, evidence.clone())
 }
 
 fn mcp_server(stream: &Stream) -> Fact<String> {
@@ -424,17 +511,62 @@ fn user_mcp(turn: &Turn, config: &UserConfig) -> Fact<bool> {
     }
 }
 
-/// Whether the hands argv left any native egress tool behind.
+/// Whether the operator's user-scope configuration is kept out of a turn
+/// (#467): read from the boxed turn when it listed its MCP servers, since
+/// the hands argv is what isolates it, else from the plain turn.
+fn config_isolation(unboxed: &Fact<bool>, boxed: &Fact<bool>) -> Fact<bool> {
+    let planted = format!("the planted user-scope server {USER_SCOPE_SERVER}");
+    match (boxed, unboxed) {
+        (Fact::Measured { value: true, .. }, _) => Fact::measured(
+            false,
+            format!("{planted} reached the boxed turn: {}", boxed.account()),
+        ),
+        (Fact::Measured { value: false, .. }, _) => Fact::measured(
+            true,
+            format!(
+                "{planted} did not reach the boxed turn: {}",
+                boxed.account()
+            ),
+        ),
+        (_, Fact::Measured { value: true, .. }) => Fact::measured(
+            false,
+            format!(
+                "{planted} reached the plain turn, and no boxed turn showed it kept out: {}",
+                boxed.account()
+            ),
+        ),
+        (_, Fact::Measured { value: false, .. }) => Fact::measured(
+            true,
+            format!(
+                "{planted} did not reach the plain turn: {}",
+                unboxed.account()
+            ),
+        ),
+        (_, Fact::Unmeasured { .. } | Fact::Unsupported { .. }) => Fact::unmeasured(format!(
+            "no turn showed whether a user-scope MCP server loads: {}",
+            unboxed.account()
+        )),
+    }
+}
+
+/// Whether the hands argv left any native egress tool behind, a tool it
+/// does not recognise counted as egress.
 fn egress_off(native_egress: &Fact<Vec<String>>, boxed_tools: &Fact<Vec<String>>) -> Fact<bool> {
     let Some(egress) = native_egress.value() else {
-        return Fact::unmeasured("the plain turn's tools were not read");
+        return Fact::unmeasured(format!(
+            "the plain turn's native egress was not read: {}",
+            native_egress.account()
+        ));
     };
     if egress.is_empty() {
         return Fact::measured(true, "the plain turn listed no native egress tool");
     }
     match boxed_tools {
         Fact::Measured { value: left, .. } => {
-            let kept: Vec<&String> = left.iter().filter(|tool| egress.contains(tool)).collect();
+            let kept: Vec<&String> = left
+                .iter()
+                .filter(|tool| tool_class(tool) != ToolClass::Local)
+                .collect();
             let evidence = if kept.is_empty() {
                 format!("the hands argv removed {}", egress.join(", "))
             } else {
@@ -455,14 +587,20 @@ fn egress_off(native_egress: &Fact<Vec<String>>, boxed_tools: &Fact<Vec<String>>
     }
 }
 
-/// How one deliberate mistake was refused.
+/// How one deliberate mistake was refused. A launch that ended with no
+/// exit code, by a signal or the probe's deadline, refused nothing.
 fn refusal(trial: &Trial) -> Fact<Refusal> {
-    match trial {
-        Trial::Untried(why) => Fact::unmeasured(why.clone()),
-        Trial::Observed(observation) if observation.exit == Some(0) => {
-            Fact::unmeasured("the CLI exited 0, so there was no refusal to read")
-        }
-        Trial::Observed(observation) => Fact::measured(
+    let observation = match trial {
+        Trial::Untried(why) => return Fact::unmeasured(why.clone()),
+        Trial::Observed(observation) => observation,
+    };
+    match observation.exit {
+        Some(0) => Fact::unmeasured("the CLI exited 0, so there was no refusal to read"),
+        None => Fact::unmeasured(format!(
+            "no refusal was read: {}",
+            exit_and_excerpt(observation)
+        )),
+        Some(_) => Fact::measured(
             Refusal {
                 exit: observation.exit,
                 excerpt: excerpt(observation),
@@ -586,18 +724,12 @@ pub(crate) fn facts(plan: &Plan, observed: &Observed, bound: &[&str]) -> Facts {
     let (events, session, transcripts) = stream_facts(&base, &observed.turn);
     let tools = on_turn(&base, native_tools);
     let boxed_tools = on_turn(&boxed, native_tools);
-    let native_egress = tools
-        .clone()
-        .map(|tools| tools.into_iter().filter(|tool| is_egress(tool)).collect());
+    let native_egress = native_egress(&tools);
     let egress_off = egress_off(&native_egress, &boxed_tools);
+    let user_mcp_unboxed = user_mcp(&base, &plan.user_config);
+    let user_mcp_boxed = user_mcp(&boxed, &plan.user_config);
     let config_isolation = on_turn(&base, |_| {
-        Fact::measured(
-            true,
-            format!(
-                "a turn ran under a scratch HOME with only these credentials bound: [{}]",
-                bound.join(", ")
-            ),
-        )
+        config_isolation(&user_mcp_unboxed, &user_mcp_boxed)
     });
     Facts {
         headless: Fact::measured(
@@ -606,7 +738,10 @@ pub(crate) fn facts(plan: &Plan, observed: &Observed, bound: &[&str]) -> Facts {
                 exit: observed.turn.exit,
             },
             format!(
-                "one turn ran with stdin closed: {}",
+                "one turn ran under a scratch HOME with only these credentials bound: [{}]; \
+                 {}: {}",
+                bound.join(", "),
+                plan.unlike_driver,
                 exit_text(observed.turn.exit)
             ),
         ),
@@ -629,8 +764,8 @@ pub(crate) fn facts(plan: &Plan, observed: &Observed, bound: &[&str]) -> Facts {
         native_egress,
         egress_off,
         config_isolation,
-        user_mcp_unboxed: user_mcp(&base, &plan.user_config),
-        user_mcp_boxed: user_mcp(&boxed, &plan.user_config),
+        user_mcp_unboxed,
+        user_mcp_boxed,
         transcripts,
         resume: Fact::unmeasured(
             "the probe does not drive a resume turn yet; decision 0056's per-shape \
