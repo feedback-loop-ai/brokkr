@@ -9,6 +9,7 @@ use std::env::VarError;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use brokkr_core::envelope::ChainError;
 use brokkr_core::fold::{fold, Status};
 use brokkr_core::EventType;
 use brokkr_store::{Store, StoreError};
@@ -89,8 +90,11 @@ fn rerun_names_a_resolved_run_it_cannot_load() {
     let unloaded = run(cli(rerun)).unwrap_err();
     assert_eq!(unloaded.to_string(), "loading source run 'broken'");
     assert_eq!(
-        unloaded.root_cause().to_string(),
-        "event 3: previous_hash does not match event 2"
+        unloaded.root_cause().downcast_ref::<ChainError>(),
+        Some(&ChainError::BrokenChain {
+            seq: 3,
+            prev_seq: 2
+        })
     );
 }
 
