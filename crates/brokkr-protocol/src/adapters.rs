@@ -660,7 +660,10 @@ fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
 /// expose_for_spawn, CI-grep pinned. A declared name overrides any
 /// pre-existing env entry: the declaration is in the reviewed charter, so
 /// a collision is visible at review time.
-fn bind_environment(command: &mut Command, bindings: &[secret::BoundSecret]) -> Result<(), String> {
+pub(crate) fn bind_environment(
+    command: &mut Command,
+    bindings: &[secret::BoundSecret],
+) -> Result<(), String> {
     for binding in bindings {
         let value = match std::str::from_utf8(binding.secret().expose_for_spawn()) {
             Ok(value) => value,
@@ -2514,7 +2517,7 @@ const fn claude_shape(wrapped: bool) -> &'static str {
 /// spelling — and this driver is where `--effort <level>` becomes the
 /// override codex actually reads. The pair is the analogue of the dsh
 /// arm's `--model` → overlay translation, for the same reason.
-fn codex_effort_config(effort: &str) -> String {
+pub(crate) fn codex_effort_config(effort: &str) -> String {
     format!("model_reasoning_effort=\"{effort}\"")
 }
 

@@ -548,3 +548,35 @@ pub(super) struct FakeDriverArgs {
     #[arg(long)]
     pub(super) effort: Option<String>,
 }
+
+#[derive(clap::Subcommand)]
+pub(super) enum ProbeCmd {
+    /// Run one agent CLI headless against a scratch repository and HOME,
+    /// and report each fact its adapter must declare as measured,
+    /// unmeasured or unsupported, beside the adapter's own fields and the
+    /// seat eligibility the facts derive.
+    Harness(ProbeHarnessArgs),
+}
+
+#[derive(clap::Args)]
+#[group(skip)]
+pub(super) struct ProbeHarnessArgs {
+    /// The adapter whose harness is probed: claude, codex or dsh.
+    #[arg(long)]
+    pub(super) adapter: String,
+    /// The CLI to launch (default: the adapter's binary, found on PATH).
+    #[arg(long)]
+    pub(super) cli: Option<String>,
+    /// Write the report here. A report already here is read first, and
+    /// every reading that moved since it is reported as drift.
+    #[arg(long)]
+    pub(super) out: Option<PathBuf>,
+    /// A credential every credentialed launch is given, bound by name
+    /// from the secrets store (decision 0012). Repeatable.
+    #[arg(long = "credential")]
+    pub(super) credentials: Vec<String>,
+    #[arg(long, default_value = DEFAULT_SECRETS)]
+    pub(super) secrets_file: PathBuf,
+    #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
+    pub(super) adapters_dir: PathBuf,
+}
