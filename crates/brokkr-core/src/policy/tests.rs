@@ -511,10 +511,13 @@ fn an_enum_refusal_names_its_own_vocabulary() {
     clippy::disallowed_methods,
     reason = "the test reads a shipped policy table"
 )]
-fn shipped_machine(relative: &str) -> Machine {
+pub(super) fn shipped_table(relative: &str) -> Value {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
-    let table: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    Machine::from_table(&table).unwrap()
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn shipped_machine(relative: &str) -> Machine {
+    Machine::from_table(&shipped_table(relative)).unwrap()
 }
 
 fn ruling(machine: &Machine, phase: &str, result: &str, inputs: Value) -> (String, String) {
