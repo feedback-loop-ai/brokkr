@@ -516,6 +516,64 @@ fn demoting_the_scaffolded_tier_refuses_the_scaffolded_gates() {
     );
 }
 
+/// Proposed decision 0075 ruling 5, end to end: the scaffold's work
+/// offices hire `sonnet`, so marking it provisional refuses the bundle
+/// until the workspace's own map lists those offices — the list reaches
+/// the compile from `realms.json`, and doctor names what it may hold.
+#[test]
+fn a_provisional_model_compiles_only_in_the_offices_the_map_lists() {
+    let (dir, bundle, _) = init_with_only(&["claude"]);
+    let adapter = bundle.join("adapters/claude.json");
+    let mut claude = json_at(&adapter);
+    claude["models"]["sonnet"] =
+        serde_json::json!({"id": "claude-sonnet-5-5", "tier": "provisional"});
+    std::fs::write(&adapter, claude.to_string()).unwrap();
+    let db = dir.path().join("forge.db");
+    let doctor = || {
+        brokkr(
+            &["doctor", "--bundle", ".", "--db", db.to_str().unwrap()],
+            &bundle,
+        )
+    };
+
+    let (code, stdout, _) = doctor();
+    assert_eq!(code, Some(1), "doctor output: {stdout}");
+    assert!(
+        stdout.contains(
+            "warn     provisional sonnet: adapter 'claude' · may hold no office: realms.json \
+             lists no provisional_offices · never a gate"
+        ),
+        "doctor output: {stdout}"
+    );
+    let refused = stdout
+        .lines()
+        .find(|line| line.starts_with("MISSING  bundle"))
+        .unwrap();
+    assert!(
+        refused.contains("seats model 'sonnet', which adapter 'claude' declares provisional"),
+        "{refused}"
+    );
+
+    let map = bundle.join("realms.json");
+    let mut world = json_at(&map);
+    world["schema"] = serde_json::json!("forge.realms/v6");
+    world["provisional_offices"] = serde_json::json!(["implementer", "intake"]);
+    std::fs::write(&map, world.to_string()).unwrap();
+    let (code, stdout, _) = doctor();
+    assert_eq!(code, Some(0), "doctor output: {stdout}");
+    assert!(
+        stdout.contains(
+            "ok       provisional sonnet: adapter 'claude' · may hold implementer, intake · \
+             never a gate"
+        ),
+        "doctor output: {stdout}"
+    );
+    assert!(
+        stdout.contains("ok       bundle: '"),
+        "doctor output: {stdout}"
+    );
+}
+
 #[test]
 fn doctor_reports_health_and_validates_a_bundle() {
     let dir = tempfile::tempdir().unwrap();

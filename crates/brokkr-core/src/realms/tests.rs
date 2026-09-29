@@ -41,6 +41,7 @@ fn the_minimal_map_parses_into_the_shape_the_ruling_names() {
                 consumes: CrossingList::Absent,
             }],
             journal: ".forge/forge.db".to_string(),
+            provisional_offices: None,
         }
     );
     // The content is returned verbatim, because it is what gets embedded
@@ -95,9 +96,9 @@ fn text_that_is_not_json_is_refused_naming_the_file() {
 
 #[test]
 fn a_map_that_calls_itself_another_version_is_refused_by_name() {
-    let refusal = with(|map| map["schema"] = json!("forge.realms/v6"));
+    let refusal = with(|map| map["schema"] = json!("forge.realms/v7"));
     assert!(
-        refusal.contains("it calls itself 'forge.realms/v6'"),
+        refusal.contains("it calls itself 'forge.realms/v7'"),
         "{refusal}"
     );
     for label in SCHEMAS {
@@ -889,4 +890,68 @@ fn the_record_serde_helper_round_trips_words_and_the_sentinel_without_defaulting
         assert!(serde_json::from_value::<Record>(value).is_err());
     }
     assert!(serde_json::from_value::<Boundary>(json!("not applicable")).is_err());
+}
+
+/// Proposed decision 0075 ruling 5: the operator's list of offices a
+/// provisional model may hold is v6 vocabulary on the world, read back
+/// exactly as written, and none at all where the map names none.
+#[test]
+fn a_v6_map_lists_the_provisional_offices_and_an_absent_list_is_none() {
+    let listed = |offices: Value| {
+        let mut map: Value = serde_json::from_str(MAP).unwrap();
+        map["schema"] = json!(SCHEMA_V6);
+        map["provisional_offices"] = offices;
+        RealmMap::of("realms.json", map)
+    };
+    let (map, _) = listed(json!(["researcher", "review-correctness"])).unwrap();
+    assert_eq!(
+        map.provisional_offices(),
+        ["researcher", "review-correctness"]
+    );
+    let (empty, _) = listed(json!([])).unwrap();
+    assert_eq!(empty.provisional_offices(), [] as [&str; 0]);
+    let (unwritten, _) = RealmMap::parse("realms.json", &MAP.replace("/v1", "/v6")).unwrap();
+    assert_eq!(unwritten.provisional_offices, None);
+    assert_eq!(unwritten.provisional_offices(), [] as [&str; 0]);
+
+    let refused = |offices: Value| listed(offices).unwrap_err().to_string();
+    assert_eq!(
+        refused(Value::Null),
+        "realms.json is not a usable realms map: it writes provisional_offices as null; the \
+         list is an array, and a map that lists no office leaves the word out"
+    );
+    assert_eq!(
+        refused(json!(["researcher", " "])),
+        "realms.json is not a usable realms map: provisional office 1 is empty"
+    );
+    assert_eq!(
+        refused(json!(["researcher", "researcher"])),
+        "realms.json is not a usable realms map: provisional office 'researcher' is listed twice"
+    );
+}
+
+/// The list is refused under every label older than the one that
+/// introduced it, like every word before it; and the unknown-label
+/// refusal spells out all six labels this build reads.
+#[test]
+fn provisional_offices_under_an_older_label_are_refused_by_version() {
+    for label in &SCHEMAS[..5] {
+        let refusal = with(|map| {
+            map["schema"] = json!(label);
+            map["provisional_offices"] = json!(["researcher"]);
+        });
+        assert_eq!(
+            refusal,
+            format!(
+                "realms.json is not a usable realms map: it names provisional offices, which is \
+                 forge.realms/v6 vocabulary in a map calling itself {label}"
+            )
+        );
+    }
+    assert_eq!(
+        with(|map| map["schema"] = json!("forge.realms/v0")),
+        "realms.json is not a usable realms map: it calls itself 'forge.realms/v0'; this build \
+         reads forge.realms/v1, forge.realms/v2, forge.realms/v3, forge.realms/v4, \
+         forge.realms/v5 and forge.realms/v6"
+    );
 }

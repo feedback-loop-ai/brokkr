@@ -24,6 +24,8 @@ use super::{
 };
 use crate::bundle::Limits;
 
+mod models;
+
 #[derive(Debug, Error)]
 pub enum LibraryError {
     #[error("{0}")]
@@ -759,7 +761,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     if driver.is_empty() {
         return invalid(format!("{what} 'driver' is empty; it is the invocation"));
     }
-    let models = name_map(map, "models", &what)?;
+    let (models, provisional) = models::models(map, &what)?;
     let judges = match map.get("judges") {
         Some(_) => string_array(map, "judges", &what)?,
         None => Vec::new(),
@@ -820,10 +822,10 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
             })
         }
     };
-    let hint = match map.get("hint") {
-        None => None,
-        Some(_) => Some(string(map, "hint", &what)?),
-    };
+    let hint = map
+        .get("hint")
+        .map(|_| string(map, "hint", &what))
+        .transpose()?;
     let model_flag = pin_flag(map, "model_flag", &what)?;
     // The effort vocabulary this provider declares (decision 0035
     // ruling 5), read beside the flag that expresses it. Required, and
@@ -912,6 +914,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         hint,
         driver,
         models,
+        provisional,
         judges,
         model_flag,
         efforts,

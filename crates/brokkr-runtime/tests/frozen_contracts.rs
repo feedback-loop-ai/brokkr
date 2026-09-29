@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 22] = [
+const FROZEN: [(&str, &str); 23] = [
     // Proposed decision 0056 ruling 7 lands seat-record v5 beside v4;
     // v4's bytes are pinned here so that slice can prove it edited none
     // of them, exactly as decision 0046 pinned v3's when v4 landed.
@@ -117,6 +117,12 @@ const FROZEN: [(&str, &str); 22] = [
     (
         "contracts/realms.v4.schema.json",
         "7f03c61886e91189ae46388eead49a11e52fe70f17fde8d27cf0a33fc08b9ad5",
+    ),
+    // Proposed decision 0075 ruling 5 lands `forge.realms/v6` beside v5,
+    // which was the new file when 0057 landed and is frozen from here.
+    (
+        "contracts/realms.v5.schema.json",
+        "e0203be78cc2896ce6983d8c8a26417544ccbef311c1b3c63425bfc55a96c1e5",
     ),
     // Decision 0057's recording half lands `run-manifest.v10` beside v9,
     // which was the new file when 0046 landed and is frozen from here.
@@ -298,6 +304,9 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/effect-cleanup.v1.schema.json",
             "Forge effect cleanup v1",
         ),
+        // Proposed decision 0075 ruling 5: the provisional offices arrive
+        // as `forge.realms/v6` beside v5, whose bytes are pinned above.
+        ("contracts/realms.v6.schema.json", "Forge realms map v6"),
     ] {
         assert!(
             titled(relative).starts_with(title),
@@ -527,4 +536,55 @@ fn the_v5_realm_schema_carries_the_crossings_and_closes_their_entries() {
         older["schema"] = json!(version);
         assert!(!validator.is_valid(&older), "{version} under the v5 schema");
     }
+}
+
+/// Proposed decision 0075 ruling 5: the published contract for the
+/// operator's list. v6 is v5 plus one optional world-level property and
+/// nothing else, and the list is closed to what the loader admits.
+#[test]
+fn the_v6_realm_schema_adds_only_the_provisional_offices() {
+    use serde_json::json;
+    let [schema, v5] = ["realms.v6", "realms.v5"].map(|version| {
+        let path = workspace().join(format!("contracts/{version}.schema.json"));
+        serde_json::from_slice::<serde_json::Value>(&std::fs::read(path).unwrap()).unwrap()
+    });
+    let mut carried = schema["properties"].clone();
+    let added = carried
+        .as_object_mut()
+        .unwrap()
+        .remove("provisional_offices");
+    assert_eq!(
+        added.map(|list| (list["type"].clone(), list["items"].clone())),
+        Some((json!("array"), json!({"type": "string", "pattern": "\\S"})))
+    );
+    let mut earlier = v5["properties"].clone();
+    earlier["schema"] = json!({"const": "forge.realms/v6"});
+    assert_eq!(carried, earlier, "v6 moved a property v5 defines");
+    for key in ["required", "additionalProperties", "type"] {
+        assert_eq!(schema[key], v5[key], "{key} moved between v5 and v6");
+    }
+
+    let validator = jsonschema::draft7::new(&schema).unwrap();
+    let mut map = json!({"schema":"forge.realms/v6", "realms":[{"name":"app", "path":".", "default_branch":"main"}], "journal":"forge.db"});
+    assert!(validator.is_valid(&map), "a v6 map naming no offices");
+    for offices in [json!([]), json!(["researcher", "review-correctness"])] {
+        map["provisional_offices"] = offices;
+        assert!(validator.is_valid(&map));
+    }
+    for offices in [
+        json!(null),
+        json!("researcher"),
+        json!([" "]),
+        json!(["researcher", "researcher"]),
+        json!([7]),
+    ] {
+        map["provisional_offices"] = offices.clone();
+        assert!(
+            !validator.is_valid(&map),
+            "the v6 schema admitted {offices}"
+        );
+    }
+    map["provisional_offices"] = json!(["researcher"]);
+    map["schema"] = json!("forge.realms/v5");
+    assert!(!validator.is_valid(&map), "v5 label under the v6 schema");
 }

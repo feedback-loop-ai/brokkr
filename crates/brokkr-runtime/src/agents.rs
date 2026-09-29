@@ -36,7 +36,7 @@
 //!   configuration cause — the machine diagnosing itself wrong, which
 //!   decision 0001 exists to prevent.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use brokkr_core::canonical::sha256_hex;
@@ -255,6 +255,8 @@ pub struct Adapter {
     pub driver: Vec<String>,
     /// Abstract model name → concrete provider model id.
     pub models: BTreeMap<String, String>,
+    /// Proposed decision 0075 ruling 5: the models declared provisional.
+    pub provisional: BTreeSet<String>,
     /// Decision 0041 ruling 3: the abstract model names this adapter is
     /// authorised to seat at a gate. Absence loads as empty so a new or
     /// older adapter fails closed.

@@ -625,3 +625,22 @@ so a v2-schema manifest never carries `crossings` any more than it
 carries `realms`, and `build_run_manifest_v2` would refuse the key by the
 fail-closed guard it has held over the whole key space since decision
 0021's witness — loudly, on the day it arrived, rather than quietly.
+
+Proposed decision 0075 ruling 5 (the provisional tier) adds one more file
+and changes none of the bytes above — `realms.v5`'s included, which is now
+pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with the offices a provisional model may hold | `realms.v6.schema.json` | brokkr-core (shape and refusals), brokkr-runtime (the compile-time tier check), `brokkr doctor` |
+
+`forge.realms/v6` is `v5` plus exactly one optional property on the WORLD,
+not on a realm: `provisional_offices`, the agents by name a model its
+adapter marks `"tier": "provisional"` may be seated in. Agents and adapters
+are workspace data, so the list that rules between them is too. A gate is
+never admitted, whatever the list says. Absent or empty, a provisional
+model is seated nowhere; a written `null`, an empty name or a name listed
+twice is refused by this file and by the loader alike. A v6 map that does
+not name the list reads exactly as a v5 map, and the list rides into a run
+manifest inside the map's own pin, so a resume judges against the list the
+run started under.

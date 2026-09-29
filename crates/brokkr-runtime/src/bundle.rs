@@ -16,8 +16,10 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 
 pub mod compose;
+mod tier;
 
 use compose::{Ancestor, COMPOSE_PREFIX};
+pub use tier::{ProvisionalRefusal, RealmLaw};
 
 use crate::agents::{
     resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, EgressClass,
@@ -39,6 +41,8 @@ pub enum CompileError {
     Json(#[from] serde_json::Error),
     #[error("bundle policy: {0}")]
     Policy(#[from] brokkr_core::PolicyError),
+    #[error("bundle: {0}")]
+    Provisional(#[from] ProvisionalRefusal),
 }
 
 /// Inputs the engine owns. A seat may never supply or declare these:
@@ -485,6 +489,7 @@ struct AgentContext {
     /// is exactly what `binding_grant: true` meant, so every bundle on
     /// disk keeps the behaviour it has.
     egress_minimum: EgressClass,
+    provisional_offices: Vec<String>,
 }
 
 /// One resolved agent reference, ready to become an ordinary seat body.
@@ -1070,14 +1075,14 @@ impl Bundle {
     /// realm's boundary into the bundle's identity (decision 0046 ruling
     /// 1). Compilation consults no machine: a realm declaring `seatbelt`
     /// compiles and pins the word, and the refusal that stops a run under
-    /// it comes at start.
+    /// it comes at start. A bare boundary lists no provisional office.
     pub fn compile_with_realm(
         dir: &Path,
         library_root: &Path,
         adapters_root: &Path,
         realm_name: Option<&str>,
         dialect: Option<&Dialect>,
-        boundary: Boundary,
+        law: impl Into<RealmLaw>,
     ) -> Result<Bundle, CompileError> {
         let dir = dir
             .canonicalize()
@@ -1094,7 +1099,7 @@ impl Bundle {
             adapters_root,
             realm_name,
             dialect,
-            boundary,
+            law.into(),
         ) {
             Ok(bundle) => Ok(bundle),
             // Every failure downstream of resolution on a composed
@@ -1122,7 +1127,10 @@ impl Bundle {
         adapters_root: &Path,
         realm_name: Option<&str>,
         dialect: Option<&Dialect>,
-        boundary: Boundary,
+        RealmLaw {
+            boundary,
+            provisional_offices,
+        }: RealmLaw,
     ) -> Result<Bundle, CompileError> {
         let config = &resolved.document;
         let name = resolved.name.clone();
@@ -1240,6 +1248,7 @@ impl Bundle {
                     ))
                 })?,
                 egress_minimum,
+                provisional_offices,
             }),
         };
 
@@ -2472,7 +2481,7 @@ fn enforce_model_policy(
         law,
         agents.as_ref().map(|context| &context.adapters),
     )?;
-    let class = parse_class(what, raw)?;
+    let class = tier::admitted(what, raw, candidates, agents.as_ref())?;
     if class == SeatClass::Work && secrets.is_empty() {
         return Ok(());
     }

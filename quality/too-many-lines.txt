@@ -23,7 +23,7 @@
  156 crates/brokkr-runtime/src/agents.rs:725 compose
  187 crates/brokkr-runtime/src/agents/load.rs:737 parse_adapter
  101 crates/brokkr-runtime/src/agents/load.rs:985 resume_assessment
- 529 crates/brokkr-runtime/src/bundle.rs:1122 assemble
+ 530 crates/brokkr-runtime/src/bundle.rs:1123 assemble
  119 crates/brokkr-runtime/src/bundle.rs:2457 enforce_model_policy
  215 crates/brokkr-runtime/src/bundle.rs:3392 parse_sequence
  366 crates/brokkr-runtime/src/bundle/compose.rs:416 merge_layer

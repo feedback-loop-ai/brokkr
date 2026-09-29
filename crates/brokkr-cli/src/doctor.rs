@@ -21,6 +21,8 @@ use brokkr_store::Store;
 use crate::boundary;
 use crate::render::Safe;
 
+mod provisional;
+
 pub(crate) struct Report {
     pub healthy: bool,
     lines: Vec<String>,
@@ -671,10 +673,8 @@ pub(crate) fn doctor(
     // "realms map" one and tell an operator their world is broken when
     // one contract moved (decision 0057).
     let world = brokkr_runtime::realms::World::inspect(&workspace, realms);
-    let boundary = match &world {
-        Ok(Some(world)) => world.boundary_for(&workspace),
-        _ => Boundary::Namespace,
-    };
+    let mapped = world.as_ref().ok().and_then(Option::as_ref);
+    let boundary = mapped.map_or(Boundary::Namespace, |world| world.boundary_for(&workspace));
     // The database line checks the journal every other verb opens (#374):
     // `--db`, else the one the map names, else the default. A map that
     // will not load is its own line below, and names no journal here.
@@ -691,16 +691,11 @@ pub(crate) fn doctor(
         tool_version,
         ambient_variable,
         boundary,
-        bundle.map(|dir| {
-            super::compile_in_realm(
-                &workspace,
-                dir,
-                world.as_ref().ok().and_then(Option::as_ref),
-                &workspace,
-            )
-        }),
+        bundle.map(|dir| super::compile_in_realm(&workspace, dir, mapped, &workspace)),
         dsh_provider_line,
     );
+    let adapters = Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR);
+    provisional::report_provisional(&mut report, adapters, mapped);
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);
     report
 }

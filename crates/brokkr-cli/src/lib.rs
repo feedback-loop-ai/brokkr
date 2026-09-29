@@ -1879,19 +1879,31 @@ fn compile_in_realm(
         (Some(world), Some(realm)) => world.dialect_for_realm(realm)?,
         _ => None,
     };
-    // The realm's boundary, or `namespace` for a repository no map
-    // names (decision 0046 ruling 1): the one word the run stands under.
-    let boundary = realm.map_or(brokkr_core::realms::Boundary::Namespace, |realm| {
-        realm.boundary()
-    });
     Ok(Bundle::compile_with_realm(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         Some(realm_name),
         dialect,
-        boundary,
+        realm_law(world, realm),
     )?)
+}
+
+/// What the realm rules over a compile: its boundary, or `namespace` for
+/// a repository no map names (decision 0046 ruling 1) — the one word the
+/// run stands under — and the world's provisional offices, or none
+/// (proposed decision 0075 ruling 5).
+fn realm_law(
+    world: Option<&World>,
+    realm: Option<&brokkr_core::realms::Realm>,
+) -> brokkr_runtime::bundle::RealmLaw {
+    brokkr_runtime::bundle::RealmLaw {
+        boundary: realm.map_or(brokkr_core::realms::Boundary::Namespace, |realm| {
+            realm.boundary()
+        }),
+        provisional_offices: world
+            .map_or_else(Vec::new, |world| world.map.provisional_offices().to_vec()),
+    }
 }
 
 /// Resume compiles against the dialect embedded in the run, never against
@@ -1917,19 +1929,17 @@ fn compile_from_manifest(
         .map(|realm| world.dialect_for_realm(realm))
         .transpose()?
         .flatten();
-    // The boundary the run was started under, read from the pinned
-    // world and never from the workspace's map as it stands today
-    // (decision 0046 ruling 1): a resume stands where the run stood.
-    let boundary = realm.map_or(brokkr_core::realms::Boundary::Namespace, |realm| {
-        realm.boundary()
-    });
+    // The boundary and the provisional offices the run was started under,
+    // read from the pinned world and never from the workspace's map as it
+    // stands today (decision 0046 ruling 1): a resume stands where the run
+    // stood.
     Ok(Bundle::compile_with_realm(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         Some(realm_name),
         dialect,
-        boundary,
+        realm_law(Some(&world), realm),
     )?)
 }
 

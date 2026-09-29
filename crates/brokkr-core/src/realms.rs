@@ -42,6 +42,11 @@
 //! shape and its refusals; reading a published file, or checking a pin
 //! against the bytes on disk, is a later slice's work in
 //! `brokkr-runtime` — this crate performs no I/O.
+//!
+//! v6 (proposed decision 0075 ruling 5) adds one optional WORLD-level
+//! list, `provisional_offices`: the agents a provisional model may be
+//! seated in. Absent or empty, a provisional model is seated nowhere, and
+//! a v6 map that names none reads exactly as a v5 map does.
 
 use std::fmt;
 use std::str::FromStr;
@@ -70,9 +75,15 @@ pub const SCHEMA_V4: &str = "forge.realms/v4";
 /// `publishes` and `consumes`, and nothing else.
 pub const SCHEMA_V5: &str = "forge.realms/v5";
 
+/// The provisional tier (proposed decision 0075 ruling 5): v5 plus one
+/// optional world-level `provisional_offices`, and nothing else.
+pub const SCHEMA_V6: &str = "forge.realms/v6";
+
 /// Every label this build reads, oldest first — the one list a refusal
 /// spells out and the version gates are written against.
-pub const SCHEMAS: [&str; 5] = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5];
+pub const SCHEMAS: [&str; 6] = [
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6,
+];
 
 /// What stands between a box's hands and the machine (decision 0046
 /// ruling 1). A closed vocabulary that names the MECHANISM and never the
@@ -387,6 +398,12 @@ pub struct RealmMap {
     pub schema: String,
     pub realms: Vec<Realm>,
     pub journal: String,
+    /// The offices — agents, by name — a provisional model may hold —
+    /// `forge.realms/v6` vocabulary (proposed decision 0075 ruling 5),
+    /// absent in every older map and refused in one. Read through
+    /// [`RealmMap::provisional_offices`], where absence is none.
+    #[serde(default)]
+    pub provisional_offices: Option<Vec<String>>,
 }
 
 /// A realm name is a journal key: lowercase, digits, and the three
@@ -421,6 +438,50 @@ fn is_repository_relative(value: &str) -> bool {
     !matches!(bytes.first(), Some(b'/' | b'\\'))
         && !(bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
         && !value.split(['/', '\\']).any(|component| component == "..")
+}
+
+/// The v6 list, held to its version exactly as every word before it is
+/// held to its own. Presence is judged on the map as WRITTEN, because
+/// serde reads a written `null` as the absence it is not; `realms.v6`
+/// types the list an array of distinct, non-empty office names.
+fn judge_provisional_offices(
+    path: &str,
+    map: &RealmMap,
+    content: &Value,
+) -> Result<(), RealmsError> {
+    let invalid = |problem: String| {
+        Err(RealmsError::Invalid {
+            path: path.to_string(),
+            problem,
+        })
+    };
+    let Some(written) = content.get("provisional_offices") else {
+        return Ok(());
+    };
+    if older_than(&map.schema, SCHEMA_V6) {
+        return invalid(format!(
+            "it names provisional offices, which is {SCHEMA_V6} vocabulary in a map calling \
+             itself {}",
+            map.schema
+        ));
+    }
+    if written.is_null() {
+        return invalid(
+            "it writes provisional_offices as null; the list is an array, and a map that \
+             lists no office leaves the word out"
+                .to_string(),
+        );
+    }
+    let offices = map.provisional_offices();
+    for (index, office) in offices.iter().enumerate() {
+        if office.trim().is_empty() {
+            return invalid(format!("provisional office {index} is empty"));
+        }
+        if offices[..index].contains(office) {
+            return invalid(format!("provisional office '{office}' is listed twice"));
+        }
+    }
+    Ok(())
 }
 
 impl RealmMap {
@@ -473,9 +534,9 @@ impl RealmMap {
             })?;
         if !SCHEMAS.contains(&map.schema.as_str()) {
             return Err(invalid(format!(
-                "it calls itself '{}'; this build reads {SCHEMA_V1}, {SCHEMA_V2}, {SCHEMA_V3}, \
-                 {SCHEMA_V4} and {SCHEMA_V5}",
-                map.schema
+                "it calls itself '{}'; this build reads {} and {SCHEMA_V6}",
+                map.schema,
+                SCHEMAS[..SCHEMAS.len() - 1].join(", ")
             )));
         }
         if map.realms.is_empty() {
@@ -676,7 +737,15 @@ impl RealmMap {
                 }
             }
         }
-        Ok((map, content))
+        judge_provisional_offices(path, &map, &content).map(|()| (map, content))
+    }
+
+    /// The offices a provisional model may hold (proposed decision 0075
+    /// ruling 5): the list the map writes, or none at all — the one place
+    /// absence is read, so a map that names none seats a provisional
+    /// model nowhere.
+    pub fn provisional_offices(&self) -> &[String] {
+        self.provisional_offices.as_deref().unwrap_or_default()
     }
 
     /// The journal one realm's runs live in: its own when it names one,
