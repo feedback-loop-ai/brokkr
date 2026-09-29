@@ -33,8 +33,10 @@ fn boxable(facts: &Facts) -> Option<bool> {
 /// MCP server may hold boxed offices; one whose native egress is absent or
 /// switched off may hold unboxed offices; and one whose egress has no
 /// measured off switch may hold only offices that give it no tools
-/// (decision 0065 ruling 4). An unmeasured fact never admits more, and a
-/// verdict that admits names a plain turn that loaded the planted server.
+/// (decision 0065 ruling 4). An unmeasured fact never admits more. An
+/// office outside the box launches the plain turn, so a plain turn not
+/// shown to keep the planted server out holds a boxable harness to boxed
+/// offices and refuses any other.
 pub(crate) fn eligibility(facts: &Facts) -> Eligibility {
     let (verdict, reason) = if facts.config_isolation.value() != Some(&true) {
         (
@@ -45,11 +47,24 @@ pub(crate) fn eligibility(facts: &Facts) -> Eligibility {
             ),
         )
     } else if boxable(facts) == Some(true) {
-        (
-            Verdict::Boxed,
-            "its own tools switch off and the hands MCP server connects".to_string(),
-        )
-    } else if facts.egress_off.value() == Some(&true) {
+        let reason = "its own tools switch off and the hands MCP server connects";
+        match plain_leak(facts) {
+            None => (Verdict::Boxed, reason.to_string()),
+            Some(leak) => (
+                Verdict::BoxedOnly,
+                format!("{reason}, but {leak}, so it may hold boxed offices only"),
+            ),
+        }
+    } else {
+        outside_the_box(facts)
+    };
+    Eligibility { verdict, reason }
+}
+
+/// The rungs below the box: each launches the plain turn, so a plain
+/// turn not shown to keep the planted server out refuses the harness.
+fn outside_the_box(facts: &Facts) -> (Verdict, String) {
+    let (verdict, reason) = if facts.egress_off.value() == Some(&true) {
         (
             Verdict::UnboxedOnly,
             format!(
@@ -68,25 +83,31 @@ pub(crate) fn eligibility(facts: &Facts) -> Eligibility {
             ),
         )
     };
-    let reason = match (verdict, facts.user_mcp_unboxed.value().copied()) {
-        (Verdict::Boxed | Verdict::UnboxedOnly | Verdict::ToolLessOnly, Some(true)) => {
-            format!("{reason}; {}", plain_leak(facts))
-        }
-        (Verdict::Refused, _) | (_, None | Some(false)) => reason,
-    };
-    Eligibility { verdict, reason }
+    match plain_leak(facts) {
+        None => (verdict, reason),
+        Some(leak) => (
+            Verdict::Refused,
+            format!("{leak}, and it may hold no boxed office: {reason}"),
+        ),
+    }
 }
 
-/// The measured leak an admitting verdict carries: ruling 4 refuses a
-/// harness whose user-scope configuration cannot be isolated, and the
-/// boxed turn showed it can be, but an office outside the box launches
-/// the plain shape, which loaded the planted server (#467).
-fn plain_leak(facts: &Facts) -> String {
-    format!(
-        "but its plain turn, the launch an office outside the box uses, loaded the planted \
-         user-scope MCP server (#467): {}",
-        facts.user_mcp_unboxed.account()
-    )
+/// How the plain turn, the launch an office outside the box uses, failed
+/// to show the planted user-scope server kept out (#467); `None` when it
+/// listed its servers without it.
+fn plain_leak(facts: &Facts) -> Option<String> {
+    let account = facts.user_mcp_unboxed.account();
+    let outside = "its plain turn, the launch an office outside the box uses,";
+    match facts.user_mcp_unboxed.value() {
+        Some(false) => None,
+        Some(true) => Some(format!(
+            "{outside} loaded the planted user-scope MCP server (#467): {account}"
+        )),
+        None => Some(format!(
+            "{outside} is not shown to keep the planted user-scope MCP server out (#467): \
+             {account}"
+        )),
+    }
 }
 
 fn row(field: String, declared: String, implied: Option<(String, bool)>) -> FieldRow {

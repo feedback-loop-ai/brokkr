@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use super::facts::{Fact, Verdict};
+use super::facts::{Eligibility, Fact, Verdict};
 use super::measure::{self, Observed};
 use super::observe::{Observation, Trial};
 use super::*;
@@ -248,8 +248,9 @@ const DSH_UNLIKE_DRIVER: &str = "the prompt is the last argument, stdin is close
                                  overlay";
 const NOT_REPEATED: &str = "no message carried the same usage on several events, so nothing \
                             showed how usage counts";
-const PLAIN_LEAK: &str = "; but its plain turn, the launch an office outside the box uses, \
-                          loaded the planted user-scope MCP server (#467): ";
+const PLAIN_LEAK: &str = "its plain turn, the launch an office outside the box uses, loaded \
+                          the planted user-scope MCP server (#467): ";
+const HOLDS_NO_BOX: &str = ", and it may hold no boxed office: ";
 const NO_USER_MCP: &str = "no turn showed whether a user-scope MCP server loads: ";
 const NOT_ISOLATED: &str = "its user-scope configuration is not shown to be isolated: ";
 const PLANTED: &str = "the planted user-scope server brokkr-probe-user-scope";
@@ -312,7 +313,7 @@ const CLAUDE_TURN: [&str; 8] = [
 ];
 
 #[test]
-fn a_claude_like_cli_is_boxed_and_its_repeated_usage_is_named() {
+fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() {
     let world = world();
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Empties));
     let listed_servers = "the system/init event listed mcp_servers: 1";
@@ -386,10 +387,10 @@ fn a_claude_like_cli_is_boxed_and_its_repeated_usage_is_named() {
                 field("resume.boxed-workspace.identity.version", "2.1.266", "9.9.9 (Fake Claude)", "differs"),
             ],
             "eligibility": {
-                "verdict": "boxed",
+                "verdict": "boxed-only",
                 "reason": format!(
-                    "its own tools switch off and the hands MCP server connects{PLAIN_LEAK}\
-                     {listed_servers}"
+                    "its own tools switch off and the hands MCP server connects, but \
+                     {PLAIN_LEAK}{listed_servers}, so it may hold boxed offices only"
                 ),
             },
         }),
@@ -605,10 +606,10 @@ fn a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed() {
             ),
             "hands": field("hands", "supported", "unsupported", "differs"),
             "eligibility": {
-                "verdict": "tool-less-only",
+                "verdict": "refused",
                 "reason": format!(
-                    "its native egress has no measured off switch: the hands argv left \
-                     WebFetch{PLAIN_LEAK}{listed_servers}"
+                    "{PLAIN_LEAK}{listed_servers}{HOLDS_NO_BOX}its native egress has no \
+                     measured off switch: the hands argv left WebFetch"
                 ),
             },
         })
@@ -741,10 +742,10 @@ fn a_tool_the_probe_does_not_recognise_is_never_read_as_local() {
             &unmeasured(unrecognised),
             &unmeasured(&off_unread),
             &json!({
-                "verdict": "tool-less-only",
+                "verdict": "refused",
                 "reason": format!(
-                    "its native egress has no measured off switch: {off_unread}{PLAIN_LEAK}the \
-                     system/init event listed mcp_servers: 1"
+                    "{PLAIN_LEAK}the system/init event listed mcp_servers: 1{HOLDS_NO_BOX}its \
+                     native egress has no measured off switch: {off_unread}"
                 ),
             }),
         )
@@ -929,7 +930,7 @@ fn a_rerun_on_a_new_cli_version_reports_its_drift_against_the_previous_report() 
             "drift: egress_off: measured true -> unsupported",
             "drift: config_isolation: measured true -> measured false",
             "drift: user_mcp_boxed: measured false -> unsupported",
-            r#"drift: eligibility: "boxed" -> "refused""#,
+            r#"drift: eligibility: "boxed-only" -> "refused""#,
         ]
     );
     let unchanged = before.clone().with_drift_from(&previous);
@@ -1201,11 +1202,39 @@ fn a_hands_server_that_does_not_connect_is_not_boxed_and_removable_egress_is_unb
     let mut leaking = facts;
     leaking.user_mcp_unboxed = Fact::measured(true, "the init event listed mcp_servers: 1");
     assert_eq!(
-        judge::eligibility(&leaking).reason,
-        format!(
-            "it is not shown to stand behind the box (emptied; the init event listed \
-             mcp_servers: 1), and the plain turn listed no native egress tool{PLAIN_LEAK}the \
-             init event listed mcp_servers: 1"
-        )
+        judge::eligibility(&leaking),
+        Eligibility {
+            verdict: Verdict::Refused,
+            reason: format!(
+                "{PLAIN_LEAK}the init event listed mcp_servers: 1{HOLDS_NO_BOX}it is not shown \
+                 to stand behind the box (emptied; the init event listed mcp_servers: 1), and \
+                 the plain turn listed no native egress tool"
+            ),
+        }
+    );
+}
+
+#[test]
+fn a_plain_turn_not_shown_to_keep_the_user_scope_server_out_holds_a_boxable_cli_to_the_box() {
+    let mut facts = with_hands(
+        Fact::measured(Vec::new(), "emptied"),
+        Fact::measured(
+            "connected".to_string(),
+            "the init event listed mcp_servers: 1",
+        ),
+        Fact::measured(true, "the plain turn listed no native egress tool"),
+    );
+    assert_eq!(judge::eligibility(&facts).verdict, Verdict::Boxed);
+    facts.user_mcp_unboxed = Fact::unmeasured("the plain turn listed no MCP servers");
+    assert_eq!(
+        judge::eligibility(&facts),
+        Eligibility {
+            verdict: Verdict::BoxedOnly,
+            reason: "its own tools switch off and the hands MCP server connects, but its plain \
+                     turn, the launch an office outside the box uses, is not shown to keep the \
+                     planted user-scope MCP server out (#467): the plain turn listed no MCP \
+                     servers, so it may hold boxed offices only"
+                .to_string(),
+        }
     );
 }

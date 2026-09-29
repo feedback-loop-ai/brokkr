@@ -212,7 +212,13 @@ impl Facts {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum Verdict {
+    /// Boxed offices, its plain turn also shown to keep the planted
+    /// user-scope server out.
     Boxed,
+    /// Boxed offices only: the box keeps the planted user-scope server
+    /// out, and its plain turn, which an office outside the box launches,
+    /// is not shown to (#467).
+    BoxedOnly,
     UnboxedOnly,
     ToolLessOnly,
     Refused,
