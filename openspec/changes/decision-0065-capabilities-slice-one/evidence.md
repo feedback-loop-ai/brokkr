@@ -20366,3 +20366,137 @@ On the final tree, in this session:
 - Exact coverage outside the box (`scripts/coverage-exact.sh`).
 - Remote CI.
 - The council.
+
+## Unit 19 — charter integrity at start and pinned resume, 2026-09-29
+
+This is run `0065-rebuild-unit-19-see-the-uni-6f959130`, based on
+`58a268e6`. It closes 19.1. Production: `crates/brokkr-runtime/src/engine.rs`
+and `bundle.rs`. Tests: `engine/boundary_tests.rs`,
+`engine/capability_tests.rs`, `crates/brokkr-cli/tests/capability_verbs.rs`.
+Scratch logs are `.forge/u19/*.log` (not committed). Line numbers are of the
+committed tree.
+
+### Production
+
+- **`bundle::charters_intact` (`bundle.rs:5653`).** It walks every
+  `CharterPin` in `bundle.charters`, layer-owned and library-owned alike.
+  Each pin goes through `pinned_charter`, the same owner-rooted, handle-bound
+  read the dispatch door uses (units 16–18-fix-b). That read checks the
+  owner the compile found, every step of the read's binding, and the bytes.
+  The first complaint is returned as `(owner, cause: key)`. Nothing read is
+  kept, and every dispatch still reads its own site's charter at the door.
+- **`EngineError::CharterMoved` (`engine.rs:141`)**, raised by
+  `refuse_moved_charter` (`:202`). Its text: "a charter of {owner} moved
+  since the compile ({key}); a run is started or resumed only over the
+  charters the bundle's identity names, so restore it, or recompile and
+  start a new run (decision 0066 ruling 5)".
+- **The doors.**
+  - `start_in_world` (`:436`) checks after the boundary, capability and
+    input fences and before `create_run`.
+  - `start_with_dispatch` (`:482`) checks after the envelope and bounds
+    checks and before the v2 manifest is built or `create_run` runs.
+  - `resume` (`:538`) checks after the pinned-manifest comparison and
+    before the journal is loaded. It does so whether the run pinned a world
+    or none.
+- Nothing enters the manifest. `bundles/self` (`45dc1c7e…`) and
+  `bundles/verify` (`f7cbd4bb…`) digests are unchanged.
+
+### Tests
+
+- **`a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume`
+  (`boundary_tests.rs:2652`, unix).**
+  - Setup: one `two_owners` bundle, compiled once. The `review` charter is
+    owned by layer `recipe`, and the `work` charter by the external library,
+    as agent `worker`. A run is started and resumed.
+  - Then, per owner and without recompiling, five rows run:
+    1. changed bytes;
+    2. relinked into the owner's excluded `capabilities/` (`unbound`);
+    3. relinked to an equal-byte twin in the owner (`retargeted`);
+    4. relinked to an equal-byte copy outside it (`outward`);
+    5. removed (`missing`).
+  - Each row asserts the exact `CharterMoved` text for a new start, a
+    dispatch-bound start and the run's resume. It also asserts that the run
+    count and the run's event ids are unchanged.
+  - After each row, the ORIGINAL file (a hard link) is put back and the
+    run resumes.
+  - At the end, the dispatch-bound start meets the v2 agents refusal it
+    always met, and a new start succeeds.
+- **`a_moved_charter_refuses_the_start_and_resume_in_a_mapped_and_an_unmapped_context`
+  (`capability_tests.rs:1556`).**
+  - Setup: one recipe, compiled under realm `private` (a world naming the
+    operated repository) and with no map. A run is started in each context.
+    Resume answers `Some(Some("private"))` or `None` (no world).
+  - The charter is then changed without recompiling. Start and resume in
+    both contexts refuse with `changed: roles/work.md` for layer
+    `recipe`. The runs and events are unchanged.
+  - Restored, each run resumes into its own pinned context again.
+- **`a_resume_over_a_retargeted_or_missing_charter_is_refused_mapped_or_not`
+  (`capability_verbs.rs:396`).**
+  - Through the verbs, a mapped run (`app`) and an unmapped run
+    (`<unmapped>`) each face three charter faults. A changed charter refuses
+    as the manifest's `changed: roles/work.md`. An outward link and a
+    missing file refuse as the compile's exact refusals.
+  - Nothing is appended, and the restored file resumes.
+  - The verb recompiles, so these refusals are the compile's and the
+    manifest's. The engine's own door, over a bundle nothing recompiled, is
+    the two runtime tests above. Per the unit, neither substitutes for the
+    other.
+- **Retained, passing in the workspace run.**
+  - Map-only edit: `run_and_rerun_read_todays_realm_and_resume_reads_the_runs_pin`.
+  - Capability or manifest identity:
+    `a_resume_whose_capability_authority_moved_is_refused_by_name` and
+    `a_resume_that_cannot_reproduce_its_pinned_inputs_is_a_capability_mismatch`.
+  - Unmapped root:
+    `an_unmapped_run_reads_and_keeps_the_operated_repository_as_its_root`.
+  - Dispatch door: `a_charter_that_moved_since_the_compile_refuses_the_dispatch`.
+
+### Baseline (`58a268e6` production, new tests in place)
+
+`.forge/u19/baseline.log`: both runtime tests fail.
+
+- `boundary_tests.rs:2742`, the layer's `changed` start: `left:
+  Ok("f-1abe9220")`.
+- `capability_tests.rs:1654`, start: `left: Ok(())`.
+
+### Mutations (each compiles; each restored from the saved copy)
+
+| Mutation | Fails (exact assertion) |
+| --- | --- |
+| M1: `start_in_world`'s check removed | `boundary_tests.rs:2742` start `Ok("f-b1cf3610")`; `capability_tests.rs:1654` start `Ok(())` (`m1.log`) |
+| M2: `start_with_dispatch`'s check removed | `boundary_tests.rs:2743` dispatch-bound start: the v2 agents refusal for `changed: roles/review.md` (`m2.log`) |
+| M3: `resume`'s check removed | `boundary_tests.rs:2744` resume `Ok("f-cc8b4a6e")`; `capability_tests.rs:1655` resume `Ok(())` (`m3.log`) |
+| M4: `charters_intact` excuses every cause but `changed`/`missing` | `boundary_tests.rs:2742` `unbound: roles/review.md` start `Ok` (`m4.log`) |
+| M4b: `charters_intact` excuses only `retargeted` (equal bytes, same owner) | `boundary_tests.rs:2742` `retargeted: roles/review.md` start `Ok` (`m4b.log`) |
+| M5: `charters_intact` checks only the layer pin | `boundary_tests.rs:2742` agent `worker` `changed: worker.md` start `Ok`; `capability_tests.rs:1654` (`m5.log`) |
+| M6: `resume`'s manifest-mismatch refusal disabled | `capability_verbs.rs:457` exit `Some(0)` for `Some(1)` (`m6.log`) |
+
+The restored tree passes all three tests and the whole workspace. The
+committed diff contains none of the mutations (a `grep` of the diff for them
+returns 0).
+
+### Standing-admission lines and fixture migrations
+
+- None.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean, with 0 warning or error lines (`u19/clippy.log`).
+- `cargo test --workspace --all-features --locked`: 77 results, all ok,
+  no `FAILED` (runtime lib 623, protocol lib 543, cli lib 482;
+  `u19/workspace.log`).
+- `compile --bundle bundles/self`: `45dc1c7e…`, unchanged.
+  `bundles/verify`: `f7cbd4bb…`, unchanged.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+### Pending
+
+- macOS: unobserved.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`): not run
+  here.
+- Remote CI.
+- The council.

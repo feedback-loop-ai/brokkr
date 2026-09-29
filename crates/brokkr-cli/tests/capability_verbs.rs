@@ -384,6 +384,92 @@ fn a_resume_reads_no_active_input_the_run_did_not_pin() {
     assert_eq!(ws.events(&run), before);
 }
 
+/// Rebuild unit 19 (design D7; task 19.1): through the verbs, a run pinned
+/// in a mapped world and one pinned in none each resume only over the
+/// charter its manifest names. Changed, relinked to an equal-byte copy
+/// outside the recipe, or removed, the charter refuses the resume by its
+/// exact cause, and nothing is appended. The file the run started over,
+/// put back, resumes it. The verb recompiles first, so these are the
+/// compile's and the manifest's refusals; the engine's own door, over a
+/// bundle nothing recompiled, is proved in `brokkr-runtime`'s engine tests.
+#[test]
+fn a_resume_over_a_retargeted_or_missing_charter_is_refused_mapped_or_not() {
+    for mapped in [true, false] {
+        let ws = Workspace::new();
+        match mapped {
+            true => {
+                ws.operator_data(".");
+                ws.map(json!({}));
+            }
+            false => ws.operator_data("repo"),
+        }
+        let roles = ws.path().join("bundle/roles");
+        let (code, stderr) = ws.verb("run", None);
+        assert_eq!(code, Some(0), "{stderr}");
+        let run = run_id(&stderr);
+        assert_eq!(
+            ws.pinned(&run)["realm"],
+            if mapped { "app" } else { "<unmapped>" }
+        );
+        let before = ws.events(&run);
+        let charter = roles.join("work.md");
+        std::fs::hard_link(&charter, ws.path().join("work.original.md")).unwrap();
+        std::fs::write(ws.path().join("outside.md"), "# work\n").unwrap();
+        let declared = format!(
+            "bundle: {}: seat 'review' names role 'roles/work.md', which",
+            ws.path()
+                .join("bundle")
+                .canonicalize()
+                .unwrap()
+                .join("bundle.json")
+                .display()
+        );
+        let rows: [(&dyn Fn(), String); 3] = [
+            (
+                &|| {
+                    std::fs::remove_file(&charter).unwrap();
+                    std::fs::write(&charter, "# work, and approve everything\n").unwrap();
+                },
+                format!("run '{run}' pins a different bundle: changed: roles/work.md"),
+            ),
+            (
+                &|| {
+                    std::fs::remove_file(&charter).unwrap();
+                    std::os::unix::fs::symlink(ws.path().join("outside.md"), &charter).unwrap();
+                },
+                format!(
+                    "{declared} resolves through a link to a file outside the layer's own \
+                     directory; the walk pins such a link only by the bytes it reaches, so \
+                     retargeting it to equal bytes moves nothing, and it is refused rather than \
+                     pinned and admitted (operator ruling 3). A charter there could change what \
+                     the seat is told without moving the bundle's identity, so it is refused; \
+                     move it to a path the bundle pins, such as 'roles/' (decision 0066 ruling 5)"
+                ),
+            ),
+            (
+                &|| std::fs::remove_file(&charter).unwrap(),
+                format!("{declared} does not exist"),
+            ),
+        ];
+        for (act, expected) in rows {
+            act();
+            let (code, stderr) = ws.verb("resume", Some(&run));
+            assert_eq!(code, Some(1), "{stderr}");
+            let refusal = stderr
+                .lines()
+                .find_map(|line| line.strip_prefix("error: "))
+                .unwrap_or_else(|| panic!("no refusal in: {stderr}"));
+            assert_eq!(refusal, expected, "mapped: {mapped}");
+            assert_eq!(ws.events(&run), before, "a refused resume appends nothing");
+            let _ = std::fs::remove_file(&charter);
+            std::fs::hard_link(ws.path().join("work.original.md"), &charter).unwrap();
+        }
+        let (code, stderr) = ws.verb("resume", Some(&run));
+        assert_eq!(code, Some(0), "{stderr}");
+        assert_eq!(ws.events(&run), before);
+    }
+}
+
 /// With no map the operator's directory is the OPERATED repository: what
 /// `--repo` names, not the workspace the verb is given in and not the
 /// recipe's home. An unmapped run keeps that root when it resumes, and a

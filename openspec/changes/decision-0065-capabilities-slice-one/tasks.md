@@ -3972,7 +3972,40 @@ defect). Production: `bundle.rs` only. Tests: `engine/boundary_tests.rs`.
 
 ## 19. Unit 19 — Enforce charter integrity at start and pinned resume
 
-- [ ] 19.1 Unit 19 proves owner-bound start/resume checks for changed/excluded/retargeted/missing/restored charters. Verify retained map-edit/identity/unmapped-root behavior. Requirements: [Library charter pins are enforced at consumption][MPL], [Active instructions and policy cannot escape bundle identity][MPI], [Realm context is resolved before capability authorization][RG5]. Reopened/remaining: operator ruling 3. (previous 6.4)
+- [x] 19.1 Unit 19 proves owner-bound start/resume checks for changed/excluded/retargeted/missing/restored charters. Verify retained map-edit/identity/unmapped-root behavior. Requirements: [Library charter pins are enforced at consumption][MPL], [Active instructions and policy cannot escape bundle identity][MPI], [Realm context is resolved before capability authorization][RG5]. Reopened/remaining: operator ruling 3. (previous 6.4)
+
+Unit 19 (2026-09-29, run `0065-rebuild-unit-19-see-the-uni-6f959130`, based
+on `58a268e6`; evidence.md, "Unit 19"). Production: `engine.rs`,
+`bundle.rs`. Tests: `engine/boundary_tests.rs`, `engine/capability_tests.rs`,
+`brokkr-cli/tests/capability_verbs.rs`. **19.1 closes on what is observed
+below.**
+
+- `bundle::charters_intact` checks every compiled binding (layer and
+  library) through `pinned_charter`, the dispatch door's own owner-bound
+  read: owner, every step of the read's binding, and bytes.
+  `Engine::start_in_world`, `start_with_dispatch` and `resume` call it
+  before `create_run` or the resumed engine, and refuse with
+  `EngineError::CharterMoved`, naming the owner and bounded cause.
+- Over an already compiled bundle (no recompile, no dispatch), both
+  owners refuse a new start, a dispatch-bound start and a pinned resume
+  for changed, unbound (excluded `capabilities/`), retargeted (equal-byte
+  twin in the owner), outward (equal-byte copy outside) and missing
+  charters. Nothing is written, and the restored original file resumes the
+  same run. In a mapped and an unmapped context, a changed charter refuses
+  start and resume. Restored, each run resumes into its own pinned
+  context: realm `private`, or no world.
+- Baseline reds with production reverted: both runtime tests fail at their
+  first start assertion. Mutations M1–M5 (each door removed; bytes-only
+  check; library pin skipped) and M6 (resume's manifest refusal, for the
+  CLI test) each fail the named assertion. All are restored.
+- Retained and passing: the map-edit, identity and unmapped-root tests
+  (named in evidence.md).
+- Standing-admission lines: none. Fixture migrations: none.
+- Gates: fmt and clippy clean. Workspace: 77 results, all ok (runtime lib
+  623, protocol lib 543, cli lib 482). `bundles/self` and `verify` digests
+  are unchanged. Strict OpenSpec (18) and `git diff --check` are clean.
+- **Pending.** macOS; exact coverage outside the box; remote CI and the
+  council.
 
 ## 20. Unit 20 — Audit compiled refusal and serving shapes
 

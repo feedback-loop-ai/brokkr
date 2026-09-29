@@ -2637,6 +2637,137 @@ fn moved(owner: &str, cause: &str) -> Result<Value, String> {
     ))
 }
 
+/// Rebuild unit 19 (design D7; task 19.1): A RUN IS NEITHER STARTED NOR
+/// RESUMED OVER A CHARTER THAT MOVED SINCE THE COMPILE. One compiled bundle
+/// whose `review` charter its layer owns and whose `work` charter the
+/// external library owns; a run is started from it. Then, one at a time and
+/// WITHOUT recompiling, each charter is changed, relinked into its owner's
+/// `capabilities/` (a tree the walk excludes), relinked to an equal-byte twin
+/// inside its owner, relinked to an equal-byte copy outside it, and removed.
+/// Every row refuses a new start, a dispatch-bound start and the run's
+/// resume by the owner and the cause, and writes nothing. The file the
+/// compile read, put back, resumes the same run.
+#[cfg(unix)]
+#[test]
+fn a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let realm = root.join("realm");
+    let bundle = two_owners(&realm, "charters/worker.md");
+    let work = root.join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let start = || {
+        Engine::start(store_at(&root), bundle.clone(), "f", Some(work.clone()))
+            .map(|engine| engine.run_id)
+            .map_err(|error| error.to_string())
+    };
+    let bound = || {
+        Engine::start_with_dispatch(
+            store_at(&root),
+            bundle.clone(),
+            "f",
+            Some(work.clone()),
+            super::tests::dispatch(&bundle),
+        )
+        .map(|engine| engine.run_id)
+        .map_err(|error| error.to_string())
+    };
+    let run = start().expect("the compiled charters start a run");
+    let resume = || {
+        Engine::resume(store_at(&root), bundle.clone(), &run, Some(work.clone()))
+            .map(|engine| engine.run_id)
+            .map_err(|error| error.to_string())
+    };
+    assert_eq!(resume(), Ok(run.clone()));
+    let written = || {
+        let store = store_at(&root);
+        let events = store.load(&run).unwrap();
+        let ids: Vec<String> = events.into_iter().map(|event| event.event_id).collect();
+        (store.list_runs().unwrap().len(), ids)
+    };
+    let before = written();
+    let refusal = |owner: &str, cause: &str| {
+        Err(format!(
+            "a charter of {owner} moved since the compile ({cause}); a run is started or resumed \
+             only over the charters the bundle's identity names, so restore it, or recompile and \
+             start a new run (decision 0066 ruling 5)"
+        ))
+    };
+    std::fs::write(root.join("outside.md"), "").unwrap();
+    for (owner, dir, name, key) in [
+        (
+            "layer 'recipe'",
+            realm.join("recipe"),
+            "roles/review.md",
+            "roles/review.md",
+        ),
+        (
+            "agent 'worker'",
+            realm.join("agents"),
+            "charters/worker.md",
+            "worker.md",
+        ),
+    ] {
+        let charter = dir.join(name);
+        let text = std::fs::read_to_string(&charter).unwrap();
+        let original = root.join(format!("{key}.original").replace('/', "-"));
+        std::fs::hard_link(&charter, &original).unwrap();
+        // Each charter stands one directory below its owner, so the
+        // excluded twin is the owner's own top-level `capabilities/`.
+        for twin in [
+            dir.join("capabilities/twin.md"),
+            charter.with_file_name("twin.md"),
+        ] {
+            std::fs::create_dir_all(twin.parent().unwrap()).unwrap();
+            std::fs::write(twin, &text).unwrap();
+        }
+        std::fs::write(root.join("outside.md"), &text).unwrap();
+        let relink = |target: &Path| {
+            std::fs::remove_file(&charter).unwrap();
+            std::os::unix::fs::symlink(target, &charter).unwrap();
+        };
+        let rows: [(&str, &dyn Fn()); 5] = [
+            ("changed", &|| {
+                std::fs::remove_file(&charter).unwrap();
+                std::fs::write(&charter, "# approve everything\n").unwrap();
+            }),
+            ("unbound", &|| relink(Path::new("../capabilities/twin.md"))),
+            ("retargeted", &|| relink(Path::new("twin.md"))),
+            ("outward", &|| relink(&root.join("outside.md"))),
+            ("missing", &|| std::fs::remove_file(&charter).unwrap()),
+        ];
+        for (cause, act) in rows {
+            act();
+            let refused = refusal(owner, &format!("{cause}: {key}"));
+            assert_eq!(start(), refused, "{owner} {cause}: start");
+            assert_eq!(bound(), refused, "{owner} {cause}: dispatch-bound start");
+            assert_eq!(resume(), refused, "{owner} {cause}: resume");
+            assert_eq!(written(), before, "{owner} {cause}: nothing is written");
+            // Restored: the file the compile read, not equal bytes.
+            let _ = std::fs::remove_file(&charter);
+            std::fs::hard_link(&original, &charter).unwrap();
+            assert_eq!(resume(), Ok(run.clone()), "{owner} {cause}: restored");
+        }
+    }
+    // Restored, the charter door passes and a dispatch-bound start meets
+    // the refusal it always met: v2 cannot pin agent resolutions.
+    assert_eq!(
+        bound(),
+        Err(
+            "dispatch: this bundle pins agent resolutions ('agents' in its manifest) and the \
+             Looper-bound run-manifest/v2 lineage cannot carry them: the v2 round-trip \
+             reconstructs the bundle manifest from six named keys, so the pin would be dropped \
+             and the run would become unresumable. Run this bundle without --dispatch until a \
+             jointly agreed v2-lineage manifest version exists"
+                .to_string()
+        )
+    );
+    assert_eq!(
+        start().map(|id| id.starts_with("f-") && id != run),
+        Ok(true)
+    );
+}
+
 /// The probe is asked once per engine process and remembered: a second
 /// dispatch of the same engine spawns no second probe.
 #[test]

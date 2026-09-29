@@ -32,9 +32,9 @@ use uuid::Uuid;
 #[allow(unused_imports)]
 use crate::agents::{Candidate, HarnessHands, Lowering, ResultDoor};
 use crate::bundle::{
-    dialect_results, layer_drift, site_charter_text, Aggregate, Bundle, CharterPin, ExecutableBody,
-    HandsState, PanelMember, Seat, SeatBody, SeatClass, SequenceStep, SiteFacts, StepBody,
-    ENGINE_VERSION, REALM_FACTS,
+    charters_intact, dialect_results, layer_drift, site_charter_text, Aggregate, Bundle,
+    CharterPin, ExecutableBody, HandsState, PanelMember, Seat, SeatBody, SeatClass, SequenceStep,
+    SiteFacts, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -129,6 +129,16 @@ pub enum EngineError {
          ruling 8)"
     )]
     CapabilityInputMoved { input: String, problem: String },
+    /// Rebuild unit 19 (design D7; decision 0066 ruling 5): a charter the
+    /// bundle bound moved since its compile — its owner, its target or its
+    /// bytes. Checked at start before `create_run` and at resume before the
+    /// run is driven, by the same bound read as the dispatch door.
+    #[error(
+        "a charter of {owner} moved since the compile ({key}); a run is started or resumed only \
+         over the charters the bundle's identity names, so restore it, or recompile and start a \
+         new run (decision 0066 ruling 5)"
+    )]
+    CharterMoved { owner: String, key: String },
     /// Decision 0046 ruling 6: `seatbelt` and `container` are named, pinned
     /// and admitted at compile, and built by slices (ii) and (iii). This
     /// engine composes nothing for either, and never simulates a boundary,
@@ -184,6 +194,13 @@ fn refuse_unbuilt(bundle: &Bundle) -> Result<(), EngineError> {
         }),
         _ => Ok(()),
     }
+}
+
+/// Rebuild unit 19 (design D7): the start and resume doors' charter check.
+/// Every binding the compile selected, library and layer alike, is read
+/// again through its owner; a recompile is not what makes it pass.
+fn refuse_moved_charter(bundle: &Bundle) -> Result<(), EngineError> {
+    charters_intact(bundle).map_err(|(owner, key)| EngineError::CharterMoved { owner, key })
 }
 
 impl EngineError {
@@ -414,6 +431,9 @@ impl Engine {
         if let Some((input, problem)) = moved_capability_input(compiled, &operator_root) {
             return Err(EngineError::CapabilityInputMoved { input, problem });
         }
+        // And every charter the bundle bound, where its owner stands now
+        // (rebuild unit 19): no run is journaled over one that moved.
+        refuse_moved_charter(&bundle)?;
         // Pinned for the same operated repository the fence judged, so a
         // run started from a mapped workspace with no `--repo` still
         // names its realm — and resumes under the word it was started
@@ -459,6 +479,7 @@ impl Engine {
         refuse_unbuilt(&bundle)?;
         dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
         verify_dispatch_bundle_bounds(&dispatch, &bundle)?;
+        refuse_moved_charter(&bundle)?;
         let manifest = build_run_manifest_v2(&bundle.manifest, dispatch)?;
         store.create_run(&run_id, feature, &bundle.name, &manifest)?;
         store.append_next(
@@ -511,6 +532,10 @@ impl Engine {
                 detail,
             });
         }
+        // An equal manifest is the pinned identity, not the pinned bytes:
+        // each charter it names is read again through its owner, whether the
+        // run pinned a world or none (rebuild unit 19).
+        refuse_moved_charter(&bundle)?;
         let events = store.load(run_id)?;
         let feature = fold(&events)?.feature.unwrap_or("unknown".to_string());
         Ok(Engine {

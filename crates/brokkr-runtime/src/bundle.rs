@@ -5643,6 +5643,21 @@ pub fn site_charter_text(
     pinned_charter(bundle, pin)
 }
 
+/// Rebuild unit 19 (design D7; task 19.1): EVERY charter this bundle bound,
+/// checked exactly as the dispatch door checks one site's — through its
+/// owner's bound read, owner, target and bytes ([`pinned_charter`]) — so a
+/// run is neither started nor resumed over a charter that moved since the
+/// compile. `Err` is the first binding's complaint, in the two pieces a
+/// refusal is written from. Nothing read here is kept: every dispatch still
+/// reads its own site's charter at the door.
+pub fn charters_intact(bundle: &Bundle) -> Result<(), (String, String)> {
+    bundle
+        .charters
+        .values()
+        .flatten()
+        .try_for_each(|pin| pinned_charter(bundle, pin).map(drop))
+}
+
 /// The owner and key a pin's refusals name. A pin whose layer is not one of
 /// this bundle's is a charter the bundle's identity does not answer for.
 fn owned(bundle: &Bundle, pin: &CharterPin) -> Result<(String, String), (String, String)> {

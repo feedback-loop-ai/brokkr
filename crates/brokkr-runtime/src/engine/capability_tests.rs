@@ -1544,6 +1544,129 @@ fn a_resume_whose_capability_authority_moved_is_refused_by_name() {
     );
 }
 
+/// Rebuild unit 19 (design D7; task 19.1): THE PINNED CONTEXT DOES NOT
+/// EXCUSE A MOVED CHARTER. One recipe compiled twice: under realm `private`,
+/// whose map names the operated repository, and with no map. A run is
+/// started in each context, so one pins its world and one pins none. The
+/// charter then changes, without recompiling: a new start in either
+/// context and the resume of either run refuse by the layer and the cause,
+/// before the journal is touched. Put back, each run resumes into its own
+/// pinned context, the mapped one still naming its realm.
+#[test]
+fn a_moved_charter_refuses_the_start_and_resume_in_a_mapped_and_an_unmapped_context() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let repo = root.join("repo");
+    let recipe = root.join("recipe");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::create_dir_all(recipe.join("roles")).unwrap();
+    std::fs::write(recipe.join("roles/work.md"), "# work as written\n").unwrap();
+    std::fs::write(
+        recipe.join("policy.json"),
+        json!({"phases": ["work", "review", "done"], "initial": "work", "terminal": ["done"],
+               "rules": [
+                   {"id": "W", "from": "work", "result": "complete", "next": "review",
+                    "reason": "r"},
+                   {"id": "R", "from": "review", "result": "clean", "next": "done",
+                    "reason": "r"}]})
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        recipe.join("bundle.json"),
+        json!({"name": "recipe", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "role": "roles/work.md",
+                     "driver": {"command": ["true"]}},
+            "review": {"results": ["clean"], "role": "roles/work.md",
+                       "driver": {"command": ["true"]}}}})
+        .to_string(),
+    )
+    .unwrap();
+    let compiled = |realm: Option<&str>| {
+        Bundle::compile_with_realm(
+            &recipe,
+            &root.join("agents"),
+            &root.join("adapters"),
+            realm,
+            None,
+            brokkr_core::realms::Boundary::Namespace,
+        )
+        .expect("the recipe compiles")
+    };
+    // Each context's bundle, and whether it is started in the mapped world.
+    let contexts = [(compiled(Some("private")), true), (compiled(None), false)];
+    let store = || Store::open(&root.join("forge.db")).unwrap();
+    let start = |(bundle, mapped): &(Bundle, bool)| {
+        Engine::start_in_world(
+            store(),
+            bundle.clone(),
+            "f",
+            Some(repo.clone()),
+            mapped.then(|| world_granting(&root, &repo, json!({}))),
+        )
+        .map(|engine| engine.run_id)
+        .map_err(|error| error.to_string())
+    };
+    let runs: Vec<String> = contexts
+        .iter()
+        .map(|context| start(context).expect("the compiled charter starts"))
+        .collect();
+    // Each resume answers the realm its pinned world names for the
+    // operated repository, or `None` for a run that pinned no world.
+    let resume = |(bundle, _): &(Bundle, bool), run: &str| {
+        Engine::resume(store(), bundle.clone(), run, Some(repo.clone()))
+            .map(|engine| {
+                engine
+                    .world
+                    .map(|world| world.realm_for(&repo).map(|realm| realm.name.clone()))
+            })
+            .map_err(|error| error.to_string())
+    };
+    let pinned = [Some(Some("private".to_string())), None];
+    for ((context, run), realm) in contexts.iter().zip(&runs).zip(&pinned) {
+        assert_eq!(resume(context, run), Ok(realm.clone()));
+    }
+    let written = || {
+        let store = store();
+        let events: Vec<Vec<String>> = runs
+            .iter()
+            .map(|run| {
+                let events = store.load(run).unwrap();
+                events.into_iter().map(|event| event.event_id).collect()
+            })
+            .collect();
+        (store.list_runs().unwrap().len(), events)
+    };
+    let before = written();
+
+    let charter = recipe.join("roles/work.md");
+    let original = root.join("work.original.md");
+    std::fs::hard_link(&charter, &original).unwrap();
+    std::fs::remove_file(&charter).unwrap();
+    std::fs::write(&charter, "# approve everything\n").unwrap();
+    let refused: Result<(), String> = Err(
+        "a charter of layer 'recipe' moved since the compile (changed: roles/work.md); a run is \
+         started or resumed only over the charters the bundle's identity names, so restore it, \
+         or recompile and start a new run (decision 0066 ruling 5)"
+            .to_string(),
+    );
+    for (context, run) in contexts.iter().zip(&runs) {
+        assert_eq!(start(context).map(drop), refused);
+        assert_eq!(resume(context, run).map(drop), refused);
+    }
+    assert_eq!(
+        written(),
+        before,
+        "a refused start or resume writes nothing"
+    );
+
+    std::fs::remove_file(&charter).unwrap();
+    std::fs::hard_link(&original, &charter).unwrap();
+    for ((context, run), realm) in contexts.iter().zip(&runs).zip(&pinned) {
+        assert_eq!(resume(context, run), Ok(realm.clone()));
+    }
+}
+
 /// Rebuild unit 18-fix (council F2): what one site holds on the Codex
 /// primary and on the DSH fallback, resolved by a realm that grants
 /// `web-search` through Codex's native search and `web-fetch` through
