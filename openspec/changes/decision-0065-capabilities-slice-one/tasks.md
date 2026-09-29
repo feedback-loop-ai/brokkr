@@ -4698,6 +4698,37 @@ production byte moved.
 
 - [ ] 22.2 Unit 22 independently asserts full doctor/compile outcomes for all grant shapes. Remove whole-plan assessment, observe intended failure, restore/pass; no model invocation. Requirements: [Installed native capabilities absent from grants are explicit][CD2], [Unknown inventories and live-control gaps remain unmeasured][CD3], [Known native powers require a valid delivered denial or refusal][NCR]. Reopened/remaining: operator ruling 2–4. (previous 8.4)
 
+**Unit 22 note, 2026-09-29 (run `0065-rebuild-unit-22-see-the-uni-e59d1b7e`): OVERSIZED, record only.**
+
+- **Built and proved, not landed.** The fix is in
+  `.forge/unit-22/unit-22-oversized.patch` (sha256 `43497a92…`). It
+  covers `capabilities.rs`, `doctor.rs` and `doctor/capability_tests.rs`:
+  - it removes `denial_on` and `Denial::Refused`;
+  - it adds `Authority::assess`, which is the adapter-level plan through
+    `resolve`;
+  - both doctor paths submit whole plans, under the realm's whole
+    authority, with a labelled plan line.
+- **Proof.**
+  - Baseline: 12 of 16 red.
+  - Fix: 16 passed.
+  - Mutations N1–N5 and N3b each fail the intended tests, and the restored
+    suite passes.
+  - fmt and clippy are clean, brokkr-runtime is green, and self/verify
+    compile.
+- **What stops it.** Two `crates/brokkr-cli/tests/init_doctor.rs` tests pin
+  the old "every seat on claude is launched with it switched off" wording:
+  `doctor_reads_the_scaffold_…` at `:478` and `a_broken_agent_library_…`
+  at `:589`. Changing them is an assertion update outside the unit, so
+  neither standing admission covers it.
+- **The ruling needed.** With the proposed
+  `.forge/unit-22/unit-22-init-doctor-proposed.patch` (sha256
+  `90975dfc…`) applied as well, all 33 brokkr-cli result lines are ok.
+  The proposal is one wording change in `scaffolded_claude_denials` and one
+  added expected plan line.
+- **No admitted lines.** No fixture migrations and no standing-admission
+  lines. No frozen file moved.
+- **Where it is recorded.** evidence.md, "Unit 22 … OVERSIZED".
+
 ## 23. Unit 23 — Audit launch enforcement removals
 
 - [ ] 23.1 Unit 23 independently removes authored refusal/load parsing/final parse-state/cold-resume empty-restriction and CQ1/ON-OFF enforcement (narrowed by the addendum of 2026-09-25; the held nonempty restriction removal is deferred below). Verify intended compiled final assertions fail, restore/pass. Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Authored provider configuration cannot supply capability authority][RGR], [Refusal proofs assert the full reason][SC8]. Reopened/remaining: operator ruling 1–4 / R10. (previous 9.2)

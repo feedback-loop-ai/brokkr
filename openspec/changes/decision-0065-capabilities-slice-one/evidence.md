@@ -22966,3 +22966,177 @@ and the logs in `.forge/u21fb2-N*-runtime.log`.
 - `git diff --check`: clean.
 - **Pending.** macOS, exact coverage outside the box
   (`scripts/coverage-exact.sh`), remote CI and the council.
+
+## Unit 22 — doctor submits the complete plan, 2026-09-29: OVERSIZED
+
+Run `0065-rebuild-unit-22-see-the-uni-e59d1b7e`. The fix is built and
+proved, but it is not landed. A test file outside the unit,
+`crates/brokkr-cli/tests/init_doctor.rs`, pins the doctor wording that
+operator ruling 4 and design D8 require to change. Updating it changes two
+assertions and adds one expected line, and neither standing admission
+covers that. No production file moved on the branch. 22.1 and 22.2 stay
+unticked.
+
+### What the fix does
+
+The fix is saved as `.forge/unit-22/unit-22-oversized.patch` (sha256
+`43497a92267bf90c13287029458ed512e390713d192e281d1bce0bfafd115a33`). It
+touches three files, all inside the unit: `capabilities.rs`, `doctor.rs`
+and `doctor/capability_tests.rs`. `git apply --check` against `4990c6e6`
+passes.
+
+- **`capabilities.rs`.**
+  - `NativeCapability::denial_on` is removed. It built synthetic
+    `Controls` with ONE power's OFF and every known power marked denied,
+    and asked `compose_for_provider` about that one control alone. This is
+    the "synthetic per-capability delivery" that the unit removes.
+  - `Denial::Refused`, which only `denial_on` produced, is removed too.
+    `declared_denial` keeps its one role: in `native_plan`, it decides
+    between switching a power OFF and refusing the seat.
+  - The new `Authority::assess(adapter, office, asks)` is the adapter-level
+    plan. It resolves a seat labelled `ADAPTER_SEAT` (`adapter-plan`) of
+    `office`, asking for `asks`. The seat is served by the adapter's own
+    provider, harness, native inventory, digest and driver template, with
+    no recipe words, pins, typed tools or hands. The plan goes through
+    `Authority::resolve`, the compile's own path:
+    - every known power ON or OFF together (`native_plan`);
+    - CQ1 holdings and restrictions;
+    - admission by `compose_or_exclude`, which `compose_for_provider` and
+      the final check's recomposition wrap.
+- **`doctor.rs`.** Both reporting paths submit whole plans:
+  - Each realm loads its whole authority as a compile does
+    (`Authority::load` of all its grants). If a grant or the definitions
+    fail to load, every plan in that realm is refused with the compiler's
+    own cause.
+  - **Native path.** For each installed known-inventory harness, a new
+    `capabilities <realm> plan <provider>` line reports the plan of a seat
+    that holds nothing. It is `ok` when that plan is admitted, and `warn`
+    with the full cause when it is refused. The line names its scope: "the
+    adapter's own template alone, with no seat's arguments, model pins,
+    typed tools or hands assessed; a seat's own plan is judged when its
+    bundle compiles".
+  - Each per-capability line now reads its OFF state from that one plan
+    ("the adapter-level plan above switches it off" or "… is refused, so no
+    denial is claimed"). A granted capability also gets the plan of a seat
+    the grant reaches that wants it. That plan is admitted with the power
+    ON, drops it with the plan's own `not_held` reason, or is refused with
+    the cause.
+  - **Restriction/drop path.** A grant with a nonempty restriction reports
+    the plan of a wanting seat in its scope: a drop with the plan's reason,
+    or a refusal with the cause.
+  - The old filter to `Transport::Unsupported` is gone. A declared argv
+    transport is no longer shown as usable. This closes the unit-11
+    follow-up about `doctor.rs:960-966`.
+- **Unchanged.** An unmeasured inventory, an unreadable map, unreadable
+  adapters, an invalid grant (UNKNOWN) and an MCP grant keep their own
+  lines. So task 0.19's no-provider and no-capability-server tests are
+  unchanged.
+
+### Tests (in `doctor/capability_tests.rs`)
+
+- **Three new tests.** Each has full doctor lines and, beside them, the
+  independent compile half: whole `compile_in_realm` results for an inline
+  seat that asks nothing (unused), the `researcher` agent that wants
+  `web-fetch`, and the same agent with `web-fetch` subtracted.
+  - `two_off_controls_that_compose_alone_are_refused_together_under_every_grant_shape`
+    covers interacting OFFs. Search's and fetch's OFFs are each
+    `--disallowedTools X`. Alone, each composes. Together, they repeat the
+    option, which the claude grammar refuses. The test covers five grant
+    shapes: absent, `[researcher]`, unrestricted, `offices: []` and
+    `tools: []`. Under every shape, the plan line and both capability lines
+    carry the duplicate refusal. The compile of the unused and subtracted
+    seats refuses with the same cause. The holder compiles only where the
+    grant reaches it.
+  - `a_held_tool_another_power_denies_refuses_its_holder_in_doctor_and_compile`
+    covers an include/deny conflict. Search's OFF also denies `WebFetch`.
+    The unheld plan is admitted. The holder's plan is refused: "tool
+    'WebFetch' both admitted and denied". Doctor and compile give the same
+    cause.
+  - `an_admitted_plan_is_reported_at_its_scope_and_the_template_is_submitted_with_it`
+    has two cases. With valid deny-list OFFs, every line is `ok` and all
+    three compiles are admitted. With a template that allows `WebFetch`,
+    the unheld plan and the subtracted seat's compile both refuse with the
+    template's cause. The holder is admitted.
+- **Changed tests.** Eleven existing tests move from the per-capability
+  words to the plan lines. Each assertion is a literal.
+  - `uncomposable_cause()` is removed. It took the expected cause from
+    `compose_for_provider` itself, which is what the spec forbids.
+  - `uncomposable_codex` now also declares web-fetch (OFF by measured
+    default). The claude-harness floor needs it, and without it the whole
+    plan refuses on the floor before it reaches the representation.
+  - `a_dropped_restricted_want…` adds a declared argv-transport case.
+  - The shipped-repository test asserts that the claude and codex plan
+    lines are admitted.
+- **Fixture migrations.** None. No inline refused option is authored.
+- **Standing-admission lines.** None.
+
+### Observed
+
+- **Baseline.** The new suite ran with both production files at `HEAD`
+  and the new tests applied (`.forge/u22-baseline.log`): 4 passed, 12
+  failed. In the two-OFF test, the old doctor said both Claude powers are
+  "launched with it switched off by the adapter's declared control". The
+  same fixture's compile refused the duplicate `--disallowedTools`.
+- **Fix.** `cargo test -p brokkr-cli --all-features --locked --lib
+  doctor::capability_tests`: 16 passed (`.forge/u22-restored.log`).
+- **Mutations.** Each compiled. Each was restored with `cp` from the saved
+  good copy, and its diff and log are in `.forge/`.
+
+  | # | Mutation | Failed (test:line) |
+  | --- | --- | --- |
+  | N1 | native path: the unheld plan is never submitted (`let unheld: Result<(), String> = Ok(())`) | 7 tests: malformed_definition :994, installed_harnesses :314, an_uncomposable_off :538, two_off_controls :1356, a_failing_grant :909, an_admitted_plan :1472, a_matching_grant :456 |
+  | N2 | holder's plan never submitted (always "admitted with it ON") | 5 tests: a_held_tool :1380, an_uncomposable_off :538, a_failing_grant :909, a_matching_grant :456, two_off_controls :1356 |
+  | N3 | restriction path: the wanting plan is replaced by "drops it (native capability remains OFF)" | an_empty_scope :280, a_dropped_restricted :607 |
+  | N3b | the old `Transport::Unsupported` filter is restored | a_dropped_restricted :636 (the declared-transport case) |
+  | N4 | `assess` submits the harness prefix only, dropping the template | an_admitted_plan :1472 (the template case) |
+  | N5 | `assess` drops the seat's asks | 9 tests: an_uncomposable_off :538, installed_harnesses :314, every_realm :231, a_dropped_restricted :607, a_held_tool :1380, an_admitted_plan :1447, an_empty_scope :280, two_off_controls :1356, a_matching_grant :456 |
+
+  After all restores, the suite ran 16 passed again. The line numbers are
+  those of the test file before its `cargo fmt`; the saved patch is the
+  formatted file.
+- **Gates.**
+  - `cargo fmt --all -- --check`: clean, after `cargo fmt --all` over the
+    test file and `doctor.rs`.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: finished clean.
+  - `cargo test -p brokkr-runtime --all-features --locked`: every result
+    line ok (lib 627, `capability_launch` 68;
+    `.forge/u22-runtime-suite.log`).
+  - `compile --bundle bundles/self` and `bundles/verify` both compile
+    (digests `45dc1c7e…` and `f7cbd4bb…`, unchanged).
+  - `git diff --check`: clean.
+- **The failure that stops the unit.**
+  - `cargo test -p brokkr-cli --all-features --locked`: the lib passed 485,
+    but `tests/init_doctor.rs` failed 2
+    (`.forge/u22-cli-suite.log`):
+    - `doctor_reads_the_scaffold_as_granting_nothing_and_names_claudes_native_tools`
+      at `:478`;
+    - `a_broken_agent_library_takes_no_native_capability_line_with_it` at
+      `:589`.
+  - Both assert, through `scaffolded_claude_denials`, the old line "NOT
+    granted here: every seat on claude is launched with it switched off by
+    the adapter's declared control". The first also pins the exact list of
+    capability lines, which now includes the plan line.
+  - With `.forge/unit-22/unit-22-init-doctor-proposed.patch` (sha256
+    `90975dfc1af773b0b5e6f69d96d759a895a850c772deba6153650ee07f3d1835`)
+    applied as well, every brokkr-cli result line is ok: 33 result lines,
+    no failures (`.forge/u22-cli-suite-proposed.log`).
+- **OpenSpec.** `openspec validate --all --strict --no-interactive` ran on
+  this record: 18 passed, 0 failed (`.forge/u22-openspec.log`).
+- **Pending.** The workspace-wide `cargo test --workspace`, macOS, exact
+  coverage (`scripts/coverage-exact.sh`), remote CI and the council.
+
+### The admission this needs
+
+`crates/brokkr-cli/tests/init_doctor.rs`, for assertion updates only:
+
+1. In `scaffolded_claude_denials` (`:444-446`), the expected wording
+   becomes "NOT granted here: the adapter-level plan above switches it off
+   · evidence: …".
+2. In `doctor_reads_the_scaffold_…` (after `:482`), the expected list
+   gains the one admitted plan line `ok       capabilities starter plan
+   claude: …`, between "grants nothing" and the two native lines.
+
+Both are in the proposed patch. Then apply both patches, re-take the
+baseline reds and the mutations, record them, and land. No production file
+is added.
