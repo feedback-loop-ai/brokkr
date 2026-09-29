@@ -38,6 +38,12 @@ they are read in the adapter file, not here.
   onto the harness's own allow-list flag. On claude that flag is
   `--allowedTools`, which pre-approves the tools it names and removes
   none, so it does not bound an unboxed seat.
+- **MCP flag Brokkr passes**: the flag through which a seat's declared
+  `mcp` servers are passed, not whether the seat reaches MCP servers.
+  The operator's own configuration still reaches every Codex seat, boxed
+  or not, through `~/.codex/config.toml`, and every unboxed claude seat,
+  through their Claude Code configuration. Only the boxed claude
+  fragment passes `--strict-mcp-config`, which shuts those out.
 - **Boxed hands**: whether the harness can put its hands in Brokkr's
   box (decision 0043). **Own sandbox for** is the seat classes whose
   harness sandbox stands in for the box under the `harness` boundary
@@ -49,13 +55,13 @@ they are read in the adapter file, not here.
   retry and says so in the record.
 
 <!-- adapter-matrix:start -->
-| Harness | Trust | Egress | Holds a model gate | Efforts | Tool allow-list | MCP servers | Boxed hands | Own sandbox for | Resume shapes |
+| Harness | Trust | Egress | Holds a model gate | Efforts | Tool allow-list | MCP flag Brokkr passes | Boxed hands | Own sandbox for | Resume shapes |
 |---|---|---|---|---|---|---|---|---|---|
-| `claude` | trusted | contracted | yes: `fable`, `opus` | low, medium, high, xhigh, max | `cargo`, `codex`, `dsh`, `git`, `ls`, `mkdir`, `rg`, `specify`, `webfetch`, `websearch` | yes | yes | — | `boxed-workspace`: unmeasured (2.1.266); classes `work`; boundaries `namespace`, `seatbelt`, `container`; hands `boxed`; evidence `interface` |
-| `codex` | trusted | uncontracted | yes: `astra`, `sol` | none, minimal, low, medium, high, xhigh, max | no (measured) | no | yes | gate, work | `work-site`: supported (0.154.0); classes `work`; boundaries `harness`, `not applicable`; hands `none`; evidence `interface`, `restrictions`, `root`, `accounting` |
-| `dsh` | untrusted | uncontracted; `spark`: local; `spark-glm`: local | no: untrusted | low, medium, high, xhigh; none on `spark`, `spark-glm` | no | no | no (measured) | — | `headless-work`: unmeasured (0.1.5-rc.1); classes `work`; boundaries `not applicable`; hands `none`; evidence `interface` |
-| `exec` | untrusted | contracted | no: untrusted | — | no | no | yes | — | — |
-| `lanetally` | untrusted | uncontracted | no: untrusted | low, medium, high, xhigh, max | `cargo`, `git`, `ls`, `mkdir`, `rg`, `specify` | yes | no (measured) | — | `wrapper-work-site`: unmeasured (version unknown); classes `work`; boundaries `harness`, `open`, `not applicable`; hands `none`; evidence — |
+| `claude` | trusted | contracted | yes: `fable`, `opus` | low, medium, high, xhigh, max | `cargo`, `codex`, `dsh`, `git`, `ls`, `mkdir`, `rg`, `specify`, `webfetch`, `websearch` | `--mcp-config` | yes | — | `boxed-workspace`: unmeasured (2.1.266); classes `work`; boundaries `namespace`, `seatbelt`, `container`; hands `boxed`; evidence `interface` |
+| `codex` | trusted | uncontracted | yes: `astra`, `sol` | none, minimal, low, medium, high, xhigh, max | no (measured) | none | yes | gate, work | `work-site`: supported (0.154.0); classes `work`; boundaries `harness`, `not applicable`; hands `none`; evidence `interface`, `restrictions`, `root`, `accounting` |
+| `dsh` | untrusted | uncontracted; `spark`: local; `spark-glm`: local | no: untrusted | low, medium, high, xhigh; none on `spark`, `spark-glm` | no | none | no (measured) | — | `headless-work`: unmeasured (0.1.5-rc.1); classes `work`; boundaries `not applicable`; hands `none`; evidence `interface` |
+| `exec` | untrusted | contracted | no: untrusted | — | no | none | yes | — | — |
+| `lanetally` | untrusted | uncontracted | no: untrusted | low, medium, high, xhigh, max | `cargo`, `git`, `ls`, `mkdir`, `rg`, `specify` | `--mcp-config` | no (measured) | — | `wrapper-work-site`: unmeasured (version unknown); classes `work`; boundaries `harness`, `open`, `not applicable`; hands `none`; evidence — |
 <!-- adapter-matrix:end -->
 
 ### Measured gaps

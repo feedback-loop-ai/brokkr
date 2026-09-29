@@ -43,9 +43,15 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(stderr.contains("digest"), "stderr: {stderr}");
-    // The scaffold says where to stand, once, on stderr.
+    // The scaffold says where to stand, once, on stderr, and says what
+    // decides an unboxed seat rather than that its tool list does.
     assert!(
-        stderr.contains("run brokkr from inside"),
+        stderr.contains(&format!(
+            "run brokkr from inside {} — its adapters/ and agents/ declare the trust tier \
+             and the tools its seats are pre-approved for; an unboxed seat is still decided \
+             by the harness's permission model and your own settings and MCP servers\n",
+            bundle.display()
+        )),
         "stderr: {stderr}"
     );
 

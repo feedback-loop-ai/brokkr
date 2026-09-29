@@ -189,7 +189,7 @@ $ brokkr init .
 
 ```text
 initialized reviewable bundle at . (digest 4a0f568f35fd6efec2fc66574651c3d786fbfcf54fcdc2bb34a247f0fcf426c9)
-run brokkr from inside . — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
+run brokkr from inside . — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
 ```
 
 `init` takes the directory as a **positional argument**, not a flag. It

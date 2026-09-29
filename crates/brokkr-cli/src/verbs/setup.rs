@@ -39,13 +39,15 @@ pub(crate) fn init(workspace: &Path, InitArgs { dir }: InitArgs) -> Result<ExitC
     }
     // The scaffold carries its own `adapters/` and `agents/`,
     // where the trust tier its gate seats compile against and the
-    // tool grants its seats run under are declared (decisions
+    // tools its seats are pre-approved for are declared (decisions
     // 0021 and 0016). Every other verb reads those trees from the
     // workspace, which is the directory brokkr is run in — so say
     // once, here, where to stand.
     eprintln!(
         "run brokkr from inside {} — its adapters/ and agents/ declare \
-         the trust tier and the tool grants its seats run under",
+         the trust tier and the tools its seats are pre-approved for; an \
+         unboxed seat is still decided by the harness's permission model \
+         and your own settings and MCP servers",
         dir.display()
     );
     // Decision 0046: the scaffolded seats run under the realm's

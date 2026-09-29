@@ -15,8 +15,8 @@
 use std::collections::BTreeSet;
 
 use brokkr_runtime::agents::{
-    Adapter, Agent, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus,
-    ToolPermissions,
+    Adapter, Agent, McpSupport, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape,
+    ResumeStatus, ToolPermissions,
 };
 use brokkr_runtime::{Adapters, HarnessHands, Library, TrustTier};
 
@@ -117,16 +117,28 @@ fn render(adapter: &Adapter) -> (String, Vec<String>) {
         gaps.push(format!("`{provider}` effort on `{route}`: {measurement}"));
     }
     let tools = match (tool_permissions, tool_permissions_gap) {
-        (Some(ToolPermissions { names: grants, .. }), _) => names(grants.keys()),
+        // The flag is named in the legend, and the separator is argv
+        // syntax, not a capability.
+        (
+            Some(ToolPermissions {
+                names: grants,
+                flag: _,
+                separator: _,
+            }),
+            _,
+        ) => names(grants.keys()),
         (None, Some(gap)) => {
             gaps.push(format!("`{provider}` tool allow-list: {gap}"));
             "no (measured)".to_string()
         }
         (None, None) => "no".to_string(),
     };
+    // The flag Brokkr can pass a seat's declared servers through, not
+    // whether the seat reaches MCP: the operator's own configuration
+    // reaches it either way. The server map is what an agent may name.
     let mcp = match mcp {
-        Some(_) => "yes",
-        None => "no",
+        Some(McpSupport { flag, servers: _ }) => format!("`{flag}`"),
+        None => "none".to_string(),
     };
     let boxed = match (hands, hands_gap) {
         (Some(_), _) => "yes".to_string(),
@@ -169,15 +181,8 @@ fn harness_sandbox(provider: &str, harness: &HarnessHands, gaps: &mut Vec<String
 /// Every named resume shape with its status and measured version; the
 /// reason of each shape that is not supported goes to the gaps.
 fn resume_shapes(provider: &str, resume: &ResumeAssessment, gaps: &mut Vec<String>) -> String {
-    // The assessment's shape names are read off its one serialised form;
-    // every fact about a shape is then read typed.
-    let value = resume.value();
-    let shapes: Vec<String> = value
-        .as_object()
-        .map(|shapes| shapes.keys().cloned().collect())
-        .unwrap_or_default();
     let mut cells = Vec::new();
-    for name in shapes {
+    for (name, shape) in resume.shapes() {
         let ResumeShape {
             status,
             identity,
@@ -189,7 +194,7 @@ fn resume_shapes(provider: &str, resume: &ResumeAssessment, gaps: &mut Vec<Strin
             // The adapter's dated prose notes on the shape; the page
             // points to the file for them.
             limitations: _,
-        } = resume.shape(&name).expect("a named shape");
+        } = shape;
         let version = match identity {
             ResumeIdentity::Measured { version, .. } => version.as_str(),
             ResumeIdentity::Unknown { .. } => "version unknown",
@@ -232,10 +237,21 @@ fn evidence_axes(evidence: &ResumeEvidence) -> String {
     names(&axes)
 }
 
+/// The MCP column's name: the flag Brokkr can pass, never whether a seat
+/// reaches MCP servers, which the operator's own configuration decides.
+const MCP_COLUMN: &str = "MCP flag Brokkr passes";
+
+/// The MCP column's legend, which the page carries word for word.
+const MCP_LEGEND: &str = "the flag through which a seat's declared `mcp` servers are \
+    passed, not whether the seat reaches MCP servers. The operator's own configuration \
+    still reaches every Codex seat, boxed or not, through `~/.codex/config.toml`, and \
+    every unboxed claude seat, through their Claude Code configuration. Only the boxed \
+    claude fragment passes `--strict-mcp-config`, which shuts those out.";
+
 /// The matrix and gap blocks as the adapter data renders them.
 fn rendered(adapters: &Adapters) -> (String, String) {
-    let mut matrix = String::from(
-        "| Harness | Trust | Egress | Holds a model gate | Efforts | Tool allow-list | MCP servers | Boxed hands | Own sandbox for | Resume shapes |\n\
+    let mut matrix = format!(
+        "| Harness | Trust | Egress | Holds a model gate | Efforts | Tool allow-list | {MCP_COLUMN} | Boxed hands | Own sandbox for | Resume shapes |\n\
          |---|---|---|---|---|---|---|---|---|---|\n",
     );
     let mut gaps = String::new();
@@ -265,6 +281,14 @@ fn the_status_matrix_is_the_adapter_data() {
         block(&page, "adapter-gaps"),
         gaps,
         "docs/status.md's measured gaps drifted from adapters/*.json; the rendering is:\n{gaps}"
+    );
+    let legend = format!("- **{MCP_COLUMN}**: {MCP_LEGEND}");
+    assert!(
+        page.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .contains(&legend),
+        "docs/status.md's legend does not say what the MCP column is:\n{legend}"
     );
 
     // The run-behaviour table below the matrix is written by hand, from
@@ -388,14 +412,28 @@ const RECORDS: [&str; 4] = [
 ];
 
 /// What names a claude seat's tool list: the list itself, the agent
-/// field it comes from, or the flag it is passed as.
-const TOOL_LIST: [&str; 4] = ["tool list", "tools.allow", "tool grant", "--allowedtools"];
+/// field it comes from, the flag it is passed as, or the restriction or
+/// allow list it is called.
+const TOOL_LIST: [&str; 8] = [
+    "tool list",
+    "tools.allow",
+    "tool grant",
+    "--allowedtools",
+    "tool restriction",
+    "allow list",
+    "allow-list",
+    "allowlist",
+];
 
 /// Wording that says a tool list bounds a seat. `--allowedTools`
 /// pre-approves and removes no tool, so an unboxed claude seat is bounded
 /// by Claude Code's permission model and the operator's own settings and
-/// MCP servers, never by its tool list alone (#467).
-const OVERCLAIMS: [&str; 12] = [
+/// MCP servers, never by its tool list alone (#467). The resolver's
+/// "more power than it declares" is not here: a provider that cannot
+/// express a tool list refuses it, and the docs quote that refusal.
+const OVERCLAIMS: [&str; 14] = [
+    "enforced rather than documented",
+    "seats run under",
     "only restriction",
     "bounded only by",
     "bounded by its tool list",

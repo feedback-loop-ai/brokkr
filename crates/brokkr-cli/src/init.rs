@@ -68,11 +68,11 @@
 //! name, in the scaffolded model agents' `tools.allow` lists: an allowance the
 //! adapter cannot express is a compile refusal, so the two files are ONE
 //! grant, not two. The split is decision 0021 ruling 1's: the WORK-class
-//! seats (intake, implement) may run the full set — the stack's runners
-//! plus `git`, `ls`, `rg` and `mkdir` — so a seat may run exactly the
-//! commands its charter names and nothing broader; the model-backed review
-//! gate may run the test runner's tools plus the read trio, and never
-//! `mkdir`. Verify and ship are boxed scripts and carry no model grants.
+//! seats (intake, implement) are pre-approved for the full set — the
+//! stack's runners plus `git`, `ls`, `rg` and `mkdir`, the commands their
+//! charters name — and the model-backed review gate for the test runner's
+//! tools plus the read trio, never `mkdir`. Pre-approval removes no tool.
+//! Verify and ship are boxed scripts and carry no model grants.
 //! The grant is per BINARY, not per subcommand:
 //! `Bash(cargo:*)` answers to `cargo build` as readily as to `cargo
 //! test`, so it is each gate's charter — prove it, fix nothing — and not
@@ -560,12 +560,12 @@ fn runner_tools(detected: &Detected) -> Vec<Tool> {
     tools
 }
 
-/// The tools one detected stack's seats may run, split by decision 0021
-/// ruling 1's two classes:
+/// The tools one detected stack's seats are pre-approved for, split by
+/// decision 0021 ruling 1's two classes:
 ///
 /// - `work` — the whole set: every runner above plus `git`, `ls`, `rg`
-///   and `mkdir`, so a work seat may run exactly the commands its
-///   charter names and nothing broader;
+///   and `mkdir`, the commands a work seat's charter names; pre-approval
+///   removes no other tool;
 /// - `gate` — the read-only subset: the test command's tools (which, for
 ///   every row in the tables today, are the same binary the build and
 ///   lint lines also lead with — the grant is per binary, and the README
@@ -970,9 +970,9 @@ fn stack_readme(detected: Option<&Detected>, hired: &[Cli]) -> String {
                  to the `Bash(...)` expression the claude CLI reads — the stack's\n\
                  own runners, and nothing broader:\n\
                  \n    {work_rendered}\n\n\
-                 Work-class seats (intake, implement) are granted the whole set, so\n\
-                 a seat may run exactly the commands its charter names:\n\
-                 {work_list}.\n\n\
+                 Work-class seats (intake, implement) are pre-approved for the whole set:\n\
+                 {work_list}. Pre-approval removes no tool: an unboxed seat keeps the\n\
+                 harness's defaults, your own permission settings and MCP servers.\n\n\
                  The model-backed review gate is granted the read-only subset — the\n\
                  test runner's tools and the tools that read — and never `mkdir`:\n\
                  {gate_list}. Verify and ship are boxed scripts with no model grant.\n\n\
