@@ -15863,6 +15863,117 @@ fn an_explicitly_restrictive_managed_tool_list_reaches_the_final_command() {
     );
 }
 
+/// Rebuild unit 21 (task 21.1; NCT "Second H4"; NC6): the plan the compiler
+/// ACTUALLY resolves for an unboxed Claude seat that holds nothing, with
+/// only the shipped web-search OFF changed. The plan is the literal that
+/// `capability_launch.rs`'s
+/// `a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_resume`
+/// asserts a real compile produces, and this suite owns its delivery.
+/// Sealed as dispatch seals the agent-backed seat, each is served whole
+/// cold, and on an actual eligible resume that rejoins the offered session:
+/// the effective empty include list beside the WebFetch denial, or, for the
+/// deny-list positive control, both denials in one list.
+#[cfg(unix)]
+#[test]
+fn a_compiled_managed_read_limit_is_served_whole_cold_and_on_an_eligible_resume() {
+    const CLAUDE_VERSION: &str = "2.1.266";
+    let dir = tempfile::tempdir().unwrap();
+    let bin = executable(
+        dir.path(),
+        "claude",
+        &format!(
+            "#!/bin/sh\n{}exit 1\n",
+            version_preamble(&format!("{CLAUDE_VERSION} (Claude Code)"))
+        ),
+    );
+    let bin = bin.to_str().unwrap();
+    let session = "019c4b7e-0000-7000-8000-000000000021";
+    let template = ["--permission-mode", "acceptEdits"];
+    let pins = ["--model", "claude-opus-5-5", "--effort", "high"];
+    let extra: Vec<String> = template
+        .iter()
+        .chain(&pins)
+        .map(|part| part.to_string())
+        .collect();
+    let guard = |capability: &str, tool: &str| {
+        json!({"capability": capability, "config_flags": [], "config_keys": [],
+               "feature_flags": [], "features": [], "flags": [],
+               "list_flags": ["--tools", "--allowedTools", "--allowed-tools"],
+               "tools": [tool],
+               "value_flags": ["--model", "--effort", "--permission-mode", "--mcp-config"]})
+    };
+    let compiled = |off: &[&str]| {
+        json!({"admits": {}, "argv": off,
+               "guards": [guard("web-fetch", "WebFetch"), guard("web-search", "WebSearch")],
+               "hands": 0, "harness": "claude", "inventory": "known", "local": [],
+               "off": ["web-fetch", "web-search"], "on": [], "provider": "claude",
+               "selection": {"allow": [], "deny": ["WebFetch"], "include": [],
+                   "flags": {"allow": {"flag": "--allowedTools", "separator": ","},
+                             "deny": {"flag": "--disallowedTools", "separator": ","},
+                             "include": {"flag": "--tools", "separator": ","}}}})
+    };
+    let served = |plan: Value, offered: Option<&str>| {
+        let mut input = enabled_assessment(CLAUDE_SHAPE, CLAUDE_VERSION, "not applicable", "none");
+        input["workdir"] = json!("/w");
+        input["seat"] = json!("work");
+        let input = sealed_pair(
+            engine_input(input, plan, &extra, 0),
+            &extra,
+            Seal::claude(0, &template, &pins, &[]),
+        );
+        let program = match offered {
+            Some(_) => bin,
+            None => "claude",
+        };
+        claude_launch(program, &extra, offered, &input, CLAUDE_SHAPE, None)
+            .map(|launch| (launch.command, launch.rejoining))
+    };
+    let limited = ["--tools", "", "--disallowedTools", "WebFetch"];
+    let both = ["--disallowedTools", "WebFetch,WebSearch"];
+    let mut failures = Vec::new();
+    for (case, off, tail) in [
+        ("split Read", &["--tools", "Read"][..], &limited[..]),
+        ("joined Read", &["--tools=Read"][..], &limited[..]),
+        ("joined explicit empty", &["--tools="][..], &limited[..]),
+        (
+            "the deny-list positive control",
+            &["--disallowedTools", "WebSearch"][..],
+            &both[..],
+        ),
+    ] {
+        let whole = |program: &str, resumed: bool| {
+            let mut argv: Vec<String> = [&[program][..], &CLAUDE_HEAD[1..], &template, &pins, tail]
+                .concat()
+                .iter()
+                .map(|part| part.to_string())
+                .collect();
+            if resumed {
+                argv.extend(["--resume".to_string(), session.to_string()]);
+            }
+            argv
+        };
+        for (form, observed, expected) in [
+            (
+                "cold",
+                served(compiled(off), None),
+                Ok((whole("claude", false), None)),
+            ),
+            (
+                "rejoined",
+                served(compiled(off), Some(session)),
+                Ok((whole(bin, true), Some(session.to_string()))),
+            ),
+        ] {
+            if observed != expected {
+                failures.push(format!(
+                    "{case}, {form}:\n  left:  {observed:?}\n  right: {expected:?}"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// Second council M3: A HELD, SUPPORTED, NONEMPTY RESTRICTION SURVIVES TO
 /// THE FINAL LAUNCH — cold and on an actual eligible resume, compared to
 /// whole ordered literals rather than to an intermediate composer's

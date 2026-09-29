@@ -4352,13 +4352,13 @@ changed; no production file moved.
 
 ## 21. Unit 21 — Prove compiled cold and actual-resume restrictions
 
-- [ ] 21.1 Unit 21 proves managed Read/empty restrictions in compiled cold/eligible-resume Claude/LaneTally shapes. Verify authored lists refuse, prompt integrity and independent inventory. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Prompt values cannot absorb a composed control][NCP], [Subtractive tool lists never grant a capability][RGS]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.4)
+- [x] 21.1 Unit 21 proves managed Read/empty restrictions in compiled cold/eligible-resume Claude/LaneTally shapes. Verify authored lists refuse, prompt integrity and independent inventory. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Prompt values cannot absorb a composed control][NCP], [Subtractive tool lists never grant a capability][RGS]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.4)
 
 21.2 is **deferred** to the restriction-transport slice by the operator's
 addendum of 2026-09-25 (design.md D11). The task, unticked, is under "Deferred
 to the restriction-transport slice" below.
 
-- [ ] 21.3 Units 20–21 map every supported launch shape to real compiled full literal/refusal assertions and selected charter facts. Verify holdings-only/is_ok do not close rows; close only after unit 21 proves the managed Read/empty and CQ1 restriction rows too (narrowed by the addendum of 2026-09-25; the held nonempty rows are deferred below). Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.5)
+- [x] 21.3 Units 20–21 map every supported launch shape to real compiled full literal/refusal assertions and selected charter facts. Verify holdings-only/is_ok do not close rows; close only after unit 21 proves the managed Read/empty and CQ1 restriction rows too (narrowed by the addendum of 2026-09-25; the held nonempty rows are deferred below). Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.5)
 
   **Advanced by unit 20 (2026-09-29).** evidence.md, "Unit 20 — the
   compiled refusal and serving-shape matrix", maps every supported
@@ -4390,6 +4390,78 @@ to the restriction-transport slice" below.
   landed. The typed LaneTally row is now the compile refusal the operator
   ruled, in both its inline and agent-backed forms. 21.3 now waits only on
   unit 21's restriction rows.
+
+  **Closed by unit 21 (2026-09-29).** The managed Read/empty and CQ1
+  restriction rows are mapped below, each to a whole-command or
+  whole-refusal assertion beside the site's charter pin.
+
+**Unit 21, 2026-09-29 (run `0065-rebuild-unit-21-see-the-uni-2f15a7aa`,
+based on `08a11221`; evidence.md, "Unit 21"): 21.1 and 21.3 close.** No
+production file moved. Only `capability_launch.rs` (three new tests) and
+`adapters/tests.rs` (one new test) changed. Every fixture compiles through
+real realm, dialect and candidate resolution, and every command is an
+independent ordered literal.
+
+- **Managed Read/empty (21.1).**
+  `a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_resume`
+  changes only Claude's web-search OFF. The inline and agent-backed
+  unboxed forms of each row each assert:
+  - the manifest record, the prompt and the whole plan;
+  - the checked cold command;
+  - an ACTUAL eligible rejoin (`--resume <session>`);
+  - the declined offer, served cold as a separate outcome.
+
+  The rows:
+  - `--tools Read`, `--tools=Read` and `--tools=` serve `--tools ""
+    --disallowedTools WebFetch`;
+  - `--tools ""` (split) refuses the adapter load, whole;
+  - the deny-list control and the shipped declaration serve both denials;
+  - boxed, `--tools=` refuses the hands conflict.
+- **Prompt, authored lists and LaneTally (21.1).**
+  `a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_inventory_apart`:
+  - a joined prompt value is served whole, cold and rejoined;
+  - the split prompt value and an authored `--tools=Read` refuse at
+    compile;
+  - LaneTally keeps its shipped unmeasured declaration, plan, prompt and
+    wrapper command, and its typed allow keeps the R5 refusal.
+- **CQ1 (21.3).**
+  `a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_resume`
+  uses a schema-valid `allow.hosts` grant on Codex, inline and through an
+  office:
+  - requires refuses whole;
+  - wants drops with its exact notice and is served the OFF, cold and
+    `exec resume`;
+  - an unused grant stays pinned and inactive, with no notice;
+  - over a declared transport, the want drops naming the deferral, and the
+    empty restriction is held with no transport argument.
+- **Owning adapter suite.**
+  `a_compiled_managed_read_limit_is_served_whole_cold_and_on_an_eligible_resume`
+  serves the compiled plan literal cold and on an eligible resume.
+- **Proof.** Baseline: the tests did not exist at `08a11221` and passed
+  first over unchanged production. M1–M9 each failed their intended rows
+  and were restored. They remove, in turn: cold and resume delivery for
+  Claude and Codex, the CQ1 refusal, authored refusal, the prompt-value
+  boundary, inventory independence, and explicit-empty retention.
+- **Follow-ups, not fixed.**
+  - F21-1: a removal inside the shared serving builder escapes
+    `check_final`, which rebuilds with that builder. Only the literals
+    catch it.
+  - F21-2: an unused grant's reason says the realm does not grant it.
+- No standing-admission lines and no fixture migrations. 21.2 stays
+  deferred (D11).
+- **Gates** (this session, final tree). All clean:
+  - `cargo fmt --all -- --check` and `cargo clippy --workspace
+    --all-targets --all-features --locked -- -D warnings`;
+  - `cargo test --locked -p brokkr-runtime --all-features` (25 ok) and `-p
+    brokkr-protocol --all-features` (545, 99, 1);
+  - `cargo test --workspace` and `cargo test --workspace --all-features
+    --locked` (77 ok each, none failed; `capability_launch` 65);
+  - `bundles/self` and `bundles/verify` compile;
+  - `openspec validate --all --strict --no-interactive` (18 passed);
+  - `git diff --check`.
+
+  **Pending:** macOS, exact coverage outside the box, remote CI and the
+  council.
 
 ## 22. Unit 22 — Submit whole plans to doctor
 

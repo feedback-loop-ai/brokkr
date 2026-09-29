@@ -21726,3 +21726,245 @@ stays open for unit 21's restriction rows.
   failed. `git diff --check` clean.
 - Pending: unit 21's restriction rows for 21.3, macOS, exact coverage
   outside the box, remote CI and the council.
+
+## Unit 21 — compiled restrictions at cold and actual resume (2026-09-29)
+
+Run `0065-rebuild-unit-21-see-the-uni-2f15a7aa`, based on `08a11221`. No
+production file moved. Two test files changed:
+`crates/brokkr-runtime/tests/capability_launch.rs` (three new tests and
+their helpers, plus the unit 20 matrix doc comment now names them) and
+`crates/brokkr-protocol/src/adapters/tests.rs` (one new test). 21.2 stays
+deferred (D11).
+
+Every fixture compiles through `Bundle::compile_with_capabilities` in a
+canonicalised temporary root. It uses a real v6 realm map, the shipped or
+copied `capabilities/` and `dialects/tools/`, and the shipped or copied
+adapters. No `.forge/` file is read and no provider is installed: the
+`claude`/`codex` binaries are version-reporting shims, and LaneTally is a
+recording harness behind its real driver. No Controls are hand-built on
+the runtime side. Every command is an independent ordered literal. Each
+row compares the site's charter pin (owner, reference, path, digest)
+beside it.
+
+### The rows
+
+**`a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_resume`**
+(`capability_launch.rs:9999`; task 21.1; NCT "Second H4").
+
+- Only the shipped Claude web-search OFF is changed, on a copy of the
+  adapters. Six rows, each seated two ways: an inline Claude work seat, and
+  the unboxed agent office `reader` (`opus`, no hands). That makes 12
+  compile outcomes.
+- Each compiled row asserts, as one JSON object:
+  - the site's whole manifest record, with only the native declaration
+    digest taken out. Nothing is held, both powers are OFF, the two
+    `not_held` reasons are exact, and there are no notices;
+  - `prompt()` (nothing held);
+  - the whole driver plan `controls()`: the OFF argv, the WebFetch deny
+    selection and the guards;
+  - three whole commands:
+    - **cold**: `served_as`, which is dispatched, sealed and checked;
+    - **rejoined**: `claude_rejoined`, an ACTUAL eligible resume. It is
+      dispatched, then offered session `…0021` under a supported
+      assessment for the markers dispatch wrote, and ends
+      `--resume <session>`;
+    - **declined**: the same offer under the COMPILED, unmeasured
+      assessment. It is served cold with the shim path. It is a separate
+      outcome and proves no resume.
+- The rows:
+  - `--tools Read`, `--tools=Read` and `--tools=` each serve `… --tools ""
+    --disallowedTools WebFetch`. A limit is filled from the holdings alone
+    (unit 12-fix-b I1), so the effective include list is empty and
+    WebSearch is excluded by it.
+  - The split explicit empty `["--tools", ""]` refuses the adapter load,
+    whole. Its empty argument fails the declaration schema's `minLength`.
+    Inline, this appears through the known-power floor, bounded to 512
+    scalars. Agent-backed, it is the adapter-load line. So it is not a
+    supported spelling, and no provider support is invented.
+  - The deny-list positive control `--disallowedTools WebSearch` serves
+    `--disallowedTools WebFetch,WebSearch`.
+  - The shipped declaration, with no include list, serves the same through
+    its selection deny `[WebFetch, WebSearch]`.
+- Declarations: the same digest for both forms of a row, and five distinct
+  digests across the five compiled rows.
+- Boxed: `--tools=` on the agent-backed Claude link of `fallback` refuses
+  whole, naming no tool and the hands tool `mcp__brokkr__workspace` (D6).
+
+**`a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_inventory_apart`**
+(`capability_launch.rs:10248`; task 21.1; NCP, RGR). All rows use the
+`--tools Read` copy.
+
+- The joined prompt value `--append-system-prompt=--tools Read` is one
+  argument. It is served cold and on an actual rejoin, whole, with `--tools
+  "" --disallowedTools WebFetch` after it, beside the recipe charter.
+- The split `--append-system-prompt --tools Read` refuses at compile. The
+  grammar's ambiguous-value line names argument 6 (`--tools`), bounded.
+- An authored `--tools=Read` refuses at compile under ruling 1, naming
+  `--tools` (argument 5) and not its value.
+- LaneTally, inline, on the same copy:
+  - its declaration digest equals the one the shipped adapters compile to;
+  - its manifest record, plan and prompt are the shipped unmeasured ones.
+    The reason is read from the copied `lanetally.json`;
+  - its real driver spawns the wrapper with `-p --output-format
+    stream-json --verbose --model claude-opus-5-5 --effort high` and
+    nothing managed;
+  - its typed `tools.allow` still refuses at compile with the R5 line,
+    bounded.
+
+**`a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_resume`**
+(`capability_launch.rs:10481`; task 21.3's CQ1 rows; RG4 CQ1; D11).
+
+- Setup: the dialect `codex-search-hosts` (the shipped Codex search
+  dialect, with an `allow.hosts` schema). The v6 grant is `{"dialect":
+  "codex-search-hosts", "allow": {"hosts": ["a.example"]}}`. Sites are the
+  inline Codex work seat and the agent office `searcher`, both unboxed
+  (`harness`).
+- **requires** refuses the compile, inline and through the office, with
+  the complete cause: `requires capability 'web-search' through dialect
+  'codex-search-hosts', but provider 'codex' cannot express restriction
+  'allow.hosts'; the capability cannot be held under this grant`.
+- Served rows. Each asserts the pinned grant exactly as written; per site,
+  the whole manifest record (declaration digest out) and `prompt()`; and
+  the whole cold command and ACTUAL eligible rejoin (`exec resume … <thread>
+  -`), under the assessment the bundle compiled from the shipped adapter.
+  - **wants** drops with its exact notice (`dropped wanted capability
+    'web-search' through dialect 'codex-search-hosts' because provider
+    'codex' cannot express restriction 'allow.hosts'; native capability
+    remains OFF`). It is served the OFF pair, cold and resumed.
+  - **unused**: the inline seat asks nothing, and the agent seat subtracts
+    its office's want. The grant stays pinned and inactive, with no notice,
+    and the OFF is served cold and resumed.
+  - **wants over a declared transport** (a copied Codex adapter declaring
+    `["--image", "{restrictions_json}"]`) drops naming the deferral. No
+    `--image` is composed.
+  - **the empty restriction over that transport** is held with
+    `restrictions: {}`. It is served with no OFF and no transport argument.
+- No holding, prompt, plan or command carries `a.example`: the whole
+  literals leave no room for it.
+
+**`a_compiled_managed_read_limit_is_served_whole_cold_and_on_an_eligible_resume`**
+(`adapters/tests.rs:15878`, the owning adapter suite). The plan is the
+literal that the runtime test above asserts `controls()` equals for a real
+compile. It varies only the OFF argv. Sealed as dispatch seals the
+agent-backed seat, `--tools Read`, `--tools=Read`, `--tools=` and the
+deny-list control are each served whole cold (no session) and on an
+eligible resume (`rejoining == Some(session)`, command ending `--resume
+<session>`).
+
+### Baseline, mutations, restored
+
+- **Baseline.** At `08a11221` none of the four tests existed. Each passed on
+  its first run over unchanged production. They prove existing behaviour,
+  and this unit moves no production. So the intended red is shown by the
+  isolated compiling removals below, as for unit 20-fix-b. The rows
+  assert whole values, so none can pass on `is_ok`/`is_err`. The runtime
+  tests collect failing rows and fail at their one `failures.is_empty()`
+  assertion: `:10226`, `:10457` and `:10788` after formatting.
+- Each mutation was applied alone, compiled, run against the three runtime
+  tests (`cargo test --locked -p brokkr-runtime --test capability_launch
+  -- a_managed_read a_restricted_grant`) and, where it touches the
+  protocol, the protocol test. Each was then restored with `git checkout
+  --` of that production file. Logs are in the run's scratch directory.
+  - **M1**: cold delivery removed. `adapters.rs` `claude_serving` drops the
+    `--tools` pair when not rejoining.
+    - FAILED: the six limit rows, on their `cold` and `declined` fields
+      only (every `rejoined` literal still carried `--tools ""`); the
+      joined prompt value, cold; and the protocol test's three limit rows,
+      cold.
+    - Unaffected: the deny-list and shipped rows, and every rejoin.
+  - **M2**: resume delivery removed. The same drop applies only when
+    rejoining.
+    - FAILED: the six limit rows on `rejoined` only; the joined prompt
+      value, rejoined; and the protocol test's three limit rows,
+      rejoined.
+    - Every cold and declined literal was intact.
+  - **M3**: Codex cold OFF removed. `codex_cold` no longer appends the
+    managed argv.
+    - FAILED: CQ1 wants, unused and wants-over-transport, both sites, on
+      `cold`. The inline rejoins also refused, because an inline Codex
+      rejoin checks its cold replacement too. The agent rejoins still
+      carried the OFF.
+    - The empty-restriction row passed, as nothing managed is composed
+      there.
+  - **M4**: Codex resume OFF removed. `codex_plan`'s resume no longer
+    appends the managed argv.
+    - FAILED: the same six rows on `rejoined` only. Agent rejoins were
+      served without the OFF; inline rejoins were refused by the inline
+      final check. All 12 cold literals were intact.
+  - **M5**: the CQ1 restriction refusal removed. `capabilities.rs`
+    `holding`'s `!grant.restrictions.is_empty()` becomes `false && …`.
+    - FAILED: both requires rows (`Ok(5)`: the compile succeeded), and
+      wants and wants-over-transport on both sites. `prompt()` claims
+      `web-search` held, and the cold command is refused by the final
+      check's nonempty-restriction guard.
+    - The unused and empty-restriction rows passed.
+  - **M6**: the authored refusal removed. `capabilities.rs` `resolve`
+    discards `authored_refusal`.
+    - FAILED: only "an authored list" (`Ok(2)`: it compiled).
+  - **M7**: the prompt-value boundary removed. `grammar.rs` takes any
+    token as `--append-system-prompt`'s value.
+    - FAILED: only "the split prompt value". `--tools` was swallowed, and
+      a later refusal names argument 7, a bare positional. The intended
+      assertion's exact line is gone.
+  - **M8**: inventory independence removed. `bundle.rs` hands an inline
+    LaneTally site Claude's native inventory.
+    - FAILED: all four LaneTally rows. The declaration became Claude's
+      edited `e00e7f0f…`, where the shipped one is `1ed2be9e…`.
+  - **M9**: explicit-empty retention removed. `native_controls.rs` drops a
+    plan include list with no patterns from the limits.
+    - FAILED: "joined explicit empty", inline and agent-backed. The final
+      check refuses `leaves tool 'WebSearch' available`. Boxed, the `--tools=`
+      row compiled (`Ok(5)`) instead of refusing. In the protocol test,
+      "joined explicit empty" failed cold and rejoined.
+    - The Read rows passed.
+- **Restored.** `git status` shows only the two test files and the two
+  change documents. The suites below ran on the restored tree.
+- **Order of work.** The mutations ran before `cargo fmt` and one
+  clippy-driven change: T1's row tuple moved from `Result<&[&str], ()>` to
+  `Option<&[&str]>` under a `Row` alias. Neither changes an assertion.
+
+### Follow-up (not fixed; no production is this unit's)
+
+- **F21-1: a removal inside the shared serving builder escapes the final
+  check.** Under M1 and M2, the Claude command without its `--tools ""` was
+  SERVED, not refused. The same happened under M4 for the agent-backed
+  Codex rejoin without its OFF. The cause is in `check_final`
+  (`native_controls.rs:1971`):
+  - it judges delivery (`delivered`) on the recomposed composition;
+  - it compares the command token-for-token with a rebuild by the same
+    `adapters::serving_command` builder (`claude_serving` or
+    `codex_cold`/`codex_plan`).
+
+  So a defect in that builder changes both sides alike. It is caught only
+  by the independent literals, which is what NC6 requires of them, but
+  ruling 2 asks that the final command's own parsed state be compared. A
+  later unit could read `delivered` from `parsed.command`. Inline Codex
+  launches were refused by their own inline final check.
+- **F21-2: an unused-grant reason.** An inline seat that asks nothing is
+  told `the realm does not grant it to this seat` while the realm does
+  grant `web-search` (with a restriction). It is the generic unheld reason
+  of `native_plan`. It is truthful about holding, but inexact about the
+  grant.
+
+### Admissions and gates
+
+- No standing-admission lines and no fixture migrations. No frozen file,
+  `policy/`, `fixtures/`, `reference/`, `extensions/` or `contracts/` byte
+  moved.
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test --locked -p brokkr-runtime --all-features`: 25 result lines,
+  all ok. The lib has 625 and `capability_launch` 65.
+- `cargo test --locked -p brokkr-protocol --all-features`: 545, 99 (2
+  ignored) and 1 passed, 0 failed.
+- `git diff --check`: clean.
+- `cargo test --workspace` and `cargo test --workspace --all-features
+  --locked`: exit 0, 77 result lines each, all ok, none failed
+  (`capability_launch` 65).
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `… bundles/verify`: both exit 0.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed.
+- Pending: macOS, exact coverage outside the box
+  (`scripts/coverage-exact.sh`), remote CI and the council.
