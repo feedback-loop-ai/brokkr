@@ -21304,3 +21304,26 @@ None.
 - The protocol and CLI suites were not rerun, because no file of theirs
   changed. `bundles/self` and `verify` were not recompiled.
 - Exact coverage outside the box, remote CI and the council.
+
+## Unit 20, third visit — 2026-09-29 (blocked)
+
+Same run, re-commissioned through triage as a chore at `945bdec9`. No
+operator ruling on R5 has landed since the review return: the ruling file's
+last addendum is still "2026-09-29: runs without recorded charter bindings;
+unit 19 admission".
+
+- R5 still reproduces. `cargo test -p brokkr-runtime --all-features
+  --locked --test capability_launch
+  every_compiled_site_shape_of_every_harness` passed (1 passed). It passes
+  only because the `lanetally-typed` row asserts the final check's refusal
+  (`capability_launch.rs:9361`).
+- The root cause is unchanged. `capabilities.rs:1904-1908` emits
+  `NativePlan::Unmeasured` with no `local`, and `native_controls.rs:211-218`
+  decodes `unmeasured` with default provenance.
+- Both files are production files, and unit 20 authorizes no production
+  edit. The fix is also an operator choice: deliver the lowered allow on an
+  unmeasured plan, or refuse the shape at compile (D5.3). A fourth triage
+  cannot rule that, so this visit reports `blocked` (policy: implement
+  `blocked` stops) instead of `oversized`, which returned to triage.
+- No test, production file or fixture changed. No standing-admission
+  lines.

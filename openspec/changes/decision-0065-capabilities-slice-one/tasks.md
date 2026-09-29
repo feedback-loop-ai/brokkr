@@ -4242,6 +4242,12 @@ only `capability_launch.rs` changed; no production file moved.
 - No standing-admission lines and no fixture migrations.
 - **Gates** and **pending**: see evidence.md.
 
+**Unit 20, third visit (2026-09-29, same run, at `945bdec9`; evidence.md,
+"Unit 20, third visit"): blocked.** No ruling on R5 has landed, and the
+`lanetally-typed` row still asserts the refusal. 20.1 stays open until the
+operator chooses delivery or a compile refusal, and a production unit over
+`capabilities.rs` and `native_controls.rs` lands. Nothing else changed.
+
 ## 21. Unit 21 — Prove compiled cold and actual-resume restrictions
 
 - [ ] 21.1 Unit 21 proves managed Read/empty restrictions in compiled cold/eligible-resume Claude/LaneTally shapes. Verify authored lists refuse, prompt integrity and independent inventory. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Prompt values cannot absorb a composed control][NCP], [Subtractive tool lists never grant a capability][RGS]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.4)
