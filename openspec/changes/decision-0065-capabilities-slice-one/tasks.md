@@ -4406,6 +4406,19 @@ to the restriction-transport slice" below.
   Each is a whole command or a whole refusal beside the site's charter
   pin, with its removal evidence.
 
+  **Reopened by 21-fix-b's review return (2026-09-29).** The claim above
+  was wrong in two places:
+  - the CQ1 matrix's `boxed` office compiles under `harness`, which is no
+    boxed boundary, so boxed CQ1 had no row (R1);
+  - the 36 boxed Claude refusal rows' compiling counterparts asserted no
+    charter facts (R2).
+
+  **Closed by 21-fix-b's review return (2026-09-29).** Boxed CQ1 now has
+  its rows under `namespace`: requires, wants and unused, inline, through
+  an office and through a fallback office, at every shape. Each boxed
+  Claude counterpart asserts its charter pin. Both are in evidence.md,
+  "Unit 21-fix-b, review return".
+
 **Unit 21, 2026-09-29 (run `0065-rebuild-unit-21-see-the-uni-2f15a7aa`,
 based on `08a11221`; evidence.md, "Unit 21"): 21.1 and 21.3 close.** No
 production file moved. Only `capability_launch.rs` (three new tests) and
@@ -4628,6 +4641,54 @@ No production byte moved.
   - both bundles;
   - `openspec validate --all --strict --no-interactive` (18 passed);
   - `git diff --check`.
+- **Pending:** macOS, exact coverage outside the box, remote CI and the
+  council.
+
+**Unit 21-fix-b, review return, 2026-09-29 (same run, based on
+`dd5a69c0`; evidence.md, "Unit 21-fix-b, review return"): 21.1 and 21.3
+close again.** Tests only. `capability_launch.rs` changed, and no
+production byte moved.
+
+- **R1: boxed CQ1.** The new test
+  `a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape`
+  compiles under `namespace` on the shipped adapters, with the restricted
+  grant. It covers six shapes (11 sites), each seated three ways with
+  hands: inline, `boxed-codex`, and `boxed-fallback` (Codex as the
+  fallback). It covers requires, wants and unused:
+  - requires refuses whole at the first site. Behind the fallback's Claude
+    primary, the binding refusal comes first, and that is what the row
+    pins.
+  - wants and unused give 27 rows each. Each row has the charter, the
+    record, the prompt, no host, and the pinned grant. It has the whole
+    boxed cold command (`--sandbox read-only`, the hands' MCP `-c`s, then
+    the OFF). At work sites, the offer is declined and served cold, since
+    the shipped rejoin names no boxed coordinate.
+  - The harness CQ1 matrix's `boxed` rows are re-described as
+    harness-hands rows.
+- **R2: boxed Claude charters.** Each of the 36 compiling counterparts
+  asserts its owner, reference, path and digest.
+- **Removals, then restored:**
+  - N1: the boxed builder's OFF is lost. The FINAL CHECK REFUSES all 54
+    boxed served rows, and the harness matrix passes;
+  - N2: CQ1 fails open;
+  - N3: the unused reason is merged;
+  - N4 and N5: the charter digest, then the reference.
+- **Deferred, stated:**
+  - 21.2 (D11);
+  - the panel-member rejoin positive;
+  - no actual boxed Codex rejoin exists;
+  - boxed Claude under a limit is a compile refusal.
+- No standing-admission lines and no fixture migrations. `one_shape`
+  gains a `context` parameter, and its other caller passes the former
+  hard-coded `no_grants`.
+- **Gates.** All clean or passing:
+  - `fmt` and `clippy`;
+  - `-p brokkr-runtime` (25 ok; `capability_launch` 68);
+  - both bundles;
+  - `openspec validate --all --strict --no-interactive` (18 passed);
+  - `git diff --check`.
+
+  `brokkr-protocol` was untouched and was not re-run.
 - **Pending:** macOS, exact coverage outside the box, remote CI and the
   council.
 

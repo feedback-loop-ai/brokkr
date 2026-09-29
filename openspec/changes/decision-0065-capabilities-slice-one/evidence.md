@@ -22771,3 +22771,198 @@ restored.
 - `git diff --check`: clean.
 - **Pending.** macOS, exact coverage outside the box
   (`scripts/coverage-exact.sh`), remote CI and the council.
+
+## Unit 21-fix-b, review return — 2026-09-29 (boxed CQ1 and the boxed Claude charters)
+
+Run `0065-rebuild-unit-21-see-the-uni-ff7c4b7b`, second implement visit,
+based on `dd5a69c0`. It answers the chief's review return R1 and R2. Tests
+only. One file changed: `crates/brokkr-runtime/tests/capability_launch.rs`.
+`adapters/tests.rs` is unchanged, and no production byte moved. Every
+mutation below was restored with `git checkout --`, and `git status
+--short` then listed only the test file.
+
+**The correction.** The mapping above ("R2's paths, mapped", row
+*boxed*, CQ1 column) was wrong. The office `boxed` in unit 20's matrix is
+compiled under `Boundary::Harness`, which is not a boxed boundary
+(`Boundary::is_boxed`). Those nine rows are harness-hands rows, not boxed
+rows. The harness CQ1 matrix's doc now says so, and points to the test
+below. Its assertions did not move.
+
+### R1: CQ1 at every boxed Codex site shape
+
+**`a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape`**
+(`capability_launch.rs:11519`; 21.3; RG4 CQ1; NCC; NC6; MPL; D11).
+
+- **Setup.** `one_shape` now takes the realm context. It was
+  `no_grants` before; the Claude matrix passes `no_grants` explicitly, so
+  its rows are unchanged. Each fixture is compiled under
+  `Boundary::Namespace` on the SHIPPED adapters, in the realm of
+  `hosts_grant`: `web-search` through `codex-search-hosts`, restricted to
+  `a.example`.
+- **The shapes.** There are six, from `one_shape`, with 11 sites in all:
+  - single `x`;
+  - gate `x`;
+  - panel `x:member` and `x:peer`;
+  - sequence `x:step` and `x:next`;
+  - select `x:engine` and `x:default`;
+  - `x`, inherited from `shape-base`.
+- **The seatings.** Each shape is seated three ways, each with typed
+  workspace hands:
+  - inline Codex;
+  - the office `boxed-codex` (astra);
+  - the office `boxed-fallback` (opus, then astra), where the Codex link
+    is the selected FALLBACK, candidate 1.
+- **The cases.** requires, wants, and unused (no asks anywhere). That is
+  54 compiles in total.
+- **The row set.** In each compile, the rows are asserted equal to the
+  bundle's set of compiled Codex candidates. That gives 27 rows per served
+  case.
+- **requires** refuses each compile whole, naming the first site
+  (`x`, `x:member`, `x:step` or `x:engine`) and its office:
+  - inline and `boxed-codex`: `bundle: bundle: seat '<site>' (office
+    '<office>') in realm 'private': requires capability 'web-search'
+    through dialect 'codex-search-hosts', but provider 'codex' cannot
+    express restriction 'allow.hosts'; the capability cannot be held under
+    this grant (composed: shape -> shape-base)`;
+  - `boxed-fallback`: the Claude primary refuses first, `… but provider
+    'claude' cannot carry a binding to provider 'codex'; …`. No Claude link
+    carries a Codex binding, so the fallback's own CQ1 refusal cannot be
+    reached behind it. The row pins what is observed.
+- **wants and unused.** Each of the 27 rows per case asserts, as one JSON
+  object:
+  - the charter (`charter_of` against `matrix_charter`). Inline, this is
+    the layer's `roles/x.md` (`shape`, or `shape-base` when inherited).
+    Otherwise it is the office's `charters/<office>.md`. Each carries its
+    owner, reference, path and digest;
+  - the manifest candidate record (declaration digest out). Nothing is
+    held and `native.off` is `["web-search"]`. `not_held` is `provider
+    'codex' cannot express restriction 'allow.hosts'; native capability
+    remains OFF` for wants, with its one notice `seat '<label>' (office
+    '<office>') in realm 'private': dropped wanted capability 'web-search'
+    through dialect 'codex-search-hosts' because …`. For unused it is
+    `provider 'codex' has it natively, granted, but this seat does not
+    request it, and it is switched off`, with no notice. An office row
+    carries `model: astra`;
+  - `prompt()`: the same `not_held`;
+  - that neither record nor prompt contains `a.example`;
+  - the pinned grant, equal to the grant as written;
+  - whole commands:
+    - cold: `codex exec --json -C /w -c model_reasoning_effort="high"
+      --model gpt-6-astra --sandbox read-only -c
+      mcp_servers.brokkr.command="<test exe>" -c
+      mcp_servers.brokkr.args=["hands","serve","--workdir","/w","--spec",…]
+      -c mcp_servers.brokkr.default_tools_approval_mode="approve" -c
+      web_search="disabled"`. Boxed, a gate's command is the same: there is
+      no `--output-last-message`, because the result comes back through
+      the hands;
+    - offered: at a work site, the session offered under the COMPILED
+      assessment is declined and served that cold command on the shim. The
+      shipped Codex `work-site` rejoin names only the `harness` and `not
+      applicable` boundaries with `hands: none`. Its limitation says that
+      boxed hands add MCP `-c` arguments that main refuses as
+      `incompatible-argv`, and that the declaration declines that
+      coordinate as `restrictions-unavailable`. So no actual boxed Codex
+      rejoin exists to serve, and the replacement is the applicable
+      offered-session row. A gate is offered no session.
+- **First run.** The first run (`.forge/u21fb2-probe1.log`) failed, as
+  expected, on two guesses, and the values were read before being written:
+  - the command shape. I had expected the harness class (`workspace-write`
+    and last-message) and an actual rejoin. The observed boxed command and
+    the declined offer are as described above;
+  - the fallback's requires reason.
+
+  Everything else matched on that first run: the charter, the record, the
+  notice, the prompt, the host and the grant. The second run passed
+  (`.forge/u21fb2-probe2.log`).
+
+### R2: the boxed Claude refusal rows' charter facts
+
+In `a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape`
+(`:11053`, boxed loop at `:11261`), each of the 36 boxed rows' compiling
+shipped-adapter counterparts now asserts the selected charter. This replaces
+`bundle.sites.contains_key(label)`, and is `format!("{:?}",
+charter_of(&bundle, label))` against `matrix_charter(root, seated)`:
+- inline: `Layer { dir: <root>/shape, key: roles/x.md }` (`shape-base` for
+  the inherited seat), reference `roles/x.md`, that path, and
+  `sha256("# x\n")`;
+- `boxed-claude` and `boxed-pair`: `Library { agent: <office>, root:
+  <root>/agents }`, `charters/<office>.md`, and the digest of `#
+  <office>\n`.
+
+The refusal half of each row is unchanged.
+
+### Removals (each new assertion bound), then restored
+
+Each mutation was applied alone to a production file and run with `cargo
+test -p brokkr-runtime --test capability_launch -- <filter>`. Each was
+restored with `git checkout --`. The diffs are saved in `.forge/u21fb2-N*.diff`
+and the logs in `.forge/u21fb2-N*-runtime.log`.
+
+- **N1: the boxed builder loses the OFF** (`adapters.rs` `codex_cold`
+  skips `managed` when the argv carries `mcp_servers.brokkr.command=`).
+  - Filter `cq1s_outcomes_at_every`. The boxed test FAILED on all 54
+    wants and unused rows.
+  - Each `cold` and `offered` value is the final check's REFUSAL:
+    `refusing to invoke the agent CLI: the final command of harness 'codex'
+    leaves native capability 'web-search' on, which its plan denies by its
+    measured OFF; … (operator ruling 2 of 2026-09-23; design D6)`.
+  - The harness CQ1 matrix PASSED under the same mutation. This loss is
+    seen only by the boxed rows, and the final check refuses it.
+- **N2: CQ1 fails open for Codex** (`capabilities.rs`: `if
+  !grant.restrictions.is_empty() && provider != "codex"`).
+  - The boxed test FAILED on 12 requires rows and all 27 wants rows. In
+    the requires rows, inline and `boxed-codex` now compile: six are
+    `Ok(2)` and six `Ok(3)`, a site count.
+  - The six `boxed-fallback` requires rows and the 27 unused rows did not
+    move. The Claude primary still refuses first, and unused holds nothing.
+- **N3: the unused reason merged** (`capabilities.rs`: `Unasked::Granted`
+  reads `the realm does not grant it to this seat`).
+  - The boxed test FAILED on exactly the 27 unused rows. There were 0
+    wants or requires failures.
+- **N4: the charter digest moved** (`bundle.rs` `CharterPin::of` hashes
+  the bytes plus `\n`).
+  - Both tests FAILED. All 36 boxed Claude counterpart rows failed on the
+    charter digest; their refusal halves were intact.
+- **N5: the charter reference moved** (`bundle.rs` `CharterPin::of`:
+  `reference: format!("./{reference}")`).
+  - Both tests FAILED, with all 36 boxed Claude counterpart rows among the
+    failures.
+- **Restored.** Filter `cq1s_outcomes a_managed_read_or_empty_limit`: 5
+  passed (`.forge/u21fb2-restored.log`). `git status --short` listed only
+  `capability_launch.rs`.
+- **Baseline red.** None is observable for these rows on this base. They
+  prove landed behaviour, and this visit moves no production. The intended
+  reds are N1 to N5 above.
+
+### Deferred, stated
+
+- 21.2 (D11): no row holds a nonempty restriction.
+- The panel-member rejoin positive stays deferred (addendum of
+  2026-09-26).
+- Boxed Codex has no actual rejoin to prove: the shipped assessment
+  declines every boxed offer, as stated above.
+- Boxed managed Read/empty for Claude is a whole compile refusal at every
+  shape, as the rows above show. So no boxed Claude command is served, and
+  none has a rejoin row.
+
+### Admissions and gates
+
+- No standing-admission lines and no fixture migrations. No frozen file
+  moved. One helper signature changed: `one_shape` gains `context`, and
+  its only other caller passes `no_grants`, which was its previous
+  hard-coded value. No assertion was dropped: the `contains_key` check is
+  subsumed, because a charter pin is read from `bundle.sites[label]`.
+- `cargo fmt --all -- --check`: clean (after `cargo fmt --all`).
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, 0 warnings (`.forge/u21fb2-clippy.log`).
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 result lines,
+  all ok. The lib has 627 and `capability_launch` 68 (67 + 1)
+  (`.forge/u21fb2-runtime-suite.log`).
+- `brokkr-protocol` was not touched and was not re-run on this visit.
+- `compile --bundle bundles/self` and `bundles/verify`: both compile
+  (digests `45dc1c7e…` and `f7cbd4bb…`).
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed.
+- `git diff --check`: clean.
+- **Pending.** macOS, exact coverage outside the box
+  (`scripts/coverage-exact.sh`), remote CI and the council.
