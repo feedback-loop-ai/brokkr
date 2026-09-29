@@ -705,7 +705,9 @@ fn show_and_compile_agree_for_every_recipe_under_every_realm_map() {
             let shown = ws.brokkr(&["recipes", "show", name, "--dir", dir]);
             assert_eq!(shown, compiled, "{name} under {label}");
             match compiled {
-                (Some(0), view, stderr) if stderr.is_empty() => {
+                // A compiled view carries decision 0050's sweep on stderr
+                // (#429), the same for both verbs by the assertion above.
+                (Some(0), view, _sweep) if !view.is_empty() => {
                     let view: Value = serde_json::from_str(&view).unwrap();
                     let digest = view["digest"].as_str().unwrap().to_string();
                     let hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
