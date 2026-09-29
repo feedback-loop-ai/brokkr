@@ -251,6 +251,43 @@ pub fn brokkr_core::fold::fold_onto(brokkr_core::fold::RunState, &[brokkr_core::
 pub mod brokkr_core::keep_refs
 pub fn brokkr_core::keep_refs::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub mod brokkr_core::policy
+pub mod brokkr_core::policy::audit
+pub enum brokkr_core::policy::audit::AuditError
+pub brokkr_core::policy::audit::AuditError::Budget
+pub brokkr_core::policy::audit::AuditError::Budget::budget: usize
+pub brokkr_core::policy::audit::AuditError::Budget::phase: alloc::string::String
+pub brokkr_core::policy::audit::AuditError::Budget::result: alloc::string::String
+pub brokkr_core::policy::audit::AuditError::Budget::valuations: usize
+pub enum brokkr_core::policy::audit::Finding
+pub brokkr_core::policy::audit::Finding::DeadEnd
+pub brokkr_core::policy::audit::Finding::DeadEnd::phase: alloc::string::String
+pub brokkr_core::policy::audit::Finding::Shadowed
+pub brokkr_core::policy::audit::Finding::Shadowed::behind: alloc::string::String
+pub brokkr_core::policy::audit::Finding::Shadowed::rule: alloc::string::String
+pub brokkr_core::policy::audit::Finding::Unreachable
+pub brokkr_core::policy::audit::Finding::Unreachable::phase: alloc::string::String
+pub brokkr_core::policy::audit::Finding::Unread
+pub brokkr_core::policy::audit::Finding::Unread::inputs: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::policy::audit::Finding::Unread::rule: alloc::string::String
+pub brokkr_core::policy::audit::Finding::Unruled
+pub brokkr_core::policy::audit::Finding::Unruled::phase: alloc::string::String
+pub brokkr_core::policy::audit::Finding::Unruled::result: alloc::string::String
+pub brokkr_core::policy::audit::Finding::Unruled::valuation: alloc::vec::Vec<(alloc::string::String, brokkr_core::policy::audit::Setting)>
+impl core::fmt::Display for brokkr_core::policy::audit::Finding
+pub fn brokkr_core::policy::audit::Finding::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_core::policy::audit::Setting
+pub brokkr_core::policy::audit::Setting::Count(u64)
+pub brokkr_core::policy::audit::Setting::Flag(bool)
+pub brokkr_core::policy::audit::Setting::Word(&'static str)
+impl core::fmt::Display for brokkr_core::policy::audit::Setting
+pub fn brokkr_core::policy::audit::Setting::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_core::policy::audit::Audit
+pub brokkr_core::policy::audit::Audit::findings: alloc::vec::Vec<brokkr_core::policy::audit::Finding>
+pub brokkr_core::policy::audit::Audit::groups: usize
+pub brokkr_core::policy::audit::Audit::valuations: usize
+impl core::fmt::Display for brokkr_core::policy::audit::Audit
+pub fn brokkr_core::policy::audit::Audit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const brokkr_core::policy::audit::SWEEP_BUDGET: usize
 pub enum brokkr_core::policy::Outcome
 pub brokkr_core::policy::Outcome::NoRule
 pub brokkr_core::policy::Outcome::NoRule::problem: core::option::Option<alloc::string::String>
@@ -269,6 +306,8 @@ pub brokkr_core::policy::Machine::phases: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::policy::Machine::rules: alloc::vec::Vec<brokkr_core::policy::Rule>
 pub brokkr_core::policy::Machine::shippable_from: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::policy::Machine::terminal: alloc::vec::Vec<alloc::string::String>
+impl brokkr_core::policy::Machine
+pub fn brokkr_core::policy::Machine::audit_with(&self, usize, impl core::ops::function::Fn(&str) -> bool) -> core::result::Result<brokkr_core::policy::audit::Audit, brokkr_core::policy::audit::AuditError>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>
@@ -469,6 +508,8 @@ pub brokkr_core::Machine::phases: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::Machine::rules: alloc::vec::Vec<brokkr_core::policy::Rule>
 pub brokkr_core::Machine::shippable_from: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::Machine::terminal: alloc::vec::Vec<alloc::string::String>
+impl brokkr_core::policy::Machine
+pub fn brokkr_core::policy::Machine::audit_with(&self, usize, impl core::ops::function::Fn(&str) -> bool) -> core::result::Result<brokkr_core::policy::audit::Audit, brokkr_core::policy::audit::AuditError>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>

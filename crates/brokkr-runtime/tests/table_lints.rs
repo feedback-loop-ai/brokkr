@@ -1,9 +1,10 @@
 //! Decision 0050's experiment, as a pinned sweep over every shipped table.
 //!
 //! Four checks the decision rules into the loader and the compiler, run
-//! here against the tables as they stand — the nine with their own
-//! `policy.json` and the six `extends` composes — through the real
-//! composer and the real `Machine::evaluate`:
+//! here against the tables as they stand — every bundle and every recipe,
+//! composed ones included — through the real composer and the core's
+//! `Machine::audit_with`, which sweeps with the real `Machine::evaluate`
+//! and which `brokkr compile` reports (#429):
 //!
 //! 1. **order** — no rule is dead behind an earlier rule whose guard
 //!    subsumes it (the swap in the decision's context);
@@ -20,19 +21,21 @@
 //! Today's findings are PINNED, not asserted away: the three v1 tables
 //! fail presence exactly as decision 0004 recorded, and every v2 delivery
 //! table leaves one valuation shape unruled — a `residual` verdict at
-//! severity `none`. The enactment slice moves the checks into
-//! `Machine::from_table` and `brokkr compile`, names the closed
-//! valuations with a parking rule, and retires these pins by driving
-//! them to zero. Until then a table change that moves a pin is a
+//! severity `none`. The audit refuses nothing while the decision is
+//! proposed (`docs/evidence/decision-0050-audit.md` lists what awaits the
+//! operator's ruling); the enactment turns the refusals on, names the
+//! closed valuations with a parking rule, and retires these pins by
+//! driving them to zero. Until then a table change that moves a pin is a
 //! reviewed change.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use brokkr_core::policy::{Machine, Outcome, DRIFT_PHASES, SEVERITY_ORDER, STRATEGIES};
+use brokkr_core::policy::audit::{Finding, Setting, SWEEP_BUDGET};
+use brokkr_core::policy::{Machine, Outcome};
 use brokkr_runtime::bundle::compose::resolve;
 use brokkr_runtime::bundle::is_engine_owned;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -49,187 +52,6 @@ fn read_json(path: &Path) -> Value {
             .unwrap_or_else(|error| panic!("{}: {error}", path.display())),
     )
     .unwrap_or_else(|error| panic!("{} parses: {error}", path.display()))
-}
-
-/// One guard condition, read the way `parse_condition` reads it: the
-/// key names the input and the form, the value the threshold.
-#[derive(Clone, Debug, PartialEq)]
-enum Guard {
-    Counter {
-        name: String,
-        threshold: i64,
-    },
-    Above {
-        name: String,
-        rank: usize,
-    },
-    AtMost {
-        name: String,
-        rank: usize,
-    },
-    Flag {
-        name: String,
-        expected: bool,
-    },
-    Member {
-        name: String,
-        allowed: BTreeSet<String>,
-    },
-}
-
-impl Guard {
-    fn name(&self) -> &str {
-        match self {
-            Guard::Counter { name, .. }
-            | Guard::Above { name, .. }
-            | Guard::AtMost { name, .. }
-            | Guard::Flag { name, .. }
-            | Guard::Member { name, .. } => name,
-        }
-    }
-
-    /// Whether every input satisfying `self` satisfies `other`.
-    fn implies(&self, other: &Guard) -> bool {
-        match (self, other) {
-            (
-                Guard::Counter {
-                    name: a,
-                    threshold: x,
-                },
-                Guard::Counter {
-                    name: b,
-                    threshold: y,
-                },
-            ) => a == b && x >= y,
-            (Guard::Above { name: a, rank: x }, Guard::Above { name: b, rank: y }) => {
-                a == b && x >= y
-            }
-            (Guard::AtMost { name: a, rank: x }, Guard::AtMost { name: b, rank: y }) => {
-                a == b && x <= y
-            }
-            (
-                Guard::Flag {
-                    name: a,
-                    expected: x,
-                },
-                Guard::Flag {
-                    name: b,
-                    expected: y,
-                },
-            ) => a == b && x == y,
-            (
-                Guard::Member {
-                    name: a,
-                    allowed: x,
-                },
-                Guard::Member {
-                    name: b,
-                    allowed: y,
-                },
-            ) => a == b && x.is_subset(y),
-            _ => false,
-        }
-    }
-}
-
-fn rank(value: &Value) -> usize {
-    let word = value.as_str().expect("a severity word");
-    SEVERITY_ORDER
-        .iter()
-        .position(|known| known == &word)
-        .unwrap_or_else(|| panic!("{word} is on the severity axis"))
-}
-
-fn guards(rule: &Value) -> Vec<Guard> {
-    let Some(when) = rule.get("when").and_then(Value::as_object) else {
-        return Vec::new();
-    };
-    when.iter()
-        .map(|(key, value)| {
-            if key == "strategy_in" {
-                return Guard::Member {
-                    name: "strategy".into(),
-                    allowed: value
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|v| v.as_str().unwrap().to_string())
-                        .collect(),
-                };
-            }
-            if key == "drift_in" {
-                return Guard::Member {
-                    name: "drift_in".into(),
-                    allowed: value
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|v| v.as_str().unwrap().to_string())
-                        .collect(),
-                };
-            }
-            if let Some(name) = key.strip_suffix("_gte") {
-                return Guard::Counter {
-                    name: name.into(),
-                    threshold: value.as_f64().expect("a counter threshold") as i64,
-                };
-            }
-            if let Some(name) = key.strip_suffix("_above") {
-                return Guard::Above {
-                    name: name.into(),
-                    rank: rank(value),
-                };
-            }
-            if let Some(name) = key.strip_suffix("_at_most") {
-                return Guard::AtMost {
-                    name: name.into(),
-                    rank: rank(value),
-                };
-            }
-            Guard::Flag {
-                name: key.clone(),
-                expected: value.as_bool().expect("a flag"),
-            }
-        })
-        .collect()
-}
-
-/// Guard `earlier` matches everywhere guard `later` matches, so a rule
-/// carrying `later` behind one carrying `earlier` can never fire.
-fn subsumes(earlier: &[Guard], later: &[Guard]) -> bool {
-    earlier.iter().all(|a| later.iter().any(|b| b.implies(a)))
-}
-
-/// The domain the sweep walks for one input, from the guards that read
-/// it: both flags, the counter at, below and above every threshold, the
-/// whole severity axis, the closed enumeration.
-fn domain(group: &[Guard], name: &str) -> Vec<Value> {
-    let reads: Vec<&Guard> = group.iter().filter(|g| g.name() == name).collect();
-    if reads.iter().any(|g| matches!(g, Guard::Flag { .. })) {
-        return vec![json!(true), json!(false)];
-    }
-    if reads.iter().any(|g| matches!(g, Guard::Member { .. })) {
-        let vocabulary: &[&str] = if name == "strategy" {
-            &STRATEGIES
-        } else {
-            &DRIFT_PHASES
-        };
-        return vocabulary.iter().map(|word| json!(word)).collect();
-    }
-    if reads.iter().any(|g| matches!(g, Guard::Counter { .. })) {
-        let mut values: BTreeSet<i64> = BTreeSet::from([0]);
-        for guard in &reads {
-            if let Guard::Counter { threshold, .. } = guard {
-                values.extend([threshold - 1, *threshold, threshold + 1]);
-            }
-        }
-        return values
-            .into_iter()
-            .filter(|value| *value >= 0)
-            .map(|value| json!(value))
-            .collect();
-    }
-    SEVERITY_ORDER.iter().map(|word| json!(word)).collect()
 }
 
 struct Table {
@@ -289,10 +111,6 @@ fn next_of(rule: &Value) -> Option<&str> {
     rule.get("next").and_then(Value::as_str)
 }
 
-fn parks(rule: &Value) -> bool {
-    rule.get("park") == Some(&Value::Bool(true))
-}
-
 fn edges(t: &Table) -> BTreeMap<String, BTreeSet<String>> {
     let mut edges: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for rule in rules(t) {
@@ -334,6 +152,9 @@ fn advances(t: &Table, start: &str, avoid: &str) -> bool {
     false
 }
 
+/// An unruled valuation, as `(phase, result, valuation)`.
+type Unruled = (String, String, Vec<(String, Setting)>);
+
 #[derive(Debug, Default)]
 struct Findings {
     /// `<later> is dead behind <earlier>`.
@@ -344,128 +165,35 @@ struct Findings {
     presence: Vec<String>,
     /// Every valuation the sweep walked.
     valuations: usize,
-    /// The valuations no rule rules, as `(phase, result, inputs)`.
-    unruled: Vec<(String, String, Map<String, Value>)>,
+    /// The valuations no rule rules.
+    unruled: Vec<Unruled>,
 }
 
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+/// The core's audit of one table, sorted by check.
 fn sweep(t: &Table) -> Findings {
-    let mut findings = Findings::default();
-    let mut groups: BTreeMap<(String, String), Vec<&Value>> = BTreeMap::new();
-    for rule in rules(t) {
-        groups
-            .entry((
-                rule["from"].as_str().unwrap().to_string(),
-                rule["result"].as_str().unwrap().to_string(),
-            ))
-            .or_default()
-            .push(rule);
-    }
-    for ((phase, result), group) in &groups {
-        let guarded: Vec<Vec<Guard>> = group.iter().map(|rule| guards(rule)).collect();
-        for (i, earlier) in guarded.iter().enumerate() {
-            for (j, later) in guarded.iter().enumerate().skip(i + 1) {
-                if subsumes(earlier, later) {
-                    findings.order.push(format!(
-                        "{} is dead behind {}",
-                        group[j]["id"].as_str().unwrap(),
-                        group[i]["id"].as_str().unwrap()
-                    ));
-                }
-            }
-        }
-        let all: Vec<Guard> = guarded.iter().flatten().cloned().collect();
-        let names: BTreeSet<&str> = all.iter().map(Guard::name).collect();
-        let domains: Vec<(&str, Vec<Value>)> = names
-            .iter()
-            .map(|name| (*name, domain(&all, name)))
-            .collect();
-        let mut valuations: Vec<Map<String, Value>> = vec![Map::new()];
-        for (name, values) in &domains {
-            valuations = valuations
-                .iter()
-                .flat_map(|partial| {
-                    values.iter().map(move |value| {
-                        let mut next = partial.clone();
-                        next.insert((*name).to_string(), value.clone());
-                        next
-                    })
-                })
-                .collect();
-        }
-        for inputs in valuations {
-            findings.valuations += 1;
-            if let Outcome::NoRule { problem } = t.machine.evaluate(phase, result, &inputs) {
-                assert!(
-                    problem.is_none(),
-                    "{}: the sweep supplies well-typed inputs only",
-                    t.label
-                );
-                findings
-                    .unruled
-                    .push((phase.clone(), result.clone(), inputs));
-            }
-        }
-        let deny: BTreeSet<&str> = group
-            .iter()
-            .zip(&guarded)
-            .filter(|(rule, _)| rule.get("severity") == Some(&json!("hard")))
-            .flat_map(|(_, guards)| guards.iter().map(Guard::name))
-            .filter(|name| !is_engine_owned(name))
-            .collect();
-        for (rule, guards) in group.iter().zip(&guarded) {
-            let Some(next) = next_of(rule) else {
-                continue;
-            };
-            if next == "stop" || !advances(t, next, phase) {
-                continue;
-            }
-            let reads: BTreeSet<&str> = guards.iter().map(Guard::name).collect();
-            let missing: Vec<&str> = deny.difference(&reads).copied().collect();
-            if !missing.is_empty() {
-                findings.presence.push(format!(
-                    "{} lets the run go on without reading {missing:?}",
-                    rule["id"].as_str().unwrap()
-                ));
-            }
-        }
-    }
-    let edges = edges(t);
-    let mut seen: BTreeSet<String> = BTreeSet::from([t.machine.initial.clone()]);
-    let mut frontier = vec![t.machine.initial.clone()];
-    while let Some(node) = frontier.pop() {
-        for next in edges.get(&node).into_iter().flatten() {
-            if seen.insert(next.clone()) {
-                frontier.push(next.clone());
-            }
-        }
-    }
-    let terminal: BTreeSet<&String> = t.machine.terminal.iter().collect();
-    let parking: BTreeSet<&str> = rules(t)
-        .iter()
-        .filter(|rule| parks(rule))
-        .map(|rule| rule["from"].as_str().unwrap())
-        .collect();
-    let ends = |phase: &String| -> bool {
-        let mut seen: BTreeSet<String> = BTreeSet::from([phase.clone()]);
-        let mut frontier = vec![phase.clone()];
-        while let Some(node) = frontier.pop() {
-            if terminal.contains(&node) || parking.contains(node.as_str()) {
-                return true;
-            }
-            for next in edges.get(&node).into_iter().flatten() {
-                if seen.insert(next.clone()) {
-                    frontier.push(next.clone());
-                }
-            }
-        }
-        false
+    let audit = t
+        .machine
+        .audit_with(SWEEP_BUDGET, is_engine_owned)
+        .unwrap_or_else(|error| panic!("{}: {error}", t.label));
+    let mut findings = Findings {
+        valuations: audit.valuations,
+        ..Findings::default()
     };
-    for phase in &t.machine.phases {
-        if !seen.contains(phase) {
-            findings.unreachable.push(phase.clone());
-        } else if !terminal.contains(phase) && !ends(phase) {
-            findings.dead_end.push(phase.clone());
+    for finding in audit.findings {
+        match finding {
+            Finding::Shadowed { rule, behind } => findings
+                .order
+                .push(format!("{rule} is dead behind {behind}")),
+            Finding::Unreachable { phase } => findings.unreachable.push(phase),
+            Finding::DeadEnd { phase } => findings.dead_end.push(phase),
+            Finding::Unread { rule, inputs } => findings.presence.push(format!(
+                "{rule} lets the run go on without reading {inputs:?}"
+            )),
+            Finding::Unruled {
+                phase,
+                result,
+                valuation,
+            } => findings.unruled.push((phase, result, valuation)),
         }
     }
     findings
@@ -578,8 +306,8 @@ fn the_unruled_valuations_are_pinned_per_table() {
                 "{}",
                 t.label
             );
-            assert_eq!(
-                inputs["max_residual_severity"], "none",
+            assert!(
+                inputs.contains(&("max_residual_severity".into(), Setting::Word("none"))),
                 "{}: {inputs:?}",
                 t.label
             );
@@ -592,6 +320,22 @@ fn the_unruled_valuations_are_pinned_per_table() {
 #[test]
 fn the_stated_properties_hold_on_every_shipped_table() {
     for t in shipped_tables() {
+        // Ruling 5: `security-hold` rules a hard stop from every phase
+        // that admits it, in every table.
+        for rule in t
+            .machine
+            .rules
+            .iter()
+            .filter(|r| r.result == "security-hold")
+        {
+            assert_eq!(
+                (rule.next.as_deref(), rule.severity.as_str()),
+                (Some("stop"), "hard"),
+                "{}: {}",
+                t.label,
+                rule.id
+            );
+        }
         if !t.machine.phases.iter().any(|phase| phase == "review") {
             continue;
         }

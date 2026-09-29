@@ -799,6 +799,63 @@ fn overriding_a_rule_is_remove_then_prepend() {
 }
 
 #[test]
+fn an_overlay_that_shadows_or_opens_a_hole_is_reported_on_the_flat_table() {
+    // Decision 0050 reads a composed table as the flat table `compose`
+    // produces. While it is proposed the audit reports and the loader
+    // admits (#429), so both overlays still resolve and load.
+    use brokkr_core::policy::audit::{Finding, Setting, SWEEP_BUDGET};
+    let findings = |leaf: &Path| {
+        let machine = Machine::from_table(&resolve(leaf).unwrap().table).unwrap();
+        machine
+            .audit_with(SWEEP_BUDGET, is_engine_owned)
+            .unwrap()
+            .findings
+    };
+    let library = Library::new();
+    let mut base = base_policy();
+    base["rules"].as_array_mut().unwrap().insert(
+        1,
+        json!({"id":"REVIEW-FIXED", "from":"review", "result":"clean", "next":"work",
+               "when": {"fixes_applied": true, "skip_verify": false}, "reason":"re-work"}),
+    );
+    library.recipe("base", &base_bundle(), Some(&base));
+    // A derived rule is prepended ahead of the base rule it subsumes.
+    let shadow = library.recipe(
+        "derived",
+        &derived(json!({"policy": "policy.json"})),
+        Some(&json!({"rules": [
+            {"id":"REVIEW-ANY-FIX", "from":"review", "result":"clean", "next":"done",
+             "when": {"fixes_applied": true}, "reason":"ship any fix"},
+        ]})),
+    );
+    assert_eq!(
+        findings(&shadow),
+        [Finding::Shadowed {
+            rule: "REVIEW-FIXED".into(),
+            behind: "REVIEW-ANY-FIX".into(),
+        }]
+    );
+    // An override narrows the base's fallback and leaves a valuation.
+    library.recipe("base", &base_bundle(), Some(&base_policy()));
+    let hole = library.recipe(
+        "derived",
+        &derived(json!({"policy": "policy.json", "override": {"rules": ["REVIEW"]}})),
+        Some(&json!({"rules": [
+            {"id":"REVIEW", "from":"review", "result":"clean", "next":"done",
+             "when": {"skip_verify": false}, "reason":"review"},
+        ]})),
+    );
+    assert_eq!(
+        findings(&hole),
+        [Finding::Unruled {
+            phase: "review".into(),
+            result: "clean".into(),
+            valuation: vec![("skip_verify".into(), Setting::Flag(true))],
+        }]
+    );
+}
+
+#[test]
 fn the_constitutional_lint_runs_on_the_resolved_table() {
     // AC-17: a derived recipe may not make the protected review phase
     // avoidable (decision 0005). No new lint code — the existing one

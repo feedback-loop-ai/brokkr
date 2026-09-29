@@ -451,11 +451,12 @@ fn parse_condition(
                 "rule {rule_id}: condition '{key}' needs at least one value"
             )));
         }
-        let vocabulary: &[&str] = if key == "strategy_in" {
-            &STRATEGIES
+        let name = if key == "strategy_in" {
+            "strategy"
         } else {
-            &DRIFT_PHASES
+            "drift_in"
         };
+        let vocabulary = vocabulary(name);
         for value in &allowed {
             if !vocabulary.contains(&value.as_str()) {
                 return Err(PolicyError(format!(
@@ -464,11 +465,7 @@ fn parse_condition(
             }
         }
         return Ok(Condition::EnumIn {
-            name: if key == "strategy_in" {
-                "strategy".to_string()
-            } else {
-                "drift_in".to_string()
-            },
+            name: name.to_string(),
             allowed,
         });
     }
@@ -614,16 +611,8 @@ fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<boo
             },
             Condition::EnumIn { name, allowed } => match inputs.get(name) {
                 None | Some(Value::Null) => return Ok(false),
-                Some(Value::String(actual))
-                    if (name == "strategy" && !STRATEGIES.contains(&actual.as_str()))
-                        || (name == "drift_in" && !DRIFT_PHASES.contains(&actual.as_str())) =>
-                {
-                    let vocabulary: &[&str] = if name == "strategy" {
-                        &STRATEGIES
-                    } else {
-                        &DRIFT_PHASES
-                    };
-                    return Err(format!("{name} '{actual}' not in {vocabulary:?}"));
+                Some(Value::String(actual)) if !vocabulary(name).contains(&actual.as_str()) => {
+                    return Err(format!("{name} '{actual}' not in {:?}", vocabulary(name)));
                 }
                 Some(Value::String(actual)) => {
                     if !allowed.contains(actual) {
@@ -636,6 +625,18 @@ fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<boo
     }
     Ok(true)
 }
+
+/// The closed vocabulary an enumeration input's value is drawn from:
+/// `strategy` or `drift_in`, the two names `parse_condition` gives one.
+fn vocabulary(name: &str) -> &'static [&'static str] {
+    if name == "strategy" {
+        &STRATEGIES
+    } else {
+        &DRIFT_PHASES
+    }
+}
+
+pub mod audit;
 
 #[cfg(test)]
 mod tests;

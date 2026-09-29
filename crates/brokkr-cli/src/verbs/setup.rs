@@ -6,6 +6,9 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
+use brokkr_core::policy::audit::SWEEP_BUDGET;
+use brokkr_core::policy::Machine;
+use brokkr_runtime::bundle::is_engine_owned;
 use brokkr_runtime::realms::World;
 
 use crate::cli_args::{CompileArgs, DoctorArgs, DriverArgs, FakeDriverArgs, InitArgs};
@@ -82,7 +85,8 @@ pub(crate) fn doctor(
     })
 }
 
-/// `brokkr compile`: validate a bundle and print its pinned manifest.
+/// `brokkr compile`: validate a bundle and print its pinned manifest,
+/// and decision 0050's sweep of its table on stderr.
 pub(crate) fn compile(workspace: &Path, CompileArgs { bundle }: CompileArgs) -> Result<ExitCode> {
     let world = World::discover(workspace, None)?;
     let bundle = compile_in_realm(workspace, &bundle, world.as_ref(), workspace)?;
@@ -90,7 +94,17 @@ pub(crate) fn compile(workspace: &Path, CompileArgs { bundle }: CompileArgs) -> 
         "{}",
         serde_json::to_string_pretty(&compiled_view(&bundle, world.as_ref()))?
     );
+    eprint!("{}", sweep_report(&bundle.machine, SWEEP_BUDGET));
     Ok(Exit::Completed.into())
+}
+
+/// The audit of a compiled table, or why it was not swept. It is
+/// reported and never refused while decision 0050 is proposed (#429).
+fn sweep_report(machine: &Machine, budget: usize) -> String {
+    match machine.audit_with(budget, is_engine_owned) {
+        Ok(audit) => audit.to_string(),
+        Err(error) => format!("{error}\n"),
+    }
 }
 
 /// `brokkr recipes`: list, add or show a recipe.
@@ -211,3 +225,6 @@ pub(crate) fn fake_driver(
     brokkr_protocol::fake::run_fake_driver(&script, &state, model.as_deref(), effort.as_deref())?;
     Ok(Exit::Completed.into())
 }
+
+#[cfg(test)]
+mod tests;
