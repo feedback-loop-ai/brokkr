@@ -22297,3 +22297,161 @@ stay open until 21-fix-b.
 - **Pending.** macOS, exact coverage outside the box
   (`scripts/coverage-exact.sh`), remote CI, the council, and unit
   21-fix-b.
+
+## Unit 21-fix-a, returned from review — 2026-09-29
+
+Same run, `0065-rebuild-unit-21-see-the-uni-014db2ff`, based on `3e1f0a71`.
+The chief returned two findings, both in this unit's two production files.
+R1 (high): `delivered` judges only denials, so a restriction the serving
+builder lost with every denial intact was still judged only by comparison
+with that builder. R2 (low): the unused-grant reason was owed per unselected
+inventory entry, not per capability. The chief's R3 is a run-integrity
+note, rejected as an instruction, with nothing to build. 21.1 and 21.3 stay
+open until 21-fix-b.
+
+### R1: the final state carries every composed effect, and none beside
+
+- **Now** (`native_controls.rs:2600` `carried`, called at `:2031`). After
+  `delivered` and before the departure comparison, the state parsed from
+  the final argv must carry each capability-bearing effect of the
+  composition, as many times as it stands, and no other. Those effects are
+  each include, allow and deny list with its exact patterns, the sandbox
+  class, each measured OFF, and each control such as `--mcp-config` or a
+  hands `--config`. The composition comes from the sealed inputs through
+  `compose_for_provider`. `adapters::serving_command` never writes it, so a
+  restriction that builder lost is missing here even when the rebuild
+  agrees. Order is left to the departure comparison, because a Codex rejoin
+  re-imposes its class first. DSH carries its composition in its staged
+  overlay, not in argv, so `carried` does not judge it.
+- **Reasons** (`:2568` `effect`, which echoes no value): `does not carry
+  <effect> as its sealed plan composes it, a restriction lost however its
+  serving builder rebuilds it`, and `carries <effect> its sealed plan does
+  not compose, however its serving builder rebuilds it`. `<effect>` is one
+  of: `an include list`, `an allow list`, `a deny list`, `the '<class>'
+  sandbox class`, `the measured OFF for native capability '<c>'`, or
+  `'<flag>'`.
+- **Regression, native denials intact** (`native_controls/tests.rs:9251`).
+  A Claude plan denying both web powers by `WebFetch,WebSearch` under the
+  `--tools Read` OFF is served `--tools "" --disallowedTools
+  WebFetch,WebSearch`, whole, cold and with `--resume`. Without `--tools
+  ""` and with both denials intact, it refuses `does not carry an include
+  list …` (`:9344`). The Codex plan without `--sandbox read-only` (cold) or
+  `sandbox_mode` (rejoin), its OFF intact, refuses `does not carry the
+  'read-only' sandbox class …` (`:9406`). The earlier WebFetch-only and
+  lost-OFF cases stay.
+- **Served before, refused now, through the real builder** (scratch, not
+  committed). A scratch mutation of `adapters.rs` made `claude_serving`
+  drop a `--tools ""` pair and `codex_cold` drop `--sandbox <class>`. A
+  scratch test handed the check exactly what that builder writes, which
+  lacks both.
+  - Under `3e1f0a71`'s `native_controls.rs`, both were served:
+    `SCRATCH claude Ok(["claude", "-p", …, "--permission-mode",
+    "acceptEdits", "--disallowedTools", "WebFetch,WebSearch"])` and
+    `SCRATCH codex Ok(["codex", "exec", "--json", "-C", "/w", …, "-c",
+    "web_search=\"disabled\""])`.
+  - Under the fixed file, both refused: `does not carry an include list …`
+    and `does not carry the 'read-only' sandbox class …`.
+  - Under mutation 1 below, both were served again.
+  - `adapters.rs` was restored byte for byte (`git diff --stat` does not
+    list it), and the scratch test was removed.
+- **Baseline red** (`3e1f0a71`'s `native_controls.rs` over the new tests):
+  12 failed, 72 passed. The regression failed at `:9345` with `departs at
+  argument 7`.
+- **Mutation 1: judged on the recomposition.** `carried(harness,
+  &composition, &composition)`, which compiles. 12 failed, the regression
+  at `:9345` among them.
+- **Mutation 2: the extra direction dropped.** `unmatched.first().filter(|_|
+  false)`. 2 failed: the added `--add-dir` in
+  `a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged`
+  (`:8170`), and the mutation property (`:12651`).
+- **Restored.** The fixed file was copied back after each run and `cmp`
+  matched it. Then 84 of 84 `native_controls` tests passed.
+- **Owning assertions moved** (`native_controls/tests.rs`). Each changed a
+  composed effect of the handed command and pinned `departs at argument N`.
+  Each now pins the state refusal, because `carried` runs before the
+  departure:
+  - `a_complete_claude_command_…`: an added `--add-dir` (`uncomposed`).
+  - `every_departure_of_a_final_claude_command_…`: a truncated deny list, an
+    extra allowed tool, a dropped include list, a word appended to the deny
+    list, and the absent `--tools ""` beside both denials. Its doc names
+    the change.
+  - `the_sealed_inputs_are_checked_…`: the lowered allow list changed.
+  - `a_codex_cold_command_and_its_rejoin_…`: a widened rejoin class, and
+    another typed class under its own fragment.
+  - `every_codex_transport_value_…`: the raw hands binding.
+  - `the_hands_are_bound_…`: the four altered hands values, and another
+    workdir's binding. Claude's filed `--mcp-config` also moved.
+  - `every_sealed_include_limit_…`: a narrowed include list. Its
+    position-only `include` match went with it.
+  - `the_plan_selection_…`: a changed allow list and a changed deny list.
+  - `a_boundary_denial_…`: `Read` removed from the deny list. Its doc
+    changed.
+  - `a_compatible_local_permission_…`: a narrowed include list.
+- **Assertions that still pin a departure** are those that keep the effect
+  multiset: another executable, lead, spelling or workdir; a moved class or
+  pin; a reordered pair; a respelled `--tools=`; another session.
+- **Mutation property.** `unmatched` (`:12378`) writes out the state
+  refusal for a readable mutation whose effects differ from the checked
+  command's, after `undelivered` and before the departure. The "foreign
+  effect added last" rows are now judged the same way, except the rows
+  that carry their own refusal. Tallies are unchanged (15243 Claude, 557
+  Codex, 16 DSH, 15649 LaneTally).
+- **Limitation.** `unmatched` restates the rule in the test. The
+  hand-written literals in the regression, and the builder-loss scratch
+  above, are the independent proof.
+
+### R2: an unselected entry of a held capability names no loss
+
+- **Now** (`capabilities.rs:2137`). In `native_plan`, an entry no holding
+  selects is switched OFF as before. It records a not-held reason only when
+  the seat holds no entry of its capability. The reason is owed per
+  capability, never per entry.
+- **Regression** (`capabilities/tests.rs:1583`,
+  `an_unselected_entry_of_a_held_capability_names_no_loss`). Real realm and
+  dialect loading on the canonicalised CQ1 root. `test-native` declares
+  `web-search` twice (`web-search` and `web-search-legacy`), and the realm
+  grants `web-search` through `search-native`. For a `requires` site,
+  inline and agent-backed, the test asserts that `held` is `["web-search"]`,
+  that the manifest's `not_held` and the prompt's `not_held` are both `{}`,
+  and that argv is `["--search-on", "--legacy-off"]`.
+- **Baseline red** (`3e1f0a71`'s `capabilities.rs`). It failed at `:1626`
+  on the inline form. Both `not_held` values carried `web-search: provider
+  'test-native' has it natively, granted, but this seat does not request
+  it, and it is switched off`. This reproduces the chief's probe. It is
+  also mutation 1, the guard removed.
+- **Mutation 2: the guard over-broad.** `|| true`, which drops every
+  not-held reason. 2 failed:
+  `an_unrequested_grant_and_an_ungranted_power_are_told_apart` (`:1560`),
+  and `a_held_capability_is_switched_on_and_is_fully_attributable`
+  (`:1149`). The existing granted and ungranted cases stand.
+- **Restored.** Copied back and matched by `cmp`.
+
+### Not done here
+
+- R2's restriction rows of unit 21's review, and M1, M2 and M4 re-run as
+  final-check refusals in unit 21's suites, are 21-fix-b's. The
+  builder-loss scratch above is this unit's proof. It was not committed.
+- No standing-admission lines and no fixture migrations. No frozen file,
+  `policy/`, `fixtures/`, `reference/`, `extensions/` or `contracts/` byte
+  moved. `adapters.rs` is unchanged.
+
+### Gates (this return, final tree)
+
+- `cargo fmt --all -- --check`: clean. `cargo fmt --all` first rewrapped
+  two new test lines.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, no warning.
+- `cargo test --locked -p brokkr-protocol -p brokkr-runtime -p brokkr-cli
+  --all-features`: 61 result lines, all ok. The brokkr-protocol lib has
+  546, the brokkr-runtime lib 627 and `capability_launch` 65. The
+  brokkr-protocol lib was re-run after a last doc-comment edit to
+  `check_final`: 546 ok.
+- `cargo test --locked --workspace --all-features` over the other crates
+  (`--exclude` of those three): 16 result lines, all ok.
+- `compile --bundle bundles/self` and `bundles/verify`: both compile.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed.
+- `git diff --check`: clean.
+- **Pending.** macOS, exact coverage outside the box
+  (`scripts/coverage-exact.sh`), remote CI, the council, and unit
+  21-fix-b.

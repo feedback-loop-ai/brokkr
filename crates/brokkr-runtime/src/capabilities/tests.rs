@@ -1573,6 +1573,74 @@ fn an_unrequested_grant_and_an_ungranted_power_are_told_apart() {
     }
 }
 
+/// Review R2 of run 0065-rebuild-unit-21-see-the-uni-014db2ff: a reason for
+/// not holding a native power is owed per capability, never per adapter
+/// entry. A seat that requires `web-search` holds it through the entry its
+/// dialect binds; a second entry declaring the same power is switched off
+/// and names no loss, in the manifest or the prompt, inline and
+/// agent-backed alike.
+#[test]
+fn an_unselected_entry_of_a_held_capability_names_no_loss() {
+    let root = cq1_root();
+    let granted = authority(
+        root.path(),
+        json!({"web-search": {"dialect": "search-native"}}),
+    );
+    let entry = |on: &str, off: &str| {
+        json!({
+            "capability": "web-search", "tools": ["lookup", "search"],
+            "on": {"argv": [on]}, "off": {"argv": [off]},
+            "restrictions": {"unsupported": "no transport"},
+            "evidence": {"source": "a test", "scope": "a test", "limitations": []},
+            "authored": {"flags": ["--search"]}
+        })
+    };
+    let native = NativeInventory::parse(
+        "adapter 'test-native'",
+        Some(&json!({
+            "known": {
+                "web-search": entry("--search-on", "--search-off"),
+                "web-search-legacy": entry("--legacy-on", "--legacy-off")
+            },
+            "selection": {
+                "include": {"flag": "--tools", "separator": ","},
+                "allow": {"flag": "--allow", "separator": ","},
+                "deny": {"flag": "--deny", "separator": ","}
+            }
+        })),
+    )
+    .unwrap();
+    let requires = json!({"web-search": "requires"});
+    let agent = parse_requests("agent 'researcher'", &requires).unwrap();
+    for (form, site) in [
+        (
+            "inline",
+            SiteAsks::of("research", None, Some(&requires)).unwrap(),
+        ),
+        (
+            "agent-backed",
+            SiteAsks::of("research", Some(("researcher", &agent)), None).unwrap(),
+        ),
+    ] {
+        let holding = granted.resolve(&site, &serving(&native)).unwrap();
+        assert_eq!(
+            (
+                holding.held.keys().cloned().collect::<Vec<_>>(),
+                holding.manifest()["not_held"].clone(),
+                holding.prompt()["not_held"].clone(),
+                argv_of(&holding)
+            ),
+            (
+                vec!["web-search".to_string()],
+                json!({}),
+                json!({}),
+                vec!["--search-on".to_string(), "--legacy-off".to_string()]
+            ),
+            "{form}"
+        );
+    }
+}
+
 /// Rebuild unit 11 under the operator's DEFER ruling of 2026-09-25 (design
 /// D11): a declared restriction transport carries only the empty
 /// restriction in slice one. A nonempty one reaches CQ1's outcomes alone,

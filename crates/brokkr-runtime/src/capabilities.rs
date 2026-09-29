@@ -2130,6 +2130,11 @@ impl Authority {
                 // A holding's restriction is the empty one (design D11), so
                 // no transport argument is ever composed for it.
                 Some(_) => on.push(key.clone()),
+                // An unselected entry of a capability the seat holds through
+                // another entry loses the seat nothing: its reason is owed
+                // per capability, never per entry (review R2 of run
+                // 0065-rebuild-unit-21-see-the-uni-014db2ff).
+                None if held.contains_key(&native.capability) => off.push(key.clone()),
                 None => {
                     off.push(key.clone());
                     let unasked = match self.context.grants.get(&native.capability) {

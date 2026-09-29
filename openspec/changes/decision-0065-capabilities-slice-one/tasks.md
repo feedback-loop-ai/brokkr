@@ -4531,6 +4531,33 @@ as 21-fix-a and 21-fix-b". 21.1 and 21.3 stay open until 21-fix-b.
 - **Pending:** macOS, exact coverage outside the box, remote CI, the
   council and 21-fix-b.
 
+**Unit 21-fix-a, returned from review, 2026-09-29 (same run, based on
+`3e1f0a71`; evidence.md, "Unit 21-fix-a, returned from review"): R1 and R2
+of the chief's return repaired.** 21.1 and 21.3 stay open until 21-fix-b.
+The earlier "R1 and R3 repaired" claim held only for denials.
+
+- **R1** (`native_controls.rs`). `carried` makes the state of the final
+  argv carry every capability-bearing effect of the composition, and none
+  beside, before the departure comparison. A restriction the serving
+  builder lost with every denial intact now refuses: Claude's empty
+  include list, Codex's class, the hands and the boundary. Regression: the
+  denials-intact rows of
+  `a_restriction_the_serving_builder_drops_is_refused_by_the_final_check`.
+  A scratch builder mutation (not committed) showed both losses served
+  under `3e1f0a71` and refused now. Owning assertions that pinned a
+  departure for a changed effect now pin the state refusal, and the
+  mutation property writes it out (`unmatched`).
+- **R2** (`capabilities.rs`). An unselected entry of a capability the seat
+  holds names no loss. Regression:
+  `an_unselected_entry_of_a_held_capability_names_no_loss`, inline and
+  agent-backed, manifest and prompt.
+- **Proof.** Baseline reds were observed on `3e1f0a71`, two compiling
+  mutations each were caught, and each file was restored.
+- No standing-admission lines and no fixture migrations. `adapters.rs` is
+  unchanged.
+- **Pending:** macOS, exact coverage outside the box, remote CI, the
+  council and 21-fix-b.
+
 ## 22. Unit 22 — Submit whole plans to doctor
 
 - [ ] 22.1 Unit 22 submits whole plans in both doctor paths. Verify interacting OFF/final-state conflicts and explicit adapter-only scope. Requirements: [Doctor reports grants for every realm][CD1], [Installed native capabilities absent from grants are explicit][CD2], [Restrictions are validated, carried and pinned without engine interpretation][RG4]. Reopened/remaining: operator ruling 2–4. (previous 8.3)

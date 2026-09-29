@@ -6659,6 +6659,32 @@ fn departs(harness: &str, at: usize) -> Refusal {
     )
 }
 
+/// A final command whose own state lacks `effect` of the capability state
+/// its sealed plan composes (rebuild unit 21-fix-a, R1), written out by
+/// hand: refused before any rebuild is compared.
+fn uncarried(harness: &str, effect: &str) -> Refusal {
+    final_refusal(
+        harness,
+        &format!(
+            "does not carry {effect} as its sealed plan composes it, a restriction lost however \
+             its serving builder rebuilds it"
+        ),
+    )
+}
+
+/// A final command whose own state carries `effect` beyond the capability
+/// state its sealed plan composes (rebuild unit 21-fix-a, R1), written out
+/// by hand.
+fn uncomposed(harness: &str, effect: &str) -> Refusal {
+    final_refusal(
+        harness,
+        &format!(
+            "carries {effect} its sealed plan does not compose, however its serving builder \
+             rebuilds it"
+        ),
+    )
+}
+
 /// The composer's refusal of typed hands that do not carry `what` of their
 /// transport (rebuild unit 13-fix-c, R1), written out by hand.
 fn unhanded(provider: &str, count: usize, what: &str) -> Refusal {
@@ -7180,7 +7206,8 @@ fn every_codex_transport_value_decodes_as_toml_to_exactly_itself() {
         );
     }
     // The check binds the hands through the same encoder, so the encoded
-    // command checks and the raw one departs at its binding.
+    // command checks and the raw one lacks its binding (rebuild unit
+    // 21-fix-a, R1).
     let escaped = Sealed {
         transport: Some(escaped_transport()),
         ..codex_hands(&CODEX_HANDS)
@@ -7190,7 +7217,7 @@ fn every_codex_transport_value_decodes_as_toml_to_exactly_itself() {
     assert_eq!(escaped.cold(cold.clone()).unwrap().into_argv(), cold);
     let mut raw = cold.clone();
     raw[12] = "mcp_servers.brokkr.command=\"/opt/a\\u002fb/brokkr\"".into();
-    assert_eq!(escaped.cold(raw), Err(departs("codex", 12)));
+    assert_eq!(escaped.cold(raw), Err(uncarried("codex", "'--config'")));
     // A path that is not UTF-8.
     use std::os::unix::ffi::OsStrExt;
     let unrepresentable = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/opt/\xff/brokkr"));
@@ -8140,14 +8167,19 @@ fn a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged() 
     }
     let mut changed = checked.into_argv();
     changed.extend(argv(&["--add-dir", "/"]));
-    assert_eq!(check(&changed, None), Err(departs("claude", 16)));
+    assert_eq!(
+        check(&changed, None),
+        Err(uncomposed("claude", "'--add-dir'"))
+    );
 }
 
 /// NCC "Final serialization is checked rather than trusted", NCT and RGP
-/// (rebuild units 13, 13-fix-b and 13-fix-c, 13.1): each departure of a
-/// final Claude command from its rebuilt command refuses at the argument it
-/// departs at — a dropped denial, an extra tool, a lost include list, an
-/// extra word, another executable, lead or spelling — and a changed
+/// (rebuild units 13, 13-fix-b and 13-fix-c, 13.1): a dropped denial, an
+/// extra tool, a lost include list and an extra word refuse on the
+/// command's own state as a list its plan does not compose (rebuild unit
+/// 21-fix-a, R1); each other departure of a final Claude command from its
+/// rebuilt command — another executable, lead or spelling — refuses at the
+/// argument it departs at; and a changed
 /// separator, a duplicated engine prefix option, a session selector that
 /// is not a rejoin and a bare word each refuse as read. An explicitly empty
 /// include list is not an absent one, and `--tools=` is not `--tools ""`:
@@ -8161,19 +8193,21 @@ fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
         edit(&mut command);
         sealed.cold(command)
     };
+    // A list dropped or changed is judged on the command's own state before
+    // any rebuild (rebuild unit 21-fix-a, R1).
     assert_eq!(
         edited(&|command| command.truncate(14)),
-        Err(departs("claude", 14))
+        Err(uncarried("claude", "a deny list"))
     );
     assert_eq!(
         edited(&|command| command[13].push_str(",WebFetch")),
-        Err(departs("claude", 13))
+        Err(uncarried("claude", "an allow list"))
     );
     assert_eq!(
         edited(&|command| {
             command.drain(7..9);
         }),
-        Err(departs("claude", 7))
+        Err(uncarried("claude", "an include list"))
     );
     // The executable, the lead and an option's spelling are the command's
     // too.
@@ -8222,7 +8256,7 @@ fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
     // word after a switch has nowhere to go.
     assert_eq!(
         edited(&|command| command.push("hello".into())),
-        Err(departs("claude", 16))
+        Err(uncarried("claude", "a deny list"))
     );
     assert_eq!(
         edited(&|command| command.insert(5, "hello".into())),
@@ -8284,8 +8318,13 @@ fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
     ]
     .concat();
     assert_eq!(denying.cold(joined), Err(departs("claude", 5)));
+    // Absent, with both denials intact, refuses on its own state (rebuild
+    // unit 21-fix-a, R1).
     let absent = [split[..5].to_vec(), split[7..].to_vec()].concat();
-    assert_eq!(denying.cold(absent), Err(departs("claude", 5)));
+    assert_eq!(
+        denying.cold(absent),
+        Err(uncarried("claude", "an include list"))
+    );
     // Without a lead, the executable alone is not the driver's command.
     let unled = [argv(&["claude"]), split[5..].to_vec()].concat();
     assert_eq!(denying.cold(unled), Err(departs("claude", 1)));
@@ -8499,7 +8538,7 @@ fn the_sealed_inputs_are_checked_independently_of_the_command() {
     );
     let mut bare = local_cold.clone();
     bare[8] = "WebSearch".into();
-    assert_eq!(local.cold(bare), Err(departs("claude", 8)));
+    assert_eq!(local.cold(bare), Err(uncarried("claude", "an allow list")));
     // Without hands, an unspecified allow is never dormant.
     assert_eq!(
         Sealed {
@@ -8846,7 +8885,7 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
     widened[5] = "sandbox_mode=\"danger-full-access\"".into();
     assert_eq!(
         check(&sealed, &widened, Some(CODEX_THREAD)),
-        Err(departs("codex", 5))
+        Err(uncarried("codex", "the 'read-only' sandbox class"))
     );
     assert_eq!(
         check(
@@ -8908,7 +8947,10 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
         )
     );
     other_class.sandbox = argv(&["--sandbox", "workspace-write"]);
-    assert_eq!(check(&other_class, &cold, None), Err(departs("codex", 12)));
+    assert_eq!(
+        check(&other_class, &cold, None),
+        Err(uncarried("codex", "the 'workspace-write' sandbox class"))
+    );
     other_class.sandbox = Vec::new();
     assert_eq!(
         check(&other_class, &cold, None),
@@ -9015,9 +9057,14 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
     ] {
         let mut served = cold.clone();
         served[at] = value.into();
-        assert_eq!(boxed.cold(served), Err(departs("codex", at)), "{value}");
+        assert_eq!(
+            boxed.cold(served),
+            Err(uncarried("codex", "'--config'")),
+            "{at} {value}"
+        );
     }
-    // The same executable bound for another workdir is another command.
+    // The same executable bound for another workdir is another binding,
+    // which the command lacks (rebuild unit 21-fix-a, R1).
     let elsewhere = Sealed {
         transport: Some(Transport {
             workdir: std::path::Path::new("/other"),
@@ -9025,7 +9072,10 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
         }),
         ..boxed.clone()
     };
-    assert_eq!(elsewhere.cold(cold.clone()), Err(departs("codex", 14)));
+    assert_eq!(
+        elsewhere.cold(cold.clone()),
+        Err(uncarried("codex", "'--config'"))
+    );
     // A measured fragment whose class stands last: the cold command keeps
     // it there. Its rejoin is none the driver spawns: the hands' server
     // bindings are assignments a rejoin cannot carry, so the driver declines
@@ -9089,7 +9139,10 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
     let cold = claude_cold();
     let mut filed = cold.clone();
     filed[11] = "/w/hands.json".into();
-    assert_eq!(boxed.cold(filed), Err(departs("claude", 11)));
+    assert_eq!(
+        boxed.cold(filed),
+        Err(uncarried("claude", "'--mcp-config'"))
+    );
     let mut file = CLAUDE_HANDS;
     file[4] = "/w/hands.json";
     let mut loaded = CLAUDE_HANDS.to_vec();
@@ -9190,7 +9243,10 @@ fn an_unselected_entrys_off_for_a_held_capability_is_no_denial() {
 /// Claude's managed empty include list from a plan that holds nothing
 /// under a `--tools Read` OFF (unit 21's M1 and M2), and Codex's measured
 /// web-search OFF (unit 21's M4) — and refuses with the delivery it lacks,
-/// not a departure from a rebuild that lost it alike.
+/// not a departure from a rebuild that lost it alike. A restriction lost
+/// with every denial intact — Claude's empty include list beside both
+/// denials, Codex's class beside its OFF — refuses as the effect the
+/// command's own state lacks.
 #[test]
 fn a_restriction_the_serving_builder_drops_is_refused_by_the_final_check() {
     let session = "019c4b7e-0000-7000-8000-000000000021";
@@ -9259,6 +9315,35 @@ fn a_restriction_the_serving_builder_drops_is_refused_by_the_final_check() {
     let unlimited = |command: &[String]| [&command[..7], &command[9..]].concat();
     assert_eq!(limited.cold(unlimited(&cold)), search);
     assert_eq!(limited.check(unlimited(&rejoined), resumed), search);
+    // Both denials intact (review R1 of run 0065-rebuild-unit-21-see-the-uni-
+    // 014db2ff): the empty include list lost alone leaves no denied tool
+    // available, and the command's own state still lacks it.
+    let denying = Sealed {
+        controls: Controls {
+            selection: Selection {
+                deny: argv(&["WebFetch", "WebSearch"]),
+                ..limited.controls.selection.clone()
+            },
+            ..limited.controls.clone()
+        },
+        ..limited.clone()
+    };
+    let intact = [cold[..10].to_vec(), argv(&["WebFetch,WebSearch"])].concat();
+    let intact_rejoined = [intact.clone(), argv(&["--resume", session])].concat();
+    assert_eq!(denying.served(&CLAUDE_LEAD), intact);
+    assert_eq!(
+        denying.cold(intact.clone()).map(Checked::into_argv),
+        Ok(intact.clone())
+    );
+    assert_eq!(
+        denying
+            .check(intact_rejoined.clone(), resumed)
+            .map(Checked::into_argv),
+        Ok(intact_rejoined.clone())
+    );
+    let empty = Err(uncarried("claude", "an include list"));
+    assert_eq!(denying.cold(unlimited(&intact)), empty);
+    assert_eq!(denying.check(unlimited(&intact_rejoined), resumed), empty);
 
     let codex = codex_final(false, true);
     let codex_cold = argv(&[
@@ -9317,6 +9402,12 @@ fn a_restriction_the_serving_builder_drops_is_refused_by_the_final_check() {
     assert_eq!(codex.cold(codex_cold[..13].to_vec()), on);
     let unswitched = [&codex_rejoin[..12], &codex_rejoin[14..]].concat();
     assert_eq!(codex.check(unswitched, thread), on);
+    // Its class lost with its OFF intact, cold and rejoined.
+    let unclassed = Err(uncarried("codex", "the 'read-only' sandbox class"));
+    let cold_unclassed = [&codex_cold[..11], &codex_cold[13..]].concat();
+    assert_eq!(codex.cold(cold_unclassed), unclassed);
+    let rejoin_unclassed = [&codex_rejoin[..4], &codex_rejoin[6..]].concat();
+    assert_eq!(codex.check(rejoin_unclassed, thread), unclassed);
 }
 
 /// [`codex_hands`]'s plan under the `harness` boundary, as an agent's
@@ -10232,15 +10323,11 @@ fn every_sealed_include_limit_binds_the_final_command_empty_or_not() {
                 _ => part.clone(),
             })
             .collect();
-        // The template's list stands before the allow list; the boundary's
-        // and the plan's after it.
-        let include = match owner {
-            0 => 8,
-            _ => 10,
-        };
+        // Wherever the list stands, the command's own state lacks it
+        // (rebuild unit 21-fix-a, R1).
         assert_eq!(
             sealed.cold(narrowed),
-            Err(departs("claude", include)),
+            Err(uncarried("claude", "an include list")),
             "{name}"
         );
     }
@@ -10291,7 +10378,10 @@ fn the_plan_selection_and_each_holding_subset_reach_the_final_command() {
     // The selection's admission dropped from the command.
     let mut unadmitted = served(&local);
     unadmitted[8] = "Bash(git log:*)".into();
-    assert_eq!(local.cold(unadmitted), Err(departs("claude", 8)));
+    assert_eq!(
+        local.cold(unadmitted),
+        Err(uncarried("claude", "an allow list"))
+    );
     // The plan's own native lists, the selection admitting nothing.
     let native = |controls: &[&str]| {
         let mut sealed = local.clone();
@@ -10323,13 +10413,17 @@ fn the_plan_selection_and_each_holding_subset_reach_the_final_command() {
     );
     let mut undenied = command.clone();
     undenied[10] = "WebFetch".into();
-    assert_eq!(denying.cold(undenied), Err(departs("claude", 10)));
+    assert_eq!(
+        denying.cold(undenied),
+        Err(uncarried("claude", "a deny list"))
+    );
 }
 
 /// F1 (rebuild units 13-fix and 13-fix-b; NCT and NCC): a denial the
 /// boundary composed is owed like every other contribution. The unboxed
 /// local plan under a boundary narrowing `Read` recomposes a command that
-/// checks; `Read` removed from the final command departs at the deny list.
+/// checks; `Read` removed from the final command lacks the deny list its
+/// plan composes (rebuild unit 21-fix-a, R1).
 #[test]
 fn a_boundary_denial_is_owed_by_the_final_command() {
     let mut sealed = claude_local();
@@ -10352,7 +10446,7 @@ fn a_boundary_denial_is_owed_by_the_final_command() {
         Ok(cold.clone())
     );
     let unread: Vec<String> = cold.iter().map(|part| part.replace("Read,", "")).collect();
-    assert_eq!(sealed.cold(unread), Err(departs("claude", 10)));
+    assert_eq!(sealed.cold(unread), Err(uncarried("claude", "a deny list")));
 }
 
 /// F6 (rebuild units 13-fix and 13-fix-b; NCT and D6): the one builder
@@ -10385,7 +10479,10 @@ fn a_compatible_local_permission_composes_and_checks_under_a_limit() {
     );
     let mut narrowed = served.clone();
     narrowed[10] = "WebSearch".into();
-    assert_eq!(sealed.cold(narrowed), Err(departs("claude", 10)));
+    assert_eq!(
+        sealed.cold(narrowed),
+        Err(uncarried("claude", "an include list"))
+    );
 }
 
 /// A seat's prompt that spells a tool-list option and a session selector,
@@ -12273,10 +12370,42 @@ fn undelivered(state: &Generated, command: &[String]) -> Option<Refusal> {
         })
 }
 
+/// The refusal a readable mutation earns after delivery and before any
+/// departure where its own state no longer carries exactly the effects of
+/// the checked command (rebuild unit 21-fix-a, R1): the first effect of
+/// the checked command it lacks, each counted as often as it stands, else
+/// the first it adds, each named without its value.
+fn unmatched(harness: &str, expected: &[String], command: &[String]) -> Option<Refusal> {
+    let effects = |command: &[String]| -> Option<Vec<Expressed>> {
+        let parsed = grammar::parse_final(harness, &command[1..])?.ok()?;
+        read_state(&parsed.command).ok().map(|state| state.effects)
+    };
+    let (checked, mut left) = (effects(expected)?, effects(command)?);
+    let named = |effect: &Expressed| match effect {
+        Expressed::List(ListKind::Include, _) => "an include list".to_string(),
+        Expressed::List(ListKind::Allow, _) => "an allow list".to_string(),
+        Expressed::List(ListKind::Deny, _) => "a deny list".to_string(),
+        Expressed::Class(word) => format!("the '{word}' sandbox class"),
+        Expressed::Off(capability) => {
+            format!("the measured OFF for native capability '{capability}'")
+        }
+        Expressed::Control(name, _) => format!("'{name}'"),
+    };
+    for effect in &checked {
+        match left.iter().position(|other| other == effect) {
+            Some(at) => drop(left.remove(at)),
+            None => return Some(uncarried(harness, &named(effect))),
+        }
+    }
+    left.first().map(|extra| uncomposed(harness, &named(extra)))
+}
+
 /// Every single mutation of one checked command, each beside the refusal
 /// written out for it (rebuild units 13-fix, 13-fix-b and 13-fix-c, R4 and
 /// R5), or, where it drops what its plan denies, the delivery refusal
-/// [`undelivered`] writes out (rebuild unit 21-fix-a). The executable is
+/// [`undelivered`] writes out (rebuild unit 21-fix-a), or, where its own
+/// state lacks or adds an effect, the refusal [`unmatched`] writes out
+/// (rebuild unit 21-fix-a, R1). The executable is
 /// replaced. Every option — capability-bearing or
 /// not, nothing dropped as inert — is dropped and altered; a list of several
 /// is shrunk by one pattern and reordered; a list written `--flag value` is
@@ -12291,6 +12420,7 @@ fn mutations(state: &Generated, expected: &[String]) -> Vec<(String, Vec<String>
     let refuse = |problem: &str| final_refusal(harness, problem);
     let departing = |command: &[String]| {
         undelivered(state, command)
+            .or_else(|| unmatched(harness, expected, command))
             .unwrap_or_else(|| departs(harness, first_departure(command, expected)))
     };
     let mut out = Vec::new();
@@ -12422,20 +12552,21 @@ fn mutations(state: &Generated, expected: &[String]) -> Vec<(String, Vec<String>
         None => 0,
     };
     let end = expected.len() - tail;
-    let extra = departs(harness, end);
+    // `None`: judged as every other readable mutation is, by its delivery,
+    // its effects and then its departure at `end` (rebuild unit 21-fix-a).
     let lacks = |kind: ListKind| parsed.command.lists(kind).next().is_none();
     let rejoined = harness == "codex" && state.serving.session.is_some();
-    let mut added: Vec<(Vec<&str>, Refusal)> = match harness {
+    let mut added: Vec<(Vec<&str>, Option<Refusal>)> = match harness {
         "codex" => vec![
-            (vec!["--search"], extra.clone()),
-            (vec!["--full-auto"], extra.clone()),
-            (vec!["--add-dir", "/"], extra.clone()),
-            (vec!["--profile", "p"], extra.clone()),
-            (vec!["-c", "mcp_servers.x.command=\"y\""], extra.clone()),
-            (vec!["-c", "web_search=\"disabled\""], extra.clone()),
+            (vec!["--search"], None),
+            (vec!["--full-auto"], None),
+            (vec!["--add-dir", "/"], None),
+            (vec!["--profile", "p"], None),
+            (vec!["-c", "mcp_servers.x.command=\"y\""], None),
+            (vec!["-c", "web_search=\"disabled\""], None),
             (
                 vec!["--sandbox", "read-only"],
-                match rejoined {
+                Some(match rejoined {
                     true => refuse(&format!(
                         "cannot be read: it expresses the sandbox class a second time (argument \
                          {end})"
@@ -12444,24 +12575,28 @@ fn mutations(state: &Generated, expected: &[String]) -> Vec<(String, Vec<String>
                         "cannot be read whole (argument {end}, '--sandbox': it {})",
                         repeats("--sandbox")
                     )),
-                },
+                }),
             ),
             (
                 vec!["-c", "sandbox_workspace_write.network_access=true"],
-                unestablished_assignment(harness, end, "sandbox_workspace_write"),
+                Some(unestablished_assignment(
+                    harness,
+                    end,
+                    "sandbox_workspace_write",
+                )),
             ),
         ],
         _ => vec![
-            (vec!["--add-dir", "/"], extra.clone()),
-            (vec!["--settings", "/s.json"], extra.clone()),
-            (vec!["--agents", "/a.json"], extra.clone()),
-            (vec!["--plugin-dir", "/p"], extra.clone()),
+            (vec!["--add-dir", "/"], None),
+            (vec!["--settings", "/s.json"], None),
+            (vec!["--agents", "/a.json"], None),
+            (vec!["--plugin-dir", "/p"], None),
             (
                 vec!["--session-id", "session-2"],
-                refuse(&format!(
+                Some(refuse(&format!(
                     "cannot be read: it carries '--session-id' (argument {end}), a session \
                      selector other than a rejoin's"
-                )),
+                ))),
             ),
         ],
     };
@@ -12472,16 +12607,14 @@ fn mutations(state: &Generated, expected: &[String]) -> Vec<(String, Vec<String>
             (ListKind::Deny, "--disallowedTools"),
         ] {
             if lacks(kind) {
-                added.push((vec![flag, "Glob"], extra.clone()));
+                added.push((vec![flag, "Glob"], None));
             }
         }
     }
     for (effect, refusal) in added {
-        out.push((
-            format!("add {}", effect.join(" ")),
-            spliced(end, end, &argv(&effect)),
-            refusal,
-        ));
+        let command = spliced(end, end, &argv(&effect));
+        let refusal = refusal.unwrap_or_else(|| departing(&command));
+        out.push((format!("add {}", effect.join(" ")), command, refusal));
     }
     out
 }

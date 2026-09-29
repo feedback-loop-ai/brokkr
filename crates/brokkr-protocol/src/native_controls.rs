@@ -1946,7 +1946,10 @@ fn unchecked<'a>(harness: &'a str, problem: Vec<Piece<'a>>) -> Refusal {
 ///    prompt — parses under the harness's grammar
 ///    ([`grammar::Grammar::parse_final`]) into its [`State`]. What the
 ///    plan denies is judged delivered on that state alone ([`delivered`]),
-///    never on the recomposition or the rebuild below (operator ruling of
+///    never on the recomposition or the rebuild below, and that state must
+///    carry each capability-bearing effect the composition of step 3
+///    carries, and none beside ([`carried`]), so a restriction the serving
+///    builder lost refuses however its rebuild agrees (operator ruling of
 ///    2026-09-29, rebuild unit 21-fix-a).
 /// 2. The sealed inputs are the plan's ([`sealed_inputs`]), and from them
 ///    and the engine's serving choices alone the engine's contributions are
@@ -2017,7 +2020,7 @@ pub fn check_final(
                 unread(problem),
             ])
         })?;
-    read_state(&recomposed).map_err(|cause| {
+    let composition = read_state(&recomposed).map_err(|cause| {
         refuse(vec![
             Piece::Words("recomposes from its sealed inputs a command that cannot be read: it "),
             Piece::Grammar(cause),
@@ -2028,6 +2031,7 @@ pub fn check_final(
     // the serving builder lost is lost from its rebuild too, so no
     // comparison with that builder can find it.
     delivered(harness, controls, &state)?;
+    carried(harness, &composition, &state)?;
     let rebuilt =
         crate::adapters::serving_command(harness, &serving, &composed).map_err(|cause| {
             refuse(vec![
@@ -2561,6 +2565,73 @@ fn sealed_inputs(
         .concat(),
         [hands_argv, boundary_argv].concat(),
     ))
+}
+
+/// One capability-bearing effect as a refusal names it, echoing no value.
+fn effect(expressed: &Expressed) -> Vec<Piece<'_>> {
+    match expressed {
+        Expressed::List(ListKind::Include, _) => vec![Piece::Words("an include list")],
+        Expressed::List(ListKind::Allow, _) => vec![Piece::Words("an allow list")],
+        Expressed::List(ListKind::Deny, _) => vec![Piece::Words("a deny list")],
+        Expressed::Class(word) => vec![
+            Piece::Words("the '"),
+            Piece::Words(word),
+            Piece::Words("' sandbox class"),
+        ],
+        Expressed::Off(capability) => vec![
+            Piece::Words("the measured OFF for "),
+            Piece::Capability(capability),
+        ],
+        Expressed::Control(name, _) => vec![Piece::Flag(name)],
+    }
+}
+
+/// Whether the final command, by the state parsed from its own argv,
+/// carries every capability-bearing effect its sealed plan composes and
+/// none beside them (operator ruling of 2026-09-29, rebuild unit 21-fix-a,
+/// R1): each include, allow and deny list with its exact patterns, the
+/// sandbox class, each measured OFF, and each loaded document, server
+/// assignment or other control, as many times as the composition carries
+/// it. The composition is read from the sealed inputs through the composer
+/// alone; the serving builder never writes it, so a restriction that
+/// builder lost — an empty include list whose denials stand, a class, the
+/// box's hands or a boundary — is missing here, and one it added is
+/// extra, however its rebuild agrees. Order is the departure comparison's
+/// to judge, since a Codex rejoin re-imposes its class first. A DSH
+/// command carries its composition in its staged overlay, not its argv,
+/// and is not judged here.
+fn carried(harness: &str, composition: &State, state: &State) -> Result<(), Refusal> {
+    if harness == "dsh" {
+        return Ok(());
+    }
+    let mut unmatched: Vec<&Expressed> = state.effects.iter().collect();
+    for composed in &composition.effects {
+        match unmatched.iter().position(|effect| *effect == composed) {
+            Some(at) => {
+                unmatched.remove(at);
+            }
+            None => {
+                let mut problem = vec![Piece::Words("does not carry ")];
+                problem.extend(effect(composed));
+                problem.push(Piece::Words(
+                    " as its sealed plan composes it, a restriction lost however its serving \
+                     builder rebuilds it",
+                ));
+                return Err(unchecked(harness, problem));
+            }
+        }
+    }
+    match unmatched.first() {
+        Some(extra) => {
+            let mut problem = vec![Piece::Words("carries ")];
+            problem.extend(effect(extra));
+            problem.push(Piece::Words(
+                " its sealed plan does not compose, however its serving builder rebuilds it",
+            ));
+            Err(unchecked(harness, problem))
+        }
+        None => Ok(()),
+    }
 }
 
 /// Whether one deny pattern denies `tool` outright: a bare name denies
