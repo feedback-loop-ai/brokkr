@@ -148,11 +148,7 @@ pub(crate) fn version(observation: &Observation) -> Fact<String> {
 fn parse_lines(text: &str, source: &str, first: usize) -> Stream {
     let mut events = Vec::new();
     let mut unparsed = Vec::new();
-    for (index, line) in text
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| !line.trim().is_empty())
-    {
+    for (index, line) in text.lines().enumerate() {
         match strict::object(line) {
             Some(fields) => events.push(Event {
                 line: first + index,

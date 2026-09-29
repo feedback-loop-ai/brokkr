@@ -959,6 +959,39 @@ fn a_cli_that_cannot_be_launched_is_refused_with_the_io_error() {
 }
 
 #[test]
+fn a_directory_under_the_scratch_home_that_cannot_be_listed_refuses_the_probe() {
+    use std::os::unix::fs::PermissionsExt;
+    let world = world();
+    let cli = world.fake(
+        "claude-unlistable",
+        "#!/bin/sh\nmkdir \"$HOME/unlistable\"\nchmod 000 \"$HOME/unlistable\"\n\
+         echo \"$HOME\" > \"$0.home\"\necho '9.9.9 (Fake Claude)'\n",
+    );
+    let result = probe_with(
+        AdapterKind::Claude,
+        &cli,
+        &claude_declared(),
+        &world.bindings,
+        DEADLINE,
+    );
+    // The scratch root the probe could not remove, made removable.
+    let home = std::fs::read_to_string(cli.with_extension("home")).unwrap();
+    let home = Path::new(home.trim_end());
+    std::fs::set_permissions(
+        home.join("unlistable"),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    std::fs::remove_dir_all(home.parent().unwrap()).unwrap();
+    let error = result.unwrap_err();
+    assert!(matches!(error, ProbeError::Io { .. }), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        "could not list a directory under the scratch HOME: Permission denied (os error 13)"
+    );
+}
+
+#[test]
 fn an_adapter_that_is_not_a_harness_is_refused_before_anything_runs() {
     let declared = Declared {
         adapter: "exec".to_string(),
