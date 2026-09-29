@@ -20629,3 +20629,35 @@ frozen run-manifest contracts. So the fix must be recorded in the journal.
 - Exact coverage outside the box.
 - Remote CI.
 - The council.
+
+## Unit 19 — re-fire, 2026-09-29: OVERSIZED again
+
+Same run, `0065-rebuild-unit-19-see-the-uni-6f959130`. Triage re-ruled the
+unit `chore`. Its framing (`.forge/tasks/0065-unit-19-charter-integrity.md`)
+does not mention the oversized return. No operator ruling came in between.
+This visit rebuilt nothing. It re-checked the wall at `9bed6803`:
+
+- `operator-ruling-2026-09-23.md`: the last addendum is still "2026-09-27:
+  an unselected entry neither grants nor denies…". None rules on unit 19,
+  on runs without recorded bindings, or on the two files.
+- `sha256sum .forge/unit-19-fix/unit-19-f1-oversized.patch`:
+  `f9cbac788d8315af13c7d7d9a41fb4f770280ff6db1950d7acbf227d8b797b36`, which
+  is unchanged. `git apply --check -v` against `9bed6803` passes for all four
+  files.
+- `git diff --stat c66be187 HEAD -- crates` is empty, so the patch's proof
+  base is the current code.
+- `crates/brokkr-cli/tests/witness_journal.rs:38` still pins `("run/started",
+  &["feature", "manifest"])`.
+- `crates/brokkr-cli/src/tests.rs:153-156` (`stopped_mid_flight_run`) still
+  resumes a copy of the frozen journal
+  `fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson`, and
+  `resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three`
+  (`:2667`) still uses it.
+
+No gate was run, because nothing but these records moved. Still owed before
+the landing:
+
+- An operator ruling on runs with no recorded bindings.
+- An admission for `witness_journal.rs` and `src/tests.rs`.
+
+Then the saved patch lands with its owed per-branch mutations.

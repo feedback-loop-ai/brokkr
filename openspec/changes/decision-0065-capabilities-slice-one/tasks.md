@@ -4037,6 +4037,12 @@ Two test files outside the unit need non-admissible changes:
 The second needs an operator ruling first: do runs with no recorded bindings
 refuse (no grandfathering), or keep the intact-only check?
 
+**Re-fired 2026-09-29 after triage re-ruled `chore`; OVERSIZED again.** No
+addendum on unit 19 exists in `operator-ruling-2026-09-23.md`. The saved
+patch still applies to `9bed6803`, its hash is unchanged, and both blocking
+tests are unchanged. Evidence.md, "Unit 19 — re-fire", has the checks.
+Nothing was rebuilt.
+
 ## 20. Unit 20 — Audit compiled refusal and serving shapes
 
 - [ ] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)
