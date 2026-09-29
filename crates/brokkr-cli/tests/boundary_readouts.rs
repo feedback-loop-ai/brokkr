@@ -56,12 +56,19 @@ fn is_comment(line: &str) -> bool {
 
 /// The console's root and every production module it declares, which
 /// #288 split it into. A declaration in any form but `mod name;` is
-/// refused rather than passed unread.
+/// refused rather than passed unread, and a module is a test module only
+/// when `#[cfg(test)]` is the line above its declaration — the evidence
+/// `tui/source_tests.rs` reads too — whatever its name.
 fn tui_sources() -> Vec<(String, String)> {
     let root = "crates/brokkr-cli/src/tui.rs".to_string();
     let text = source(&root);
     let mut sources = Vec::new();
-    for line in text.lines().filter(|line| !is_comment(line)) {
+    let mut previous = "";
+    for line in text.lines() {
+        let test_only = std::mem::replace(&mut previous, line) == "#[cfg(test)]";
+        if is_comment(line) {
+            continue;
+        }
         let Some(declared) = line.split_once("mod ").map(|(_, rest)| rest) else {
             continue;
         };
@@ -71,7 +78,7 @@ fn tui_sources() -> Vec<(String, String)> {
             .unwrap_or_else(|| {
                 panic!("tui.rs declares `{declared}` in a form the pin does not read")
             });
-        if name != "tests" && !name.ends_with("_tests") {
+        if !test_only {
             let path = format!("crates/brokkr-cli/src/tui/{name}.rs");
             sources.push((path.clone(), source(&path)));
         }
