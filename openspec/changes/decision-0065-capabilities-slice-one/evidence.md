@@ -21596,3 +21596,35 @@ before committing it.
 - Pending: R1 (unit 20-fix-b, above). Then 20.1, unit 21's restriction
   rows for 21.3, macOS, exact coverage outside the box, remote CI and the
   council.
+
+## Unit 20-fix, second triage return — 2026-09-29 (blocked)
+
+Same run. Triage re-ruled the oversized return a chore at `8d79faad`. It
+read no history and granted no new file. No operator addendum has landed
+since R5: the ruling file's last addendum is still "2026-09-29: a typed
+restriction on an unmeasured plan refuses at compile (R5)".
+
+- The one open obligation is still R1: the pinned `brokkr resume` refusal
+  rows, inline and agent-backed. The framing names it ("do not infer actual
+  resume coverage from cold compilation"). It also keeps the work inside
+  the three runtime/protocol test files. As the return above records, only
+  `crates/brokkr-cli/tests/capability_verbs.rs` reaches `unreproducible`'s
+  line. The framing's scope and its obligation contradict each other.
+- A second `oversized` would loop through triage again, as it did for
+  unit 20. So this visit reports `blocked`, as unit 20's third visit did.
+  The operator's options: admit `capability_verbs.rs` to unit 20-fix, or
+  commission unit 20-fix-b (the split recorded above: one test file, no
+  production file).
+- Re-observed this session on `8d79faad`: `cargo test -p brokkr-runtime
+  --all-features --locked --test capability_launch
+  every_compiled_site_shape_of_every_harness` passed (1 passed).
+  `cargo test -p brokkr-protocol --all-features --locked` passed (544,
+  99 with 2 ignored, and 1; none failed). `grep -n -i
+  "lanetally\|tally\|unmeasured" crates/brokkr-cli/tests/capability_verbs.rs`
+  finds only the module comment at `:8`, so no LaneTally resume row
+  exists.
+- No test, production file or fixture changed. No standing-admission
+  lines and no fixture migrations.
+- Pending: R1 (the ruling, then its unit), then 20.1. Also pending: unit
+  21's restriction rows for 21.3, macOS, exact coverage outside the box,
+  remote CI and the council.

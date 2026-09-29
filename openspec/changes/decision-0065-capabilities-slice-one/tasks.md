@@ -4313,6 +4313,13 @@ evidence.md, "Unit 20-fix, review return"): oversized. 20.1 is reopened.**
   20.1, unit 21 for 21.3, macOS, external exact coverage, remote CI and
   the council. See evidence.md.
 
+**Unit 20-fix, second triage return (2026-09-29, same run, at `8d79faad`;
+evidence.md, "Unit 20-fix, second triage return"): blocked.** Triage
+re-ruled chore, but no addendum grants `capability_verbs.rs`. R1's pinned
+`brokkr resume` rows can be proved only there. The matrix and protocol
+suites were re-run and pass. Nothing else changed. 20.1 stays open until
+the operator admits that file or commissions unit 20-fix-b.
+
 ## 21. Unit 21 — Prove compiled cold and actual-resume restrictions
 
 - [ ] 21.1 Unit 21 proves managed Read/empty restrictions in compiled cold/eligible-resume Claude/LaneTally shapes. Verify authored lists refuse, prompt integrity and independent inventory. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Prompt values cannot absorb a composed control][NCP], [Subtractive tool lists never grant a capability][RGS]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.4)
