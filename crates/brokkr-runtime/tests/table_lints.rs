@@ -324,6 +324,31 @@ fn the_unruled_valuations_are_pinned_per_table() {
 /// reviewer's note a death was total, deterministic and wrong.
 #[test]
 fn the_stated_properties_hold_on_every_shipped_table() {
+    // Ruling 5's clean property is held at the plain verdict only. A clean
+    // verdict carrying an exhausted spec defect parks in the tables below,
+    // and whether the property ranges over that valuation awaits the
+    // operator (`docs/evidence/decision-0050-audit.md`, item 9).
+    let exhausted = json!({
+        "strategy": "design",
+        "spec_defect": true,
+        "visits_specify": 3,
+        "fixes_applied": false
+    });
+    let parked: Vec<String> = shipped_tables()
+        .into_iter()
+        .filter(|t| {
+            matches!(
+                t.machine
+                    .evaluate("review", "clean", exhausted.as_object().unwrap()),
+                Outcome::Park { .. }
+            )
+        })
+        .map(|t| t.label)
+        .collect();
+    assert_eq!(
+        parked,
+        ["recipes/gpt-flash", "recipes/night-shift", "recipes/triage"]
+    );
     for t in shipped_tables() {
         // Ruling 5: `security-hold` rules a hard stop from every phase
         // that admits it, in every table: at every swept valuation of its

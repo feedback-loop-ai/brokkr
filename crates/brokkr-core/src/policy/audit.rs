@@ -34,16 +34,22 @@ pub struct Audit {
     pub findings: Vec<Finding>,
 }
 
-/// One finding, each a refusal decision 0050 proposes.
+/// One finding, each a refusal decision 0050 proposes. Ruling 2's three
+/// findings are read over the present, well-typed valuations of a group's
+/// inputs, with every counter integral: an absent input satisfies no
+/// condition, so a rule reported dead still fires when a seat omits an
+/// input the earlier rules read. Absence is presence's (ruling 1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Finding {
-    /// Ruling 2: `rule` can never fire, because `behind` precedes it in
-    /// its group and matches wherever it matches.
+    /// Ruling 2: `rule` fires on no present valuation, because `behind`
+    /// precedes it in its group and matches wherever it matches.
     Shadowed { rule: String, behind: String },
-    /// Ruling 2: `rule` can never fire, because the earlier rules `by`
-    /// together match wherever it matches, and no one of them alone does.
+    /// Ruling 2: `rule` fires on no present valuation, because the earlier
+    /// rules `by` together match wherever it matches, and no one of them
+    /// alone does.
     Covered { rule: String, by: Vec<String> },
-    /// Ruling 2: `rule`'s guard holds on no valuation of its inputs.
+    /// Ruling 2: `rule`'s guard holds on no present valuation of its
+    /// inputs.
     Unsatisfiable { rule: String },
     /// Ruling 3: no transition edge reaches `phase` from `initial`.
     Unreachable { phase: String },
@@ -266,7 +272,8 @@ impl Machine {
     /// axes, evaluated by the real evaluator. A valuation it cannot rule
     /// is unruled, and a rule that rules no valuation is dead. The axes
     /// sample every threshold at and around it, so every region of every
-    /// guard form is walked and both answers are exact: a vacuous guard,
+    /// guard form is walked and both answers are exact over present,
+    /// well-typed inputs with integral counters: a vacuous guard,
     /// or earlier arms that together cover a later one, are found as
     /// surely as a single stronger guard. Returns `(dead, unruled)`.
     fn sweep(&self, group: &Group<'_>) -> (Vec<Finding>, Vec<Finding>) {

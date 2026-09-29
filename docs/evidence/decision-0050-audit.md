@@ -16,7 +16,7 @@ listed under [Awaiting the operator's ruling](#awaiting-the-operators-ruling).
 | 2. Order | partial: the unconditional shadow is refused, every other dead rule is reported | `Machine::from_table`; `Machine::audit_with`, `Finding::Shadowed`, `Finding::Covered` and `Finding::Unsatisfiable` | no refusal of a dead rule at load or compile; the decision's condition-wise wording misses vacuous guards and collective cover |
 | 3. Liveness | partial: reported, not refused | `Machine::audit_with`, `Finding::Unreachable` and `Finding::DeadEnd` | no refusal |
 | 4. Totality | partial: swept, bounded and reported by `brokkr compile` | `Machine::audit_with`, `Finding::Unruled`, `AuditError::Budget` | no refusal; no shipped table names its closed valuations |
-| 5. Stated properties | partial: all three properties hold on every shipped table under test | `crates/brokkr-runtime/tests/table_lints.rs` | the sequence leg waits on ruling 7; no `table_properties.rs` |
+| 5. Stated properties | partial: the three properties hold on every shipped table at the valuations the test evaluates; `clean` is held at the plain verdict only | `crates/brokkr-runtime/tests/table_lints.rs` | the clean property's domain awaits a ruling; the sequence leg waits on ruling 7; no `table_properties.rs` |
 | 6. Fold arms total | unbuilt | none | no transition table and no enumeration test |
 | 7. Sequence endings compiled | unbuilt | none | the ending is still a run-time comparison, and a hard word reported by a non-final step does not end the sequence |
 
@@ -59,7 +59,12 @@ listed under [Awaiting the operator's ruling](#awaiting-the-operators-ruling).
 - **Built, as a diagnostic.** `Machine::sweep` and `dead` in `audit.rs`
   read deadness from the totality sweep: a rule that rules no swept
   valuation of its group is dead. The sweep samples every threshold at and
-  around it, so this is exact for the five guard forms. Each dead rule is
+  around it, so this is exact for the five guard forms over the present,
+  well-typed valuations of a group's inputs, with every counter integral
+  (every shipped counter is engine-owned and integral). An absent input
+  satisfies no condition, so a rule reported dead behind `skip_verify:
+  true` and `skip_verify: false` still fires when a seat omits the flag.
+  Absence belongs to presence (ruling 1). Each dead rule is
   reported one of three ways. `Finding::Shadowed` names the first earlier
   rule that holds wherever it holds. `Finding::Covered` names the earlier
   rules that together hold wherever it holds, when no one of them does.
@@ -149,8 +154,15 @@ listed under [Awaiting the operator's ruling](#awaiting-the-operators-ruling).
 
 - **Built, under test.** `the_stated_properties_hold_on_every_shipped_table`
   in `table_lints.rs` walks every bundle and every composed recipe. It
-  checks that `clean` rules to a phase from which a non-stop terminal is
-  reachable. It checks that a low non-security residual on a first visit
+  checks that a plain `clean` verdict (`fixes_applied: false`, nothing
+  else) rules to a phase from which a non-stop terminal is reachable. The
+  ruling's wording is unqualified, and the test does not sweep the clean
+  group. It pins the one shipped counterexample instead:
+  `REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED` parks `review`/`clean` at
+  `strategy` `design`, `spec_defect: true`, `visits_specify: 3` in
+  `recipes/triage` and in `recipes/gpt-flash` and `recipes/night-shift`,
+  which carry the same groups. See item 9 of the list below. It checks
+  that a low non-security residual on a first visit
   does not stop. This change adds the third property: `security-hold`
   rules a hard stop at every swept valuation of its group, in every table.
   No valuation of the group is unruled, and every rule of the group is a
@@ -243,7 +255,13 @@ liveness finding.
    semantic definition (a rule that rules no valuation of its group's
    domain is dead), and amend the decision's wording to match.* Enabling
    the condition-wise wording alone would ship a refusal with a known
-   fail-open shape. Nothing shipped moves either way.
+   fail-open shape. Nothing shipped moves either way. The semantic
+   definition must also say whether an absent input is in the domain.
+   Today's sweep leaves it out, so a fallback behind arms that partition
+   a flag is reported dead although it fires when a seat omits the flag.
+   Refusing it would refuse a valid defensive park. *Recommendation:
+   absence is outside the domain, because presence (item 4) covers it;
+   the refusal says the rule fires on no present valuation.*
 3. **Liveness (ruling 3): refuse an unreachable phase or a dead end in
    `Machine::from_table`.** Today it refuses no shipped table.
    *Recommendation: enable.*
@@ -271,3 +289,13 @@ liveness finding.
    #226 and #349.*
 8. **The self-loop reading under ruling 1.** A rule whose next phase is
    its own phase returns. *Recommendation: confirm.*
+9. **The clean property's domain (ruling 5).** The ruling says "a clean
+   verdict rules to a phase from which a non-stop terminal is reachable".
+   If that ranges over every valuation of the `review`/`clean` group,
+   `recipes/triage`, `recipes/gpt-flash` and `recipes/night-shift` break
+   it today: `REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED` parks a clean verdict
+   whose specification stayed defective after three visits. If it ranges
+   over the plain verdict, every shipped table holds it.
+   *Recommendation: the plain verdict, and amend the ruling to say so.*
+   The park is the operator's to take by design, and a clean verdict that
+   carries a spec defect is a return, not a clean result.
