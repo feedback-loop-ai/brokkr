@@ -5,7 +5,7 @@
 use super::{listed, on_turn, Stream, Turn};
 use crate::hands::SERVER_NAME;
 use crate::probe::facts::{Capability, Fact};
-use crate::probe::plan::{UserConfig, USER_SCOPE_SERVER};
+use crate::probe::plan::{Plan, Step, UserConfig, USER_SCOPE_SERVER};
 
 /// What a native egress tool's name holds, once folded to lowercase
 /// letters and digits: web search, fetch, browsing and grounding.
@@ -132,25 +132,34 @@ pub(super) fn native_egress(tools: &Fact<Vec<String>>) -> Fact<Vec<String>> {
 /// switches it off (decision 0065 ruling 4, operator ruling A of
 /// 2026-09-29): the adapter's hands argv when the boxed turn listed the
 /// tool no more, `unsupported` with what the probe saw when the boxed
-/// turn kept it or the CLI refused the argv, and unmeasured when no
-/// boxed turn was read.
+/// turn kept it or the CLI refused the argv, `unsupported` with the
+/// adapter's reason when it declares no hands argv, and unmeasured when a
+/// boxed turn was launched but not read.
 pub(super) fn capabilities(
     tools: &Fact<Vec<String>>,
     boxed_tools: &Fact<Vec<String>>,
-    hands: &[String],
+    plan: &Plan,
 ) -> Fact<Vec<Capability>> {
     tools.clone().map(|tools| {
         tools
             .into_iter()
             .map(|tool| Capability {
-                off: off_switch(&tool, boxed_tools, hands),
+                off: off_switch(&tool, boxed_tools, plan),
                 tool,
             })
             .collect()
     })
 }
 
-fn off_switch(tool: &str, boxed_tools: &Fact<Vec<String>>, hands: &[String]) -> Fact<Vec<String>> {
+fn off_switch(tool: &str, boxed_tools: &Fact<Vec<String>>, plan: &Plan) -> Fact<Vec<String>> {
+    let hands = match &plan.boxed {
+        Step::Launch(_) => &plan.hands,
+        Step::Untried(gap) => {
+            return Fact::Unsupported {
+                evidence: gap.clone(),
+            }
+        }
+    };
     match boxed_tools {
         Fact::Measured { value: left, .. } if left.iter().any(|kept| kept == tool) => {
             Fact::Unsupported {
@@ -168,13 +177,28 @@ fn off_switch(tool: &str, boxed_tools: &Fact<Vec<String>>, hands: &[String]) -> 
     }
 }
 
+/// The hands server's status, unmeasured when the turn's listings gave it
+/// more than one.
 pub(super) fn mcp_server(stream: &Stream) -> Fact<String> {
-    listed(stream, "mcp_servers", server_entry).map(|servers| {
+    let statuses = listed(stream, "mcp_servers", server_entry).map(|servers| {
         servers
             .into_iter()
-            .find(|(name, _)| name == SERVER_NAME)
-            .map_or_else(|| "not listed".to_string(), |(_, status)| status)
-    })
+            .filter(|(name, _)| name == SERVER_NAME)
+            .map(|(_, status)| status)
+            .collect::<Vec<_>>()
+    });
+    match statuses {
+        Fact::Measured { value, evidence } if value.len() > 1 => Fact::unmeasured(format!(
+            "the turn's listings gave {SERVER_NAME} the statuses {}: {evidence}",
+            value.join(", ")
+        )),
+        other => other.map(|statuses| {
+            statuses
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| "not listed".to_string())
+        }),
+    }
 }
 
 /// Whether an MCP server other than the hands server reached a turn: a

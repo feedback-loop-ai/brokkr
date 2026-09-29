@@ -88,6 +88,10 @@ pub enum ProbeError {
     /// own words.
     #[error("{0}")]
     Credential(String),
+    /// A launch whose tree could not be proven over: something of it may
+    /// still run, so nothing it printed is read (#403).
+    #[error("the CLI's process tree was not proven over: {0}")]
+    Unended(crate::process::Unsettled),
     #[error("not a {} report: {problem}", PROBE_VERSION)]
     Report { problem: String },
 }

@@ -11,9 +11,8 @@ use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Read;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -21,6 +20,7 @@ use super::plan::{Step, UserConfig, PROMPT};
 use super::ProbeError;
 use crate::adapters::bind_environment;
 use crate::hands::{mcp_config, serve_args, HandsSpec};
+use crate::process::Launched;
 use crate::secret::{mask_bytes, BoundSecret};
 
 /// The scratch directory's name prefix. A path a CLI derives from its
@@ -189,16 +189,17 @@ impl Runner<'_> {
             .env("HOME", &self.scratch.home)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            // Its own group, so the deadline reaches every descendant.
-            .process_group(0);
+            .stderr(Stdio::piped());
         // Decision 0012 layer 4: every value leaves through the one
         // injector the adapters spawn with.
         bind_environment(&mut command, bindings).map_err(ProbeError::Credential)?;
-        let mut child = io(command.spawn(), &format!("could not launch {}", self.cli))?;
-        let stdout = drain(child.stdout.take().expect("piped"));
-        let stderr = drain(child.stderr.take().expect("piped"));
-        let exit = wait(&mut child, self.deadline)?;
+        // A session and group of its own, among the engine's attempts, so
+        // the end reaches every descendant (#403).
+        let what = format!("could not launch {}", self.cli);
+        let mut launched = io(Launched::spawn(&mut command), &what)?;
+        let stdout = drain(launched.child.stdout.take().expect("piped"));
+        let stderr = drain(launched.child.stderr.take().expect("piped"));
+        let exit = wait(launched, self.deadline)?;
         let transcripts = files_under(&self.scratch.home)
             .difference(&before)
             .filter(|path| path.extension() == Some(OsStr::new("jsonl")))
@@ -244,30 +245,14 @@ fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
 /// child is killed. A CLI waiting on a prompt the probe never answers
 /// must not hold the probe forever, and neither may a descendant holding
 /// the output pipes the drains read to their end, so the launch's whole
-/// process group is killed when the child exits or the deadline passes.
-fn wait(child: &mut Child, deadline: Duration) -> Result<Option<i32>, ProbeError> {
+/// tree is ended when the child exits or the deadline passes. A tree not
+/// proven over refuses the probe.
+fn wait(launched: Launched, deadline: Duration) -> Result<Option<i32>, ProbeError> {
     let started = Instant::now();
-    loop {
-        if let Some(status) = io(child.try_wait(), "could not wait for the CLI")? {
-            end_group(child);
-            return Ok(status.code());
-        }
-        if started.elapsed() >= deadline {
-            end_group(child);
-            let _ = child.wait();
-            return Ok(None);
-        }
+    while !launched.exited() && started.elapsed() < deadline {
         std::thread::sleep(POLL);
     }
-}
-
-/// Kill every process left in the group the child leads. A group already
-/// empty is not an error: nothing is left to hold a pipe.
-fn end_group(child: &Child) {
-    let _ = rustix::process::kill_process_group(
-        rustix::process::Pid::from_child(child),
-        rustix::process::Signal::KILL,
-    );
+    launched.end().map_err(ProbeError::Unended)
 }
 
 /// Every file under `root`, symlinks not followed.
