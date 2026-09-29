@@ -4,8 +4,6 @@
  228 crates/brokkr-cli/src/compare.rs:23 seat_costs
  118 crates/brokkr-cli/src/init.rs:1599 init
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
- 105 crates/brokkr-cli/src/tui.rs:2396 plan
- 104 crates/brokkr-cli/src/tui.rs:3068 draw_participant
  140 crates/brokkr-core/src/dispatch.rs:241 verify
  266 crates/brokkr-core/src/fold.rs:330 apply
  113 crates/brokkr-core/src/policy.rs:304 parse_rule
