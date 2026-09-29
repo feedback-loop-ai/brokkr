@@ -400,10 +400,18 @@ pub struct RealmMap {
     pub journal: String,
     /// The offices — agents, by name — a provisional model may hold —
     /// `forge.realms/v6` vocabulary (proposed decision 0075 ruling 5),
-    /// absent in every older map and refused in one. Read through
-    /// [`RealmMap::provisional_offices`], where absence is none.
-    #[serde(default)]
-    pub provisional_offices: Option<Vec<String>>,
+    /// absent in every older map and refused in one. Absence is none, so
+    /// a map that names none seats a provisional model nowhere; a written
+    /// `null` is refused on the map as written.
+    #[serde(default, deserialize_with = "null_as_none")]
+    pub provisional_offices: Vec<String>,
+}
+
+/// A written `null` is read as no office only so that
+/// [`judge_provisional_offices`] refuses it on the map as written, in its
+/// own words, rather than serde in anonymous ones.
+fn null_as_none<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
+    Option::<Vec<String>>::deserialize(deserializer).map(Option::unwrap_or_default)
 }
 
 /// A realm name is a journal key: lowercase, digits, and the three
@@ -472,7 +480,7 @@ fn judge_provisional_offices(
                 .to_string(),
         );
     }
-    let offices = map.provisional_offices();
+    let offices = &map.provisional_offices;
     for (index, office) in offices.iter().enumerate() {
         if office.trim().is_empty() {
             return invalid(format!("provisional office {index} is empty"));
@@ -738,14 +746,6 @@ impl RealmMap {
             }
         }
         judge_provisional_offices(path, &map, &content).map(|()| (map, content))
-    }
-
-    /// The offices a provisional model may hold (proposed decision 0075
-    /// ruling 5): the list the map writes, or none at all — the one place
-    /// absence is read, so a map that names none seats a provisional
-    /// model nowhere.
-    pub fn provisional_offices(&self) -> &[String] {
-        self.provisional_offices.as_deref().unwrap_or_default()
     }
 
     /// The journal one realm's runs live in: its own when it names one,

@@ -1909,7 +1909,7 @@ fn realm_law(
             realm.boundary()
         }),
         provisional_offices: world
-            .map_or_else(Vec::new, |world| world.map.provisional_offices().to_vec()),
+            .map_or_else(Vec::new, |world| world.map.provisional_offices.clone()),
     }
 }
 

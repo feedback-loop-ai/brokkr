@@ -41,7 +41,7 @@ fn the_minimal_map_parses_into_the_shape_the_ruling_names() {
                 consumes: CrossingList::Absent,
             }],
             journal: ".forge/forge.db".to_string(),
-            provisional_offices: None,
+            provisional_offices: Vec::new(),
         }
     );
     // The content is returned verbatim, because it is what gets embedded
@@ -905,14 +905,13 @@ fn a_v6_map_lists_the_provisional_offices_and_an_absent_list_is_none() {
     };
     let (map, _) = listed(json!(["researcher", "review-correctness"])).unwrap();
     assert_eq!(
-        map.provisional_offices(),
+        map.provisional_offices,
         ["researcher", "review-correctness"]
     );
     let (empty, _) = listed(json!([])).unwrap();
-    assert_eq!(empty.provisional_offices(), [] as [&str; 0]);
+    assert_eq!(empty.provisional_offices, [] as [&str; 0]);
     let (unwritten, _) = RealmMap::parse("realms.json", &MAP.replace("/v1", "/v6")).unwrap();
-    assert_eq!(unwritten.provisional_offices, None);
-    assert_eq!(unwritten.provisional_offices(), [] as [&str; 0]);
+    assert_eq!(unwritten.provisional_offices, [] as [&str; 0]);
 
     let refused = |offices: Value| listed(offices).unwrap_err().to_string();
     assert_eq!(

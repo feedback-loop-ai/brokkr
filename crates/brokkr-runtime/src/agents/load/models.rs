@@ -1,10 +1,10 @@
 //! An adapter's `models` map, with the tier a model may declare
 //! (proposed decision 0075 ruling 5). An abstract name maps to its
 //! concrete id, as it always has, or to `{"id", "tier"}` where the model
-//! is provisional. A model that declares nothing is promoted, which is
-//! every model shipped before the tier existed, so every adapter on disk
-//! reads exactly as it did. Promotion is data only: removing the tier
-//! leaves the model mapped to the same id.
+//! is provisional. A model that declares no tier, bare id or object, is
+//! promoted, which is every model shipped before the tier existed, so
+//! every adapter on disk reads exactly as it did. Promotion is data only:
+//! removing the tier leaves the model mapped to the same id.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -35,16 +35,21 @@ pub(super) fn models(
         };
         let at = format!("{what} 'models.{name}'");
         only_keys(declared, &["id", "tier"], &at)?;
-        let tier = string(declared, "tier", &at)?;
-        if tier != PROVISIONAL {
-            return invalid(format!(
-                "{at} declares tier '{tier}'; the only tier a model declares is \
-                 \"{PROVISIONAL}\", and a model that declares none is promoted \
-                 (proposed decision 0075 ruling 5)"
-            ));
+        let id = string(declared, "id", &at)?;
+        // A written `tier` is read, and one that is not the word is
+        // refused; only an entry that leaves the key out is promoted.
+        if declared.contains_key("tier") {
+            let tier = string(declared, "tier", &at)?;
+            if tier != PROVISIONAL {
+                return invalid(format!(
+                    "{at} declares tier '{tier}'; the only tier a model declares is \
+                     \"{PROVISIONAL}\", and a model that declares none is promoted \
+                     (proposed decision 0075 ruling 5)"
+                ));
+            }
+            provisional.insert(name.clone());
         }
-        ids.insert(name.clone(), Value::String(string(declared, "id", &at)?));
-        provisional.insert(name.clone());
+        ids.insert(name.clone(), Value::String(id));
     }
     // The flattened map is judged by the reader every string map shares,
     // so a name, an empty id and a `models` that is missing or no object

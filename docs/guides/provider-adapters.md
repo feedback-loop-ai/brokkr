@@ -306,16 +306,18 @@ included), starts provisional (proposed decision 0075 ruling 5). Its
 }
 ```
 
-An entry written as a bare id is promoted, which is every model shipped
-today. A provisional model may hold only the offices, agents by name,
+An entry that declares no tier, a bare id or an object without `tier`,
+is promoted, which is every model shipped today. A provisional model may hold only the offices, agents by name,
 that the world's `realms.json` lists under `provisional_offices`
 (`forge.realms/v6`), and never a gate, whatever the list says. The
 compile refuses any seat whose chain reaches it otherwise, on any
 fallback link, naming the seat, the link, the model, the adapter and the
 rule that fired. An inline command names no agent, so it holds no
-office. `brokkr doctor` prints one `provisional` line per such model
-with the offices it may hold. Promotion is data only: rewrite the entry
-as its bare id. Pricing a new model before its first seat is LaneTally's
+office, and an inline command whose model pin cannot be read as one id
+is refused wherever its adapter declares a provisional model.
+`brokkr doctor` prints one `provisional` line per such model with the
+offices it may hold. Promotion is data only: remove `"tier":
+"provisional"`, or rewrite the entry as its bare id. Pricing a new model before its first seat is LaneTally's
 unpriced audit, not this check.
 
 ## Hands

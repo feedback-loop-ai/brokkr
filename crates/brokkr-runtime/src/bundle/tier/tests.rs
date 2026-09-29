@@ -270,6 +270,52 @@ fn an_inline_command_pinning_a_provisional_model_holds_no_office() {
     }
 }
 
+/// An inline pin the tier cannot read, here `--model` twice with one pin
+/// on the provisional id, may reach the provisional model, so it is
+/// refused naming the flag read, at a work seat as at a gate. Under an
+/// adapter that declares nothing provisional the tier has nothing to
+/// judge, and a gate's own refusal of the unreadable pin stands.
+#[test]
+fn an_inline_pin_the_tier_cannot_read_is_refused_where_the_adapter_declares_a_provisional_model() {
+    let workspace = Workspace::new();
+    let twice = |class: &str| {
+        let mut site = inline(class, "fresh-1");
+        site["driver"]["command"]
+            .as_array_mut()
+            .unwrap()
+            .extend([json!("--model"), json!("steady-1")]);
+        site
+    };
+    let refusal = workspace.refusal(twice("work"), &[]);
+    assert_eq!(
+        refusal,
+        ProvisionalRefusal::Unreadable {
+            seat: "work".into(),
+            adapter: "newcomer".into(),
+            flags: vec!["--model".into()],
+        }
+    );
+    assert_eq!(
+        refusal.to_string(),
+        "seat 'work' pins its model on '--model', which this compiler cannot read as one \
+         concrete id, and adapter 'newcomer' declares a provisional model the pin may reach; a \
+         pin the tier cannot read is refused, never read as promoted (proposed decision 0075 \
+         ruling 5)"
+    );
+    assert_eq!(workspace.refusal(twice("gate"), &[]), refusal);
+
+    workspace.adapter(json!("fresh-1"));
+    assert_eq!(workspace.compile(twice("work"), &[]).unwrap().name, "tier");
+    assert_eq!(
+        workspace
+            .compile(twice("gate"), &[])
+            .unwrap_err()
+            .to_string(),
+        "bundle: seat 'work' gate link 1 names model '<unmapped>', which driver 'newcomer' does \
+         not declare in 'judges' (decision 0041 ruling 3 — an absent declaration is empty)"
+    );
+}
+
 /// A bundle that names no agent, seats no gate and binds no secret still
 /// opens the adapters for its inline dispatches, so a seat that leaves
 /// its class undeclared — work — is judged. With no adapter data nothing
@@ -307,25 +353,29 @@ fn an_inline_seat_is_judged_where_the_bundle_names_no_agent_and_no_gate() {
     );
 }
 
-/// Promotion is data only: the provisional entry rewritten as its bare
-/// id compiles where it was refused, and maps the model to the same id.
+/// Promotion is data only: the provisional entry with its tier removed,
+/// or rewritten as its bare id, compiles where it was refused, and maps
+/// the model to the same id.
 #[test]
 fn removing_the_tier_promotes_the_model_and_nothing_else_changes() {
     let workspace = Workspace::new();
     workspace.agent("researcher", &["fresh"]);
     let adapters = || Adapters::load(&workspace.path("adapters")).unwrap();
     let before = adapters().adapter("newcomer").unwrap().clone();
-    assert!(matches!(
-        workspace.refusal(seat("researcher", "gate"), &[]),
-        ProvisionalRefusal::Gate { .. }
-    ));
-    workspace.adapter(json!("fresh-1"));
-    let after = adapters().adapter("newcomer").unwrap().clone();
     assert_eq!(before.provisional, ["fresh".to_string()].into());
-    assert_eq!(after.provisional, Default::default());
-    assert_eq!(before.models, after.models);
-    let promoted = workspace.compile(seat("researcher", "gate"), &[]).unwrap();
-    assert_eq!(chain(&promoted), ["fresh"]);
+    for promoted in [json!({"id": "fresh-1"}), json!("fresh-1")] {
+        workspace.adapter(json!({"id": "fresh-1", "tier": "provisional"}));
+        assert!(matches!(
+            workspace.refusal(seat("researcher", "gate"), &[]),
+            ProvisionalRefusal::Gate { .. }
+        ));
+        workspace.adapter(promoted.clone());
+        let after = adapters().adapter("newcomer").unwrap().clone();
+        assert_eq!(after.provisional, Default::default(), "{promoted}");
+        assert_eq!(before.models, after.models, "{promoted}");
+        let compiled = workspace.compile(seat("researcher", "gate"), &[]).unwrap();
+        assert_eq!(chain(&compiled), ["fresh"], "{promoted}");
+    }
 }
 
 /// The tier is declared inside a `models` entry, closed, and the only
@@ -356,8 +406,10 @@ fn the_model_tier_is_a_closed_declaration_inside_the_models_map() {
              0075 ruling 5)"
         )
     );
+    // A tier that is written is read: one that cannot be is refused, not
+    // taken for the promotion only an absent key declares.
     assert_eq!(
-        refused(json!({"id": "fresh-1"})),
+        refused(json!({"id": "fresh-1", "tier": null})),
         format!("{file} 'models.fresh' needs a non-empty string 'tier'")
     );
     assert_eq!(

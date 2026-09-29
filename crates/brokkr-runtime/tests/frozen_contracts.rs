@@ -304,9 +304,6 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/effect-cleanup.v1.schema.json",
             "Forge effect cleanup v1",
         ),
-        // Proposed decision 0075 ruling 5: the provisional offices arrive
-        // as `forge.realms/v6` beside v5, whose bytes are pinned above.
-        ("contracts/realms.v6.schema.json", "Forge realms map v6"),
     ] {
         assert!(
             titled(relative).starts_with(title),
@@ -539,11 +536,13 @@ fn the_v5_realm_schema_carries_the_crossings_and_closes_their_entries() {
 }
 
 /// Proposed decision 0075 ruling 5: the published contract for the
-/// operator's list. v6 is v5 plus one optional world-level property and
-/// nothing else, and the list is closed to what the loader admits.
+/// operator's list. v6 is published beside v5, whose bytes are pinned
+/// above, as v5 plus one optional world-level property and nothing else,
+/// and the list is closed to what the loader admits.
 #[test]
 fn the_v6_realm_schema_adds_only_the_provisional_offices() {
     use serde_json::json;
+    assert!(titled("contracts/realms.v6.schema.json").starts_with("Forge realms map v6"));
     let [schema, v5] = ["realms.v6", "realms.v5"].map(|version| {
         let path = workspace().join(format!("contracts/{version}.schema.json"));
         serde_json::from_slice::<serde_json::Value>(&std::fs::read(path).unwrap()).unwrap()

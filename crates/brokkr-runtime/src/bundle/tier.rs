@@ -8,7 +8,9 @@
 //!
 //! An office is an agent, by name. An inline command names no agent, so
 //! it holds no office: a provisional model pinned inline is seatable
-//! nowhere. The check reads the adapters the compile opened, and
+//! nowhere, and an inline pin that cannot be read as one id is refused
+//! wherever its adapter declares a provisional model. The check reads
+//! the adapters the compile opened, and
 //! [`opens`] opens them wherever an inline site dispatches a driver and
 //! the adapter data exists, whatever the site's class: a bundle that
 //! names no agent, seats no gate and binds no secret is judged all the
@@ -75,6 +77,17 @@ pub enum ProvisionalRefusal {
         adapter: String,
         office: Option<String>,
     },
+    #[error(
+        "seat '{seat}' pins its model on {}, which this compiler cannot read as one concrete \
+         id, and adapter '{adapter}' declares a provisional model the pin may reach; a pin the \
+         tier cannot read is refused, never read as promoted (proposed decision 0075 ruling 5)",
+        flags_named(.flags)
+    )]
+    Unreadable {
+        seat: String,
+        adapter: String,
+        flags: Vec<String>,
+    },
 }
 
 fn office_named(office: Option<&str>) -> String {
@@ -82,6 +95,11 @@ fn office_named(office: Option<&str>) -> String {
         Some(office) => format!("office '{office}'"),
         None => "no office (an inline command names no agent)".to_string(),
     }
+}
+
+fn flags_named(flags: &[String]) -> String {
+    let named: Vec<String> = flags.iter().map(|flag| format!("'{flag}'")).collect();
+    named.join(" and ")
 }
 
 /// Does the compile open the adapters? Where [`needs_adapters`] says so,
@@ -128,7 +146,9 @@ pub(super) fn admitted(
     let Some(context) = agents else {
         return Ok(class);
     };
-    for link in provisional_links(raw, candidates, &context.adapters) {
+    let links = provisional_links(what, raw, candidates, &context.adapters)
+        .map_err(CompileError::Provisional)?;
+    for link in links {
         let (seat, model, adapter) = (
             what.to_string(),
             link.model.to_string(),
@@ -161,14 +181,15 @@ pub(super) fn admitted(
 /// The links of a site's chain whose model is provisional: every link of
 /// an agent's resolved chain, or the one model an inline command pins.
 fn provisional_links<'a>(
+    what: &str,
     raw: &Value,
     candidates: &'a [Candidate],
     adapters: &'a Adapters,
-) -> Vec<Link<'a>> {
+) -> Result<Vec<Link<'a>>, ProvisionalRefusal> {
     if candidates.is_empty() {
-        return inline_link(raw, adapters).into_iter().collect();
+        return Ok(inline_link(what, raw, adapters)?.into_iter().collect());
     }
-    candidates
+    Ok(candidates
         .iter()
         .enumerate()
         .filter_map(|(index, candidate)| {
@@ -185,27 +206,46 @@ fn provisional_links<'a>(
                     model: candidate.model.as_str(),
                 })
         })
-        .collect()
+        .collect())
 }
 
 /// An inline command's provisional model: the one its adapter maps to
 /// the concrete id the command pins, read on the flags the model policy
-/// reads (decision 0040 ruling 1).
-fn inline_link<'a>(raw: &Value, adapters: &'a Adapters) -> Option<Link<'a>> {
-    let adapter = adapters.adapter(&dispatch_driver(&command_parts(raw))?)?;
-    let ModelPin::Concrete(concrete) = inline_route_pin(raw, Some(adapter)) else {
-        return None;
+/// reads (decision 0040 ruling 1). A pin those flags cannot read as one
+/// id, pinned twice or illegible, may name the provisional model as well
+/// as any other, so where the adapter declares one it is refused naming
+/// the flags read; the tier fails closed on what it cannot read.
+fn inline_link<'a>(
+    what: &str,
+    raw: &Value,
+    adapters: &'a Adapters,
+) -> Result<Option<Link<'a>>, ProvisionalRefusal> {
+    let Some(adapter) =
+        dispatch_driver(&command_parts(raw)).and_then(|driver| adapters.adapter(&driver))
+    else {
+        return Ok(None);
     };
-    let model = adapter
+    let concrete = match inline_route_pin(raw, Some(adapter)) {
+        ModelPin::Concrete(concrete) => concrete,
+        ModelPin::Unreadable(flags) if !adapter.provisional.is_empty() => {
+            return Err(ProvisionalRefusal::Unreadable {
+                seat: what.to_string(),
+                adapter: adapter.provider.clone(),
+                flags,
+            });
+        }
+        ModelPin::Unreadable(_) | ModelPin::Absent => return Ok(None),
+    };
+    Ok(adapter
         .provisional
         .iter()
-        .find(|model| adapter.models[model.as_str()] == concrete)?;
-    Some(Link {
-        number: 1,
-        office: None,
-        adapter,
-        model,
-    })
+        .find(|model| adapter.models[model.as_str()] == concrete)
+        .map(|model| Link {
+            number: 1,
+            office: None,
+            adapter,
+            model,
+        }))
 }
 
 #[cfg(test)]

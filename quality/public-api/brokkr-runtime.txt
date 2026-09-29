@@ -264,6 +264,10 @@ pub brokkr_runtime::bundle::ProvisionalRefusal::Unlisted::link: usize
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unlisted::model: alloc::string::String
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unlisted::office: core::option::Option<alloc::string::String>
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unlisted::seat: alloc::string::String
+pub brokkr_runtime::bundle::ProvisionalRefusal::Unreadable
+pub brokkr_runtime::bundle::ProvisionalRefusal::Unreadable::adapter: alloc::string::String
+pub brokkr_runtime::bundle::ProvisionalRefusal::Unreadable::flags: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::bundle::ProvisionalRefusal::Unreadable::seat: alloc::string::String
 pub enum brokkr_runtime::bundle::SeatBody
 pub brokkr_runtime::bundle::SeatBody::Panel
 pub brokkr_runtime::bundle::SeatBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate

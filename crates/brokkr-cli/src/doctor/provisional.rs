@@ -17,7 +17,7 @@ pub(super) fn report_provisional(report: &mut Report, adapters_root: &Path, worl
     let Ok(adapters) = Adapters::load(adapters_root) else {
         return;
     };
-    let offices = world.map_or(&[][..], |world| world.map.provisional_offices());
+    let offices = world.map_or(&[][..], |world| &world.map.provisional_offices[..]);
     let mut none = true;
     for adapter in adapters.providers() {
         for model in &adapter.provisional {
