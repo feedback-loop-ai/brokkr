@@ -21156,3 +21156,151 @@ On the final tree, in this session:
 - macOS: unobserved. `driver_spawned` needs `unix` and `/bin/sh`, and
   its tests are `#[cfg(unix)]`.
 - Exact coverage outside the box, remote CI and the council.
+
+## Unit 20, review return — 2026-09-29
+
+Run `0065-rebuild-unit-20-see-the-uni-23e98946`, returned from review
+(`REVIEW-REFORGE`, residual/high) over `ee25bcda`. This visit answers
+findings R1–R6. R7 is a run defect with no code to change. Again only
+`crates/brokkr-runtime/tests/capability_launch.rs` changed, beside this
+file and tasks.md. Every production file mutated below was restored with
+`git checkout --`, and `git status --short` then listed only the test file.
+**20.1 is reopened** (tasks.md), because R5 needs a production unit.
+
+### What changed (`capability_launch.rs`)
+
+- **R1, the matrix.** `every_compiled_site_shape_is_served_…` (18 rows) and
+  `every_compiled_wrapper_and_dsh_site_is_spawned_…` (6 rows) are replaced
+  by one test,
+  `every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside_its_charter`.
+  Its recipe `every_shape` (`matrix` extending `base`, under `harness`, no
+  grants) seats each of nine `CARRIERS` at every site `carrier_sites`
+  names:
+  - the carriers are inline `claude`, `codex`, `lanetally` and `dsh`, and
+    the offices `pair` (Codex then Claude), `pair-claude` (the reverse),
+    `pair-tally` (LaneTally then DSH), `pair-flash` (the reverse) and
+    `boxed` (Codex alone, with workspace hands);
+  - the sites are a work seat, a gate (Claude/Codex carriers only; the
+    inline Claude gate is the protected `review`), panel members `member`
+    and `peer`, sequence steps `step` and `next`, select case `engine` and
+    the default, and a seat inherited from `base`.
+
+  It also seats `claude-typed` and `lanetally-typed` (typed `tools.allow`)
+  and `dsh-route` (`--patch drivers/route.yml`). That makes 114 rows. The
+  test asserts `rows.len() == 114`, and asserts that the set of (site,
+  candidate) rows equals the set compiled into `bundle.sites`, so no
+  compiled site or fallback can go unasserted.
+
+  Each row asserts, as literals: the `CharterPin` (owner, reference, path,
+  digest of the written text); the whole cold command; and at a work site,
+  the whole command when a session is offered.
+  - Claude and Codex rows are composed by `claude_command` or
+    `codex_command`.
+  - LaneTally and DSH rows are spawned by the real driver, with a resume
+    offer sent over the protocol for the offered column.
+
+  Observed and asserted:
+  - the inline Codex work seat and every `boxed` work site rejoin as
+    `exec resume … -c sandbox_mode="workspace-write" … <thread> -`;
+  - every other work site is declined and served its cold command on the
+    offered binary;
+  - `boxed-gate` is served `--sandbox read-only --output-last-message
+    /w/result.json` through its last-message door (`engine.rs:5076`).
+- **R2.** `a_compiled_inline_codex_panel_member_with_hands_…` asserts the
+  `CharterPin` of `judges:inline` (layer `bundle`, `roles/role.md`) and of
+  `judges:agent` (library, agent `searcher`).
+- **R3.** A DSH row's prompt argument is the literal `dsh_prompt(charter,
+  phase, workdir)`. The fixture values are substituted and nothing is
+  rendered by production. Only the staged overlay's temporary path is
+  matched by shape, and its bytes are checked: they begin with the layer's
+  route for `dsh-route` and not otherwise.
+- **R4.** `recorded_argv` strips only the record's last NUL, so an empty
+  argument is kept.
+- **R5.** The `lanetally-typed` row keeps the exact final-check refusal as
+  a reproduction. See the blocker below.
+- **R6.** The duplicated helpers are consolidated:
+  - `inline_command` delegates to `body_command`, and so do `try_launch`
+    and `rejoin`, which had their own `SeatBody::Single` matches;
+  - `sealing_moved` is `sealing_at(…, Work, "/w", …)`, and `dispatched`
+    uses `sealing_at` too. The built boundary is `compose_at`'s rule: none
+    of its own without hands, the bundle's with them. For a no-hands site
+    this is the same composition, since `compose_segments` returns before
+    reading it;
+  - `dispatched` now writes the `mark_hands` markers for every site;
+  - `lanetally_serving_child`/`SERVE_LANETALLY` are removed. The LaneTally
+    serving test uses `serve_driver`, `recording_harness`, `recorded_argv`
+    and `result_error`, and its assertions are unchanged.
+
+### R5: the blocker (a production defect, not fixed here)
+
+On the shipped adapters, `lanetally-typed` compiles. Its driver then
+refuses the launch: `the adapter template's '--allowedTools' allow list
+names tool 'Bash' for provider 'lanetally', … did not lower`. The reason is
+that the shipped LaneTally inventory is unmeasured:
+
+- `NativePlan::Unmeasured` (`capabilities.rs:1904-1908`) carries no
+  provenance, and `NativePlan::controls` emits no `local` for it (`:1257`);
+- the protocol's `decode` (`native_controls.rs:211-218`) returns
+  `Controls::default()` provenance for `"unmeasured"`;
+- so `final_tools` finds the lowered `Bash(cargo:*)` neither held nor
+  `Typed::Local`, and refuses `Conflict::Carried`. The carrier is
+  attributed to the template (`native_controls.rs:4009`, `:4062`).
+
+The same shape launches when Claude's measured declarations are copied
+into the adapter (`an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_…`).
+Unit 20 authorizes no production edit, so the necessary split is:
+
+- a production unit over `crates/brokkr-runtime/src/capabilities.rs` and
+  `crates/brokkr-protocol/src/native_controls.rs`, which either carries and
+  decodes the lowered provenance under an unmeasured plan, or refuses the
+  shape at compile (D5.3). The operator rules which;
+- that unit's test is this row flipping to its whole command.
+
+### Mutations (each compiles; production restored by `git checkout --`)
+
+| # | Mutation | Failed |
+|---|---|---|
+| MR4 | `adapters.rs` `spawn_dsh` adds `.arg("")` after the checked argv | Matrix: the 25 DSH rows (8 inline, 8 `pair-tally[1]`, 8 `pair-flash[0]`, `dsh-route`), each ending `…, ""]`. **The pre-return test file passed under it** (`every_compiled_wrapper_…` ok): the old filter hid the argument. |
+| MR4′ | `adapters.rs` `dsh_command` appends `String::new()` | The same 25 rows, but by the final check's own refusal (`argument 5, a positional argument … stands after the overlay`). The old test failed too, so this one does not isolate R4 and is not counted as its proof. |
+| MR3 | `adapters.rs` `render_prompt` says `write a JSON object to this file` | Matrix: the same 25 DSH rows. **The pre-return test passed under it**, because it compared against `render_prompt`. |
+| MD | `engine.rs` `result_door` requires `Boundary::Open` for the hands door | Matrix: `boxed-gate[0]` only, refused `sealed with a fragment that captures into a result path the engine did not choose`. No other test in the suite failed. |
+| MC1 | `bundle.rs:2818` library owner `root: source.library.join("mutated")` | Matrix: all 77 office rows. `a_compiled_inline_codex_panel_member_…` at the new R2 assertion (`:1117`), plus `a_boxed_inline_seats_hands_…`, `an_eligible_rejoin_…` and `an_empty_harness_fragment_…`. |
+| MC2 | `bundle.rs:7082` layer key `format!("{}.moved", …)` | Matrix: all 37 inline rows (34 plus the 3 typed/routed). `a_compiled_inline_codex_panel_member_…` at `:1117`, plus `a_boxed_inline_seats_hands_…` and `an_eligible_rejoin_…`. |
+| MLT | `adapters.rs` `serving_command` builds LaneTally from `extra[1..]` | Matrix: the 24 LaneTally rows (inline, `pair-tally[0]`, `pair-flash[1]`). Also the consolidated `an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_…`. |
+| MRJ | `adapters.rs` `codex_rejoin` drops `--json` | Matrix: `codex[0]` and the 8 `boxed` work rows, in the offered column. Also the pre-existing `an_eligible_rejoin_…` and `a_compiled_rejoin_…`. |
+
+Logs are under `.forge/u20r/` (`m-r4b-new.log`, `m-r4b-old.log`,
+`m-r3-new.log`, `m-r3-old.log`, `m-door.log`, `m-c1.log`, `m-c2.log`,
+`m-lt.log`, `m-rejoin.log`), which is not committed. The pre-return file
+was swapped in from a saved copy and swapped back, checked with `cmp`.
+
+### Baseline
+
+At `ee25bcda` the suite passed 62 tests
+(`.forge/u20r-baseline.log`). On this tree it passes 60. The 18- and
+6-row tests became one test, and `lanetally_serving_child` was removed.
+No baseline red is intended: production is unchanged, and each new
+assertion binds by the mutations above.
+
+### Standing-admission lines and fixture migrations
+
+None.
+
+### Gates (this session, final tree)
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 of 25 `test
+  result` lines ok (lib 625, `capability_launch` 60).
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+### Pending
+
+- R5's production unit. 20.1 stays open until it lands.
+- Unit 21's restriction rows, for 21.3.
+- macOS: unobserved.
+- The protocol and CLI suites were not rerun, because no file of theirs
+  changed. `bundles/self` and `verify` were not recompiled.
+- Exact coverage outside the box, remote CI and the council.

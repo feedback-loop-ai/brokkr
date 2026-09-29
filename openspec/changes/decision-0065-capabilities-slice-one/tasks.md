@@ -4148,7 +4148,7 @@ is observed there; no production file moved.
 
 ## 20. Unit 20 — Audit compiled refusal and serving shapes
 
-- [x] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)
+- [ ] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)
 
 **Unit 20, 2026-09-29 (run `0065-rebuild-unit-20-see-the-uni-23e98946`,
 based on `4d11cc4b`; evidence.md, "Unit 20").** An audit: no production file
@@ -4194,6 +4194,54 @@ asserted a compiled site's selected charter, and DSH had no compiled row.
 - **Pending.** macOS; the protocol and CLI suites and `bundles/self`/`verify`
   (not rerun); exact coverage outside the box; remote CI and the council.
 
+**Unit 20 review return, 2026-09-29 (same run, based on `ee25bcda`;
+evidence.md, "Unit 20, review return").** 20.1 is **reopened**. The first
+visit's completion claim was wrong in two ways. Its rows omitted
+agent-backed gates, Codex select and inherited sites, the inline Claude
+sequence step, and every nested, inherited and fallback LaneTally/DSH site.
+And the typed LaneTally row is a production defect, not a follow-up. Again
+only `capability_launch.rs` changed; no production file moved.
+
+- **R1.** The two serving tests are now one,
+  `every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside_its_charter`.
+  It has 114 rows, and it asserts that they are every compiled site and
+  candidate of its bundle, no more and no fewer. Nine carriers (four
+  inline harnesses; the offices `pair`, `pair-claude`, `pair-tally`,
+  `pair-flash`; and `boxed`, Codex with hands under `harness`) are seated
+  at a work seat, a gate where they may hold one, two panel members, two
+  sequence steps, a select case, the default and an inherited seat. There
+  are also three typed/routed seats. Each row asserts the site's charter
+  pin, its whole cold command, and at a work site the whole command served
+  when a session is offered. The `boxed-gate` row is the agent-backed
+  Codex gate with hands, served through its last-message door.
+- **R2.** `a_compiled_inline_codex_panel_member_with_hands_…` now asserts
+  both boxed members' own charter pins.
+- **R3.** A DSH prompt is compared with the literal `dsh_prompt`, not with
+  `render_prompt`.
+- **R4.** `recorded_argv` drops only the record's last NUL terminator, so
+  an empty argument stays an argument.
+- **R5 (blocker, not fixed).** An inline LaneTally seat with a typed
+  `tools.allow` compiles on the shipped adapters, and its driver's final
+  check then refuses the launch. The row keeps the exact refusal as a
+  reproduction. Root cause: an unmeasured plan carries no provenance.
+  `NativePlan::Unmeasured` (`capabilities.rs:1904-1908`, emitted at
+  `:1257`) writes no `local`, and the protocol's `decode`
+  (`native_controls.rs:211-218`) returns default provenance for
+  `unmeasured`. So `final_tools` reads the lowered list as the template's
+  (`Conflict::Carried`). Closing 20.1 needs a production unit over those
+  two files. Either the unmeasured plan carries and decodes the lowered
+  provenance, or the compile refuses the shape (D5.3). The operator
+  chooses which.
+- **R6.** `inline_command` now delegates to `body_command`. `sealing_moved`
+  and `dispatched` share `sealing_at`, under `compose_at`'s boundary rule.
+  `lanetally_serving_child` is removed. The LaneTally serving test now
+  uses the shared `serve_driver`, `recording_harness`, `recorded_argv` and
+  `result_error`.
+- **Mutations.** MR4, MR3, MD, MC1, MC2, MLT and MRJ each fail their rows
+  and are restored. Under MR4 and MR3 the pre-return test passed.
+- No standing-admission lines and no fixture migrations.
+- **Gates** and **pending**: see evidence.md.
+
 ## 21. Unit 21 — Prove compiled cold and actual-resume restrictions
 
 - [ ] 21.1 Unit 21 proves managed Read/empty restrictions in compiled cold/eligible-resume Claude/LaneTally shapes. Verify authored lists refuse, prompt integrity and independent inventory. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Prompt values cannot absorb a composed control][NCP], [Subtractive tool lists never grant a capability][RGS]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.4)
@@ -4220,6 +4268,15 @@ to the restriction-transport slice" below.
   One row is a known gap. The boxed inline Codex panel member's charter pin
   is covered only by the same-shape unboxed member row. Still open for
   unit 21: the managed Read/empty and CQ1 restriction rows.
+
+  **Corrected by unit 20's review return (2026-09-29).** The claim above
+  was wrong: the first visit's rows were not every supported
+  non-restriction row. The enumeration is now the 114-row matrix, which
+  asserts that it covers every compiled site and candidate. The boxed
+  members' own pins are asserted (R2), so that gap is closed. Beside unit
+  21's restriction rows, 21.3 also waits on the R5 production unit. The
+  typed LaneTally row is a full refusal where the settled design expects
+  either a delivered launch or a compile refusal.
 
 ## 22. Unit 22 — Submit whole plans to doctor
 
