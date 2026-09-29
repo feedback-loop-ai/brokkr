@@ -1,14 +1,16 @@
 use super::*;
+use brokkr_bridge::BridgeError;
 use brokkr_core::canonical::{sha256_hex, ZERO_HASH};
-use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2, PRODUCER_EFFECTS};
+use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2};
 use brokkr_core::fold::Cursor;
 use brokkr_core::EventType;
 use brokkr_store::test_support::plant_broken_link;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::process::Command;
-use time::format_description::well_known::Rfc3339;
 
+#[path = "../../../tests/support/dispatch.rs"]
+mod dispatch_fixture;
 /// The binary's one environment guard: `HOME` is process-global and the
 /// transcript lookup reads it, so the tests that point it at a temp
 /// projects tree take turns with every other writer.
@@ -16,6 +18,7 @@ use time::format_description::well_known::Rfc3339;
 pub(crate) mod env_guard;
 #[path = "../../../tests/support/envelope.rs"]
 pub(crate) mod envelope_builder;
+use dispatch_fixture::dispatch_envelope;
 use env_guard::EnvGuard;
 
 #[test]
@@ -153,7 +156,7 @@ pub(crate) fn stopped_mid_flight_run(db: &std::path::Path, run_id: &str, manifes
     }
 }
 
-fn cli(command: Cmd) -> Cli {
+pub(crate) fn cli(command: Cmd) -> Cli {
     Cli { command }
 }
 
@@ -346,10 +349,21 @@ fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd
 }
 
 /// `--db <path>` and no `--realms`: the journal a test names outright.
-fn at(db: &std::path::Path) -> JournalArgs {
+pub(crate) fn at(db: &std::path::Path) -> JournalArgs {
     JournalArgs {
         realms: None,
         db: Some(db.to_path_buf()),
+    }
+}
+
+/// `--bundle <path>`, no recipe and no secrets store: what a test
+/// delivers under.
+pub(crate) fn bundled(bundle: std::path::PathBuf) -> DeliveryArgs {
+    DeliveryArgs {
+        bundle: Some(bundle),
+        recipe: None,
+        recipes_dir: workspace().join("recipes"),
+        secrets_file: None,
     }
 }
 
@@ -471,12 +485,9 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
         .unwrap();
     assert!(run(cli(Cmd::Rerun(RerunArgs {
         run: "missing-feature".into(),
-        bundle: Some(workspace().join("recipes/fast")),
-        recipe: None,
-        recipes_dir: workspace().join("recipes"),
+        delivery: bundled(workspace().join("recipes/fast")),
         journal: at(&db),
         repo: None,
-        secrets_file: None,
     })))
     .unwrap_err()
     .to_string()
@@ -957,40 +968,10 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
 }
 
 fn dispatch_for(bundle: &Bundle, run_id: &str, callback: &str) -> DispatchEnvelopeV2 {
-    let now = time::OffsetDateTime::now_utc();
-    serde_json::from_value::<DispatchEnvelopeV2>(json!({
-        "schema":"forge-dispatch/v2", "envelope_id":"envelope", "forge_run_id":run_id,
-        "issued_at":(now-time::Duration::minutes(1)).format(&Rfc3339).unwrap(),
-        "expires_at":(now+time::Duration::minutes(5)).format(&Rfc3339).unwrap(),
-        "canonical_digest":"",
-        "looper":{"organization_id":"org","product_id":"product","story_id":"story",
-            "delivery_run_id":"delivery","request_grant_id":"grant","feature_path":"feature",
-            "immutable_inputs_sha256":"a".repeat(64)},
-        "actor":{"principal_kind":"api_key","principal_id":"key","actor_kind":"service",
-            "actor_id":"brokkr","accountable_operator_id":"operator","authority_source":"looper-grant",
-            "operating_profile":"bounded"},
-        "repository":{"owner":"owner","name":"repo","base_sha":"b".repeat(64),
-            "candidate_sha":null,"workspace_class":"isolated","target_environment":"dogfood"},
-        "recipe":{"name":bundle.name,"compiled_sha256":bundle.manifest_digest()},
-        "budget":{"lane_tally_run_id":"lane","reservation_id":null,"cost_state":"known",
-            "ceiling_microunits":1000,"currency":"USD"},
-        "producer":{"registration_id":"registration","token_reference":"key",
-            "callback_audience":callback,"accepting_service_id":"looper-api",
-            "runtime_id":"runtime","producer_release":"brokkr@test","protocol_version":1,
-            "starting_cursor":0},
-        "allowed_effects":PRODUCER_EFFECTS,"forbidden_actions":["grant_create","grant_widen",
-            "artifact_decide","workflow_advance","release_promote"],
-        "bounds":{"max_attempts":3,"max_parallel_effects":4,"max_event_bytes":65536,
-            "max_events_per_ten_seconds":40,"replay_retention_seconds":604800,
-            "safe_stop":"boundary","cancellation":"fenced"},
-        "evidence_requirements":["ordered_hash_chain"],"attestation_requirement":"self_reported"
-    }))
-    .unwrap()
-    .sealed()
+    dispatch_envelope(run_id, &bundle.name, &bundle.manifest_digest(), callback)
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let dir = tempfile::tempdir().unwrap();
     // The tempdir is the workspace these invocations stand in, so it
@@ -1000,18 +981,14 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     // reason the digest witnesses are recorded rather than asserted.
     stage_adapters(dir.path());
     let bundle_path = stage_hands_free_fast(dir.path(), "fast-hands-free", false);
-    let recipes_dir = workspace().join("recipes");
     let base = |dispatch| {
         Cmd::Run(RunArgs {
-            bundle: Some(bundle_path.clone()),
-            recipe: None,
-            recipes_dir: recipes_dir.clone(),
+            delivery: bundled(bundle_path.clone()),
             feature: "feature".into(),
             realms: None,
             db: Some(dir.path().join("dispatch.db")),
             repo: None,
             dispatch,
-            secrets_file: None,
         })
     };
 
@@ -1075,15 +1052,12 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     .unwrap();
     let gated = |dispatch| {
         Cmd::Run(RunArgs {
-            bundle: Some(gated_path.clone()),
-            recipe: None,
-            recipes_dir: recipes_dir.clone(),
+            delivery: bundled(gated_path.clone()),
             feature: "feature".into(),
             realms: None,
             db: Some(dir.path().join("dispatch.db")),
             repo: None,
             dispatch,
-            secrets_file: None,
         })
     };
     let refusal = run_in(&unmapped, cli(gated(Some(gated_dispatch_path))))
@@ -1108,17 +1082,11 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let path = dir.path().join("dispatch.json");
     std::fs::write(&path, serde_json::to_string(&dispatch).unwrap()).unwrap();
     let accept = |dispatch_path| {
-        Cmd::Run(RunArgs {
-            bundle: Some(bundle_path.clone()),
-            recipe: None,
-            recipes_dir: recipes_dir.clone(),
-            feature: "feature".into(),
-            realms: None,
-            db: Some(dir.path().join("dispatch.db")),
-            repo: Some(dir.path().to_path_buf()),
-            dispatch: Some(dispatch_path),
-            secrets_file: None,
-        })
+        let mut accepted = base(Some(dispatch_path));
+        if let Cmd::Run(RunArgs { repo, .. }) = &mut accepted {
+            *repo = Some(dir.path().to_path_buf());
+        }
+        accepted
     };
     let code = run_in(&unmapped, cli(accept(path.clone()))).unwrap();
     assert_eq!(code, ExitCode::from(2));
@@ -1175,6 +1143,29 @@ fn loopback_server(responses: Vec<String>) -> (String, std::thread::JoinHandle<(
     (format!("http://{address}"), handle)
 }
 
+/// A completed run named `bridge-run` in `db`, whose manifest seals
+/// `base_url` as its Looper callback audience.
+fn completed_bridge_run(db: &std::path::Path, base_url: &str) {
+    let base_manifest = json!({
+        "engine":"0.2.0", "event_schema":1, "database_schema":1,
+        "driver_protocol":1, "bundle_name":"fast", "files":{"bundle.json":"a".repeat(64)}
+    });
+    let mut shell_bundle = compiled_recipe("recipes/fast");
+    shell_bundle.name = "fast".into();
+    shell_bundle.manifest = base_manifest.clone();
+    let mut dispatch = dispatch_for(&shell_bundle, "bridge-run", base_url);
+    dispatch.recipe.compiled_sha256 = sha256_hex(&base_manifest);
+    dispatch = dispatch.sealed();
+    let manifest = build_run_manifest_v2(&base_manifest, dispatch).unwrap();
+    let mut store = Store::open(db).unwrap();
+    store
+        .create_run("bridge-run", "feature", "fast", &manifest)
+        .unwrap();
+    store
+        .append_next("bridge-run", EventType::RunCompleted, json!({}), None, None)
+        .unwrap();
+}
+
 #[test]
 fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
     let dir = tempfile::tempdir().unwrap();
@@ -1192,24 +1183,7 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
             })
             .collect(),
     );
-    let base_manifest = json!({
-        "engine":"0.2.0", "event_schema":1, "database_schema":1,
-        "driver_protocol":1, "bundle_name":"fast", "files":{"bundle.json":"a".repeat(64)}
-    });
-    let mut shell_bundle = compiled_recipe("recipes/fast");
-    shell_bundle.name = "fast".into();
-    shell_bundle.manifest = base_manifest.clone();
-    let mut dispatch = dispatch_for(&shell_bundle, "bridge-run", &base_url);
-    dispatch.recipe.compiled_sha256 = sha256_hex(&base_manifest);
-    dispatch = dispatch.sealed();
-    let manifest = build_run_manifest_v2(&base_manifest, dispatch).unwrap();
-    let mut store = Store::open(&db).unwrap();
-    store
-        .create_run("bridge-run", "feature", "fast", &manifest)
-        .unwrap();
-    store
-        .append_next("bridge-run", EventType::RunCompleted, json!({}), None, None)
-        .unwrap();
+    completed_bridge_run(&db, &base_url);
 
     let mut env = EnvGuard::lock();
     let token_name = format!("BROKKR_TEST_TOKEN_{}", std::process::id());
@@ -1234,22 +1208,30 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         .to_string()
         .contains("credential is empty"));
     env.set(&token_name, "test-token");
-    assert!(run_with(
-        cli(Cmd::Bridge(BridgeArgs {
-            run: "missing-run".into(),
-            journal: at(&db),
-            looper_url: "http://127.0.0.1:1".into(),
-            token_env: token_name.clone(),
-            follow: false,
-            interval_ms: 0,
-        })),
-        unmapped(),
-        ui::serve,
-        Some(1),
-        None,
-        run_tui,
-    )
-    .is_err());
+    let sync_once_at = |run: &str| {
+        run_with(
+            cli(Cmd::Bridge(BridgeArgs {
+                run: run.into(),
+                journal: at(&db),
+                looper_url: "http://127.0.0.1:1".into(),
+                token_env: token_name.clone(),
+                follow: false,
+                interval_ms: 0,
+            })),
+            unmapped(),
+            ui::serve,
+            Some(1),
+            None,
+            run_tui,
+        )
+    };
+    let missing = selector::refusal_kind(&sync_once_at("missing-run").unwrap_err());
+    assert_eq!(missing, Some(selector::Refusal::Missing));
+    // A resolved run synced against a Looper its manifest did not seal:
+    // the sync refuses, and the verb returns that refusal, not a report.
+    let mismatch = sync_once_at("bridge-run").unwrap_err();
+    let mismatch = mismatch.downcast_ref::<BridgeError>();
+    assert!(matches!(mismatch, Some(BridgeError::AudienceMismatch)));
     assert_eq!(
         run_with(
             cli(command(false)),
@@ -2983,13 +2965,10 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
         run_in(
             &workspace(),
             cli(Cmd::Resume(ResumeArgs {
-                bundle: Some(bundle_path),
-                recipe: None,
-                recipes_dir: workspace().join("recipes"),
+                delivery: bundled(bundle_path),
                 run: "stopped-mid-flight".into(),
                 journal: at(&db),
                 repo: Some(dir.path().to_path_buf()),
-                secrets_file: None,
             }))
         )
         .unwrap(),
@@ -3890,7 +3869,7 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     let found = contention(&deep).expect("contention buried in a chain is still contention");
     assert!(found.is_contention());
     assert!(found.to_string().contains("nothing was written"));
-    assert_eq!(report(&deep), ExitCode::from(CONTENDED_EXIT));
+    assert_eq!(report(&deep), ExitCode::from(Exit::Contended));
 
     // And straight out of a store call, which is how every reading verb
     // in this file would meet one.
@@ -3901,7 +3880,7 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     // busy journal leaves `brokkr import` with the contended exit.
     let import =
         anyhow::Error::from(brokkr_store::ImportError::Store(contended())).context("importing r1");
-    assert_eq!(report(&import), ExitCode::from(CONTENDED_EXIT));
+    assert_eq!(report(&import), ExitCode::from(Exit::Contended));
     let collision: anyhow::Error = brokkr_store::ImportError::Collision("r1".into()).into();
     assert!(contention(&collision).is_none());
     let import_moved: anyhow::Error = brokkr_store::ImportError::Store(moved()).into();
@@ -3919,7 +3898,7 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     let defect = anyhow::anyhow!("a real defect");
     assert!(contention(&defect).is_none());
     assert_eq!(report(&defect), ExitCode::from(1));
-    assert_eq!(CONTENDED_EXIT, 4);
+    assert_eq!(Exit::Contended.code(), 4);
 }
 
 /// Decision 0043 through the in-process verb: a boxed command runs whole
@@ -4147,15 +4126,12 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let refusal = run_in(
         &root,
         cli(Cmd::Run(RunArgs {
-            bundle: Some(root.join("recipes/triage")),
-            recipe: None,
-            recipes_dir: root.join("recipes"),
+            delivery: bundled(root.join("recipes/triage")),
             feature: "dialect refusal".into(),
             realms: Some(no_dialect_path),
             db: Some(dir.path().join("never-created.db")),
             repo: Some(root.clone()),
             dispatch: None,
-            secrets_file: None,
         })),
     )
     .unwrap_err()
@@ -4167,13 +4143,10 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     assert!(run_in(
         &root,
         cli(Cmd::Resume(ResumeArgs {
-            bundle: Some(dir.path().join("missing-bundle")),
-            recipe: None,
-            recipes_dir: root.join("recipes"),
+            delivery: bundled(dir.path().join("missing-bundle")),
             run: "resume-missing-bundle".into(),
             journal: at(&resume_db),
             repo: None,
-            secrets_file: None,
         })),
     )
     .is_err());

@@ -114,7 +114,7 @@ never retries, because a retry could duplicate or re-pay for finished
 work. Exhaustion, schema violations, unmatched results and unknown
 anything park the run with the raw evidence attached — never repaired,
 coerced, or handed to a model to fix (decision 0001). Operator commands
-are journal events, not prose. `operator --action supersede` records the named
+are journal events, not prose. `operator supersede` records the named
 residual findings an operator closes, with the actor and optional closing-run
 citation (decision 0047); it does not rewrite a past verdict or resume a
 completed run.
@@ -271,13 +271,14 @@ pins the selected boundary, and CLI, TUI and web readouts retain that fact.
 
 ## The operating surface
 
-```
+```text
 brokkr init · doctor · compile · run · resume · operator · inspect · watch ·
        replay · export · import · verify-run · runs · costs · anchor ·
        ui · tui · muninn · driver
 ```
 
-Exit codes: `0` completed · `2` parked (operator needed) · `3` stopped.
+Verbs, flags and [exit codes](docs/reference/cli.md#exit-codes): the
+[CLI reference](docs/reference/cli.md).
 `brokkr ui`, `brokkr tui` and `brokkr inspect` are three renderers over
 the same `brokkr-view` models (decision 0014): read-only, no operator
 command, nothing written to the journal. `brokkr costs` reports per-seat

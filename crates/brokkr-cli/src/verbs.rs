@@ -14,3 +14,6 @@ pub(super) mod delivery;
 pub(super) mod exchange;
 pub(super) mod readouts;
 pub(super) mod setup;
+
+#[cfg(test)]
+mod tests;

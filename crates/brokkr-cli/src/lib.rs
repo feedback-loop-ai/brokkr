@@ -16,6 +16,7 @@ mod budget_frame;
 mod cli_args;
 mod compare;
 mod doctor;
+mod exit;
 mod fleet;
 mod hands;
 mod init;
@@ -49,6 +50,7 @@ use brokkr_store::Store;
 use brokkr_view::transcript::{LegacyProvenance, TranscriptRead, Unavailable};
 use clap::{ArgGroup, Parser, Subcommand};
 use cli_args::*;
+use exit::Exit;
 use serde_json::{json, Value};
 
 /// The workspace journal a command opens when neither a map nor `--db`
@@ -73,8 +75,7 @@ pub const DEFAULT_DB: &str = ".forge/forge.db";
 /// their workdir; doctor has no workdir of its own.
 pub const DEFAULT_SECRETS: &str = ".forge/secrets.env";
 
-/// Exit codes: 0 completed/ok · 2 parked (operator needed) · 3 stopped ·
-/// 1 error.
+/// The command line. Its exit codes are [`exit::Exit`]'s.
 #[derive(Parser)]
 // `bin_name` is pinned, not inferred from argv[0]: a renamed or
 // symlinked copy still prints the name this engine answers to
@@ -239,32 +240,11 @@ enum Cmd {
 }
 
 #[derive(Subcommand)]
-enum SecretsCmd {
-    /// Bind NAME to a value read from STDIN (never argv — the CLI obeys
-    /// its own injection discipline). Creates the store 0600.
-    Set {
-        name: String,
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
-    },
-    /// Print bound names, one per line — names, never values.
-    List {
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
-    },
-    /// Remove NAME from the store.
-    Remove {
-        name: String,
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
-    },
-}
-
-#[derive(Subcommand)]
 enum AgentsCmd {
     /// One line per agent — name, model chain, description. A broken
     /// definition prints a warning line and never aborts the listing.
     List {
+        /// The agent library directory.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
         agents_dir: PathBuf,
     },
@@ -272,9 +252,12 @@ enum AgentsCmd {
     /// the compiler would compute. An unknown name errors naming the
     /// known set.
     Show {
+        /// The agent's name in the library.
         name: String,
+        /// The agent library directory.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
         agents_dir: PathBuf,
+        /// The adapter library the chain's models are resolved against.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
         adapters_dir: PathBuf,
     },
@@ -294,16 +277,20 @@ enum MuninnCmd {
         /// either, .forge/forge.db as always.
         #[arg(long)]
         db: Option<PathBuf>,
+        /// The agent library Muninn's own seat is hired from.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
         agents_dir: PathBuf,
+        /// The adapter library that seat's model is resolved against.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
         adapters_dir: PathBuf,
+        /// The append-only file each proposal is recorded in.
         #[arg(long, default_value = muninn::DEFAULT_RECORD)]
         record: PathBuf,
     },
     /// Read the record back: every proposal, with the run ids and
     /// sequence numbers it cited.
     List {
+        /// The record file to read.
         #[arg(long, default_value = muninn::DEFAULT_RECORD)]
         record: PathBuf,
         /// Emit the recorded entries verbatim — this is what scripts read.
@@ -322,18 +309,22 @@ enum KeepRefsCmd {
         run: String,
         #[command(flatten)]
         journal: JournalArgs,
+        /// The git repository the keep-refs are planted in.
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
     /// Which runs hold which exhibits — one `for-each-ref`, no journal
     /// needed. `--run` narrows the listing to one run.
     List {
-        /// Full run id, a unique run-id prefix, or `latest`; without it,
-        /// every run holding keep-refs in this repository.
+        /// A run id; with the workspace journal there, also a unique
+        /// prefix or `latest`, and without it the id is taken literally
+        /// and `latest` is refused. Omitted, every run holding keep-refs
+        /// in this repository.
         #[arg(long)]
         run: Option<String>,
         #[command(flatten)]
         journal: JournalArgs,
+        /// The git repository whose keep-refs are listed.
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
@@ -341,10 +332,14 @@ enum KeepRefsCmd {
     /// operator's decision alone — nothing in the engine ever deletes a
     /// keep-ref, and the objects are then as mortal as gc leaves them.
     Delete {
+        /// A run id; with the workspace journal there, also a unique
+        /// prefix or `latest`, and without it the id is taken literally
+        /// and `latest` is refused.
         #[arg(long)]
         run: String,
         #[command(flatten)]
         journal: JournalArgs,
+        /// The git repository the keep-refs are removed from.
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
@@ -355,21 +350,27 @@ enum RecipesCmd {
     /// List recipes under --dir plus the built-in bundles; broken ones
     /// print a warning line, never abort the listing.
     List {
+        /// The recipe library directory.
         #[arg(long, default_value = "recipes")]
         dir: PathBuf,
     },
     /// Install a recipe from a local path or a git URL into <dir>/<name>.
     Add {
+        /// A local bundle directory or a git URL.
         source: String,
+        /// The name the recipe is installed under.
         #[arg(long)]
         name: String,
+        /// The recipe library directory it is installed into.
         #[arg(long, default_value = "recipes")]
         dir: PathBuf,
     },
     /// Print one recipe's RESOLVED bundle and, when it extends another,
     /// the composition chain it was resolved from (decision 0017).
     Show {
+        /// The recipe's name, resolved to <dir>/<name>.
         name: String,
+        /// The recipe library directory.
         #[arg(long, default_value = "recipes")]
         dir: PathBuf,
     },
@@ -490,17 +491,6 @@ fn summarize(state: &RunState) -> Value {
     })
 }
 
-/// Exit codes: 0 completed · 2 parked (operator needed) · 3 stopped ·
-/// 1 still running. One mapping, shared by `finish` and `watch`.
-fn status_exit(status: &Status) -> ExitCode {
-    match status {
-        Status::Completed => ExitCode::SUCCESS,
-        Status::AwaitingOperator => ExitCode::from(2),
-        Status::Stopped => ExitCode::from(3),
-        Status::Running => ExitCode::from(1),
-    }
-}
-
 /// Drive a started run to its ending. The start first reaps the scratch
 /// trees of hands servers whose owners died and says each on stderr,
 /// journaling nothing (#415). Then the conclusion's anchor and keep-ref
@@ -519,7 +509,7 @@ fn finish(state: &RunState) -> ExitCode {
         "{}",
         serde_json::to_string_pretty(&summarize(state)).unwrap()
     );
-    status_exit(&state.status)
+    Exit::of_status(&state.status).into()
 }
 
 /// The one clock read that keeps the derivation pure: `brokkr-view` has
@@ -624,7 +614,7 @@ fn watch_loop(
                         // hang. The park reason printed first is the
                         // frame's own header.
                         if state.status != Status::Running {
-                            return Ok(status_exit(&state.status));
+                            return Ok(Exit::of_status(&state.status).into());
                         }
                     }
                 }
@@ -641,7 +631,7 @@ fn watch_loop(
             }
         }
     }
-    Ok(ExitCode::from(1))
+    Ok(Exit::Running.into())
 }
 
 /// `--run` for the reading and releasing verbs. Keep-refs outlive
@@ -711,7 +701,7 @@ fn keep_refs(workspace: &std::path::Path, command: KeepRefsCmd) -> Result<ExitCo
             eprintln!("released {removed} exhibit(s) for {run}");
         }
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 #[derive(Subcommand, Debug)]
@@ -730,13 +720,16 @@ pub enum HandsCommand {
     /// how a deterministic `exec` seat holds a gate. Exits with the
     /// command's own code.
     Exec {
+        /// The worktree, bound read-write at its own path.
         #[arg(long)]
         workdir: PathBuf,
         /// Strategy root, bound read-only at /runtime/bundle.
         #[arg(long)]
         bundle_root: Option<PathBuf>,
+        /// The box spec as JSON, as `serve` takes it.
         #[arg(long, default_value = "\"workspace\"")]
         spec: String,
+        /// The command and its arguments, run inside the box.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
@@ -787,13 +780,6 @@ fn driver_payload(kind: brokkr_protocol::adapters::AdapterKind, args: Vec<String
     }
 }
 
-/// A peer still held the shared journal's write lock when this process
-/// ran out of patience for it. Its own exit code because it is its own
-/// thing: nothing was written, nothing is wrong, and the same command
-/// run again is likely to land. Distinct from 1 (a defect), from 2 (a
-/// park the run itself decided on) and from 3 (stopped).
-pub const CONTENDED_EXIT: u8 = 4;
-
 /// Did this error come from a peer holding the journal's lock?
 ///
 /// Asked of the whole chain and answered by the store's own typed
@@ -843,11 +829,11 @@ fn report_to(error: &anyhow::Error, stderr: &mut impl std::io::Write) -> ExitCod
                 "contended: {store}\nA peer is writing this journal. Nothing was \
                  written and nothing was lost — resume when it is done."
             );
-            ExitCode::from(CONTENDED_EXIT)
+            Exit::Contended.into()
         }
         None => {
             let _ = writeln!(stderr, "{}", failure_line(error));
-            ExitCode::from(1)
+            Exit::Failed.into()
         }
     }
 }
@@ -879,9 +865,10 @@ pub fn main() -> ExitCode {
     if let Some(args) = dsh_sandbox_runner_args() {
         return dsh_sandbox_runner(args);
     }
-    match run(Cli::parse()) {
-        Ok(code) => code,
-        Err(e) => report(&e),
+    match Cli::try_parse().map(run) {
+        Ok(Ok(code)) => code,
+        Ok(Err(e)) => report(&e),
+        Err(usage) => Exit::of_parse(&usage).into(),
     }
 }
 
@@ -903,7 +890,7 @@ fn dsh_sandbox_runner(args: Vec<String>) -> ExitCode {
         Ok(argv) => exec_bwrap(&argv, signature),
         Err(problem) => {
             eprintln!("{signature}{problem}");
-            ExitCode::from(127)
+            Exit::RunnerFailed.into()
         }
     }
 }
@@ -913,7 +900,7 @@ fn exec_bwrap(argv: &[String], signature: &str) -> ExitCode {
     let (program, rest) = (&argv[0], &argv[1..]);
     let error = std::process::Command::new(program).args(rest).exec();
     eprintln!("{signature}{error}");
-    ExitCode::from(127)
+    Exit::RunnerFailed.into()
 }
 
 /// The in-memory stamp of the selected transcript source: the subject
@@ -1514,7 +1501,7 @@ fn transcript_command(
                     )
                 );
             }
-            Ok(ExitCode::SUCCESS)
+            Ok(Exit::Completed.into())
         }
         Some(reason) => {
             // The refusal explanation and notices reach stderr in both
@@ -1531,7 +1518,7 @@ fn transcript_command(
                 line.push_str(render::Safe::new(notice).as_str());
             }
             eprintln!("{line}");
-            Ok(ExitCode::FAILURE)
+            Ok(Exit::Failed.into())
         }
     }
 }
@@ -1715,6 +1702,7 @@ fn supersede(
     // against a world this command only looks at (decision 0026 ruling
     // 5), and the one journal it writes to is the annotated run's.
     let cited = Store::open_read_only(&cited_journal)?;
+    let run = &selector::resolve_run(&store, run)?;
     let operator = std::env::var("USER").unwrap_or("operator".into());
     let written = brokkr_runtime::operator_supersede(
         &mut store,
@@ -1735,7 +1723,7 @@ fn supersede(
          --run {run}",
         written.seq
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// The journal alone, for the read surfaces that take a map only to know
@@ -2006,5 +1994,7 @@ fn run_with(
     }
 }
 
+#[cfg(test)]
+mod cli_reference_tests;
 #[cfg(test)]
 mod tests;

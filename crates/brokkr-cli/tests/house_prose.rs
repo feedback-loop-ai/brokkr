@@ -5,7 +5,8 @@
 //! exactly those two says it considered the third.
 //!
 //! Every tracked Markdown file is read, except under the records named in
-//! [`RECORDS`], whose words are fixed when they are written. Each paragraph
+//! `support/records.rs`, whose words are fixed when they are written, and
+//! the specs. Each paragraph
 //! and each list item is one unit: lowercased, with its emphasis and code
 //! marks dropped and its line breaks joined, so neither a line break nor
 //! `**` nor a code span can hide a list. A list joins its names with `,`,
@@ -16,33 +17,22 @@
 
 use std::path::PathBuf;
 
+#[path = "support/records.rs"]
+mod records;
 #[path = "support/tracked.rs"]
 mod tracked_files;
 
-/// Paths whose prose is a record, each with the reason it is not rewritten.
-const RECORDS: [(&str, &str); 9] = [
-    ("contracts/", "frozen contract bodies"),
-    ("reference/", "frozen heritage"),
-    ("fixtures/", "frozen fixtures"),
-    (
-        "docs/decisions/",
-        "a decision's text is fixed when it is ruled",
-    ),
-    (
-        "docs/essays/",
-        "an essay reports what happened, as it happened",
-    ),
-    (
-        "docs/research/",
-        "a research entry keeps its source's own list",
-    ),
-    ("docs/evidence/", "evidence records a past run"),
-    ("docs/releases/", "release notes say what shipped"),
-    (
-        "openspec/",
-        "a spec or change states each harness's own behaviour",
-    ),
-];
+/// The one path this rule leaves alone beside [`records::RECORDS`], with
+/// its reason.
+const SPECS: (&str, &str) = (
+    "openspec/specs/",
+    "a spec states each harness's own behaviour",
+);
+
+/// Every exempt path: the records, and the specs.
+fn exempt() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
+    records::RECORDS.iter().chain(std::iter::once(&SPECS))
+}
 
 const HARNESSES: [&str; 3] = ["claude", "codex", "dsh"];
 
@@ -362,7 +352,7 @@ fn lists_without_dsh(text: &str) -> Vec<(usize, String)> {
 #[test]
 fn every_list_of_agent_clis_names_dsh() {
     let root = workspace();
-    for (record, reason) in RECORDS {
+    for (record, reason) in exempt() {
         assert!(
             root.join(record).is_dir(),
             "{record} ({reason}) is no longer a directory, so its exemption covers nothing"
@@ -370,7 +360,7 @@ fn every_list_of_agent_clis_names_dsh() {
     }
     let files: Vec<String> = tracked_markdown()
         .into_iter()
-        .filter(|file| !RECORDS.iter().any(|(record, _)| file.starts_with(record)))
+        .filter(|file| !exempt().any(|(record, _)| file.starts_with(record)))
         .collect();
     for known in [
         "README.md",

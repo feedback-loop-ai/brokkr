@@ -152,7 +152,7 @@ pub struct brokkr_protocol::hands::Session
 impl brokkr_protocol::hands::Session
 pub fn brokkr_protocol::hands::Session::create(&str) -> core::result::Result<brokkr_protocol::hands::Session, brokkr_protocol::hands::SessionError>
 pub fn brokkr_protocol::hands::Session::path(&self) -> &std::path::Path
-pub fn brokkr_protocol::hands::Session::remove_on_termination(&self) -> core::result::Result<(), brokkr_protocol::hands::SessionError>
+pub fn brokkr_protocol::hands::Session::remove_on_termination(&self, fn(i32) -> i32) -> core::result::Result<(), brokkr_protocol::hands::SessionError>
 impl core::ops::drop::Drop for brokkr_protocol::hands::Session
 pub fn brokkr_protocol::hands::Session::drop(&mut self)
 pub const brokkr_protocol::hands::BOUNDARY_EVIDENCE_ENV: &str

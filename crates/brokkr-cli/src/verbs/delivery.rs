@@ -12,23 +12,26 @@ use brokkr_runtime::{Bundle, Engine, FencedCommandOutcome};
 use brokkr_store::Store;
 use serde_json::Value;
 
-use crate::cli_args::{ConcludeArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs};
+use crate::cli_args::{ConcludeArgs, DeliveryArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs};
 use crate::{compile_from_manifest, compile_in_realm, drive_to_end, finish, open_journal};
-use crate::{recipes, refuse_unboxable, supersede, Access, Invocation};
+use crate::{recipes, refuse_unboxable, selector, supersede, Access, Exit, Invocation};
 
 /// `brokkr run`: start a new run and drive it until it parks or finishes.
 pub(crate) fn run(
     workspace: &Path,
     RunArgs {
-        bundle,
-        recipe,
-        recipes_dir,
+        delivery:
+            DeliveryArgs {
+                bundle,
+                recipe,
+                recipes_dir,
+                secrets_file,
+            },
         feature,
         realms,
         db,
         repo,
         dispatch,
-        secrets_file,
     }: RunArgs,
 ) -> Result<ExitCode> {
     // The map is read BEFORE anything is compiled, opened or
@@ -123,16 +126,20 @@ fn start_dispatched(
 pub(crate) fn resume(
     workspace: &Path,
     ResumeArgs {
-        bundle,
-        recipe,
-        recipes_dir,
+        delivery:
+            DeliveryArgs {
+                bundle,
+                recipe,
+                recipes_dir,
+                secrets_file,
+            },
         run,
         journal,
         repo,
-        secrets_file,
     }: ResumeArgs,
 ) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Append)?;
+    let run = selector::resolve_run(&store, &run)?;
     let manifest = store.manifest(&run)?;
     let bundle = compile_from_manifest(
         workspace,
@@ -168,12 +175,15 @@ pub(crate) fn rerun(
     workspace: &Path,
     RerunArgs {
         run,
-        bundle,
-        recipe,
-        recipes_dir,
+        delivery:
+            DeliveryArgs {
+                bundle,
+                recipe,
+                recipes_dir,
+                secrets_file,
+            },
         journal,
         repo,
-        secrets_file,
     }: RerunArgs,
 ) -> Result<ExitCode> {
     // A rerun is a NEW run, and it stands where `run` stands
@@ -185,6 +195,7 @@ pub(crate) fn rerun(
         world, journal: db, ..
     } = Invocation::resolve(workspace, journal.realms, journal.db)?.announce();
     let store = open_journal(&db, Access::Append)?;
+    let run = selector::resolve_run(&store, &run)?;
     let events = store
         .load(&run)
         .with_context(|| format!("loading source run '{run}'"))?;
@@ -226,6 +237,7 @@ pub(crate) fn conclude(
     }: ConcludeArgs,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
+    let run = selector::resolve_run(&store, &run)?;
     let operator = std::env::var("USER").unwrap_or("operator".into());
     let state = conclude_run(&mut store, &run, &operator, &reason)?;
     Ok(finish(&state))
@@ -278,6 +290,7 @@ pub(crate) fn operator(
     // The journal `run` wrote (#374): the map's, unless `--db`
     // outranks it.
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
+    let run = selector::resolve_run(&store, &run)?;
     let operator = std::env::var("USER").unwrap_or("operator".into());
     // The command is fenced against a concurrently-driving
     // engine, so it can come back refused. Saying "recorded"
@@ -286,7 +299,7 @@ pub(crate) fn operator(
     match operator_command(&mut store, &run, verb, &operator, &reason)? {
         FencedCommandOutcome::Accepted { .. } => {
             eprintln!("recorded operator {command}; continue with: brokkr resume --run {run}");
-            Ok(ExitCode::SUCCESS)
+            Ok(Exit::Completed.into())
         }
         FencedCommandOutcome::Rejected { reason, .. } => {
             // The reason word carries which condition it was —
@@ -301,7 +314,7 @@ pub(crate) fn operator(
                  this command can apply to; the refusal is journaled. Read it with: \
                  brokkr inspect --run {run}"
             );
-            Ok(ExitCode::FAILURE)
+            Ok(Exit::Failed.into())
         }
     }
 }

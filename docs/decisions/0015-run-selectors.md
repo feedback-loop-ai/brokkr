@@ -73,3 +73,33 @@ runs; it is the same string ordering `forge runs` already sorts by.
   started while watching cannot silently change which run is on screen.
 - `--json` shapes are unchanged; the resolved id is what every readout
   prints and what `export` names its files for.
+
+## Addendum — 2026-09-28, proposed: every `--run` takes the selector (#362)
+
+Status: proposed; only the operator accepts this addendum.
+
+The scope above kept the selector to the five readouts and left the
+write paths on the full id as the operator's call. By #362's audit the
+readouts had grown to ten verbs while `costs`, `resume`, `rerun`,
+`conclude`, `operator`, `bridge` and `compare` still took the string
+literally, and the living docs already told readers that `--run`
+takes `latest` everywhere (`brokkr costs --run latest` in the
+quickstart). #362 asked for the call to be made.
+
+Proposed: every argument that names a run resolves through
+`selector::resolve_run`, the write paths included. `costs` and
+`compare` are reads and join the readouts. `resume`, `rerun`,
+`conclude`, `operator` (`retry`, `stop` and `supersede`) and `bridge`
+resolve before they write, and the rules of this decision hold
+unchanged: an empty database, a prefix matching nothing and a prefix
+matching several runs are each refused, and nothing is guessed.
+Resolution stays a read (rule 4): `bridge` resolves through a
+read-only open before its loop appends. The resolved id, not the
+selector, is what each verb then journals and prints.
+
+What the operator weighs: `latest` on a write path names the newest
+run in the workspace database, which on a shared hearth may be a run
+another driver started a moment ago. The alternative is to revert the
+write paths to the full id and document that scope; the CLI reference
+(`docs/reference/cli.md`) marks each selector argument, so either
+ruling is shown there.

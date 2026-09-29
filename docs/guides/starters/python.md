@@ -24,6 +24,9 @@ requires-python = ">=3.11"
 
 ```
 $ brokkr init my-bundle
+```
+
+```text
 initialized reviewable bundle at my-bundle (digest 789009a981d943e0d5c767b4699b97ec3ece87cd8052f55aea536747575928ae)
 run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
@@ -101,6 +104,9 @@ Same repository, no `uv.lock`:
 
 ```
 $ brokkr init my-bundle
+```
+
+```text
 initialized reviewable bundle at my-bundle (digest 1c8ec1e31338e23d35bfddef29d5874e48b01ae627bff9dbdde37305179e11ae)
 run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```

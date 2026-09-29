@@ -125,9 +125,10 @@ impl Session {
     }
 
     /// Remove the tree when SIGTERM, SIGINT or SIGHUP ends the process,
-    /// which then exits `128 + signal` as a shell reports a signal death.
+    /// which then exits with the code `code` gives the signal, so the
+    /// binary's one table of exit codes holds this one too.
     /// For a server blocked on its stdin: its `Drop` never runs then.
-    pub fn remove_on_termination(&self) -> Result<(), SessionError> {
+    pub fn remove_on_termination(&self, code: fn(i32) -> i32) -> Result<(), SessionError> {
         let mut signals = Signals::new(TERMINATION)?;
         let dir = self.dir.clone();
         std::thread::spawn(move || {
@@ -135,7 +136,7 @@ impl Session {
             // closes it: the first item is the first signal.
             let signal = signals.forever().next().unwrap_or(SIGTERM);
             let _ = std::fs::remove_dir_all(&dir);
-            std::process::exit(128 + signal);
+            std::process::exit(code(signal));
         });
         Ok(())
     }

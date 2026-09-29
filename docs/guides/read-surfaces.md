@@ -3,14 +3,18 @@
 Every readout shares ONE derivation (decision 0013): `brokkr-view` turns
 a journal into view models, and each surface only renders them — so
 "what did this seat cost" has a single answer, tested once. `runs`,
-`inspect`, `seats` and `watch` each take `--json` to emit that model
+`inspect` and `seats` each take `--json` to emit that model
 verbatim — `seats --json` is `inspect --json`'s own view model, byte for
 byte, under the same `view_version`.
 
 `--run` takes a **selector**, not only the 41-character id: any unique
 run-id prefix, or `latest` for the newest run in the workspace database
-(decision 0015) — one resolver, shared by `watch`, `inspect`, `anchor`,
-`export` and `replay`.
+— one resolver, shared by every verb that takes `--run` and by
+`compare`'s two runs. Decision 0015 ruled it for the readouts; its
+proposed 2026-09-28 addendum extends it to the write paths (`resume`,
+`rerun`, `conclude`, `operator`, `bridge`) and awaits the operator's
+ruling. The [CLI reference](../reference/cli.md) marks each selector
+argument.
 
 Colour follows `NO_COLOR` and `TERM`, width follows `COLUMNS`; without a
 Unicode-width dependency, CJK and emoji columns misalign — stated rather
@@ -65,6 +69,9 @@ journal the world writes. Read-only, like every other readout, and
 
 ```
 $ brokkr realms
+```
+
+```text
 map      ./realms.json
 journal  ./.forge/forge.db
 realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
@@ -80,6 +87,9 @@ end of the reading; `realms` reports, it does not refuse.
 
 ```
 $ brokkr realms
+```
+
+```text
 map      ./realms.json
 journal  ./.forge/forge.db
 realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7

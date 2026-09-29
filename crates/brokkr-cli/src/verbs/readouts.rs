@@ -16,14 +16,14 @@ use crate::cli_args::{CompareArgs, CostsArgs, InspectArgs, LedgerArgs, RealmsArg
 use crate::cli_args::{ReplayArgs, RunsArgs, SeatsArgs, TuiArgs, UiArgs, WatchArgs};
 use crate::{compare, fleet, ledger, realms, render, selector};
 use crate::{hearths_of, journal_of, now_rfc3339, open_journal, resolve_in_hearths};
-use crate::{summarize, ui_journal, watch_loop, Access, Invocation};
+use crate::{summarize, ui_journal, watch_loop, Access, Exit, Invocation};
 
 /// `brokkr costs`: per-seat cost and session accounting.
 pub(crate) fn costs(workspace: &Path, CostsArgs { run, journal }: CostsArgs) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
     let report = compare::costs(&store, &run)?;
     println!("{}", serde_json::to_string_pretty(&report)?);
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr ledger`: the shipper's delivery ledger.
@@ -44,7 +44,7 @@ pub(crate) fn ledger(
         Some(repo) => println!("{}", ledger::write(&run, &events, &repo)?.display()),
         None => print!("{}", ledger::render(&run, &events, workspace)?),
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr ui`: serve the read-only surface through `serve_ui`.
@@ -58,7 +58,7 @@ pub(crate) fn ui(
     serve_ui: impl FnOnce(PathBuf, u16, bool) -> std::io::Result<()>,
 ) -> Result<ExitCode> {
     serve_ui(ui_journal(workspace, journal)?, port, open)?;
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr tui`: the console, drawn by `run_tui` over the world's hearths.
@@ -116,7 +116,7 @@ pub(crate) fn inspect(
     let view = run_view_of(workspace, realms, db, &run)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&view)?);
-        return Ok(ExitCode::SUCCESS);
+        return Ok(Exit::Completed.into());
     }
     // clap's ArgGroup already rules the two mutually exclusive.
     let scope = match (phase, seat) {
@@ -129,7 +129,7 @@ pub(crate) fn inspect(
         "{}",
         render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr seats`: the seats block of `inspect`'s readout.
@@ -150,10 +150,10 @@ pub(crate) fn seats(
     let view = run_view_of(workspace, realms, db, &run)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&view)?);
-        return Ok(ExitCode::SUCCESS);
+        return Ok(Exit::Completed.into());
     }
     print!("{}", render::seats(&view, &render::Style::detect()));
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr watch`: redraw a run live until it reaches a terminal status,
@@ -215,7 +215,7 @@ pub(crate) fn replay(
             "state": summarize(&state),
         }))?
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr runs`: one line per run, newest first — grouped by realm when
@@ -251,7 +251,7 @@ pub(crate) fn runs(workspace: &Path, RunsArgs { realms, db, json }: RunsArgs) ->
             render::runs(&view, &now_rfc3339(), &render::Style::detect())
         );
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr runs` over several hearths: each journal's runs under its realm.
@@ -286,7 +286,7 @@ fn runs_fleet(hearths: &[Hearth], json: bool) -> Result<ExitCode> {
             render::fleet(&view, &now_rfc3339(), &render::Style::detect())
         );
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr realms`: the world, each realm with its path, branch and HEAD.
@@ -320,7 +320,7 @@ pub(crate) fn realms(
             realms::render(&source, &journal, &rows, realms::per_realm(&world, &rows))
         );
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr compare`: two runs' aligned outcomes.
@@ -333,5 +333,5 @@ pub(crate) fn compare(
     }: CompareArgs,
 ) -> Result<ExitCode> {
     compare::compare(&run_a, &run_b, &journal.journal(workspace)?)?;
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }

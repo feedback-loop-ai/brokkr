@@ -9,7 +9,7 @@ use brokkr_store::Store;
 use serde_json::{json, Value};
 
 use crate::cli_args::{AnchorArgs, BridgeArgs, ExportArgs, ImportArgs, VerifyRunArgs};
-use crate::{journal_of, manifest_beside, open_journal, render, selector, summarize, Access};
+use crate::{journal_of, manifest_beside, open_journal, render, selector, summarize, Access, Exit};
 
 /// `brokkr anchor`: plant the journal head in refs/forge/<run>, or verify
 /// the one planted with `--check`.
@@ -31,7 +31,7 @@ pub(crate) fn anchor(
         let sha = brokkr_runtime::anchor(&store, &repo, &run)?;
         eprintln!("anchored {run} at {sha}");
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr export`: the canonical NDJSON journal and its pinned manifest,
@@ -62,7 +62,7 @@ pub(crate) fn export(
     if redact {
         export_redacted(&out, &run, &ndjson, &manifest)?;
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// The `--redact` half of `export`, written beside the verbatim pair.
@@ -157,7 +157,7 @@ pub(crate) fn import(
         db.display(),
         adoption.events
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr verify-run`: an exported journal's chain, envelopes and fold.
@@ -171,7 +171,7 @@ pub(crate) fn verify_run(VerifyRunArgs { file }: VerifyRunArgs) -> Result<ExitCo
             "state": summarize(&state),
         }))?
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr bridge`: synchronize a Looper-bound run, once or following,
@@ -192,6 +192,7 @@ pub(crate) fn bridge(
     let token = std::env::var(&token_env)
         .with_context(|| format!("reading producer credential from {token_env}"))?;
     anyhow::ensure!(!token.trim().is_empty(), "producer credential is empty");
+    let run = selector::resolve_run(&open_journal(&db, Access::Read)?, &run)?;
     let transport = brokkr_bridge::HttpTransport::new(looper_url, token);
     let mut bridge = brokkr_bridge::Bridge::new(transport);
     let mut command_cursor = 0;
@@ -222,5 +223,5 @@ pub(crate) fn bridge(
         }
         std::thread::sleep(std::time::Duration::from_millis(interval_ms.max(100)));
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }

@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use brokkr_protocol::hands::{self, Session, SessionError};
 
-use crate::HandsCommand;
+use crate::{Exit, HandsCommand};
 
 pub(crate) fn run(command: HandsCommand) -> anyhow::Result<ExitCode> {
     run_with(command, Session::create)
@@ -28,12 +28,12 @@ fn run_with(
             // here until the harness closes the server's stdin, or a
             // termination signal ends the server (#415).
             let session = session("serve")?;
-            session.remove_on_termination()?;
+            session.remove_on_termination(Exit::of_signal)?;
             let stdin = std::io::stdin();
             let (input, output) = (stdin.lock(), std::io::stdout());
             let path = session.path();
             hands::serve(input, output, &workdir, path, &spec, &hands::execute)?;
-            Ok(ExitCode::SUCCESS)
+            Ok(Exit::Completed.into())
         }
         HandsCommand::Exec {
             workdir,
@@ -50,9 +50,7 @@ fn run_with(
             };
             let code = hands::run_boxed(&spec, &workdir, bundle_root.as_deref(), &command)
                 .map_err(anyhow::Error::msg)?;
-            Ok(ExitCode::from(
-                u8::try_from(code.clamp(0, 255)).unwrap_or(1),
-            ))
+            Ok(Exit::of_box(code).into())
         }
     }
 }
