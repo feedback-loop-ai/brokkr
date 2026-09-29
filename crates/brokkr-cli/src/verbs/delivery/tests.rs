@@ -27,7 +27,16 @@ fn a_missing_recipe_never_masks_the_refusal_each_verb_met_first() {
         db: Some(db.clone()),
     };
     let line = |refusal: anyhow::Result<ExitCode>| failure_line(&refusal.unwrap_err());
-    let selected = |refusal: anyhow::Result<ExitCode>| refusal_kind(&refusal.unwrap_err());
+    let selected = |refusal: anyhow::Result<ExitCode>| {
+        let error = refusal.unwrap_err();
+        (failure_line(&error), refusal_kind(&error))
+    };
+    let absent = || {
+        (
+            "error: no run matching 'absent' in this workspace database".to_string(),
+            Some(Refusal::Missing),
+        )
+    };
     let missing = || DeliveryArgs {
         bundle: None,
         recipe: Some("missing".to_string()),
@@ -64,7 +73,7 @@ fn a_missing_recipe_never_masks_the_refusal_each_verb_met_first() {
             repo: None,
         },
     );
-    assert_eq!(selected(reran), Some(Refusal::Missing));
+    assert_eq!(selected(reran), absent());
     let resumed = resume(
         ws,
         ResumeArgs {
@@ -74,7 +83,7 @@ fn a_missing_recipe_never_masks_the_refusal_each_verb_met_first() {
             repo: None,
         },
     );
-    assert_eq!(selected(resumed), Some(Refusal::Missing));
+    assert_eq!(selected(resumed), absent());
 }
 
 /// A launch that met a peer's lock on the journal — opening it, or
