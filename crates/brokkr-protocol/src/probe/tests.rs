@@ -28,6 +28,8 @@ enum Boxed {
     Empties,
     Keeps,
     Refuses,
+    /// Empties its tools but still starts the planted user-scope server.
+    Leaks,
 }
 
 /// A Claude-like CLI: stream-json whose `system/init` event lists its
@@ -43,6 +45,9 @@ fn claude_like(version: &str, boxed: Boxed) -> String {
             r#"tools='"Bash","WebFetch","mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"}'"#
         }
         Boxed::Refuses => r#"echo "error: unknown option '--strict-mcp-config'" >&2; exit 1"#,
+        Boxed::Leaks => {
+            r#"tools='"mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"},{"name":"brokkr-probe-user-scope","status":"connected"}'"#
+        }
     };
     r#"#!/bin/sh
 case " $* " in
@@ -232,8 +237,17 @@ const RATE_LIMIT: &str = "not provoked: a rate limit spends quota and risks the 
 const OUTAGE: &str = "not provoked: a provider outage cannot be caused safely";
 const RESUME: &str = "the probe does not drive a resume turn yet; decision 0056's per-shape \
                       assessment stays the adapter's (#226)";
-const ISOLATED: &str =
-    "a turn ran under a scratch HOME with only these credentials bound: [FAKE_TOKEN]";
+const PROMPT_AS_ARGUMENT: &str = "the prompt is the last argument and stdin is closed, where \
+                                  the adapter's driver writes the prompt to stdin";
+const DSH_UNLIKE_DRIVER: &str = "the prompt is the last argument, stdin is closed and no \
+                                 --patch overlay is given, where the adapter's driver writes \
+                                 the prompt to stdin and always composes a --patch profile \
+                                 overlay";
+const NO_MESSAGE_ID: &str = "no usage-bearing event named its message, so nothing showed \
+                             whether one message's usage repeats";
+const NO_USER_MCP: &str = "no turn showed whether a user-scope MCP server loads: ";
+const NOT_ISOLATED: &str = "its user-scope configuration is not shown to be isolated: ";
+const PLANTED: &str = "the planted user-scope server brokkr-probe-user-scope";
 const TRANSCRIPTS: &str = "the .jsonl files the turn created under the scratch HOME";
 const DSH_PATCH_ONLY: &str = "dsh takes a model and an effort only through the profile patch \
                               its driver composes, which the probe does not compose";
@@ -257,10 +271,27 @@ fn envelope(adapter: &str, cli: &Path, version: &str, rest: Value) -> Value {
     report
 }
 
-fn headless(argv: &[&str], exit: i32) -> Value {
+/// The headless fact's evidence: the credentials bound, how the turn
+/// departs from the driver's launch, and how it exited.
+fn launched(bound: &str, unlike_driver: &str, exit: &str) -> String {
+    format!(
+        "one turn ran under a scratch HOME with only these credentials bound: [{bound}]; \
+         {unlike_driver}: {exit}"
+    )
+}
+
+fn headless(argv: &[&str], exit: i32, unlike_driver: &str) -> Value {
     measured(
         json!({"argv": argv, "exit": exit}),
-        &format!("one turn ran with stdin closed: exit {exit}"),
+        &launched("FAKE_TOKEN", unlike_driver, &format!("exit {exit}")),
+    )
+}
+
+/// A usage fact read from `locations`.
+fn usage(locations: &[&str], counters: &[&str], counting: Value) -> Value {
+    measured(
+        json!({"locations": locations, "counters": counters, "counting": counting}),
+        &format!("the turn reported its usage at {}", locations.join(", ")),
     )
 }
 
@@ -286,7 +317,7 @@ fn a_claude_like_cli_is_boxed_and_its_repeated_usage_is_named() {
         "9.9.9 (Fake Claude)",
         json!({
             "facts": {
-                "headless": headless(&CLAUDE_TURN, 0),
+                "headless": headless(&CLAUDE_TURN, 0, PROMPT_AS_ARGUMENT),
                 "events": measured(json!({
                     "source": "stdout",
                     "format": "ndjson",
@@ -297,11 +328,14 @@ fn a_claude_like_cli_is_boxed_and_its_repeated_usage_is_named() {
                     json!({"event": "system/init", "key": "session_id"}),
                     &format!("the system/init event announced session_id {CLAUDE_SESSION}"),
                 ),
-                "usage": measured(json!({
-                    "locations": ["assistant /message/usage", "result/success /usage"],
-                    "counters": ["cache_read_input_tokens", "input_tokens", "output_tokens"],
-                    "counting": "repeated-per-message",
-                }), "message msg_1 carried its usage on 2 events; count each message once"),
+                "usage": usage(
+                    &["assistant /message/usage", "result/success /usage"],
+                    &["cache_read_input_tokens", "input_tokens", "output_tokens"],
+                    measured(
+                        json!("repeated-per-message"),
+                        "message msg_1 carried its usage on 2 events; count each message once",
+                    ),
+                ),
                 "cost": measured(
                     json!(["result/success /total_cost_usd"]),
                     "the turn reported its cost at result/success /total_cost_usd",
@@ -328,7 +362,10 @@ fn a_claude_like_cli_is_boxed_and_its_repeated_usage_is_named() {
                     "the system/init event listed tools: 4",
                 ),
                 "egress_off": measured(json!(true), "the hands argv removed WebSearch, WebFetch"),
-                "config_isolation": measured(json!(true), ISOLATED),
+                "config_isolation": measured(
+                    json!(true),
+                    &format!("{PLANTED} did not reach the boxed turn: {listed_servers}"),
+                ),
                 "user_mcp_unboxed": measured(json!(true), listed_servers),
                 "user_mcp_boxed": measured(json!(false), listed_servers),
                 "transcripts": measured(
@@ -355,18 +392,23 @@ fn a_claude_like_cli_is_boxed_and_its_repeated_usage_is_named() {
 }
 
 #[test]
-fn a_codex_like_cli_whose_stream_lists_no_tools_is_held_to_tool_less_offices() {
+fn a_codex_like_cli_whose_stream_lists_no_mcp_servers_is_refused_for_want_of_isolation() {
     let world = world();
     let cli = world.fake("codex", CODEX_LIKE);
     let no_tools = "no event of the turn listed its tools";
     let no_servers = "no event of the turn listed its mcp_servers";
+    let not_isolated = format!("{NO_USER_MCP}{no_servers}");
     let expected = envelope(
         "codex",
         &cli,
         "codex-cli 0.999.0",
         json!({
             "facts": {
-                "headless": headless(&["{cli}", "exec", "--json", "-C", "{workdir}", "{prompt}"], 0),
+                "headless": headless(
+                    &["{cli}", "exec", "--json", "-C", "{workdir}", "{prompt}"],
+                    0,
+                    PROMPT_AS_ARGUMENT,
+                ),
                 "events": measured(json!({
                     "source": "stdout",
                     "format": "ndjson",
@@ -377,17 +419,17 @@ fn a_codex_like_cli_whose_stream_lists_no_tools_is_held_to_tool_less_offices() {
                     json!({"event": "thread.started", "key": "thread_id"}),
                     &format!("the thread.started event announced thread_id {CODEX_THREAD}"),
                 ),
-                "usage": measured(json!({
-                    "locations": ["turn.completed /usage"],
-                    "counters": [
+                "usage": usage(
+                    &["turn.completed /usage"],
+                    &[
                         "cached_input_tokens",
                         "input_tokens",
                         "output_tokens",
                         "reasoning_output_tokens",
                     ],
-                    "counting": "per-event",
-                }), "no two usage-bearing events named the same message"),
-                "cost": measured(json!([]), "no event carried total_cost_usd or cost_usd"),
+                    unmeasured(NO_MESSAGE_ID),
+                ),
+                "cost": unmeasured("no event carried total_cost_usd or cost_usd"),
                 "refusals": {
                     "auth": refusal(1, "Not logged in. Run codex login."),
                     "config": refusal(
@@ -406,8 +448,10 @@ fn a_codex_like_cli_whose_stream_lists_no_tools_is_held_to_tool_less_offices() {
                 "boxed_tools": unmeasured(no_tools),
                 "mcp_server": unmeasured(no_servers),
                 "native_egress": unmeasured(no_tools),
-                "egress_off": unmeasured("the plain turn's tools were not read"),
-                "config_isolation": measured(json!(true), ISOLATED),
+                "egress_off": unmeasured(&format!(
+                    "the plain turn's native egress was not read: {no_tools}"
+                )),
+                "config_isolation": unmeasured(&not_isolated),
                 "user_mcp_unboxed": unmeasured(no_servers),
                 "user_mcp_boxed": unmeasured(no_servers),
                 "transcripts": measured(
@@ -427,9 +471,8 @@ fn a_codex_like_cli_whose_stream_lists_no_tools_is_held_to_tool_less_offices() {
                 field("resume.work-site.identity.version", "0.154.0", "codex-cli 0.999.0", "differs"),
             ],
             "eligibility": {
-                "verdict": "tool-less-only",
-                "reason": "its native egress has no measured off switch: the plain turn's tools \
-                           were not read",
+                "verdict": "refused",
+                "reason": format!("{NOT_ISOLATED}{not_isolated}"),
             },
         }),
     );
@@ -440,13 +483,14 @@ fn a_codex_like_cli_whose_stream_lists_no_tools_is_held_to_tool_less_offices() {
 }
 
 #[test]
-fn a_dsh_like_cli_is_read_from_its_transcript_and_held_to_tool_less_offices() {
+fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation() {
     let world = world();
     let cli = world.fake("dsh", DSH_LIKE);
     let no_hands = format!(
         "the adapter declares no hands argv that switches the CLI's own tools off ({DSH_GAP})"
     );
     let no_user_config = "the probe knows no user-scope MCP configuration file for dsh";
+    let not_isolated = format!("{NO_USER_MCP}{no_user_config}");
     let not_boxed = format!("the boxed turn was not read: {no_hands}");
     let expected = envelope(
         "dsh",
@@ -454,7 +498,11 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_held_to_tool_less_offices() {
         "dsh 0.9.9",
         json!({
             "facts": {
-                "headless": headless(&["{cli}", "--profile", "headless", "{prompt}"], 0),
+                "headless": headless(
+                    &["{cli}", "--profile", "headless", "{prompt}"],
+                    0,
+                    DSH_UNLIKE_DRIVER,
+                ),
                 "events": measured(json!({
                     "source": "~/.dsh/sessions/{session}.jsonl",
                     "format": "ndjson",
@@ -465,11 +513,11 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_held_to_tool_less_offices() {
                     json!({"event": "header", "key": "session_id"}),
                     "the header event announced session_id ds-20260929-0001",
                 ),
-                "usage": measured(json!({
-                    "locations": ["message /usage"],
-                    "counters": ["completion_tokens", "prompt_tokens"],
-                    "counting": "per-event",
-                }), "no two usage-bearing events named the same message"),
+                "usage": usage(
+                    &["message /usage"],
+                    &["completion_tokens", "prompt_tokens"],
+                    unmeasured(NO_MESSAGE_ID),
+                ),
                 "cost": measured(
                     json!(["message /cost_usd"]),
                     "the turn reported its cost at message /cost_usd",
@@ -489,7 +537,7 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_held_to_tool_less_offices() {
                 "mcp_server": unmeasured(&no_hands),
                 "native_egress": measured(json!(["web_search"]), "the header event listed tools: 3"),
                 "egress_off": unmeasured(&not_boxed),
-                "config_isolation": measured(json!(true), ISOLATED),
+                "config_isolation": unmeasured(&not_isolated),
                 "user_mcp_unboxed": unmeasured(no_user_config),
                 "user_mcp_boxed": unmeasured(no_user_config),
                 "transcripts": measured(json!(["~/.dsh/sessions/{session}.jsonl"]), TRANSCRIPTS),
@@ -501,8 +549,8 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_held_to_tool_less_offices() {
                 field("resume.headless-work.identity.version", "0.1.5-rc.1", "dsh 0.9.9", "differs"),
             ],
             "eligibility": {
-                "verdict": "tool-less-only",
-                "reason": format!("its native egress has no measured off switch: {not_boxed}"),
+                "verdict": "refused",
+                "reason": format!("{NOT_ISOLATED}{not_isolated}"),
             },
         }),
     );
@@ -518,6 +566,8 @@ fn under_hands(report: &Value) -> Value {
         "boxed_tools": report["facts"]["boxed_tools"],
         "mcp_server": report["facts"]["mcp_server"],
         "egress_off": report["facts"]["egress_off"],
+        "user_mcp_boxed": report["facts"]["user_mcp_boxed"],
+        "config_isolation": report["facts"]["config_isolation"],
         "hands": report["adapter_fields"][1],
         "eligibility": report["eligibility"],
     })
@@ -528,12 +578,18 @@ fn a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed() {
     let world = world();
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Keeps));
     let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
+    let listed_servers = "the system/init event listed mcp_servers: 1";
     assert_eq!(
         under_hands(&report),
         json!({
             "boxed_tools": measured(json!(["Bash", "WebFetch"]), "the system/init event listed tools: 3"),
-            "mcp_server": measured(json!("connected"), "the system/init event listed mcp_servers: 1"),
+            "mcp_server": measured(json!("connected"), listed_servers),
             "egress_off": measured(json!(false), "the hands argv left WebFetch"),
+            "user_mcp_boxed": measured(json!(false), listed_servers),
+            "config_isolation": measured(
+                json!(true),
+                &format!("{PLANTED} did not reach the boxed turn: {listed_servers}"),
+            ),
             "hands": field("hands", "supported", "unsupported", "differs"),
             "eligibility": {
                 "verdict": "tool-less-only",
@@ -550,20 +606,86 @@ fn a_cli_that_refuses_the_hands_argv_reads_unsupported() {
     let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
     let refused = "the CLI refused the adapter's hands argv: exit 1: error: unknown option \
                    '--strict-mcp-config'";
+    let leaked = format!(
+        "{PLANTED} reached the plain turn, and no boxed turn showed it kept out: {refused}"
+    );
     assert_eq!(
         under_hands(&report),
         json!({
             "boxed_tools": unsupported(refused),
             "mcp_server": unsupported(refused),
             "egress_off": unsupported(refused),
+            "user_mcp_boxed": unsupported(refused),
+            "config_isolation": measured(json!(false), &leaked),
             "hands": field("hands", "supported", "unsupported", "differs"),
             "eligibility": {
-                "verdict": "tool-less-only",
-                "reason": format!("its native egress has no measured off switch: {refused}"),
+                "verdict": "refused",
+                "reason": format!("{NOT_ISOLATED}{leaked}"),
             },
         })
     );
-    assert_eq!(report["facts"]["user_mcp_boxed"], unsupported(refused));
+}
+
+#[test]
+fn a_cli_that_starts_the_user_scope_server_inside_the_box_is_refused() {
+    let world = world();
+    let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Leaks));
+    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
+    let listed_servers = "the system/init event listed mcp_servers: 2";
+    let leaked = format!("{PLANTED} reached the boxed turn: {listed_servers}");
+    assert_eq!(
+        under_hands(&report),
+        json!({
+            "boxed_tools": measured(json!([]), "the system/init event listed tools: 1"),
+            "mcp_server": measured(json!("connected"), listed_servers),
+            "egress_off": measured(json!(true), "the hands argv removed WebSearch, WebFetch"),
+            "user_mcp_boxed": measured(json!(true), listed_servers),
+            "config_isolation": measured(json!(false), &leaked),
+            "hands": field("hands", "supported", "supported", "agrees"),
+            "eligibility": {
+                "verdict": "refused",
+                "reason": format!("{NOT_ISOLATED}{leaked}"),
+            },
+        })
+    );
+}
+
+#[test]
+fn a_tool_the_probe_does_not_recognise_is_never_read_as_local() {
+    let world = world();
+    let plain =
+        claude_like("9.9.9", Boxed::Keeps).replace(r#""WebSearch","WebFetch""#, r#""Search""#);
+    let cli = world.fake(
+        "claude",
+        &plain.replace(r#""Bash","WebFetch","mcp"#, r#""Search","mcp"#),
+    );
+    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
+    let unrecognised = "the plain turn listed Search, which the probe knows neither as egress \
+                        nor as local";
+    let off_unread = format!("the plain turn's native egress was not read: {unrecognised}");
+    assert_eq!(
+        (
+            &report["facts"]["native_egress"],
+            &report["facts"]["egress_off"],
+            &report["eligibility"]
+        ),
+        (
+            &unmeasured(unrecognised),
+            &unmeasured(&off_unread),
+            &json!({
+                "verdict": "tool-less-only",
+                "reason": format!("its native egress has no measured off switch: {off_unread}"),
+            }),
+        )
+    );
+    let boxed_only =
+        claude_like("9.9.9", Boxed::Keeps).replace(r#""Bash","WebFetch","mcp"#, r#""Search","mcp"#);
+    let cli = world.fake("claude-boxed", &boxed_only);
+    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
+    assert_eq!(
+        report["facts"]["egress_off"],
+        measured(json!(false), "the hands argv left Search")
+    );
 }
 
 #[test]
@@ -573,7 +695,13 @@ fn a_turn_without_its_credential_refuses_the_harness_and_measures_nothing_else()
     let report = probe_with(AdapterKind::Claude, &cli, &claude_declared(), &[], DEADLINE).unwrap();
     let report = serde_json::to_value(report).unwrap();
     let failed = "the headless turn did not succeed: exit 1: Invalid API key · Please run /login";
-    assert_eq!(report["facts"]["headless"], headless(&CLAUDE_TURN, 1));
+    assert_eq!(
+        report["facts"]["headless"],
+        measured(
+            json!({"argv": CLAUDE_TURN, "exit": 1}),
+            &launched("", PROMPT_AS_ARGUMENT, "exit 1"),
+        )
+    );
     assert_eq!(
         report["facts"]["refusals"]["auth"],
         unmeasured("no credential was bound, so a turn without one is the plain turn")
@@ -593,15 +721,13 @@ fn a_turn_without_its_credential_refuses_the_harness_and_measures_nothing_else()
         report["eligibility"],
         json!({
             "verdict": "refused",
-            "reason": format!(
-                "no turn ran under a scratch HOME with only the bound credentials: {failed}"
-            ),
+            "reason": format!("{NOT_ISOLATED}{failed}"),
         })
     );
 }
 
 #[test]
-fn a_launch_past_its_deadline_is_killed_and_reports_no_exit_code() {
+fn a_launch_past_its_deadline_is_killed_reports_no_exit_code_and_measures_no_refusal() {
     let world = world();
     let cli = world.fake("sleeper", "#!/bin/sh\nexec sleep 30\n");
     let deadline = Duration::from_millis(200);
@@ -624,15 +750,12 @@ fn a_launch_past_its_deadline_is_killed_and_reports_no_exit_code() {
         report["facts"]["headless"],
         measured(
             json!({"argv": ["{cli}", "--profile", "headless", "{prompt}"], "exit": null}),
-            &format!("one turn ran with stdin closed: {no_exit}"),
+            &launched("FAKE_TOKEN", DSH_UNLIKE_DRIVER, no_exit),
         )
     );
     assert_eq!(
         report["facts"]["refusals"]["auth"],
-        measured(
-            json!({"exit": null, "excerpt": "(no output)"}),
-            &format!("{no_exit}: (no output)"),
-        )
+        unmeasured(&format!("no refusal was read: {no_exit}: (no output)"))
     );
 }
 
@@ -733,8 +856,9 @@ fn a_rerun_on_a_new_cli_version_reports_its_drift_against_the_previous_report() 
             "drift: boxed_tools: measured [] -> unsupported",
             r#"drift: mcp_server: measured "connected" -> unsupported"#,
             "drift: egress_off: measured true -> unsupported",
+            "drift: config_isolation: measured true -> measured false",
             "drift: user_mcp_boxed: measured false -> unsupported",
-            r#"drift: eligibility: "boxed" -> "tool-less-only""#,
+            r#"drift: eligibility: "boxed" -> "refused""#,
         ]
     );
     let unchanged = before.clone().with_drift_from(&previous);
@@ -879,7 +1003,7 @@ fn an_unreadable_listing_or_usage_is_not_read_as_an_empty_one() {
     );
     assert_eq!(
         facts.cost,
-        Fact::measured(Vec::new(), "no event carried total_cost_usd or cost_usd")
+        Fact::unmeasured("no event carried total_cost_usd or cost_usd")
     );
     assert_eq!(
         facts.session,

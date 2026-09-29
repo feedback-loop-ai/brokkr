@@ -28,15 +28,8 @@ fn boxable(facts: &Facts) -> Option<bool> {
     Some(emptied && served)
 }
 
-fn account<T: serde::Serialize>(fact: &Fact<T>) -> &str {
-    match fact {
-        Fact::Measured { evidence, .. } | Fact::Unsupported { evidence } => evidence,
-        Fact::Unmeasured { why } => why,
-    }
-}
-
-/// Ruling 4, in order: a harness whose turn could not be run under a
-/// scratch HOME is refused; one that empties its own tools and reaches an
+/// Ruling 4, in order: a harness not shown to keep a user-scope MCP
+/// server out of its turn (#467) is refused; one that empties its own tools and reaches an
 /// MCP server may hold boxed offices; one whose native egress is absent or
 /// switched off may hold unboxed offices; and one whose egress has no
 /// measured off switch may hold only offices that give it no tools
@@ -46,8 +39,8 @@ pub(crate) fn eligibility(facts: &Facts) -> Eligibility {
         (
             Verdict::Refused,
             format!(
-                "no turn ran under a scratch HOME with only the bound credentials: {}",
-                account(&facts.config_isolation)
+                "its user-scope configuration is not shown to be isolated: {}",
+                facts.config_isolation.account()
             ),
         )
     } else if boxable(facts) == Some(true) {
@@ -60,9 +53,9 @@ pub(crate) fn eligibility(facts: &Facts) -> Eligibility {
             Verdict::UnboxedOnly,
             format!(
                 "it is not shown to stand behind the box ({}; {}), and {}",
-                account(&facts.boxed_tools),
-                account(&facts.mcp_server),
-                account(&facts.egress_off)
+                facts.boxed_tools.account(),
+                facts.mcp_server.account(),
+                facts.egress_off.account()
             ),
         )
     } else {
@@ -70,7 +63,7 @@ pub(crate) fn eligibility(facts: &Facts) -> Eligibility {
             Verdict::ToolLessOnly,
             format!(
                 "its native egress has no measured off switch: {}",
-                account(&facts.egress_off)
+                facts.egress_off.account()
             ),
         )
     };

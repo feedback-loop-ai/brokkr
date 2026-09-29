@@ -48,6 +48,8 @@ pub(crate) struct Plan {
     pub(crate) bad_effort: Step,
     pub(crate) boxed: Step,
     pub(crate) user_config: UserConfig,
+    /// How `turn` departs from the launch the adapter's driver composes.
+    pub(crate) unlike_driver: &'static str,
 }
 
 /// Whether a harness takes a model on its own command line, by the
@@ -74,7 +76,12 @@ struct Grammar {
     model: Model,
     effort: Effort,
     user_config: UserConfig,
+    unlike_driver: &'static str,
 }
+
+/// How the probe's turn departs from the claude and codex drivers.
+const PROMPT_AS_ARGUMENT: &str = "the prompt is the last argument and stdin is closed, where \
+                                  the adapter's driver writes the prompt to stdin";
 
 const CLAUDE_USER_CONFIG: &str =
     r#"{"mcpServers":{"brokkr-probe-user-scope":{"type":"stdio","command":"true","args":[]}}}"#;
@@ -84,10 +91,11 @@ const CODEX_USER_CONFIG: &str = "[mcp_servers.brokkr-probe-user-scope]\ncommand 
 const DSH_PATCH_ONLY: &str = "dsh takes a model and an effort only through the profile patch \
                               its driver composes, which the probe does not compose";
 
-/// The launch grammar of each harness the probe knows. This is the shape
-/// each built-in driver already launches (`claude_cold`, `codex_cold` and
-/// `dsh_launch` in `adapters`), less the seat's composition; decision 0075
-/// ruling 1 moves it into the adapter's spec.
+/// The launch grammar of each harness the probe knows: the head of the
+/// argv each built-in driver launches (`claude_cold`, `codex_cold` and
+/// `dsh_launch` in `adapters`), less the seat's composition, and where
+/// the probe's turn departs from it, which the report names beside the
+/// argv. Decision 0075 ruling 1 moves the grammar into the adapter's spec.
 fn grammar(kind: AdapterKind, adapter: &str) -> Result<Grammar, ProbeError> {
     match kind {
         AdapterKind::Claude => Ok(Grammar {
@@ -98,6 +106,7 @@ fn grammar(kind: AdapterKind, adapter: &str) -> Result<Grammar, ProbeError> {
                 path: ".claude.json",
                 contents: CLAUDE_USER_CONFIG,
             },
+            unlike_driver: PROMPT_AS_ARGUMENT,
         }),
         AdapterKind::Codex => Ok(Grammar {
             head: &["exec", "--json", "-C", "{workdir}"],
@@ -107,6 +116,7 @@ fn grammar(kind: AdapterKind, adapter: &str) -> Result<Grammar, ProbeError> {
                 path: ".codex/config.toml",
                 contents: CODEX_USER_CONFIG,
             },
+            unlike_driver: PROMPT_AS_ARGUMENT,
         }),
         AdapterKind::Dsh => Ok(Grammar {
             head: &["--profile", "headless"],
@@ -115,6 +125,9 @@ fn grammar(kind: AdapterKind, adapter: &str) -> Result<Grammar, ProbeError> {
             user_config: UserConfig::Unknown(
                 "the probe knows no user-scope MCP configuration file for dsh",
             ),
+            unlike_driver: "the prompt is the last argument, stdin is closed and no --patch \
+                            overlay is given, where the adapter's driver writes the prompt to \
+                            stdin and always composes a --patch profile overlay",
         }),
         AdapterKind::Lanetally | AdapterKind::Exec => Err(ProbeError::NotAHarness {
             adapter: adapter.to_string(),
@@ -168,5 +181,6 @@ pub(crate) fn plan(kind: AdapterKind, declared: &Declared) -> Result<Plan, Probe
         bad_effort,
         boxed,
         user_config: grammar.user_config,
+        unlike_driver: grammar.unlike_driver,
     })
 }
