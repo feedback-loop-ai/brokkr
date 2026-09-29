@@ -22,12 +22,12 @@
 //! Today's findings are PINNED, not asserted away: the three v1 tables
 //! fail presence exactly as decision 0004 recorded, and every v2 delivery
 //! table leaves one valuation shape unruled — a `residual` verdict at
-//! severity `none`. The audit refuses nothing while the decision is
-//! proposed (`docs/evidence/decision-0050-audit.md` lists what awaits the
-//! operator's ruling); the enactment turns the refusals on, names the
-//! closed valuations with a parking rule, and retires these pins by
-//! driving them to zero. Until then a table change that moves a pin is a
-//! reviewed change.
+//! severity `none`. The operator accepted the decision on the #429 audit
+//! (`docs/evidence/decision-0050-audit.md`), and the audit refuses nothing
+//! until its enactment slices land. The enactment turns the refusals on,
+//! names the closed valuations with a parking rule, and retires these
+//! pins by driving them to zero. Until then a table change that moves a
+//! pin is a reviewed change.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};

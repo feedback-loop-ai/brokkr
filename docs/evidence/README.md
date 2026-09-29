@@ -5,9 +5,9 @@ hybrid change/feature pairs. They remain historical run evidence while new
 spec-driven work uses the realm's OpenSpec tree.
 
 [Decision 0050 against `main`](decision-0050-audit.md) maps each of the
-proposed decision's seven rulings to its code and tests, records every
-shipped table's measured valuation counts, and lists the refusals that await
-the operator's ruling (#429).
+decision's seven rulings to its code and tests, records every shipped
+table's measured valuation counts, and lists the questions the operator
+ruled on 2026-09-29 when accepting it (#429).
 
 Redacted exports of journals cited in the project's essays and decisions —
 produced by `brokkr export --redact`, which this repository built for itself

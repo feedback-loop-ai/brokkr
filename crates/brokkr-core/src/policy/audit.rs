@@ -460,7 +460,7 @@ impl fmt::Display for Audit {
             .iter()
             .partition(|finding| matches!(finding, Finding::Unruled { .. }));
         let mut report = format!(
-            "policy sweep (decision 0050, proposed; reported, not refused): {} \
+            "policy sweep (decision 0050, accepted; reported, not yet refused): {} \
              valuations over {} groups, {} unruled\n",
             self.valuations,
             self.groups,

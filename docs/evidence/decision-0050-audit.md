@@ -42,8 +42,11 @@ listed under [The operator's ruling](#the-operators-ruling).
   The ruling says a returning rule is one whose "every road onward
   re-enters the phase"; a self-loop re-enters it at once. The prototype
   sweep counted a self-loop as advancing. No pinned finding moves, because
-  the only self-loop in a shipped table (`SHIP-READY`) sits in a group
-  whose hard inputs are engine-owned.
+  every self-loop in a shipped table sits in a group whose hard rules read
+  only engine-owned inputs, or none: `IMPL-BROKEN-RETRY`, `ARCH-RETRY`,
+  `SPECIFY-RETRY`, `DESIGN-RETRY` and `TASKS-RETRY` beside
+  `consecutive_failures`, `SHIP-READY` beside `dirty_worktrees`, and
+  `ARCH-COUNCIL-FAILED` in a group with no hard rule.
 - **Gap.** `Machine::from_table` refuses nothing for presence.
   `bundles/verify` and `recipes/preflight` are still
   `forge.phase-machine/v1`, and their `REVIEW-RESIDUAL-OK` advances to

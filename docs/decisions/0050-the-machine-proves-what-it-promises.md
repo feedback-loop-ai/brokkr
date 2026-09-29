@@ -342,8 +342,8 @@ enactment.
   vocabulary) and collective cover by earlier rules that partition an
   axis, and enacting it alone would ship a refusal with a known
   fail-open shape. An absent input is outside the domain, because
-  ruling 1 already refuses a v2 table that leaves a hard rule's input
-  unread by an advancing rule. So the refusal says that the rule fires
+  ruling 1 covers a v2 table that leaves a hard rule's input unread by
+  an advancing rule. So the refusal says that the rule fires
   on no present valuation.
 - **Ruling 4's named park is ruled.** A `residual` verdict at severity
   `none` parks for the operator under a named rule. That rule is added

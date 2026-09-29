@@ -801,8 +801,8 @@ fn overriding_a_rule_is_remove_then_prepend() {
 #[test]
 fn an_overlay_that_shadows_or_opens_a_hole_is_reported_on_the_flat_table() {
     // Decision 0050 reads a composed table as the flat table `compose`
-    // produces. While it is proposed the audit reports and the loader
-    // admits (#429), so both overlays still resolve and load.
+    // produces. Until its enactment enables the refusals the audit reports
+    // and the loader admits (#429), so both overlays still resolve and load.
     use brokkr_core::policy::audit::{Finding, Setting, SWEEP_BUDGET};
     let findings = |leaf: &Path| {
         let machine = Machine::from_table(&resolve(leaf).unwrap().table).unwrap();

@@ -89,7 +89,7 @@ fn the_swapped_self_arms_load_today_and_the_audit_names_both_rules() {
     ));
     assert_eq!(
         audit(&swapped).to_string(),
-        "policy sweep (decision 0050, proposed; reported, not refused): 47 \
+        "policy sweep (decision 0050, accepted; reported, not yet refused): 47 \
          valuations over 11 groups, 4 unruled\n  \
          REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM is dead behind \
          REVIEW-REFORGE-EXHAUSTED-MEDIUM: its guard holds wherever \
