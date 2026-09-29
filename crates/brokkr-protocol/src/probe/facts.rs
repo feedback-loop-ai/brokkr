@@ -140,6 +140,16 @@ pub(crate) struct Refusals {
     pub(crate) outage: Fact<Refusal>,
 }
 
+/// One of the CLI's own tools, a native capability, and what switches it
+/// off: the flags that removed it from the boxed turn, or `unsupported`
+/// with the measured reason (decision 0065 ruling 4's declaration).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Capability {
+    pub(crate) tool: String,
+    pub(crate) off: Fact<Vec<String>>,
+}
+
 /// Everything the probe measured of the harness.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -165,12 +175,16 @@ pub(crate) struct Facts {
     pub(crate) native_egress: Fact<Vec<String>>,
     /// True when no native egress tool is left under the hands argv.
     pub(crate) egress_off: Fact<bool>,
-    /// True when the planted user-scope MCP server stayed out of the
-    /// boxed turn, or, with no boxed turn read, out of the plain one
+    /// Each tool in `tools`, with what switches it off.
+    pub(crate) capabilities: Fact<Vec<Capability>>,
+    /// True when no MCP server other than the hands server, the one
+    /// planted in the scratch HOME's user-scope configuration included,
+    /// reached the boxed turn, or, with no boxed turn read, the plain one
     /// (#467).
     pub(crate) config_isolation: Fact<bool>,
-    /// Whether a user-scope MCP server planted in the scratch HOME
-    /// reached the plain turn, and the boxed one (#467).
+    /// Whether an MCP server other than the hands server reached the plain
+    /// turn, and the boxed one: named in its server listing, or by a
+    /// listed `mcp__<server>__` tool (#467).
     pub(crate) user_mcp_unboxed: Fact<bool>,
     pub(crate) user_mcp_boxed: Fact<bool>,
     /// The transcript files a turn wrote under HOME, `~`-relative, with
@@ -199,12 +213,23 @@ impl Facts {
             ("mcp_server", self.mcp_server.reading()),
             ("native_egress", self.native_egress.reading()),
             ("egress_off", self.egress_off.reading()),
+            ("capabilities", self.capability_readings().reading()),
             ("config_isolation", self.config_isolation.reading()),
             ("user_mcp_unboxed", self.user_mcp_unboxed.reading()),
             ("user_mcp_boxed", self.user_mcp_boxed.reading()),
             ("transcripts", self.transcripts.reading()),
             ("resume", self.resume.reading()),
         ]
+    }
+
+    /// Each capability's off switch by its reading, its evidence left out.
+    fn capability_readings(&self) -> Fact<Vec<(String, String)>> {
+        self.capabilities.clone().map(|capabilities| {
+            capabilities
+                .into_iter()
+                .map(|capability| (capability.tool, capability.off.reading()))
+                .collect()
+        })
     }
 }
 
@@ -217,10 +242,15 @@ pub(crate) enum Verdict {
     Boxed,
     /// Boxed offices only: the box keeps the planted user-scope server
     /// out, and its plain turn, which an office outside the box launches,
-    /// is not shown to (#467).
+    /// is not shown to (#467). Operator ruling B, 2026-09-29.
     BoxedOnly,
     UnboxedOnly,
-    ToolLessOnly,
+    /// Seated only in a realm that grants each native capability the
+    /// probe measured no off switch for, which the reason names. A
+    /// tool-less office switches nothing off inside the CLI, so it admits
+    /// nothing more (operator ruling A, 2026-09-29: proposed decision
+    /// 0075 ruling 4 read with decision 0065 ruling 4).
+    GrantingRealmsOnly,
     Refused,
 }
 

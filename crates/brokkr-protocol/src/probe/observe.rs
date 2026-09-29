@@ -11,6 +11,7 @@ use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread::JoinHandle;
@@ -188,7 +189,9 @@ impl Runner<'_> {
             .env("HOME", &self.scratch.home)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            // Its own group, so the deadline reaches every descendant.
+            .process_group(0);
         // Decision 0012 layer 4: every value leaves through the one
         // injector the adapters spawn with.
         bind_environment(&mut command, bindings).map_err(ProbeError::Credential)?;
@@ -239,20 +242,32 @@ fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
 
 /// The child's exit code, or `None` once the deadline passes and the
 /// child is killed. A CLI waiting on a prompt the probe never answers
-/// must not hold the probe forever.
+/// must not hold the probe forever, and neither may a descendant holding
+/// the output pipes the drains read to their end, so the launch's whole
+/// process group is killed when the child exits or the deadline passes.
 fn wait(child: &mut Child, deadline: Duration) -> Result<Option<i32>, ProbeError> {
     let started = Instant::now();
     loop {
         if let Some(status) = io(child.try_wait(), "could not wait for the CLI")? {
+            end_group(child);
             return Ok(status.code());
         }
         if started.elapsed() >= deadline {
-            let _ = child.kill();
+            end_group(child);
             let _ = child.wait();
             return Ok(None);
         }
         std::thread::sleep(POLL);
     }
+}
+
+/// Kill every process left in the group the child leads. A group already
+/// empty is not an error: nothing is left to hold a pipe.
+fn end_group(child: &Child) {
+    let _ = rustix::process::kill_process_group(
+        rustix::process::Pid::from_child(child),
+        rustix::process::Signal::KILL,
+    );
 }
 
 /// Every file under `root`, symlinks not followed.

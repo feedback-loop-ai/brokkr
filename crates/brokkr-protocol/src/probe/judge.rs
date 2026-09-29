@@ -29,14 +29,16 @@ fn boxable(facts: &Facts) -> Option<bool> {
 }
 
 /// Ruling 4, in order: a harness not shown to keep a user-scope MCP
-/// server out of its turn (#467) is refused; one that empties its own tools and reaches an
-/// MCP server may hold boxed offices; one whose native egress is absent or
-/// switched off may hold unboxed offices; and one whose egress has no
-/// measured off switch may hold only offices that give it no tools
-/// (decision 0065 ruling 4). An unmeasured fact never admits more. An
-/// office outside the box launches the plain turn, so a plain turn not
-/// shown to keep the planted server out holds a boxable harness to boxed
-/// offices and refuses any other.
+/// server out of its turn (#467) is refused; one that empties its own
+/// tools and reaches an MCP server may hold boxed offices; one whose
+/// native egress is absent or switched off may hold unboxed offices; and
+/// one whose egress has no measured off switch may be seated only in a
+/// realm that grants each native capability measured without one
+/// (operator ruling A, 2026-09-29, reading decision 0065 ruling 4). An
+/// unmeasured fact never admits more. An office outside the box launches
+/// the plain turn, so a plain turn not shown to keep the planted server
+/// out holds a boxable harness to boxed offices (operator ruling B,
+/// 2026-09-29) and refuses any other.
 pub(crate) fn eligibility(facts: &Facts) -> Eligibility {
     let (verdict, reason) = if facts.config_isolation.value() != Some(&true) {
         (
@@ -74,12 +76,23 @@ fn outside_the_box(facts: &Facts) -> (Verdict, String) {
                 facts.egress_off.account()
             ),
         )
+    } else if let Some(ungranted) = without_off_switch(facts) {
+        (
+            Verdict::GrantingRealmsOnly,
+            format!(
+                "no off switch was measured for its native capabilities {}, so it may be \
+                 seated only in a realm that grants them (decision 0065 ruling 4)",
+                ungranted.join(", ")
+            ),
+        )
     } else {
         (
-            Verdict::ToolLessOnly,
+            Verdict::Refused,
             format!(
-                "its native egress has no measured off switch: {}",
-                facts.egress_off.account()
+                "its native egress has no measured off switch ({}), and no native capability \
+                 is named for a realm to grant: {}",
+                facts.egress_off.account(),
+                facts.capabilities.account()
             ),
         )
     };
@@ -92,16 +105,29 @@ fn outside_the_box(facts: &Facts) -> (Verdict, String) {
     }
 }
 
+/// The native capabilities measured with no off switch, when the plain
+/// turn's were read and at least one has none.
+fn without_off_switch(facts: &Facts) -> Option<Vec<&str>> {
+    let ungranted: Vec<&str> = facts
+        .capabilities
+        .value()?
+        .iter()
+        .filter(|capability| capability.off.value().is_none())
+        .map(|capability| capability.tool.as_str())
+        .collect();
+    Some(ungranted).filter(|ungranted| !ungranted.is_empty())
+}
+
 /// How the plain turn, the launch an office outside the box uses, failed
 /// to show the planted user-scope server kept out (#467); `None` when it
-/// listed its servers without it.
+/// showed no MCP server reached it.
 fn plain_leak(facts: &Facts) -> Option<String> {
     let account = facts.user_mcp_unboxed.account();
     let outside = "its plain turn, the launch an office outside the box uses,";
     match facts.user_mcp_unboxed.value() {
         Some(false) => None,
         Some(true) => Some(format!(
-            "{outside} loaded the planted user-scope MCP server (#467): {account}"
+            "{outside} loaded an MCP server the probe did not give it (#467): {account}"
         )),
         None => Some(format!(
             "{outside} is not shown to keep the planted user-scope MCP server out (#467): \

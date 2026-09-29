@@ -47,6 +47,9 @@ pub(crate) struct Plan {
     pub(crate) bad_model: Step,
     pub(crate) bad_effort: Step,
     pub(crate) boxed: Step,
+    /// The adapter's hands argv, placeholders intact: the off switch a
+    /// tool the boxed turn no longer lists was measured under.
+    pub(crate) hands: Vec<String>,
     pub(crate) user_config: UserConfig,
     /// How `turn` departs from the launch the adapter's driver composes.
     pub(crate) unlike_driver: &'static str,
@@ -180,6 +183,7 @@ pub(crate) fn plan(kind: AdapterKind, declared: &Declared) -> Result<Plan, Probe
         bad_model,
         bad_effort,
         boxed,
+        hands: declared.hands.clone().unwrap_or_default(),
         user_config: grammar.user_config,
         unlike_driver: grammar.unlike_driver,
     })
