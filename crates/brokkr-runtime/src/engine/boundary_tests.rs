@@ -2957,6 +2957,53 @@ fn a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over() {
     }
 }
 
+/// Rebuild unit 19, second review return (F1; operator ruling 2026-09-29,
+/// point 1): NO GRANDFATHERING FOR AN UNRECORDED RUN, EVEN ONE THAT BINDS
+/// NOTHING. A bundle with no charter still has a run started over it record
+/// its empty set; a run whose `run/started` carries no record at all is
+/// refused `unrecorded` by the bundle's name, and writes nothing, while the
+/// run a start recorded resumes.
+#[test]
+fn a_run_that_recorded_no_bindings_is_refused_even_by_a_bundle_that_binds_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let bundle = bundle(&root, single_body(vec!["driver".into()]));
+    assert!(bundle.charters.is_empty(), "the bundle binds no charter");
+    let started = Engine::start(store_at(&root), bundle.clone(), "f", None)
+        .unwrap()
+        .run_id;
+    let resume = |run: &str| {
+        Engine::resume(store_at(&root), bundle.clone(), run, None)
+            .map(|engine| engine.run_id)
+            .map_err(|error| error.to_string())
+    };
+    assert_eq!(resume(&started), Ok(started.clone()));
+    let mut store = store_at(&root);
+    store
+        .create_run("legacy", "f", &bundle.name, &bundle.manifest)
+        .unwrap();
+    store
+        .append_next(
+            "legacy",
+            EventType::RunStarted,
+            json!({"feature": "f", "manifest": bundle.manifest}),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        resume("legacy"),
+        Err(
+            "a charter of bundle 'test' moved since the compile (unrecorded: the run started \
+             with no charter record); a run is started or resumed only over the charters the \
+             bundle's identity names, so restore it, or recompile and start a new run (decision \
+             0066 ruling 5)"
+                .to_string()
+        )
+    );
+    assert_eq!(store_at(&root).load("legacy").unwrap().len(), 1);
+}
+
 /// The probe is asked once per engine process and remembered: a second
 /// dispatch of the same engine spawns no second probe.
 #[test]

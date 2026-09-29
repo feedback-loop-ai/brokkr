@@ -544,7 +544,9 @@ impl Engine {
         // run pinned a world or none (rebuild unit 19), and must be the
         // binding the run STARTED over: the bundle here may be compiled
         // again, and a recompile binds an equal-byte retarget afresh without
-        // moving the manifest (review return F1).
+        // moving the manifest (review return F1). A pin that does not answer
+        // for itself is tampering, and refuses before any charter is read.
+        let world = crate::realms::World::from_manifest(&pinned)?;
         let events = store.load(run_id)?;
         let started = events
             .first()
@@ -565,7 +567,7 @@ impl Engine {
             // a disk that may have moved on. Without this a resumed run
             // would silently stop keying its facts by realm, changing
             // fact-shape mid-run depending on which verb was typed.
-            world: crate::realms::World::from_manifest(&pinned)?,
+            world,
             current_cause: None,
             secrets_file: None,
             active_gate_head: None,

@@ -2956,7 +2956,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
     std::fs::create_dir(dir.path().join("work")).unwrap();
     let bundle = bundle(dir.path(), single_body(vec!["driver".into()]));
     let manifest = bundle.manifest.clone();
-    let started = json!({"feature":"feature","manifest":manifest});
+    let started = json!({"feature":"feature","manifest":manifest,"charters":[]});
     let in_flight = vec![
         (EventType::RunStarted, started.clone()),
         (EventType::PhaseEntered, json!({"phase":"work"})),

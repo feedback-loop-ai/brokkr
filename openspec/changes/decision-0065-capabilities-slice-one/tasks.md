@@ -4087,6 +4087,43 @@ unit 19 admission"). It rules no grandfathering: an unrecorded run is refused
   `cargo test` (only the two touched crates were run); remote CI and the
   council.
 
+**Review return 2026-09-29 (run `…-2183fb26`, F1, based on `edf364b9`;
+evidence.md, "Unit 19-fix — review return (F1)").** The council found the
+follow-up above to be a grandfathered run, which ruling point 1 forbids. That
+reopened 19.1. It closes again on what is observed there.
+
+- `charters_as_started` now refuses a run whose `run/started` has no
+  `charters` record at all, whatever the bundle binds. With bindings, it
+  names the first binding, as before. With none, it names the bundle:
+  `bundle '<name>'`, `unrecorded: the run started with no charter record`.
+- `Engine::resume` now reads the pinned world before the charter record, so a
+  tampered pin still refuses as tampering. This kept
+  `resume_carries_no_world_where_the_run_had_none_and_refuses_a_broken_pin`
+  unedited.
+- New test: `boundary_tests.rs`
+  `a_run_that_recorded_no_bindings_is_refused_even_by_a_bundle_that_binds_none`.
+  - Baseline red at `edf364b9` production: `Ok("legacy")`.
+  - M7 (absent record read as `[]`) is caught there.
+  - M8 (absent record always names the bundle) is caught at
+    `boundary_tests.rs:2956`, which expects `agent 'worker'`.
+  - M9 (charter check before the pin check) is caught at
+    `engine/tests.rs:4670`.
+  - Each was restored and passes.
+- Standing-admission line (ruling of 2026-09-25): `engine/tests.rs:2959`
+  adds `"charters":[]` to the `run/started` that
+  `an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it`
+  plants. That test swaps in the fixture driver `driver`, and this change
+  reaches its resume: without the line, its `Engine::resume(...).unwrap()` at
+  `:2973` fails `unrecorded`. The line adds and removes no assertion and
+  changes no tested behaviour. It is the record every start now writes.
+- No fixture migrations.
+- Gates: fmt and clippy clean. Workspace `cargo test --all-features
+  --locked` gave 77 results, all ok (runtime lib 625, CLI lib 482).
+  `bundles/self` (`45dc1c7e…`) and `verify` (`f7cbd4bb…`) are unchanged.
+  Strict OpenSpec (18) and `git diff --check` are clean.
+- **Pending.** macOS; exact coverage outside the box; remote CI and the
+  council.
+
 ## 20. Unit 20 — Audit compiled refusal and serving shapes
 
 - [ ] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)

@@ -20801,3 +20801,83 @@ On the final tree, in this session:
 - Remote CI and the council.
 - The workspace-wide `cargo test`: not run. Only the two touched crates'
   suites were run.
+
+## Unit 19-fix — review return (F1), 2026-09-29
+
+The council (run `0065-rebuild-unit-19-see-the-uni-2183fb26`, reviewed head
+`edf364b9`) returned F1 [medium]. The residual in "Reading of point 1" above is
+a grandfathered run, which ruling point 1 forbids: an absent record read as
+`[]` resumed over a charterless bundle. That reopened 19.1. This visit closes
+it.
+
+### The change
+
+- `bundle.rs`, `charters_as_started`: an absent `run/started.charters` is
+  refused `unrecorded`, whatever the bundle binds. With bindings, it names the
+  first binding (`agent 'worker'`, `unrecorded: worker.md`), as before. With
+  none, it names `bundle '<name>'`,
+  `unrecorded: the run started with no charter record`. A recorded `[]` over
+  a charterless bundle still resumes.
+- `engine.rs`, `Engine::resume`: `World::from_manifest(&pinned)` now runs
+  before the charter record is read, so a pin that does not hash to its
+  content still refuses as tampering (`not the pinned`) and is not masked as
+  `unrecorded`. Nothing else in the resume door moved.
+
+### The test, and a standing-admission line
+
+- New, in this unit's file: `engine/boundary_tests.rs`
+  `a_run_that_recorded_no_bindings_is_refused_even_by_a_bundle_that_binds_none`.
+  It uses a charterless bundle.
+  - A run the engine started resumes.
+  - A planted run whose `run/started` has no `charters` is refused with the
+    exact text.
+  - The refused resume writes nothing: the journal still holds 1 event.
+- Standing admission (ruling of 2026-09-25): one line, `engine/tests.rs:2959`.
+  It adds `"charters":[]` to the planted `run/started` of
+  `an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it`.
+  - That test swaps the shipped driver for the fixture command `driver`, and
+    this change reaches its resume.
+  - Without the line, the test panicked at `engine/tests.rs:2973:78` (the
+    `Engine::resume(...).unwrap()`). That was observed on the first run
+    after the fix.
+  - The line adds no assertion, removes none and changes no tested
+    behaviour. It is the record every start now writes.
+- The other test the earlier probe broke,
+  `resume_carries_no_world_where_the_run_had_none_and_refuses_a_broken_pin`,
+  is unedited: the reorder above keeps its `not the pinned` assertion true.
+- No fixture migrations.
+
+### Baseline red, mutations, restored passes
+
+Production at `edf364b9` (`git checkout HEAD --` of `bundle.rs` and
+`engine.rs`) with the new test: `boundary_tests.rs:2994` failed,
+`left: Ok("legacy")`. The two `engine/tests.rs` tests passed there.
+
+| # | Mutation (compiles) | Failed |
+|---|---|---|
+| M7 | Absent record read as `[]` (`started.cloned().or(Some(json!([])))`) | `boundary_tests.rs:2994`, `left: Ok("legacy")` |
+| M8 | Absent record always names the bundle (`now.first().filter(\|_\| false)`) | `boundary_tests.rs:2956` `f-unrecorded`: `bundle 'recipe'` / `the run started with no charter record` for `agent 'worker'` / `worker.md` |
+| M9 | Charter record checked before `World::from_manifest` | `engine/tests.rs:4670`: `unrecorded: the run started with no charter record` for `not the pinned` |
+
+Each was restored from `.forge/unit-19-fix-b/*.fixed`. The runtime lib then
+gave `625 passed; 0 failed`.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean, after `cargo fmt` rewrapped one line.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test --workspace --all-features --locked`: 77 `test result` lines,
+  all ok, and no `FAILED` line (runtime lib 625, CLI lib 482).
+- `compile --bundle bundles/self`: `45dc1c7e…`. `bundles/verify`:
+  `f7cbd4bb…`. Both are unchanged.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+### Pending
+
+- macOS: unobserved.
+- Exact coverage outside the box: not run here.
+- Remote CI and the council.

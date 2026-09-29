@@ -5667,12 +5667,25 @@ pub fn charters_intact(bundle: &Bundle) -> Result<Value, (String, String)> {
 /// start — each binding must be the one the run began with. A binding the
 /// run did not record (a run started before its record existed) refuses:
 /// nothing vouches for it.
+///
+/// Its second review return (F1): a run whose start recorded no bindings
+/// at all refuses as `unrecorded` even when the bundle binds none, since
+/// its start vouched for nothing (operator ruling 2026-09-29, point 1).
 pub fn charters_as_started(
     bundle: &Bundle,
     started: Option<&Value>,
 ) -> Result<(), (String, String)> {
     let now = bound_charters(bundle)?;
-    let started = started.cloned().unwrap_or_else(|| json!([]));
+    let Some(started) = started.cloned() else {
+        let first = now
+            .first()
+            .map(|(owner, _, key, _, _)| (owner.clone(), key.clone()));
+        let (owner, key) = first.unwrap_or_else(|| {
+            let owner = format!("bundle '{}'", bundle.name);
+            (owner, "the run started with no charter record".to_string())
+        });
+        return Err((owner, format!("unrecorded: {key}")));
+    };
     for (owner, reference, key, target, binding) in &now {
         // Matched by owner and reference as written: a library's key is its
         // charter's file name, which a retarget moves.
