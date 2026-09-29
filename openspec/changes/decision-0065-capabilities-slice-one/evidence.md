@@ -22104,3 +22104,34 @@ bounded return to triage cannot.
   - The two bundle compiles.
 - **Pending.** macOS, exact coverage outside the box, remote CI, and
   units 21-fix-a and 21-fix-b.
+
+## Unit 21, re-fired after triage (blocked)
+
+Run `0065-rebuild-unit-21-see-the-uni-2f15a7aa`. Triage re-ruled the
+oversized return `chore` and fired implement again at `b1a32708`. No
+operator addendum was added in between.
+
+- **No addendum.** `operator-ruling-2026-09-23.md` ends with "the R1
+  pinned-resume proof is unit 20-fix-b". Nothing commissions 21-fix-a or
+  grants its two production files.
+- **R1 still stands.** At `native_controls.rs:1999`, `check_final` reads the
+  final command's state with `read_state(&parsed.command)` and discards the
+  result. `delivered` is judged at `:2023` on the recomposition. The final
+  comparison at `:2025-2044` rebuilds with the same
+  `adapters::serving_command`.
+- **R3 still stands.** The generic unheld reason remains at
+  `crates/brokkr-runtime/src/capabilities.rs:2116-2117`: "the realm does
+  not grant it to this seat".
+- **Not built.** R2's rows (21-fix-b) were not written. Their removal
+  proofs would have to be re-run once R1's repair changes what the final
+  check refuses.
+- **Nothing moved.** No test, production or frozen byte changed. There
+  were no admitted lines and no migrations. Only this record and the
+  tasks.md note changed.
+- **Gates this visit.** `git diff --check` and `openspec validate --all
+  --strict --no-interactive`. No code moved, so the cargo gates were not
+  re-run.
+- **Result:** `blocked`, so the run stops instead of looping back through
+  triage. It needs an operator addendum commissioning 21-fix-a (R1 in
+  `native_controls.rs` and R3 in `capabilities.rs`, with a ruled wording
+  for the unused grant), then 21-fix-b.

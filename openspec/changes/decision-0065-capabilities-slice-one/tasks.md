@@ -4490,6 +4490,13 @@ standing-admission lines and no fixture migrations.
   **Pending:** macOS, exact coverage outside the box, remote CI and the
   council.
 
+**Unit 21, re-fired after triage (2026-09-29; evidence.md, "Unit 21,
+re-fired after triage"): blocked.** Triage re-ruled the oversized return
+`chore`, but no operator addendum commissions 21-fix-a. R1
+(`native_controls.rs:1999-2044`) and R3 (`capabilities.rs:2116`) still
+stand at `b1a32708`. No test or production byte moved. 21.1 and 21.3 stay
+open until 21-fix-a is commissioned and 21-fix-b lands.
+
 ## 22. Unit 22 — Submit whole plans to doctor
 
 - [ ] 22.1 Unit 22 submits whole plans in both doctor paths. Verify interacting OFF/final-state conflicts and explicit adapter-only scope. Requirements: [Doctor reports grants for every realm][CD1], [Installed native capabilities absent from grants are explicit][CD2], [Restrictions are validated, carried and pinned without engine interpretation][RG4]. Reopened/remaining: operator ruling 2–4. (previous 8.3)
