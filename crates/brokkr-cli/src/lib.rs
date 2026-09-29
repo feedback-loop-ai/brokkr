@@ -1856,12 +1856,19 @@ fn manifest_beside(journal: &std::path::Path) -> PathBuf {
 /// adapter data for a bundle that names no agent at all (a gate seat's
 /// trust tier and a secret binding's grant live there), and a verb that
 /// resolved one tree while compiling against another would be the machine
-/// diagnosing itself wrong.
-pub(crate) fn compile_in(workspace: &std::path::Path, dir: &std::path::Path) -> Result<Bundle> {
-    Ok(Bundle::compile_with(
+/// diagnosing itself wrong. In no realm, but under the world's
+/// provisional offices when a map is given (proposed decision 0075 ruling
+/// 5): a recipe verb judges a recipe as the run that seats it would.
+pub(crate) fn compile_in(
+    workspace: &std::path::Path,
+    dir: &std::path::Path,
+    world: Option<&World>,
+) -> Result<Bundle> {
+    Ok(Bundle::compile_under(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+        realm_law(world, None),
     )?)
 }
 
@@ -1914,7 +1921,7 @@ fn compile_from_manifest(
     manifest: &Value,
 ) -> Result<Bundle> {
     let Some(world) = World::from_manifest(manifest)? else {
-        return compile_in(workspace, dir);
+        return compile_in(workspace, dir, None);
     };
     let realm_name = manifest
         .pointer("/realms/realm")

@@ -8,17 +8,20 @@
 //!
 //! An office is an agent, by name. An inline command names no agent, so
 //! it holds no office: a provisional model pinned inline is seatable
-//! nowhere. The check reads the adapters only where the compile opened
-//! them — a bundle that names no agent, seats no gate and binds no secret
-//! opens none, and an inline work seat there is not judged (a LOW
-//! residual under the operator's 2026-09-26 threat model).
+//! nowhere. The check reads the adapters the compile opened, and
+//! [`opens`] opens them wherever an inline site dispatches a driver and
+//! the adapter data exists, whatever the site's class: a bundle that
+//! names no agent, seats no gate and binds no secret is judged all the
+//! same.
 
-use serde_json::Value;
+use std::path::Path;
+
+use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::{
-    command_parts, dispatch_driver, inline_route_pin, parse_class, AgentContext, Boundary,
-    CompileError, ModelPin, SeatClass,
+    command_parts, dispatch_driver, inline_route_pin, needs_adapters, parse_class, AgentContext,
+    Boundary, CompileError, ModelPin, SeatClass,
 };
 use crate::agents::{Adapter, Adapters, Candidate};
 
@@ -81,6 +84,29 @@ fn office_named(office: Option<&str>) -> String {
     }
 }
 
+/// Does the compile open the adapters? Where [`needs_adapters`] says so,
+/// and, for the tier, wherever an inline site dispatches a driver other
+/// than `exec`, which pins no model, while the adapter data exists: the
+/// model that command pins may be one its adapter declares provisional,
+/// and a work seat is judged as a gate is. With no adapter data nothing
+/// is declared, so nothing is provisional and the compile needs no
+/// `adapters/` in sight.
+pub(super) fn opens(seats: &Map<String, Value>, adapters_root: &Path) -> bool {
+    fn dispatches(value: &Value) -> bool {
+        match value {
+            Value::Object(map) => {
+                !matches!(
+                    dispatch_driver(&command_parts(value)).as_deref(),
+                    None | Some("exec")
+                ) || map.values().any(dispatches)
+            }
+            Value::Array(items) => items.iter().any(dispatches),
+            _ => false,
+        }
+    }
+    seats.values().any(needs_adapters) || (adapters_root.exists() && seats.values().any(dispatches))
+}
+
 /// One link of a site's chain that reaches a provisional model.
 struct Link<'a> {
     number: usize,
@@ -109,26 +135,24 @@ pub(super) fn admitted(
             link.adapter.provider.clone(),
         );
         if class == SeatClass::Gate {
-            return Err(ProvisionalRefusal::Gate {
+            return Err(CompileError::Provisional(ProvisionalRefusal::Gate {
                 seat,
                 link: link.number,
                 model,
                 adapter,
-            }
-            .into());
+            }));
         }
         if !link
             .office
             .is_some_and(|office| context.provisional_offices.iter().any(|o| o == office))
         {
-            return Err(ProvisionalRefusal::Unlisted {
+            return Err(CompileError::Provisional(ProvisionalRefusal::Unlisted {
                 seat,
                 link: link.number,
                 model,
                 adapter,
                 office: link.office.map(str::to_string),
-            }
-            .into());
+            }));
         }
     }
     Ok(class)

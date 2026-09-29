@@ -313,7 +313,7 @@ pub brokkr_runtime::bundle::Bundle::seats: alloc::collections::btree::map::BTree
 pub brokkr_runtime::bundle::Bundle::sites: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::SiteFacts>
 impl brokkr_runtime::bundle::Bundle
 pub fn brokkr_runtime::bundle::Bundle::compile(&std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
-pub fn brokkr_runtime::bundle::Bundle::compile_under(&std::path::Path, &std::path::Path, &std::path::Path, brokkr_core::realms::Boundary) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
+pub fn brokkr_runtime::bundle::Bundle::compile_under(&std::path::Path, &std::path::Path, &std::path::Path, impl core::convert::Into<brokkr_runtime::bundle::RealmLaw>) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
 pub fn brokkr_runtime::bundle::Bundle::compile_with(&std::path::Path, &std::path::Path, &std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
 pub fn brokkr_runtime::bundle::Bundle::compile_with_realm(&std::path::Path, &std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&brokkr_runtime::dialect::Dialect>, impl core::convert::Into<brokkr_runtime::bundle::RealmLaw>) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
 pub fn brokkr_runtime::bundle::Bundle::manifest_digest(&self) -> alloc::string::String
@@ -845,7 +845,7 @@ pub brokkr_runtime::Bundle::seats: alloc::collections::btree::map::BTreeMap<allo
 pub brokkr_runtime::Bundle::sites: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::SiteFacts>
 impl brokkr_runtime::bundle::Bundle
 pub fn brokkr_runtime::bundle::Bundle::compile(&std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
-pub fn brokkr_runtime::bundle::Bundle::compile_under(&std::path::Path, &std::path::Path, &std::path::Path, brokkr_core::realms::Boundary) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
+pub fn brokkr_runtime::bundle::Bundle::compile_under(&std::path::Path, &std::path::Path, &std::path::Path, impl core::convert::Into<brokkr_runtime::bundle::RealmLaw>) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
 pub fn brokkr_runtime::bundle::Bundle::compile_with(&std::path::Path, &std::path::Path, &std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
 pub fn brokkr_runtime::bundle::Bundle::compile_with_realm(&std::path::Path, &std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&brokkr_runtime::dialect::Dialect>, impl core::convert::Into<brokkr_runtime::bundle::RealmLaw>) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
 pub fn brokkr_runtime::bundle::Bundle::manifest_digest(&self) -> alloc::string::String

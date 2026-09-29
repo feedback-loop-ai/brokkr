@@ -523,11 +523,7 @@ fn demoting_the_scaffolded_tier_refuses_the_scaffolded_gates() {
 #[test]
 fn a_provisional_model_compiles_only_in_the_offices_the_map_lists() {
     let (dir, bundle, _) = init_with_only(&["claude"]);
-    let adapter = bundle.join("adapters/claude.json");
-    let mut claude = json_at(&adapter);
-    claude["models"]["sonnet"] =
-        serde_json::json!({"id": "claude-sonnet-5-5", "tier": "provisional"});
-    std::fs::write(&adapter, claude.to_string()).unwrap();
+    mark_sonnet_provisional(&bundle);
     let db = dir.path().join("forge.db");
     let doctor = || {
         brokkr(
@@ -554,11 +550,7 @@ fn a_provisional_model_compiles_only_in_the_offices_the_map_lists() {
         "{refused}"
     );
 
-    let map = bundle.join("realms.json");
-    let mut world = json_at(&map);
-    world["schema"] = serde_json::json!("forge.realms/v6");
-    world["provisional_offices"] = serde_json::json!(["implementer", "intake"]);
-    std::fs::write(&map, world.to_string()).unwrap();
+    list_provisional_offices(&bundle, serde_json::json!(["implementer", "intake"]));
     let (code, stdout, _) = doctor();
     assert_eq!(code, Some(0), "doctor output: {stdout}");
     assert!(
@@ -572,6 +564,67 @@ fn a_provisional_model_compiles_only_in_the_offices_the_map_lists() {
         stdout.contains("ok       bundle: '"),
         "doctor output: {stdout}"
     );
+}
+
+/// The recipe verbs judge a recipe under the list the run reads: `add`,
+/// `list` and `show` admit the scaffold's provisional `sonnet` in the
+/// offices the workspace map lists, and `show` refuses it once the map
+/// lists none — the refusal printed once, on the one error line.
+#[test]
+fn the_recipe_verbs_read_the_provisional_offices_the_map_lists() {
+    let (dir, bundle, _) = init_with_only(&["claude"]);
+    mark_sonnet_provisional(&bundle);
+    list_provisional_offices(&bundle, serde_json::json!(["implementer", "intake"]));
+    let library = dir.path().join("library");
+    let library = library.to_str().unwrap();
+    let verb = |args: &[&str]| brokkr(&[&["recipes"], args].concat(), &bundle);
+
+    let (code, _, stderr) = verb(&[
+        "add",
+        bundle.to_str().unwrap(),
+        "--name",
+        "starter",
+        "--dir",
+        library,
+    ]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let (code, stdout, stderr) = verb(&["list", "--dir", library]);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert!(
+        stdout.lines().any(|line| line.starts_with("starter\t")),
+        "{stdout}"
+    );
+    let (code, _, stderr) = verb(&["show", "starter", "--dir", library]);
+    assert_eq!(code, Some(0), "{stderr}");
+
+    list_provisional_offices(&bundle, serde_json::json!([]));
+    let (code, _, stderr) = verb(&["show", "starter", "--dir", library]);
+    assert_eq!(code, Some(1));
+    assert_eq!(
+        stderr,
+        "error: bundle: seat 'implement' link 2 seats model 'sonnet', which adapter 'claude' \
+         declares provisional, in office 'implementer', which realms.json does not list in \
+         provisional_offices; a provisional model holds only the offices the operator lists, \
+         and an absent or empty list names none (proposed decision 0075 ruling 5)\n"
+    );
+}
+
+/// Mark the claude scaffold's `sonnet` provisional in its own adapter.
+fn mark_sonnet_provisional(bundle: &std::path::Path) {
+    let adapter = bundle.join("adapters/claude.json");
+    let mut claude = json_at(&adapter);
+    claude["models"]["sonnet"] =
+        serde_json::json!({"id": "claude-sonnet-5-5", "tier": "provisional"});
+    std::fs::write(&adapter, claude.to_string()).unwrap();
+}
+
+/// Write `offices` as the scaffold map's provisional offices.
+fn list_provisional_offices(bundle: &std::path::Path, offices: serde_json::Value) {
+    let map = bundle.join("realms.json");
+    let mut world = json_at(&map);
+    world["schema"] = serde_json::json!("forge.realms/v6");
+    world["provisional_offices"] = offices;
+    std::fs::write(&map, world.to_string()).unwrap();
 }
 
 #[test]

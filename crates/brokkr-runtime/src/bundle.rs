@@ -42,7 +42,7 @@ pub enum CompileError {
     #[error("bundle policy: {0}")]
     Policy(#[from] brokkr_core::PolicyError),
     #[error("bundle: {0}")]
-    Provisional(#[from] ProvisionalRefusal),
+    Provisional(ProvisionalRefusal),
 }
 
 /// Inputs the engine owns. A seat may never supply or declare these:
@@ -1040,12 +1040,13 @@ impl Bundle {
 
     /// Compile in no named realm but under a stated boundary — what
     /// `brokkr doctor` does for the realm it discovered, whose dialect it
-    /// reports separately.
+    /// reports separately — or under a stated law, which also names the
+    /// workspace map's provisional offices.
     pub fn compile_under(
         dir: &Path,
         library_root: &Path,
         adapters_root: &Path,
-        boundary: Boundary,
+        law: impl Into<RealmLaw>,
     ) -> Result<Bundle, CompileError> {
         let default_path = library_root
             .parent()
@@ -1066,7 +1067,7 @@ impl Bundle {
             adapters_root,
             None,
             default.as_ref(),
-            boundary,
+            law,
         )
     }
 
@@ -1229,7 +1230,7 @@ impl Bundle {
         // make an in-flight run unresumable after an `apt install`. The
         // COMPOSED seats are what is scanned: a base may be what carries
         // the agent reference.
-        let mut agents = match uses_dialect || resolved.seats.values().any(needs_adapters) {
+        let mut agents = match uses_dialect || tier::opens(&resolved.seats, adapters_root) {
             false => None,
             true => Some(AgentContext {
                 library: match resolved.seats.values().any(mentions_agent) {

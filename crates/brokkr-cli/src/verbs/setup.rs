@@ -99,7 +99,9 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
         RecipesCmd::List { dir } => recipes::list(workspace, &dir)?,
         RecipesCmd::Add { source, name, dir } => recipes::add(workspace, &source, &name, &dir)?,
         RecipesCmd::Show { name, dir } => {
-            let bundle = compile_in(workspace, &recipes::resolve(None, Some(name), &dir)?)?;
+            let world = World::discover(workspace, None)?;
+            let recipe = recipes::resolve(None, Some(name), &dir)?;
+            let bundle = compile_in(workspace, &recipe, world.as_ref())?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&compiled_view(&bundle, None))?

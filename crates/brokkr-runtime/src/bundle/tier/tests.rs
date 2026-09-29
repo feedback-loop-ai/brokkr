@@ -55,9 +55,19 @@ impl Workspace {
     }
 
     /// Compile a bundle whose `work` seat is `work`, under a map listing
-    /// `offices`. The review seat hires a promoted model, so the compile
-    /// opens the adapters whatever the work seat is.
+    /// `offices`. The review seat hires a promoted model through an agent.
     fn compile(&self, work: Value, offices: &[&str]) -> Result<Bundle, CompileError> {
+        let review = json!({"results": ["clean"], "agent": "reviewer"});
+        self.compile_beside(work, review, offices)
+    }
+
+    /// The same, with the review seat as given.
+    fn compile_beside(
+        &self,
+        work: Value,
+        review: Value,
+        offices: &[&str],
+    ) -> Result<Bundle, CompileError> {
         let bundle = self.path("bundle");
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
         std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
@@ -70,7 +80,6 @@ impl Workspace {
             ],
         });
         std::fs::write(bundle.join("policy.json"), policy.to_string()).unwrap();
-        let review = json!({"results": ["clean"], "agent": "reviewer"});
         let config = json!({"name": "tier", "policy": "policy.json", "seats": {"work": work, "review": review}});
         std::fs::write(bundle.join("bundle.json"), config.to_string()).unwrap();
         Bundle::compile_with_realm(
@@ -87,10 +96,14 @@ impl Workspace {
     }
 
     fn refusal(&self, work: Value, offices: &[&str]) -> ProvisionalRefusal {
-        match self.compile(work, offices) {
-            Err(CompileError::Provisional(refusal)) => refusal,
-            other => panic!("expected a provisional refusal, got {other:?}"),
-        }
+        provisional(self.compile(work, offices))
+    }
+}
+
+fn provisional(compiled: Result<Bundle, CompileError>) -> ProvisionalRefusal {
+    match compiled {
+        Err(CompileError::Provisional(refusal)) => refusal,
+        other => panic!("expected a provisional refusal, got {other:?}"),
     }
 }
 
@@ -129,8 +142,15 @@ fn a_provisional_model_at_a_gate_is_refused_even_where_its_office_is_listed() {
             adapter: "newcomer".into(),
         }
     );
+    // The refusal is the error's own text, not its source: a report that
+    // walks the chain prints it once.
+    let error = CompileError::Provisional(refusal);
     assert_eq!(
-        CompileError::from(refusal).to_string(),
+        std::error::Error::source(&error).map(ToString::to_string),
+        None
+    );
+    assert_eq!(
+        error.to_string(),
         "bundle: seat 'work' is gate class but link 1 seats model 'fresh', which adapter \
          'newcomer' declares provisional; a provisional model never holds a gate, whatever \
          provisional_offices lists (proposed decision 0075 ruling 5)"
@@ -248,6 +268,43 @@ fn an_inline_command_pinning_a_provisional_model_holds_no_office() {
             "{admitted}"
         );
     }
+}
+
+/// A bundle that names no agent, seats no gate and binds no secret still
+/// opens the adapters for its inline dispatches, so a seat that leaves
+/// its class undeclared — work — is judged. With no adapter data nothing
+/// is declared provisional, and the bundle compiles with none in sight.
+#[test]
+fn an_inline_seat_is_judged_where_the_bundle_names_no_agent_and_no_gate() {
+    let workspace = Workspace::new();
+    let unclassed = |driver: &str, model: &str| {
+        json!({
+            "role": "roles/role.md", "results": ["pass"],
+            "driver": {"command": ["{brokkr}", "driver", driver, "--", "--model", model]},
+        })
+    };
+    let mut review = unclassed("newcomer", "steady-1");
+    review["results"] = json!(["clean"]);
+    let compile = |work: Value| workspace.compile_beside(work, review.clone(), &[]);
+    assert_eq!(
+        provisional(compile(unclassed("newcomer", "fresh-1"))),
+        ProvisionalRefusal::Unlisted {
+            seat: "work".into(),
+            link: 1,
+            model: "fresh".into(),
+            adapter: "newcomer".into(),
+            office: None,
+        }
+    );
+    assert_eq!(
+        compile(unclassed("newcomer", "steady-1")).unwrap().name,
+        "tier"
+    );
+    std::fs::remove_dir_all(workspace.path("adapters")).unwrap();
+    assert_eq!(
+        compile(unclassed("newcomer", "fresh-1")).unwrap().name,
+        "tier"
+    );
 }
 
 /// Promotion is data only: the provisional entry rewritten as its bare

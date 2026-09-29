@@ -10,12 +10,15 @@
 //! a compile reads the adapter data even for a recipe that names no
 //! agent, and a listing that resolved one tree while compiling against
 //! whichever directory the operator happened to stand in would report
-//! working recipes as broken — and, in `add`, delete them for it.
+//! working recipes as broken — and, in `add`, delete them for it. For the
+//! same reason each reads the workspace map's provisional offices
+//! (proposed decision 0075 ruling 5).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
+use brokkr_runtime::realms::World;
 use brokkr_runtime::{Bundle, SeatBody};
 
 use crate::compile_in;
@@ -122,6 +125,7 @@ fn seat_summary(bundle: &Bundle) -> String {
 /// One line per recipe that compiles; a warning line per one that does
 /// not. Nothing aborts the listing: a broken recipe is information.
 pub(crate) fn list(workspace: &Path, dir: &Path) -> Result<()> {
+    let world = World::discover(workspace, None)?;
     let mut candidates: Vec<(String, PathBuf)> = Vec::new();
     match std::fs::read_dir(dir) {
         Ok(entries) => {
@@ -150,7 +154,7 @@ pub(crate) fn list(workspace: &Path, dir: &Path) -> Result<()> {
         candidates.push((name, path));
     }
     for (name, path) in candidates {
-        match compile_in(workspace, &path) {
+        match compile_in(workspace, &path, world.as_ref()) {
             Ok(bundle) => println!(
                 "{name}\t{}\t{} phases\t{}\t{}\t{}\t{}",
                 &bundle.manifest_digest()[..12],
@@ -237,6 +241,7 @@ fn copy_into(from: &Path, dest: &Path) -> Result<()> {
 /// compile-verify the copy. A copy that fails to compile is removed —
 /// the library only ever holds recipes the compiler accepted or nothing.
 pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Result<()> {
+    let world = World::discover(workspace, None)?;
     let dest = dir.join(name);
     if dest.exists() {
         bail!(
@@ -273,7 +278,7 @@ pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Res
         copy_into(src, &dest)?;
     }
 
-    match compile_in(workspace, &dest) {
+    match compile_in(workspace, &dest, world.as_ref()) {
         Ok(bundle) => {
             eprintln!(
                 "added recipe '{name}' ({}) at {}",
