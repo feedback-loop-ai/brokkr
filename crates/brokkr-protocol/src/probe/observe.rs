@@ -120,25 +120,14 @@ impl Scratch {
     /// repository's `.git` is written by hand, which is all a CLI that
     /// insists on a repository checks for, and needs no `git`.
     pub(crate) fn create() -> Result<Scratch, ProbeError> {
-        const WHAT: &str = "could not create the probe's scratch world";
-        let root = io(
-            tempfile::Builder::new().prefix(SCRATCH_PREFIX).tempdir(),
-            WHAT,
-        )?;
+        Scratch::create_in(&std::env::temp_dir())
+    }
+
+    /// [`Scratch::create`] under `tmp`, which a test makes one that fails.
+    pub(crate) fn create_in(tmp: &Path) -> Result<Scratch, ProbeError> {
+        let root = io(lay_out(tmp), "could not create the probe's scratch world")?;
         let home = root.path().join("home");
         let repo = root.path().join("repo");
-        for dir in [
-            &home,
-            &repo.join(".git/objects"),
-            &repo.join(".git/refs/heads"),
-        ] {
-            io(fs::create_dir_all(dir), WHAT)?;
-        }
-        io(
-            fs::write(repo.join(".git/HEAD"), "ref: refs/heads/main\n"),
-            WHAT,
-        )?;
-        io(fs::write(repo.join("README.md"), "# probe\n"), WHAT)?;
         let mut spellings = vec![
             root.path().to_string_lossy().into_owned(),
             fs::canonicalize(root.path())
@@ -169,6 +158,26 @@ impl Scratch {
         }
         Ok(())
     }
+}
+
+/// The scratch root under `tmp`, holding an empty `home` and a `repo`
+/// with one file, which fails as one step: once the root is made, what
+/// is made inside it fails only with the filesystem.
+fn lay_out(tmp: &Path) -> std::io::Result<tempfile::TempDir> {
+    let root = tempfile::Builder::new()
+        .prefix(SCRATCH_PREFIX)
+        .tempdir_in(tmp)?;
+    let repo = root.path().join("repo");
+    for dir in [
+        &root.path().join("home"),
+        &repo.join(".git/objects"),
+        &repo.join(".git/refs/heads"),
+    ] {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(repo.join(".git/HEAD"), "ref: refs/heads/main\n")?;
+    fs::write(repo.join("README.md"), "# probe\n")?;
+    Ok(root)
 }
 
 /// Runs launches in one scratch world.

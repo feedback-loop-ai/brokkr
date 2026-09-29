@@ -1234,6 +1234,128 @@ fn an_unreadable_listing_or_usage_is_not_read_as_an_empty_one() {
 }
 
 #[test]
+fn usage_that_names_its_message_on_one_event_is_unmeasured_with_nothing_listed_as_unnamed() {
+    let stream = r#"{"type":"assistant","id":"msg_1","usage":{"output_tokens":2}}"#;
+    let facts = facts_of(observation(Some(0), stream, ""));
+    assert_eq!(
+        facts.usage.value().map(|usage| &usage.counting),
+        Some(&Fact::unmeasured(NOT_REPEATED))
+    );
+}
+
+/// The facts of a turn listing `Bash` and no MCP server, for an adapter
+/// with no hands argv, whose boxed turn was therefore never tried.
+fn unboxed_facts(kind: AdapterKind, declared: &Declared) -> super::facts::Facts {
+    let plan = plan::plan(kind, declared).unwrap();
+    let plan::Step::Untried(gap) = plan.boxed.clone() else {
+        panic!("{:?} has a hands argv", declared.adapter);
+    };
+    let init = r#"{"type":"system","subtype":"init","tools":["Bash"],"mcp_servers":[]}"#;
+    let observed = Observed {
+        boxed: Trial::Untried(gap),
+        ..observed(observation(Some(0), init, ""))
+    };
+    measure::facts(&plan, &observed, &[])
+}
+
+#[test]
+fn a_cli_with_no_hands_argv_has_no_off_switch_and_its_isolation_is_read_from_the_plain_turn() {
+    let declared = Declared {
+        hands: None,
+        hands_gap: Some(DSH_GAP.to_string()),
+        ..claude_declared()
+    };
+    let facts = unboxed_facts(AdapterKind::Claude, &declared);
+    let no_hands = format!(
+        "the adapter declares no hands argv that switches the CLI's own tools off ({DSH_GAP})"
+    );
+    let at_init = "the system/init event on line 1 of stdout listed";
+    assert_eq!(
+        facts.capabilities,
+        Fact::measured(
+            vec![Capability {
+                tool: "Bash".to_string(),
+                off: Fact::Unsupported { evidence: no_hands },
+            }],
+            format!("{at_init} tools: 1"),
+        )
+    );
+    let servers = format!("{at_init} mcp_servers: 0");
+    assert_eq!(
+        (facts.user_mcp_unboxed, facts.config_isolation),
+        (
+            Fact::measured(false, servers.as_str()),
+            Fact::measured(
+                true,
+                format!("{NO_OTHER_SERVER} reached the plain turn: {servers}")
+            ),
+        )
+    );
+    let facts = unboxed_facts(AdapterKind::Dsh, &dsh_declared());
+    assert_eq!(
+        facts.user_mcp_unboxed,
+        Fact::unmeasured("the probe knows no user-scope MCP configuration file for dsh")
+    );
+}
+
+#[test]
+fn a_scratch_world_that_cannot_be_made_refuses_the_probe() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a-file");
+    std::fs::write(&file, "").unwrap();
+    let error = observe::Scratch::create_in(&file).err().unwrap();
+    assert!(matches!(error, ProbeError::Io { .. }), "{error:?}");
+    // tempfile names the directory it could not make, which is random.
+    let made = format!(
+        "could not create the probe's scratch world: Not a directory (os error 20) at path \
+         \"{}/{}",
+        file.display(),
+        observe::SCRATCH_PREFIX
+    );
+    let text = error.to_string();
+    assert_eq!(text.get(..made.len()), Some(made.as_str()), "{text}");
+}
+
+#[test]
+fn a_user_scope_configuration_that_cannot_be_planted_refuses_the_probe() {
+    let scratch = observe::Scratch::create().unwrap();
+    // The scratch repository's README stands where a directory must.
+    let config = plan::UserConfig::Planted {
+        path: "../repo/README.md/mcp/config.toml",
+        contents: "",
+    };
+    let error = scratch.plant(&config).unwrap_err();
+    assert!(matches!(error, ProbeError::Io { .. }), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        "could not plant the user-scope configuration: Not a directory (os error 20)"
+    );
+}
+
+#[test]
+fn a_transcript_under_the_scratch_home_that_cannot_be_read_refuses_the_probe() {
+    let world = world();
+    let cli = world.fake(
+        "claude-dangling",
+        "#!/bin/sh\nln -s nowhere \"$HOME/dangling.jsonl\"\n",
+    );
+    let error = probe_with(
+        AdapterKind::Claude,
+        &cli,
+        &claude_declared(),
+        &world.bindings,
+        DEADLINE,
+    )
+    .unwrap_err();
+    assert!(matches!(error, ProbeError::Io { .. }), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        "could not read a transcript under the scratch HOME: No such file or directory (os \
+         error 2)"
+    );
+}
+
+#[test]
 fn a_transcript_path_without_a_session_keeps_its_name_and_loses_its_digits() {
     assert_eq!(
         measure::normalise("~/.cli/2026/run-7/tmp.brokkr-probe-Ab12/log.jsonl", None),
