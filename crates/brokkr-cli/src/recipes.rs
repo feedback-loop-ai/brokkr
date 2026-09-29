@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
+use brokkr_runtime::launch::BundleSource;
 use brokkr_runtime::{Bundle, SeatBody};
 
 use crate::compile_in;
@@ -24,25 +25,17 @@ use crate::compile_in;
 /// Paths are as written, relative to the workspace.
 const BUILTINS: [&str; 2] = ["bundles/self", "bundles/verify"];
 
-/// Resolve the run/resume bundle directory from the exactly-one-of
-/// `--bundle` / `--recipe` pair (clap's arg group enforces the arity).
-pub(crate) fn resolve(
+/// The run/resume bundle from the exactly-one-of `--bundle` / `--recipe`
+/// pair (clap's arg group enforces the arity). The launch resolves it,
+/// where each verb always did ([`BundleSource::resolve`]).
+pub(crate) fn source(
     bundle: Option<PathBuf>,
     recipe: Option<String>,
-    recipes_dir: &Path,
-) -> Result<PathBuf> {
+    recipes_dir: PathBuf,
+) -> BundleSource {
     match (bundle, recipe) {
-        (Some(path), None) => Ok(path),
-        (None, Some(name)) => {
-            let path = recipes_dir.join(&name);
-            anyhow::ensure!(
-                path.is_dir(),
-                "recipe '{name}' not found under {}; install it with \
-                 `brokkr recipes add <source> --name {name}`",
-                recipes_dir.display()
-            );
-            Ok(path)
-        }
+        (Some(path), None) => BundleSource::Dir(path),
+        (None, Some(name)) => BundleSource::Recipe { name, recipes_dir },
         _ => unreachable!("clap group requires exactly one of --bundle/--recipe"),
     }
 }

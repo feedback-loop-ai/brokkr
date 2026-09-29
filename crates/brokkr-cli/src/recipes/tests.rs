@@ -73,6 +73,9 @@ fn bundle_with_sequence() -> Bundle {
 fn resolver_and_sequence_summary_cover_every_shape() {
     let dir = tempfile::tempdir().unwrap();
     let direct = dir.path().join("direct");
+    let resolve = |bundle, recipe, recipes_dir: &Path| {
+        source(bundle, recipe, recipes_dir.to_path_buf()).resolve()
+    };
     assert_eq!(
         resolve(Some(direct.clone()), None, dir.path()).unwrap(),
         direct

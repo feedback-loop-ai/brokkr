@@ -1377,7 +1377,7 @@ pub(super) fn event(event_type: EventType, payload: Value) -> EventEnvelope {
         .build()
 }
 
-pub(super) fn dispatch(bundle: &Bundle) -> DispatchEnvelopeV2 {
+pub(crate) fn dispatch(bundle: &Bundle) -> DispatchEnvelopeV2 {
     let digest = bundle.manifest_digest();
     dispatch_envelope("bound-run", "test", &digest, "https://dogfood.example")
 }

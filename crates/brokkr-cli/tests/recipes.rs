@@ -608,3 +608,119 @@ fn list_warns_when_a_derived_recipes_base_is_missing() {
     assert!(warning.contains("extends 'absent'"), "{warning}");
     assert!(warning.contains("is not a recipe in"), "{warning}");
 }
+
+/// Each (map, recipe) pair `compile` and `recipes show` refuse alike,
+/// with the line both print: the specifying recipes need a dialect no
+/// unmapped repository has, and hold a dialect gate boxed that `harness`
+/// cannot box; three more hire a `claude` link `harness` has no fragment
+/// for.
+fn refused() -> std::collections::BTreeMap<(&'static str, &'static str), String> {
+    let specifying = [
+        ("triage", "triage -> fast"),
+        ("night-shift", "night-shift -> triage -> fast"),
+        ("gpt-flash", "gpt-flash -> triage -> fast"),
+    ];
+    let undialected = "realm '<unmapped>' declares no dialect, but phase 'specify' needs one";
+    let unboxed = "dialect step 'analyze:check' holds its gate boxed (decision 0042 ruling 4), \
+        and under the `harness` boundary no box stands: its command is the realm's dialect \
+        declaration, not the bundle's own pinned script, which is all decision 0046 ruling 4 \
+        admits at an unboxed gate. Run the realm under a boxed boundary (namespace) until a \
+        decision admits the dialect step on the pinned-script terms";
+    let mut refused = std::collections::BTreeMap::new();
+    for (label, why) in [
+        ("no map", undialected),
+        ("harness elsewhere", undialected),
+        ("harness here", unboxed),
+    ] {
+        for (name, chain) in specifying {
+            let line = format!("error: bundle: bundle: {why} (composed: {chain})\n");
+            refused.insert((label, name), line);
+        }
+    }
+    let judged = |seat: &str| {
+        format!(
+            "error: bundle: seat '{seat}' gate link 2 resolves to provider 'claude', which \
+             declares no `hands.harness.gate` fragment; under the `harness` boundary a model \
+             may judge only under its harness's own read-only sandbox as the adapter addresses \
+             it (decision 0046 ruling 4)\n"
+        )
+    };
+    refused.insert(
+        ("harness here", "panel-review"),
+        judged("review:correctness"),
+    );
+    refused.insert(("harness here", "self"), judged("review"));
+    let worked = "error: bundle: bundle: seat 'implement' link 1 resolves to provider 'claude', \
+        which declares no `hands.harness.work` fragment: a capability gap — under the `harness` \
+        boundary a work seat with hands writes the tree only under the harness's own writable \
+        sandbox as the adapter addresses it (decision 0046 rulings 1 and 4) (composed: release \
+        -> fast)\n";
+    refused.insert(("harness here", "release"), worked.to_string());
+    refused
+}
+
+/// `recipes show` compiles on the path `compile` and a run compile on
+/// (#350): for every recipe and both shipped bundles, under no map, a
+/// realm with a dialect, the same realm under `harness`, and a map that
+/// names another tree, the two verbs print the same bytes. Every pair is
+/// one of two outcomes and nothing else: both print a view whose digest
+/// is a sha256 in lowercase hex, or both refuse with exactly the line
+/// [`refused`] expects for that pair.
+#[test]
+fn show_and_compile_agree_for_every_recipe_under_every_realm_map() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let ws = Ws::new();
+    for tree in ["agents", "adapters", "dialects"] {
+        std::os::unix::fs::symlink(root.join(tree), ws.path().join(tree)).unwrap();
+    }
+    let realm = |path: &str, boundary: &str| {
+        json!({"schema": "forge.realms/v4", "journal": "forge.db", "realms": [{
+            "name": "here", "path": path, "default_branch": "main",
+            "dialect": "openspec", "boundary": boundary}]})
+    };
+    let maps = [
+        ("no map", None),
+        ("namespace here", Some(realm(".", "namespace"))),
+        ("harness here", Some(realm(".", "harness"))),
+        ("harness elsewhere", Some(realm("elsewhere", "harness"))),
+    ];
+    let mut named = Vec::new();
+    for library in ["recipes", "bundles"] {
+        for entry in std::fs::read_dir(root.join(library)).unwrap() {
+            let name = entry.unwrap().file_name().into_string().unwrap();
+            named.push((root.join(library), name));
+        }
+    }
+    let mut digests = std::collections::BTreeSet::new();
+    let mut refused = std::collections::BTreeMap::new();
+    for (label, map) in &maps {
+        let _ = std::fs::remove_file(ws.path().join("realms.json"));
+        if let Some(map) = map {
+            std::fs::write(ws.path().join("realms.json"), map.to_string()).unwrap();
+        }
+        for (library, name) in &named {
+            let bundle = library.join(name);
+            let compiled = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+            let dir = library.to_str().unwrap();
+            let shown = ws.brokkr(&["recipes", "show", name, "--dir", dir]);
+            assert_eq!(shown, compiled, "{name} under {label}");
+            match compiled {
+                (Some(0), view, stderr) if stderr.is_empty() => {
+                    let view: Value = serde_json::from_str(&view).unwrap();
+                    let digest = view["digest"].as_str().unwrap().to_string();
+                    let hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
+                    assert!(digest.len() == 64 && digest.bytes().all(hex), "{digest}");
+                    digests.insert((name.clone(), digest));
+                }
+                (Some(1), view, line) if view.is_empty() => {
+                    refused.insert((*label, name.as_str()), line);
+                }
+                other => panic!("{name} under {label}: neither a view nor a refusal: {other:?}"),
+            }
+        }
+    }
+    assert_eq!(refused, self::refused());
+    // The maps are not all alike to every recipe: a boxed one compiled
+    // under `harness` pins another word, and so another digest.
+    assert!(digests.len() > named.len(), "{digests:?}");
+}
