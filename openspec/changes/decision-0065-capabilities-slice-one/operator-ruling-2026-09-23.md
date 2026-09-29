@@ -225,3 +225,7 @@ OPERATOR RULING 2026-09-29 (unit 21).
 2. R1: the final launch check judges delivery on the state parsed from the FINAL command it was handed (read_state of the parsed final argv), never on a recomposition and never by comparing against the same builder that produced the command. A restriction removed inside the serving builder must be refused by the final check.
 3. R3 WORDING: a capability the realm grants but no site of the seat requests is reported, in prompt and manifest, with the exact reason "granted, but this seat does not request it". A capability the realm does not grant keeps "the realm does not grant it to this seat". The two causes are distinct values, never one generic text.
 4. 21-FIX-B (tests only) follows 21-fix-a: R2's restriction rows and M1/M2/M4 re-run as final-check refusals, in unit 21's suites.
+
+## Addendum, 2026-09-29: unit 22 admits init_doctor.rs for its assertion updates
+
+Unit 22 may change crates/brokkr-cli/tests/init_doctor.rs for ASSERTION UPDATES ONLY: the wording in scaffolded_claude_denials (about :444-446) that the whole-plan readout replaces, and the one expected plan line after about :482 that the readout adds. No other line of that file moves; no test is added or removed there.

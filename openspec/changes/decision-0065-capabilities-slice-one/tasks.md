@@ -4694,9 +4694,9 @@ production byte moved.
 
 ## 22. Unit 22 — Submit whole plans to doctor
 
-- [ ] 22.1 Unit 22 submits whole plans in both doctor paths. Verify interacting OFF/final-state conflicts and explicit adapter-only scope. Requirements: [Doctor reports grants for every realm][CD1], [Installed native capabilities absent from grants are explicit][CD2], [Restrictions are validated, carried and pinned without engine interpretation][RG4]. Reopened/remaining: operator ruling 2–4. (previous 8.3)
+- [x] 22.1 Unit 22 submits whole plans in both doctor paths. Verify interacting OFF/final-state conflicts and explicit adapter-only scope. Requirements: [Doctor reports grants for every realm][CD1], [Installed native capabilities absent from grants are explicit][CD2], [Restrictions are validated, carried and pinned without engine interpretation][RG4]. Reopened/remaining: operator ruling 2–4. (previous 8.3)
 
-- [ ] 22.2 Unit 22 independently asserts full doctor/compile outcomes for all grant shapes. Remove whole-plan assessment, observe intended failure, restore/pass; no model invocation. Requirements: [Installed native capabilities absent from grants are explicit][CD2], [Unknown inventories and live-control gaps remain unmeasured][CD3], [Known native powers require a valid delivered denial or refusal][NCR]. Reopened/remaining: operator ruling 2–4. (previous 8.4)
+- [x] 22.2 Unit 22 independently asserts full doctor/compile outcomes for all grant shapes. Remove whole-plan assessment, observe intended failure, restore/pass; no model invocation. Requirements: [Installed native capabilities absent from grants are explicit][CD2], [Unknown inventories and live-control gaps remain unmeasured][CD3], [Known native powers require a valid delivered denial or refusal][NCR]. Reopened/remaining: operator ruling 2–4. (previous 8.4)
 
 **Unit 22 note, 2026-09-29 (run `0065-rebuild-unit-22-see-the-uni-e59d1b7e`): OVERSIZED, record only.**
 
@@ -4733,6 +4733,38 @@ production byte moved.
   2b954413, and their digests are unchanged. The visit did not rebuild. It
   reports `blocked` so the run stops instead of looping. See evidence.md,
   "Second visit".
+
+**Unit 22-fix note, 2026-09-29 (run `0065-rebuild-unit-22-see-the-uni-79c858d5`): LANDED.**
+
+- **Ruling.** The operator's ruling of 2026-09-29 is recorded as the
+  addendum "2026-09-29: unit 22 admits init_doctor.rs for its assertion
+  updates" in `operator-ruling-2026-09-23.md`.
+- **Patches.** Both saved patches kept their digests (`43497a92…` and
+  `90975dfc…`) and passed `git apply --check` at 361520c3. Both were
+  applied unchanged. The branch diff of the three unit files is
+  byte-identical to the saved patch, and the `init_doctor.rs` diff is
+  byte-identical to the proposed patch.
+- **Admitted lines in `crates/brokkr-cli/tests/init_doctor.rs`.**
+  Assertion updates only, and no test was added or removed:
+  - the `scaffolded_claude_denials` wording (`:444-445`) now reads "the
+    adapter-level plan above switches it off";
+  - one expected line, `ok       capabilities starter plan claude: …`, is
+    added after the old `:482` (new lines `:482-486`).
+- **Proof at 361520c3, re-taken.**
+  - Baseline, with production at HEAD and the tests applied: 12 of 16
+    red, and `init_doctor` 2 of 15 red (`:477`, `:593`).
+  - Fix: 16 of 16 and 15 of 15 pass.
+  - N1–N5 and N3b each fail their intended tests.
+  - IA1 (the old OFF wording) fails both admitted `init_doctor`
+    assertions. IA2 (no admitted plan line) fails `:477` only.
+  - After restore, both suites pass again.
+- **Gates.** fmt, clippy, `git diff --check`, the brokkr-runtime and
+  brokkr-cli suites, openspec and the self/verify compiles: see
+  evidence.md, "Unit 22-fix".
+- **Other admissions.** No fixture migrations and no standing-admission
+  lines.
+- **Ticked.** 22.1 and 22.2 are ticked on the evidence observed above.
+- **Pending.** macOS, exact coverage, remote CI and the council.
 
 ## 23. Unit 23 — Audit launch enforcement removals
 

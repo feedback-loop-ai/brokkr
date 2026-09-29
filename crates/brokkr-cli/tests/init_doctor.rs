@@ -441,9 +441,8 @@ fn scaffolded_claude_denials(workspace: &std::path::Path) -> Vec<String> {
                 .map(|limitation| limitation.as_str().unwrap())
                 .collect();
             format!(
-                "warn     capabilities starter native claude '{key}': NOT granted here: every \
-                 seat on claude is launched with it switched off by the adapter's declared \
-                 control · evidence: {} · still unmeasured: {}",
+                "warn     capabilities starter native claude '{key}': NOT granted here: the \
+                 adapter-level plan above switches it off · evidence: {} · still unmeasured: {}",
                 evidence["scope"].as_str().unwrap(),
                 limitations.join("; ")
             )
@@ -480,6 +479,11 @@ fn doctor_reads_the_scaffold_as_granting_nothing_and_names_claudes_native_tools(
         [
             "ok       capabilities starter: grants nothing; every native capability is governed \
              by the no-grant default — switched off, or the seat is refused",
+            "ok       capabilities starter plan claude: adapter-level scope: the adapter's own \
+             template alone, with no seat's arguments, model pins, typed tools or hands \
+             assessed; a seat's own plan is judged when its bundle compiles · a seat on claude \
+             that holds none of its native capabilities is admitted, each of them switched off \
+             by the composed command; that is composition, not a live measurement",
             expected[0].as_str(),
             expected[1].as_str(),
         ],

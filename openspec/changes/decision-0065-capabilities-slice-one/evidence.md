@@ -23157,3 +23157,94 @@ off by the adapter's declared", the wording the fix removes.
 This visit did not rebuild or re-run the suites. It reports `blocked` so the
 run stops instead of looping back through triage. The admission above is
 still the ruling it needs.
+
+## Unit 22-fix — 2026-09-29: the saved build lands under the operator's admission
+
+Run `0065-rebuild-unit-22-see-the-uni-79c858d5`. Base is 361520c3.
+
+### Ruling and patches
+
+- **The ruling.** The operator ruled on 2026-09-29. It is landed verbatim
+  as the addendum "2026-09-29: unit 22 admits init_doctor.rs for its
+  assertion updates", at the end of `operator-ruling-2026-09-23.md`.
+- **The patches, checked before applying.**
+  - `sha256sum` gave `43497a92267bf90c13287029458ed512e390713d192e281d1bce0bfafd115a33`
+    for `unit-22-oversized.patch` and
+    `90975dfc1af773b0b5e6f69d96d759a895a850c772deba6153650ee07f3d1835`
+    for `unit-22-init-doctor-proposed.patch`.
+  - `git apply --check` passed for both at 361520c3.
+  - Nothing was re-derived. After applying, `git diff` of the three unit
+    files is byte-identical to the saved patch. `git diff` of
+    `init_doctor.rs` is byte-identical to the proposed patch
+    (`diff` exits 0 for each).
+- **Lines the admission covers**, in `crates/brokkr-cli/tests/init_doctor.rs`
+  (numstat 7+/3−). These are assertion updates only, and no test was added
+  or removed.
+  1. In `scaffolded_claude_denials`, old `:444-446` become new `:444-445`.
+     The expected wording "every seat on claude is launched with it
+     switched off by the adapter's declared control" becomes "the
+     adapter-level plan above switches it off". The whole-plan readout
+     replaces the per-capability claim (operator ruling 4).
+  2. In `doctor_reads_the_scaffold_as_granting_nothing_and_names_claudes_native_tools`,
+     one expected line follows the old `:482` (new `:482-486`):
+     `ok       capabilities starter plan claude: adapter-level scope: …`.
+     It is the admitted plan line the readout adds.
+- **Other admissions.** No fixture migrations and no standing-admission
+  lines.
+
+### Observed, in this session (logs in `.forge/u22fix/`)
+
+- **Baseline.** Only the tests were applied first:
+  `git apply --include=…/doctor/capability_tests.rs` of the saved patch,
+  plus the `init_doctor.rs` patch. Production stayed at HEAD.
+  - `cargo test -p brokkr-cli --all-features --locked --lib
+    doctor::capability_tests`: 4 passed, 12 failed (`baseline-lib.log`).
+    This is the first visit's set. For example, `two_off_controls…:1363`
+    got "every seat on claude is launched with it switched off by the
+    adapter's declared control". The expected output was the refused plan
+    line: "it repeats option '--disallowedTools', which the grammar admits
+    once".
+  - `--test init_doctor`: 13 passed, 2 failed, which are the two admitted
+    assertions (`baseline-init-doctor.log`):
+    - `doctor_reads_the_scaffold_…` panicked at `init_doctor.rs:477`;
+    - `a_broken_agent_library_…` panicked at `:593`.
+- **Fix.** With the production halves applied: `doctor::capability_tests`
+  16 passed (`fix-lib.log`), and `init_doctor` 15 passed
+  (`fix-init-doctor.log`).
+- **Mutations.** Each one compiled. Each was restored with `cp` from
+  `.forge/u22fix/good/` and checked with `cmp`. Its diff is in
+  `.forge/u22fix/<id>.diff`.
+
+  | # | Mutation | Failed (test:line) |
+  | --- | --- | --- |
+  | N1 | `doctor.rs`: `let unheld: Result<(), String> = Ok(());` (the unheld plan is never submitted) | 7: installed_harnesses :314, an_uncomposable_off :545, two_off_controls :1363, malformed_definition :1001, a_failing_grant :916, an_admitted_plan :1481, a_matching_grant :463 (init_doctor 15 ok: the shipped claude plan is admitted) |
+  | N2 | holder's plan never submitted (`_ if true => ("is admitted with it ON", true)`) | 5: a_held_tool :1387, a_failing_grant :916, an_uncomposable_off :545, two_off_controls :1363, a_matching_grant :463 |
+  | N3 | restriction path: `_ if true => "drops it (native capability remains OFF)"` | 2: a_dropped_restricted :614, an_empty_scope :280 |
+  | N3b | old `Transport::Unsupported` filter restored on the restriction arm | 1: a_dropped_restricted :643 (declared-transport case) |
+  | N4 | `capabilities.rs` `assess`: `authored: &adapter.driver[..4.min(…)]` | 1: an_admitted_plan :1481 (template case) |
+  | N5 | `assess` drops the seat's asks (`Requests::new()`) | 9: a_dropped_restricted :614, a_held_tool :1387, every_realm :231, installed_harnesses :314, an_uncomposable_off :545, an_admitted_plan :1456, an_empty_scope :280, two_off_controls :1363, a_matching_grant :463 |
+  | IA1 | `doctor.rs`: the admitted OFF wording reverts to "every seat is launched with it switched off by the adapter's declared control" | init_doctor 2: `doctor_reads_the_scaffold_…` :477, `a_broken_agent_library_…` :593 (admitted assertion 1) |
+  | IA2 | `doctor.rs`: `Ok(_) if true => {}` (the admitted plan line is not printed) | init_doctor 1: `doctor_reads_the_scaffold_…` :477 (admitted assertion 2) |
+
+  Line numbers are those of the formatted files as landed.
+- **Restored.** Every mutation was restored, and the crate suites below ran
+  on the restored tree.
+- **Gates.**
+  - `cargo fmt --all -- --check`: clean.
+  - `git diff --check`: clean.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: finished clean (`clippy.log`).
+  - `cargo test -p brokkr-runtime --all-features --locked`: 25 result
+    lines, all ok, 0 failed (lib 627, `capability_launch` 68;
+    `runtime-suite.log`).
+  - `cargo test -p brokkr-cli --all-features --locked`: 33 result lines,
+    all ok, 0 failed. The lib passed 485 and `init_doctor` passed 15
+    (`cli-suite.log`).
+  - `openspec validate --all --strict --no-interactive`: 18 passed, 0
+    failed.
+  - `compile --bundle bundles/self` and `bundles/verify` both compile.
+    Their digests are `45dc1c7e…` and `f7cbd4bb…`, unchanged from the
+    first visit.
+- **Pending.** `cargo test --workspace` (not run: the workspace run can
+  hang in brokkr-cli), macOS, exact coverage outside the box, remote CI
+  and the council.
