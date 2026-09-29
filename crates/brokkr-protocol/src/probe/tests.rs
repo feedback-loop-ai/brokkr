@@ -67,7 +67,8 @@ fn claude_like(version: &str, boxed: Boxed) -> String {
 /// A Claude-like CLI running the shell `plain` on its plain turn and
 /// `under_hands` under the hands argv. Either may set `tools`, `servers`
 /// and `later`, an event printed after the init event, and may write a
-/// transcript beside the session's in `$dir`.
+/// transcript beside the session's in `$dir`. Every launch appends to the
+/// one session file, so the boxed turn's lines follow the plain turn's.
 fn claude_with(version: &str, plain: &str, under_hands: &str) -> String {
     r#"#!/bin/sh
 case " $* " in
@@ -82,7 +83,7 @@ later=''
 sid=@SESSION@
 dir="$HOME/.claude/projects/$(pwd | tr -c 'A-Za-z0-9\n' '-')"
 mkdir -p "$dir"
-echo '{"type":"user"}' > "$dir/$sid.jsonl"
+echo '{"type":"user"}' >> "$dir/$sid.jsonl"
 echo '{}' > "$HOME/.claude/stats.json"
 case " $* " in
   *" --strict-mcp-config "*) @UNDER_HANDS@ ;;
@@ -281,7 +282,7 @@ const NO_OTHER_SERVER: &str = "no MCP server other than brokkr, the planted user
                                brokkr-probe-user-scope included,";
 const GRANTING_REALMS: &str = "so it may be seated only in a realm that grants them (decision \
                                0065 ruling 4)";
-const TRANSCRIPTS: &str = "the .jsonl files the turn created under the scratch HOME";
+const TRANSCRIPTS: &str = "the .jsonl files the turn wrote under the scratch HOME";
 const DSH_PATCH_ONLY: &str = "dsh takes a model and an effort only through the profile patch \
                               its driver composes, which the probe does not compose";
 
@@ -550,9 +551,16 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
     let no_hands = format!(
         "the adapter declares no hands argv that switches the CLI's own tools off ({DSH_GAP})"
     );
-    let no_user_config = "the probe knows no user-scope MCP configuration file for dsh";
-    let not_isolated = format!("{NO_USER_MCP}{no_user_config}");
-    let not_boxed = format!("the boxed turn was not read: {no_hands}");
+    // The answer dsh prints is a line of stdout that is not one JSON
+    // object, so every listing of the turn is unread (#484).
+    let answer = "line 1 of stdout is not one JSON object naming each key once; stdout holds no \
+                  JSON event";
+    let tools = format!("the turn's tools could not be read whole: {answer}");
+    let unread = format!(
+        "no MCP server other than brokkr was read reaching the turn, but {tools}, and the turn's \
+         mcp_servers could not be read whole: {answer}"
+    );
+    let not_isolated = format!("{NO_USER_MCP}{unread}");
     let expected = envelope(
         "dsh",
         &cli,
@@ -592,21 +600,16 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
                     "outage": unmeasured(OUTAGE),
                 },
                 "efforts": unmeasured(DSH_PATCH_ONLY),
-                "tools": measured(
-                    json!(["bash", "read_file", "web_search"]),
-                    "the header event on line 1 of ~/.dsh/sessions/{session}.jsonl listed tools: 3",
-                ),
+                "tools": unmeasured(&tools),
                 "boxed_tools": unmeasured(&no_hands),
                 "mcp_server": unmeasured(&no_hands),
-                "native_egress": measured(json!(["web_search"]), "the header event on line 1 of ~/.dsh/sessions/{session}.jsonl listed tools: 3"),
-                "egress_off": unmeasured(&not_boxed),
-                "capabilities": measured(
-                    json!(["bash", "read_file", "web_search"]
-                        .map(|tool| capability(tool, unsupported(&no_hands)))),
-                    "the header event on line 1 of ~/.dsh/sessions/{session}.jsonl listed tools: 3",
-                ),
+                "native_egress": unmeasured(&tools),
+                "egress_off": unmeasured(&format!(
+                    "the plain turn's native egress was not read: {tools}"
+                )),
+                "capabilities": unmeasured(&tools),
                 "config_isolation": unmeasured(&not_isolated),
-                "user_mcp_unboxed": unmeasured(no_user_config),
+                "user_mcp_unboxed": unmeasured(&unread),
                 "user_mcp_boxed": unmeasured(&no_hands),
                 "transcripts": measured(json!(["~/.dsh/sessions/{session}.jsonl"]), TRANSCRIPTS),
                 "resume": unmeasured(RESUME),
@@ -1160,19 +1163,20 @@ fn an_unreadable_listing_or_usage_is_not_read_as_an_empty_one() {
     ]
     .join("\n");
     let facts = facts_of(observation(Some(0), &stream, ""));
+    let line = "line 3 of stdout is not one JSON object naming each key once";
     assert_eq!(
         facts.tools,
-        Fact::unmeasured(
-            "the turn's tools could not be read whole: the (untyped)/init event on line 1 of \
-             stdout holds an entry at /tools/0 the probe cannot name"
-        )
+        Fact::unmeasured(format!(
+            "the turn's tools could not be read whole: {line}; the (untyped)/init event on line \
+             1 of stdout holds an entry at /tools/0 the probe cannot name"
+        ))
     );
     assert_eq!(
         facts.mcp_server,
-        Fact::unmeasured(
-            "the turn's mcp_servers could not be read whole: the (untyped)/init event on line 1 \
-             of stdout holds an entry at /mcp_servers/0 the probe cannot name"
-        )
+        Fact::unmeasured(format!(
+            "the turn's mcp_servers could not be read whole: {line}; the (untyped)/init event on \
+             line 1 of stdout holds an entry at /mcp_servers/0 the probe cannot name"
+        ))
     );
     assert_eq!(
         facts.usage,

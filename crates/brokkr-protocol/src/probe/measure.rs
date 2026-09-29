@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{Map, Value};
 
 use super::facts::{Counting, Events, Fact, Facts, Headless, Refusal, Refusals, Session, Usage};
-use super::observe::{Observation, Trial, SCRATCH_PREFIX};
+use super::observe::{Observation, Transcript, Trial, Written, SCRATCH_PREFIX};
 use super::plan::{Plan, NO_SUCH_EFFORT};
 
 mod listing;
@@ -49,11 +49,13 @@ struct Event {
 }
 
 /// One stream a turn produced, stdout or a transcript: its events, where
-/// they were read from, and each line that was not one JSON object.
+/// they were read from, the number of each line that was not one JSON
+/// object, and whether it held no bytes at all.
 struct Stream {
     source: String,
     events: Vec<Event>,
-    unparsed: Vec<(usize, String)>,
+    unparsed: Vec<usize>,
+    empty: bool,
 }
 
 /// Every stream a turn produced, stdout first, and the one its events,
@@ -141,7 +143,9 @@ pub(crate) fn version(observation: &Observation) -> Fact<String> {
     }
 }
 
-fn parse_lines(text: &str, source: &str) -> Stream {
+/// `text` read as the stream `source`, its first line being line `first`
+/// of what it came from.
+fn parse_lines(text: &str, source: &str, first: usize) -> Stream {
     let mut events = Vec::new();
     let mut unparsed = Vec::new();
     for (index, line) in text
@@ -151,16 +155,33 @@ fn parse_lines(text: &str, source: &str) -> Stream {
     {
         match strict::object(line) {
             Some(fields) => events.push(Event {
-                line: index + 1,
+                line: first + index,
                 fields,
             }),
-            None => unparsed.push((index + 1, line.to_string())),
+            None => unparsed.push(first + index),
         }
     }
     Stream {
         source: source.to_string(),
         events,
         unparsed,
+        empty: text.is_empty(),
+    }
+}
+
+/// What a launch wrote to a transcript, as a stream: lines it appended
+/// keep their numbers in the file, and a file it rewrote is named so.
+fn transcript_stream(transcript: &Transcript) -> Stream {
+    match transcript.written {
+        Written::Created => parse_lines(&transcript.text, &transcript.path, 1),
+        Written::Appended { from_line } => {
+            parse_lines(&transcript.text, &transcript.path, from_line)
+        }
+        Written::Rewritten => parse_lines(
+            &transcript.text,
+            &format!("{}, which the turn rewrote,", transcript.path),
+            1,
+        ),
     }
 }
 
@@ -168,13 +189,8 @@ fn parse_lines(text: &str, source: &str) -> Stream {
 /// named with this run's variable parts; its own events are stdout's, or,
 /// when stdout carried none, the first transcript's that holds some.
 fn read_stream(observation: &Observation) -> Turn {
-    let mut all: Vec<Stream> = std::iter::once(parse_lines(&observation.stdout, "stdout"))
-        .chain(
-            observation
-                .transcripts
-                .iter()
-                .map(|transcript| parse_lines(&transcript.text, &transcript.path)),
-        )
+    let mut all: Vec<Stream> = std::iter::once(parse_lines(&observation.stdout, "stdout", 1))
+        .chain(observation.transcripts.iter().map(transcript_stream))
         .collect();
     let Some(primary) = all.iter().position(|stream| !stream.events.is_empty()) else {
         return Turn::Unread(
@@ -526,7 +542,7 @@ fn transcripts(observation: &Observation, session: Option<&str>) -> Fact<Vec<Str
     } else {
         Fact::measured(
             paths,
-            "the .jsonl files the turn created under the scratch HOME",
+            "the .jsonl files the turn wrote under the scratch HOME",
         )
     }
 }

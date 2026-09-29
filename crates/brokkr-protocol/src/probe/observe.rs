@@ -7,7 +7,7 @@
 //! and the credentials bound by name (decision 0012). Whatever the CLI
 //! needs beyond those is what config isolation (#467) measures.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Read;
@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+use sha2::{Digest, Sha256};
 
 use super::plan::{Step, UserConfig, PROMPT};
 use super::ProbeError;
@@ -30,16 +32,57 @@ pub(crate) const SCRATCH_PREFIX: &str = "brokkr-probe-";
 
 const POLL: Duration = Duration::from_millis(20);
 
-/// A file a launch created under the scratch HOME, `~`-relative, and its
-/// masked text.
+/// A `.jsonl` file a launch wrote under the scratch HOME, `~`-relative,
+/// how it wrote it, and the masked text of what it wrote.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Transcript {
     pub(crate) path: String,
+    pub(crate) written: Written,
     pub(crate) text: String,
 }
 
+/// How a launch wrote a transcript, which says which of its bytes are the
+/// launch's: a launch shares the scratch HOME with the launches before it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Written {
+    /// The file is new, and all of it is the launch's.
+    Created,
+    /// The file kept the bytes it held and grew; the launch's are those
+    /// after them, from this line of the file on.
+    Appended { from_line: usize },
+    /// The file shrank or its earlier bytes changed, so all of it is read.
+    Rewritten,
+}
+
+/// A `.jsonl` file's length and digest before a launch.
+struct Seen {
+    len: usize,
+    digest: Vec<u8>,
+}
+
+impl Seen {
+    fn of(bytes: &[u8]) -> Seen {
+        Seen {
+            len: bytes.len(),
+            digest: Sha256::digest(bytes).to_vec(),
+        }
+    }
+
+    /// What a launch that left the file holding `bytes` wrote to it, and
+    /// the bytes that are its; `None` when it left the file as it was.
+    fn added<'a>(&self, bytes: &'a [u8]) -> Option<(Written, &'a [u8])> {
+        match bytes.split_at_checked(self.len) {
+            Some((kept, grown)) if Seen::of(kept).digest == self.digest => {
+                let from_line = kept.iter().filter(|byte| **byte == b'\n').count() + 1;
+                (!grown.is_empty()).then_some((Written::Appended { from_line }, grown))
+            }
+            _ => Some((Written::Rewritten, bytes)),
+        }
+    }
+}
+
 /// What one launch did: its exit code (`None` for a signal or the
-/// deadline), what it printed, and the `.jsonl` files it created.
+/// deadline), what it printed, and the `.jsonl` files it wrote.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Observation {
     pub(crate) exit: Option<i32>,
@@ -179,7 +222,10 @@ impl Runner<'_> {
     ) -> Result<Observation, ProbeError> {
         let argv = self.argv(template);
         let bindings: &[BoundSecret] = if credentials { self.bindings } else { &[] };
-        let before = files_under(&self.scratch.home);
+        let before: BTreeMap<PathBuf, Seen> = transcripts_under(&self.scratch.home)?
+            .into_iter()
+            .map(|(path, bytes)| (path, Seen::of(&bytes)))
+            .collect();
         let mut command = Command::new(&argv[0]);
         command
             .args(&argv[1..])
@@ -200,25 +246,34 @@ impl Runner<'_> {
         let stdout = drain(launched.child.stdout.take().expect("piped"));
         let stderr = drain(launched.child.stderr.take().expect("piped"));
         let exit = wait(launched, self.deadline)?;
-        let transcripts = files_under(&self.scratch.home)
-            .difference(&before)
-            .filter(|path| path.extension() == Some(OsStr::new("jsonl")))
-            .map(|path| Transcript {
-                path: format!(
-                    "~/{}",
-                    path.strip_prefix(&self.scratch.home)
-                        .unwrap_or(path)
-                        .display()
-                ),
-                text: self.clean(&fs::read(path).unwrap_or_default()),
-            })
-            .collect();
         Ok(Observation {
             exit,
             stdout: self.clean(&stdout.join().unwrap_or_default()),
             stderr: self.clean(&stderr.join().unwrap_or_default()),
-            transcripts,
+            transcripts: self.written(&before)?,
         })
+    }
+
+    /// Every `.jsonl` file under the scratch HOME whose content the launch
+    /// changed, by length and digest rather than by path, so a transcript
+    /// an earlier launch created and this one wrote to is this one's too.
+    fn written(&self, before: &BTreeMap<PathBuf, Seen>) -> Result<Vec<Transcript>, ProbeError> {
+        let mut transcripts = Vec::new();
+        for (path, bytes) in transcripts_under(&self.scratch.home)? {
+            let added = match before.get(&path) {
+                Some(seen) => seen.added(&bytes),
+                None => Some((Written::Created, bytes.as_slice())),
+            };
+            if let Some((written, text)) = added {
+                let home = path.strip_prefix(&self.scratch.home).unwrap_or(&path);
+                transcripts.push(Transcript {
+                    path: format!("~/{}", home.display()),
+                    written,
+                    text: self.clean(text),
+                });
+            }
+        }
+        Ok(transcripts)
     }
 
     /// Captured bytes as text: every bound value masked first (decision
@@ -253,6 +308,22 @@ fn wait(launched: Launched, deadline: Duration) -> Result<Option<i32>, ProbeErro
         std::thread::sleep(POLL);
     }
     launched.end().map_err(ProbeError::Unended)
+}
+
+/// Every `.jsonl` file under `root` and its bytes. One that cannot be
+/// read refuses the probe rather than read as nothing written.
+fn transcripts_under(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, ProbeError> {
+    files_under(root)
+        .into_iter()
+        .filter(|path| path.extension() == Some(OsStr::new("jsonl")))
+        .map(|path| {
+            let bytes = io(
+                fs::read(&path),
+                "could not read a transcript under the scratch HOME",
+            )?;
+            Ok((path, bytes))
+        })
+        .collect()
 }
 
 /// Every file under `root`, symlinks not followed.
