@@ -234,6 +234,13 @@ enum Cmd {
         #[command(subcommand)]
         command: HandsCommand,
     },
+    /// Measure an agent CLI and write the facts its adapter must declare
+    /// (proposed decision 0075 ruling 3). Launches the real CLI and spends
+    /// the credentials bound to it: an operator host step, never CI.
+    Probe {
+        #[command(subcommand)]
+        command: ProbeCmd,
+    },
     /// (internal) Scripted forge-driver/v1 driver for machine proof.
     #[command(hide = true)]
     FakeDriver(FakeDriverArgs),
@@ -1862,7 +1869,7 @@ fn run_with(
     watch_iteration_limit: Option<usize>,
     run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<tui::Closed>,
 ) -> Result<ExitCode> {
-    use verbs::{delivery, exchange, readouts, setup};
+    use verbs::{delivery, exchange, probe, readouts, setup};
     match cli.command {
         Cmd::Init(args) => setup::init(workspace, args),
         Cmd::Costs(args) => readouts::costs(workspace, args),
@@ -1902,6 +1909,7 @@ fn run_with(
         Cmd::Realms(args) => readouts::realms(workspace, args),
         Cmd::Runs(args) => readouts::runs(workspace, args),
         Cmd::Hands { command } => hands::run(command),
+        Cmd::Probe { command } => probe::probe(command),
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
         Cmd::Recipes { command } => setup::recipes(workspace, command),

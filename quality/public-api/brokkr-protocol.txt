@@ -564,6 +564,39 @@ pub brokkr_protocol::overrides::OverrideError::Retired
 pub brokkr_protocol::overrides::OverrideError::Retired::current: &'static str
 pub brokkr_protocol::overrides::OverrideError::Retired::retired: alloc::string::String
 pub fn brokkr_protocol::overrides::read(brokkr_protocol::overrides::Override) -> core::result::Result<alloc::string::String, brokkr_protocol::overrides::OverrideError>
+pub mod brokkr_protocol::probe
+pub enum brokkr_protocol::probe::ProbeError
+pub brokkr_protocol::probe::ProbeError::Credential(alloc::string::String)
+pub brokkr_protocol::probe::ProbeError::Io
+pub brokkr_protocol::probe::ProbeError::Io::source: core::io::error::Error
+pub brokkr_protocol::probe::ProbeError::Io::what: alloc::string::String
+pub brokkr_protocol::probe::ProbeError::NotAHarness
+pub brokkr_protocol::probe::ProbeError::NotAHarness::adapter: alloc::string::String
+pub brokkr_protocol::probe::ProbeError::Report
+pub brokkr_protocol::probe::ProbeError::Report::problem: alloc::string::String
+pub struct brokkr_protocol::probe::Declared
+pub brokkr_protocol::probe::Declared::adapter: alloc::string::String
+pub brokkr_protocol::probe::Declared::effort_flag: core::option::Option<alloc::string::String>
+pub brokkr_protocol::probe::Declared::efforts: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::probe::Declared::hands: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub brokkr_protocol::probe::Declared::hands_gap: core::option::Option<alloc::string::String>
+pub brokkr_protocol::probe::Declared::model_flag: core::option::Option<alloc::string::String>
+pub brokkr_protocol::probe::Declared::passthrough: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::probe::Declared::resume_versions: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
+pub struct brokkr_protocol::probe::ProbeInput<'a>
+pub brokkr_protocol::probe::ProbeInput::bindings: &'a [brokkr_protocol::secret::BoundSecret]
+pub brokkr_protocol::probe::ProbeInput::brokkr: &'a std::path::Path
+pub brokkr_protocol::probe::ProbeInput::cli: &'a str
+pub brokkr_protocol::probe::ProbeInput::date: &'a str
+pub brokkr_protocol::probe::ProbeInput::deadline: core::time::Duration
+pub brokkr_protocol::probe::ProbeInput::declared: &'a brokkr_protocol::probe::Declared
+pub brokkr_protocol::probe::ProbeInput::kind: brokkr_protocol::adapters::AdapterKind
+pub struct brokkr_protocol::probe::Report
+impl brokkr_protocol::probe::Report
+pub fn brokkr_protocol::probe::Report::drift_lines(&self) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_protocol::probe::Report::parse(&str) -> core::result::Result<brokkr_protocol::probe::Report, brokkr_protocol::probe::ProbeError>
+pub fn brokkr_protocol::probe::Report::with_drift_from(self, &brokkr_protocol::probe::Report) -> brokkr_protocol::probe::Report
+pub fn brokkr_protocol::probe::run(&brokkr_protocol::probe::ProbeInput<'_>) -> core::result::Result<brokkr_protocol::probe::Report, brokkr_protocol::probe::ProbeError>
 pub mod brokkr_protocol::process
 pub enum brokkr_protocol::process::SpawnEnv
 pub brokkr_protocol::process::SpawnEnv::Exactly(alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>)

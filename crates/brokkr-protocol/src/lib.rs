@@ -13,6 +13,7 @@ pub mod hands;
 pub mod native_controls;
 pub mod oneshot;
 pub mod overrides;
+pub mod probe;
 pub mod process;
 pub mod secret;
 mod transcript;

@@ -239,6 +239,8 @@ pub fn brokkr_runtime::agents::ResumeAssessment::is_empty(&self) -> bool
 pub fn brokkr_runtime::agents::ResumeAssessment::new(alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::agents::ResumeShape>) -> brokkr_runtime::agents::ResumeAssessment
 pub fn brokkr_runtime::agents::ResumeAssessment::shape(&self, &str) -> core::option::Option<&brokkr_runtime::agents::ResumeShape>
 pub fn brokkr_runtime::agents::ResumeAssessment::value(&self) -> serde_json::value::Value
+impl brokkr_runtime::agents::ResumeAssessment
+pub fn brokkr_runtime::agents::ResumeAssessment::shapes(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&alloc::string::String, &brokkr_runtime::agents::ResumeShape)>
 pub struct brokkr_runtime::agents::ResumeEvidence
 pub brokkr_runtime::agents::ResumeEvidence::accounting: core::option::Option<alloc::string::String>
 pub brokkr_runtime::agents::ResumeEvidence::interface: core::option::Option<alloc::string::String>
