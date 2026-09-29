@@ -3,6 +3,8 @@
 Status: accepted (ruled 2026-09-03)
 Date: 2026-09-03
 
+Built: built
+
 ## Context
 
 Decision 0031 ruled that the served model is evidence and that every

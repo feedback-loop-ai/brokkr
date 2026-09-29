@@ -3,6 +3,11 @@
 Status: accepted (operator ruled in chat, 2026-09-04; drafted at the operator's direction 2026-09-03: "put it in 0041")
 Date: 2026-09-04
 
+Built: built
+Amends: 0039, 0043
+Amended by: 0058, 0060
+Superseded in part by: 0045
+
 ## Context
 
 On 2026-09-03 the operator asked for an honest review of the agent

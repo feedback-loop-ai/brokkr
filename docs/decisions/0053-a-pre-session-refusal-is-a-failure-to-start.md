@@ -3,6 +3,8 @@
 Status: proposed
 Date: 2026-09-08
 
+Built: built
+
 ## Context
 
 Decision 0016 makes fallback narrow and structural: an attempt that

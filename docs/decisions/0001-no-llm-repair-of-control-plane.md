@@ -2,6 +2,8 @@
 
 **Status**: accepted (operator ruling, 2026-08-21)
 
+Built: built
+
 ## Ruling
 
 When a phase executor returns a result that fails schema validation, or the

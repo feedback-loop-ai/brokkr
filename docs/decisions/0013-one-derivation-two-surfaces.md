@@ -2,6 +2,8 @@
 
 Status: accepted (operator ruling in chat, 2026-08-29)
 
+Built: built
+
 ## Context
 
 The read-only console gained real derivation logic during the UX pass:

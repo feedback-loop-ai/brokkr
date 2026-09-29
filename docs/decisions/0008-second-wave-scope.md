@@ -4,6 +4,9 @@
 was deliberately left out, slice by slice, verified by the forge's
 verify agents; all drivers delivered")
 
+Built: built
+Superseded in part by: 0046
+
 ## Delivered
 
 Every slice landed through PR + CI and was examined by the forge's own

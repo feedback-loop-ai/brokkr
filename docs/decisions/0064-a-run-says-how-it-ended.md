@@ -3,6 +3,9 @@
 Status: accepted (operator ruled in chat, 2026-09-21)
 Date: 2026-09-21
 
+Built: unbuilt (#317)
+Amends: 0026, 0047
+
 ## Context
 
 A run ends in one of two statuses, `completed` or `stopped`, and waits in

@@ -3,6 +3,10 @@
 Status: accepted (operator ruled in chat, 2026-09-03)
 Date: 2026-09-03
 
+Built: built
+Amends: 0033
+Supersedes in part: 0033
+
 ## Context
 
 Decision 0033 binds a pull request to a completed run by one fact: the

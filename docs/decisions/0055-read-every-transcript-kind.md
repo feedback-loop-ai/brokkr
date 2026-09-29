@@ -3,6 +3,11 @@
 Status: proposed
 Date: 2026-09-09
 
+Built: built
+Amends: 0032
+Amended by: 0061, 0062
+Superseded in part by: 0073
+
 ## Context
 
 Decision 0032 records and retains the operator's transcript but

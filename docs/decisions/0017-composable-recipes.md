@@ -2,6 +2,9 @@
 
 Status: accepted (operator ruling in chat, 2026-08-29)
 
+Built: built
+Amends: 0010
+
 ## Context
 
 Decision 0010 gave recipes as a library: whole bundles, named,

@@ -3,6 +3,8 @@
 Status: proposed (implementer, 2026-09-25)
 Date: 2026-09-25
 
+Built: built
+
 ## Context
 
 Decision 0023 ruling 3 says how an invocation finds its journal: a map

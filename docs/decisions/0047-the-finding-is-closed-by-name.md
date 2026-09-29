@@ -3,6 +3,9 @@
 Status: accepted (operator ruled in chat, 2026-09-06)
 Date: 2026-09-06
 
+Built: built
+Amended by: 0064
+
 ## Context
 
 On 2026-09-05 Muninn read a fleet of 139 runs and queued fifteen

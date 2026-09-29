@@ -3,6 +3,8 @@
 Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
+Built: built
+
 ## Context
 
 The review phase's security rule is a severity-blind boolean:

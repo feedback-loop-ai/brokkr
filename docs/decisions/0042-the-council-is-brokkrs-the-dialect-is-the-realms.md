@@ -3,6 +3,8 @@
 Status: accepted (operator ruled in chat, 2026-09-04; drafted the same day at the operator's direction, "draft 0042 for the SDD dialects too", and amended five times in the same conversation on the operator's observations)
 Date: 2026-09-04
 
+Built: partial (#367) — ruling 7's truth, seeded from the accepted decisions, is unbuilt
+
 ## Context
 
 The operator's question on 2026-09-03: "the SDD was meant to be

@@ -3,6 +3,9 @@
 Status: proposed
 Date: 2026-09-10
 
+Built: built
+Amends: 0020
+
 ## Context
 
 Decision 0020 is accepted, and two of its rulings bound Muninn's evidence
@@ -120,8 +123,8 @@ delta has no ruling behind it until this decision is proposed.
   when it draws a crossing; that world gets a dossier, and its absent
   journals are named rather than swallowed.
 - 0020's own text is not edited into a different meaning. This decision
-  takes its own number and names the rulings it amends, as 0042 ruling 1
-  requires and this directory's "How a decision is made" repeats. Only
-  the operator accepts it; until then the crossing half of Muninn's
-  dossier rests on a proposed amendment, which is stated here so the
-  choice is visible rather than assumed.
+  takes its own number and names the rulings it amends. 0042 ruling 1
+  requires that, and this directory's "How a decision is made" repeats
+  it. Only the operator accepts it; until then the crossing half of
+  Muninn's dossier rests on a proposed amendment, which is stated here so
+  the choice is visible rather than assumed.

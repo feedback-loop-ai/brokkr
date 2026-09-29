@@ -1494,7 +1494,7 @@ fn a_wrapped_panel_drains_overlapping_member_addresses_without_overwrite() {
     }
 }
 
-/// Proposed decision 0069: an inline built-in Codex verify seat's
+/// Decision 0069: an inline built-in Codex verify seat's
 /// discovery notice is a site fact, so the dialect wrapper carries it to
 /// the executing coordinate with the adapter witness it was read from —
 /// and neither is left behind at, nor invented for, the wrapper's label.

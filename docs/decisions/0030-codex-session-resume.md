@@ -3,6 +3,10 @@
 Status: accepted (ruled 2026-09-02)
 Date: 2026-09-02
 
+Built: built
+Amended by: 0056
+Superseded in part by: 0032
+
 ## Context
 
 The 0021 addendum (operator ruled 2026-09-02) promoted `codex` to

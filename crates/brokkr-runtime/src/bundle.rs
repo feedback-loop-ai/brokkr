@@ -386,7 +386,7 @@ pub struct SiteFacts {
     pub record: Option<Value>,
     pub driver: Option<DriverDigests>,
     /// The discovery notice the adapter an INLINE built-in model driver
-    /// names declares (proposed decision 0069). An agent-resolved site
+    /// names declares (decision 0069). An agent-resolved site
     /// carries its notice on each `Candidate` instead, and the engine
     /// reads this only when no candidate serves the site. The adapter it
     /// was read from is witnessed through `pin_drivers`.
@@ -781,7 +781,7 @@ struct Unpinned {
     /// bundle identity `pinned_bundle_holds` compares, or a changed
     /// assessment would reuse a root the old one opened.
     resume_witness: BTreeMap<String, DriverDigests>,
-    /// Proposed decision 0069: per inline driver-bearing site, the
+    /// Decision 0069: per inline driver-bearing site, the
     /// discovery notice its adapter declares. The declaration is already
     /// witnessed in `resume_witness`, which pins every adapter an inline
     /// built-in consults, assessment or not.
@@ -901,7 +901,7 @@ fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &
             let mut authorised = Map::new();
             authorised.insert(kind.to_string(), Value::String(adapter.digest.clone()));
             out.resume_witness.insert(what.to_string(), authorised);
-            // Its discovery notice (proposed decision 0069) is read from
+            // Its discovery notice (decision 0069) is read from
             // that same witnessed declaration, and kept apart from the
             // assessment: reading a notice qualifies no resume.
             if let Some(notice) = &adapter.hands_notice {

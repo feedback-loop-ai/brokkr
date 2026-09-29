@@ -3,6 +3,9 @@
 Status: proposed
 Date: 2026-09-09
 
+Built: partial (#226)
+Amends: 0030
+
 ## Context
 
 Decision 0030 ruled that a retry or a re-entry of a seat rejoins its own

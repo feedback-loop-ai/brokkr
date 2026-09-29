@@ -3,6 +3,10 @@
 Status: accepted (ruled 2026-09-02)
 Date: 2026-09-02
 
+Built: built
+Amended by: 0055
+Supersedes in part: 0030
+
 ## Context
 
 Every built-in harness already left some account of a seat behind, but

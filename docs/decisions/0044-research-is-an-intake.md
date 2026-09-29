@@ -3,6 +3,8 @@
 Status: proposed
 Date: 2026-09-04
 
+Built: built
+
 ## Context
 
 Brokkr is built in the deep-tech mould: the product is supposed to be

@@ -1,4 +1,4 @@
-//! Proposed decision 0069 at the renderer: the closed two-identifier
+//! Decision 0069 at the renderer: the closed two-identifier
 //! declaration, and the one discovery paragraph the result contract
 //! carries when — and only when — the engine's carrier applies. Every
 //! expected contract below is a literal written out by hand, never the

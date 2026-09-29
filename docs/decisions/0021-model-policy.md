@@ -3,6 +3,9 @@
 Status: accepted — operator ruled 2026-08-31
 Date: 2026-08-31
 
+Built: built
+Amended by: 0036
+
 ## Context
 
 The driver fleet holds five adapters (decision 0008; Rust-only per 0009):

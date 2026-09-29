@@ -3,6 +3,9 @@
 Status: proposed
 Date: 2026-09-17
 
+Built: built
+Amends: 0055
+
 ## Context
 
 Decision 0055 ruling 3 mapped one logical event to one displayed turn and
@@ -14,7 +17,7 @@ tiny ordinary events can spend the text-only budget without spending the
 storage the console must hold. The operator's 2026-09-17 ruling authorizes
 both a merge of consecutive packed members and a fixed structural charge.
 This proposal supplements 0055 ruling 3's turn mapping and text-only
-budget without editing its history, and leaves 0061's version, seeded and
+budget without editing its history. It leaves 0061's version, seeded and
 recorded-token admission exactly as it is.
 
 The adopted specification and its scenarios are

@@ -4,6 +4,8 @@ Status: accepted (operator ruled in chat, 2026-09-25)
 Date: 2026-09-24
 Change: `2026-09-24-codex-0156-boxed-seat`
 
+Built: built
+
 ## Context
 
 Decision 0043 boxes a seat's hands. The only thing that can write the

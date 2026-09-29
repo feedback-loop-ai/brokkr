@@ -2,6 +2,8 @@
 
 Status: proposed (implementer, 2026-08-29)
 
+Built: built
+
 ## Context
 
 A run id is 41 characters — a feature slug plus a hash. Every readout

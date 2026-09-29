@@ -3,6 +3,8 @@
 Status: accepted — operator ruled 2026-08-31
 Date: 2026-08-30
 
+Built: built
+
 ## Context
 
 The product has been `the-forge`. Two facts make that name untenable as a

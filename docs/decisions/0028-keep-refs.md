@@ -3,6 +3,8 @@
 Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
+Built: built
+
 ## Context
 
 A journal cites git SHAs. The protected phase records the head it

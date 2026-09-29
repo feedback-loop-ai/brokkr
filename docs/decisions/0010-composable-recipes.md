@@ -4,6 +4,9 @@
 recipes; download and swap a recipe, re-run, compare the outcomes:
 that's the endgame")
 
+Built: built
+Amended by: 0017
+
 ## Ruling
 
 A **recipe** is a bundle directory treated as a delivery strategy:

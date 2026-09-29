@@ -3,6 +3,8 @@
 Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
+Built: partial (#477) — resume's fresh-process branch and the remaining control-plane `append_next` sites are unfenced; #477 tracks finishing them
+
 ## Context
 
 `Store::append_next` derives an envelope's identity — `seq`,

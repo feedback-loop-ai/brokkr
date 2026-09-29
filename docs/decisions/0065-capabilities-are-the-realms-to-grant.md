@@ -3,6 +3,9 @@
 Status: accepted (operator ruled in chat, 2026-09-21)
 Date: 2026-09-21
 
+Built: unbuilt (#319) — the draft rebuild of slice one
+Amends: 0016
+
 ## Context
 
 A seat today has exactly two kinds of power. It has **hands** — decision
