@@ -1148,7 +1148,11 @@ fn as_ps(only: Option<i32>) -> Result<Vec<table::Entry>, table::TableError> {
 }
 
 /// An engine whose table and kill are macOS's, read through `as_ps`, and
-/// whose attempt's grandchild is a job that left the group. It writes
+/// whose attempt's grandchild left the session. Its parent stays, so the
+/// tracker records it by its parent on either host, not as an orphan the
+/// driver adopts as subreaper: a job whose shell exits at once goes to
+/// launchd unrecorded on macOS, the residual the operator's ruling of
+/// 2026-09-28 accepted. It writes
 /// down the cleanup its deadline kill reports, then ends the grandchild
 /// the parked attempt left running: were it to come to the test process
 /// running, a concurrent test's attempt would take it for its stray.
@@ -1159,7 +1163,7 @@ fn stampless_engine(dir: &str) {
         table: || as_ps(None),
         ..Host::REAL
     };
-    let driver = seats.role_driver("seat", "job", &accepting(), "read -r never");
+    let driver = seats.role_driver("seat", "detached", &accepting(), "read -r never");
     let deadline = Some(Duration::from_secs(1));
     let process =
         DriverProcess::spawn_with(&driver, &seats.dir, deadline, &SpawnEnv::Inherit, host);
@@ -1494,11 +1498,6 @@ fn a_grandchild_cannot_join_the_engines_group_to_outlive_the_report() {
 /// as gone: the kill that could not confirm it is carried, and the
 /// attempt parks rather than settles while it runs. The engine is a child
 /// process, so its tracker and its kill read this table alone.
-/// Linux only: macOS's `ps` is played through `as_ps`, and the grandchild,
-/// a job whose shell exits at once, is recorded only because the driver
-/// adopts it as subreaper. On macOS it goes to launchd unrecorded, the
-/// residual the operator's ruling of 2026-09-28 accepted.
-#[cfg(target_os = "linux")]
 #[test]
 fn a_recorded_descendant_whose_row_loses_its_stamp_parks_the_attempt() {
     let seats = Seats::new();
