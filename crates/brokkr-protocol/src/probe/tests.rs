@@ -32,6 +32,12 @@ enum Boxed {
     Leaks,
     /// Lists the planted server's tool, but not the server.
     LeaksATool,
+    /// Lists its tools twice, the planted server's tool only the second
+    /// time.
+    LeaksAToolLater,
+    /// Lists its MCP servers twice, the planted server only the second
+    /// time.
+    LeaksAServerLater,
     /// Never finishes, and the child it forked holds its stdout, so the
     /// probe's deadline must end both.
     Hangs,
@@ -56,6 +62,12 @@ fn claude_like(version: &str, boxed: Boxed) -> String {
         Boxed::LeaksATool => {
             r#"tools='"mcp__brokkr__workspace","mcp__brokkr-probe-user-scope__probe"'; servers='{"name":"brokkr","status":"connected"}'"#
         }
+        Boxed::LeaksAToolLater => {
+            r#"tools='"mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"}'; later='{"type":"system","subtype":"init","tools":["mcp__brokkr-probe-user-scope__probe"]}'"#
+        }
+        Boxed::LeaksAServerLater => {
+            r#"tools='"mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"}'; later='{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr-probe-user-scope","status":"connected"}]}'"#
+        }
         Boxed::Hangs => "sleep 30 & wait",
     };
     r#"#!/bin/sh
@@ -67,6 +79,7 @@ esac
 [ -n "$FAKE_TOKEN" ] || { echo "Invalid API key · Please run /login" >&2; exit 1; }
 tools='"Bash","Read","WebSearch","WebFetch"'
 servers=''
+later=''
 case " $* " in
   *" --strict-mcp-config "*) @UNDER_HANDS@ ;;
   *) grep -q brokkr-probe-user-scope "$HOME/.claude.json" && servers='{"name":"brokkr-probe-user-scope","status":"failed"}' ;;
@@ -77,6 +90,7 @@ mkdir -p "$dir"
 echo '{"type":"user"}' > "$dir/$sid.jsonl"
 echo '{}' > "$HOME/.claude/stats.json"
 printf '{"type":"system","subtype":"init","session_id":"%s","tools":[%s],"mcp_servers":[%s]}\n' "$sid" "$tools" "$servers"
+[ -z "$later" ] || printf '%s\n' "$later"
 printf '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"PROBE-OK"}],"usage":{"input_tokens":10,"cache_read_input_tokens":4,"output_tokens":2}},"session_id":"%s"}\n' "$sid"
 printf '{"type":"assistant","message":{"id":"msg_1","content":[],"usage":{"input_tokens":10,"cache_read_input_tokens":4,"output_tokens":2}},"session_id":"%s"}\n' "$sid"
 printf '{"type":"result","subtype":"success","session_id":"%s","total_cost_usd":0.0125,"usage":{"input_tokens":10,"cache_read_input_tokens":4,"output_tokens":2}}\n' "$sid"
@@ -585,7 +599,7 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
                 "egress_off": unmeasured(&not_boxed),
                 "capabilities": measured(
                     json!(["bash", "read_file", "web_search"]
-                        .map(|tool| capability(tool, unmeasured(&not_boxed)))),
+                        .map(|tool| capability(tool, unsupported(&no_hands)))),
                     "the header event listed tools: 3",
                 ),
                 "config_isolation": unmeasured(&not_isolated),
@@ -645,8 +659,8 @@ fn a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed() {
             "eligibility": {
                 "verdict": "refused",
                 "reason": format!(
-                    "{PLAIN_LEAK}{listed_servers}{HOLDS_NO_BOX}no off switch was measured for \
-                     its native capabilities Bash, WebFetch, {GRANTING_REALMS}"
+                    "{PLAIN_LEAK}{listed_servers}{HOLDS_NO_BOX}no off switch exists for its \
+                     native capabilities Bash, WebFetch, {GRANTING_REALMS}"
                 ),
             },
         })
@@ -743,6 +757,43 @@ fn a_boxed_turn_that_lists_a_tool_of_another_mcp_server_has_reached_it_and_is_re
                 "{listed_tools}, among them mcp__brokkr-probe-user-scope__probe of the MCP \
                  server brokkr-probe-user-scope"
             ),
+        )
+    );
+}
+
+#[test]
+fn a_tool_of_another_mcp_server_in_a_later_tool_listing_is_read_and_refused() {
+    let world = world();
+    let cli = world.fake("claude", &claude_like("9.9.9", Boxed::LeaksAToolLater));
+    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
+    let listed_tools =
+        "the system/init event listed tools: 1, and the system/init event listed tools: 1";
+    assert_eq!(
+        under_hands(&report),
+        reached_inside_the_box(
+            listed_tools,
+            "the system/init event listed mcp_servers: 1",
+            &format!(
+                "{listed_tools}, among them mcp__brokkr-probe-user-scope__probe of the MCP \
+                 server brokkr-probe-user-scope"
+            ),
+        )
+    );
+}
+
+#[test]
+fn the_planted_server_in_a_later_server_listing_is_read_and_refused() {
+    let world = world();
+    let cli = world.fake("claude", &claude_like("9.9.9", Boxed::LeaksAServerLater));
+    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
+    let listed_servers = "the system/init event listed mcp_servers: 1, and the system/init \
+                          event listed mcp_servers: 1";
+    assert_eq!(
+        under_hands(&report),
+        reached_inside_the_box(
+            "the system/init event listed tools: 1",
+            listed_servers,
+            listed_servers,
         )
     );
 }
@@ -863,7 +914,7 @@ fn a_tool_the_probe_does_not_recognise_is_never_read_as_local() {
                 "verdict": "refused",
                 "reason": format!(
                     "{PLAIN_LEAK}the system/init event listed mcp_servers: 1{HOLDS_NO_BOX}no \
-                     off switch was measured for its native capabilities Search, \
+                     off switch exists for its native capabilities Search, \
                      {GRANTING_REALMS}"
                 ),
             }),
@@ -1403,7 +1454,7 @@ fn a_cli_whose_native_capabilities_have_no_off_switch_is_seated_only_where_a_rea
         Eligibility {
             verdict: Verdict::GrantingRealmsOnly,
             reason: format!(
-                "no off switch was measured for its native capabilities Bash, WebFetch, \
+                "no off switch exists for its native capabilities Bash, WebFetch, \
                  {GRANTING_REALMS}"
             ),
         }
@@ -1418,5 +1469,61 @@ fn a_cli_whose_native_capabilities_have_no_off_switch_is_seated_only_where_a_rea
                      event of the turn listed its tools"
                 .to_string(),
         }
+    );
+}
+
+#[test]
+fn a_capability_without_an_off_switch_needs_a_grant_whatever_egress_reads_and_unread_is_named() {
+    let mut facts = with_hands(
+        Fact::measured(strings(&["Bash"]), "the init event listed tools: 1"),
+        Fact::measured("failed".to_string(), "the init event listed mcp_servers: 1"),
+        Fact::measured(true, "the plain turn listed no native egress tool"),
+    );
+    let bash = Capability {
+        tool: "Bash".to_string(),
+        off: Fact::Unsupported {
+            evidence: "the hands argv left Bash".to_string(),
+        },
+    };
+    facts.capabilities = Fact::measured(vec![bash.clone()], "the init event listed tools: 1");
+    assert_eq!(
+        judge::eligibility(&facts),
+        Eligibility {
+            verdict: Verdict::GrantingRealmsOnly,
+            reason: format!(
+                "no off switch exists for its native capabilities Bash, {GRANTING_REALMS}"
+            ),
+        }
+    );
+    let read = Capability {
+        tool: "Read".to_string(),
+        off: Fact::unmeasured("the boxed turn was not read: the boxed turn did not finish"),
+    };
+    facts.capabilities = Fact::measured(vec![bash, read], "the init event listed tools: 2");
+    assert_eq!(
+        judge::eligibility(&facts),
+        Eligibility {
+            verdict: Verdict::GrantingRealmsOnly,
+            reason: format!(
+                "no off switch exists for its native capabilities Bash, and the off switch was \
+                 not read for its native capabilities Read, {GRANTING_REALMS}"
+            ),
+        }
+    );
+}
+
+#[test]
+fn a_hands_server_listed_with_two_statuses_is_unmeasured() {
+    let stream = [
+        r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr","status":"connected"}]}"#,
+        r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr","status":"failed"}]}"#,
+    ]
+    .join("\n");
+    assert_eq!(
+        facts_of(observation(Some(0), &stream, "")).mcp_server,
+        Fact::unmeasured(
+            "the turn's listings gave brokkr the statuses connected, failed: the system/init \
+             event listed mcp_servers: 1, and the system/init event listed mcp_servers: 1"
+        )
     );
 }

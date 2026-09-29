@@ -364,35 +364,49 @@ fn cost(stream: &Stream) -> Fact<Vec<String>> {
     Fact::measured(locations, evidence)
 }
 
-/// The first array any event holds under `key`, with that event's type.
-fn first_list<'a>(stream: &'a Stream, key: &str) -> Option<(String, &'a Vec<Value>)> {
-    stream.events.iter().find_map(|event| {
-        let list = found_in(event)
-            .into_iter()
-            .find_map(|found| found.value.as_array().filter(|_| found.key == key))?;
-        Some((event_type(event), list))
-    })
+/// Every array any event holds under `key`, each with its event's type.
+fn lists<'a>(stream: &'a Stream, key: &str) -> Vec<(String, &'a Vec<Value>)> {
+    stream
+        .events
+        .iter()
+        .flat_map(|event| {
+            found_in(event)
+                .into_iter()
+                .filter(|found| found.key == key)
+                .filter_map(|found| found.value.as_array())
+                .map(|list| (event_type(event), list))
+        })
+        .collect()
 }
 
-/// A list's entries read by `entry`, refusing the whole list when one
-/// entry is not what the reader recognises.
-fn listed<T: serde::Serialize>(
+/// The union of every list the turn gave under `key`, its entries read
+/// by `entry`: a later listing is never dropped unread, and one entry the
+/// reader does not recognise refuses the whole reading.
+fn listed<T: serde::Serialize + PartialEq>(
     stream: &Stream,
     key: &str,
     entry: impl Fn(&Value) -> Option<T>,
 ) -> Fact<Vec<T>> {
-    let Some((event, items)) = first_list(stream, key) else {
+    let lists = lists(stream, key);
+    if lists.is_empty() {
         return Fact::unmeasured(format!("no event of the turn listed its {key}"));
-    };
-    match items.iter().map(entry).collect::<Option<Vec<T>>>() {
-        Some(entries) => {
-            let evidence = format!("the {event} event listed {key}: {}", entries.len());
-            Fact::measured(entries, evidence)
-        }
-        None => Fact::unmeasured(format!(
-            "the {event} event's {key} held an entry it does not name"
-        )),
     }
+    let mut union = Vec::new();
+    let mut listings = Vec::new();
+    for (event, items) in lists {
+        let Some(entries) = items.iter().map(&entry).collect::<Option<Vec<T>>>() else {
+            return Fact::unmeasured(format!(
+                "the {event} event's {key} held an entry it does not name"
+            ));
+        };
+        listings.push(format!("the {event} event listed {key}: {}", entries.len()));
+        for item in entries {
+            if !union.contains(&item) {
+                union.push(item);
+            }
+        }
+    }
+    Fact::measured(union, listings.join(", and "))
 }
 
 /// The launch that refused a deliberate mistake, or why there is no
@@ -542,7 +556,7 @@ pub(crate) fn facts(plan: &Plan, observed: &Observed, bound: &[&str]) -> Facts {
     let boxed_tools = on_turn(&boxed, tools::native_tools);
     let native_egress = tools::native_egress(&tools);
     let egress_off = tools::egress_off(&native_egress, &boxed_tools);
-    let capabilities = tools::capabilities(&tools, &boxed_tools, &plan.hands);
+    let capabilities = tools::capabilities(&tools, &boxed_tools, plan);
     let user_mcp_unboxed = tools::user_mcp(&base, &plan.user_config);
     let user_mcp_boxed = tools::user_mcp(&boxed, &plan.user_config);
     let config_isolation = on_turn(&base, |_| {

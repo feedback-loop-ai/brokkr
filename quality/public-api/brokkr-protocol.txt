@@ -225,6 +225,7 @@ pub brokkr_protocol::probe::ProbeError::NotAHarness
 pub brokkr_protocol::probe::ProbeError::NotAHarness::adapter: alloc::string::String
 pub brokkr_protocol::probe::ProbeError::Report
 pub brokkr_protocol::probe::ProbeError::Report::problem: alloc::string::String
+pub brokkr_protocol::probe::ProbeError::Unended(brokkr_protocol::process::Unsettled)
 pub struct brokkr_protocol::probe::Declared
 pub brokkr_protocol::probe::Declared::adapter: alloc::string::String
 pub brokkr_protocol::probe::Declared::effort_flag: core::option::Option<alloc::string::String>

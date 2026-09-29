@@ -30,11 +30,11 @@ fn boxable(facts: &Facts) -> Option<bool> {
 
 /// Ruling 4, in order: a harness not shown to keep a user-scope MCP
 /// server out of its turn (#467) is refused; one that empties its own
-/// tools and reaches an MCP server may hold boxed offices; one whose
-/// native egress is absent or switched off may hold unboxed offices; and
-/// one whose egress has no measured off switch may be seated only in a
-/// realm that grants each native capability measured without one
-/// (operator ruling A, 2026-09-29, reading decision 0065 ruling 4). An
+/// tools and reaches an MCP server may hold boxed offices; one with a
+/// native capability whose off switch is absent or unread may be seated
+/// only in a realm that grants it (operator ruling A, 2026-09-29, reading
+/// decision 0065 ruling 4), whatever its egress reads; and one whose
+/// native egress is absent or switched off may hold unboxed offices. An
 /// unmeasured fact never admits more. An office outside the box launches
 /// the plain turn, so a plain turn not shown to keep the planted server
 /// out holds a boxable harness to boxed offices (operator ruling B,
@@ -64,9 +64,19 @@ pub(crate) fn eligibility(facts: &Facts) -> Eligibility {
 }
 
 /// The rungs below the box: each launches the plain turn, so a plain
-/// turn not shown to keep the planted server out refuses the harness.
+/// turn not shown to keep the planted server out refuses the harness. A
+/// native capability without a measured off switch demands a grant
+/// whatever the egress reading says.
 fn outside_the_box(facts: &Facts) -> (Verdict, String) {
-    let (verdict, reason) = if facts.egress_off.value() == Some(&true) {
+    let (verdict, reason) = if let Some(ungranted) = without_off_switch(facts) {
+        (
+            Verdict::GrantingRealmsOnly,
+            format!(
+                "{ungranted}, so it may be seated only in a realm that grants them (decision \
+                 0065 ruling 4)"
+            ),
+        )
+    } else if facts.egress_off.value() == Some(&true) {
         (
             Verdict::UnboxedOnly,
             format!(
@@ -74,15 +84,6 @@ fn outside_the_box(facts: &Facts) -> (Verdict, String) {
                 facts.boxed_tools.account(),
                 facts.mcp_server.account(),
                 facts.egress_off.account()
-            ),
-        )
-    } else if let Some(ungranted) = without_off_switch(facts) {
-        (
-            Verdict::GrantingRealmsOnly,
-            format!(
-                "no off switch was measured for its native capabilities {}, so it may be \
-                 seated only in a realm that grants them (decision 0065 ruling 4)",
-                ungranted.join(", ")
             ),
         )
     } else {
@@ -105,17 +106,33 @@ fn outside_the_box(facts: &Facts) -> (Verdict, String) {
     }
 }
 
-/// The native capabilities measured with no off switch, when the plain
-/// turn's were read and at least one has none.
-fn without_off_switch(facts: &Facts) -> Option<Vec<&str>> {
-    let ungranted: Vec<&str> = facts
-        .capabilities
-        .value()?
-        .iter()
-        .filter(|capability| capability.off.value().is_none())
-        .map(|capability| capability.tool.as_str())
-        .collect();
-    Some(ungranted).filter(|ungranted| !ungranted.is_empty())
+/// The native capabilities without a measured off switch, those measured
+/// to have none named apart from those whose off switch was not read,
+/// when the plain turn's were read and at least one lacks one.
+fn without_off_switch(facts: &Facts) -> Option<String> {
+    let mut absent = Vec::new();
+    let mut unread = Vec::new();
+    for capability in facts.capabilities.value()? {
+        match capability.off {
+            Fact::Measured { .. } => {}
+            Fact::Unsupported { .. } => absent.push(capability.tool.as_str()),
+            Fact::Unmeasured { .. } => unread.push(capability.tool.as_str()),
+        }
+    }
+    let mut named = Vec::new();
+    if !absent.is_empty() {
+        named.push(format!(
+            "no off switch exists for its native capabilities {}",
+            absent.join(", ")
+        ));
+    }
+    if !unread.is_empty() {
+        named.push(format!(
+            "the off switch was not read for its native capabilities {}",
+            unread.join(", ")
+        ));
+    }
+    Some(named.join(", and ")).filter(|named| !named.is_empty())
 }
 
 /// How the plain turn, the launch an office outside the box uses, failed
