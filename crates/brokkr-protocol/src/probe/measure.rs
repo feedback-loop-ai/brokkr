@@ -12,8 +12,9 @@ use serde_json::{Map, Value};
 
 use super::facts::{Counting, Events, Fact, Facts, Headless, Refusal, Refusals, Session, Usage};
 use super::observe::{Observation, Trial, SCRATCH_PREFIX};
-use super::plan::{Plan, UserConfig, NO_SUCH_EFFORT, USER_SCOPE_SERVER};
-use crate::hands::SERVER_NAME;
+use super::plan::{Plan, NO_SUCH_EFFORT};
+
+mod tools;
 
 /// How much of a refusal's line a report keeps.
 const EXCERPT_CHARS: usize = 240;
@@ -23,40 +24,6 @@ const SESSION_KEYS: [&str; 2] = ["session_id", "thread_id"];
 
 /// The keys a cost is reported under.
 const COST_KEYS: [&str; 2] = ["total_cost_usd", "cost_usd"];
-
-/// What a native egress tool's name holds, once folded to lowercase
-/// letters and digits: web search, fetch, browsing and grounding.
-const EGRESS_WORDS: [&str; 4] = ["web", "fetch", "browse", "grounding"];
-
-/// The shipped harnesses' own tools that reach no network: Claude Code's,
-/// Codex's and dsh's. A name that is neither one of these nor egress by
-/// [`EGRESS_WORDS`] is not recognised, and egress is then unmeasured.
-const LOCAL_TOOLS: [&str; 24] = [
-    "Agent",
-    "Bash",
-    "BashOutput",
-    "Edit",
-    "ExitPlanMode",
-    "Glob",
-    "Grep",
-    "KillShell",
-    "LS",
-    "MultiEdit",
-    "NotebookEdit",
-    "NotebookRead",
-    "Read",
-    "SlashCommand",
-    "Skill",
-    "Task",
-    "TodoWrite",
-    "ToolSearch",
-    "Write",
-    "apply_patch",
-    "shell",
-    "update_plan",
-    "view_image",
-    "read_file",
-];
 
 /// What refusals list the accepted levels after: clap's, commander's and
 /// serde's wording.
@@ -428,180 +395,6 @@ fn listed<T: serde::Serialize>(
     }
 }
 
-fn tool_name(item: &Value) -> Option<String> {
-    match item {
-        Value::String(name) => Some(name.clone()),
-        other => other.get("name")?.as_str().map(str::to_string),
-    }
-}
-
-fn server_entry(item: &Value) -> Option<(String, String)> {
-    let name = item.get("name")?.as_str()?;
-    let status = item.get("status")?.as_str()?;
-    Some((name.to_string(), status.to_string()))
-}
-
-/// The CLI's own tools: every listed tool but an MCP server's.
-fn native_tools(stream: &Stream) -> Fact<Vec<String>> {
-    listed(stream, "tools", tool_name).map(|tools| {
-        tools
-            .into_iter()
-            .filter(|tool| !tool.starts_with("mcp__"))
-            .collect()
-    })
-}
-
-/// What the probe knows a tool's name to be.
-#[derive(Clone, Copy, PartialEq)]
-enum ToolClass {
-    Egress,
-    Local,
-    Unrecognised,
-}
-
-fn folded(tool: &str) -> String {
-    tool.chars()
-        .filter(char::is_ascii_alphanumeric)
-        .collect::<String>()
-        .to_ascii_lowercase()
-}
-
-fn tool_class(tool: &str) -> ToolClass {
-    let name = folded(tool);
-    if EGRESS_WORDS.iter().any(|word| name.contains(word)) {
-        ToolClass::Egress
-    } else if LOCAL_TOOLS.iter().any(|local| folded(local) == name) {
-        ToolClass::Local
-    } else {
-        ToolClass::Unrecognised
-    }
-}
-
-/// The plain turn's egress tools, unmeasured when it named a tool the
-/// probe knows neither as egress nor as local: that tool may reach the
-/// network under a name no scanner rule matches.
-fn native_egress(tools: &Fact<Vec<String>>) -> Fact<Vec<String>> {
-    let Fact::Measured {
-        value: listed,
-        evidence,
-    } = tools
-    else {
-        return tools.clone();
-    };
-    let unrecognised: Vec<&str> = listed
-        .iter()
-        .filter(|tool| tool_class(tool) == ToolClass::Unrecognised)
-        .map(String::as_str)
-        .collect();
-    if !unrecognised.is_empty() {
-        return Fact::unmeasured(format!(
-            "the plain turn listed {}, which the probe knows neither as egress nor as local",
-            unrecognised.join(", ")
-        ));
-    }
-    let egress = listed
-        .iter()
-        .filter(|tool| tool_class(tool) == ToolClass::Egress)
-        .cloned()
-        .collect();
-    Fact::measured(egress, evidence.clone())
-}
-
-fn mcp_server(stream: &Stream) -> Fact<String> {
-    listed(stream, "mcp_servers", server_entry).map(|servers| {
-        servers
-            .into_iter()
-            .find(|(name, _)| name == SERVER_NAME)
-            .map_or_else(|| "not listed".to_string(), |(_, status)| status)
-    })
-}
-
-fn user_mcp(turn: &Turn, config: &UserConfig) -> Fact<bool> {
-    match config {
-        UserConfig::Unknown(why) => Fact::unmeasured(*why),
-        UserConfig::Planted { .. } => on_turn(turn, |stream| {
-            listed(stream, "mcp_servers", server_entry)
-                .map(|servers| servers.iter().any(|(name, _)| name == USER_SCOPE_SERVER))
-        }),
-    }
-}
-
-/// Whether the operator's user-scope configuration is kept out of a turn
-/// (#467): read from the boxed turn when it listed its MCP servers, since
-/// the hands argv is what isolates it, else from the plain turn.
-fn config_isolation(unboxed: &Fact<bool>, boxed: &Fact<bool>) -> Fact<bool> {
-    let planted = format!("the planted user-scope server {USER_SCOPE_SERVER}");
-    match (boxed, unboxed) {
-        (Fact::Measured { value: true, .. }, _) => Fact::measured(
-            false,
-            format!("{planted} reached the boxed turn: {}", boxed.account()),
-        ),
-        (Fact::Measured { value: false, .. }, _) => Fact::measured(
-            true,
-            format!(
-                "{planted} did not reach the boxed turn: {}",
-                boxed.account()
-            ),
-        ),
-        (_, Fact::Measured { value: true, .. }) => Fact::measured(
-            false,
-            format!(
-                "{planted} reached the plain turn, and no boxed turn showed it kept out: {}",
-                boxed.account()
-            ),
-        ),
-        (_, Fact::Measured { value: false, .. }) => Fact::measured(
-            true,
-            format!(
-                "{planted} did not reach the plain turn: {}",
-                unboxed.account()
-            ),
-        ),
-        (_, Fact::Unmeasured { .. } | Fact::Unsupported { .. }) => Fact::unmeasured(format!(
-            "no turn showed whether a user-scope MCP server loads: {}",
-            unboxed.account()
-        )),
-    }
-}
-
-/// Whether the hands argv left any native egress tool behind, a tool it
-/// does not recognise counted as egress.
-fn egress_off(native_egress: &Fact<Vec<String>>, boxed_tools: &Fact<Vec<String>>) -> Fact<bool> {
-    let Some(egress) = native_egress.value() else {
-        return Fact::unmeasured(format!(
-            "the plain turn's native egress was not read: {}",
-            native_egress.account()
-        ));
-    };
-    if egress.is_empty() {
-        return Fact::measured(true, "the plain turn listed no native egress tool");
-    }
-    match boxed_tools {
-        Fact::Measured { value: left, .. } => {
-            let kept: Vec<&String> = left
-                .iter()
-                .filter(|tool| tool_class(tool) != ToolClass::Local)
-                .collect();
-            let evidence = if kept.is_empty() {
-                format!("the hands argv removed {}", egress.join(", "))
-            } else {
-                format!(
-                    "the hands argv left {}",
-                    kept.iter()
-                        .map(|t| t.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            };
-            Fact::measured(kept.is_empty(), evidence)
-        }
-        Fact::Unmeasured { why } => Fact::unmeasured(format!("the boxed turn was not read: {why}")),
-        Fact::Unsupported { evidence } => Fact::Unsupported {
-            evidence: evidence.clone(),
-        },
-    }
-}
-
 /// The launch that refused a deliberate mistake, or why there is no
 /// refusal to read: `accepted` when it exited 0. A launch that ended with
 /// no exit code, by a signal or the probe's deadline, refused nothing.
@@ -745,14 +538,15 @@ pub(crate) fn facts(plan: &Plan, observed: &Observed, bound: &[&str]) -> Facts {
     let base = read_base(&observed.turn);
     let boxed = read_boxed(&observed.boxed);
     let (events, session, transcripts) = stream_facts(&base, &observed.turn);
-    let tools = on_turn(&base, native_tools);
-    let boxed_tools = on_turn(&boxed, native_tools);
-    let native_egress = native_egress(&tools);
-    let egress_off = egress_off(&native_egress, &boxed_tools);
-    let user_mcp_unboxed = user_mcp(&base, &plan.user_config);
-    let user_mcp_boxed = user_mcp(&boxed, &plan.user_config);
+    let tools = on_turn(&base, tools::native_tools);
+    let boxed_tools = on_turn(&boxed, tools::native_tools);
+    let native_egress = tools::native_egress(&tools);
+    let egress_off = tools::egress_off(&native_egress, &boxed_tools);
+    let capabilities = tools::capabilities(&tools, &boxed_tools, &plan.hands);
+    let user_mcp_unboxed = tools::user_mcp(&base, &plan.user_config);
+    let user_mcp_boxed = tools::user_mcp(&boxed, &plan.user_config);
     let config_isolation = on_turn(&base, |_| {
-        config_isolation(&user_mcp_unboxed, &user_mcp_boxed)
+        tools::config_isolation(&user_mcp_unboxed, &user_mcp_boxed)
     });
     Facts {
         headless: Fact::measured(
@@ -783,9 +577,10 @@ pub(crate) fn facts(plan: &Plan, observed: &Observed, bound: &[&str]) -> Facts {
         efforts: efforts(&observed.bad_effort),
         tools,
         boxed_tools,
-        mcp_server: on_turn(&boxed, mcp_server),
+        mcp_server: on_turn(&boxed, tools::mcp_server),
         native_egress,
         egress_off,
+        capabilities,
         config_isolation,
         user_mcp_unboxed,
         user_mcp_boxed,
