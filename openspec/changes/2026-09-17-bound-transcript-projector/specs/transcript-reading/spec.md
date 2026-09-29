@@ -6,9 +6,10 @@
 serializable `Turn` shape: `role` and `ts` strings and an ordered `blocks`
 array whose elements contain `kind` and `text` strings. File discovery and
 reading SHALL remain outside the pure view derivation. CLI and TUI SHALL
-consume this same derivation; the existing Claude browser drill SHALL reuse
-its Claude projection, and browser participant presentation SHALL consume
-the shared reference eligibility and `full_session` result as specified below.
+consume this same derivation; the browser's participant body route SHALL
+serve the command's document from it for every kind, and browser participant
+presentation SHALL consume the shared reference eligibility and
+`full_session` result as specified below.
 Prose SHALL belong to this explicit local transcript
 read, never to the journal-derived run/participant models.
 
@@ -144,7 +145,7 @@ one qualifying file SHALL be required; several qualifying files SHALL return
 `ambiguous-source` regardless of enumeration order. No match SHALL return
 `not-found`. A file not yet created or a DSH first-record header not yet
 complete can become available on a later read. These bounds apply equally
-to CLI lookup, TUI refresh and the existing Claude browser routes. For
+to CLI lookup, TUI refresh and the browser's participant routes. For
 Claude this deliberately replaces the shipped first matching file, unbounded
 project enumeration and symlink following with unique, bounded, safe
 discovery. These are breaking lookup
@@ -311,26 +312,26 @@ header admission, under that version's vocabulary. Elsewhere in these
 deltas, a recognized DSH header or readable DSH source means one admitted
 under these rules; owned location alone does not establish a readable format.
 
-For the id-only Claude API, every shared reference/discovery/read failure
-SHALL return HTTP 404 with the existing JSON error envelope, with no turns.
-An invalid id SHALL use `{"error":"session not found"}`; a valid id with a
-lookup/read failure SHALL use `{"error":"transcript not found"}`. A readable
-empty, counted-omission or truncated projection SHALL still return HTTP 200
-with only `session_id`, `turns` and `truncated`.
+For the participant body route, every shared reference/discovery/read
+failure SHALL return HTTP 404 carrying the refused transcript document,
+which names that failure, with no turns. A readable empty, counted-omission
+or truncated projection SHALL still return HTTP 200 carrying the readable
+document.
 
-Claude SSE admission SHALL apply the same identifier and discovery rules.
-Any refusal, including `ambiguous-source`, `discovery-limit` and `unsafe-path`,
-SHALL return HTTP 404 with `{"error":"transcript not found"}` before an
-event-stream header or event is written. For an admitted source the existing
-size-event/heartbeat shape stays unchanged. Each subsequent poll SHALL
+Participant growth-route admission SHALL apply the same reference and
+discovery rules. Any refusal, including `ambiguous-source`, `discovery-limit`
+and `unsafe-path`, SHALL return HTTP 404 with
+`{"error":"transcript not found"}` before an event-stream header or event is
+written. For an admitted source the size-event/heartbeat shape stays
+unchanged. Each subsequent poll SHALL
 revalidate safe unique discovery; if that fails, the stream SHALL close
 without reporting further sizes from the previous candidate. HTTP status
 cannot change after stream admission; closing does not emit a second 404
 response. SSE remains a growth notification, not a new transcript body API.
 
-#### Scenario: Claude browser lookup refusals have fixed HTTP responses
+#### Scenario: Browser lookup refusals have fixed HTTP responses
 - **WHEN** a valid Claude id has either two qualifying project files, a search that needs more than 10,000 entries to establish uniqueness, or only a matching symlink project/file below the canonical home
-- **THEN** the shared lookup returns `ambiguous-source`, `discovery-limit` or `unsafe-path` respectively; `/api/session/<id>` and a new `/sse/session/<id>` request each return HTTP 404 with `{"error":"transcript not found"}`, no turns and no event-stream header
+- **THEN** the shared lookup returns `ambiguous-source`, `discovery-limit` or `unsafe-path` respectively; `/api/transcript/<run>/<key>` returns HTTP 404 with the transcript document naming that reason and no turns, and a new `/sse/transcript/<run>/<key>` request returns HTTP 404 with `{"error":"transcript not found"}` and no event-stream header
 - **AND** the participant page and TUI keep the reader's shared Claude hint beside the specific unavailable explanation; no surface selects the former first candidate or follows the symlink
 
 #### Scenario: An admitted Claude growth stream loses its unique source

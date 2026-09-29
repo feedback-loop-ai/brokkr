@@ -1,0 +1,23 @@
+---
+source: crates/brokkr-cli/src/tui/snapshot_tests.rs
+---
+"┌graph─────────────────────────────────────────────────────────[ ∙ ∙ ∙ BROKKR ]┐"
+"│note  capability-gap — intake: optional capability gap: no MCP server github  │"
+"│note  fallback — seat: intake · selected opus via claude (fallback #1; not the│"
+"│                                                                              │"
+"│   ⏺ intake──ᐳ┌ positions ┐──ᐳ⏺ review──ᐳ∙ chief                              │"
+"│   intake                  design                                             │"
+"│                                                                              │"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+"┌seats─────────────────────────────────────────────────────────────────────────┐"
+"│participant   status    attempts turns cost   tokens model boundary activity  │"
+"│intake        succeeded 1        3     $0.031 —      —     —        intook · 2│"
+"│                                                                    ↳ intake ·│"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+"┌trail─────────────────────────────────────────────────────────────────────────┐"
+"│1  run/started  one derivation, three surfaces…                               │"
+"│2  phase/entered  intake                                                      │"
+"│7  effect/succeeded  intake · intook                                          │"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+"runs · run run-7                                                                "
+"←→ rail · ↑↓ lanes · Enter scope phase · Tab pane · Esc back · / filter · r refr"

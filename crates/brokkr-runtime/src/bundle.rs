@@ -22,7 +22,7 @@ use compose::{Ancestor, COMPOSE_PREFIX};
 
 use crate::agents::{
     resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition,
-    EgressClass, Library, Lowering, Sandbox, TrustTier,
+    EgressClass, HandsNotice, Library, Lowering, Sandbox, TrustTier,
 };
 use crate::dialect::{Dialect, DIALECT_PHASES};
 use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
@@ -474,6 +474,12 @@ pub struct SiteFacts {
     /// of the site's command at dispatch, and the box expands its tokens.
     /// `None` at a site whose dialect carries no hands fragment.
     pub inline_hands: Option<Segment>,
+    /// The discovery notice the adapter an INLINE built-in model driver
+    /// names declares (decision 0069). An agent-resolved site
+    /// carries its notice on each `Candidate` instead, and the engine
+    /// reads this only when no candidate serves the site. The adapter it
+    /// was read from is witnessed through `pin_drivers`.
+    pub inline_hands_notice: Option<HandsNotice>,
 }
 
 /// One inline Codex seat's lowered sandbox (rebuild unit 5d): the class
@@ -906,18 +912,14 @@ fn command_pin(raw: &Value, flag: &str, limit: usize) -> ModelPin {
     }
 }
 
-/// The model pin on the flag this engine composes for the four
-/// model-bearing built-ins: decision 0031 ruling 2's read, which asks
-/// only whether one concrete id is stated. A neighbouring `--model…`
-/// flag is a different flag to it, not an illegible spelling of this
-/// one — now because `--model` is long, not because this caller said so.
-fn model_pin(raw: &Value) -> ModelPin {
-    command_pin(raw, MODEL_FLAG, 80)
-}
-
 /// The model pin as decision 0036 ruling 2 reads it: which route the
 /// material goes to, or which kind of silence the argv holds — on one
-/// of the two flags decision 0040 ruling 1 has it read.
+/// of the two flags decision 0040 ruling 1 has it read. On `--model`,
+/// the flag this engine composes for the four model-bearing built-ins,
+/// it is also decision 0031 ruling 2's read, which asks only whether one
+/// concrete id is stated; a neighbouring `--model…` flag is a different
+/// flag to it, not an illegible spelling of this one, because `--model`
+/// is long.
 fn route_pin(raw: &Value, flag: &str) -> ModelPin {
     command_pin(raw, flag, 80)
 }
@@ -987,7 +989,23 @@ fn inline_route_pin(raw: &Value, adapter: Option<&Adapter>) -> ModelPin {
 }
 
 fn command_pins_model(raw: &Value) -> bool {
-    matches!(model_pin(raw), ModelPin::Concrete(_))
+    matches!(route_pin(raw, MODEL_FLAG), ModelPin::Concrete(_))
+}
+
+/// Issue #373: the dsh driver admits one spelling of its model pin, the
+/// separate `--model <id>`, and refuses every other word beginning with
+/// `--model` before it spawns — the joined `--model=<id>` this compiler
+/// reads as a pin (decision 0040 ruling 2) and a long neighbour such as
+/// `--model-fallback` that it walks past alike. A seat compile admitted
+/// would then park at spawn, after its run and journal exist, so compile
+/// refuses what spawn will.
+fn dsh_refuses_model_word(raw: &Value) -> bool {
+    raw.pointer("/driver/command")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .any(|part| part != MODEL_FLAG && part.starts_with(MODEL_FLAG))
 }
 
 /// The effort pin bound, matching `seat-record/v2`'s own: a level is one
@@ -1002,6 +1020,9 @@ fn command_pins_effort(raw: &Value) -> bool {
 struct Unpinned {
     model: Vec<String>,
     effort: Vec<String>,
+    /// Issue #373: dsh sites carrying a `--model…` word the dsh driver
+    /// refuses at spawn.
+    dsh_model: Vec<String>,
     /// Decision 0035 addendum 2026-09-11: per site, the adapter digest
     /// whose effortless listing exempted it from the effort pin. The
     /// declaration that authorised the exemption rides the bundle's
@@ -1019,20 +1040,28 @@ struct Unpinned {
     /// bundle identity `pinned_bundle_holds` compares, or a changed
     /// assessment would reuse a root the old one opened.
     resume_witness: BTreeMap<String, DriverDigests>,
+    /// Decision 0069: per inline driver-bearing site, the
+    /// discovery notice its adapter declares. The declaration is already
+    /// witnessed in `resume_witness`, which pins every adapter an inline
+    /// built-in consults, assessment or not.
+    hands_notice: BTreeMap<String, HandsNotice>,
 }
 
 /// Adapter data for an inline model seat, loaded only where a bundle seats
 /// one, and kept as the `Result` the load gave (decision 0066 ruling 1).
 ///
-/// Two readers, with opposite needs. The effortless-route exemption
-/// (decision 0035 addendum 2026-09-11) is OPTIONAL: a missing or malformed
-/// adapters root reads as no exemptions and the strict rule stands, so it
-/// takes the `Ok` and ignores the rest. The capability pass is MANDATORY:
-/// the same data says how a harness's native search is switched off, and
-/// an error swallowed here used to reach it as "nothing declared" and
-/// compile a Codex seat with no denial. It takes the error too, and
-/// refuses the seat with the loader's own words. `None` is a bundle that
-/// seats no inline model driver and so asked for nothing.
+/// Readers with opposite needs. The effortless-route exemption (decision
+/// 0035 addendum 2026-09-11), the inline resume assessment and the inline
+/// discovery notice (decision 0069) take the `Ok` and read an absent or
+/// unloadable root as none of them, so the strict rule stands. The
+/// capability pass is MANDATORY: the same data says how a harness's native
+/// search is switched off, and an error swallowed here used to reach it as
+/// "nothing declared" and compile a Codex seat with no denial. It takes the
+/// error too, and refuses the seat with the loader's own words. A PRESENT
+/// root that does not load is refused after that pass in any case
+/// (decision 0069): a malformed discovery notice must not pass itself off
+/// as an adapter that declares none. `None` is a bundle that seats no
+/// inline model driver and so asked for nothing.
 fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Result<Adapters, String>> {
     fn has_inline_model_driver(value: &Value) -> bool {
         match value {
@@ -1136,6 +1165,9 @@ fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &
         if !command_pins_effort(raw) && !effort_exempt(what, raw, adapters, &mut out.witnessed) {
             out.effort.push(what.to_string());
         }
+        if kind == "dsh" && dsh_refuses_model_word(raw) {
+            out.dsh_model.push(what.to_string());
+        }
         // The adapter a built-in model driver names answers for this
         // INLINE site as it does for an agent-resolved one: its measured
         // resume assessment travels to the engine so the driver's gate
@@ -1158,6 +1190,12 @@ fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &
             let mut authorised = Map::new();
             authorised.insert(kind.to_string(), Value::String(adapter.digest.clone()));
             out.resume_witness.insert(what.to_string(), authorised);
+            // Its discovery notice (decision 0069) is read from
+            // that same witnessed declaration, and kept apart from the
+            // assessment: reading a notice qualifies no resume.
+            if let Some(notice) = &adapter.hands_notice {
+                out.hands_notice.insert(what.to_string(), notice.clone());
+            }
         }
         return;
     }
@@ -1194,15 +1232,18 @@ fn labels(sites: &[String]) -> String {
 
 /// What `enforce_model_pins` returns: the adapter digests whose effortless
 /// listings exempted inline seats, the resume assessment each inline
-/// built-in model driver's adapter declares for the engine, and the
-/// declaration each of those assessments was read from. Three maps rather
-/// than one because they answer different questions from the same walk —
-/// the third rides the manifest's `drivers` pin beside the first, while
-/// the second travels to the driver's private start context.
+/// built-in model driver's adapter declares for the engine, the
+/// declaration each of those assessments was read from, and the discovery
+/// notice each declares. Four maps rather than one because they answer
+/// different questions from the same walk — the third rides the
+/// manifest's `drivers` pin beside the first, while the second travels to
+/// the driver's private start context and the fourth to the engine's
+/// per-attempt notice.
 type PinWitness = (
     BTreeMap<String, DriverDigests>,
     Map<String, Value>,
     BTreeMap<String, DriverDigests>,
+    BTreeMap<String, HandsNotice>,
 );
 
 /// One refusal names the complete repair set, on BOTH axes. A model pin
@@ -1237,8 +1278,21 @@ fn enforce_model_pins(
             labels(&unpinned.effort)
         ));
     }
+    if !unpinned.dsh_model.is_empty() {
+        refusals.push(format!(
+            "dsh seats {} carry a '--model…' word the dsh driver refuses at spawn; \
+             write the pin as '--model <concrete-model-id>' and no other '--model…' \
+             flag (issue #373)",
+            labels(&unpinned.dsh_model)
+        ));
+    }
     if refusals.is_empty() {
-        return Ok((unpinned.witnessed, unpinned.resume, unpinned.resume_witness));
+        return Ok((
+            unpinned.witnessed,
+            unpinned.resume,
+            unpinned.resume_witness,
+            unpinned.hands_notice,
+        ));
     }
     Err(CompileError::Invalid(refusals.join("; ")))
 }
@@ -1408,7 +1462,12 @@ impl Bundle {
     /// The agent roots ride through: composition resolves the bundle,
     /// then agent references inside the RESOLVED seats resolve against
     /// the library and adapters (decisions 0016 and 0017 layered).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::excessive_nesting,
+        clippy::too_many_lines,
+        clippy::too_many_arguments,
+        reason = "baseline 2026-09, #288; decision 0065 adds the capability context"
+    )]
     fn assemble(
         dir: &Path,
         mut resolved: compose::Resolved,
@@ -1455,7 +1514,7 @@ impl Bundle {
         // context, and its adapter's native declaration is still what
         // says how its search is switched off.
         let pin_adapters = load_pin_adapters(adapters_root, &resolved.seats);
-        let (pin_drivers, inline_resume, resume_witness) = enforce_model_pins(
+        let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) = enforce_model_pins(
             &resolved.seats,
             pin_adapters
                 .as_ref()
@@ -1471,6 +1530,9 @@ impl Bundle {
         }
         for (label, value) in inline_resume {
             site_facts(&mut sites, &label).inline_resume = Some(value);
+        }
+        for (label, notice) in inline_hands_notice {
+            site_facts(&mut sites, &label).inline_hands_notice = Some(notice);
         }
         let machine = Machine::from_table(&table)?;
         let uses_dialect = machine
@@ -1912,6 +1974,15 @@ impl Bundle {
                     &mut sites,
                 )?;
             }
+        }
+        // Decision 0069: a PRESENT adapters root that does not load is
+        // refused with the loader's own words, so a malformed discovery
+        // notice never passes itself off as an adapter that declares none.
+        // Judged after the capability pass, which already refuses a seat
+        // the failed load leaves with no valid denial, naming that same
+        // cause (decision 0066 ruling 1). An absent root reads as no notice.
+        if let Some(Err(problem)) = pin_adapters.as_ref().filter(|_| adapters_root.exists()) {
+            return Err(CompileError::Invalid(problem.clone()));
         }
 
         // The authoring census (design D10 F2): every structural owner is
@@ -2672,7 +2743,11 @@ fn dialect_gate_site(what: &str, boundary: Boundary) -> Result<Value, CompileErr
 
 /// Resolve `"agent": "<name>"` into an ordinary seat body, and record
 /// the resolution under this invocation site.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn resolve_reference(
     agents: &mut Option<AgentContext>,
     sites: &mut BTreeMap<String, SiteFacts>,
@@ -2730,9 +2805,11 @@ fn resolve_reference(
                 hands_fragment: entry.hands_fragment.clone(),
                 harness: entry.harness.clone(),
                 // The hands law reads argv, class and boundary; the
-                // resume assessment is not one of its terms, and this
-                // projection is discarded after that judgment.
+                // resume assessment and the discovery notice are not its
+                // terms, and this projection is discarded after that
+                // judgment.
                 resume: Default::default(),
+                hands_notice: None,
                 // The entry's own lowering, refused or composed, never a
                 // valid empty one standing in for it (design D5.7).
                 lowering: entry.lowering.clone(),
@@ -2786,6 +2863,7 @@ fn resolve_reference(
             hands_fragment: candidate.hands_fragment.clone(),
             harness: candidate.harness.clone(),
             resume: candidate.resume.clone(),
+            hands_notice: candidate.hands_notice.clone(),
             lowering: expand_lowering(dir, &candidate.lowering),
         });
     }
@@ -3138,6 +3216,10 @@ fn record_inline_tools(
 /// result door. Beside it comes the adapter's permission template, as unit
 /// 5c places it, or `None` where the adapter declares none, and the
 /// fragment as the adapter declares it (rebuild unit 14a1).
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn lower_inline_sandbox(
     what: &str,
     raw: &Value,
@@ -3697,6 +3779,10 @@ fn admitted_sandbox(boundary: Boundary, seat_class: SeatClass) -> (Sandbox, &'st
 /// under a boxed boundary, `hands.harness.gate` for a gate and
 /// `hands.harness.work` for a work seat under `harness`. Every link of the
 /// chain is judged, so a later candidate cannot hide behind the primary.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn admit_local_sandbox(
     what: &str,
     raw: &Value,
@@ -3976,9 +4062,8 @@ fn refuse_class_without_a_driver(what: &str, raw: &Value) -> Result<(), CompileE
 /// `<engine> driver <name> -- …`, so the token after the literal
 /// `driver` IS the driver, the same way `{brokkr}` is a protocol marker
 /// this compiler already recognises. The engine token itself is not
-/// matched on — a bundle may spell it `{brokkr}`, `{forge}`, or the
-/// absolute path of the binary it means, and all three are the same
-/// dispatch. `None` for any other shape: a raw process is a driver that
+/// matched on — a bundle may spell it `{brokkr}` or the absolute path
+/// of the binary it means, and both are the same dispatch. `None` for any other shape: a raw process is a driver that
 /// declares nothing, which decision 0021 reads as untrusted and
 /// ungranted rather than as exempt.
 fn dispatch_driver(parts: &[String]) -> Option<String> {
@@ -4084,6 +4169,10 @@ fn enforce_model_policy(
 
 /// Decision 0021's two prohibitions proper — the gate tier, the judges
 /// list and the egress bar — at one site, after the hands law has spoken.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn enforce_route_policy(
     what: &str,
     raw: &Value,
@@ -4958,73 +5047,6 @@ fn at_stage(stage: ReadStage, target: &Path) {
 #[cfg(not(test))]
 fn at_stage(_: ReadStage, _: &Path) {}
 
-/// `O_NONBLOCK` as each supported host spells it (decision 0063). Opening
-/// a FIFO for reading waits for a writer; a FIFO met on the way to an input
-/// must be refused by the handle's kind, not wait there.
-#[cfg(target_os = "linux")]
-const O_NONBLOCK: i32 = 0o4000;
-#[cfg(target_os = "macos")]
-const O_NONBLOCK: i32 = 0x0004;
-/// `O_NOFOLLOW`: every name is looked up without following a link, so each
-/// link on the way is seen, its text read, and followed by this code. Linux
-/// spells it per architecture family.
-#[cfg(all(
-    target_os = "linux",
-    any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "m68k",
-        target_arch = "powerpc",
-        target_arch = "powerpc64"
-    )
-))]
-const O_NOFOLLOW: i32 = 0o100_000;
-#[cfg(all(
-    target_os = "linux",
-    not(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "m68k",
-        target_arch = "powerpc",
-        target_arch = "powerpc64"
-    ))
-))]
-const O_NOFOLLOW: i32 = 0o400_000;
-#[cfg(target_os = "macos")]
-const O_NOFOLLOW: i32 = 0x0100;
-/// `O_DIRECTORY`: the open fails unless it reaches a directory, so the walk
-/// never opens a file or device where it lists a directory. Linux spells it
-/// per the same architecture families.
-#[cfg(all(
-    target_os = "linux",
-    any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "m68k",
-        target_arch = "powerpc",
-        target_arch = "powerpc64"
-    )
-))]
-const O_DIRECTORY: i32 = 0o40_000;
-#[cfg(all(
-    target_os = "linux",
-    not(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "m68k",
-        target_arch = "powerpc",
-        target_arch = "powerpc64"
-    ))
-))]
-const O_DIRECTORY: i32 = 0o200_000;
-#[cfg(target_os = "macos")]
-const O_DIRECTORY: i32 = 0x0010_0000;
-/// `O_CLOEXEC`, which the standard library sets on every file it opens.
-#[cfg(target_os = "linux")]
-const O_CLOEXEC: i32 = 0o2_000_000;
-#[cfg(target_os = "macos")]
-const O_CLOEXEC: i32 = 0x0100_0000;
-
 /// The most links one resolution follows, as Linux's own lookup does.
 const MAX_LINKS: usize = 40;
 
@@ -5045,89 +5067,23 @@ const REPLACED: &str = "which was replaced while it was read: the file the read 
                         longer the contained target that was checked, so its bytes are not the \
                         ones verified";
 
-// The library calls the owner-rooted resolution is made of, which the
-// standard library does not expose: a lookup of one name inside an open
-// directory, and the text of a link standing there. And the walk's: the
-// listing of an open directory through its handle, with the `errno` that says
-// a listing ended in error.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-extern "C" {
-    fn openat(
-        dirfd: std::ffi::c_int,
-        path: *const std::ffi::c_char,
-        flags: std::ffi::c_int,
-        ...
-    ) -> std::ffi::c_int;
-    fn readlinkat(
-        dirfd: std::ffi::c_int,
-        path: *const std::ffi::c_char,
-        buf: *mut std::ffi::c_char,
-        size: usize,
-    ) -> isize;
-    #[cfg_attr(
-        all(target_os = "macos", target_arch = "x86_64"),
-        link_name = "fdopendir$INODE64"
-    )]
-    fn fdopendir(fd: std::ffi::c_int) -> *mut std::ffi::c_void;
-    #[cfg_attr(all(target_os = "linux", target_env = "gnu"), link_name = "readdir64")]
-    #[cfg_attr(
-        all(target_os = "macos", target_arch = "x86_64"),
-        link_name = "readdir$INODE64"
-    )]
-    fn readdir(dir: *mut std::ffi::c_void) -> *const u8;
-    fn closedir(dir: *mut std::ffi::c_void) -> std::ffi::c_int;
-    #[cfg_attr(target_os = "linux", link_name = "__errno_location")]
-    #[cfg_attr(target_os = "macos", link_name = "__error")]
-    fn errno() -> *mut std::ffi::c_int;
-}
-
-/// Where `d_name` stands in the entry each host's `readdir` returns, after
-/// its 64-bit `d_ino` (at 0) and `d_off`/`d_seekoff` (at 8): Linux's
-/// `dirent64` then has `d_reclen` and `d_type`, macOS's 64-bit-inode
-/// `dirent` `d_reclen`, `d_namlen` and `d_type`.
-#[cfg(target_os = "linux")]
-const NAME_AT: usize = 19;
-#[cfg(target_os = "macos")]
-const NAME_AT: usize = 21;
-
 /// Every name the directory `handle` holds lists, but `.` and `..`, read
-/// through a copy of that handle and never by a path (rebuild unit 16-fix-e,
-/// second return F2). A listing that cannot be opened or ends in error is an
-/// error: the caller fails closed.
+/// through that handle and never by a path (rebuild unit 16-fix-e, second
+/// return F2). A listing that cannot be opened or ends in error is an error:
+/// the caller fails closed. The calls are rustix's safe ones (operator ruling
+/// 2026-09-29: this crate forbids `unsafe`, decision 0071 ruling 1).
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn names_in(handle: &std::fs::File) -> std::io::Result<Vec<OsString>> {
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::io::{AsRawFd, IntoRawFd};
-    let copy = handle.try_clone()?;
-    // SAFETY: `copy` is a descriptor nothing else uses. On success the
-    // stream owns it, so it is released from `copy`; on failure `copy`
-    // still owns it and closes it.
-    let dir = unsafe { fdopendir(copy.as_raw_fd()) };
-    let dir = std::ptr::NonNull::new(dir).ok_or_else(std::io::Error::last_os_error)?;
-    let _owned_by_the_stream = copy.into_raw_fd();
     let mut names = Vec::new();
-    let ended = loop {
-        // SAFETY: `errno` is this thread's; `dir` is an open stream, and an
-        // entry it returns is valid until the next call, with a
-        // NUL-terminated name at `NAME_AT`.
-        let entry = unsafe {
-            *errno() = 0;
-            readdir(dir.as_ptr())
-        };
-        let Some(entry) = std::ptr::NonNull::new(entry.cast_mut()) else {
-            break std::io::Error::last_os_error();
-        };
-        // SAFETY: as above, `entry` is the entry `readdir` just returned.
-        let name = unsafe { std::ffi::CStr::from_ptr(entry.as_ptr().add(NAME_AT).cast()) };
-        if !matches!(name.to_bytes(), b"." | b"..") {
-            names.push(OsStr::from_bytes(name.to_bytes()).to_os_string());
+    for entry in rustix::fs::Dir::read_from(handle)? {
+        let entry = entry?;
+        let name = entry.file_name().to_bytes();
+        if !matches!(name, b"." | b"..") {
+            names.push(OsStr::from_bytes(name).to_os_string());
         }
-    };
-    // SAFETY: `dir` is open and closed exactly once, here.
-    unsafe { closedir(dir.as_ptr()) };
-    (ended.raw_os_error() == Some(0))
-        .then_some(names)
-        .ok_or(ended)
+    }
+    Ok(names)
 }
 
 /// A handle on the directory at `path`, reached as a path is (a pinned
@@ -5135,18 +5091,16 @@ fn names_in(handle: &std::fs::File) -> std::io::Result<Vec<OsString>> {
 /// directory and never waits.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn directory(path: &Path) -> std::io::Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(O_DIRECTORY | O_NONBLOCK)
-        .open(path)
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    Ok(rustix::fs::open(path, flags, Mode::empty())?.into())
 }
 
 /// A handle on the directory `name` inside the directory `parent` holds,
 /// never following a link it names.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn directory_at(parent: &std::fs::File, name: &OsStr) -> std::io::Result<std::fs::File> {
-    open_at(parent, name, O_DIRECTORY)
+    open_at(parent, name, rustix::fs::OFlags::DIRECTORY)
 }
 
 /// No supported host lacks a listing through a handle (decision 0063); any
@@ -5169,48 +5123,27 @@ fn names_in(_: &std::fs::File) -> std::io::Result<Vec<OsString>> {
 }
 
 /// Open `name` inside the directory `parent` holds, non-blocking, never
-/// following a link it names, with any further `flags`.
+/// following a link it names, with any further `flags`. Non-blocking: a FIFO
+/// met on the way to an input is refused by the handle's kind, never waited
+/// on. No-follow: each link on the way is seen, its text read, and followed
+/// by this code.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn open_at(parent: &std::fs::File, name: &OsStr, flags: i32) -> std::io::Result<std::fs::File> {
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::io::{AsRawFd, FromRawFd};
-    let name = std::ffi::CString::new(name.as_bytes())?;
-    // SAFETY: `parent` stays open for the call, `name` is NUL-terminated and
-    // outlives it, and no mode argument is read because `O_CREAT` is unset.
-    let fd = unsafe {
-        openat(
-            parent.as_raw_fd(),
-            name.as_ptr(),
-            O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC | flags,
-        )
-    };
-    if fd < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    // SAFETY: `fd` was just returned by `openat`, and nothing else owns it.
-    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+fn open_at(
+    parent: &std::fs::File,
+    name: &OsStr,
+    flags: rustix::fs::OFlags,
+) -> std::io::Result<std::fs::File> {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC | flags;
+    Ok(rustix::fs::openat(parent, name, flags, Mode::empty())?.into())
 }
 
 /// The text of the link `name` inside the directory `parent` holds.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn link_at(parent: &std::fs::File, name: &OsStr) -> std::io::Result<OsString> {
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
-    use std::os::unix::io::AsRawFd;
-    let name = std::ffi::CString::new(name.as_bytes())?;
-    let mut text = vec![0u8; 4096];
-    // SAFETY: `parent` stays open for the call, `name` is NUL-terminated, and
-    // `text` is writable for the length passed.
-    let length = unsafe {
-        readlinkat(
-            parent.as_raw_fd(),
-            name.as_ptr(),
-            text.as_mut_ptr().cast(),
-            text.len(),
-        )
-    };
-    let length = usize::try_from(length).map_err(|_| std::io::Error::last_os_error())?;
-    text.truncate(length);
-    Ok(OsString::from_vec(text))
+    use std::os::unix::ffi::OsStringExt;
+    let text = rustix::fs::readlinkat(parent, name, Vec::new())?;
+    Ok(OsString::from_vec(text.into_bytes()))
 }
 
 /// Why an entry on the way to an input could not be opened or read: an
@@ -5287,7 +5220,7 @@ fn observe(root: &Path, open: Opener<'_>, reference: &Path) -> Result<Observatio
             continue;
         }
         let parent = &stack.last().expect("the layer's directory stays").0;
-        match open_at(parent, &name, 0) {
+        match open_at(parent, &name, rustix::fs::OFlags::empty()) {
             Ok(file) => {
                 let id = identity(&file).map_err(InputFault::Missing)?;
                 steps.push(Step::Entry(name.clone(), id));
@@ -5880,7 +5813,7 @@ fn fault_kind(fault: &InputFault) -> &'static str {
 /// Ancestor maps are the very maps hashed into their compose digests.
 /// Paths come from compile's canonical roots and expanded script token;
 /// component comparisons never reinterpret a literal filename byte.
-pub fn layer_drift(bundle: &Bundle, directory: &Path) -> Option<(String, String)> {
+pub(crate) fn layer_drift(bundle: &Bundle, directory: &Path) -> Option<(String, String)> {
     let layer = bundle
         .roots
         .iter()
@@ -5962,7 +5895,7 @@ fn record_hands(
 /// driver an inline site dispatches. A command that dispatches no built-in
 /// driver is an opaque custom one: no adapter answers for it, so its
 /// native inventory is unmeasured and it can hold nothing.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "decision 0065, #288")]
 fn site_capabilities(
     authority: &crate::capabilities::Authority,
     adapters: CapabilityAdapters<'_>,
@@ -6091,7 +6024,11 @@ fn site_capabilities(
 /// the directory an inline site's command was expanded against; a select
 /// case a later layer wrote by `override.cases` is walked in that layer's
 /// root, from `roots` by `case_origin`, as `parse_select` parses it.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "decision 0065, #288")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn record_capabilities(
     authority: &crate::capabilities::Authority,
     library: Option<&Library>,
@@ -6624,7 +6561,11 @@ fn parse_select(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn parse_panel(
     dir: &Path,
     what: &str,
@@ -6751,6 +6692,11 @@ fn parse_panel(
 /// Parse a sequence body: named steps, each a single driver or a panel,
 /// run serially inside one effect. At least two steps (a one-step
 /// sequence is a single seat); names unique case-insensitively.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn parse_sequence(
     dir: &Path,
     phase: &str,
@@ -7201,18 +7147,11 @@ fn lint_secret_refs(what: &str, parts: &[String], secrets: &[String]) -> Result<
 /// Public because a seat composed OUTSIDE a bundle — Muninn's, under
 /// decision 0020 — must expand the same tokens from the same code
 /// rather than from a second copy of this rule.
-///
-/// `{forge}` is the same token under its old name (decision 0019): it
-/// expands to the same path for one more release, and says so once.
 pub fn expand_command(dir: &Path, parts: &[String]) -> Vec<String> {
     parts
         .iter()
         .map(|part| {
             if part == "{brokkr}" {
-                return brokkr_executable(std::env::current_exe());
-            }
-            if part == "{forge}" {
-                brokkr_protocol::legacy::say_once("{forge}", "{brokkr}");
                 return brokkr_executable(std::env::current_exe());
             }
             match part.strip_prefix("./") {
@@ -7332,7 +7271,7 @@ fn fold_driver_facts(drivers: &mut Map<String, Value>, sites: &BTreeMap<String, 
 /// resolution record (decision 0016), pinned for the same reason.
 /// `consumed` carries the digests of the layer's bound buffers into its
 /// walk ([`walk_files`]).
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn manifest_for(
     dir: &Path,
     bundle_name: &str,
@@ -7461,6 +7400,10 @@ fn manifest_for(
 /// there it cannot ask what it is is refused naming it (16-fix-e, second
 /// return F1). A directory the walk cannot list, skipped or not, is refused
 /// naming it, and naming who read a consumed entry it holds.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn walk_files(
     dir: &Path,
     scope: &Path,
@@ -7844,7 +7787,7 @@ mod compose_tests;
 mod model_policy_tests;
 
 #[cfg(test)]
-mod secret_binding_tests;
+pub(crate) mod secret_binding_tests;
 
 #[cfg(test)]
 mod tests;

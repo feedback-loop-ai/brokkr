@@ -120,7 +120,7 @@ fn run_once_in(
         |_| {},
     );
     let stderr = tail(&report.stderr).to_string();
-    match report.outcome {
+    match report.settled_outcome() {
         AttemptOutcome::Succeeded { result } => OneShot::Produced {
             result,
             checkpoints: report.checkpoints,

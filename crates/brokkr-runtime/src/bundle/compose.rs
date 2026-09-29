@@ -227,6 +227,10 @@ fn valid_recipe_name(name: &str) -> bool {
 /// own `bundle.json`. A repeated directory is a cycle and names the
 /// whole loop in order; a chain longer than [`MAX_LAYERS`] names the
 /// chain so far.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
     let mut layers: Vec<Layer> = Vec::new();
     // Canonical from the leaf down, so every recorded dir is comparable
@@ -795,6 +799,11 @@ fn refuse_unknown_root_keys(layer: &Layer) -> Result<(), CompileError> {
 }
 
 /// Merge one layer over everything resolved beneath it.
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09, #288"
+)]
 fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<(), CompileError> {
     let layer = &layers[index];
     refuse_unknown_root_keys(layer)?;

@@ -26,7 +26,7 @@ markers beat one, so uv wins where uv is in play:
   the tool from the interpreter the seat is standing in rather than from
   whatever is first on `PATH` — and it names `python3`, because that is
   the interpreter a fresh project actually resolves and the name the
-  shipped adapters grant. If your repository has a lockfile of any
+  scaffolded adapter grants. If your repository has a lockfile of any
   other kind, say so in the two charters — `init` writes a starting
   point, not a verdict.
 

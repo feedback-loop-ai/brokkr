@@ -184,16 +184,16 @@ change**.
 
 Design artifacts:
 
-- [specs/tui-graph/spec.md](../../../specs/tui-graph/spec.md) — WHAT and
+- [specs/tui-graph/spec.md](../../features/tui-graph/spec.md) — WHAT and
   WHY: the governing invariant, what the two positions settled (six
   agreements adopted, seven rulings for robustness, five for simplicity,
   three reconciliations), the behaviour in nine sections, and 24
   acceptance criteria.
-- [specs/tui-graph/plan.md](../../../specs/tui-graph/plan.md) — HOW: the
+- [specs/tui-graph/plan.md](../../features/tui-graph/plan.md) — HOW: the
   files touched, the four-layer partition, the `Plan` type, the coverage
   table naming the executor for every arm before code is written, the
   three safety properties, and the risk register.
-- [specs/tui-graph/tasks.md](../../../specs/tui-graph/tasks.md) — sixteen
+- [specs/tui-graph/tasks.md](../../features/tui-graph/tasks.md) — sixteen
   ordered tasks in six movements, each paired with the test that proves
   it.
 

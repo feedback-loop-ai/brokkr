@@ -33,6 +33,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::overrides::{Override, OverrideError};
+
 /// The plugin's committed six-file set, in bytewise path order.
 const PLUGIN_FILES: [&str; 6] = [
     "LICENSE",
@@ -92,6 +94,10 @@ pub enum CompositeError {
     },
     #[error("the DSH layout is unreadable: {0}")]
     Config(String),
+    /// The executable's override cannot be read: its value is not UTF-8,
+    /// or only its retired spelling is set.
+    #[error(transparent)]
+    Override(OverrideError),
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -1336,6 +1342,7 @@ struct PnpmEntry {
 /// kin) are skipped by design: nothing under them can reach a triple,
 /// because only an indent-0 key opens a section and only `packages`
 /// admits a record.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, CompositeError> {
     let bad = |why: &str| CompositeError::PnpmLock(why.to_string());
     if lock.contains('\t') {
@@ -1674,7 +1681,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
 /// the source it was read from, so the separators it introduces — the
 /// spaces inside a `core` or `dependency` value, the NUL and the newline
 /// between them — are the only ones in the stream.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn canonical_composite(
     core: &str,
     node: &str,
@@ -1719,9 +1726,9 @@ fn canonical_composite(
 }
 
 /// The two seams the DSH adapter resolves, exactly as it resolves them:
-/// the executable through `BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then
-/// `dsh` on `PATH`, and the home through `$DSH_HOME` when set and
-/// non-empty, otherwise `$HOME/.dsh`.
+/// the executable through `BROKKR_DSH_BIN` (refused when it cannot be
+/// read), then `dsh` on `PATH`, and the home through
+/// `$DSH_HOME` when set and non-empty, otherwise `$HOME/.dsh`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DshSeams {
     pub executable: String,
@@ -1904,6 +1911,17 @@ impl DshSeams {
         DshSeams::resolved(DshSeams::located())
     }
 
+    /// `resolve` over the value a seat already read: `run_seat` reads
+    /// the override once and the launch resolves what it read, never the
+    /// environment a second time (#355).
+    pub(crate) fn resolve_declared(declared: &str) -> Result<DshSeams, CompositeError> {
+        DshSeams::resolved(DshSeams::located_from(
+            declared.to_string(),
+            select,
+            crate::transcript::dsh_home(),
+        ))
+    }
+
     /// `resolve` over an injected location: the located seams, or the
     /// cause the selection did not happen by. The planner has no use for
     /// a declared spelling without a file behind it, so a failed selection
@@ -1940,12 +1958,18 @@ impl DshSeams {
     }
 
     /// The environment's one resolution, before anything is admitted.
+    /// An override that cannot be read is refused here, before any lookup.
     fn located() -> Result<Located, DshUnselected> {
-        DshSeams::located_from(
-            super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh"),
-            select,
-            crate::transcript::dsh_home(),
-        )
+        let declared = match crate::overrides::read(Override::DshBin) {
+            Ok(declared) => declared,
+            Err(refused) => {
+                return Err(DshUnselected {
+                    declared: Override::DshBin.fallback().to_string(),
+                    cause: CompositeError::Override(refused),
+                })
+            }
+        };
+        DshSeams::located_from(declared, select, crate::transcript::dsh_home())
     }
 
     /// `selected` over an injected resolver and home, so the resolved,
@@ -2327,13 +2351,22 @@ enum Library {
     /// 1.2 source; not executed natively by this suite.
     Musl,
     /// Apple libc: `apple_walk`, which is `sys/posix_spawn.c`'s
-    /// `posix_spawnp` for production's own `Command` form and
-    /// `gen/FreeBSD/exec.c`'s `execvP` for an explicit child `PATH` and
-    /// for `env`'s nested search (`Operation`). Both continue past
-    /// `ELOOP`, `ENAMETOOLONG`, `ENOENT` and `ENOTDIR` after the attempt
-    /// and remember `EACCES`. The rest of that switch is NOT pinned by
-    /// this seat, and an errno outside those arms refuses as
-    /// unestablished rather than guessing.
+    /// `posix_spawnp` (69–207) for production's own `Command` form and
+    /// `gen/FreeBSD/exec.c`'s walk for an explicit child `PATH` and for
+    /// `env`'s nested search (`Operation`). There `execvp` (148–152)
+    /// calls `_execvpe` (318–328), which calls the static `execvPe`
+    /// (154–310) that `execvP` (312–316) also wraps; this port names
+    /// that walk `execvP`, the name its stderr warning carries (55).
+    /// Both files are pinned at Libc-1752.120.2 (`4e34d055`), with their
+    /// digests in `source-pins-2026-09-23.md`. Both continue past
+    /// `ELOOP`, `ENAMETOOLONG`, `ENOENT` and `ENOTDIR` after the attempt.
+    /// `EACCES` is remembered only where the candidate's metadata was
+    /// read: at Libc-1752.120.2 (`4e34d055`) `default` does `if
+    /// (stat(bp, &sb) != 0) break;` before `eacces = 1`
+    /// (`sys/posix_spawn.c` 178–193, `gen/FreeBSD/exec.c` 273–289). The
+    /// rest of that switch is read at the same pin and NOT ported, and an
+    /// errno outside those arms refuses as unestablished rather than
+    /// guessing.
     Apple,
     /// A target whose lookup this resolver has not read from source:
     /// FreeBSD's `execvPe` switch, bionic, the other BSDs. An
@@ -2364,8 +2397,12 @@ const LINUX_NAME_MAX: usize = 255;
 const LINUX_PATH_MAX: usize = 4096;
 
 /// `PATH_MAX` on Darwin, the size of the buffer `posix_spawnp` and
-/// `execvP` each build a candidate in (`sys/posix_spawn.c`,
-/// `gen/FreeBSD/exec.c`).
+/// `execvP` each build a candidate in: `char path_buf[PATH_MAX]`
+/// (`sys/posix_spawn.c` 76) and `char buf[MAXPATHLEN]`
+/// (`gen/FreeBSD/exec.c` 161), at Libc-1752.120.2 (`4e34d055`). At
+/// xnu-12377.121.6 (`ac9718fb`) `bsd/sys/syslimits.h` 111 defines
+/// `PATH_MAX` as 1024 and `bsd/sys/param.h` 206 defines `MAXPATHLEN` as
+/// `PATH_MAX` (digests in `source-pins-2026-09-23.md`).
 #[cfg(unix)]
 const DARWIN_PATH_MAX: usize = 1024;
 
@@ -2414,9 +2451,11 @@ fn admit_program_name(library: Library, name: &str) -> Result<(), String> {
 /// musl both operations run ONE loop (`posix_spawnp` reaches
 /// `__execvpe_common` through `__execvpex`; musl's reaches `__execvpe`),
 /// so the distinction changes nothing there. On Apple `posix_spawnp` is
-/// `sys/posix_spawn.c`'s walk and `execvp` is `gen/FreeBSD/exec.c`'s
-/// `execvP`, and they answer a candidate that overflows their buffer
-/// differently. The nested search `env` runs for its program is always
+/// `sys/posix_spawn.c`'s walk (69–207) and `execvp` is
+/// `gen/FreeBSD/exec.c`'s `execvPe` walk (148–152 → 318–328 →
+/// 154–310), both at Libc-1752.120.2 (`4e34d055`). They answer a
+/// candidate that overflows their buffer differently (posix_spawn.c
+/// 131–134, exec.c 215–222). The nested search `env` runs for its program is always
 /// `execvp`, whatever the outer form (design D10 §3, fourth hold).
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2614,21 +2653,24 @@ fn musl_walk<T>(
     None
 }
 
-/// Apple libc's two walks, ported with the same `strsep` shape and
-/// separated at the one branch where they differ. Both cut `PATH` on
-/// `:` with `strsep`, so a leading, trailing or doubled colon is an
-/// empty token; an empty token becomes `.` (`lp = 1`); the candidate is
-/// `<token>/<name>` sized as `lp + ln + 2` against `PATH_MAX` (1,024).
-/// `execvP` (`gen/FreeBSD/exec.c`, design D10 lines 178–218 and
-/// 262–297) writes `execvP: <token>: path too long` to stderr and
-/// `continue`s to the next token; `posix_spawnp` (`sys/posix_spawn.c`,
-/// D10 lines 97–143 and 170–195) returns `ENAMETOOLONG` at once. The
+/// Apple libc's two walks, ported with the same `strchrnul` shape and
+/// separated at the one branch where they differ. Both cut `PATH` at
+/// each `:` with `np = strchrnul(op, ':')`, so a leading, trailing or
+/// doubled colon, and an empty `PATH`, each give one empty token, as
+/// `split(':')` does; an empty token becomes `.` (`lp = 1`); the
+/// candidate is `<token>/<name>` sized as `lp + ln + 2` against
+/// `PATH_MAX` (1,024). `execvP` (`gen/FreeBSD/exec.c` 177–309: loop
+/// 187–291, switch 229–290, exit 293–309) writes `execvP: <token>: path
+/// too long` to stderr and `continue`s to the next token (215–222);
+/// `posix_spawnp` (`sys/posix_spawn.c` 95–206: loop 103–194, switch
+/// 141–193, exit 195–206) returns `ENAMETOOLONG` at once (131–134). The
 /// errno switch that follows each attempt is the caller's (`step`).
 ///
-/// This port carries the moving `main` references design D10 inspected;
-/// the immutable revision pin and the native macOS execution of these
-/// cells are recorded as pending in the delivery account, because this
-/// seat could reach neither the source nor a Darwin host.
+/// The ranges are read at Libc-1752.120.2 (`4e34d055`), with the file
+/// digests in `source-pins-2026-09-23.md`; they replace the moving
+/// `main` ranges design D10 cited (exec.c 178–218 and 262–297,
+/// posix_spawn.c 97–143 and 170–195). The native macOS execution of
+/// these cells is still pending the macOS leg.
 #[cfg(unix)]
 fn apple_walk<T>(
     operation: Operation,
@@ -2636,15 +2678,18 @@ fn apple_walk<T>(
     file: &[u8],
     mut attempt: impl FnMut(Try) -> std::ops::ControlFlow<T>,
 ) -> Option<T> {
-    // `while ((p = strsep(&cur, ":")) != NULL)`
+    // `while (op != NULL) { np = strchrnul(op, ':');` and `op = NULL` or
+    // `op = np + 1` (exec.c 187–208, posix_spawn.c 103–124)
     for (index, token) in path.split(|byte| *byte == b':').enumerate() {
-        // `if (*p == '\0') { p = "."; lp = 1; } else lp = strlen(p);`
+        // `if (np == op) { p = "."; lp = 1; } else { p = op; lp = np -
+        // op; }`
         let (directory, origin): (&[u8], Origin) = match token.is_empty() {
             true => (b".", Origin::EmptyEntry { index }),
             false => (token, Origin::Entry),
         };
         // `bcopy(p, buf, lp); buf[lp] = '/'; bcopy(name, buf + lp + 1,
-        // ln); buf[lp + ln + 1] = '\0';`
+        // ln); buf[lp + ln + 1] = '\0';` (exec.c 223–226, posix_spawn.c
+        // 135–138)
         let mut bytes = Vec::with_capacity(directory.len() + 1 + file.len());
         bytes.extend_from_slice(directory);
         bytes.push(b'/');
@@ -2704,8 +2749,12 @@ enum Step {
 /// The library's switch on an errno, arm by arm, each cited. An errno
 /// no pinned arm names is neither continued on nor stopped on by guess:
 /// it is a limitation the caller reports.
+///
+/// `operation` is the question that failed, `metadata` or `access`.
+/// glibc and musl decide on the errno alone; Apple's switch also asks
+/// whether the candidate's metadata could be read.
 #[cfg(unix)]
-fn step(library: Library, errno: rustix::io::Errno) -> Result<Step, &'static str> {
+fn step(library: Library, operation: &str, errno: rustix::io::Errno) -> Result<Step, &'static str> {
     use rustix::io::Errno;
     match library {
         // `posix/execvpe.c` 136–158: `case EACCES: got_eacces = true;`
@@ -2725,12 +2774,22 @@ fn step(library: Library, errno: rustix::io::Errno) -> Result<Step, &'static str
             Errno::NOENT | Errno::NOTDIR => Step::Continue { denied: false },
             _ => Step::Stop,
         }),
-        // `sys/posix_spawn.c`: ELOOP, ENAMETOOLONG, ENOENT and ENOTDIR
-        // `break` to the next entry, and EACCES is the remembered
-        // denial (D10, 2026-09-20). The remaining arms of that switch
-        // are not pinned here.
+        // Libc-1752.120.2 (`4e34d055`): ELOOP, ENAMETOOLONG, ENOENT and
+        // ENOTDIR `break` to the next entry (`sys/posix_spawn.c`
+        // 146–150; `gen/FreeBSD/exec.c` 232–235 and 266–267). EACCES
+        // falls to `default` (posix_spawn.c 178–193, exec.c 273–289),
+        // whose `if (stat(bp, &sb) != 0) break;` walks past a candidate
+        // whose metadata cannot be read WITHOUT remembering it: only a
+        // candidate `stat` read sets `eacces`. So a failed metadata
+        // question walks on unremembered, and a failed access question,
+        // asked only of a file whose metadata was read, is the
+        // remembered denial. A search that remembers none ends in
+        // ENOENT (posix_spawn.c 195–204, exec.c 293–306). The remaining
+        // arms are read at that pin and not ported here.
         Library::Apple => match errno {
-            Errno::ACCESS => Ok(Step::Continue { denied: true }),
+            Errno::ACCESS => Ok(Step::Continue {
+                denied: operation != "metadata",
+            }),
             Errno::LOOP | Errno::NAMETOOLONG | Errno::NOENT | Errno::NOTDIR => {
                 Ok(Step::Continue { denied: false })
             }
@@ -2810,12 +2869,13 @@ fn lookup_failure(
             candidate.display()
         )))
     };
-    match step(library, errno) {
+    match step(library, operation, errno) {
         // A DIRECT name's refusal may not vary by library, because at a
         // direct name no library's switch runs: `execvp` and
         // `posix_spawnp` alike hand a name containing `/` straight to
-        // `execve` (`gen/FreeBSD/exec.c`'s "if it's an absolute or
-        // relative path name, it's easy"), so the continuation these two
+        // `execve` ("If it's an absolute or relative path name, it's
+        // easy.", `gen/FreeBSD/exec.c` 167–176 and `sys/posix_spawn.c`
+        // 85–90 at Libc-1752.120.2), so the continuation these two
         // errnos get on one arm has no next entry to reach. They are the
         // two the searching libraries part company on — glibc and musl
         // stop on both, Apple continues past both — and so the two whose
@@ -2873,14 +2933,8 @@ fn stop_cause(candidate: &Path, operation: &str, errno: rustix::io::Errno) -> Co
 /// finds nothing (security hold 2026-09-20, S1b; controller
 /// reproduction). Resolution is not a property of a string's characters
 /// beyond this one predicate.
-#[cfg(unix)]
 fn is_explicit_path(command: &str) -> bool {
     command.contains('/')
-}
-
-#[cfg(windows)]
-fn is_explicit_path(command: &str) -> bool {
-    command.contains(['/', '\\'])
 }
 
 /// The two spellings no lookup may begin on, refused BEFORE any
@@ -3101,8 +3155,9 @@ impl Search {
     /// refusal is this resolver's policy answer about the NAME it was
     /// asked to search for, and the cwd candidate is not one spelling
     /// across the libraries: glibc and musl build the bare name for an
-    /// empty entry, Apple builds `./<name>` (`gen/FreeBSD/exec.c`'s
-    /// `p = "."`). Displaying the candidate made the same refusal of the
+    /// empty entry, Apple builds `./<name>` (`p = "."`, `gen/FreeBSD/
+    /// exec.c` 194–197 and `sys/posix_spawn.c` 110–113 at
+    /// Libc-1752.120.2). Displaying the candidate made the same refusal of the
     /// same search read `mytool` on Linux and `./mytool` on macOS, which
     /// is a difference in how one rule is reported and not a difference
     /// in the rule (PR #311's macOS leg, 2026-09-21). The searched name
@@ -3116,7 +3171,7 @@ impl Search {
         let stops = std::fs::metadata(candidate)
             .err()
             .and_then(|error| errno_of(&error))
-            .filter(|errno| step(self.library, *errno) == Ok(Step::Stop));
+            .filter(|errno| step(self.library, "metadata", *errno) == Ok(Step::Stop));
         if let Some(errno) = stops {
             return stop_cause(candidate, "metadata", errno);
         }
@@ -3150,15 +3205,20 @@ enum DefaultSearch {
 #[cfg(unix)]
 const MUSL_DEFAULT_PATH: &str = "/usr/local/bin:/bin:/usr/bin";
 
-/// `_PATH_DEFPATH`, the path Apple's own search uses: `execvP` starts
-/// from `_PATH_DEFPATH` when `PATH` is unset (`gen/FreeBSD/exec.c`), and
-/// `posix_spawnp` searches the same (`sys/posix_spawn.c`). Apple's
+/// `_PATH_DEFPATH`, the path Apple's own search uses: `execvp`'s
+/// `_execvpe` starts from `_PATH_DEFPATH` when `getenv("PATH")` is null
+/// (`gen/FreeBSD/exec.c` 318–328; `execvP` takes its path from the
+/// caller), and `posix_spawnp` does the same (`sys/posix_spawn.c`
+/// 92–93), both at Libc-1752.120.2 (`4e34d055`). Apple's
 /// `confstr(_CS_PATH)` answers `/usr/bin:/bin:/usr/sbin:/sbin` — the two
 /// system `sbin` directories its loader never searches — so a resolver
 /// that asked `confstr` there could select or probe a system executable
 /// native lookup would not select (review 2026-09-20, F2).
-/// `gen/FreeBSD/sysctl.c` supplies that wider `USER_CS_PATH` value;
-/// Apple `include/paths.h` line 63 supplies this one (design D10).
+/// `gen/FreeBSD/sysctl.c` supplies that wider `USER_CS_PATH` value (not
+/// pinned by entry 13); Apple's `include/paths.h` line 65 supplies this
+/// one at Libc-1752.120.2 (`#define _PATH_DEFPATH "/usr/bin:/bin"`, digest
+/// in `source-pins-2026-09-23.md`; this comment said line 63 before
+/// the pin).
 #[cfg(unix)]
 const APPLE_DEFAULT_PATH: &str = "/usr/bin:/bin";
 
@@ -3288,7 +3348,10 @@ fn classify_in(
     let passed = |why: String, denied: bool| Candidate::Passed { why, denied };
     // The kernel's answer to the candidate's path, decided by the
     // library's own switch on that errno and nothing else: ENOENT and
-    // ENOTDIR walk on, EACCES walks on and is remembered, ENAMETOOLONG
+    // ENOTDIR walk on; EACCES walks on, remembered by glibc and musl and
+    // not by Apple, whose `default` walks past an unstatable candidate
+    // before it remembers anything (`sys/posix_spawn.c` 186–187,
+    // `gen/FreeBSD/exec.c` 282–283 at Libc-1752.120.2); ENAMETOOLONG
     // and ELOOP stop glibc's search — and a failure with no errno at
     // all (a NUL in the path) is one no switch decides, so it refuses.
     let metadata = match std::fs::metadata(candidate) {
@@ -3500,8 +3563,9 @@ fn open_head(candidate: &Path) -> std::io::Result<(std::fs::File, Vec<u8>)> {
 /// observation; another program is selected for admission only.
 ///
 /// The program is the argument AS THE KERNEL HANDS IT TO `env`. Linux
-/// (`binfmt_script`) passes everything after the interpreter, trailing
-/// spaces and tabs removed, as ONE argument: `#!/usr/bin/env reviewed
+/// (`fs/binfmt_script.c` `load_script`, 72–85 and 113–119 at v7.2,
+/// `8d3ae592`) passes everything after the interpreter, trailing spaces
+/// and tabs removed, as ONE argument: `#!/usr/bin/env reviewed
 /// extra` makes `env` search for a program named `reviewed extra`, and a
 /// resolver that cut the argument at its first space inspected
 /// `A/reviewed` while the child walked `A/reviewed extra`'s missing
@@ -3596,19 +3660,29 @@ fn same_bytes(left: &mut impl Read, right: &mut impl Read, len: u64) -> Result<b
 /// file, invoked under the name `env`. Nothing else.
 ///
 /// The kernel hands the utility the interpreter path exactly as the
-/// `#!` line spells it, as `argv[0]` (`fs/binfmt_script.c`), and what
-/// the utility does with that name is a property of WHICH executable is
-/// installed as `env` — a property the file does not carry. GNU
-/// coreutils' separate `src/env.c` build and Apple's `usr.bin/env/env.c`
-/// read `argv[0]` for diagnostics only and run `env` under any name;
-/// uutils' multicall binary installed as `env` (`src/bin/coreutils.rs`,
-/// `main`) runs `env` under its own name and under a PREFIXED spelling
-/// of it (`uu_env`) and refuses a renaming symlink; busybox
-/// (`libbb/appletlib.c`, `main`) and GNU's single-binary `coreutils`
-/// (`src/coreutils.c`, `launch_program`) dispatch on `argv[0]`'s
-/// basename alone, so installed as a file named `env` they run `env`
-/// under that name and NO applet under `uu_env`. The fourth hold's
-/// `uu_env` oracle ran `env` because that host's `env` is uutils; the
+/// `#!` line spells it, as `argv[0]` (`fs/binfmt_script.c` 121 at v7.2,
+/// `8d3ae592`), and what the utility does with that name is a property
+/// of WHICH executable is installed as `env` — a property the file does
+/// not carry. The sources below are pinned with their digests in
+/// `source-pins-2026-09-23.md`. GNU coreutils' separate `src/env.c`
+/// build (v9.12, `c0f8514d`: `main` 1021–1251, whose `set_program_name
+/// (argv[0])` at 1035 is gnulib `lib/progname.c` 39–92, for diagnostics,
+/// and whose `execvp` is at 1242) and Apple's `env/env.c` (shell_cmds-329,
+/// `29878700`, which holds no `usr.bin/env/env.c`: `main` 62–234,
+/// `execvp` at 220) read `argv[0]` for diagnostics only and run `env`
+/// under any name. uutils' multicall binary installed as `env`
+/// (`src/bin/coreutils.rs` `main` 52–143 at 0.12.0, `dc1efd89`) runs the
+/// longest utility its name ends with (62–67), so `env` under its own
+/// name and under a PREFIXED spelling of it (`uu_env`). busybox
+/// (`libbb/appletlib.c` `main` 1032–1131 at 1_36_1, `1a64f6a2`, which
+/// takes `bb_basename(argv[0])` at 1107–1110) and GNU's single-binary
+/// `coreutils` (`src/coreutils.c` at v9.12: `last_component (argv[0])`
+/// at 132, `launch_program` 93–127) dispatch on `argv[0]`'s basename
+/// alone, so installed as a file named `env` they run `env` under that
+/// name and NO applet under `uu_env` (busybox's `applet not found`, exit
+/// 127, at 977–997; `unknown program` at coreutils.c 182–187). The
+/// fourth hold's `uu_env` oracle ran `env` because that host's `env` is
+/// uutils; the
 /// chief of run `124cca78` (R1) copied busybox to `env`, hard-linked it
 /// as `uu_env`, and the same layout — same file, same own name, same
 /// prefixed spelling — exited 127, `applet not found`, while the
@@ -3627,23 +3701,35 @@ fn same_bytes(left: &mut impl Read, right: &mut impl Read, len: u64) -> Result<b
 /// run `124cca78`, R1).
 ///
 /// The name `env` is asked of two paths, not one. The kernel hands the
-/// utility the `#!` path as `argv[0]`; uutils then checks that name
-/// against the name of the FILE THAT RUNS — `/proc/self/exe`, the path
-/// the symlinks resolved to — and refuses a mismatch (`Security
-/// violation: Requested utility `env` does not match executable name`),
-/// while busybox and GNU dispatch on `argv[0]` alone. So a symlink NAMED
-/// `env` to a same-bytes copy named `uu_env` or `ls` is spelled `env`,
-/// is the platform's env by every byte, and still runs nothing on this
-/// host — the chief's R1 counterexample of the second sitting — where the
-/// same symlink to a copy named `env`, or a hard link named `env` of any
-/// of them, runs `env` under every implementation. The invocation is
+/// utility the `#!` path as `argv[0]`. The uutils build this host
+/// installs as `/usr/bin/env`, Ubuntu's rust-coreutils 0.2.2-0ubuntu2.1
+/// (`uu_env` 0.2.2), then checks that name against the name of the FILE
+/// THAT RUNS — `/proc/self/exe`, the path the symlinks resolved to — and
+/// refuses a mismatch (`Security violation: Requested utility `env`
+/// does not match executable name`, exit 1). That check is Ubuntu's
+/// `debian/patches/require-utility-to-be-invoked-at-matching-path.patch`
+/// (Canonical, 2025-07-21, for AppArmor profiles; sixth in its
+/// `debian/patches/series`), added to `main` in `src/bin/coreutils.rs`.
+/// Upstream uutils does not carry it: 0.2.2 (`3a07ffc5`, `main` 97–200)
+/// dispatches on `argv[0]`'s file stem (43–52), and 0.12.0's
+/// `validation::binary_path` (`src/common/validation.rs` 114–145) reads
+/// `AT_EXECFN` but returns `argv[0]` for a `#!` launch, with `unknown
+/// program` its only refusal (53–60). Upstream uutils, busybox and GNU
+/// therefore run a renamed `env`, and the patched build refuses it. A
+/// symlink NAMED `env` to a same-bytes copy named `uu_env` or `ls` is
+/// spelled `env`, is the platform's env by every byte, and still runs
+/// nothing on this host — the chief's R1 counterexample of the second
+/// sitting — where the same symlink to a copy named `env`, or a hard
+/// link named `env` of any of them, runs `env` under every
+/// implementation. The invocation is
 /// therefore established only where the file that runs is itself named
 /// `env`, or IS the platform's own installed file — the path the
 /// reference resolves to, which the platform runs `env` through under
 /// this name by its own construction (busybox installed as
 /// `/usr/bin/env -> /bin/busybox`). A copy under another own name is
-/// refused as a dispatch the implementations disagree on; establishing
-/// it by executing the utility stays forbidden (design D10). A reference
+/// refused as a dispatch the implementations disagree on, which is the
+/// fail-closed reading decision 0004 requires; establishing it by
+/// executing the utility stays forbidden (design D10). A reference
 /// whose own path cannot be resolved offers no second path to match and
 /// leaves the own-name rule alone, which admits nothing the rule above
 /// would not.
@@ -3730,8 +3816,10 @@ fn env_program(
 /// The rule is asked wherever the file is about to be RUN under a name,
 /// which is two places and not one: as a `#!` line's interpreter, and as
 /// the SELECTED executable. A `dsh` symlinked to `/usr/bin/env` is the
-/// second: native hands uutils the name `dsh`, which exits 1 on the name
-/// mismatch with nothing printed, while a doctor that executed the
+/// second: native hands this host's uutils (Ubuntu's patched 0.2.2,
+/// above) the name `dsh`, which exits 1 on the name mismatch with nothing
+/// on stdout (upstream 0.12.0 exits 1 with `unknown program 'dsh'`),
+/// while a doctor that executed the
 /// canonical target under its own name reported `env`'s version as
 /// DSH's availability (review of run `124cca78`, R2).
 #[cfg(unix)]
@@ -3746,7 +3834,8 @@ fn env_dispatch(invoked: &Path, search: &Search) -> Result<(), String> {
         ));
     }
     // The file that RUNS: the path the spelling's symlinks resolve to,
-    // whose own name uutils checks `argv[0]` against. It is named `env`,
+    // whose own name Ubuntu's patched uutils checks `argv[0]` against. It
+    // is named `env`,
     // or it is the platform's own installed file; otherwise the
     // implementations disagree and nothing is established.
     let runs = std::fs::canonicalize(invoked)
@@ -3825,22 +3914,10 @@ fn native_obstruction(file: &mut std::fs::File, len: u64) -> Result<(), String> 
 /// environment this process would hand a child: a path is used
 /// directly, a name is searched. The answer carries what the selection
 /// established beside the file.
-#[cfg(unix)]
 fn select(command: &str) -> Result<Selected, CompositeError> {
     // Production's `Command::new(name)` changes nothing in the child's
     // environment, which is the `posix_spawnp` form (`Operation`).
     select_as(command, std::env::var_os("PATH"), Operation::Spawn)
-}
-
-/// `select` on Windows: an unchanged child environment is resolved
-/// against the application, system and parent-`PATH` directories in that
-/// order, which is the lookup an explicitly removed child `PATH` gets
-/// too — and not the one a child `PATH` equal to the parent's gets,
-/// which would search the parent's entries ahead of the application
-/// directory.
-#[cfg(windows)]
-fn select(command: &str) -> Result<Selected, CompositeError> {
-    select_in(command, None)
 }
 
 /// Resolve `command` to the canonical file alone: the suite's question.
@@ -3868,7 +3945,7 @@ fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
 /// lookup would not execute is selected, and nothing it would execute is
 /// silently swapped for another. Production has no explicit-`PATH`
 /// caller: the selection is `select`, and this entry serves the suites.
-#[cfg(all(unix, test))]
+#[cfg(test)]
 fn select_in(command: &str, path: Option<std::ffi::OsString>) -> Result<Selected, CompositeError> {
     select_as(command, path, Operation::Exec)
 }
@@ -3922,218 +3999,6 @@ fn lookup_in(
         selected.invocation.argv0 = std::ffi::OsString::from(command);
         selected
     })
-}
-
-/// `select_in` on Windows: `path` is the child's explicit `PATH` —
-/// present, or removed from a changed environment — and the parent's
-/// `PATH` is the process's own, exactly the two inputs
-/// `std::process::Command` resolves a program against there. The
-/// production selection hands `None`: a child whose environment is
-/// unchanged is resolved against the same application, system and
-/// parent-`PATH` directories as one whose `PATH` was removed, so the
-/// one lookup serves both. No Windows selection establishes a Node
-/// runtime: a PE declares no interpreter to follow. The head is retained
-/// all the same, from the same admission that inspected the image, so
-/// the observation reads selection's bytes on every platform.
-#[cfg(windows)]
-fn select_in(command: &str, path: Option<std::ffi::OsString>) -> Result<Selected, CompositeError> {
-    refuse_unspellable(command)?;
-    windows_lookup(command, path.as_deref(), std::env::var_os("PATH"))
-}
-
-/// Rust's Windows program resolution (library/std/src/sys/process/
-/// windows.rs, `resolve_exe`), reimplemented rather than borrowed from
-/// the Unix loop: a program with a separator is a path, tried with an
-/// appended `.exe` before the literal spelling unless it already ends in
-/// `.exe`; a file name is searched — child `PATH` if the child's
-/// environment was changed, the application directory, the system
-/// directory, the Windows directory, then the parent's `PATH`, skipping
-/// empty entries — with `.exe` appended when the name has no extension.
-/// The first entry that EXISTS is the selection; `CreateProcessW` then
-/// either runs it or fails, and never tries a later entry, so an
-/// existing candidate that cannot load is a refusal here too.
-#[cfg(windows)]
-fn windows_lookup(
-    command: &str,
-    child: Option<&std::ffi::OsStr>,
-    parent: Option<std::ffi::OsString>,
-) -> Result<Selected, CompositeError> {
-    if command.ends_with(['/', '\\']) {
-        return Err(CompositeError::Config(format!(
-            "'{command}' has no file name"
-        )));
-    }
-    let has_exe_suffix = command
-        .as_bytes()
-        .get(command.len().wrapping_sub(4)..)
-        .is_some_and(|tail| tail.eq_ignore_ascii_case(b".exe"));
-    if is_explicit_path(command) {
-        let candidate = if has_exe_suffix {
-            PathBuf::from(command)
-        } else {
-            let mut with_suffix = std::ffi::OsString::from(command);
-            with_suffix.push(".exe");
-            let with_suffix = PathBuf::from(with_suffix);
-            match std::fs::symlink_metadata(&with_suffix).is_ok() {
-                true => with_suffix,
-                false => PathBuf::from(command),
-            }
-        };
-        return admit_windows(&candidate);
-    }
-    let file: std::ffi::OsString = match command.contains('.') {
-        true => command.into(),
-        false => format!("{command}.exe").into(),
-    };
-    let mut directories: Vec<PathBuf> = Vec::new();
-    if let Some(child) = child {
-        directories.extend(std::env::split_paths(child).filter(|dir| !dir.as_os_str().is_empty()));
-    }
-    if let Ok(mut application) = std::env::current_exe() {
-        application.pop();
-        directories.push(application);
-    }
-    directories.extend(windows_system_directories());
-    if let Some(parent) = parent {
-        directories
-            .extend(std::env::split_paths(&parent).filter(|dir| !dir.as_os_str().is_empty()));
-    }
-    for dir in directories {
-        let candidate = dir.join(&file);
-        if std::fs::symlink_metadata(&candidate).is_ok() {
-            return admit_windows(&candidate);
-        }
-    }
-    Err(CompositeError::Config(format!(
-        "'{command}' is not on the Windows search path"
-    )))
-}
-
-/// The system and Windows directories, as `GetSystemDirectoryW` and
-/// `GetWindowsDirectoryW` report them: the two fixed entries of the
-/// search `CreateProcessW`'s callers in std consult.
-#[cfg(windows)]
-fn windows_system_directories() -> Vec<PathBuf> {
-    use std::os::windows::ffi::OsStringExt;
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
-        fn GetWindowsDirectoryW(buffer: *mut u16, size: u32) -> u32;
-    }
-    let mut directories = Vec::new();
-    for query in [GetSystemDirectoryW, GetWindowsDirectoryW] {
-        let mut buffer = vec![0u16; 1024];
-        // SAFETY: `buffer` is a live, writable region of exactly the
-        // length passed, in UTF-16 units; the call writes at most that
-        // many units and answers the length written, or the length
-        // needed when the buffer is too small, or zero on failure.
-        let written = unsafe { query(buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
-        if written == 0 || written >= buffer.len() {
-            continue;
-        }
-        directories.push(PathBuf::from(std::ffi::OsString::from_wide(
-            &buffer[..written],
-        )));
-    }
-    directories
-}
-
-/// Admit a Windows candidate the search selected: a regular file that is
-/// not a batch script dispatched through `cmd.exe`, a PE image of this
-/// target's machine, word size and subsystem whose headers and sections
-/// lie inside the file, and one the OS itself reports as a native
-/// binary of this target's word size (`GetBinaryTypeW`, a read-only
-/// query that loads nothing). A dangling link, a directory, a malformed
-/// image, an image of another format or a binary type the OS names
-/// otherwise refuses by cause (review 2026-09-20, R7).
-#[cfg(windows)]
-fn admit_windows(candidate: &Path) -> Result<Selected, CompositeError> {
-    let refuse = |why: String| CompositeError::Config(format!("{}: {why}", candidate.display()));
-    let metadata = std::fs::metadata(candidate)
-        .map_err(|error| refuse(format!("cannot be inspected: {error}")))?;
-    if !metadata.is_file() {
-        return Err(refuse("is not a regular file".to_string()));
-    }
-    let extension = candidate
-        .extension()
-        .and_then(std::ffi::OsStr::to_str)
-        .map(str::to_ascii_lowercase);
-    if matches!(extension.as_deref(), Some("bat" | "cmd")) {
-        return Err(refuse(
-            "is a batch script, whose cmd.exe dispatch this resolver does not establish"
-                .to_string(),
-        ));
-    }
-    let mut file = std::fs::File::open(candidate)
-        .map_err(|error| refuse(format!("cannot be read: {error}")))?;
-    let image = image::inspect(&mut file, metadata.len())
-        .map_err(|why| refuse(format!("is not a loadable native image: {why}")))?;
-    if image.kind != image::NATIVE {
-        return Err(refuse(format!(
-            "is a {} image, which this target does not load",
-            image.kind
-        )));
-    }
-    let binary_type = windows_binary_type(candidate)
-        .map_err(|why| refuse(format!("is not an executable the OS recognizes: {why}")))?;
-    if binary_type != WINDOWS_BINARY_TYPE {
-        return Err(refuse(format!(
-            "is binary type {binary_type} to the OS, which is not this target's {WINDOWS_BINARY_TYPE}"
-        )));
-    }
-    // The head this admission read, retained with the selection: the
-    // observation's first-line check reads these bytes and never reopens
-    // the file after the version probe ran it (review 2026-09-20, F6).
-    let (_, head) =
-        open_head(candidate).map_err(|error| refuse(format!("cannot be read: {error}")))?;
-    canonicalize(candidate).map(|path| Selected {
-        path,
-        invocation: DshInvocation::of(candidate),
-        node: None,
-        head,
-    })
-}
-
-/// The `GetBinaryTypeW` answer this target executes as itself:
-/// `SCS_64BIT_BINARY` (6) on a 64-bit target, `SCS_32BIT_BINARY` (0) on
-/// a 32-bit one. A DOS, 16-bit Windows, OS/2, POSIX or PIF binary is
-/// another type, and so is a 32-bit image on a 64-bit target, which
-/// `CreateProcessW` would run under WOW64 as a different runtime.
-#[cfg(windows)]
-const WINDOWS_BINARY_TYPE: u32 = if cfg!(target_pointer_width = "64") {
-    6
-} else {
-    0
-};
-
-/// The OS's own classification of an executable file, without loading
-/// it: `GetBinaryTypeW` reads the image headers and answers the binary
-/// type, or fails for a file that is not an executable at all.
-#[cfg(windows)]
-fn windows_binary_type(candidate: &Path) -> Result<u32, String> {
-    use std::os::windows::ffi::OsStrExt;
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetBinaryTypeW(application: *const u16, binary_type: *mut u32) -> i32;
-        fn GetLastError() -> u32;
-    }
-    let wide: Vec<u16> = candidate
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let mut binary_type = 0u32;
-    // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives the
-    // call, and `binary_type` is a live `u32` the call writes once.
-    let answered = unsafe { GetBinaryTypeW(wide.as_ptr(), &mut binary_type) };
-    if answered == 0 {
-        // SAFETY: reads the calling thread's last-error value.
-        let error = unsafe { GetLastError() };
-        return Err(format!("GetBinaryTypeW failed with error {error}"));
-    }
-    Ok(binary_type)
 }
 
 /// The selected executable, exactly as the seams carry it: a path the

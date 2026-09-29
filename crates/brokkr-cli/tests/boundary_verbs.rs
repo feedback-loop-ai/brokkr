@@ -284,6 +284,7 @@ fn the_gate_fixture_reads_windows_result_paths_from_its_prompt() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes() {
     for boundary in ["harness", "open"] {
         let ws = Workspace {
@@ -588,6 +589,7 @@ fn run_resume_and_rerun_refuse_an_unbuilt_boundary_before_the_journal() {
 /// no adjective, `rerun` compiles in the discovered realm and pins it,
 /// and `compile` prints the boundary under the hands site.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     let ws = Workspace::new("harness");
     let (code, _, stderr) = ws.run();

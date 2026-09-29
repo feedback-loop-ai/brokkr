@@ -408,11 +408,7 @@ fn the_reader_starts_no_provider_process() {
 fn hostile_paths_are_portable_and_retained_inert() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
-    let home = dir.path().join(if cfg!(windows) {
-        "home $(x) `t` ;a&b%c!d é😀"
-    } else {
-        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
-    });
+    let home = dir.path().join("home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀");
     std::fs::create_dir_all(home.join("sessions")).unwrap();
     let file = home.join("sessions/rollout-0199mine.jsonl");
     std::fs::write(&file, "{\"type\":\"turn_context\"}\n").unwrap();
@@ -814,6 +810,7 @@ fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
 /// read the frames, and leaves the `-wal` digest and the database bytes
 /// unchanged (S12-S14).
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_read_leaves_an_existing_frame_bearing_wal_as_it_found() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");

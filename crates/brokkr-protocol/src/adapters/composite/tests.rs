@@ -929,15 +929,37 @@ fn the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta() {
 
     let index = fs::read_to_string(dir.join("lib/index.js")).unwrap();
     let adapted = "\tconst events = agent.session.snapshotEvents(firstSeq);";
+    let upstream_line = "\tconst events = agent.session.events;";
     assert_eq!(index.matches(adapted).count(), 1);
-    let upstream = index.replace(adapted, "\tconst events = agent.session.events;");
+    let upstream = index.replace(adapted, upstream_line);
     assert_eq!(
         digest_of(upstream.as_bytes()),
         "a40b52b3891485821ad01b00c322006abee8a51a0d4a2ae4ddb8427a0183d99b"
     );
+
+    // PROVENANCE.md's delta digest was RECORDED and never recomputed, so
+    // nothing until now would have parted had the note's diff block and
+    // the committed bytes diverged. It is recomputed here over the same
+    // canonical text the note defines — the location, the upstream line
+    // prefixed `-`, the adapted line prefixed `+`, each newline-terminated
+    // — and both lines are the ones the substitution above already proved
+    // against the upstream file digest. The location is READ OFF the
+    // committed bytes rather than copied from the prose, so `253` is a
+    // measurement too: a line inserted above the expression parts this.
+    let line = index
+        .lines()
+        .position(|text| text == adapted)
+        .expect("the adapted expression occupies a whole line")
+        + 1;
+    assert_eq!(line, 253);
+    let canonical = format!("lib/index.js:{line}\n-{upstream_line}\n+{adapted}\n");
+    assert_eq!(
+        digest_of(canonical.as_bytes()),
+        "78256d2e114f7ae8caec22987c5793b7398018cd59cd24cf36e79d7be011a585"
+    );
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn composite(
     core: &str,
     node: &str,
@@ -967,6 +989,7 @@ fn composite(
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_canonical_composite_orders_lines_and_moves_with_its_inputs() {
     let npm = vec!["debug 4.4.3 sha512-D".to_string()];
     let pnpm = vec![
@@ -1026,7 +1049,10 @@ fn the_canonical_composite_orders_lines_and_moves_with_its_inputs() {
         "debug 4.4.3 sha512-D".to_string(),
         "zzz 1.0.0 sha512-Y".to_string(),
     ];
-    #[allow(clippy::type_complexity)]
+    #[expect(
+        clippy::type_complexity,
+        reason = "one table of rows reads plainer inline than behind a type alias"
+    )]
     let rows: [(
         &str,
         &str,
@@ -1987,8 +2013,10 @@ fn the_default_search_path_is_the_c_librarys_own_answer() {
 /// The absent-`PATH` search is each platform's OWN `execvp` rule, per
 /// platform, and not one library call standing in for all of them.
 ///
-/// Apple's `execvP` and `posix_spawnp` search `_PATH_DEFPATH`,
-/// `/usr/bin:/bin`. Apple's `confstr(_CS_PATH)` answers
+/// Apple's `execvp` (through `_execvpe`, `gen/FreeBSD/exec.c` 318–328)
+/// and `posix_spawnp` (`sys/posix_spawn.c` 92–93) search `_PATH_DEFPATH`,
+/// `/usr/bin:/bin` (`include/paths.h` 65), all at Libc-1752.120.2
+/// (`4e34d055`). Apple's `confstr(_CS_PATH)` answers
 /// `/usr/bin:/bin:/usr/sbin:/sbin` — `USER_CS_PATH` — so asking the
 /// library there would put two system directories on a search the
 /// loader never walks, and the resolver could select or probe a
@@ -2331,11 +2359,121 @@ fn an_empty_path_entry_is_the_working_directory_and_is_refused() {
     assert!(output.status.success(), "{said}");
 }
 
+/// Apple's switch remembers a denial only for a candidate whose metadata
+/// it read (entry 13-fix, finding P1). At Libc-1752.120.2 (`4e34d055`)
+/// EACCES falls to `default`, which does `if (stat(bp, &sb) != 0)
+/// break;` before `eacces = 1` (`sys/posix_spawn.c` 178–193,
+/// `gen/FreeBSD/exec.c` 273–289). A `PATH` directory without search
+/// permission is therefore walked past unremembered, and a search that
+/// remembers nothing ends in ENOENT (posix_spawn.c 195–204, exec.c
+/// 293–306). glibc's `case EACCES: got_eacces = true;` and musl's
+/// `seen_eacces` remember it whichever question failed. Each library's
+/// rule is a plain test on this host because `Search` carries the
+/// library it translates.
+#[cfg(unix)]
+#[test]
+fn apple_walks_past_a_sealed_directory_without_remembering_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = FixtureRoot::new();
+    // Readable, regular and not executable: its metadata is read and its
+    // access question fails, which every library remembers.
+    let readable = root.path().join("readable");
+    fs::create_dir_all(&readable).unwrap();
+    let decoy = readable.join("dsh");
+    fs::write(&decoy, b"#!/bin/sh\ntrue\n").unwrap();
+    fs::set_permissions(&decoy, fs::Permissions::from_mode(0o644)).unwrap();
+    // A directory without search permission, holding a runnable `dsh` no
+    // unprivileged child reaches: the candidate's metadata is unreadable.
+    let sealed = root.path().join("sealed");
+    fs::create_dir_all(&sealed).unwrap();
+    stage_executable(&sealed, "dsh", b"#!/bin/sh\ntrue\n");
+    let hidden = sealed.join("dsh");
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let search = |library: Library, operation: Operation, entries: String| Search {
+        entries: OsString::from(entries),
+        default: false,
+        library,
+        operation,
+        env_reference: PathBuf::from(ENV_REFERENCE),
+    };
+    let alone = sealed.display().to_string();
+    let last = format!("{}:{}", readable.display(), sealed.display());
+    let direct = hidden.display().to_string();
+    let unreadable = fs::metadata(&hidden)
+        .err()
+        .and_then(|error| errno_of(&error));
+    let mut answers = Vec::new();
+    for library in [Library::Apple, Library::Glibc, Library::Musl] {
+        for operation in [Operation::Exec, Operation::Spawn] {
+            for (cell, command, entries) in [
+                ("alone", "dsh", &alone),
+                ("last", "dsh", &last),
+                ("direct", direct.as_str(), &last),
+            ] {
+                let answer = lookup_in(
+                    command,
+                    &search(library, operation, entries.clone()),
+                    &mut Vec::new(),
+                )
+                .map(|selected| selected.path)
+                .map_err(|error| error.to_string());
+                answers.push((library, operation, cell, answer));
+            }
+        }
+    }
+    // Restored before anything is asserted, so the tree can be removed.
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        unreadable,
+        Some(rustix::io::Errno::ACCESS),
+        "the sealed candidate's metadata is unreadable to this process"
+    );
+
+    let not_on_path = format!(
+        "the DSH layout is unreadable: 'dsh' is not on PATH (the search ended at {}: Permission \
+         denied (os error 13))",
+        hidden.display()
+    );
+    let remembered = format!(
+        "the DSH layout is unreadable: 'dsh' is not executable by this process on PATH: {}: \
+         Permission denied (os error 13)",
+        hidden.display()
+    );
+    let decoy_denied = format!(
+        "the DSH layout is unreadable: 'dsh' is not executable by this process on PATH: {}: is \
+         not executable by this process",
+        decoy.display()
+    );
+    let direct_denied =
+        format!("the DSH layout is unreadable: {direct}: Permission denied (os error 13)");
+    assert_eq!(answers.len(), 18);
+    for (library, operation, cell, answer) in answers {
+        let expected = match (cell, library) {
+            // The only candidate: Apple exhausts to NotFound at it, and
+            // glibc and musl report the remembered EACCES.
+            ("alone", Library::Apple) => &not_on_path,
+            ("alone", _) => &remembered,
+            // The last candidate, after a readable non-executable file:
+            // that file's denial stands on every arm.
+            ("last", _) => &decoy_denied,
+            // A direct name runs no switch: one answer on every arm.
+            _ => &direct_denied,
+        };
+        assert_eq!(
+            answer.as_ref(),
+            Err(expected),
+            "{library:?} under {operation:?}, the sealed directory {cell}"
+        );
+    }
+}
+
 /// The working-directory refusal names the SEARCHED NAME, whichever
 /// library's rule the search translates. The candidate a platform builds
 /// for its cwd iteration is not one spelling: glibc and musl build the
-/// bare name for an empty entry, Apple builds `./<name>` (`p = "."` in
-/// `gen/FreeBSD/exec.c`). A refusal that displayed the candidate
+/// bare name for an empty entry, Apple builds `./<name>` (`p = "."`,
+/// `gen/FreeBSD/exec.c` 194–197 at Libc-1752.120.2). A refusal that displayed the candidate
 /// therefore reported the SAME refusal of the SAME search as `mytool` on
 /// Linux and `./mytool` on macOS (PR #311's macOS leg, 2026-09-21). Each
 /// library's rule is a plain test on this host because `Search` carries
@@ -2565,6 +2703,47 @@ fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
     assert!(refusal(dir.path().join("absent")).contains("node --version:"));
 }
 
+/// A DSH pinned only by the retired spelling, or by a value that is not
+/// UTF-8 (#355), selects nothing: the selection and the planner's
+/// resolution carry the refusal, by name.
+#[test]
+fn a_dsh_override_that_cannot_be_read_selects_nothing() {
+    use std::os::unix::ffi::OsStrExt;
+    let mut env = crate::env_guard::EnvGuard::lock();
+    let retired = Override::DshBin.retired().unwrap();
+    env.remove("BROKKR_DSH_BIN");
+    env.set(&retired, "/pinned/dsh");
+    let retired = OverrideError::Retired {
+        retired,
+        current: "BROKKR_DSH_BIN",
+    };
+    let not_unicode = OverrideError::NotUnicode {
+        variable: "BROKKR_DSH_BIN",
+    };
+    for refused in [retired, not_unicode] {
+        let refusal = CompositeError::Override(refused);
+        assert_eq!(
+            DshSeams::selected(),
+            Err(DshUnselected {
+                declared: "dsh".to_string(),
+                cause: refusal.clone(),
+            })
+        );
+        assert_eq!(DshSeams::resolve(), Err(refusal));
+        env.set(
+            "BROKKR_DSH_BIN",
+            std::ffi::OsStr::from_bytes(b"/opt/\xff/dsh"),
+        );
+    }
+    // A seat resolves the value `run_seat` already read, so the refusal
+    // above is not met a second time: the lookup answers for `declared`.
+    let declared = "/nonexistent/brokkr-355/dsh";
+    assert_eq!(
+        DshSeams::resolve_declared(declared),
+        Err(resolve_executable(declared).unwrap_err())
+    );
+}
+
 /// Executable selection and home availability are INDEPENDENT
 /// requirements, and combined resolution needs both. The inherited
 /// premise `resolve().is_ok() == dsh_home().is_some()` equated a home
@@ -2574,19 +2753,20 @@ fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
 /// combinations are driven below; the real child control reproduces the
 /// commissioned environment.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     // This test READS the process `DSH_HOME` and asserts what it read;
     // the planner suite beside it sets a temporary one. Without the
-    // shared adapter-environment lock the two race and this assertion
+    // binary's environment guard the two race and this assertion
     // reports another test's home as this host's fact.
-    let _guard = crate::adapters::tests::ADAPTER_ENV.lock().unwrap();
+    let _env = crate::env_guard::EnvGuard::lock();
     // The selection is the ADAPTER's, resolved once: the file the
     // declared name resolves to, or a failed selection carrying that
     // name and the lookup's cause. Asserting the literal `dsh` here made
     // this test fail under any configured `BROKKR_DSH_BIN` — an
     // environment an operator running the suite may well have, and one
     // this seat reproduced (council return 2026-09-19, F11).
-    let declared = super::super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
+    let declared = crate::overrides::read(Override::DshBin).unwrap();
     let home = crate::transcript::dsh_home();
     match (DshSeams::selected(), resolve_executable(&declared)) {
         (Ok(selection), Ok(path)) => {
@@ -2699,7 +2879,6 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
             .env("HOME", "/tmp")
             .env("PATH", "/usr/bin:/bin")
             .env_remove("BROKKR_DSH_BIN")
-            .env_remove("FORGE_DSH_BIN")
             .env_remove("DSH_HOME");
         let output = spawn_retrying_etxtbsy(&mut child);
         let said = String::from_utf8_lossy(&output.stdout).into_owned()
@@ -2906,8 +3085,9 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
 /// other.
 ///
 /// `dsh -> /usr/bin/env`, searched and as an absolute alias, is the
-/// platform's env utility run under the name `dsh`: natively uutils exits
-/// 1 on the name mismatch and prints nothing, while executing the
+/// platform's env utility run under the name `dsh`: natively this host's
+/// uutils (Ubuntu's patched 0.2.2) exits 1 on the name mismatch and
+/// prints nothing on stdout, while executing the
 /// canonical target under its own name reported env's version as DSH's.
 /// Both refuse at selection, by the selected invocation and the env
 /// dispatch, so there is no probe target. Direct `/usr/bin/env` is the
@@ -2915,6 +3095,7 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
 /// invocation, and not the canonical target, is what runs.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
     let dir = tempfile::tempdir().unwrap();
     let a = dir.path().join("a");
@@ -2942,7 +3123,9 @@ fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
         ("absolute", alias.display().to_string()),
     ] {
         // The native outcome is the HOST's and is recorded, never
-        // counted: uutils refuses the name, GNU's env runs under any.
+        // counted: uutils refuses the name (Ubuntu's patched build by
+        // its executable-name check, upstream as an unknown program),
+        // GNU's env runs under any.
         let ran = native(declared.as_ref(), &a).unwrap();
         eprintln!(
             "native {form} alias: {:?}, {} stdout bytes",
@@ -3002,6 +3185,24 @@ fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
     std::os::unix::fs::symlink(&launcher, &alias).unwrap();
     let selected = select_in("dsh", path(&a)).unwrap();
     assert_eq!(selected.path, launcher.canonicalize().unwrap());
+    // No second search: the invocation's program is the path the walk
+    // found, so it runs with `PATH` emptied, from a working directory
+    // holding no `dsh`, and still prints the alias (task 8.8.1.2). A
+    // bare `dsh` there is NotFound.
+    let unsearched = selected
+        .invocation
+        .command()
+        .arg("--version")
+        .env("PATH", "")
+        .current_dir(dir.path())
+        .output()
+        .map(|ran| String::from_utf8_lossy(&ran.stdout).into_owned())
+        .map_err(|error| error.kind());
+    assert_eq!(
+        unsearched,
+        Ok(format!("{}\n", alias.display())),
+        "the invocation runs without a search"
+    );
     assert_eq!(
         selected.invocation,
         DshInvocation {
@@ -3071,6 +3272,7 @@ fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
 /// alone, and a probe that rewrites the admitted files changes nothing
 /// the composite reads.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_pnpm_lock_is_admitted_before_any_probe_and_composed_as_retained() {
     let install = Synthetic::new();
     let profile = install.profile();
@@ -3432,7 +3634,7 @@ fn an_absent_path_is_a_named_refusal_and_never_the_working_directory() {
 }
 
 /// Where a bare or direct spelling places its candidate in a layout,
-/// shared by the Unix matrix (`native_matrix.rs`) and the Windows one.
+/// for the differential matrix (`native_matrix.rs`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Slot {
     /// The file the spelling itself denotes: `cwd/<name>` for a bare
@@ -3466,10 +3668,6 @@ enum Slot {
     PaddedA(usize),
 }
 
-/// The overlong `PATH` component's spelling, as the commission first
-/// reproduced it; the Windows matrix keeps it as its one long cell.
-#[cfg(windows)]
-const OVERLONG_COMPONENT: usize = 5000;
 /// R5 (run `09ec8d81`). With `PATH` absent and DSH safely selected by an
 /// explicit path, the `node` the selection RETAINS is exactly the
 /// runtime a native `Command::new("node")` runs from the platform's
@@ -3573,441 +3771,6 @@ fn absent_path_node_identity_is_retained_by_the_composite() {
             );
         }
     }
-}
-
-/// The Windows sentinel arm: run as a hard-linked copy of this test
-/// binary under another name, with the marker variable set, it prints
-/// the image it runs as, so a matrix cell can tell WHICH copy the
-/// platform ran. Run as an ordinary test it does nothing.
-#[cfg(windows)]
-#[test]
-fn windows_matrix_sentinel_reports_its_own_image() {
-    if std::env::var_os(WINDOWS_SENTINEL).is_some() {
-        println!(
-            "SENTINEL_EXE:{}",
-            std::env::current_exe().unwrap().display()
-        );
-    }
-}
-
-#[cfg(windows)]
-const WINDOWS_SENTINEL: &str = "BROKKR_COMPOSITE_WINDOWS_SENTINEL";
-
-/// The layouts the Windows matrix crosses: the same cwd, PATH-directory,
-/// absent, present-empty and empty-entry layouts as the Unix table, and
-/// the three `A;B` cells Windows lookup has — a non-image at A, a
-/// directory at A and a working image at A — in place of the Unix loader
-/// obstructions, because Windows lookup stops at the first entry that
-/// EXISTS and never walks past one it cannot run.
-#[cfg(windows)]
-const WINDOWS_MATRIX_LAYOUTS: usize = 11;
-
-/// The differential matrix on Windows (design D10, proposal AO; review
-/// 2026-09-20, R8): every commissioned spelling crossed with every
-/// layout, the resolver compared with a real `Command::new(name)` child
-/// under IDENTICAL cwd and environment, and every cell equality — the
-/// same canonical file, or a refusal exactly where the child failed. The
-/// candidates are hard-linked copies of this test binary answering as
-/// the sentinel arm above, so a cell identifies the file the platform
-/// ran. The literal `C:\Tools\dsh.exe` row is asserted as the absent
-/// path it is on a runner and recorded PENDING where an operator keeps
-/// an installation there, which this test never creates or runs.
-///
-/// Windows' rule, as std applies it: a spelling with a separator is a
-/// path, tried with `.exe` appended before the literal unless it already
-/// ends in `.exe`; a file name is searched — the child's `PATH` when its
-/// environment changed (empty entries skipped), the application
-/// directory, the system and Windows directories, the parent's `PATH` —
-/// with `.exe` appended when the name has no extension; the working
-/// directory is never searched; the first entry that exists is the
-/// selection, run or not.
-#[cfg(windows)]
-#[test]
-fn native_executable_resolution_matches_command_matrix_on_windows() {
-    const CASE: &str = "BROKKR_COMPOSITE_NATIVE_MATRIX_WINDOWS";
-    if std::env::var_os(CASE).is_some() {
-        windows_matrix_child();
-        return;
-    }
-    let root = tempfile::tempdir().unwrap();
-    let cwd = root.path().join("cwd");
-    fs::create_dir_all(&cwd).unwrap();
-    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
-    child
-        .args([
-            "adapters::composite::tests::native_executable_resolution_matches_command_matrix_on_windows",
-            "--exact",
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .current_dir(&cwd)
-        .env(CASE, "1");
-    let output = child.output().expect("the child test binary runs");
-    let said = String::from_utf8_lossy(&output.stdout).into_owned()
-        + &String::from_utf8_lossy(&output.stderr);
-    assert!(
-        said.contains("1 passed") || said.contains("1 failed"),
-        "the child ran the matrix rather than filtering it away: {said}"
-    );
-    assert!(output.status.success(), "{said}");
-    assert!(
-        said.contains(&format!(
-            "matrix: 8 names x {WINDOWS_MATRIX_LAYOUTS} layouts = {} cells",
-            8 * WINDOWS_MATRIX_LAYOUTS
-        )),
-        "{said}"
-    );
-}
-
-/// What a Windows candidate is made of.
-#[cfg(windows)]
-enum WindowsBody {
-    /// A hard-linked copy of this test binary: a working image.
-    Sentinel,
-    /// A text file under the candidate's name: exists, and is no image.
-    Text,
-    /// A directory under the candidate's name: exists, and is no file.
-    Directory,
-}
-
-#[cfg(windows)]
-struct WindowsLayout {
-    name: &'static str,
-    files: Vec<(Slot, WindowsBody)>,
-    path: Option<Vec<Slot>>,
-    empty_at: Option<usize>,
-}
-
-#[cfg(windows)]
-fn windows_matrix_child() {
-    use std::process::{Command, Stdio};
-
-    let cwd = std::env::current_dir().unwrap();
-    let root = cwd.parent().unwrap().to_path_buf();
-    let exe = std::env::current_exe().unwrap();
-    fs::create_dir_all(root.join("abs")).unwrap();
-    let abs = root.join("abs").join("dsh").display().to_string();
-    const OPERATOR_PATH: &str = "C:\\Tools\\dsh.exe";
-    let operator_installation = Path::new(OPERATOR_PATH).exists();
-    let names: [&str; 8] = [
-        "dsh",
-        ".\\dsh",
-        "..\\dsh",
-        &abs,
-        OPERATOR_PATH,
-        "dsh.exe",
-        "my dsh",
-        "dsh\0x",
-    ];
-    let layouts = vec![
-        WindowsLayout {
-            name: "cwd-only, PATH elsewhere",
-            files: vec![(Slot::Target, WindowsBody::Sentinel)],
-            path: Some(vec![Slot::Other]),
-            empty_at: None,
-        },
-        WindowsLayout {
-            name: "PATH directory plus competing cwd file",
-            files: vec![
-                (Slot::PathDir, WindowsBody::Sentinel),
-                (Slot::Target, WindowsBody::Sentinel),
-            ],
-            path: Some(vec![Slot::PathDir]),
-            empty_at: None,
-        },
-        WindowsLayout {
-            name: "PATH absent, cwd file",
-            files: vec![(Slot::Target, WindowsBody::Sentinel)],
-            path: None,
-            empty_at: None,
-        },
-        WindowsLayout {
-            name: "present-empty PATH, cwd file",
-            files: vec![(Slot::Target, WindowsBody::Sentinel)],
-            path: Some(vec![]),
-            empty_at: Some(0),
-        },
-        WindowsLayout {
-            name: "present-empty PATH, no candidate",
-            files: vec![],
-            path: Some(vec![]),
-            empty_at: Some(0),
-        },
-        WindowsLayout {
-            name: "leading empty entry",
-            files: vec![
-                (Slot::Target, WindowsBody::Sentinel),
-                (Slot::PathDir, WindowsBody::Sentinel),
-            ],
-            path: Some(vec![Slot::PathDir]),
-            empty_at: Some(0),
-        },
-        WindowsLayout {
-            name: "interior empty entry",
-            files: vec![
-                (Slot::Target, WindowsBody::Sentinel),
-                (Slot::Other, WindowsBody::Sentinel),
-            ],
-            path: Some(vec![Slot::PathDir, Slot::Other]),
-            empty_at: Some(1),
-        },
-        WindowsLayout {
-            name: "trailing empty entry",
-            files: vec![(Slot::Target, WindowsBody::Sentinel)],
-            path: Some(vec![Slot::PathDir]),
-            empty_at: Some(1),
-        },
-        WindowsLayout {
-            name: "A;B, A is not an image",
-            files: vec![
-                (Slot::A, WindowsBody::Text),
-                (Slot::B, WindowsBody::Sentinel),
-            ],
-            path: Some(vec![Slot::A, Slot::B]),
-            empty_at: None,
-        },
-        WindowsLayout {
-            name: "A;B, A is a directory of the candidate's name",
-            files: vec![
-                (Slot::A, WindowsBody::Directory),
-                (Slot::B, WindowsBody::Sentinel),
-            ],
-            path: Some(vec![Slot::A, Slot::B]),
-            empty_at: None,
-        },
-        WindowsLayout {
-            name: "A;B, A a working image",
-            files: vec![
-                (Slot::A, WindowsBody::Sentinel),
-                (Slot::B, WindowsBody::Sentinel),
-            ],
-            path: Some(vec![Slot::A, Slot::B]),
-            empty_at: None,
-        },
-    ];
-    assert_eq!(layouts.len(), WINDOWS_MATRIX_LAYOUTS);
-
-    // The file a spelling denotes once std's `.exe` rule is applied: a
-    // bare name without an extension gains `.exe`; a path without the
-    // `.exe` suffix is tried with it appended first, which is the form
-    // every placed candidate takes here.
-    let with_exe = |spelled: &str| -> String {
-        let has_exe = spelled
-            .as_bytes()
-            .get(spelled.len().wrapping_sub(4)..)
-            .is_some_and(|tail| tail.eq_ignore_ascii_case(b".exe"));
-        match has_exe {
-            true => spelled.to_string(),
-            false => format!("{spelled}.exe"),
-        }
-    };
-    let mut cell_number = 0usize;
-    let mut equal = 0usize;
-    let mut not_found = 0usize;
-    let mut terminal = 0usize;
-    let mut nul = 0usize;
-    let mut pending = 0usize;
-    for name in names {
-        let direct = name.contains(['\\', '/']);
-        let target: PathBuf = match name {
-            ".\\dsh" => cwd.join("dsh.exe"),
-            "..\\dsh" => root.join("dsh.exe"),
-            OPERATOR_PATH => PathBuf::from(OPERATOR_PATH),
-            _ if direct => PathBuf::from(with_exe(name)),
-            _ => {
-                let file = match name.contains('.') {
-                    true => name.to_string(),
-                    false => format!("{name}.exe"),
-                };
-                cwd.join(file)
-            }
-        };
-        for layout in &layouts {
-            cell_number += 1;
-            if name == OPERATOR_PATH && operator_installation {
-                eprintln!(
-                    "matrix: PENDING, an operator installation sits at {OPERATOR_PATH}; the \
-                     literal drive-path row is not executed on this host ({})",
-                    layout.name
-                );
-                pending += 1;
-                continue;
-            }
-            let cell = root.join(format!("cell-{cell_number}"));
-            let dir_of = |slot: Slot| match slot {
-                Slot::PathDir => cell.join("path"),
-                Slot::A => cell.join("a"),
-                Slot::B => cell.join("b"),
-                Slot::Other => cell.join("other"),
-                // Never created, and never a candidate's home: the
-                // component exists in the PATH spelling alone. The
-                // Windows table places no candidate under the Unix
-                // matrix's length, file or nonexistent components.
-                Slot::Long(_) => PathBuf::from("x".repeat(OVERLONG_COMPONENT)),
-                Slot::File => cell.join("file-as-dir"),
-                Slot::Nowhere => cell.join("nowhere"),
-                Slot::Target => cwd.clone(),
-                // The Unix matrix's own spellings; no Windows layout
-                // places them.
-                Slot::Empty => PathBuf::new(),
-                Slot::PaddedA(_) => cell.join("a"),
-            };
-            for slot in [Slot::PathDir, Slot::A, Slot::B, Slot::Other] {
-                fs::create_dir_all(dir_of(slot)).unwrap();
-            }
-            let bare_file = match name.contains('.') {
-                true => name.to_string(),
-                false => format!("{name}.exe"),
-            };
-            let place_at = |slot: Slot| -> PathBuf {
-                match (slot, direct) {
-                    (Slot::Target, _) | (Slot::A, true) => target.clone(),
-                    (slot, true) => dir_of(slot).join("dsh.exe"),
-                    (slot, false) => dir_of(slot).join(&bare_file),
-                }
-            };
-            let mut sentinels: Vec<PathBuf> = Vec::new();
-            let mut placed: Vec<PathBuf> = Vec::new();
-            // The literal drive path is never created: its cells assert
-            // the absent path a runner has. A NUL name places nothing.
-            if !name.contains('\0') && name != OPERATOR_PATH {
-                for (slot, body) in &layout.files {
-                    let at = place_at(*slot);
-                    match body {
-                        WindowsBody::Sentinel => {
-                            if fs::hard_link(&exe, &at).is_err() {
-                                fs::copy(&exe, &at).unwrap();
-                            }
-                            sentinels.push(at.clone());
-                        }
-                        WindowsBody::Text => {
-                            fs::write(&at, b"not an image\r\n").unwrap();
-                        }
-                        WindowsBody::Directory => {
-                            fs::create_dir_all(&at).unwrap();
-                        }
-                    }
-                    placed.push(at);
-                }
-            }
-            let path: Option<OsString> = layout.path.as_ref().map(|slots| {
-                let mut entries: Vec<OsString> = slots
-                    .iter()
-                    .map(|slot| dir_of(*slot).into_os_string())
-                    .collect();
-                if let Some(at) = layout.empty_at {
-                    entries.insert(at, OsString::new());
-                }
-                entries.join(std::ffi::OsStr::new(";"))
-            });
-
-            // The native oracle: the same name, the same cwd (this
-            // process's), the same PATH.
-            let mut command = Command::new(name);
-            command
-                .args([
-                    "adapters::composite::tests::windows_matrix_sentinel_reports_its_own_image",
-                    "--exact",
-                    "--nocapture",
-                ])
-                .env(WINDOWS_SENTINEL, "1")
-                .stdin(Stdio::null());
-            match &path {
-                Some(path) => command.env("PATH", path),
-                None => command.env_remove("PATH"),
-            };
-            let native = command.output().map(|output| {
-                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-                match stdout
-                    .lines()
-                    .find_map(|line| line.strip_prefix("SENTINEL_EXE:"))
-                {
-                    Some(ran) => PathBuf::from(ran),
-                    None => panic!(
-                        "{name:?} in {}: the child ran an unidentified file: {stdout}",
-                        layout.name
-                    ),
-                }
-            });
-            let resolved = resolve_executable_in(name, path.clone());
-            let describe = |what: &str| {
-                format!(
-                    "{what}: name {name:?}, layout {:?}, PATH {path:?}, native {native:?}, \
-                     resolver {resolved:?}",
-                    layout.name
-                )
-            };
-            let refusal = |what: &str| match &resolved {
-                Ok(_) => panic!("{}", describe(what)),
-                Err(error) => error.to_string(),
-            };
-            match &native {
-                Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
-                    assert!(name.contains('\0'), "{}", describe("invalid input"));
-                    assert_eq!(
-                        refused(resolved.clone()),
-                        "the DSH layout is unreadable: 'dsh\\0x' carries a NUL",
-                        "{}",
-                        describe("a NUL is refused up front")
-                    );
-                    nul += 1;
-                }
-                Ok(ran) => {
-                    let ran = ran.canonicalize().unwrap();
-                    assert!(
-                        sentinels.iter().any(|at| at.canonicalize().unwrap() == ran),
-                        "{}",
-                        describe("the child ran a placed sentinel")
-                    );
-                    assert_eq!(
-                        resolved.as_ref().ok(),
-                        Some(&ran),
-                        "{}",
-                        describe("the resolver selects exactly the file the child ran")
-                    );
-                    equal += 1;
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    refusal("the resolver selected a file where the child found nothing");
-                    not_found += 1;
-                }
-                Err(_) => {
-                    // An entry that exists and cannot run — no image, a
-                    // directory — is the child's selection and its
-                    // failure; the resolver refuses it by cause, and B
-                    // is never selected in its place.
-                    let reason = refusal("the resolver selected a file where the child stopped");
-                    let b = place_at(Slot::B).display().to_string();
-                    assert!(
-                        !reason.contains(&b),
-                        "{}",
-                        describe("an existing entry that cannot run authorizes no later candidate")
-                    );
-                    assert!(
-                        reason.contains("is not a loadable native image")
-                            || reason.contains("is not a regular file"),
-                        "{}",
-                        describe("the refusal names the cause")
-                    );
-                    terminal += 1;
-                }
-            }
-            for at in placed {
-                let _ = fs::remove_file(&at);
-                let _ = fs::remove_dir_all(&at);
-            }
-            let _ = fs::remove_dir_all(&cell);
-        }
-    }
-    eprintln!(
-        "matrix: {} names x {} layouts = {} cells; {equal} equal selections, {not_found} \
-         NotFound parities, {terminal} terminal-error parities, {nul} NUL refusals, {pending} \
-         PENDING operator-installation cells",
-        names.len(),
-        layouts.len(),
-        cell_number
-    );
-    assert!(equal > 0 && not_found > 0 && terminal > 0 && nul > 0);
 }
 
 /// `Command::output`, retrying only the ETXTBSY a freshly staged
@@ -4152,6 +3915,7 @@ fn pnpm_with_resolution(resolution: &str) -> String {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() {
     let install = Synthetic::new();
     // The properly separated control is readable and is the identity
@@ -5463,6 +5227,7 @@ fn removing_only_the_plugin_manifest_names_the_drifted_file() {
 /// 2026-09-20, finding 2). Each arm is asserted by its reason.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -5724,18 +5489,7 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
     // target's rather than for a shape no run of this target reads.
     let foreign: Vec<(Vec<u8>, String)> = [
         (image::tests::synthetic_elf(None), image::Kind::Elf),
-        (
-            {
-                let mut bytes = vec![0xcf, 0xfa, 0xed, 0xfe];
-                bytes.extend_from_slice(&image::tests_cputype().to_le_bytes());
-                bytes.extend_from_slice(&[0; 4]);
-                bytes.extend_from_slice(&2u32.to_le_bytes());
-                bytes.extend_from_slice(&[0; 16]);
-                bytes
-            },
-            image::Kind::MachO,
-        ),
-        (image::tests::synthetic_pe(), image::Kind::Pe),
+        (image::tests::synthetic_macho(), image::Kind::MachO),
     ]
     .into_iter()
     .filter(|(_, kind)| *kind != image::NATIVE)
@@ -5746,7 +5500,7 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
         )
     })
     .collect();
-    assert_eq!(foreign.len(), 2, "two of the three formats are foreign");
+    assert_eq!(foreign.len(), 1, "one of the two formats is foreign");
     let looping = format!("#!{}\n", a.join("dsh").display()).into_bytes();
     let mut deep = Vec::new();
     for depth in 0..5 {
@@ -6300,6 +6054,7 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
 /// kernel spells it, so the obstruction is a refusal before any probe.
 #[cfg(target_os = "linux")]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     use std::os::unix::fs::PermissionsExt;
     use std::process::{Command, Stdio};
@@ -6494,8 +6249,9 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     // `env` is asked of the path the kernel invokes AND of the file that
     // runs. A symlink NAMED `env` to the copy's `uu_env` or `ls` hard
     // link is spelled `env`, is the platform's env by every byte, and on
-    // this uutils host exits 1 with the utility's own `Security
-    // violation` (argv[0] `env` against executable name `uu_env`) while
+    // this uutils host exits 1 with the `Security violation` Ubuntu's
+    // patch adds to its 0.2.2 build (argv[0] `env` against executable
+    // name `uu_env`; upstream uutils has no such check) while
     // busybox installed as `env` would dispatch on `argv[0]` and run it:
     // the implementations disagree, and the resolver refuses it naming
     // the file that runs. The same symlink to the copy NAMED `env`, and
@@ -6950,6 +6706,7 @@ fn an_env_invocation_needs_the_file_that_runs() {
 /// third hold, R3).
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn env_identity_is_the_file_and_never_a_name() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -7081,81 +6838,109 @@ fn env_identity_is_the_file_and_never_a_name() {
 /// evidence for any platform this suite does not run on.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
     use rustix::io::Errno;
 
-    // glibc `posix/execvpe.c` 136–158: the literal continue-set, EACCES
-    // remembered, and everything else terminal — ENAMETOOLONG, ELOOP,
-    // EIO, EINVAL, ENOEXEC, ETXTBSY, EPERM included.
+    // Every arm is asked under both questions a lookup can fail: only
+    // Apple's switch reads which one it was, and glibc's and musl's must
+    // answer alike under each.
+    for question in ["metadata", "access"] {
+        // glibc `posix/execvpe.c` 136–158: the literal continue-set,
+        // EACCES remembered, and everything else terminal — ENAMETOOLONG,
+        // ELOOP, EIO, EINVAL, ENOEXEC, ETXTBSY, EPERM included.
+        assert_eq!(
+            step(Library::Glibc, question, Errno::ACCESS),
+            Ok(Step::Continue { denied: true }),
+            "{question}"
+        );
+        for errno in [
+            Errno::NOENT,
+            Errno::STALE,
+            Errno::NOTDIR,
+            Errno::NODEV,
+            Errno::TIMEDOUT,
+        ] {
+            assert_eq!(
+                step(Library::Glibc, question, errno),
+                Ok(Step::Continue { denied: false }),
+                "{question} {errno}"
+            );
+        }
+        for errno in [
+            Errno::NAMETOOLONG,
+            Errno::LOOP,
+            Errno::IO,
+            Errno::INVAL,
+            Errno::NOEXEC,
+            Errno::TXTBSY,
+            Errno::PERM,
+            Errno::NOMEM,
+        ] {
+            assert_eq!(
+                step(Library::Glibc, question, errno),
+                Ok(Step::Stop),
+                "{question} {errno}"
+            );
+        }
+        // musl `src/process/execvp.c`: EACCES remembered, ENOENT and
+        // ENOTDIR continue, and nothing else — not even ESTALE.
+        assert_eq!(
+            step(Library::Musl, question, Errno::ACCESS),
+            Ok(Step::Continue { denied: true }),
+            "{question}"
+        );
+        for errno in [Errno::NOENT, Errno::NOTDIR] {
+            assert_eq!(
+                step(Library::Musl, question, errno),
+                Ok(Step::Continue { denied: false }),
+                "{question} {errno}"
+            );
+        }
+        for errno in [Errno::STALE, Errno::NAMETOOLONG, Errno::LOOP, Errno::IO] {
+            assert_eq!(
+                step(Library::Musl, question, errno),
+                Ok(Step::Stop),
+                "{question} {errno}"
+            );
+        }
+        // Apple at Libc-1752.120.2: ELOOP, ENAMETOOLONG, ENOENT and
+        // ENOTDIR continue (`sys/posix_spawn.c` 146–150,
+        // `gen/FreeBSD/exec.c` 232–235 and 266–267), and an arm this
+        // resolver does not port is a limitation rather than either
+        // guess.
+        for errno in [Errno::LOOP, Errno::NAMETOOLONG, Errno::NOENT, Errno::NOTDIR] {
+            assert_eq!(
+                step(Library::Apple, question, errno),
+                Ok(Step::Continue { denied: false }),
+                "{question} {errno}"
+            );
+        }
+        for errno in [Errno::IO, Errno::INVAL, Errno::STALE, Errno::NOEXEC] {
+            assert_eq!(
+                step(Library::Apple, question, errno),
+                Err("that arm of Apple's posix_spawnp switch is not pinned by this resolver"),
+                "{question} {errno}"
+            );
+        }
+        assert_eq!(
+            step(Library::Unestablished, question, Errno::NOENT),
+            Err("this target's native program lookup rule is not established"),
+            "{question}"
+        );
+    }
+    // Apple's EACCES falls to `default`, which asks `stat` first
+    // (`sys/posix_spawn.c` 178–193, `gen/FreeBSD/exec.c` 273–289): a
+    // candidate whose METADATA cannot be read is walked past and NOT
+    // remembered, and only a failed access question — asked of a file
+    // whose metadata was read — is the remembered denial.
     assert_eq!(
-        step(Library::Glibc, Errno::ACCESS),
-        Ok(Step::Continue { denied: true })
+        step(Library::Apple, "metadata", Errno::ACCESS),
+        Ok(Step::Continue { denied: false })
     );
-    for errno in [
-        Errno::NOENT,
-        Errno::STALE,
-        Errno::NOTDIR,
-        Errno::NODEV,
-        Errno::TIMEDOUT,
-    ] {
-        assert_eq!(
-            step(Library::Glibc, errno),
-            Ok(Step::Continue { denied: false }),
-            "{errno}"
-        );
-    }
-    for errno in [
-        Errno::NAMETOOLONG,
-        Errno::LOOP,
-        Errno::IO,
-        Errno::INVAL,
-        Errno::NOEXEC,
-        Errno::TXTBSY,
-        Errno::PERM,
-        Errno::NOMEM,
-    ] {
-        assert_eq!(step(Library::Glibc, errno), Ok(Step::Stop), "{errno}");
-    }
-    // musl `src/process/execvp.c`: EACCES remembered, ENOENT and
-    // ENOTDIR continue, and nothing else — not even ESTALE.
     assert_eq!(
-        step(Library::Musl, Errno::ACCESS),
+        step(Library::Apple, "access", Errno::ACCESS),
         Ok(Step::Continue { denied: true })
-    );
-    for errno in [Errno::NOENT, Errno::NOTDIR] {
-        assert_eq!(
-            step(Library::Musl, errno),
-            Ok(Step::Continue { denied: false }),
-            "{errno}"
-        );
-    }
-    for errno in [Errno::STALE, Errno::NAMETOOLONG, Errno::LOOP, Errno::IO] {
-        assert_eq!(step(Library::Musl, errno), Ok(Step::Stop), "{errno}");
-    }
-    // Apple `sys/posix_spawn.c`: ELOOP, ENAMETOOLONG, ENOENT and ENOTDIR
-    // continue, EACCES is remembered, and an arm this seat did not pin
-    // is a limitation rather than either guess.
-    assert_eq!(
-        step(Library::Apple, Errno::ACCESS),
-        Ok(Step::Continue { denied: true })
-    );
-    for errno in [Errno::LOOP, Errno::NAMETOOLONG, Errno::NOENT, Errno::NOTDIR] {
-        assert_eq!(
-            step(Library::Apple, errno),
-            Ok(Step::Continue { denied: false }),
-            "{errno}"
-        );
-    }
-    for errno in [Errno::IO, Errno::INVAL, Errno::STALE, Errno::NOEXEC] {
-        assert_eq!(
-            step(Library::Apple, errno),
-            Err("that arm of Apple's posix_spawnp switch is not pinned by this resolver"),
-            "{errno}"
-        );
-    }
-    assert_eq!(
-        step(Library::Unestablished, Errno::NOENT),
-        Err("this target's native program lookup rule is not established")
     );
 
     // The candidate SEQUENCE each walk constructs over the exact PATH
@@ -7255,8 +7040,9 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
         assert_eq!(musl(&x(4096)), vec![]);
         assert_eq!(musl("A/"), vec![entry("A//dsh")]);
     }
-    // Apple: `strsep` tokens, an empty token spelled `.`, the same extra
-    // slash — and the one branch the two operations take apart: a
+    // Apple: `strchrnul` tokens (`gen/FreeBSD/exec.c` 187–208,
+    // `sys/posix_spawn.c` 103–124), an empty token spelled `.`, the
+    // same extra slash — and the one branch the two operations take apart: a
     // candidate longer than the 1,024-byte buffer is skipped by
     // `execvP` and stops `posix_spawnp`.
     let exec = |path: &str, file: &str| sequence(Library::Apple, Operation::Exec, path, file);
@@ -7361,6 +7147,29 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
         )),
         "passed (true): Permission denied (os error 13)"
     );
+    // Apple walks past the same unreadable candidate without remembering
+    // it (`sys/posix_spawn.c` 186–187), and remembers the denial only of
+    // a file whose metadata it read.
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Apple,
+            "metadata",
+            Errno::ACCESS,
+            Position::Searched
+        )),
+        "passed (false): Permission denied (os error 13)"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Apple,
+            "access",
+            Errno::ACCESS,
+            Position::Searched
+        )),
+        "passed (true): is not executable by this process"
+    );
     // ELOOP is the one errno in this table whose NUMBER is the host's
     // rather than the constant's: 40 under Linux, 62 under Darwin, while
     // ENOENT, EACCES, EIO and ENOTDIR agree across both. The switch under
@@ -7451,7 +7260,8 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
     }
     // The SEARCHED Apple arm does not move with it: a kernel
     // ENAMETOOLONG under one entry is a continuation there, exactly as
-    // `sys/posix_spawn.c`'s switch has it, and only the direct position
+    // `sys/posix_spawn.c`'s switch has it (146–150 at Libc-1752.120.2),
+    // and only the direct position
     // turns that continuation into the stop it is.
     assert_eq!(
         describe(lookup_failure(
@@ -7490,11 +7300,6 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             Errno::ACCESS,
             "passed (true): is not executable by this process",
         ),
-        (
-            "metadata",
-            Errno::ACCESS,
-            "passed (true): Permission denied (os error 13)",
-        ),
     ] {
         for library in [Library::Apple, Library::Glibc, Library::Musl] {
             assert_eq!(
@@ -7509,6 +7314,27 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
                 "{library:?} answers a direct name's {errno} as every other arm does"
             );
         }
+    }
+    // A metadata EACCES at a direct name carries the same words on every
+    // arm, and only the remembered flag is the library's: Apple's switch
+    // remembers no unstatable candidate. A direct name has no search to
+    // exhaust, so `lookup_in` reads the words and never the flag.
+    for (library, denied) in [
+        (Library::Apple, false),
+        (Library::Glibc, true),
+        (Library::Musl, true),
+    ] {
+        assert_eq!(
+            describe(lookup_failure(
+                candidate,
+                library,
+                "metadata",
+                Errno::ACCESS,
+                Position::Direct
+            )),
+            format!("passed ({denied}): Permission denied (os error 13)"),
+            "{library:?} answers a direct name's metadata EACCES in every arm's words"
+        );
     }
     // The ONE arm that audit found still library-dependent at a direct
     // name, recorded rather than guessed at: an errno OUTSIDE Apple's
@@ -7679,7 +7505,8 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
 ///
 /// The platform-qualified ELOOP rule is a rule about a SEARCH: glibc's
 /// `posix/execvpe.c` stops on ELOOP, Apple's `sys/posix_spawn.c` breaks
-/// to the next entry (D10, controller correction 2026-09-20). Read as a
+/// to the next entry (146–150 at Libc-1752.120.2; D10, controller
+/// correction 2026-09-20). Read as a
 /// rule about a CANDIDATE instead, it made the Apple arm render a direct
 /// `./dsh` that is a self-symlink as the bare errno while glibc and musl
 /// named the loop — one refusal reported two ways, and the matrix's
@@ -7774,8 +7601,9 @@ fn a_direct_names_symlink_loop_is_named_on_every_librarys_arm() {
 /// n0-l10 — `PATH` a single 5,000-byte component, name `dsh`, native
 /// answering ENAMETOOLONG. The per-library table answers it: Apple sizes
 /// EVERY candidate against a 1,024-byte buffer before it is built
-/// (`lp + ln + 2 > sizeof(buf)`, `sys/posix_spawn.c` and
-/// `gen/FreeBSD/exec.c`, design D10), so a 5,004-byte candidate is never
+/// (`lp + ln + 2 > sizeof(buf)`, `sys/posix_spawn.c` 131–134 and
+/// `gen/FreeBSD/exec.c` 215–222 at Libc-1752.120.2), so a 5,004-byte
+/// candidate is never
 /// constructed and never handed to `execve`; `posix_spawnp` answers
 /// `err = ENAMETOOLONG` there and `execvP` warns and takes the next
 /// token. The kernel cannot be the author of that errno, because the
@@ -7940,6 +7768,7 @@ fn the_apple_arm_answers_an_oversized_component_by_its_construction_bound() {
 /// unrecognized executable actually takes.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn each_pinned_errno_ends_in_the_same_refusal_on_every_librarys_arm() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -8179,6 +8008,7 @@ fn each_pinned_errno_ends_in_the_same_refusal_on_every_librarys_arm() {
 /// (review 2026-09-20, R6).
 #[cfg(all(unix, not(target_vendor = "apple")))]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_native_images_loader_is_read_as_the_kernel_reads_it() {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::PermissionsExt;
@@ -8319,7 +8149,7 @@ fn a_native_images_loader_is_read_as_the_kernel_reads_it() {
             )
         )
     );
-    let foreign = stage_executable(dir.path(), "pe-loader", &image::tests::synthetic_pe());
+    let foreign = stage_executable(dir.path(), "macho-loader", &image::tests::synthetic_macho());
     let foreign_loader = plant("foreign", Some(&foreign));
     assert_eq!(
         refused(resolve(&foreign_loader)),
@@ -8809,6 +8639,7 @@ fn npm_locks_reject_unparseable_and_incomplete_entries() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn pnpm_locks_reject_every_unrecognized_construct() {
     let blank = "\nlockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n";
     assert_eq!(

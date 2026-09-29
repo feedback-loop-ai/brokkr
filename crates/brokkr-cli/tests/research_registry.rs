@@ -13,6 +13,11 @@
 
 use std::path::PathBuf;
 
+#[path = "support/numbered.rs"]
+mod numbered;
+
+use numbered::{linked_row, numbered_files};
+
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -67,20 +72,9 @@ fn is_date(text: &str) -> bool {
 }
 
 fn entries() -> Vec<Entry> {
-    let dir = workspace().join("docs/research");
-    let mut names: Vec<String> = std::fs::read_dir(&dir)
-        .expect("docs/research")
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| {
-            name.len() > 5 && name[..4].chars().all(|c| c.is_ascii_digit()) && name.ends_with(".md")
-        })
-        .collect();
-    names.sort();
-    names
+    numbered_files(&workspace().join("docs/research"))
         .into_iter()
-        .map(|file| {
-            let contents = std::fs::read_to_string(dir.join(&file)).unwrap();
+        .map(|(file, contents)| {
             let source = header(&contents, "Source", &file);
             assert!(
                 source.starts_with("https://") || source.starts_with("http://"),
@@ -264,25 +258,15 @@ fn the_index_is_exactly_the_entries_in_order_with_their_status() {
         .lines()
         .filter(|line| line.starts_with("| ["))
         .map(|line| {
-            let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
-            assert_eq!(cells.len(), 5, "an index row has five cells: {line}");
-            let (number, rest) = cells[0]
-                .trim_start_matches('[')
-                .split_once("](")
-                .expect("a linked number");
-            assert!(!cells[1].is_empty(), "row {number} has no title");
+            let (number, file, cells) = linked_row(line, 5);
             assert!(
                 cells[2].contains("](http"),
                 "row {number} has no source link"
             );
-            (
-                number.to_string(),
-                rest.trim_end_matches(')').to_string(),
-                cells[3]
-                    .parse()
-                    .unwrap_or_else(|_| panic!("row {number}: findings is a count")),
-                cells[4].to_string(),
-            )
+            let findings = cells[3]
+                .parse()
+                .unwrap_or_else(|_| panic!("row {number}: findings is a count"));
+            (number, file, findings, cells[4].clone())
         })
         .collect();
     let expected: Vec<(String, String, usize, String)> = entries

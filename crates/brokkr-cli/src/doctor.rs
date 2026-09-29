@@ -13,7 +13,7 @@ use brokkr_protocol::adapters::{
     dsh_composite_prepared, DshComposite, DshInvocation, DshPrepared, DshSeams, DshSelection,
     DshUnprepared, DshUnselected,
 };
-use brokkr_protocol::hands::HandsSpec;
+use brokkr_protocol::hands::{execute, HandsSpec, Session};
 use brokkr_runtime::agents::{Adapter, ResumeIdentity, ResumeStatus};
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
 use brokkr_store::Store;
@@ -21,7 +21,7 @@ use brokkr_store::Store;
 use crate::boundary;
 use crate::render::Safe;
 
-pub struct Report {
+pub(crate) struct Report {
     pub healthy: bool,
     lines: Vec<String>,
 }
@@ -37,7 +37,7 @@ impl Report {
         self.healthy = false;
         self.lines.push(format!("MISSING  {what}: {detail}"));
     }
-    pub fn render(&self) -> String {
+    pub(crate) fn render(&self) -> String {
         self.lines.join("\n")
     }
 }
@@ -101,10 +101,10 @@ fn probe_in_box(spec: &HandsSpec, workdir: &Path, program: &str) -> Result<Optio
     } else {
         format!("{} --version", shell_quote(program))
     };
-    let session = brokkr_protocol::hands::session_dir("doctor").map_err(unbuilt)?;
-    let result = brokkr_protocol::hands::execute(spec, workdir, &session, &command, PROBE_TIMEOUT);
-    let _ = std::fs::remove_dir_all(&session);
-    match result {
+    let session = Session::create("doctor")
+        .map_err(String::from)
+        .map_err(unbuilt)?;
+    match execute(spec, workdir, session.path(), &command, PROBE_TIMEOUT) {
         Ok(executed) => box_answer(&executed),
         Err(error) => Err(unbuilt(error)),
     }
@@ -502,10 +502,7 @@ fn probe_providers(
 /// is only wording, but the wording is the whole of the second half of
 /// ruling 4: doctor says what it checked, so it must not tell an
 /// operator holding a broken bundle that they passed none.
-///
-/// Passed and matched by reference throughout: a derived `Clone` nobody
-/// calls is a function the exact-coverage gate counts and no test can
-/// reach.
+#[derive(Clone, Copy)]
 enum Seats<'a> {
     /// Every name declared in some seat's `secrets`, through the
     /// composed bundle.
@@ -553,7 +550,7 @@ fn report_ambient_credentials(
     report: &mut Report,
     adapters_root: &Path,
     secrets_store: &Path,
-    seats: &Seats<'_>,
+    seats: Seats<'_>,
     ambient: fn(&str) -> bool,
 ) {
     // An unreadable adapters tree is already a warning of its own from
@@ -565,7 +562,7 @@ fn report_ambient_credentials(
     let in_store = |variable: &String| held.contains(variable);
     for adapter in adapters.providers() {
         for (route, variable) in &adapter.credentials {
-            let covered = match *seats {
+            let covered = match seats {
                 // A binding is both halves at once: a seat that names
                 // the variable, and a store that can answer for it.
                 Seats::Declared(declared) => declared.contains(variable) && in_store(variable),
@@ -574,7 +571,7 @@ fn report_ambient_credentials(
             if covered || !ambient(variable) {
                 continue;
             }
-            let checked = match *seats {
+            let checked = match seats {
                 Seats::Declared(declared) if declared.contains(variable) => format!(
                     "the seat declaring it can be handed nothing the bindings \
                      store at {} does not hold (decision 0040 ruling 4 — store \
@@ -655,9 +652,9 @@ fn ambient_variable(name: &str) -> bool {
     std::env::var_os(name).is_some()
 }
 
-pub fn doctor(
+pub(crate) fn doctor(
     bundle: Option<&Path>,
-    db: &Path,
+    db: Option<&Path>,
     secrets_store: &Path,
     realms: Option<&Path>,
 ) -> Report {
@@ -678,9 +675,16 @@ pub fn doctor(
         Ok(Some(world)) => world.boundary_for(&workspace),
         _ => Boundary::Namespace,
     };
+    // The database line checks the journal every other verb opens (#374):
+    // `--db`, else the one the map names, else the default. A map that
+    // will not load is its own line below, and names no journal here.
+    let db = db.map(Path::to_path_buf).unwrap_or_else(|| match &world {
+        Ok(Some(world)) => world.journal(),
+        _ => super::DEFAULT_DB.into(),
+    });
     let (mut report, availability) = doctor_observed(
         bundle,
-        db,
+        &db,
         Path::new(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         secrets_store,
@@ -830,6 +834,10 @@ fn report_native_assessments(report: &mut Report, installed: &[&Adapter]) {
 /// neither. Adapter declarations that cannot be read say so here, so a
 /// report with no native line is never read as a harness with no native
 /// power.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn report_capabilities(
     report: &mut Report,
     world: &Result<Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>,
@@ -1378,7 +1386,7 @@ fn doctor_with_probe(
 
 /// The machine's report alone, which is what every unit test of it reads.
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn doctor_in(
     bundle: Option<&Path>,
     db: &Path,
@@ -1406,7 +1414,7 @@ fn doctor_in(
     .0
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn doctor_observed(
     bundle: Option<&Path>,
     db: &Path,
@@ -1518,8 +1526,11 @@ fn doctor_observed(
         (Some(_), None) => Seats::BundleDidNotCompile,
         (None, None) => Seats::NoBundleGiven,
     };
-    report_ambient_credentials(&mut report, adapters_root, secrets_store, &seats, ambient);
+    report_ambient_credentials(&mut report, adapters_root, secrets_store, seats, ambient);
 
+    // Deliberately read-write, unlike every reading verb (#375): the
+    // probe asks whether a run could write here, so it opens the way
+    // `brokkr run` opens — creating, enabling WAL and migrating.
     match Store::open(db) {
         Ok(_) => report.ok(
             "database",

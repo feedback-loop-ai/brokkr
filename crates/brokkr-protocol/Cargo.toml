@@ -25,16 +25,21 @@ tempfile = { workspace = true }
 # `faccessat(AT_EACCESS)` against the process's EFFECTIVE identity, and
 # the standard library exposes no such call. This extends a direct edge
 # to a version already in Cargo.lock; no registry version moves.
+#
+# #415 widens it for a hands session's scratch tree: `process` asks the
+# kernel whether an owner pid is alive (kill with no signal) and
+# `signal-hook` lets a server remove its tree when a termination signal
+# ends it. Both are crates Cargo.lock already holds (signal-hook through
+# crossterm); no registry version moves.
+#
+# `process` is also the attempt's process group (#403): signal the group,
+# probe it, and observe the leader's exit without reaping it.
+# `signal-hook` and `libc` are the engine's stop handler (#403): SIGINT,
+# SIGTERM and SIGHUP end every live attempt before the engine exits, and
+# `libc::sigaction` reads whether a signal was inherited as ignored. Both
+# are direct edges to versions already in Cargo.lock: the lock records the
+# two edges, and no registry version moves.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", default-features = false, features = ["fs"] }
-
-# Decision 0046 slice II design D3: one committed test-support executable
-# provides the probe's payload, descendant, guard, supervisor and startup
-# roles so the native feasibility path has no interpreter dependency. Its
-# source lives beside the probe under `tests/`, which also keeps it out of
-# the exact-coverage production denominator.
-[[bin]]
-name = "seatbelt-probe-helper"
-path = "tests/seatbelt_probe/helper.rs"
-test = false
-bench = false
+rustix = { version = "1.1.4", default-features = false, features = ["fs", "process", "std"] }
+signal-hook = "0.3.18"
+libc = "0.2.189"

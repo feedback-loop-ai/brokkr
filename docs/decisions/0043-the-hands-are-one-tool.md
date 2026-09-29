@@ -3,6 +3,10 @@
 Status: accepted (operator ruled in chat, 2026-09-03)
 Date: 2026-09-03
 
+Built: built
+Amended by: 0041, 0063
+Superseded in part by: 0045
+
 ## Context
 
 Decision 0016 rules that a restriction a provider cannot express is a

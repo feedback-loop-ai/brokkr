@@ -2457,7 +2457,7 @@ fn packed_empty_members_allocate_no_events_but_stay_observed() {
 fn blockless_ordinary_dsh_events_are_observed_but_not_retained() {
     let event = |seq: i64, blocks: Vec<DshBlock>| DshEvent {
         blocks,
-        role: "tool".to_string(),
+        role: Role::Tool,
         ts: "1".to_string(),
         seq: Some(seq),
         turn: Some(Position::Int(1)),
@@ -2706,31 +2706,28 @@ fn rows_drop_an_overflow_tail_and_admit_a_true_eof_fragment() {
 
 #[test]
 fn claude_row_classifies_malformed_and_wrong_typed_shapes() {
-    assert_eq!(
-        claude_row(&json!("nope")),
-        (Vec::new(), String::new(), String::new(), true)
-    );
-    assert_eq!(
-        claude_row(&json!({"message": {}})),
-        (Vec::new(), String::new(), String::new(), true)
-    );
+    for shape in [json!("nope"), json!({"message": {}})] {
+        let outcome = claude_row(&shape);
+        assert_eq!(outcome.blocks, Vec::<Block>::new());
+        assert_eq!(
+            (outcome.role, outcome.ts, outcome.unrecognized),
+            (Role::Recorded(String::new()), String::new(), true)
+        );
+    }
 
-    let (blocks, _, _, unrecognized) =
-        claude_row(&json!({"type":"assistant","message":{"role":"assistant","content":null}}));
-    assert!(blocks.is_empty());
-    assert!(!unrecognized);
+    let content =
+        |content| json!({"type":"assistant","message":{"role":"assistant","content":content}});
+    let outcome = claude_row(&content(Value::Null));
+    assert!(outcome.blocks.is_empty() && !outcome.unrecognized);
+    let outcome = claude_row(&content(json!([{"type":"text","text":7},{"type":"bogus"}])));
+    assert!(outcome.blocks.is_empty() && outcome.unrecognized);
 
-    let (blocks, _, _, unrecognized) = claude_row(&json!({
-        "type":"assistant","message":{"role":"assistant","content":[
-            {"type":"text","text":7},{"type":"bogus"}]}}));
-    assert!(blocks.is_empty());
-    assert!(unrecognized);
-
-    assert!(claude_row(&json!({"type":"assistant","message":7})).3);
-    assert!(claude_row(&json!({"type":"assistant","message":{"role":"assistant","content":7}})).3);
-    assert!(
-        claude_row(&json!({"type":"assistant","message":{"role":"assistant","content":["x"]}})).3
-    );
+    assert!(claude_row(&json!({"type":"assistant","message":7})).unrecognized);
+    assert!(claude_row(&content(json!(7))).unrecognized);
+    assert!(claude_row(&content(json!(["x"]))).unrecognized);
+    // A role outside the three is kept as written.
+    let system = json!({"type":"user","message":{"role":"system","content":"x"}});
+    assert_eq!(claude_row(&system).role.into_wire(), "system");
 }
 
 #[test]
@@ -2762,29 +2759,47 @@ fn payload_and_content_helpers_keep_fallbacks_lossless() {
     assert_eq!(tool_text(Some("id"), ""), "[id]");
 }
 
+/// Both association passes over whole records, as `project_codex` runs
+/// them over rows: count every record, then retain every record.
+fn associate(records: &mut [CodexRecord]) {
+    let mut association = CodexAssociation::default();
+    for record in records.iter() {
+        association.count(record, |_, _, _| {});
+    }
+    for record in records.iter_mut() {
+        association.retain(record, |_, _, _| {});
+    }
+}
+
+fn codex_record(blocks: Vec<CodexBlock>, canonical: bool) -> CodexRecord {
+    CodexRecord {
+        outcome: RowOutcome::of(blocks, Role::Assistant),
+        canonical,
+    }
+}
+
 #[test]
 fn codex_row_edges_and_duplicate_identity() {
-    assert!(codex_row(&json!("nope")).unrecognized);
-    assert!(codex_row(&json!({"type":"response_item"})).unrecognized);
-    assert!(codex_row(&json!({"type":"event_msg"})).unrecognized);
-    assert!(codex_row(&json!({"type":"totally_unknown"})).unrecognized);
-    assert!(codex_row(&json!({"type":"session_meta"})).blocks.is_empty());
-    assert!(codex_response_item(&json!({})).2);
+    let unrecognized = |value| codex_row(&value).outcome.unrecognized;
+    assert!(unrecognized(json!("nope")));
+    assert!(unrecognized(json!({"type":"response_item"})));
+    assert!(unrecognized(json!({"type":"event_msg"})));
+    assert!(unrecognized(json!({"type":"totally_unknown"})));
+    let quiet = codex_row(&json!({"type":"session_meta"})).outcome;
+    assert!(quiet.blocks.is_empty() && !quiet.unrecognized);
+    assert!(codex_response_item(&json!({})).unrecognized);
 
     let dup = codex_id(Some("dup")).expect("a nonempty id is shared");
-    let mut records = vec![CodexRecord {
-        blocks: vec![
+    let mut records = vec![codex_record(
+        vec![
             CodexBlock::identified(Block::tool("a"), CodexFact::Call, Some(&dup)),
             CodexBlock::identified(Block::tool("b"), CodexFact::Call, Some(&dup)),
         ],
-        role: String::new(),
-        ts: String::new(),
-        unrecognized: false,
-        canonical: false,
-    }];
-    associate_codex(&mut records);
+        false,
+    )];
+    associate(&mut records);
     assert_eq!(
-        records[0].blocks.len(),
+        records[0].outcome.blocks.len(),
         2,
         "no canonical counterpart removes nothing"
     );
@@ -2811,12 +2826,13 @@ fn codex_record_id_is_allocated_once_and_shared_by_its_blocks() {
         "payload":{"type":"message","role":"assistant","id":long,"content":members}
     });
     let record = codex_row(&message);
-    assert_eq!(record.blocks.len(), 1000);
-    let (fact, first) = record.blocks[0].fact.as_ref().expect("identified");
+    let blocks = &record.outcome.blocks;
+    assert_eq!(blocks.len(), 1000);
+    let (fact, first) = blocks[0].fact.as_ref().expect("identified");
     assert_eq!(*fact, CodexFact::Message);
     assert_eq!(&**first, long.as_str());
     assert!(
-        record.blocks.iter().all(|block| block
+        blocks.iter().all(|block| block
             .fact
             .as_ref()
             .is_some_and(|(_, id)| Rc::ptr_eq(id, first))),
@@ -2831,9 +2847,10 @@ fn codex_record_id_is_allocated_once_and_shared_by_its_blocks() {
     // Association keys borrow the same allocation and release it after
     // the pass: the projection is unchanged and nothing was copied.
     let mut records = vec![record];
-    associate_codex(&mut records);
-    let (_, shared) = records[0].blocks[0].fact.as_ref().expect("identified");
-    assert_eq!(records[0].blocks.len(), 1000);
+    associate(&mut records);
+    let blocks = &records[0].outcome.blocks;
+    let (_, shared) = blocks[0].fact.as_ref().expect("identified");
+    assert_eq!(blocks.len(), 1000);
     assert_eq!(Rc::strong_count(shared), 1000);
 
     // The pass must hold that one allocation while its keys are live, not
@@ -2842,35 +2859,22 @@ fn codex_record_id_is_allocated_once_and_shared_by_its_blocks() {
     // copies the bytes per key fails on pointer identity and count here,
     // during the pass, which the before/after checks cannot see.
     let id = codex_id(Some("shared-canary")).expect("a nonempty id");
+    let cite = |text| CodexBlock::identified(Block::tool(text), CodexFact::Call, Some(&id));
     let mut pair = vec![
-        CodexRecord {
-            blocks: vec![CodexBlock::identified(
-                Block::tool("a"),
-                CodexFact::Call,
-                Some(&id),
-            )],
-            role: String::new(),
-            ts: String::new(),
-            unrecognized: false,
-            canonical: true,
-        },
-        CodexRecord {
-            blocks: vec![CodexBlock::identified(
-                Block::tool("b"),
-                CodexFact::Call,
-                Some(&id),
-            )],
-            role: String::new(),
-            ts: String::new(),
-            unrecognized: false,
-            canonical: false,
-        },
+        codex_record(vec![cite("a")], true),
+        codex_record(vec![cite("b")], false),
     ];
     drop(id);
     let mut during = Vec::new();
-    associate_codex_observed(&mut pair, |site, source, key| {
+    let mut observe = |site, source: &CodexId, key: &CodexId| {
         during.push((site, Rc::ptr_eq(source, key), Rc::strong_count(source)));
-    });
+    };
+    let mut association = CodexAssociation::default();
+    pair.iter()
+        .for_each(|record| association.count(record, &mut observe));
+    for record in &mut pair {
+        association.retain(record, &mut observe);
+    }
     assert_eq!(
         during,
         vec![
@@ -2880,9 +2884,9 @@ fn codex_record_id_is_allocated_once_and_shared_by_its_blocks() {
         ],
         "each live key is the record's own allocation, with only the pass's references"
     );
-    assert_eq!(pair[0].blocks.len(), 1, "the canonical block stays");
+    assert_eq!(pair[0].outcome.blocks.len(), 1, "the canonical block stays");
     assert!(
-        pair[1].blocks.is_empty(),
+        pair[1].outcome.blocks.is_empty(),
         "the proven fallback block is removed"
     );
 
@@ -2893,15 +2897,16 @@ fn codex_record_id_is_allocated_once_and_shared_by_its_blocks() {
 
     // The completed-item mirror and the two-block tool families share
     // the same way.
-    let (blocks, _, _) = codex_completed_item(&json!({
+    let blocks = codex_completed_item(&json!({
         "type":"AgentMessage","id":"i1",
         "content":[{"type":"text","text":""},{"type":"text","text":""},{"type":"image"}]
-    }));
+    }))
+    .blocks;
     let (_, mirror) = blocks[0].fact.as_ref().expect("identified");
     assert_eq!(&**mirror, "i1");
     assert_eq!(Rc::strong_count(mirror), 3);
-    let (blocks, _, _) =
-        codex_completed_item(&json!({"type":"CommandExecution","id":"c1","command":"ls"}));
+    let blocks =
+        codex_completed_item(&json!({"type":"CommandExecution","id":"c1","command":"ls"})).blocks;
     let (call, call_id) = blocks[0].fact.as_ref().expect("identified");
     let (result, result_id) = blocks[1].fact.as_ref().expect("identified");
     assert_eq!((*call, *result), (CodexFact::Call, CodexFact::Result));
@@ -2934,17 +2939,14 @@ fn codex_blockless_rows_are_counted_without_being_retained() {
     })));
     text.push_str("not json\n");
 
-    let mut projection = Projection::default();
-    let records = collect_codex(&admitted(&text, false), &mut projection);
-    assert_eq!(records.len(), 2, "only block-bearing rows are retained");
-    assert!(records.iter().all(|record| !record.blocks.is_empty()));
-    assert_eq!(records[0].role, "assistant");
-    assert!(records[0].canonical);
-    assert!(!records[1].canonical);
-    assert_eq!(projection.unrecognized_records, 3000);
-    assert_eq!(projection.skipped_lines, 1);
-
+    observe::reset();
     let full = codex(&text);
+    assert_eq!(
+        observe::peak_retained(),
+        2,
+        "only block-bearing rows are retained"
+    );
+    assert_eq!(full.turns[0].role, "assistant");
     assert_eq!(full.turns.len(), 2);
     assert_eq!(full.unrecognized_records, 3000);
     assert_eq!(full.skipped_lines, 1);
@@ -2952,64 +2954,73 @@ fn codex_blockless_rows_are_counted_without_being_retained() {
 
 #[test]
 fn codex_response_item_classifies_wrong_typed_members() {
-    assert!(codex_response_item(&json!({"type":"message","content":[{"type":"nope"}]})).2);
-    assert!(!codex_response_item(&json!({"type":"message","content":null})).2);
-    assert!(codex_response_item(&json!({"type":"message","content":5})).2);
+    let item = |payload| codex_response_item(&payload).unrecognized;
+    assert!(item(json!({"type":"message","content":[{"type":"nope"}]})));
+    assert!(!item(json!({"type":"message","content":null})));
+    assert!(item(json!({"type":"message","content":5})));
 
-    assert!(codex_response_item(&json!({"type":"reasoning","summary":[{"type":"nope"}]})).2);
-    assert!(!codex_response_item(&json!({"type":"reasoning","summary":null})).2);
-    assert!(codex_response_item(&json!({"type":"reasoning","summary":5})).2);
+    assert!(item(
+        json!({"type":"reasoning","summary":[{"type":"nope"}]})
+    ));
+    assert!(!item(json!({"type":"reasoning","summary":null})));
+    assert!(item(json!({"type":"reasoning","summary":5})));
 
-    let (blocks, _, unrecognized) =
-        codex_response_item(&json!({"type":"function_call","name":"f"}));
-    assert!(!unrecognized);
-    assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].block.text, "f");
+    let outcome = codex_response_item(&json!({"type":"function_call","name":"f"}));
+    assert!(!outcome.unrecognized);
+    assert_eq!(outcome.blocks.len(), 1);
+    assert_eq!(outcome.blocks[0].block.text, "f");
 
-    assert!(codex_response_item(&json!({"type":"future_item"})).2);
+    assert!(item(json!({"type":"future_item"})));
 }
 
 #[test]
 fn codex_event_and_completed_items_cover_declared_variants() {
-    assert!(codex_event_msg(&json!({})).2);
-    let (blocks, role, unrecognized) =
-        codex_event_msg(&json!({"type":"agent_reasoning","text":"deliberation"}));
-    assert_eq!(role, "assistant");
-    assert!(!unrecognized);
-    assert_eq!(blocks[0].block.text, "deliberation");
+    assert!(codex_event_msg(&json!({})).unrecognized);
+    let outcome = codex_event_msg(&json!({"type":"agent_reasoning","text":"deliberation"}));
+    assert_eq!(outcome.role, Role::Assistant);
+    assert!(!outcome.unrecognized);
+    assert_eq!(outcome.blocks[0].block.text, "deliberation");
 
-    let (blocks, _, _) = codex_event_msg(&json!({
+    let blocks = codex_event_msg(&json!({
         "type":"dynamic_tool_call_request","callId":"c1","tool":"f","arguments":{"a":1}
-    }));
+    }))
+    .blocks;
     assert_eq!(blocks.len(), 1);
     assert!(blocks[0].block.text.contains("f"));
     assert!(blocks[0].block.text.contains("[c1]"));
 
-    assert!(codex_completed_item(&json!({})).2);
-    assert!(codex_completed_item(&json!({"type":"FutureItem"})).2);
+    let item = |payload| codex_completed_item(&payload).unrecognized;
+    assert!(item(json!({})));
+    assert!(item(json!({"type":"FutureItem"})));
 
-    let (blocks, role, _) = codex_completed_item(
+    let outcome = codex_completed_item(
         &json!({"type":"UserMessage","content":[{"type":"text","text":"hi"}]}),
     );
-    assert_eq!(role, "user");
-    assert!(blocks[0].block.text.contains("hi"));
+    assert_eq!(outcome.role, Role::User);
+    assert!(outcome.blocks[0].block.text.contains("hi"));
 
-    let (blocks, _, unrecognized) = codex_completed_item(
+    let outcome = codex_completed_item(
         &json!({"type":"AgentMessage","content":[{"type":"image"},{"type":"audio"}]}),
     );
-    assert!(!unrecognized);
-    assert_eq!(blocks[0].block.text, "[image omitted]");
-    assert_eq!(blocks[1].block.text, "[audio omitted]");
-    assert!(codex_completed_item(&json!({"type":"AgentMessage","content":[{"type":"nope"}]})).2);
-    assert!(!codex_completed_item(&json!({"type":"AgentMessage","content":null})).2);
-    assert!(codex_completed_item(&json!({"type":"AgentMessage","content":5})).2);
+    assert!(!outcome.unrecognized);
+    assert_eq!(outcome.blocks[0].block.text, "[image omitted]");
+    assert_eq!(outcome.blocks[1].block.text, "[audio omitted]");
+    assert!(item(
+        json!({"type":"AgentMessage","content":[{"type":"nope"}]})
+    ));
+    assert!(!item(json!({"type":"AgentMessage","content":null})));
+    assert!(item(json!({"type":"AgentMessage","content":5})));
+    let plain = codex_completed_item(&json!({"type":"AgentMessage","content":"plain"}));
+    assert_eq!(plain.blocks[0].block, Block::text("plain"));
 
-    assert!(codex_completed_item(&json!({"type":"Reasoning","summary_text":[5]})).2);
-    assert!(!codex_completed_item(&json!({"type":"Reasoning","summary_text":null})).2);
-    assert!(codex_completed_item(&json!({"type":"Reasoning","summary_text":5})).2);
+    assert!(item(json!({"type":"Reasoning","summary_text":[5]})));
+    assert!(!item(json!({"type":"Reasoning","summary_text":null})));
+    assert!(item(json!({"type":"Reasoning","summary_text":5})));
 
-    assert!(codex_completed_item(&json!({"type":"Plan"})).0.is_empty());
-    let (blocks, _, _) = codex_completed_item(&json!({"type":"Plan","text":"steps"}));
+    assert!(codex_completed_item(&json!({"type":"Plan"}))
+        .blocks
+        .is_empty());
+    let blocks = codex_completed_item(&json!({"type":"Plan","text":"steps"})).blocks;
     assert_eq!(blocks[0].block.text, "steps");
 
     assert_eq!(codex_command_output(&json!({})), "");
@@ -3291,39 +3302,40 @@ fn none_kind_projects_an_empty_admitted_snapshot() {
 
 #[test]
 fn codex_call_ids_fall_back_to_the_id_member() {
-    let (blocks, _, unrecognized) = codex_response_item(
+    let outcome = codex_response_item(
         &json!({"type":"local_shell_call","id":"l1","action":{"command":"ls"}}),
     );
-    assert!(!unrecognized);
-    assert!(blocks[0].block.text.contains("[l1]"));
+    assert!(!outcome.unrecognized);
+    assert!(outcome.blocks[0].block.text.contains("[l1]"));
 
-    let (blocks, _, unrecognized) =
+    let outcome =
         codex_response_item(&json!({"type":"tool_search_call","id":"s1","arguments":{"q":"x"}}));
-    assert!(!unrecognized);
-    assert!(blocks[0].block.text.contains("[s1]"));
+    assert!(!outcome.unrecognized);
+    assert!(outcome.blocks[0].block.text.contains("[s1]"));
 
-    let (blocks, _, unrecognized) =
+    let outcome =
         codex_response_item(&json!({"type":"tool_search_output","id":"s1","tools":[{"name":"r"}]}));
-    assert!(!unrecognized);
-    assert!(blocks[0].block.text.contains("[s1]"));
+    assert!(!outcome.unrecognized);
+    assert!(outcome.blocks[0].block.text.contains("[s1]"));
 }
 
 #[test]
 fn codex_mcp_end_reads_the_err_pointer() {
-    let (blocks, _, unrecognized) = codex_event_msg(
+    let outcome = codex_event_msg(
         &json!({"type":"mcp_tool_call_end","call_id":"m1","result":{"Err":"boom"}}),
     );
-    assert!(!unrecognized);
-    assert!(blocks[0].block.text.contains("boom"));
+    assert!(!outcome.unrecognized);
+    assert!(outcome.blocks[0].block.text.contains("boom"));
 }
 
 #[test]
 fn dsh_tool_result_falls_back_to_the_text_member() {
-    let (blocks, unrecognized) = dsh_message_blocks(
+    let outcome = dsh_message_blocks(
         &json!({"content":[{"type":"tool-result","toolCallId":"t1","text":"out"}]}),
+        Role::Tool,
     );
-    assert!(!unrecognized);
-    assert!(blocks[0].block.text.contains("out"));
+    assert!(!outcome.unrecognized);
+    assert!(outcome.blocks[0].block.text.contains("out"));
 }
 
 #[test]
@@ -3363,7 +3375,7 @@ fn dedicated_tool_events_deduplicate_blocks_within_one_event() {
     }
     let mut retained = vec![DshEvent {
         blocks: vec![tool("t"), tool("t")],
-        role: "assistant".to_string(),
+        role: Role::Assistant,
         ts: String::new(),
         seq: Some(1),
         turn: Some(Position::Int(1)),
@@ -3374,7 +3386,7 @@ fn dedicated_tool_events_deduplicate_blocks_within_one_event() {
         dedicated: true,
     }];
     let mut assemblies = Vec::new();
-    let mut dedicated = HashMap::new();
+    let mut dedicated = BTreeMap::new();
     collect_ordinary_facts(&mut retained, 3, true, &mut assemblies, &mut dedicated);
     assert_eq!(
         dedicated.get(&(
@@ -4530,30 +4542,17 @@ fn complete_prefix_refusal_survives_the_display_cap() {
 /// beside the emitted text bytes.
 #[test]
 fn display_cap_charges_the_constant_and_drops_empty_turns() {
-    let mut truncated = false;
-    let kept = display_cap(
-        vec![
-            Turn {
-                role: "empty".to_string(),
-                ts: String::new(),
-                blocks: Vec::new(),
-            },
-            Turn {
-                role: "one".to_string(),
-                ts: String::new(),
-                blocks: vec![Block::text("x")],
-            },
-            Turn {
-                role: "over".to_string(),
-                ts: String::new(),
-                blocks: vec![Block::text("x".repeat(DISPLAY_CAP))],
-            },
-        ],
-        &mut truncated,
-    );
-    assert!(truncated);
-    assert_eq!(kept.len(), 1);
-    assert_eq!(kept[0].role, "one");
+    let mut collector = TurnCollector::new(false);
+    let role = |word: &str| Role::Recorded(word.to_string());
+    collector.admit(role("empty"), String::new(), Vec::new());
+    collector.admit(role("one"), String::new(), vec![Block::text("x")]);
+    let over = vec![Block::text("x".repeat(DISPLAY_CAP))];
+    collector.admit(role("over"), String::new(), over);
+    let mut kept = Projection::default();
+    collector.finish(&mut kept);
+    assert!(kept.truncated);
+    assert_eq!(kept.turns.len(), 1);
+    assert_eq!(kept.turns[0].role, "one");
     assert_eq!(display_cost(&[]), None);
     assert_eq!(
         display_cost(&[Block::text("x")]),
@@ -4584,21 +4583,21 @@ fn unique_segments_classify_overlap_and_boundaries() {
 /// the defensive branches directly with a bounded collector.
 #[test]
 fn the_collector_seals_and_discards_every_later_candidate() {
-    let mut collector = DshCollector::new(false);
+    let mut collector = TurnCollector::new(false);
     collector.admit(
-        "first".to_string(),
+        Role::Assistant,
         String::new(),
         vec![Block::text("x".repeat(DISPLAY_CAP))],
     );
     assert!(collector.sealed);
     assert!(collector.turns.is_empty());
-    collector.admit("later".to_string(), String::new(), vec![Block::text("y")]);
+    collector.admit(Role::User, String::new(), vec![Block::text("y")]);
     assert!(collector.turns.is_empty());
     flush_run(&mut collector, BlockKind::Text, &[json!("z")], 0, 1, 1, 0);
     assert!(collector.turns.is_empty());
 
-    let mut fresh = DshCollector::new(false);
-    fresh.admit("empty".to_string(), String::new(), Vec::new());
+    let mut fresh = TurnCollector::new(false);
+    fresh.admit(Role::Tool, String::new(), Vec::new());
     assert!(fresh.turns.is_empty() && !fresh.sealed);
 }
 
@@ -4700,6 +4699,11 @@ fn a_blockless_duplicate_sequence_keeps_a_packed_citation_ambiguous() {
 /// not an allocator report.
 #[test]
 #[ignore]
+#[expect(
+    clippy::disallowed_methods,
+    clippy::disallowed_macros,
+    reason = "D8's measurement seam reads the fixture it is named and prints its counters"
+)]
 fn measure_projection_peak() {
     let path = std::env::var("BROKKR_MEASURE_FILE").expect("BROKKR_MEASURE_FILE");
     let bytes = std::fs::read(&path).expect("fixture");
@@ -4740,6 +4744,11 @@ fn measure_projection_peak() {
 /// counting members, without invoking the projector.
 #[test]
 #[ignore]
+#[expect(
+    clippy::disallowed_methods,
+    clippy::disallowed_macros,
+    reason = "D8's measurement seam reads the fixture it is named and prints its counters"
+)]
 fn measure_parse_only() {
     let path = std::env::var("BROKKR_MEASURE_FILE").expect("BROKKR_MEASURE_FILE");
     let bytes = std::fs::read(&path).expect("fixture");
@@ -4760,6 +4769,11 @@ fn measure_parse_only() {
 /// resident source bytes without parsing or projecting.
 #[test]
 #[ignore]
+#[expect(
+    clippy::disallowed_methods,
+    clippy::disallowed_macros,
+    reason = "D8's measurement seam reads the fixture it is named and prints its counters"
+)]
 fn measure_input_only() {
     let path = std::env::var("BROKKR_MEASURE_FILE").expect("BROKKR_MEASURE_FILE");
     let bytes = std::fs::read(&path).expect("fixture");

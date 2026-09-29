@@ -12,7 +12,7 @@ use brokkr_core::dispatch::{
     build_run_manifest_v2, bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError,
 };
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{computed_inputs, fold, Cursor, RunState, Status};
+use brokkr_core::fold::{computed_inputs, Cursor, RunState, Status};
 use brokkr_core::policy::Outcome;
 use brokkr_core::realms::{recorded_head, Boundary, LEGACY_REALM_KEY};
 use brokkr_core::EventEnvelope;
@@ -29,15 +29,41 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-#[allow(unused_imports)]
-use crate::agents::{Candidate, HarnessHands, Lowering, ResultDoor};
+use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::bundle::{
     charters_as_started, charters_intact, dialect_results, layer_drift, site_charter_text,
     Aggregate, Bundle, CharterPin, ExecutableBody, HandsState, PanelMember, Seat, SeatBody,
     SeatClass, SequenceStep, SiteFacts, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
-use brokkr_protocol::AttemptReport;
+use brokkr_protocol::{AttemptReport, Cleanup, CleanupEvidence};
+use serde::Serialize;
+
+mod checkpoints;
+use checkpoints::Checkpoints;
+mod marks;
+#[doc(hidden)]
+pub use marks::SiteMarks;
+mod operator;
+mod replay;
+use operator::operator_stop_reason;
+// The test modules reach the racing twins, the fold, and the vocabulary
+// they command and refuse in, through `use super::*`.
+#[cfg(test)]
+use brokkr_core::fold::{
+    fold,
+    OperatorCommand::{self, Retry, Stop},
+    Refusal,
+};
+pub use operator::{
+    apply_fenced_operator_command, conclude, operator_command, operator_supersede, CommandWord,
+    FencedCommand, FencedCommandOutcome, Supersede,
+};
+#[cfg(test)]
+use operator::{
+    apply_fenced_racing, conclude_racing, operator_command_racing, operator_supersede_racing,
+    riding_attempt, FENCE_ATTEMPTS,
+};
 
 fn nearest_change(context: &Value) -> Option<String> {
     ["tasks", "design", "specify", "triage", "intake"]
@@ -56,11 +82,63 @@ fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> {
         .collect()
 }
 
-fn dialect_attempt_outcome(run: DriverRun) -> AttemptOutcome {
+/// A dialect step's outcome, and into `evidence` what its terminal event
+/// carries when its tree is not proven over (#403).
+fn dialect_attempt_outcome(run: DriverRun, evidence: &mut Unproven) -> AttemptOutcome {
     match run {
         DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
-        DriverRun::Ran(report) => report.outcome,
+        DriverRun::Ran(report) => {
+            *evidence = Unproven::seat(&report);
+            report.settled_outcome()
+        }
     }
+}
+
+/// What an `effect/indeterminate` carries of an attempt not proven over
+/// (#403), the fields `contracts/effect-cleanup.v1.schema.json` publishes:
+/// nothing once proven over, so the event keeps its v1 bytes; a seat's own
+/// evidence; or a panel's, by member. The member's own marker is a closed
+/// seat record and carries none.
+#[derive(Debug, Default, Serialize)]
+#[serde(untagged)]
+enum Unproven {
+    #[default]
+    Proven,
+    Seat(CleanupEvidence),
+    Panel {
+        unresolved_members: BTreeMap<String, CleanupEvidence>,
+    },
+}
+
+impl Unproven {
+    fn seat(report: &AttemptReport) -> Self {
+        report
+            .cleanup_evidence()
+            .map_or(Unproven::Proven, Unproven::Seat)
+    }
+
+    fn panel(reports: &[(String, AttemptReport)]) -> Self {
+        let unresolved_members: BTreeMap<String, CleanupEvidence> = reports
+            .iter()
+            .filter_map(|(name, report)| Some((name.clone(), report.cleanup_evidence()?)))
+            .collect();
+        if unresolved_members.is_empty() {
+            Unproven::Proven
+        } else {
+            Unproven::Panel { unresolved_members }
+        }
+    }
+}
+
+/// An `effect/indeterminate` payload: its v1 fields, and beside them what
+/// of the attempt is not proven over.
+#[derive(Serialize)]
+struct Indeterminate<'a> {
+    effect_id: &'a str,
+    attempt_id: &'a str,
+    reason: String,
+    #[serde(flatten)]
+    unproven: Unproven,
 }
 
 #[derive(Debug, Error)]
@@ -159,7 +237,7 @@ pub enum EngineError {
 /// does not: the refusing arm of the narrowing from five words to the
 /// three composition is written over (design DD17). `None` for the
 /// three this engine builds.
-pub fn unbuilt_slice(boundary: Boundary) -> Option<&'static str> {
+pub(crate) fn unbuilt_slice(boundary: Boundary) -> Option<&'static str> {
     built_boundary(boundary).err()
 }
 
@@ -229,7 +307,9 @@ pub struct Engine {
     pub bundle: Bundle,
     pub run_id: String,
     pub feature: String,
-    pub repo: Option<PathBuf>,
+    /// The operated repository, resolved once by `operated_repo`: the
+    /// tree seats work in and every git fact reads.
+    pub repo: PathBuf,
     /// The world this run was invoked into (decision 0023), when a map
     /// was in effect. It is pinned into the run manifest at start, so
     /// this field is the run's *live* copy of a fact the journal already
@@ -267,6 +347,10 @@ pub struct Engine {
     /// engine process at the first unboxed exec dispatch and remembered
     /// (decision 0046 ruling 4; design DD15). Never journaled.
     network_prefix: Option<bool>,
+    replay: replay::Replay,
+    /// The attempt's terminal event a peer's lock kept out, carried to
+    /// the lawful end (#394). Never journaled as such.
+    held_outcome: Option<checkpoints::HeldOutcome>,
 }
 
 fn verify_dispatch_bundle_bounds(
@@ -317,6 +401,10 @@ fn verify_dispatch_bundle_bounds(
 #[derive(Debug)]
 pub struct DriveEnd {
     pub state: RunState,
+    /// The best-effort acts at a conclusion that fell short — an anchor
+    /// or keep-ref gap, one line each. Never fatal; the caller reports
+    /// them, because the engine writes to no stream of its own.
+    pub gaps: Vec<String>,
 }
 
 impl Engine {
@@ -383,9 +471,7 @@ impl Engine {
         refuse_unbuilt(&bundle)?;
         // The operated repository is what `workdir()` will answer: the
         // named one, else the directory the engine stands in.
-        let operated = repo
-            .clone()
-            .unwrap_or_else(|| std::env::current_dir().expect("cwd"));
+        let operated = operated_repo(repo);
         let resolved = match &world {
             Some(world) => world.boundary_for(&operated),
             None => Boundary::Namespace,
@@ -463,12 +549,14 @@ impl Engine {
             bundle,
             run_id,
             feature: feature.to_string(),
-            repo,
+            repo: operated,
             world,
             current_cause: None,
             secrets_file: None,
             active_gate_head: None,
             network_prefix: None,
+            replay: Default::default(),
+            held_outcome: None,
         })
     }
 
@@ -502,7 +590,7 @@ impl Engine {
             bundle,
             run_id,
             feature: feature.to_string(),
-            repo,
+            repo: operated_repo(repo),
             // A Looper-bound run pins a run-manifest/v2, whose bytes a
             // counterpart system reads; the map's pin belongs to the
             // v1→v5 local lineage. The CLI refuses the combination
@@ -512,6 +600,8 @@ impl Engine {
             secrets_file: None,
             active_gate_head: None,
             network_prefix: None,
+            replay: Default::default(),
+            held_outcome: None,
         })
     }
 
@@ -547,20 +637,21 @@ impl Engine {
         // moving the manifest (review return F1). A pin that does not answer
         // for itself is tampering, and refuses before any charter is read.
         let world = crate::realms::World::from_manifest(&pinned)?;
-        let events = store.load(run_id)?;
-        let started = events
+        let mut replay = replay::Replay::default();
+        let feature = replay.caught_up(&store, run_id)?.feature;
+        let started = replay
+            .events
             .first()
             .filter(|event| event.event_type == EventType::RunStarted)
             .and_then(|event| event.payload.get("charters"));
         charters_as_started(&bundle, started).map_err(charter_moved)?;
-        let feature = fold(&events)?.feature.unwrap_or("unknown".to_string());
         Ok(Engine {
             store,
             boundary: bundle.boundary,
             bundle,
             run_id: run_id.to_string(),
-            feature,
-            repo,
+            feature: feature.unwrap_or("unknown".to_string()),
+            repo: operated_repo(repo),
             // Resume takes no map — and needs none. The world this run
             // believed in is pinned in the manifest just read, content
             // and all, so it is rehydrated from evidence rather than off
@@ -572,6 +663,8 @@ impl Engine {
             secrets_file: None,
             active_gate_head: None,
             network_prefix: None,
+            replay,
+            held_outcome: None,
         })
     }
 
@@ -581,11 +674,28 @@ impl Engine {
     /// whole patience — which is a fourth ending, and it is an ending,
     /// not a death. See [`Engine::lawful_end_under_contention`].
     pub fn drive(&mut self) -> Result<DriveEnd, EngineError> {
+        self.drive_racing(|_| {})
+    }
+
+    /// [`Engine::drive`] with the lawful end's window held open:
+    /// `before_lawful_end` sees each error a turn ends on, before the
+    /// lawful end is tried. Production passes a no-op; a test passes the
+    /// peer that lets go of its lock there, so a terminal event the lock
+    /// outlasted can only land by the lawful end.
+    fn drive_racing(
+        &mut self,
+        mut before_lawful_end: impl FnMut(&EngineError),
+    ) -> Result<DriveEnd, EngineError> {
         loop {
             match self.drive_once() {
                 Ok(Some(end)) => return Ok(end),
                 Ok(None) => {}
-                Err(error) => return self.lawful_end_under_contention(error),
+                Err(error) => {
+                    before_lawful_end(&error);
+                    if let Some(end) = self.lawful_end_under_contention(error)? {
+                        return Ok(end);
+                    }
+                }
             }
         }
     }
@@ -593,38 +703,39 @@ impl Engine {
     /// One turn of the loop: `Some(end)` when the run has reached its
     /// conclusion, `None` when there is more to do.
     fn drive_once(&mut self) -> Result<Option<DriveEnd>, EngineError> {
-        let events = self.store.load(&self.run_id)?;
-        self.current_cause = events.last().map(|e| e.event_id.clone());
-        let state = fold(&events)?;
+        // Lent to the turn, and handed back only by a turn that ends well.
+        let mut replay = std::mem::take(&mut self.replay);
+        let state = replay.caught_up(&self.store, &self.run_id)?;
+        self.current_cause = replay.events.last().map(|e| e.event_id.clone());
         match (&state.status, &state.cursor) {
             (Status::Completed | Status::Stopped, _) | (Status::AwaitingOperator, _) => {
                 // Best-effort tamper-evidence: anchor the journal head
                 // in refs/forge/<run>. Gaps are reported, never fatal
                 // (the referee-era anchor-gap lore).
-                if let Some(repo) = &self.repo {
-                    if let Err(e) = crate::anchor::anchor(&self.store, repo, &self.run_id) {
-                        eprintln!("anchor gap for {}: {e}", self.run_id);
-                    }
-                    // And the exhibits the journal cites, kept
-                    // reachable past the branch delete and the gc
-                    // that follow a landing (decision 0028). Same
-                    // shape of act as the anchor: derived entirely
-                    // from the journal, writing refs and never
-                    // branches, so it crosses into no authority the
-                    // operator keeps. Best-effort in the same way —
-                    // a ref-planting gap is reported, never fatal.
-                    if let Some(gap) =
-                        crate::keep_refs::plant_or_report(&self.store, repo, &self.run_id)
-                    {
-                        eprintln!("{gap}");
-                    }
+                let mut gaps = Vec::new();
+                if let Err(e) = crate::anchor::anchor(&self.store, &self.repo, &self.run_id) {
+                    gaps.push(format!("anchor gap for {}: {e}", self.run_id));
                 }
-                return Ok(Some(DriveEnd { state }));
+                // And the exhibits the journal cites, kept
+                // reachable past the branch delete and the gc
+                // that follow a landing (decision 0028). Same
+                // shape of act as the anchor: derived entirely
+                // from the journal, writing refs and never
+                // branches, so it crosses into no authority the
+                // operator keeps. Best-effort in the same way —
+                // a ref-planting gap is reported, never fatal.
+                gaps.extend(crate::keep_refs::plant_or_report(
+                    &self.store,
+                    &self.repo,
+                    &self.run_id,
+                ));
+                return Ok(Some(DriveEnd { state, gaps }));
             }
             (Status::Running, _) => {
-                self.advance_running(&events, state)?;
+                self.advance_running(&replay.events, state)?;
             }
         }
+        self.replay = replay;
         Ok(None)
     }
 
@@ -645,7 +756,24 @@ impl Engine {
     /// that ends on contention must leave a journal that still folds.
     /// Either way the run is intact and `brokkr resume` picks it up:
     /// nothing was written, so nothing was lost.
-    fn lawful_end_under_contention(&mut self, error: EngineError) -> Result<DriveEnd, EngineError> {
+    ///
+    /// An attempt still open here has stopped — its seat has ended, and
+    /// its settlement could not land within
+    /// [`checkpoints::SETTLING_PATIENCES`] (#394). When the engine holds
+    /// the attempt's terminal event, that real outcome is tried again,
+    /// with the same patiences; once it lands the lock has let go, and
+    /// `None` says the drive goes on. Otherwise the attempt is settled
+    /// now, `effect/indeterminate` naming the lock and given the same
+    /// patiences, so the park that follows is lawful and the next resume
+    /// finds the attempt settled. A lock that outlasts this too leaves
+    /// nothing writable: the contention is handed back with the attempt
+    /// open, and the next resume settles it as restarted. A stop riding
+    /// the attempt keeps its own ending, and the contention is handed
+    /// back.
+    fn lawful_end_under_contention(
+        &mut self,
+        error: EngineError,
+    ) -> Result<Option<DriveEnd>, EngineError> {
         let EngineError::Store(store_error) = &error else {
             return Err(error);
         };
@@ -653,19 +781,62 @@ impl Engine {
             return Err(error);
         }
         let reason = format!("journal contention: {store_error}");
-        let events = self.store.load(&self.run_id)?;
-        let state = fold(&events)?;
+        let held = self.held_outcome.take();
+        let mut state = self.replay.caught_up(&self.store, &self.run_id)?;
+        if let Cursor::EffectInFlight {
+            effect_id,
+            attempt_id,
+            ..
+        } = state.cursor
+        {
+            self.current_cause = self.replay.events.last().map(|e| e.event_id.clone());
+            if let Some(held) = held.filter(|held| held.attempt_id.as_ref() == Some(&attempt_id)) {
+                self.land_held_outcome(held, &effect_id)?;
+                return Ok(None);
+            }
+            let settled =
+                json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": reason});
+            self.append(EventType::EffectIndeterminate, settled, Some(attempt_id))?;
+            state = self.replay.caught_up(&self.store, &self.run_id)?;
+        }
         if !matches!(
             state.cursor,
             Cursor::Park { .. } | Cursor::ExecuteEffect { .. }
         ) {
             return Err(error);
         }
-        self.current_cause = events.last().map(|e| e.event_id.clone());
+        self.current_cause = self.replay.events.last().map(|e| e.event_id.clone());
         let parked = json!({"reason": reason, "evidence": {}});
         self.append(EventType::RunParked, parked, None)?;
-        let state = fold(&self.store.load(&self.run_id)?)?;
-        Ok(DriveEnd { state })
+        let state = self.replay.caught_up(&self.store, &self.run_id)?;
+        Ok(Some(DriveEnd {
+            state,
+            gaps: Vec::new(),
+        }))
+    }
+
+    /// Journal the attempt's held outcome. A result the seat-record fence
+    /// refuses now settles the attempt indeterminate with the refusal
+    /// named: the failure its seat would have built was not held, and a
+    /// park loses nothing.
+    fn land_held_outcome(
+        &mut self,
+        held: checkpoints::HeldOutcome,
+        effect_id: &str,
+    ) -> Result<(), EngineError> {
+        let attempt_id = held.attempt_id.clone();
+        match self.append_raw(held.event_type, held.payload, held.attempt_id) {
+            Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
+                let reason = format!(
+                    "the journal refused the result a peer's lock had held back: {refusal}"
+                );
+                let settled =
+                    json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": reason});
+                self.append_raw(EventType::EffectIndeterminate, settled, attempt_id)
+            }
+            landed => landed,
+        }
+        .map(drop)
     }
 
     fn advance_running(
@@ -753,7 +924,7 @@ impl Engine {
                     Some(attempt_id),
                 )?;
             }
-            Cursor::Decide { effect_id, result } => self.decide(&state, &effect_id, result)?,
+            Cursor::Decide { result, .. } => self.decide(&state, result)?,
             Cursor::Park { reason } => {
                 let evidence = if reason == "GATE-MOVED-HEAD" {
                     gate_head_evidence(events)
@@ -811,7 +982,7 @@ impl Engine {
         let Some(start) = self.active_gate_head.take() else {
             return Ok(None);
         };
-        let end = self.repo.as_deref().and_then(git_head);
+        let end = git_head(&self.repo);
         if start == end {
             return Ok(None);
         }
@@ -831,19 +1002,48 @@ impl Engine {
         .map(Some)
     }
 
+    /// Append one event. An attempt's settlement — its terminal event, and
+    /// the checkpoints the engine journals with it once the seat has
+    /// stopped — is given [`checkpoints::SETTLING_PATIENCES`] against a
+    /// peer's lock, so the attempt's real outcome lands when the lock lets
+    /// go in time; every other event gets one patience (#394). A terminal
+    /// event the lock outlasts is held for the lawful end.
     fn append_raw(
         &mut self,
         event_type: EventType,
         payload: Value,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, EngineError> {
-        let envelope = self.store.append_next(
-            &self.run_id,
+        let terminal = matches!(
             event_type,
-            payload,
-            self.current_cause.clone(),
-            attempt_id,
-        )?;
+            EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
+        );
+        let patiences = if terminal || event_type == EventType::EffectCheckpointed {
+            checkpoints::SETTLING_PATIENCES
+        } else {
+            1
+        };
+        let appended = checkpoints::within_patiences(patiences, || {
+            self.store.append_next(
+                &self.run_id,
+                event_type,
+                payload.clone(),
+                self.current_cause.clone(),
+                attempt_id.clone(),
+            )
+        });
+        let envelope = match appended {
+            Ok(envelope) => envelope,
+            Err(contended) if terminal && contended.is_contention() => {
+                self.held_outcome = Some(checkpoints::HeldOutcome {
+                    event_type,
+                    payload,
+                    attempt_id,
+                });
+                return Err(contended.into());
+            }
+            Err(error) => return Err(error.into()),
+        };
         self.current_cause = Some(envelope.event_id.clone());
         Ok(envelope)
     }
@@ -889,6 +1089,7 @@ impl Engine {
     /// Seat input is a pure function of (journal, pinned bundle, feature):
     /// recovery rebuilds it and the digest recorded at request time must
     /// match, or the run parks instead of running something else.
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     fn seat_input(
         &self,
         state: &RunState,
@@ -1071,16 +1272,12 @@ impl Engine {
             input["secrets"] = json!(seat.secrets);
             input["secrets_file"] = json!(self.secrets_store_path().to_string_lossy());
         }
-        if let (Some(world), Some(repo)) = (&self.world, self.repo.as_deref()) {
-            if let Some(house) = world.house_for(repo)? {
+        if let Some(world) = &self.world {
+            if let Some(house) = world.house_for(&self.repo)? {
                 input["house_rules"] = json!(house);
             }
         }
-        if phase != "review" && (phase != "implement" || has_change) {
-            if let Some(instructions) = self.bundle.dialect_prompts.get(phase) {
-                input["spec_dialect"] = json!(instructions);
-            }
-        }
+        self.marks().seat_dialect(phase, has_change, &mut input);
         Ok(input)
     }
 
@@ -1095,11 +1292,7 @@ impl Engine {
     /// spells them; a path that cannot be resolved at all is threaded as
     /// written, which is what the driver would have received anyway.
     fn workdir(&self) -> PathBuf {
-        let repo = self
-            .repo
-            .clone()
-            .unwrap_or_else(|| std::env::current_dir().expect("cwd"));
-        std::path::absolute(&repo).unwrap_or(repo)
+        std::path::absolute(&self.repo).unwrap_or_else(|_| self.repo.clone())
     }
 
     /// The operator-side store path threaded to drivers: the CLI
@@ -1110,6 +1303,7 @@ impl Engine {
             .unwrap_or_else(|| self.workdir().join(".forge/secrets.env"))
     }
 
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     fn execute(
         &mut self,
         events: &[EventEnvelope],
@@ -1221,11 +1415,11 @@ impl Engine {
         // (design D10 F1): `seat_input` marked the phase, and a selector's
         // phase label owns no facts, so re-marking `site_name` is what
         // publishes the selected body's own boundary and hands. It sits
-        // beside `mark_delivery`, after the requested digest was checked,
+        // beside the delivery door, after the requested digest was checked,
         // so a chain fallback or a selector move cannot refuse the retry
         // as a different effect.
-        self.mark_hands(&site_name, &mut input);
-        self.mark_delivery(&site_name, gate, selection.get(&None), &mut input);
+        self.marks()
+            .site(&site_name, gate, selection.get(&None), &mut input);
         self.mark_capabilities(
             &site_name,
             selection.get(&None),
@@ -1276,7 +1470,7 @@ impl Engine {
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
-            self.active_gate_head = Some(self.repo.as_deref().and_then(git_head));
+            self.active_gate_head = Some(git_head(&self.repo));
         }
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
 
@@ -1331,42 +1525,9 @@ impl Engine {
     /// outside the worktree (the ordinary same-realm fire), mount only its
     /// parent and mount it read-only. This run-time resource is deliberately
     /// absent from the manifest and the requested-input digest.
-    /// Decision 0043: a boxed site is told that it is, because the one
-    /// tool the box serves is the only thing that can write its result
-    /// file — a harness's own shell runs outside the box and a file
-    /// written through it never reaches the engine. The first
-    /// astra-judged gate wrote its verdict through that shell twice.
-    ///
-    /// Decision 0046 (design DD21): the same mark, grown into the one
-    /// helper that writes the boundary into every site with hands —
-    /// `boundary`, the realm's word, under every boundary; `hands: boxed`
-    /// only when Brokkr builds the box, so the marker is never a false
-    /// statement under `harness` or `open`, where no workspace tool is
-    /// served. A site without hands is untouched.
+    /// The hands and boundary markers (see [`SiteMarks`]).
     fn mark_hands(&self, label: &str, input: &mut Value) {
-        match self.bundle.sites.get(label).map(|facts| &facts.hands) {
-            Some(HandsState::Hands(_)) => {
-                input["boundary"] = json!(self.boundary.word());
-                input["hands"] = json!(if self.boundary.is_boxed() {
-                    "boxed"
-                } else {
-                    "none"
-                });
-            }
-            // A registered, resolved no-hands site is an affirmative
-            // fact: the adapter gate requires it rather than reading the
-            // absence as permission (design D10 F1).
-            Some(HandsState::NoHands) => {
-                input["boundary"] = json!("not applicable");
-                input["hands"] = json!("none");
-            }
-            // Unknown is not `none`. An unregistered or unresolved site
-            // publishes no affirmative marker, so the adapter declines.
-            Some(HandsState::Unknown) | None => {
-                input["boundary"] = Value::Null;
-                input["hands"] = Value::Null;
-            }
-        }
+        self.marks().hands(label, input);
     }
 
     /// Decision 0065 rulings 4 and 5: what the serving candidate of this
@@ -1378,8 +1539,8 @@ impl Engine {
     /// `native_controls` is ALWAYS written: the plan, or `null` where no
     /// outcome was computed for the site — which the model adapters refuse
     /// before any provider work rather than launching a harness on its
-    /// own defaults. Written beside `mark_delivery`, outside the requested
-    /// digest, for the same reason: a chain fallback moves it.
+    /// own defaults. Written beside the result door ([`SiteMarks`]), outside
+    /// the requested digest, for the same reason: a chain fallback moves it.
     ///
     /// `launch_arguments` rides beside them (decision 0066 ruling 4): the
     /// composed spawn's arguments in their two parts, what the recipe or
@@ -1413,8 +1574,7 @@ impl Engine {
             .and_then(|site| {
                 site.serving(link.map(|link| (link.provider.as_str(), link.model.as_str())))
             });
-        input["native_controls"] = outcome.map_or(Value::Null, |outcome| outcome.controls());
-        input["capabilities"] = outcome.map_or(Value::Null, |outcome| outcome.prompt());
+        self.marks().capabilities(label, link, input);
         let Some(spawn) = spawn else {
             input["launch_arguments"] = Value::Null;
             return;
@@ -1471,30 +1631,13 @@ impl Engine {
         }
     }
 
-    /// The judge's door under `harness` (decision 0046 ruling 4; design
-    /// D23): a gate-class site with hands whose selected link declares
-    /// `hands.harness.result` as `last-message` is told so, because its
-    /// final message — not a file it writes — is what reaches the engine.
-    /// A spawn-time fact of the selected link, written after the
-    /// requested digest was checked: a chain fallback moves the door, and
-    /// a digest that moved with it would refuse the retry as a different
-    /// effect.
-    fn mark_delivery(&self, label: &str, gate: bool, link: Option<&Candidate>, input: &mut Value) {
-        let facts = self.bundle.sites.get(label);
-        if result_door(self.boundary, gate, facts, link) == ResultDoor::LastMessage {
-            input["result_delivery"] = json!("last-message");
+    /// The marks this engine writes into a site's driver input, under the
+    /// boundary this run composes with.
+    fn marks(&self) -> SiteMarks<'_> {
+        SiteMarks {
+            bundle: &self.bundle,
+            boundary: self.boundary,
         }
-    }
-
-    /// Whether the one canonical execution-site family resolved any hands
-    /// at this label (design D10 F1). `NoHands` and `Unknown` both answer
-    /// false; `mark_hands` tells those two apart with affirmative markers
-    /// rather than letting this answer invent one.
-    fn has_hands(&self, label: &str) -> bool {
-        matches!(
-            self.bundle.sites.get(label).map(|facts| &facts.hands),
-            Some(HandsState::Hands(_))
-        )
     }
 
     /// The hands spec this site's canonical family resolved, if any. An
@@ -1518,7 +1661,7 @@ impl Engine {
     /// settled before anything spawns. Composite dispatch then reads the
     /// answers rather than re-deriving them on a worker thread that
     /// holds no journal.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     fn site_plans(
         &self,
         events: &[EventEnvelope],
@@ -1612,7 +1755,7 @@ impl Engine {
     /// with hands, none for a site without — the `None` every record of
     /// such a site spells as `not applicable` (decision 0046 ruling 3).
     fn site_boundary(&self, label: &str) -> Option<Boundary> {
-        self.has_hands(label).then_some(self.boundary)
+        self.marks().has_hands(label).then_some(self.boundary)
     }
 
     /// Which boundary stood at every invocation site of this attempt
@@ -1667,7 +1810,7 @@ impl Engine {
     /// asked once per engine process and remembered. `label` names the
     /// compiled site whose facts the composition reads — an inline site's
     /// lowered allow among them (rebuild unit 5b).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
     fn compose_at(
         &mut self,
         label: Option<&str>,
@@ -1827,7 +1970,8 @@ impl Engine {
         };
         let start_failure = failed_to_start(&report);
         let stderr_tail = stderr_tail(&report.stderr);
-        match report.outcome {
+        let unproven = Unproven::seat(&report);
+        match report.settled_outcome() {
             AttemptOutcome::Succeeded { result } => {
                 let result = stamp_boundary(result, boundary);
                 self.append_succeeded(effect_id, attempt_id, result, |refusal| {
@@ -1856,10 +2000,11 @@ impl Engine {
             AttemptOutcome::Indeterminate { reason } => {
                 self.append(
                     EventType::EffectIndeterminate,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "reason": format!("{reason}; stderr tail: {stderr_tail}"),
+                    json!(Indeterminate {
+                        effect_id,
+                        attempt_id,
+                        reason: format!("{reason}; stderr tail: {stderr_tail}"),
+                        unproven,
                     }),
                     Some(attempt_id.to_string()),
                 )?;
@@ -1880,7 +2025,7 @@ impl Engine {
     /// is ever confirmed on them. `None` only for a dialect step, which
     /// spawns no driver and is stamped with neither. Appends NO terminal
     /// effect event: the caller owns the attempt's conclusion.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     fn run_driver(
         &mut self,
         effect_id: &str,
@@ -1920,17 +2065,18 @@ impl Engine {
             Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
             Ok(started) => started,
         };
-        let mut checkpoint_error: Option<EngineError> = None;
         // A checkpoint the journal refused under the seat-record fence
-        // (decision 0034, ruling 6). The driver keeps running — nothing
-        // here can stop it, and killing it would only lose its stderr —
-        // but the attempt is already lost: no later checkpoint is
-        // journaled, and the refusal becomes the attempt's outcome once
-        // the process ends.
-        let mut refusal: Option<SeatRecordError> = None;
-        let store = &mut self.store;
-        let current_cause = &mut self.current_cause;
+        // (decision 0034, ruling 6) does not stop the driver — nothing
+        // here can, and killing it would only lose its stderr — but the
+        // attempt is already lost: no later checkpoint is journaled, and
+        // the refusal becomes the attempt's outcome once the process ends.
         let run_id = self.run_id.clone();
+        let attempt = checkpoints::Attempt {
+            run_id: &run_id,
+            effect_id,
+            attempt_id,
+        };
+        let mut sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let mut report = process.run_attempt_resuming(
             ENGINE_VERSION,
             effect_id,
@@ -1939,51 +2085,25 @@ impl Engine {
             input,
             session_ref,
             |data| {
-                if checkpoint_error.is_none() && refusal.is_none() {
-                    let checkpoint = match member_tag {
-                        None => data.clone(),
-                        Some(tag) => tag_member(data.clone(), tag),
-                    };
-                    let checkpoint = stamp_boundary(checkpoint, boundary);
-                    // The engine's two structural stamps, on the same
-                    // terms as the boundary: a record that names a model
-                    // carries them — every row a shipped driver forwards
-                    // does, the launch row with its root included — a
-                    // record that names none carries neither, and a
-                    // driver's value never survives.
-                    let checkpoint = match &stamp {
-                        Some(context) => context.stamp(checkpoint),
-                        None => resume::unstamped(checkpoint),
-                    };
-                    match store.append_next(
-                        &run_id,
-                        EventType::EffectCheckpointed,
-                        json!({
-                            "effect_id": effect_id,
-                            "attempt_id": attempt_id,
-                            "checkpoint": checkpoint,
-                        }),
-                        current_cause.clone(),
-                        Some(attempt_id.to_string()),
-                    ) {
-                        // Causal chain advances through checkpoints
-                        // too — the closing effect event names the
-                        // last checkpoint as its cause.
-                        Ok(envelope) => {
-                            *current_cause = Some(envelope.event_id);
-                        }
-                        Err(StoreError::SeatRecord(error)) => refusal = Some(error),
-                        Err(e) => checkpoint_error = Some(e.into()),
-                    }
-                }
+                let checkpoint = match member_tag {
+                    None => data.clone(),
+                    Some(tag) => tag_member(data.clone(), tag),
+                };
+                let checkpoint = stamp_boundary(checkpoint, boundary);
+                // The engine's two structural stamps, on the same terms
+                // as the boundary: a record that names a model carries
+                // them — every row a shipped driver forwards does, the
+                // launch row with its root included — a record that names
+                // none carries neither, and a driver's value never
+                // survives.
+                let checkpoint = match &stamp {
+                    Some(context) => context.stamp(checkpoint),
+                    None => resume::unstamped(checkpoint),
+                };
+                sink.offer("", checkpoint);
             },
         );
-        if let Some(e) = checkpoint_error {
-            return Err(e);
-        }
-        if let Some(refusal) = refusal {
-            report.outcome = refused_outcome(report.outcome, &refusal);
-        }
+        sink.settle()?.carry("", &mut report);
         Ok(DriverRun::Ran(report))
     }
 
@@ -2025,7 +2145,7 @@ impl Engine {
     /// the outer machine sees. Any indeterminate member makes the whole
     /// attempt indeterminate (park); otherwise any failed member fails
     /// the attempt (retryable under 0006).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     fn execute_panel(
         &mut self,
         effect_id: &str,
@@ -2052,14 +2172,16 @@ impl Engine {
         let reports = self.run_panel(effect_id, attempt_id, &runs, deadline, "")?;
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, "")?;
         let start_failures = start_failure_sites(&reports, "");
+        let unproven = Unproven::panel(&reports);
         match panel_outcome(aggregate, reports) {
             AttemptOutcome::Indeterminate { reason } => {
                 self.append(
                     EventType::EffectIndeterminate,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "reason": reason,
+                    json!(Indeterminate {
+                        effect_id,
+                        attempt_id,
+                        reason,
+                        unproven,
                     }),
                     Some(attempt_id.to_string()),
                 )?;
@@ -2103,7 +2225,7 @@ impl Engine {
     /// role/result paths, `driver_seat_prefix` is the seat name (or
     /// `<seat>:<step>` inside a sequence), and `context` already carries
     /// any accumulated prior step results.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     fn member_runs(
         &mut self,
         attempt_id: &str,
@@ -2132,18 +2254,11 @@ impl Engine {
                     "house_rules": seat_input["house_rules"],
                     "context": context,
                 });
-                if seat_input["phase"] == "review" && member.name == "spec-compliance" {
-                    input["spec_dialect"] = self
-                        .bundle
-                        .dialect_prompts
-                        .get("review")
-                        .map_or(Value::Null, |text| json!(text));
-                } else if !seat_input["spec_dialect"].is_null() {
-                    input["spec_dialect"] = seat_input["spec_dialect"].clone();
-                }
+                self.marks()
+                    .member_dialect(&member.name, seat_input, &mut input);
                 copy_secret_binding_facts(&mut input, seat_input);
-                self.mark_hands(&label, &mut input);
-                self.mark_delivery(&label, gate, selection.get(&site), &mut input);
+                self.marks()
+                    .site(&label, gate, selection.get(&site), &mut input);
                 let hands = self.hands_for(&label);
                 let mut spawn = self.compose_at(
                     Some(&label),
@@ -2185,6 +2300,7 @@ impl Engine {
     /// declared order. Appends NO terminal effect event. `tag_prefix` is
     /// empty for a seat-level panel and `<step>:` inside a sequence, so
     /// the journaled member tag reads `<member>` or `<step>:<member>`.
+    #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
     fn run_panel(
         &mut self,
         effect_id: &str,
@@ -2197,15 +2313,17 @@ impl Engine {
         // Split the borrows: member threads run drivers, while the
         // main-thread receive loop below needs the store and causal cursor.
         let bundle = &self.bundle;
-        let store = &mut self.store;
-        let current_cause = &mut self.current_cause;
         let run_id = self.run_id.clone();
-        let mut checkpoint_error: Option<EngineError> = None;
+        let attempt = checkpoints::Attempt {
+            run_id: &run_id,
+            effect_id,
+            attempt_id,
+        };
         // The member whose checkpoint the fence refused, if one was
-        // (decision 0034, ruling 6): the same latch a single driver
-        // carries, keyed by the tagged member name the checkpoint rode
-        // under, so the refusal lands on that member's report alone.
-        let mut refusal: Option<(String, SeatRecordError)> = None;
+        // (decision 0034, ruling 6), is the tagged member name the
+        // checkpoint rode under, so the refusal lands on that member's
+        // report alone.
+        let mut sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let reports: Vec<(String, AttemptReport)> = std::thread::scope(|scope| {
             let (sender, receiver) = std::sync::mpsc::channel::<(String, Value)>();
             let handles: Vec<_> = runs
@@ -2222,6 +2340,9 @@ impl Engine {
                                     outcome: AttemptOutcome::Failed {
                                         error: format!("member driver did not spawn: {e}"),
                                     },
+                                    refused: None,
+                                    // Nothing was spawned, so nothing is left.
+                                    cleanup: Cleanup::Settled,
                                     session_ref: None,
                                     checkpoints: Vec::new(),
                                     stderr: String::new(),
@@ -2262,14 +2383,11 @@ impl Engine {
             // The main thread journals live member checkpoints as they
             // arrive (wall-clock order — checkpoints are temporal evidence,
             // nothing aggregates from them). Dropping our sender makes the
-            // loop end when the last member finishes emitting. On append
-            // error, latch and keep draining — an abandoned channel must
-            // not deadlock the members.
+            // loop end when the last member finishes emitting. The sink
+            // latches on an append error and the loop keeps draining — an
+            // abandoned channel must not deadlock the members.
             drop(sender);
             for (member, checkpoint) in receiver {
-                if checkpoint_error.is_some() || refusal.is_some() {
-                    continue;
-                }
                 let owner = runs
                     .iter()
                     .find(|run| format!("{tag_prefix}{}", run.name) == member);
@@ -2281,41 +2399,18 @@ impl Engine {
                     Some(context) => context.stamp(checkpoint),
                     None => resume::unstamped(checkpoint),
                 };
-                match store.append_next(
-                    &run_id,
-                    EventType::EffectCheckpointed,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "checkpoint": checkpoint,
-                    }),
-                    current_cause.clone(),
-                    Some(attempt_id.to_string()),
-                ) {
-                    Ok(envelope) => {
-                        *current_cause = Some(envelope.event_id);
-                    }
-                    Err(StoreError::SeatRecord(error)) => refusal = Some((member, error)),
-                    Err(e) => checkpoint_error = Some(e.into()),
-                }
+                sink.offer(&member, checkpoint);
             }
             handles
                 .into_iter()
                 .map(|h| h.join().expect("panel member thread"))
                 .collect()
         });
-        if let Some(e) = checkpoint_error {
-            return Err(e);
-        }
-        let Some((refused, refusal)) = refusal else {
-            return Ok(reports);
-        };
+        let settled = sink.settle()?;
         Ok(reports
             .into_iter()
             .map(|(name, mut report)| {
-                if format!("{tag_prefix}{name}") == refused {
-                    report.outcome = refused_outcome(report.outcome, &refusal);
-                }
+                settled.carry(&format!("{tag_prefix}{name}"), &mut report);
                 (name, report)
             })
             .collect())
@@ -2336,12 +2431,13 @@ impl Engine {
                 .iter()
                 .find(|run| run.name == *name)
                 .and_then(|run| run.boundary);
-            let kind = match &report.outcome {
+            let settled = report.settled_outcome();
+            let kind = match &settled {
                 AttemptOutcome::Succeeded { .. } => "succeeded",
                 AttemptOutcome::Failed { .. } => "failed",
                 AttemptOutcome::Indeterminate { .. } => "indeterminate",
             };
-            let model = match &report.outcome {
+            let model = match &settled {
                 AttemptOutcome::Succeeded { result } => result
                     .get("model")
                     .and_then(Value::as_str)
@@ -2391,7 +2487,12 @@ impl Engine {
     /// (0006-retryable — a retry restarts from step 1); an indeterminate
     /// step parks it. The FINAL step's result object is the effect's
     /// single typed result — decide() validates it exactly as today.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+    #[expect(
+        clippy::excessive_nesting,
+        clippy::too_many_lines,
+        reason = "baseline 2026-09, #288"
+    )]
     fn execute_sequence(
         &mut self,
         effect_id: &str,
@@ -2423,13 +2524,16 @@ impl Engine {
             // Which sites of THIS step failed to start, if the step is
             // the one that fails the attempt.
             let mut start_failures: Vec<Site> = Vec::new();
+            // What this step's terminal event carries when its tree is
+            // not proven over (#403).
+            let mut unproven = Unproven::Proven;
             // The gate span inside a sequence is THIS step: armed here,
             // compared and cleared at this step's own end below, before
             // any later step gets to move the tree lawfully (decision
             // 0042 reads an author as a work step). Nothing outer arms
             // for a sequence, so this is the only observation taken.
             if step.class == SeatClass::Gate {
-                self.active_gate_head = Some(self.repo.as_deref().and_then(git_head));
+                self.active_gate_head = Some(git_head(&self.repo));
             }
             let outcome = match &step.body {
                 StepBody::Single { command, .. } => {
@@ -2455,9 +2559,9 @@ impl Engine {
                         input["spec_dialect"] = seq_input["spec_dialect"].clone();
                     }
                     copy_secret_binding_facts(&mut input, seq_input);
-                    self.mark_hands(&step_label, &mut input);
                     let step_gate = step.class == SeatClass::Gate;
-                    self.mark_delivery(&step_label, step_gate, selection.get(&site), &mut input);
+                    self.marks()
+                        .site(&step_label, step_gate, selection.get(&site), &mut input);
                     let hands = self.hands_for(&step_label);
                     let mut spawn = self.compose_at(
                         Some(&step_label),
@@ -2502,7 +2606,8 @@ impl Engine {
                             if failed_to_start(&report) {
                                 start_failures.push(site);
                             }
-                            match report.outcome {
+                            unproven = Unproven::seat(&report);
+                            match report.settled_outcome() {
                                 AttemptOutcome::Succeeded { result } => {
                                     AttemptOutcome::Succeeded { result }
                                 }
@@ -2547,6 +2652,7 @@ impl Engine {
                         &tag_prefix,
                     )?;
                     start_failures = start_failure_sites(&reports, &tag_prefix);
+                    unproven = Unproven::panel(&reports);
                     panel_outcome(*aggregate, reports)
                 }
                 StepBody::Dialect { execution } => {
@@ -2626,16 +2732,19 @@ impl Engine {
                     // The generated validator holds nothing, and says so
                     // (decision 0065; design D5).
                     self.mark_capabilities(&step_label, None, Some(&mut spawn), &mut input);
-                    dialect_attempt_outcome(self.run_driver(
-                        effect_id,
-                        attempt_id,
-                        &driver_seat,
-                        &spawn,
-                        input,
-                        deadline,
-                        Some(&step.name),
-                        None,
-                    )?)
+                    dialect_attempt_outcome(
+                        self.run_driver(
+                            effect_id,
+                            attempt_id,
+                            &driver_seat,
+                            &spawn,
+                            input,
+                            deadline,
+                            Some(&step.name),
+                            None,
+                        )?,
+                        &mut unproven,
+                    )
                 }
             };
             if self
@@ -2667,10 +2776,11 @@ impl Engine {
                 AttemptOutcome::Indeterminate { reason } => {
                     self.append(
                         EventType::EffectIndeterminate,
-                        json!({
-                            "effect_id": effect_id,
-                            "attempt_id": attempt_id,
-                            "reason": format!("sequence step '{}': {reason}", step.name),
+                        json!(Indeterminate {
+                            effect_id,
+                            attempt_id,
+                            reason: format!("sequence step '{}': {reason}", step.name),
+                            unproven,
                         }),
                         Some(attempt_id.to_string()),
                     )?;
@@ -2830,12 +2940,8 @@ impl Engine {
         Ok(())
     }
 
-    fn decide(
-        &mut self,
-        state: &RunState,
-        _effect_id: &str,
-        raw_result: Value,
-    ) -> Result<(), EngineError> {
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+    fn decide(&mut self, state: &RunState, raw_result: Value) -> Result<(), EngineError> {
         let phase = state
             .phase
             .clone()
@@ -2919,83 +3025,82 @@ impl Engine {
             let count = state.visits.get(&visited).copied().unwrap_or(0);
             inputs.insert(format!("{VISIT_PREFIX}{visited}"), Value::from(count));
         }
-        if let Some(repo) = &self.repo {
-            // The realm this repository IS, when a map named it
-            // (decision 0023): repository facts are recorded under the
-            // realm's name — the shape the heritage protocol recorded and
-            // the shape multi-realm runs will need. Unmapped, they are
-            // recorded exactly as they always were.
-            let realm = self
-                .world
+        let repo = self.repo.as_path();
+        // The realm this repository IS, when a map named it
+        // (decision 0023): repository facts are recorded under the
+        // realm's name — the shape the heritage protocol recorded and
+        // the shape multi-realm runs will need. Unmapped, they are
+        // recorded exactly as they always were.
+        let realm = self
+            .world
+            .as_ref()
+            .and_then(|world| world.realm_for(repo))
+            .map(|realm| realm.name.clone());
+        let key = realm
+            .clone()
+            .unwrap_or_else(|| LEGACY_REALM_KEY.to_string());
+        if phase == self.bundle.protected_phase {
+            if let Some(head) = git_head(repo) {
+                inputs.insert("reviewed_heads".into(), json!({ key: &head }));
+                if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
+                    inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
+                }
+            }
+        }
+        // Decision 0041 ruling 5: the smith owns review findings. Expose
+        // the docs-only shortcut only when review sent this implement
+        // visit back; verify failures and implement self-loops must still
+        // pass through verify even when their delta happens to be prose.
+        let returned_from_review = phase == "implement"
+            && state
+                .last_decision
                 .as_ref()
-                .and_then(|world| world.realm_for(repo))
-                .map(|realm| realm.name.clone());
-            let key = realm
-                .clone()
-                .unwrap_or_else(|| LEGACY_REALM_KEY.to_string());
-            if phase == self.bundle.protected_phase {
-                if let Some(head) = git_head(repo) {
-                    inputs.insert("reviewed_heads".into(), json!({ key: &head }));
-                    if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
-                        inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
-                    }
+                .and_then(|decision| decision.get("from"))
+                .and_then(Value::as_str)
+                == Some(self.bundle.protected_phase.as_str());
+        if returned_from_review {
+            if let Some(head) = git_head(repo) {
+                if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
+                    inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
                 }
             }
-            // Decision 0041 ruling 5: the smith owns review findings. Expose
-            // the docs-only shortcut only when review sent this implement
-            // visit back; verify failures and implement self-loops must still
-            // pass through verify even when their delta happens to be prose.
-            let returned_from_review = phase == "implement"
-                && state
-                    .last_decision
-                    .as_ref()
-                    .and_then(|decision| decision.get("from"))
-                    .and_then(Value::as_str)
-                    == Some(self.bundle.protected_phase.as_str());
-            if returned_from_review {
-                if let Some(head) = git_head(repo) {
-                    if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
-                        inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
-                    }
+        }
+        if phase == "ship" {
+            let dirty = git_dirty(repo);
+            let head = git_head(repo);
+            inputs.insert("dirty_worktrees".into(), Value::Bool(dirty));
+            // Fail-closed: when the protected phase RECORDED heads,
+            // ship always answers the drift question. A repo that
+            // no longer resolves to a recorded realm, or a realm
+            // whose head was never recorded, is indistinct from
+            // drift — silence here shipped where the old code
+            // re-armed review (this run's own review caught it).
+            let drifted = state.reviewed_heads.as_ref().map(|recorded| {
+                match recorded_head(recorded, realm.as_deref()) {
+                    Some(reviewed) => head.as_deref() != Some(reviewed),
+                    None => true,
                 }
+            });
+            if let Some(drifted) = drifted {
+                inputs.insert("drift_detected".into(), Value::Bool(drifted));
             }
-            if phase == "ship" {
-                let dirty = git_dirty(repo);
-                let head = git_head(repo);
-                inputs.insert("dirty_worktrees".into(), Value::Bool(dirty));
-                // Fail-closed: when the protected phase RECORDED heads,
-                // ship always answers the drift question. A repo that
-                // no longer resolves to a recorded realm, or a realm
-                // whose head was never recorded, is indistinct from
-                // drift — silence here shipped where the old code
-                // re-armed review (this run's own review caught it).
-                let drifted = state.reviewed_heads.as_ref().map(|recorded| {
-                    match recorded_head(recorded, realm.as_deref()) {
-                        Some(reviewed) => head.as_deref() != Some(reviewed),
-                        None => true,
-                    }
-                });
+            // The same facts, keyed by realm — one realm today,
+            // several when multi-realm runs arrive. Recorded only in
+            // a mapped world, so an unmapped run's decision payload
+            // is byte-for-byte the one it always wrote.
+            if let Some(realm) = &realm {
+                let mut facts = Map::new();
+                if let Some(head) = &head {
+                    facts.insert("head".into(), Value::from(head.clone()));
+                }
+                facts.insert("dirty_worktrees".into(), Value::Bool(dirty));
                 if let Some(drifted) = drifted {
-                    inputs.insert("drift_detected".into(), Value::Bool(drifted));
+                    facts.insert("drift_detected".into(), Value::Bool(drifted));
                 }
-                // The same facts, keyed by realm — one realm today,
-                // several when multi-realm runs arrive. Recorded only in
-                // a mapped world, so an unmapped run's decision payload
-                // is byte-for-byte the one it always wrote.
-                if let Some(realm) = &realm {
-                    let mut facts = Map::new();
-                    if let Some(head) = &head {
-                        facts.insert("head".into(), Value::from(head.clone()));
-                    }
-                    facts.insert("dirty_worktrees".into(), Value::Bool(dirty));
-                    if let Some(drifted) = drifted {
-                        facts.insert("drift_detected".into(), Value::Bool(drifted));
-                    }
-                    inputs.insert(
-                        REALM_FACTS.into(),
-                        json!({ realm.clone(): Value::Object(facts) }),
-                    );
-                }
+                inputs.insert(
+                    REALM_FACTS.into(),
+                    json!({ realm.clone(): Value::Object(facts) }),
+                );
             }
         }
 
@@ -3084,804 +3189,6 @@ impl Engine {
 /// so a reader of `run/stopped` can tell the two causes apart at a glance
 /// and grep for either.
 pub const OPERATOR_STOP_RULE: &str = "OPERATOR-STOP";
-
-/// The conclusion an accepted operator stop is journaled with: the rule
-/// id above, the command it names, and the operator who gave it with the
-/// reason they recorded. `run/stopped`'s v1 payload is closed at
-/// `{reason}` (`contracts/README.md`, additionalProperties false), so the
-/// citation lives INSIDE the reason string — no new field, no second
-/// vocabulary — exactly as `request_or_finish`'s policy-driven hard stop
-/// cites its `rule_id` there. The cause is read back from the journal
-/// that `operator_command` wrote: `fold` spends the pending command when
-/// it accepts it, so the events are the only place it survives.
-fn operator_stop_reason(events: &[EventEnvelope]) -> String {
-    let accepted = events
-        .iter()
-        .rev()
-        .find(|event| event.event_type == EventType::OperatorAccepted);
-    let accepted_field = |field: &str| {
-        accepted
-            .and_then(|event| event.payload.get(field))
-            .and_then(Value::as_str)
-    };
-    // The acceptance carries only the command's id; the command itself
-    // is on the `operator/commanded` it disposes of.
-    let command_id = accepted_field("command_id").unwrap_or("unrecorded");
-    let command = events
-        .iter()
-        .find(|event| {
-            event.event_type == EventType::OperatorCommanded
-                && event.payload.get("command_id").and_then(Value::as_str) == Some(command_id)
-        })
-        .and_then(|event| event.payload.get("command"))
-        .and_then(Value::as_str)
-        .unwrap_or("stop");
-    format!(
-        "{OPERATOR_STOP_RULE}: operator '{}' commanded {command} ({command_id}): {}",
-        accepted_field("operator").unwrap_or("unrecorded"),
-        accepted_field("reason").unwrap_or("no reason recorded"),
-    )
-}
-
-/// The reason a command is refused because the run MOVED out from under
-/// it — it was legal when the operator asked and illegal by the time the
-/// disposition was written. A race, and the journal says so in one word.
-///
-/// The reasons below name the other thing a refusal can mean: a command
-/// the run could never have taken, no race involved. `lost_fence` used to
-/// carry both, which told an operator reading a refused `retry` that they
-/// had been unlucky when in fact they had asked for something the run was
-/// never in a state to give.
-pub const LOST_FENCE: &str = "lost_fence";
-
-/// Not `retry` or `stop`. The same word the fenced path uses.
-const COMMAND_NOT_ALLOWED: &str = "command_not_allowed";
-
-/// The run had already reached `Completed`/`Stopped`. Named for the
-/// `FoldError` an acceptance there would mint, since that error is what
-/// the refusal exists to prevent.
-const AFTER_TERMINAL: &str = "after_terminal";
-
-/// `retry` asked of a run that is not parked. The same word the fenced
-/// path uses for the same condition.
-const RUN_NOT_AWAITING_OPERATOR: &str = "run_not_awaiting_operator";
-
-/// The caller's cursor no longer describes the run's head. The fenced
-/// path's word for a race, which is `lost_fence`'s counterpart on the
-/// side that HAS a cursor to be stale.
-const STALE_CURSOR: &str = "stale_cursor";
-
-/// How many times [`operator_command`] re-decides against a moving head
-/// before it refuses. Each turn is spent only when a peer appended in the
-/// microseconds between the deciding fold and the fenced write, and costs
-/// one load and one fold. A command that loses four in a row is not
-/// racing a burn, and a refusal is always the safe answer — `fold` reads
-/// `operator/rejected` back in every state there is.
-const FENCE_ATTEMPTS: usize = 4;
-
-/// Would an `operator/accepted` for `command` still fold against this
-/// state — and if not, WHICH condition stops it? Asked BEFORE the
-/// acceptance is written, because `fold` will ask it of every reader
-/// forever afterward and events are immutable — an acceptance that lands
-/// where fold refuses it is not a mistake that can be taken back, it is a
-/// journal that stops folding from that seq on.
-///
-/// The condition is returned rather than a verdict because the same
-/// condition means two different things depending on WHEN it first held:
-/// true already when the operator asked, it is an illegal request; true
-/// only once the command had landed, it is [`LOST_FENCE`], a run that
-/// moved. [`operator_command`] asks twice and names the refusal
-/// accordingly.
-///
-/// The rule is exactly `fold`'s (`brokkr-core::fold`), read from the
-/// other side:
-/// - A run that has gone `Completed`/`Stopped` exempts only
-///   `operator/commanded` and `operator/rejected`; an acceptance there is
-///   `FoldError::AfterTerminal` forever.
-/// - `"retry"` moves a run from parked back to running, so it needs the
-///   run still parked, and a phase to return to.
-/// - `"stop"` is a live kill switch and deliberately lands wherever the
-///   run stands, so anywhere non-terminal is legal for it.
-///
-/// [`apply_fenced_operator_command`] does not call this: its own
-/// `run_not_awaiting_operator` check is strictly stronger (a parked run
-/// is non-terminal and has a phase), so it is already inside this rule.
-/// The unfenced path cannot borrow that stronger check, because
-/// demanding a parked run would break `"stop"`'s whole purpose — the
-/// fence it needs is the narrower one this predicate states.
-fn refusal_for(state: &RunState, command: &str) -> Option<&'static str> {
-    if command != "retry" && command != "stop" {
-        return Some(COMMAND_NOT_ALLOWED);
-    }
-    if matches!(state.status, Status::Completed | Status::Stopped) {
-        return Some(AFTER_TERMINAL);
-    }
-    // No phase check beside the status: `fold` refuses a park outside a
-    // phase (`RunParked` at `Start` is out of place), so a run awaiting
-    // an operator always has somewhere for a retry to re-enter.
-    if command == "retry" && state.status != Status::AwaitingOperator {
-        return Some(RUN_NOT_AWAITING_OPERATOR);
-    }
-    None
-}
-
-/// Journal a refusal and report it. A rejection needs no fence of its
-/// own: `fold` reads `operator/rejected` back in every state there is,
-/// terminal included, which is exactly why refusing is always the safe
-/// answer to a race.
-fn refuse(
-    store: &mut Store,
-    run_id: &str,
-    command_id: &str,
-    operator: &str,
-    reason: &str,
-    cause: &str,
-) -> Result<FencedCommandOutcome, EngineError> {
-    store.append_next(
-        run_id,
-        EventType::OperatorRejected,
-        json!({"command_id": command_id, "operator": operator, "reason": reason}),
-        Some(cause.to_string()),
-        None,
-    )?;
-    let (head_seq, head_hash) = store.head_hash(run_id)?;
-    Ok(FencedCommandOutcome::Rejected {
-        reason: reason.into(),
-        head_seq,
-        head_hash,
-    })
-}
-
-/// Append an operator command and its disposition (the CLI is the
-/// operator's console; approval is a signed journal entry, not prose).
-///
-/// Unfenced in the sense that the caller supplies no cursor — an
-/// operator at a terminal has not read a head hash — but not unfenced
-/// against the run. An engine process driving this same run is appending
-/// concurrently, and between the operator's decision and this write it
-/// can conclude the run or un-park it. The old code appended
-/// `operator/accepted` unconditionally into that window, which on a run
-/// that had gone terminal wrote a journal that no longer folds: silent
-/// at write time, irreversible afterward, and surfacing only the next
-/// time anyone read the run.
-///
-/// So the state is re-established here, as close to the write as the
-/// store API allows — which, with [`Store::append_next_if_head`], is all
-/// the way. `operator/commanded` is appended first (fold exempts it even
-/// after a terminal, so it is safe anywhere and it records that the
-/// operator asked). Then the run is folded again, and what THAT fold says
-/// — not what the operator saw — decides the disposition. An acceptance
-/// is written with the head that fold read as its fence, so it can only
-/// land on the state it was decided against: a peer that appended in
-/// between takes the head away, nothing is written, and the decision is
-/// made again against what the journal now says. Decide-and-append is
-/// atomic, not merely narrow, and no acceptance this function writes can
-/// be one `fold` later refuses.
-///
-/// A refusal is written unfenced, because `fold` reads
-/// `operator/rejected` back in every state there is.
-pub fn operator_command(
-    store: &mut Store,
-    run_id: &str,
-    command: &str,
-    operator: &str,
-    reason: &str,
-) -> Result<FencedCommandOutcome, EngineError> {
-    operator_command_racing(store, run_id, command, operator, reason, |_| {})
-}
-
-/// [`operator_command`], with the window it fences made reachable.
-///
-/// `between` is called at the one instant the fence exists for: after the
-/// deciding fold has read the journal, before the disposition is written.
-/// Production passes a no-op. The tests pass an engine's append, because
-/// a race proved by two real threads could only be asserted on when it
-/// happened to interleave, and a fence is either always there or it is
-/// not a fence.
-fn operator_command_racing(
-    store: &mut Store,
-    run_id: &str,
-    command: &str,
-    operator: &str,
-    reason: &str,
-    mut between: impl FnMut(&mut Store),
-) -> Result<FencedCommandOutcome, EngineError> {
-    let command_id = Uuid::new_v4().to_string();
-    let events = store.load(run_id)?;
-    // A journal that does not fold cannot host a legal acceptance at
-    // all, so refuse before writing anything rather than adding to it.
-    let asked = fold(&events)?;
-    // What the run already refused before the command was even journaled
-    // is not a race, and is not reported as one.
-    let illegal_when_asked = refusal_for(&asked, command);
-    let head_event = events.last().map(|e| e.event_id.clone());
-    let commanded = store.append_next(
-        run_id,
-        EventType::OperatorCommanded,
-        json!({"command_id": command_id, "command": command, "args": {}, "operator": operator}),
-        head_event,
-        None,
-    )?;
-
-    let mut lost = 0;
-    // One line per refusal callsite: the exact-coverage gate reads a
-    // multi-line call's `?` edges as their own regions, and a refusal
-    // whose failure edge cannot be reached deterministically would read
-    // as an uncovered line forever. Sharing the line makes the gate see
-    // what is actually exercised.
-    let refusal_of = |store: &mut Store, why: &'static str, commanded: &EventEnvelope| {
-        refuse(
-            store,
-            run_id,
-            &command_id,
-            operator,
-            why,
-            &commanded.event_id,
-        )
-    };
-    let disposition = loop {
-        let events = store.load(run_id)?;
-        let state = fold(&events)?;
-        let (head_seq, head_hash) = events
-            .last()
-            .map(|event| (event.seq, event.event_hash.clone()))
-            .expect("the command just appended is in the journal");
-        between(store);
-        if let Some(condition) = refusal_for(&state, command) {
-            let refusal = if illegal_when_asked.is_some() {
-                condition
-            } else {
-                LOST_FENCE
-            };
-            break refusal_of(store, refusal, &commanded)?;
-        }
-        // An acceptance disposes of the command still pending, and `fold`
-        // reads it back only as disposing of THAT one. A second operator
-        // commanding in this window takes the pending place, and an
-        // acceptance written into it is `NoMatchingCommand` for every
-        // reader afterwards — the same irreversible shape as an
-        // acceptance after a terminal, arriving from a peer at another
-        // terminal rather than from an engine.
-        if !matches!(&state.pending_command, Some((pending, _)) if *pending == command_id) {
-            break refusal_of(store, LOST_FENCE, &commanded)?;
-        }
-        match store.append_next_if_head(
-            run_id,
-            head_seq,
-            &head_hash,
-            EventType::OperatorAccepted,
-            json!({"command_id": command_id, "operator": operator, "reason": reason}),
-            Some(commanded.event_id.clone()),
-            None,
-        ) {
-            Ok(_) => {
-                let (head_seq, head_hash) = store.head_hash(run_id)?;
-                break FencedCommandOutcome::Accepted {
-                    head_seq,
-                    head_hash,
-                };
-            }
-            // A peer appended between the fold and the write. The
-            // acceptance was never written; decide again against what it
-            // wrote, and refuse rather than spin forever.
-            Err(brokkr_store::StoreError::HeadMoved { .. }) if lost < FENCE_ATTEMPTS => {
-                lost += 1;
-            }
-            Err(brokkr_store::StoreError::HeadMoved { .. }) => {
-                break refusal_of(store, LOST_FENCE, &commanded)?;
-            }
-            Err(error) => return Err(error.into()),
-        }
-    };
-    // The pair that just landed must read back. Same proof the fenced
-    // path takes before it acknowledges anything to Looper.
-    fold(&store.load(run_id)?)?;
-    Ok(disposition)
-}
-
-/// What `brokkr operator supersede` says, as the operator typed it
-/// (decision 0047 ruling 1): which of this run's residual findings are
-/// closed, the run and ruling that closed them, and why.
-pub struct Supersede<'a> {
-    /// The sequence numbers of the rulings whose residuals are closed.
-    pub findings: &'a [u64],
-    /// The realm the superseding run was read in, or `None` for the
-    /// workspace journal — decision 0026 ruling 3's key, on a citation.
-    pub by_realm: Option<&'a str>,
-    pub by_run: &'a str,
-    pub by_seq: u64,
-    pub reason: &'a str,
-    pub operator: &'a str,
-}
-
-/// Record that a terminal run's residual findings are closed by another
-/// run (decision 0047 ruling 1). One `operator/commanded` event with
-/// `command: "supersede"`, and nothing else: no `operator/accepted`
-/// follows, because there is nothing to execute and `fold` refuses an
-/// acceptance on a terminal run by design. The event is the record.
-///
-/// Every citation is verified BEFORE anything is written (ruling 2), and
-/// a refusal writes nothing at all — which is why this returns
-/// [`EngineError::SupersedeRefused`] rather than journaling a rejection
-/// the way `retry` and `stop` do. There is no pending command here for a
-/// rejection to dispose of.
-///
-/// `by_journal` is the journal `by_realm` names, opened by the caller
-/// (the workspace journal when the citation names no realm): a
-/// superseding run may live in another hearth, and a citation into a
-/// journal this process never opened is one nobody can follow back.
-///
-/// The write is FENCED on the head the verification read (decision
-/// 0029). The event is legal wherever it lands — a terminal status is
-/// absorbing, so `fold` exempts this annotation at any later seq — but
-/// a head that moved is a journal that grew under a verification, and
-/// re-deciding beats writing against a reading that is no longer the
-/// whole story.
-pub fn operator_supersede(
-    store: &mut Store,
-    by_journal: &Store,
-    run_id: &str,
-    ask: &Supersede,
-) -> Result<EventEnvelope, EngineError> {
-    operator_supersede_racing(store, by_journal, run_id, ask, |_| {})
-}
-
-/// [`operator_supersede`], with the window its fence exists for made
-/// reachable. `between` runs after the verifying load, before the
-/// fenced append. Production passes a no-op; the test passes a peer's
-/// append, because a fence is either always there or it is not a fence.
-fn operator_supersede_racing(
-    store: &mut Store,
-    by_journal: &Store,
-    run_id: &str,
-    ask: &Supersede,
-    mut between: impl FnMut(&mut Store),
-) -> Result<EventEnvelope, EngineError> {
-    // One voice for every refusal below, and every one of them comes
-    // before the first append: a refused supersede leaves the journal
-    // byte for byte as it found it.
-    let refused = EngineError::SupersedeRefused;
-    let events = store.load(run_id)?;
-    let state = fold(&events)?;
-    if !matches!(state.status, Status::Completed | Status::Stopped) {
-        return Err(refused(format!(
-            "run '{run_id}' is {}, not completed or stopped; on a run that is still \
-             going the fold would hold this as a PENDING command and the \
-             operator/accepted that disposes of it would be refused as unknown",
-            brokkr_view::status_str(&state.status)
-        )));
-    }
-    if ask.by_run == run_id {
-        return Err(refused(format!(
-            "run '{run_id}' cannot supersede its own findings; name the run that \
-             closed them"
-        )));
-    }
-    if ask.findings.is_empty() {
-        return Err(refused(format!(
-            "a supersede on run '{run_id}' that names no finding closes nothing; \
-             name the seq of every ruling whose residual is closed"
-        )));
-    }
-    let derived = brokkr_view::residual_findings(run_id, &events);
-    for finding in ask.findings {
-        if !derived.iter().any(|known| known.seq == *finding) {
-            return Err(refused(format!(
-                "seq {finding} is not a residual finding of run '{run_id}'; \
-                 brokkr inspect --run {run_id} lists the rulings that carry one"
-            )));
-        }
-    }
-    let realm = match ask.by_realm {
-        Some(realm) => format!("realm '{realm}'"),
-        None => "the workspace journal".to_string(),
-    };
-    let cited = by_journal
-        .load(ask.by_run)
-        .map_err(|error| refused(format!("run '{}' in {realm}: {error}", ask.by_run)))?;
-    if !cited
-        .iter()
-        .any(|event| event.seq == ask.by_seq && event.event_type == EventType::TransitionDecided)
-    {
-        return Err(refused(format!(
-            "seq {} of run '{}' in {realm} is not a transition/decided; a supersede \
-             cites the RULING that closed the finding",
-            ask.by_seq, ask.by_run
-        )));
-    }
-    let head = events
-        .last()
-        .expect("a run that folded to a terminal status has events");
-    let payload = json!({
-        "command_id": Uuid::new_v4().to_string(),
-        "command": brokkr_view::SUPERSEDE,
-        "operator": ask.operator,
-        "args": {
-            "findings": ask.findings,
-            "by": {"realm": ask.by_realm, "run_id": ask.by_run, "seq": ask.by_seq},
-            "reason": ask.reason,
-        },
-    });
-    between(store);
-    // A head that moved comes back in the store's own words — `head
-    // moved: expected seq N, found seq M` — rather than paraphrased
-    // into a refusal of this verb's own. Nothing was written either
-    // way, and the operator reads the journal again and asks again.
-    let written = store.append_next_if_head(
-        run_id,
-        head.seq,
-        &head.event_hash,
-        EventType::OperatorCommanded,
-        payload,
-        Some(head.event_id.clone()),
-        None,
-    )?;
-    // The annotation must read back, and reading back must change
-    // nothing (ruling 3). Same proof the fenced command path takes.
-    fold(&store.load(run_id)?)?;
-    Ok(written)
-}
-
-/// Close a run from its journal alone: no bundle, no recipe, no process.
-///
-/// `resume` is bundle-in, bundle-out — it compiles the exact pinned
-/// recipe and refuses on any drift (`ManifestMismatch`) before it looks
-/// at the cursor, because the branches it drives (`RequestEffect`,
-/// `ExecuteEffect`, `Decide`) SPEND money against a pinned policy and
-/// must not spend it against a different one. That gate is correct, and
-/// it is also why a run journaled under an engine that has since moved
-/// can never reach a lawful conclusion: the door it needs is behind a
-/// lock that exists for other doors.
-///
-/// This is the other door. An operator stop conclusion appends nothing
-/// but bookkeeping — `operator/commanded`, `operator/accepted`,
-/// at most one `effect/indeterminate`, and `run/stopped` — and reads no
-/// policy to append any of it: `fold`'s `"stop"` arm lands at any cursor
-/// (riding an in-flight attempt to its boundary, concluding where it
-/// stands otherwise), and the boundary close is the same event
-/// `advance_running` writes at `Cursor::EffectInFlight` on a fresh
-/// process, which consults no bundle either. A closure that spawns
-/// nothing needs no pinned recipe to be honest about what it wrote.
-///
-/// Deterministic throughout (law 2): the caller supplies a run id, an
-/// operator identity, and a reason — never a cursor or a status. Every
-/// position is re-derived by re-folding the journal after each append,
-/// and an unexpected one is an error rather than a guess.
-///
-/// Every write is FENCED (the operator's park ruling, 2026-09-01,
-/// applying the compare-and-append the concurrent-writers slice
-/// landed): the stop command re-decides on a moved head and its
-/// refusal ends the conclusion, and both closing appends land only on
-/// the exact head this process just folded. A run something else is
-/// still driving therefore refuses instead of being closed over: ANY
-/// movement of the head is evidence the run is not dead, and a
-/// conclusion is for a run believed dead. `resume`'s fresh-process
-/// branch still carries the unfenced hazard; decision 0029 (proposed)
-/// rules on fencing it. `brokkr runs` remains the way to look first.
-pub fn conclude(
-    store: &mut Store,
-    run_id: &str,
-    operator: &str,
-    reason: &str,
-) -> Result<RunState, EngineError> {
-    conclude_racing(store, run_id, operator, reason, |_| {})
-}
-
-/// [`conclude`] with the windows held open: `between` runs before the
-/// stop command and inside each fence — after the head is taken, before
-/// the append lands on it. Production passes a no-op; tests pass the
-/// live driver the fences exist to refuse.
-fn conclude_racing(
-    store: &mut Store,
-    run_id: &str,
-    operator: &str,
-    reason: &str,
-    mut between: impl FnMut(&mut Store),
-) -> Result<RunState, EngineError> {
-    // `load` verifies the hash chain and never returns a partial journal,
-    // so a broken chain refuses the whole conclusion here — before any
-    // append. No second verification, and the error is never swallowed.
-    let state = fold(&store.load(run_id)?)?;
-    if matches!(state.status, Status::Completed | Status::Stopped) {
-        return Err(EngineError::AlreadyConcluded {
-            run_id: run_id.to_string(),
-            status: match state.status {
-                Status::Completed => "completed",
-                _ => "stopped",
-            }
-            .to_string(),
-        });
-    }
-
-    // A stop already in force is not re-commanded: the operator who
-    // typed `brokkr operator stop` is the cause the journal already
-    // names, and a second command would put a second name on the
-    // conclusion. Only a run with no stop pending gets one, naming the
-    // operator invoking `conclude`.
-    between(store);
-    if state.cursor != Cursor::Stop && !state.riding_stop {
-        if let FencedCommandOutcome::Rejected {
-            reason: refusal, ..
-        } = operator_command(store, run_id, "stop", operator, reason)?
-        {
-            return Err(EngineError::Other(format!(
-                "conclude: run '{run_id}' refused the stop ({refusal}); the                  journal moved beneath the conclusion, so something may still                  be driving this run — look with `brokkr runs` before closing"
-            )));
-        }
-    }
-
-    // The accepted stop rides an in-flight attempt to its boundary. This
-    // process holds no driver for that attempt, so completion cannot be
-    // established: close it indeterminate, exactly as a fresh drive
-    // would. Closing the boundary is what SPENDS the ride (fold's
-    // `conclude`), so the loop turns at most once — but what ends it is
-    // the re-folded cursor, never a count kept here.
-    let mut events = store.load(run_id)?;
-    while let Some((effect_id, attempt_id)) = riding_attempt(run_id, &fold(&events)?)? {
-        let head = events.last().expect("a foldable journal has a head");
-        let (head_seq, head_hash, head_cause) =
-            (head.seq, head.event_hash.clone(), head.event_id.clone());
-        between(store);
-        concluded_or_alive(
-            run_id,
-            store.append_next_if_head(
-                run_id,
-                head_seq,
-                &head_hash,
-                EventType::EffectIndeterminate,
-                json!({
-                    "effect_id": effect_id,
-                    "attempt_id": attempt_id,
-                    "reason": "the run was concluded from its journal while the attempt \
-                               was in flight; completion cannot be established",
-                }),
-                Some(head_cause),
-                Some(attempt_id),
-            ),
-        )?;
-        events = store.load(run_id)?;
-    }
-
-    // `riding_attempt` answering None IS the statement that the cursor is
-    // `Cursor::Stop`; it refuses anything else rather than letting a
-    // `run/stopped` be appended somewhere it does not belong.
-    let head = events.last().expect("a foldable journal has a head");
-    let (head_seq, head_hash, head_cause) =
-        (head.seq, head.event_hash.clone(), head.event_id.clone());
-    between(store);
-    concluded_or_alive(
-        run_id,
-        store.append_next_if_head(
-            run_id,
-            head_seq,
-            &head_hash,
-            EventType::RunStopped,
-            json!({"reason": operator_stop_reason(&events)}),
-            Some(head_cause),
-            None,
-        ),
-    )?;
-    Ok(fold(&store.load(run_id)?)?)
-}
-
-/// The fence's verdict, read as `conclude` must read it: a head that
-/// moved beneath a conclusion is not a race to win but evidence the run
-/// is alive, so it refuses with the look-first instruction instead of
-/// retrying against a journal something else is writing.
-fn concluded_or_alive(
-    run_id: &str,
-    written: Result<EventEnvelope, brokkr_store::StoreError>,
-) -> Result<EventEnvelope, EngineError> {
-    match written {
-        Err(brokkr_store::StoreError::HeadMoved { .. }) => Err(EngineError::Other(format!(
-            "conclude: the journal moved beneath the conclusion of run '{run_id}',              so something may still be driving it — a conclusion is for a run              believed dead; look with `brokkr runs` before closing"
-        ))),
-        other => Ok(other?),
-    }
-}
-
-/// Where a run with an accepted stop stands, read off the cursor a
-/// re-fold produced rather than predicted: `None` at `Cursor::Stop` —
-/// the position `run/stopped` belongs at — and the in-flight attempt the
-/// ride must close first otherwise. Under an accepted stop the fold
-/// admits no third position, so any other cursor is a fold or engine
-/// defect and refuses rather than guessing at a conclusion.
-fn riding_attempt(run_id: &str, state: &RunState) -> Result<Option<(String, String)>, EngineError> {
-    match &state.cursor {
-        Cursor::Stop => Ok(None),
-        Cursor::EffectInFlight {
-            effect_id,
-            attempt_id,
-            ..
-        } if state.riding_stop => Ok(Some((effect_id.clone(), attempt_id.clone()))),
-        cursor => Err(EngineError::Other(format!(
-            "conclude: run '{run_id}' stands at {cursor:?} with an accepted stop; \
-             a stop reaches Stop or rides an in-flight attempt and nothing else"
-        ))),
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FencedCommandOutcome {
-    Accepted {
-        head_seq: u64,
-        head_hash: String,
-    },
-    Rejected {
-        reason: String,
-        head_seq: u64,
-        head_hash: String,
-    },
-}
-
-/// Apply a command received through the Looper producer bridge. The command id
-/// is supplied by Looper, the expected cursor/hash fences concurrent operator
-/// activity, and both acceptance and rejection become Brokkr journal evidence
-/// before any control-state effect is possible. The acceptance is written
-/// against the head the cursor check covered ([`Store::append_next_if_head`]),
-/// so an engine append between that check and the write loses the fence
-/// instead of slipping under it.
-// The arguments intentionally keep each security-relevant wire field explicit
-// at this narrow trust boundary rather than hiding them in an unvalidated bag.
-#[allow(clippy::too_many_arguments)]
-pub fn apply_fenced_operator_command(
-    store: &mut Store,
-    run_id: &str,
-    command_id: &str,
-    command: &str,
-    operator: &str,
-    reason: &str,
-    expected_seq: u64,
-    expected_hash: &str,
-) -> Result<FencedCommandOutcome, EngineError> {
-    apply_fenced_racing(
-        store,
-        run_id,
-        command_id,
-        command,
-        operator,
-        reason,
-        expected_seq,
-        expected_hash,
-        |_| {},
-    )
-}
-
-/// [`apply_fenced_operator_command`] with the window held open: `between`
-/// runs after `operator/commanded` lands and before the acceptance is
-/// written against it — the instant [`Store::append_next_if_head`]'s
-/// fence exists for. Production passes a no-op; tests pass a peer.
-#[allow(clippy::too_many_arguments)]
-fn apply_fenced_racing(
-    store: &mut Store,
-    run_id: &str,
-    command_id: &str,
-    command: &str,
-    operator: &str,
-    reason: &str,
-    expected_seq: u64,
-    expected_hash: &str,
-    mut between: impl FnMut(&mut Store),
-) -> Result<FencedCommandOutcome, EngineError> {
-    let events = store.load(run_id)?;
-    if let Some(commanded) = events.iter().find(|event| {
-        event.event_type == EventType::OperatorCommanded
-            && event.payload.get("command_id").and_then(Value::as_str) == Some(command_id)
-    }) {
-        if let Some(disposition) = events.iter().find(|event| {
-            event.seq > commanded.seq
-                && matches!(
-                    event.event_type,
-                    EventType::OperatorAccepted | EventType::OperatorRejected
-                )
-                && event.payload.get("command_id").and_then(Value::as_str) == Some(command_id)
-        }) {
-            return Ok(if disposition.event_type == EventType::OperatorAccepted {
-                FencedCommandOutcome::Accepted {
-                    head_seq: disposition.seq,
-                    head_hash: disposition.event_hash.clone(),
-                }
-            } else {
-                FencedCommandOutcome::Rejected {
-                    reason: disposition
-                        .payload
-                        .get("reason")
-                        .and_then(Value::as_str)
-                        .unwrap_or("previously_rejected")
-                        .to_string(),
-                    head_seq: disposition.seq,
-                    head_hash: disposition.event_hash.clone(),
-                }
-            });
-        }
-        let rejected = store.append_next(
-            run_id,
-            EventType::OperatorRejected,
-            json!({
-                "command_id": command_id,
-                "operator": operator,
-                "reason": "incomplete_command_replay",
-            }),
-            Some(commanded.event_id.clone()),
-            None,
-        )?;
-        fold(&store.load(run_id)?)?;
-        return Ok(FencedCommandOutcome::Rejected {
-            reason: "incomplete_command_replay".into(),
-            head_seq: rejected.seq,
-            head_hash: rejected.event_hash,
-        });
-    }
-    let state = fold(&events)?;
-    let (head_seq, head_hash) = store.head_hash(run_id)?;
-    let rejection = if command != "retry" && command != "stop" {
-        Some(COMMAND_NOT_ALLOWED)
-    } else if head_seq != expected_seq || head_hash != expected_hash {
-        Some(STALE_CURSOR)
-    } else if state.status != Status::AwaitingOperator {
-        Some(RUN_NOT_AWAITING_OPERATOR)
-    } else {
-        None
-    };
-    let cause = events.last().map(|event| event.event_id.clone());
-    let commanded = store.append_next(
-        run_id,
-        EventType::OperatorCommanded,
-        json!({
-            "command_id": command_id,
-            "command": command,
-            "args": {},
-            "operator": operator,
-        }),
-        cause,
-        None,
-    )?;
-    between(store);
-    let disposition = if let Some(rejection) = rejection {
-        refuse(
-            store,
-            run_id,
-            command_id,
-            operator,
-            rejection,
-            &commanded.event_id,
-        )?
-    } else {
-        // The cursor was checked above, before `operator/commanded` was
-        // written; the acceptance is written against the head that check
-        // covers — the command itself — so a peer's append in between
-        // cannot slip underneath it. It cannot be re-decided here the way
-        // the unfenced path re-decides: this caller HOLDS a cursor, and
-        // deciding against a head they never saw is what the fence exists
-        // to prevent. They re-read and re-issue; the journal says why.
-        match store.append_next_if_head(
-            run_id,
-            commanded.seq,
-            &commanded.event_hash,
-            EventType::OperatorAccepted,
-            json!({"command_id": command_id, "operator": operator, "reason": reason}),
-            Some(commanded.event_id.clone()),
-            None,
-        ) {
-            Ok(_) => {
-                let (head_seq, head_hash) = store.head_hash(run_id)?;
-                FencedCommandOutcome::Accepted {
-                    head_seq,
-                    head_hash,
-                }
-            }
-            Err(brokkr_store::StoreError::HeadMoved { .. }) => {
-                let cause = &commanded.event_id;
-                refuse(store, run_id, command_id, operator, STALE_CURSOR, cause)?
-            }
-            Err(error) => return Err(error.into()),
-        }
-    };
-    // Prove the newly appended pair does not corrupt fold semantics before the
-    // bridge acknowledges it to Looper.
-    fold(&store.load(run_id)?)?;
-    Ok(disposition)
-}
 
 /// A driver invocation that got as far as running, or one that never
 /// spawned. Spawn failures carry no stderr, and their terminal error
@@ -4283,8 +3590,11 @@ fn route_overlay_binding(
 /// this term a vendor that hangs a first turn would walk the chain down
 /// every link, each one hanging for a full deadline, and journal
 /// per-model start failures for one vendor-wide stall.
+///
+/// It reads the settled outcome (#403): an attempt whose tree is not
+/// proven over is indeterminate, and no fallback starts beside it.
 fn failed_to_start(report: &AttemptReport) -> bool {
-    matches!(report.outcome, AttemptOutcome::Failed { .. })
+    matches!(report.settled_outcome(), AttemptOutcome::Failed { .. })
         && !report.accepted
         && report.checkpoints.is_empty()
         && !report.deadline_killed
@@ -4411,7 +3721,6 @@ fn spawn_site(
 /// One composed invocation (decision 0046 ruling 4; design DD18): the
 /// argv, the environment it starts in, and — for an unboxed exec
 /// dispatch — the script directory the engine re-walks before the spawn.
-/// An unsafe interpreter spelling carries a refusal instead of spawning.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteSpawn {
     pub argv: Vec<String>,
@@ -4474,20 +3783,6 @@ impl SiteSpawn {
             class: None,
             charter: None,
         }
-    }
-
-    /// Replace the token at `index` in `argv` and in the segment that
-    /// supplied it, which keeps its origin.
-    fn replace(&mut self, index: usize, token: String) {
-        let mut start = 0;
-        for segment in &mut self.segments {
-            if index < start + segment.argv.len() {
-                segment.argv[index - start] = token.clone();
-                break;
-            }
-            start += segment.argv.len();
-        }
-        self.argv[index] = token;
     }
 
     /// Where the driver's extras begin, exactly as the driver will read
@@ -5105,7 +4400,7 @@ pub struct Unboxed {
 
 /// The prefix when the probe passed, nothing when it did not — one pure
 /// function of the answer and the ids, which the argv tests read.
-pub fn network_prefix_if(passes: bool, uid: u32, gid: u32) -> Vec<String> {
+pub(crate) fn network_prefix_if(passes: bool, uid: u32, gid: u32) -> Vec<String> {
     match passes {
         true => brokkr_protocol::hands::network_prefix(uid, gid),
         false => Vec::new(),
@@ -5120,51 +4415,31 @@ fn is_exec_dispatch(command: &[String]) -> bool {
 
 /// The directory holding the first script token compile expanded from
 /// `./`. Later argv tokens are arguments, even when they name a root.
-fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<(usize, PathBuf)> {
-    command
-        .iter()
-        .enumerate()
-        .skip(4)
-        .find_map(|(index, part)| {
-            roots
-                .iter()
-                .find(|root| Path::new(part).strip_prefix(root).is_ok())
-                .and_then(|_| {
-                    Path::new(part)
-                        .parent()
-                        .map(|dir| (index, dir.to_path_buf()))
-                })
-        })
+fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
+    command.iter().skip(4).find_map(|part| {
+        roots
+            .iter()
+            .find(|root| Path::new(part).strip_prefix(root).is_ok())
+            .and_then(|_| Path::new(part).parent().map(Path::to_path_buf))
+    })
 }
 
-/// The pin and the interpreter argument have different jobs (0048).
-/// Select the directory using compile's canonical components FIRST: a
-/// Windows verbatim root is its identity, but Git Bash cannot open that
-/// spelling. Only the script argv is converted; later arguments are not
-/// judged paths. Unix filename bytes, including backslashes, stay exact.
-/// The explicit platform lets Linux exercise the Windows composition too.
+/// [`exec_segments`] over one authored segment: the argv the tests
+/// compose an exec dispatch from.
 #[cfg(test)]
-fn exec_spawn_on(command: Vec<String>, roots: &[PathBuf], windows: bool) -> SiteSpawn {
-    exec_segments_on(
-        vec![Segment::new(Origin::Authored, &command)],
-        roots,
-        windows,
-    )
+fn exec_spawn(command: Vec<String>, roots: &[PathBuf]) -> SiteSpawn {
+    exec_segments(vec![Segment::new(Origin::Authored, &command)], roots)
 }
 
-/// [`exec_spawn_on`] over segments: the script argument is respelled in
-/// the segment that supplied it, which keeps its origin.
-fn exec_segments_on(segments: Vec<Segment>, roots: &[PathBuf], windows: bool) -> SiteSpawn {
+/// The pin and the interpreter argument have different jobs (0048): the
+/// canonical script directory is what the spawn re-walks, and the argv
+/// stays exactly as compile spelled it, each segment keeping its origin.
+/// Later arguments are not judged paths, and filename bytes, backslashes
+/// included, stay exact. `segments` are an exec dispatch: their one
+/// caller, compose_segments, checks that first.
+fn exec_segments(segments: Vec<Segment>, roots: &[PathBuf]) -> SiteSpawn {
     let mut spawn = SiteSpawn::of(segments);
-    if is_exec_dispatch(&spawn.argv) {
-        if let Some((index, directory)) = script_directory(&spawn.argv, roots) {
-            spawn.rewalk = Some(directory);
-            match script_argument(&spawn.argv[index], windows) {
-                Ok(argument) => spawn.replace(index, argument),
-                Err(reason) => spawn.refusal = Some(reason),
-            }
-        }
-    }
+    spawn.rewalk = script_directory(&spawn.argv, roots);
     spawn
 }
 
@@ -5220,81 +4495,18 @@ fn engine_hands(tokens: &[String]) -> Vec<Segment> {
     }
 }
 
-/// Strip a Windows verbatim prefix only when ordinary Win32 lookup names
-/// the same file. MAX_PATH includes the NUL, and counts UTF-16 units.
-/// Trailing dots/spaces and DOS devices would alias different names after
-/// stripping; refuse those and long/other-namespace paths before spawn.
-/// Forward separators in this argv alone work for both Win32 and Git Bash.
-fn script_argument(path: &str, windows: bool) -> Result<String, String> {
-    let Some(verbatim) = path.strip_prefix(r"\\?\").filter(|_| windows) else {
-        return Ok(path.to_string());
-    };
-    let refusal = || {
-        format!(
-            "exec script path cannot be passed safely without its Windows extended-length prefix: \
-         '{path}'; use an ordinary drive or UNC path shorter than 260 UTF-16 units, \
-         with no reserved names or trailing dots/spaces (decision 0048)"
-        )
-    };
-    let (ordinary, components) = if let Some(unc) = verbatim.strip_prefix(r"UNC\") {
-        (format!("//{}", unc.replace('\\', "/")), unc)
-    } else if matches!(
-        verbatim.as_bytes(),
-        [b'A'..=b'Z' | b'a'..=b'z', b':', b'\\', ..]
-    ) {
-        (verbatim.replace('\\', "/"), &verbatim[3..])
-    } else {
-        return Err(refusal());
-    };
-    if ordinary.encode_utf16().count() >= 260 {
-        return Err(refusal());
-    }
-    if !components
-        .split(['\\', '/'])
-        .all(ordinary_windows_component)
-    {
-        return Err(refusal());
-    }
-    Ok(ordinary)
-}
-
-fn ordinary_windows_component(component: &str) -> bool {
-    if component.is_empty() || component.ends_with(['.', ' ']) {
-        return false;
-    }
-    if component
-        .chars()
-        .any(|c| c.is_ascii_control() || "<>:\"|?*".contains(c))
-    {
-        return false;
-    }
-    // A device name stays reserved with an extension (even NUL.tar.gz).
-    let stem = component
-        .split('.')
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches(' ')
-        .to_ascii_uppercase();
-    ![
-        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "COM0", "COM1", "COM2", "COM3", "COM4",
-        "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³", "LPT0", "LPT1", "LPT2",
-        "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
-    ]
-    .contains(&stem.as_str())
-}
-
 /// Compose one site's argv and environment from the boundary the run
 /// stands under (decision 0046 ruling 4; design DD18) — a pure function
 /// the argv tests read directly:
 ///
 /// - a site without hands: its command in the engine's environment,
-///   with an exec script spelled for the interpreter and no re-walk;
+///   with no re-walk;
 /// - under a boundary Brokkr builds: today's path token for token —
 ///   `hands_command`'s box — in the engine's environment;
 /// - under `harness` and `open`, an exec dispatch: the compiled command
 ///   behind the network prefix when the probe passed, in the fixed
 ///   environment, with the canonical script directory marked for the
-///   spawn re-walk and its argv spelled for the interpreter;
+///   spawn re-walk;
 ///   work or gate, the class unread (proposal D32);
 /// - under `harness`, a model site: the adapter's `gate` or `work`
 ///   fragment by class appended to the unboxed resolution's argv with
@@ -5303,7 +4515,7 @@ fn ordinary_windows_component(component: &str) -> bool {
 ///   operator's keys;
 /// - under `open`, a model site: the base driver argv and nothing of
 ///   Brokkr's.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn compose_site(
     boundary: BuiltBoundary,
     class: SeatClass,
@@ -5354,7 +4566,7 @@ pub fn compose_site(
 /// other segment as the engine's own `hands` segment, as `agents::compose`
 /// appends an agent's last, and [`hands_command`] expands its tokens. Every
 /// other site is [`compose_site`] exactly.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
 pub fn compose_site_at(
     facts: Option<&SiteFacts>,
     boundary: BuiltBoundary,
@@ -5414,7 +4626,7 @@ pub fn compose_site_at(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
 fn compose_segments(
     boundary: BuiltBoundary,
     class: SeatClass,
@@ -5427,14 +4639,12 @@ fn compose_segments(
     unboxed: Option<&Unboxed>,
 ) -> SiteSpawn {
     let Some(spec) = hands else {
-        let mut spawn = exec_segments_on(segments, roots, cfg!(windows));
-        spawn.rewalk = None;
-        return spawn;
+        return SiteSpawn::of(segments);
     };
     let command = flatten(&segments);
     if boundary != BuiltBoundary::Namespace && is_exec_dispatch(&command) {
         let unboxed = unboxed.cloned().unwrap_or_default();
-        let mut spawn = exec_segments_on(segments, roots, cfg!(windows));
+        let mut spawn = exec_segments(segments, roots);
         // The network prefix is the engine's, composed for the boundary.
         let mut prefixed = engine_hands(&unboxed.prefix);
         prefixed.append(&mut spawn.segments);
@@ -5493,7 +4703,7 @@ fn compose_segments(
 /// word on such a record is dropped. The trigger is the record's own key,
 /// never a step name, because the engine is the only party that knows
 /// which boundary it built.
-pub fn stamp_boundary(record: Value, boundary: Option<Boundary>) -> Value {
+pub(crate) fn stamp_boundary(record: Value, boundary: Option<Boundary>) -> Value {
     match record {
         Value::Object(mut object) => {
             if object.contains_key("model") {
@@ -5552,7 +4762,7 @@ fn panel_outcome(aggregate: Aggregate, reports: Vec<(String, AttemptReport)>) ->
     let mut failures = Vec::new();
     let mut member_results = Vec::new();
     for (name, report) in reports {
-        match report.outcome {
+        match report.settled_outcome() {
             AttemptOutcome::Succeeded { result } => member_results.push((name, result)),
             AttemptOutcome::Failed { error } => failures.push(format!("{name}: {error}")),
             AttemptOutcome::Indeterminate { .. } => indeterminate.push(name),
@@ -5579,6 +4789,7 @@ fn panel_outcome(aggregate: Aggregate, reports: Vec<(String, AttemptReport)>) ->
 /// member evidence attached — never coerced (law 0001). A member result
 /// outside the vocabulary ranks WORST and flows to decide(), whose
 /// declared-results check parks it with evidence.
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value {
     let mut notes = Map::new();
     let mut verdicts = Map::new();
@@ -5681,7 +4892,7 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
 /// expects them from, so the spawn and the check cannot disagree on an
 /// escape. An executable or workdir that is not UTF-8 has no exact
 /// provider value and refuses rather than binding a lossy one.
-pub fn hands_command(
+pub(crate) fn hands_command(
     command: Vec<String>,
     hands: Option<&brokkr_protocol::hands::HandsSpec>,
     workdir: &std::path::Path,
@@ -5890,9 +5101,9 @@ impl Engine {
     /// The payload of `phase/entered`: the phase, and for the protected
     /// phase the repository head it was entered at (decision 0039), so
     /// the phase's own commits can later be told from the ones it judged.
-    /// Optional and absent by default — no repository, no head — and
-    /// published as `contracts/phase-entered-head.v1.schema.json`; `fold`
-    /// never reads it.
+    /// Optional and absent when the operated repository's head cannot be
+    /// read, and published as `contracts/phase-entered-head.v1.schema.json`;
+    /// `fold` never reads it.
     fn phase_entered_payload(&self, phase: &str, state: &RunState) -> Value {
         let mut payload = json!({"phase": phase});
         if let Some((_, Some(case))) = self
@@ -5906,7 +5117,7 @@ impl Engine {
         let returning_implement =
             phase == "implement" && state.visits.get("implement").copied().unwrap_or(0) > 0;
         if phase == self.bundle.protected_phase || returning_implement {
-            if let Some(head) = self.repo.as_deref().and_then(git_head) {
+            if let Some(head) = git_head(&self.repo) {
                 payload["head"] = Value::String(head);
             }
         }
@@ -5998,6 +5209,14 @@ fn docs_class(repo: &std::path::Path, head: &str) -> Option<Vec<regex::Regex>> {
         .collect()
 }
 
+/// The operated repository (#368): the one `--repo` named, else the
+/// directory the engine is constructed in. Resolved once, so `workdir()`
+/// and every git fact — the ship guards above all — read the same tree
+/// instead of the guards switching off when the flag is omitted.
+fn operated_repo(repo: Option<PathBuf>) -> PathBuf {
+    repo.unwrap_or_else(|| std::env::current_dir().expect("cwd"))
+}
+
 /// The repository's observed HEAD, or nothing when there is no readable
 /// git tree there. Public because `brokkr realms` reads out the same
 /// fact the ship gate compares against — one reader, not two.
@@ -6064,7 +5283,16 @@ mod artifact_gate_tests;
 mod capability_tests;
 
 #[cfg(test)]
+mod cleanup_tests;
+
+#[cfg(test)]
 mod conclude_tests;
+
+#[cfg(test)]
+mod operator_tests;
+
+#[cfg(test)]
+mod notice_tests;
 
 #[cfg(test)]
 mod boundary_tests;

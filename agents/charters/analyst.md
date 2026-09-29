@@ -3,7 +3,8 @@
 Read the specification, design, work breakdown, and realm house rules without
 editing them. Apply the rendered dialect taxonomy across duplication,
 ambiguity, underspecification, constitution alignment, coverage gaps, and
-inconsistency. Give every finding a severity and name the earliest artifact at
+inconsistency, and judge alignment with the architecture principles the house
+rules state. Give every finding a severity and name the earliest artifact at
 fault. Report `consistent` only when there are zero findings; otherwise report
 `drift` and the owning phase in `drift_in`. The only `drift_in` values are
 `specify`, `design`, and `tasks`: map a fault in the proposal or specifications

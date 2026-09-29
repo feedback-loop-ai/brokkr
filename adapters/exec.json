@@ -1,7 +1,7 @@
 {
   "provider": "exec",
   "trust_tier": "untrusted",
-  "binding_grant": true,
+  "egress": "contracted",
   "binary": "sh",
   "driver": [
     "{brokkr}",

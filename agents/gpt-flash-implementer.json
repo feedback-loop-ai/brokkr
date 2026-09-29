@@ -2,10 +2,10 @@
   "description": "Builds the framed task to the repository's conventions and commits the work with its tests.",
   "charter": "charters/implementer.md",
   "models": [
-    "flash-experiment"
+    "flash"
   ],
   "efforts": {
-    "flash-experiment": "high"
+    "flash": "high"
   },
   "limits": {
     "max_attempts": 2,

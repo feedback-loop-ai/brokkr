@@ -680,28 +680,72 @@ pub(crate) const TWO_REPOSITORIES: &str = r#"{
   "journal": "state/world.db"
 }"#;
 
+/// Run git `args` in `repo`, which must succeed.
+fn run_git(repo: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {args:?}");
+}
+
+/// Make `repo` the empty repository every test commits in: an identity,
+/// no signing, and no automatic maintenance
+/// (`a_test_repository_commits_without_detached_maintenance`).
+pub(crate) fn initialised(repo: &Path) {
+    let setup: [&[&str]; 5] = [
+        &["init", "-q"],
+        &["config", "user.name", "Brokkr Test"],
+        &["config", "user.email", "brokkr@test"],
+        &["config", "commit.gpgSign", "false"],
+        &["config", "maintenance.auto", "false"],
+    ];
+    for args in setup {
+        run_git(repo, args);
+    }
+}
+
 /// A repository with one commit of its own; the commit's message is the
 /// file it adds, so two repositories never share a tree or a sha.
 pub(crate) fn repository(root: &Path, name: &str) -> (PathBuf, String) {
     let repo = root.join(name);
     std::fs::create_dir_all(&repo).unwrap();
-    let git = |args: &[&str]| {
-        assert!(std::process::Command::new("git")
-            .args(args)
-            .current_dir(&repo)
-            .status()
-            .unwrap()
-            .success());
-    };
-    git(&["init", "-q"]);
-    git(&["config", "user.name", "Brokkr Test"]);
-    git(&["config", "user.email", "brokkr@test"]);
-    git(&["config", "commit.gpgSign", "false"]);
+    initialised(&repo);
     std::fs::write(repo.join(format!("{name}.txt")), name).unwrap();
-    git(&["add", "."]);
-    git(&["commit", "-q", "-m", name]);
+    run_git(&repo, &["add", "."]);
+    run_git(&repo, &["commit", "-q", "-m", name]);
     let head = crate::git_head(&repo).expect("a committed repository has a HEAD");
     (repo, head)
+}
+
+/// #403: a test repository's commit spawns no automatic maintenance.
+/// git runs it detached, in a session of its own, and the orphan lands on
+/// this process, a child subreaper once any test has started an attempt.
+/// Two concurrent tests' attempts whose drivers had just exited could
+/// each have left it, so both would park on it.
+#[test]
+fn a_test_repository_commits_without_detached_maintenance() {
+    let root = tempfile::tempdir().unwrap();
+    let (repo, _) = repository(root.path(), "quiet");
+    std::fs::write(repo.join("second.txt"), "second").unwrap();
+    let traced = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .env("GIT_TRACE", "1")
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
+    traced(&["add", "."]);
+    let trace = traced(&["commit", "-q", "-m", "second"]);
+    let maintenance: Vec<&str> = trace
+        .lines()
+        .filter(|line| line.contains("maintenance"))
+        .collect();
+    assert_eq!(maintenance, Vec::<&str>::new(), "{trace}");
 }
 
 /// The fixture: a workspace whose map names two realms in two separate

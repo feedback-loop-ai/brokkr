@@ -1,5 +1,16 @@
 use super::*;
+use crate::import::RUN_ID_MAX;
+use crate::schema::{
+    ensure_wal_by, guards_intact, sidecar_columns_missing, MIGRATION_V1, SIDECAR_COLUMNS,
+};
+use crate::test_support::{drop_seq_guard, plant_envelope, plant_event, plant_run};
 use serde_json::json;
+
+#[path = "../../../tests/support/env_guard.rs"]
+pub(crate) mod env_guard;
+#[path = "../../../tests/support/envelope.rs"]
+pub(crate) mod envelope_builder;
+use envelope_builder::EnvelopeBuilder;
 
 fn store() -> (tempfile::TempDir, Store) {
     let dir = tempfile::tempdir().unwrap();
@@ -157,13 +168,7 @@ fn opening_a_journal_a_peer_is_writing_takes_no_write_lock() {
     // as this lives, nobody else can write this file.
     let holder = Connection::open(&db).unwrap();
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
-    holder
-        .execute(
-            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-             VALUES ('holder', 'feat', 'self', '{}', '2026-01-01T00:00:00Z')",
-            [],
-        )
-        .unwrap();
+    plant_run(&holder, "holder", "{}").unwrap();
 
     // Opening is a read, so it does not queue behind that lock. Asked on
     // another thread with a deadline far below the busy timeout, because
@@ -422,33 +427,14 @@ fn export_verifies_offline() {
 /// 6, which export and offline verify must still refuse.
 fn plant_unfenced(store: &mut Store, run_id: &str, event_type: EventType, payload: Value) {
     let (seq, previous_hash) = store.head_hash(run_id).unwrap();
-    let envelope = EventEnvelope {
-        run_id: run_id.to_string(),
-        seq: seq + 1,
-        event_id: format!("planted-{}", seq + 1),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: run_id.to_string(),
-        attempt_id: None,
-        recorded_at: now_rfc3339(),
-        previous_hash,
-        event_hash: String::new(),
-    }
-    .sealed();
-    store
-        .conn
-        .execute(
-            "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![
-                run_id,
-                envelope.seq as i64,
-                envelope.event_hash,
-                serde_json::to_string(&envelope).unwrap()
-            ],
-        )
-        .unwrap();
+    let envelope = EnvelopeBuilder::new(event_type, payload)
+        .run(run_id)
+        .seq(seq + 1)
+        .event_id(format!("planted-{}", seq + 1))
+        .at(now_rfc3339())
+        .previous(previous_hash)
+        .sealed();
+    plant_envelope(&store.conn, &envelope).unwrap();
 }
 
 #[test]
@@ -524,6 +510,79 @@ fn append_refuses_a_nonconforming_seat_record_and_writes_nothing() {
         .unwrap();
     assert_eq!(store.head_hash("r1").unwrap().0, 2);
     store.export_ndjson("r1").unwrap();
+}
+
+/// The fence judges a record by the engine its run's manifest names,
+/// extracted by SQLite rather than parsed whole under the lock (#354). A
+/// manifest naming an older engine, none, a non-string, or not JSON at
+/// all reads as v1, which admits strictly less. Of two `engine` keys the
+/// fence reads the one serde reads, the last, so fence and export cannot
+/// read one run two ways.
+#[test]
+fn the_append_fence_reads_the_engine_its_runs_manifest_names() {
+    let (_dir, mut store) = store();
+    let checkpoint = json!({"effect_id":"fx", "checkpoint":{
+        "step":"seat-turn", "turn":1, "model":"claude-opus-5", "effort":"high"
+    }});
+    for (run_id, manifest) in [
+        ("new", json!({"engine": "0.8.0"})),
+        ("old", json!({"engine": "0.4.0"})),
+        ("none", json!({})),
+        ("number", json!({"engine": 8})),
+    ] {
+        store.create_run(run_id, "feat", "self", &manifest).unwrap();
+    }
+    for (run_id, manifest) in [
+        ("malformed", r#"{"engine": "0.8.0""#),
+        ("new-last", r#"{"engine": "0.4.0", "engine": "0.8.0"}"#),
+        ("old-last", r#"{"engine": "0.8.0", "engine": "0.4.0"}"#),
+        // The second key spells the i of engine as a JSON unicode escape,
+        // built from its backslash so no editor or transport decodes it.
+        (
+            "escaped",
+            concat!(r#"{"engine": "0.4.0", "eng"#, '\\', r#"u0069ne": "0.8.0"}"#),
+        ),
+        ("text-last", r#"{"engine": 8, "engine": "0.8.0"}"#),
+        ("number-last", r#"{"engine": "0.8.0", "engine": 8}"#),
+    ] {
+        plant_run(&store.conn, run_id, manifest).unwrap();
+    }
+    for (run_id, serde_reads) in [
+        ("new-last", json!("0.8.0")),
+        ("old-last", json!("0.4.0")),
+        ("escaped", json!("0.8.0")),
+        ("text-last", json!("0.8.0")),
+        ("number-last", json!(8)),
+    ] {
+        assert_eq!(store.manifest(run_id).unwrap()["engine"], serde_reads);
+    }
+    let append = |store: &mut Store, run_id: &str| {
+        store.append_next(
+            run_id,
+            EventType::EffectCheckpointed,
+            checkpoint.clone(),
+            None,
+            None,
+        )
+    };
+    for run_id in ["new", "new-last", "escaped", "text-last"] {
+        assert_eq!(append(&mut store, run_id).unwrap().seq, 1, "{run_id}");
+    }
+    for run_id in [
+        "old",
+        "none",
+        "number",
+        "malformed",
+        "old-last",
+        "number-last",
+    ] {
+        let error = append(&mut store, run_id).unwrap_err();
+        let StoreError::SeatRecord(refusal) = error else {
+            panic!("{run_id}: {error}");
+        };
+        let judged = (refusal.seq, refusal.contract);
+        assert_eq!(judged, (1, SeatRecordVersion::V1.contract()), "{run_id}");
+    }
 }
 
 #[test]
@@ -1030,21 +1089,10 @@ fn origin(name: &str) -> std::path::PathBuf {
 /// verifies; what a chain cannot vouch for is the *name* it was sealed
 /// under, which is exactly what the gates past verification are for.
 fn sealed_export(run_id: &str, payload: Value) -> String {
-    let envelope = EventEnvelope {
-        run_id: run_id.into(),
-        seq: 1,
-        event_id: "e1".into(),
-        event_schema_version: 1,
-        event_type: EventType::RunStarted,
-        payload,
-        causation_id: None,
-        correlation_id: run_id.into(),
-        attempt_id: None,
-        recorded_at: "2026-01-01T00:00:00Z".into(),
-        previous_hash: ZERO_HASH.into(),
-        event_hash: String::new(),
-    }
-    .sealed();
+    let envelope = EnvelopeBuilder::new(EventType::RunStarted, payload)
+        .run(run_id)
+        .event_id("e1")
+        .sealed();
     format!(
         "{}\n",
         serde_json::to_string(&serde_json::to_value(&envelope).unwrap()).unwrap()
@@ -1200,7 +1248,8 @@ fn ensure_wal_retries_past_a_reader_that_eventually_leaves() {
 }
 
 /// And patience is finite: still locked at the deadline, the loop stops
-/// sleeping and returns the lock as the error it is.
+/// sleeping and returns the lock as the contention it is, typed like
+/// every other operation's since the conversion runs under `patiently`.
 #[test]
 fn a_lock_still_held_at_the_deadline_is_returned_not_slept_on() {
     let dir = tempfile::tempdir().unwrap();
@@ -1213,8 +1262,11 @@ fn a_lock_still_held_at_the_deadline_is_returned_not_slept_on() {
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
     holder.execute_batch("INSERT INTO seed VALUES (1)").unwrap();
     let conn = rusqlite::Connection::open(&path).unwrap();
-    let expired = std::time::Instant::now() - std::time::Duration::from_millis(1);
-    assert!(ensure_wal_by(&conn, expired).is_err());
+    let refused = ensure_wal_by(&conn, std::time::Duration::ZERO).unwrap_err();
+    assert!(
+        matches!(&refused, StoreError::Contended { operation, .. } if *operation == "ensure_wal"),
+        "{refused:?}"
+    );
 }
 
 /// An error that is not contention does not get patience: a file the
@@ -1235,7 +1287,10 @@ fn a_wal_conversion_refused_for_a_reason_other_than_busy_fails_at_once() {
     let refused = Store::open(&path).err().map(|error| error.to_string());
     assert!(refused.is_some(), "a sealed file opened anyway");
     let mut permissions = std::fs::metadata(&path).unwrap().permissions();
-    #[allow(clippy::permissions_set_readonly_false)]
+    #[expect(
+        clippy::permissions_set_readonly_false,
+        reason = "the test restores write access so its temp dir can be removed"
+    )]
     permissions.set_readonly(false);
     std::fs::set_permissions(&path, permissions).unwrap();
 }
@@ -1250,13 +1305,7 @@ fn write_lock_on(db: &std::path::Path) -> Connection {
         .busy_timeout(std::time::Duration::from_secs(30))
         .unwrap();
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
-    holder
-        .execute(
-            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-             VALUES ('holder', 'feat', 'self', '{}', '2026-01-01T00:00:00Z')",
-            [],
-        )
-        .unwrap();
+    plant_run(&holder, "holder", "{}").unwrap();
     holder
 }
 
@@ -1328,6 +1377,29 @@ fn a_lock_held_past_all_patience_is_typed_contention_not_a_bare_sqlite_error() {
         "contention arrived untyped: {refused:?}"
     );
     holder.execute_batch("ROLLBACK").unwrap();
+}
+
+/// A row offered again later need not wait for a peer's lock: it is
+/// contended at once, and the store's patience is whole again after.
+#[test]
+fn an_append_without_waiting_meets_a_held_lock_at_once_and_keeps_the_patience() {
+    let (_dir, db, mut store) = contended_journal();
+    let patience = std::time::Duration::from_millis(400);
+    store.set_patience(patience).unwrap();
+    let holder = write_lock_on(&db);
+    let (phase, entered) = (EventType::PhaseEntered, json!({"phase": "implement"}));
+    let started = std::time::Instant::now();
+    let refused = store.append_next_without_waiting("r1", phase, entered.clone(), None, None);
+    assert!(started.elapsed() < patience, "{:?}", started.elapsed());
+    let refused = refused.unwrap_err();
+    assert!(matches!(refused, StoreError::Contended { operation, .. } if operation == "append"));
+    let started = std::time::Instant::now();
+    let refused = store.append_next("r1", phase, entered.clone(), None, None);
+    assert!(started.elapsed() >= patience, "{:?}", started.elapsed());
+    assert!(refused.unwrap_err().is_contention());
+    holder.execute_batch("ROLLBACK").unwrap();
+    let landed = store.append_next_without_waiting("r1", phase, entered, None, None);
+    assert_eq!(landed.unwrap().seq, 2);
 }
 
 /// The escape itself: a `SQLITE_BUSY` the busy handler is never asked
@@ -1420,6 +1492,52 @@ fn a_moved_head_is_a_refusal_and_is_never_retried_into_place() {
     );
     // Nothing of it landed.
     assert_eq!(store.head_hash("r1").unwrap().0, 2);
+}
+
+/// A seq is a position in the chain: an integer from 1. The column's
+/// INTEGER affinity stores `'3'` and `4.0` as integers, but a table that is
+/// not STRICT keeps `1.5`, `'abc'` or a blob as they are, and a suffix read
+/// past a held head never selects a row below it. So the journal refuses
+/// every other seq at insert (#354), and reopening a journal whose guard
+/// has gone missing restores it, as it restores the append-only guards.
+#[test]
+fn a_seq_that_is_not_a_position_is_refused_at_insert() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    use rusqlite::types::Value as Sql;
+    let insert = |conn: &rusqlite::Connection, seq: Sql| plant_event(conn, "r1", &seq, "h", "e");
+    {
+        let mut store = Store::open(&db).unwrap();
+        store.create_run("r1", "feat", "self", &json!({})).unwrap();
+        for seq in [
+            Sql::Real(1.5),
+            Sql::Text("1.5".into()),
+            Sql::Real(0.5),
+            Sql::Integer(0),
+            Sql::Integer(-5),
+            Sql::Text("abc".into()),
+            Sql::Blob(vec![0]),
+            Sql::Real(1e300),
+        ] {
+            let shown = format!("{seq:?}");
+            let refused = insert(&store.conn, seq).unwrap_err().to_string();
+            assert!(
+                refused.contains("events.seq is an integer from 1"),
+                "{shown}: {refused}"
+            );
+        }
+        for seq in [Sql::Integer(1), Sql::Text("2".into()), Sql::Real(3.0)] {
+            insert(&store.conn, seq).unwrap();
+        }
+        drop_seq_guard(&store.conn).unwrap();
+        insert(&store.conn, Sql::Real(1.5)).unwrap();
+    }
+    let store = Store::open(&db).unwrap();
+    let refused = insert(&store.conn, Sql::Real(2.5)).unwrap_err().to_string();
+    assert!(
+        refused.contains("events.seq is an integer from 1"),
+        "{refused}"
+    );
 }
 
 /// The guard question is a question, not an assumption: asked of a file
@@ -1547,103 +1665,6 @@ fn a_run_is_started_here_only_on_the_machine_and_account_that_created_it() {
     // And an installation that cannot place itself at all: no session
     // is anyone's, including its own.
     assert!(!store.started_under("r1", None).unwrap());
-}
-
-/// What a machine is allowed to be identified by, and what is not an
-/// identity at all. The fingerprint is opaque and stable: the same
-/// machine twice is the same token, a different one is not, and neither
-/// the hostname nor the home path it was made from can be read back out
-/// of it.
-#[test]
-fn a_machine_fingerprint_needs_a_source_that_says_something() {
-    let dir = tempfile::tempdir().unwrap();
-    let named = dir.path().join("machine-id");
-    let blank = dir.path().join("blank");
-    let missing = dir.path().join("absent");
-    std::fs::write(&named, "d9b1e0c4f1a24e0e8b3c\n").unwrap();
-    std::fs::write(&blank, "  \n").unwrap();
-    let path = |p: &std::path::Path| p.to_str().unwrap().to_string();
-
-    // The first source that can be read wins, and a missing one is
-    // simply skipped.
-    let first = host_from(&[&path(&missing), &path(&named)], None).unwrap();
-    assert_eq!(first.len(), 16);
-    assert_eq!(host_from(&[&path(&named)], None), Some(first.clone()));
-    assert!(
-        !first.contains("d9b1e0c4"),
-        "the source is not readable back"
-    );
-
-    // No source at all falls back to what the caller was given, and a
-    // caller with nothing to give gets nothing.
-    assert_eq!(
-        host_from(&[&path(&missing)], Some("a-hostname".into())),
-        host_from(&[], Some("a-hostname".into()))
-    );
-    assert_ne!(host_from(&[], Some("a-hostname".into())), Some(first));
-    assert_eq!(host_from(&[&path(&missing)], None), None);
-
-    // A source that reads as whitespace says nothing, and saying
-    // nothing is not an identity.
-    assert_eq!(host_from(&[&path(&blank)], None), None);
-    assert_eq!(host_from(&[], Some(String::new())), None);
-
-    // And the real one exists, on the machine running this test — on
-    // every released platform, not only the one with /etc/machine-id.
-    assert!(local_host().is_some());
-}
-
-/// Where no identity file exists (macOS, Windows), the machine's name
-/// comes from the environment the platform actually exports, and as a
-/// last resort from `hostname` itself. Blank answers are no answer.
-#[test]
-fn a_machine_without_an_identity_file_still_names_itself() {
-    let variable = "BROKKR_TEST_MACHINE_NAME_7f3c";
-    std::env::remove_var(variable);
-    // Nothing set: the command is asked, and asked once.
-    let mut asked = 0;
-    let answered = machine_name(&[variable], || {
-        asked += 1;
-        Some("bench-host".to_string())
-    });
-    assert_eq!(answered.as_deref(), Some("bench-host"));
-    assert_eq!(asked, 1);
-    // A blank command answer is none.
-    assert_eq!(machine_name(&[variable], || Some("  \n".to_string())), None);
-    assert_eq!(machine_name(&[variable], || None), None);
-    // A set variable wins without asking.
-    std::env::set_var(variable, "exported-name");
-    assert_eq!(
-        machine_name(&[variable], || panic!("the command must not be asked")).as_deref(),
-        Some("exported-name")
-    );
-    // A blank variable does not win.
-    std::env::set_var(variable, "   ");
-    assert_eq!(
-        machine_name(&[variable], || Some("fallback".to_string())).as_deref(),
-        Some("fallback")
-    );
-    std::env::remove_var(variable);
-
-    // The real command answers on the machine running this test; a
-    // missing program and a failing one are both no answer.
-    let printed = hostname_command().expect("hostname prints on every released platform");
-    assert!(!printed.trim().is_empty());
-    assert_eq!(hostname_from("brokkr-no-such-program-7f3c"), None);
-    assert_eq!(hostname_from("false"), None);
-
-    // And the home half follows the platform's spelling: the first set
-    // variable wins, and none set is empty rather than a panic.
-    let home_variable = "BROKKR_TEST_HOME_7f3c";
-    std::env::remove_var(home_variable);
-    assert_eq!(home_from(&[home_variable]), "");
-    std::env::set_var(home_variable, "/somewhere");
-    assert_eq!(
-        home_from(&["BROKKR_TEST_UNSET_7f3c", home_variable]),
-        "/somewhere"
-    );
-    std::env::remove_var(home_variable);
-    let _ = account_home();
 }
 
 /// One broken link refuses the WHOLE import. No prefix of good events
@@ -1959,12 +1980,7 @@ fn arrival_columns_are_added_once_and_an_older_journal_migrates() {
         [],
     )
     .unwrap();
-    conn.execute(
-        "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-         VALUES ('old', 'before import existed', 'self', '{}', '2026-01-01T00:00:00Z')",
-        [],
-    )
-    .unwrap();
+    plant_run(&conn, "old", "{}").unwrap();
     drop(conn);
 
     // Opening it migrates; the pre-existing run reads as native.

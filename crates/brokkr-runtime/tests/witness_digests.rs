@@ -1,30 +1,38 @@
-//! Decision 0046: hands sites now pin the realm boundary; codex
-//! harness fragments also move every identity that consults that adapter.
-//! Pins below are updated only from the tests' reported left/right pairs.
-//! Merging main's research-dsh xhigh effort pin with this boundary slice
-//! moves that recipe again; its witness covers both changes together.
-//! The byte-identity witnesses of the agent-library slice (decision
-//! 0016, spec AC-4), pinned BEFORE any production edit so the claim is
-//! measured across the change rather than asserted after it.
+//! The byte-identity witnesses (decision 0016, spec AC-4; #358): the
+//! manifest digest of every bundle under `recipes/` and `bundles/` and
+//! the bytes of every shipped charter, held once as data in
+//! `witnesses.json`.
 //!
-//! `recipes/fast`, `recipes/node`, `recipes/preflight`,
-//! `recipes/wager-harness` and `bundles/verify` adopt no agent. The
-//! routing and night-shift recipes seat library agents under decision
-//! 0041. Every pinned manifest must
-//! move only when its recorded strategy or dependencies move; an inline
-//! recipe must continue to carry no `agents` key at all.
+//! A pinned manifest moves only when its recorded strategy or its
+//! dependencies move: a charter, a role, a table, an adapter declaration
+//! it consults, a composed base, or the engine version. Adopting no agent
+//! is not the same as answering to nobody: an inline gate stands on an
+//! adapter's declared tier (decision 0021), so an inline recipe carries a
+//! `drivers` key naming the adapter digest that authorised each seat, and
+//! a demoted tier moves the bundle's identity.
 //!
-//! Adopting no agent is not the same as answering to nobody. The inline
-//! recipes seat gates, and since decision 0021 a gate stands on an
-//! adapter's declared tier — so they carry a `drivers` key naming the
-//! adapter digest that authorised each judging seat. That key is the
-//! witness the refusals were missing: without it a demoted tier would
-//! change what the compiler allows while leaving the bundle's identity
-//! untouched.
+//! A move is re-pinned by one command, never by hand:
+//!
+//! ```text
+//! BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests
+//! ```
+//!
+//! Without it the suite compares every witness and fails once with a
+//! table of every old → new value. Why a value moved belongs in the commit
+//! message that moves it; the reviewed diff of `witnesses.json` is the
+//! witness.
 
-use std::path::PathBuf;
+use std::collections::BTreeSet;
+use std::ffi::OsStr;
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
 
 use brokkr_runtime::Bundle;
+
+#[path = "support/witnesses.rs"]
+mod witnesses;
+
+use witnesses::{Witnesses, TABLE};
 
 /// The workspace root: this file lives at `crates/brokkr-runtime/tests/`.
 fn workspace() -> PathBuf {
@@ -36,286 +44,131 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-/// Decision 0045 moves the bundles that hire a review office, the triage
-/// gate, the analyst or the chief: the codex adapter gained the `astra`
-/// lane and a second judge, and those offices now chain across the vendor
-/// line (`recipes/triage`, `recipes/night-shift`); the inline recipes and
-/// `bundles/verify` pin only the claude adapter and did not move.
-/// Decision 0041 moves every pinned bundle for its three enacted reasons:
-/// ruling 1 advances the fable adapter mapping, ruling 2 moves model sites
-/// onto the roster, and ruling 3 adds each adapter's judges declaration.
-/// Decision 0043 previously moved every pinned bundle at once, and for one reason:
-/// every adapter file gained `hands` — how the provider puts its hands in
-/// the box, or the measured reason it cannot — and a bundle whose inline
-/// gate pins the adapter declaration that authorised it (decision 0021)
-/// carries that file's digest in its identity. The bundles hiring the
-/// review agents moved further: those agents now chain fable@high →
-/// opus@xhigh → sol@xhigh and declare boxed hands, so their resolution
-/// records and the manifest's `hands` key changed. This review correction
-/// moves only bundles that hire an intake or implementer: their Git work is
-/// now named in the charter and expressible in the resolved tool grant;
-/// ignored allow-lists beside boxed hands were removed at the same time.
-/// Recorded from this tree at the commit that introduced this test. A
-/// move here is either an intended engine-version bump, an intended
-/// policy change re-pinned as the identity change it is (decision 0022
-/// moved `recipes/fast`, which gained the reforging back-edge, and left
-/// `bundles/verify` — which has no implement phase to return to —
-/// exactly where it was; decision 0019's rename moved both, because the
-/// `{forge}` token in their argv became `{brokkr}`; decision 0021's
-/// compile-time refusals moved both again, because every seat in them
-/// now declares whether it works or judges, and once more because their
-/// inline gates now pin the adapter declaration that authorises them),
-/// or decision 0019's closing sweep moved living role or policy prose,
-/// or the byte identity this slice promised to keep. Never a silent
-/// extra thing.
-///
-/// `recipes/node` joined them when the Node reference recipe landed,
-/// pinned from its first compile: it ships as reference material a
-/// stranger copies, so an unreviewed edit to a charter or a driver's
-/// tool list must fail a test here exactly as it would for `fast`.
-///
-/// `recipes/preflight` joined for the sharper version of the same
-/// reason: a contributor runs it on their own branch expecting the
-/// machine's own bar, and a charter quietly softened — a gate dropped
-/// from the verifier's list, a tool added to a driver — would change
-/// what that promise is worth without changing anything visible.
-///
-/// The four roster recipes joined on the same terms, pinned from their
-/// first compile. Each is `fast` plus a stated difference, so each
-/// carries `fast`'s digest transitively under its `@compose/0000/fast`
-/// manifest entry: edit `recipes/fast` and all move together, which
-/// is the honest reading — a derived recipe IS a different strategy when
-/// its base changes.
-///
-/// Decision 0033 deliberately moved the seven recipe witnesses: each
-/// bundle now carries the description and relative cost rendered in the
-/// sixty-second contributing guide. `bundles/verify` did not move.
-///
-/// Decision 0035 ruling 5 moved all eight, and that movement IS the
-/// ruling rather than a side effect of it: every model pin now carries
-/// an effort pin, so every one of these bundles states in its argv the
-/// effort it hires as well as the model. A hire that changed is a
-/// bundle whose identity changed, and this is where that is said out
-/// loud. Nothing else moved them — no charter, no policy, no role
-/// prose; the diff on each is `--effort <level>` beside `--model`, and
-/// each level is the driver's own default rather than a tuned choice.
-/// Decision 0039 moved `recipes/fast` and the four recipes composed
-/// from it, and nothing else: the table gained `REVIEW-CLEAN-DOCS-FIXES`,
-/// which ships a clean review whose own commits lie entirely in the
-/// repository's docs class instead of buying the whole verify again. A
-/// table that rules differently is a different strategy, and this is
-/// where that is said. `recipes/node`, `recipes/preflight` and
-/// `bundles/verify` do not derive from `fast` and did not move.
-/// Decision 0041 rulings 4 and 5 move every witness here: gates no longer
-/// advertise or route on judge-authored fixes, implement gains its
-/// reserved `oversized` verdict, and tables with an implement phase gain
-/// bounded finding returns. The two verdict-only strategies move because
-/// their reviewer charter and declared inputs become honestly read-only.
-/// This slice moves all eight again for one named reason: verifier and
-/// shipper are no longer model-backed agents. Their inline exec commands,
-/// boxed hands and recipe-owned verifier scripts are bundle identity, and
-/// every wager inherits the same gates from `fast` by construction.
-/// This review return moves them once more because deterministic ship gates
-/// shed unused toolchain binds, and Node's verifier retains only its npm
-/// cache. Those least-privilege hands declarations are also identity.
-/// This correction moves them again because every deterministic gate
-/// names its script bundle-relatively, making the strategy's read-only
-/// script mount (rather than the operated-on repository) part of the
-/// command the witness pins.
-/// The returned implementation moves every script-owning witness again:
-/// the verifier and shipper bytes now live inside those bundle roots and
-/// therefore enter the manifest identity. Preflight already owned its
-/// verifier under `roles/`, so it does not move.
-/// Decision 0041 ruling 6 adds the routing witness: the routing recipe's
-/// identity includes the triage office, routing table, current design
-/// council, and Fast as its composed base.
-/// Ruling 8 moves the routing descendants because triage now pins each
-/// non-final sequence step's result vocabulary. House rules do not move a
-/// bundle identity: they belong to the realm pin.
-/// This review correction moves those descendants again because the compiler
-/// now actually emits the promised vocabulary fields. Node moves separately:
-/// its duplicated repository rules left the role and now live only in the
-/// adopter's house file.
-/// Decision 0042 moves the two design-bearing descendants: the old local
-/// heading check is replaced by the realm dialect's validate command, verify
-/// gains the dialect's archive check, and the chief now hands off `change` as
-/// a typed input. Those commands and charter bytes are manifest identity.
-/// Decision 0044 ruling 5 then moves every witness: the claude adapter's tool
-/// vocabulary gains the explicit web-fetch and web-search grant, and every
-/// bundle here pins that adapter through an agent or an inline gate. The two
-/// design-bearing descendants therefore carry both legitimate movements.
-/// The research recipe joins as the eighth witness because its researcher,
-/// boxed registry gate and proposal-only table are its identity. Its dsh lane
-/// is the ninth: it pins the same charter, the Qwen3.8-Max hire and the overlay
-/// that enables page fetch and names its route.
-/// Decision 0042's second slice moves the two triage descendants again: the
-/// design route is now five phases, its new judges and validators are pinned,
-/// and the dialect-free SDD smith replaces the generic design implementer.
-/// The returned reviews move those descendants once more: spec compliance's
-/// complete typed contract and intake's boxed hands are agent identity, then
-/// the loop judges bind their deterministic checks and closed `drift_in`
-/// vocabulary while the smith regains its complete result semantics.
-/// Night-shift moves independently because its one-attempt override now names
-/// every phase in the SDD route.
-/// This correction moves the two triage descendants together: artifact
-/// validation retries now bind to journal-counted failures instead of every
-/// return into the phase.
-/// `recipes/gpt-flash` joins as the tenth witness: it is a descendant of
-/// `recipes/triage` whose scoped `gpt-flash-*` roster, four-strategy
-/// Sol/Flash/Astra seats and inherited deterministic gates are its identity.
-/// Decision 0058's citation in the recipe README moves its manifest digest
-/// once more, because the README bytes are part of the recipe's identity.
-/// Decision 0035's 2026-09-11 addendum moves it again: the dsh adapter
-/// lists an effortless route, and every bundle resolving an agent
-/// through that adapter pins its digest — the roster's Flash seats do.
-/// The dsh pin to the installed 0.1.5-rc.1 moves it once more for one
-/// named reason: `hands.unsupported` re-measured on that release, which
-/// moves the dsh adapter digest every Flash resolution witnesses.
-/// The review-first remediation corrects that reason once more for one
-/// named reason: `DSH_TOOLS_MODE` is documented (`native|ptc|both` into
-/// `tools.mode`), those are presentation modes rather than a capability
-/// restriction, and the installed tools/headless components identify as
-/// 0.1.5-rc.2 behind launcher 0.1.5-rc.1 — which moves the same digest.
-/// Proposed decision 0056 moves every bundle whose sites resolve through
-/// `adapters/claude.json`, `adapters/codex.json`, `adapters/dsh.json` or
-/// `adapters/lanetally.json`: each now declares what has been MEASURED
-/// about resuming it, and an adapter declaration is bundle data. That
-/// first edit left `recipes/research-dsh` unmoved, because its lane
-/// resolved through no declaration this change then pinned.
-/// The returned F1 correction pins the declaration a work-class inline
-/// driver reads its resume assessment from, beside the gate's authorising
-/// digest: that assessment decides whether the seat rejoins, so an edit
-/// to it must move the bundle identity the offer is compared against.
-/// That moves `recipes/fast` and `recipes/node` (their inline Claude
-/// implementers), `recipes/night-shift` and `recipes/research-dsh`
-/// (inline work seats the first `drivers` witness did not yet pin) and
-/// `recipes/wager-harness` (its inline Codex implementer). The gate-only
-/// bundles, the agent-backed ones and `recipes/preflight` keep their
-/// digests: a seat that consulted no inline model declaration is not
-/// touched.
-/// The 2026-09-16 Codex declaration reconciliation moves the four bundles
-/// whose inline or composed work sites read `adapters/codex.json`'s resume
-/// assessment: `recipes/night-shift`, `recipes/wager-harness`,
-/// `recipes/triage` and `recipes/gpt-flash`. The other six are unchanged;
-/// their measured digests below are the copies of that edit's actual
-/// compiles, never recomputed guesses.
-/// The 2026-09-21 roster addition moves the three bundles whose sites
-/// resolve through `adapters/dsh.json`: the adapter gains the `spark-glm`
-/// local route with its `glm-flash` alias (ruled 2026-09-16) and the
-/// Model Studio aliases `glm53` and `studio-flash41`, and an adapter
-/// declaration is bundle data. The other seven are unchanged.
-/// Issue #307 (operator rulings 2026-09-20 and 2026-09-21) moves
-/// `recipes/triage` and nothing else here: its `engine` case seats
-/// `implementer-engine`, which now hires astra@high then fable@high and
-/// declares decision 0043's workspace hands in place of its Cargo/Git tool
-/// list. The agent digest, the adapters that chain consults and the
-/// manifest's `hands` and `boundary` entries for that site are the
-/// movement. No charter, adapter or engine version changed; the measured
-/// value is this tree's actual compile, and the nine others — including
-/// `recipes/night-shift` and `recipes/gpt-flash`, which derive from triage
-/// but seat their own implementers — reported no movement.
-/// The 2026-09-22 roster move re-points three aliases the operator named:
-/// `opus` to `claude-opus-5-5`, `sol` to `gpt-6-sol` and `luna` to
-/// `gpt-6-luna`, each probed live that day. An adapter's model map is
-/// bundle data, so every witness that resolves a seat through the claude
-/// or codex adapter moves; each digest below is the actual compile.
-/// Decision 0065 slice one moves ALL ten, and each for reasons that can
-/// be read off its manifest. (1) Every compiled manifest gains the
-/// required `capabilities` section of run-manifest v11 — the operated
-/// realm, its grants (none), and per executable site the office, its asks
-/// and one outcome per provider candidate with the native controls
-/// composed for it — so a bundle that now states the authority it
-/// compiled under is a different bundle; this alone moves the gate-only
-/// `bundles/verify` and `recipes/preflight`. (2) Every adapter gained its
-/// `native_capabilities` declaration — `adapters/codex.json` the measured
-/// `-c web_search="disabled"` OFF switch, `adapters/claude.json` WebSearch
-/// and WebFetch, and `unmeasured` with its reason for dsh, LaneTally and
-/// exec — and an adapter declaration is bundle data every `drivers` and
-/// `agents` pin already witnesses. (3) `recipes/research` moves a third
-/// way: the researcher now ASKS for `web-search` and `web-fetch` as wants
-/// instead of naming Claude's tools, its charter says returned material is
-/// data, both wants are dropped in this realm with a recorded notice, and
-/// both consulted definitions are pinned. (4) `recipes/research-dsh` moves
-/// with the charter copy it holds equal to the library's, and with its
-/// README, which now says what decision 0065 makes of dsh's own web tools.
-/// Proposed decision 0066 ruling 8 (finding M3) moves the three bundles
-/// that LOAD the shipped library without seating its researcher —
-/// `recipes/night-shift`, `recipes/triage` and `recipes/gpt-flash`: a
-/// compile now resolves the asks of every loaded agent, seated or not, so
-/// the researcher's `web-search` and `web-fetch` wants are consulted and
-/// their definitions pinned in each of these manifests, where before only
-/// `recipes/research`, which seats it, pinned them. `recipes/research`
-/// keeps its digest for exactly that reason, and the six bundles that load
-/// no library are untouched: no charter, table, adapter or grant moved.
-/// Rebuild unit 1 replays the slice onto main at `072cdd9b` and moves all
-/// ten again, for main's two reasons meeting the slice's: the engine
-/// version (v0.11.0, #321) participates in every manifest's identity, and
-/// the 2026-09-22 roster's claude and codex model maps (#320) now sit
-/// beside the slice's `native_capabilities` in the same adapter files.
-/// No charter, table or grant moved in the replay.
-/// Rebuild unit 5 moves the eight that pin the claude or LaneTally
-/// adapter: both gained the typed-migration command names (`npm`, `npx`,
-/// `node`, `gh-pr-view`, `gh-run-view`) in `tool_permissions.names`,
-/// which is adapter data those pins witness. `recipes/research-dsh` and
-/// `recipes/gpt-flash` pin neither adapter and keep their digests. No
-/// charter, table, recipe or grant moved.
-/// Rebuild unit 6 moves seven: `recipes/fast`, `recipes/node` and
-/// `recipes/preflight` replace their seats' authored permission flags with
-/// a typed `tools.allow`, and `night-shift`, `wager-harness`, `triage` and
-/// `gpt-flash` carry the `fast` layer. `research`, `research-dsh` and
-/// `bundles/verify` keep their digests.
-/// Rebuild unit 7 moves `bundles/verify` alone: its review seat replaces
-/// the same authored flags with a typed `tools.allow`. `recipes/standby`
-/// and `recipes/review-first` also migrate, and neither is witnessed here.
-/// Rebuild unit 8 moves two: `recipes/wager-harness` replaces its
-/// implementer's authored `--sandbox danger-full-access` with a typed
-/// `tools.sandbox` of `workspace-write` and rewrites its README, and
-/// `recipes/node` rewrites its README's fork table; a README is a bundle
-/// file. The other eight keep their digests.
-/// The values below are the final tree's actual compiles, never
-/// recomputed guesses.
-const WITNESSES: [(&str, &str); 10] = [
-    (
-        "recipes/fast",
-        "cdaf49404807ed930201e101eb2bab9a9e363b71ff71342b82f3dc31a3d40e1c",
-    ),
-    (
-        "recipes/node",
-        "460da337d8cca9f9eef91a15aaece88131c7f759405da18c23761b8cd35646a6",
-    ),
-    (
-        "recipes/preflight",
-        "8d9d1f5f74c238f309fe6a38b1f0f338afe45b8556167e9b6ea7f8adc9953faf",
-    ),
-    (
-        "recipes/night-shift",
-        "259c17223aaa486a70c6aeeae2f3149a62cac2d7242c0cea291d675913968af3",
-    ),
-    (
-        "recipes/wager-harness",
-        "b813dbb344f37476f61abf7ab3d23fefc2141e32e1f6875bff9472146afedd13",
-    ),
-    (
-        "recipes/triage",
-        "30396159d3dad83f45bc49ee989a21e382ade1d89240c6c5c53f9f6e7553efc1",
-    ),
-    (
-        "recipes/research",
-        "5ca14e907f0c23f09c1fafe8b74a2509c56530460a2c7837d555a18dccca78e9",
-    ),
-    (
-        "recipes/research-dsh",
-        "a58359d5a33afa3e55c86a1e3ced275794f3f55845d78fbb980212c28abc05bd",
-    ),
-    (
-        "recipes/gpt-flash",
-        "fe3de5b50e889d38e42e3f4d386bdbcebcbc62c4525942c419c1e4afb26a3d8d",
-    ),
-    (
-        "bundles/verify",
-        "7263ad3612bcde086918d48f236147eef288c250b2ee5e9fefe95f262bcf4f3c",
-    ),
-];
+/// The one command that rewrites the table.
+const BLESS: &str = "BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests";
+
+/// What a run does with the measured table.
+#[derive(Debug, PartialEq)]
+enum Mode {
+    /// Compare every witness and fail once, naming all that moved.
+    Compare,
+    /// Rewrite the table with what was measured.
+    Bless,
+    /// Neither: the variables ask for something this suite will not do.
+    Refused(String),
+}
+
+/// The mode `BROKKR_BLESS` and `CI` select. The caller reads both once
+/// and passes them in, so no test writes the process environment. Only
+/// `1` blesses, and never where CI is set: CI compares the table and
+/// never rewrites it.
+fn mode(bless: Option<&OsStr>, ci: Option<&OsStr>) -> Mode {
+    match (bless, ci) {
+        (None, _) => Mode::Compare,
+        (Some(_), Some(_)) => Mode::Refused(format!(
+            "BROKKR_BLESS refuses to run where CI is set: CI compares {TABLE} and never rewrites it"
+        )),
+        (Some(value), None) if value == OsStr::new("1") => Mode::Bless,
+        (Some(value), None) => Mode::Refused(format!(
+            "BROKKR_BLESS must be 1 or unset, not '{}'",
+            value.to_string_lossy()
+        )),
+    }
+}
+
+/// Every bundle in the tree, relative to the workspace and sorted: each
+/// directory under `recipes/` and `bundles/` that holds a `bundle.json`.
+/// The witness set is this, never the table's own keys, so a row dropped
+/// from the table reads as a moved witness instead of an unchecked one.
+fn bundles_in_tree(root: &Path) -> Vec<String> {
+    let mut dirs = Vec::new();
+    for parent in ["recipes", "bundles"] {
+        for entry in std::fs::read_dir(root.join(parent))
+            .unwrap_or_else(|e| panic!("{parent} must be readable: {e}"))
+        {
+            let name = entry.expect("a bundle entry").file_name();
+            let relative = format!("{parent}/{}", name.to_string_lossy());
+            if root.join(&relative).join("bundle.json").is_file() {
+                dirs.push(relative);
+            }
+        }
+    }
+    dirs.sort();
+    dirs
+}
+
+/// Measure every witness in the tree: each bundle's compiled manifest
+/// digest, and the bytes of every charter the library ships, so a bundle
+/// or charter added, removed or dropped from the table is a moved witness.
+fn measure(root: &Path) -> Witnesses {
+    let bundles = bundles_in_tree(root)
+        .into_iter()
+        .map(|relative| {
+            // Explicit roots: since decision 0021 a compile reads adapter
+            // data for inline gates too, even though they adopt no agent —
+            // a gate seat's trust tier is declared there.
+            let bundle = Bundle::compile_with(
+                &root.join(&relative),
+                &root.join("agents"),
+                &root.join("adapters"),
+            )
+            .unwrap_or_else(|e| panic!("{relative} must compile: {e}"));
+            (relative, bundle.manifest_digest())
+        })
+        .collect();
+    let charters = std::fs::read_dir(root.join("agents/charters"))
+        .expect("agents/charters must be readable")
+        .map(|entry| {
+            let path = entry.expect("a charter entry").path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let bytes = std::fs::read(&path).expect("a readable charter");
+            (name, brokkr_core::canonical::sha256_bytes(&bytes))
+        })
+        .collect();
+    Witnesses { bundles, charters }
+}
+
+/// One moved witness: its section and name, then its old and new value;
+/// `None` is a witness absent on that side.
+type Moved<'a> = (String, Option<&'a str>, Option<&'a str>);
+
+/// Every witness whose pinned and measured values differ.
+fn moved<'a>(pinned: &'a Witnesses, measured: &'a Witnesses) -> Vec<Moved<'a>> {
+    let mut out = Vec::new();
+    for (section, old, new) in [
+        ("bundles", &pinned.bundles, &measured.bundles),
+        ("charters", &pinned.charters, &measured.charters),
+    ] {
+        let names: BTreeSet<&String> = old.keys().chain(new.keys()).collect();
+        for name in names {
+            let (was, is) = (old.get(name), new.get(name));
+            if was != is {
+                out.push((
+                    format!("{section} {name}"),
+                    was.map(String::as_str),
+                    is.map(String::as_str),
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// The failure a drift prints: every moved witness in one Markdown table
+/// of old → new values, ready to paste into the pull request that
+/// re-pins them.
+fn drift_report(moved: &[Moved]) -> String {
+    let mut report = format!(
+        "{} witness(es) moved. Say why in the commit, then re-pin with `{BLESS}`:\n\n\
+         | witness | old | new |\n|---|---|---|\n",
+        moved.len()
+    );
+    for (witness, old, new) in moved {
+        let (old, new) = (old.unwrap_or("absent"), new.unwrap_or("absent"));
+        writeln!(report, "| {witness} | {old} | {new} |").expect("a String accepts writes");
+    }
+    report
+}
 
 /// The INLINE model-driver seats of each, by name and the adapter each
 /// names: exactly what a `drivers` witness must account for. Since
@@ -363,25 +216,95 @@ const INLINE_ADAPTERS: [(&str, &[(&str, &str)]); 4] = [
     ),
 ];
 
+/// The whole table, bundles and charters, in one measurement: compared by
+/// default, rewritten under `BROKKR_BLESS=1`. One test does both halves so
+/// a bless run writes the file once.
 #[test]
 fn pinned_bundles_keep_their_recorded_digest() {
     let root = workspace();
-    for (relative, digest) in WITNESSES {
-        // Explicit roots, as in the compile below: since decision 0021 a
-        // compile reads adapter data for inline gates too, even though
-        // they adopt no agent — a gate seat's trust tier is declared there.
-        let bundle = Bundle::compile_with(
-            &root.join(relative),
-            &root.join("agents"),
-            &root.join("adapters"),
-        )
-        .unwrap_or_else(|e| panic!("{relative} must compile: {e}"));
-        assert_eq!(
-            bundle.manifest_digest(),
-            digest,
-            "{relative} manifest digest moved"
-        );
+    let pinned = Witnesses::load(&root);
+    let measured = measure(&root);
+    let moved = moved(&pinned, &measured);
+    let bless = std::env::var_os("BROKKR_BLESS");
+    let ci = std::env::var_os("CI");
+    match mode(bless.as_deref(), ci.as_deref()) {
+        Mode::Refused(why) => panic!("{why}"),
+        Mode::Compare => assert!(moved.is_empty(), "{}", drift_report(&moved)),
+        Mode::Bless => {
+            let text = serde_json::to_string_pretty(&measured).expect("the table serialises");
+            std::fs::write(root.join(TABLE), format!("{text}\n")).expect("the table is writable");
+            eprintln!("re-pinned {} witness(es) in {TABLE}", moved.len());
+        }
     }
+}
+
+/// Bless is a developer's command: where CI is set it refuses with the
+/// reason, whatever `BROKKR_BLESS` says, and a value other than `1` is
+/// refused rather than read as either mode.
+#[test]
+fn bless_refuses_where_ci_is_set_and_reads_only_one() {
+    let (one, yes) = (Some(OsStr::new("1")), Some(OsStr::new("yes")));
+    let ci = Some(OsStr::new("true"));
+    assert_eq!(mode(None, None), Mode::Compare);
+    assert_eq!(mode(None, ci), Mode::Compare);
+    assert_eq!(mode(one, None), Mode::Bless);
+    let refused = Mode::Refused(
+        "BROKKR_BLESS refuses to run where CI is set: CI compares \
+         crates/brokkr-runtime/tests/witnesses.json and never rewrites it"
+            .to_string(),
+    );
+    assert_eq!(mode(one, ci), refused);
+    assert_eq!(mode(yes, ci), refused);
+    assert_eq!(
+        mode(yes, None),
+        Mode::Refused("BROKKR_BLESS must be 1 or unset, not 'yes'".to_string())
+    );
+}
+
+/// A drift names every moved witness in one run, in section and name
+/// order, and a witness that appeared or vanished reads as `absent` on
+/// the side it is missing from.
+#[test]
+fn a_drift_reports_every_moved_witness_in_one_table() {
+    let table = |bundles: &[(&str, &str)], charters: &[(&str, &str)]| Witnesses {
+        bundles: bundles
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        charters: charters
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+    };
+    let pinned = table(
+        &[
+            ("recipes/a", "a0"),
+            ("recipes/b", "b0"),
+            ("recipes/c", "c0"),
+        ],
+        &[("gone.md", "g0"), ("kept.md", "k0")],
+    );
+    let measured = table(
+        &[
+            ("recipes/a", "a1"),
+            ("recipes/b", "b0"),
+            ("recipes/c", "c1"),
+        ],
+        &[("kept.md", "k0"), ("new.md", "n1")],
+    );
+    assert_eq!(
+        drift_report(&moved(&pinned, &measured)),
+        "4 witness(es) moved. Say why in the commit, then re-pin with \
+         `BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests`:\n\
+         \n\
+         | witness | old | new |\n\
+         |---|---|---|\n\
+         | bundles recipes/a | a0 | a1 |\n\
+         | bundles recipes/c | c0 | c1 |\n\
+         | charters gone.md | g0 | absent |\n\
+         | charters new.md | absent | n1 |\n"
+    );
+    assert!(moved(&pinned, &pinned).is_empty());
 }
 
 /// Decision 0046 ruling 1: the contract a compiled manifest claims is
@@ -402,9 +325,9 @@ fn every_witness_manifest_satisfies_the_v9_contract_it_claims() {
     )
     .unwrap();
     let validator = jsonschema::draft7::new(&schema).unwrap();
-    for (relative, _) in WITNESSES {
+    for relative in bundles_in_tree(&root) {
         let bundle = Bundle::compile_with(
-            &root.join(relative),
+            &root.join(&relative),
             &root.join("agents"),
             &root.join("adapters"),
         )
@@ -468,23 +391,18 @@ fn an_inline_gate_pins_the_adapter_declaration_that_authorised_it() {
 #[test]
 fn every_bundle_in_the_tree_compiles() {
     let root = workspace();
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    for parent in ["recipes", "bundles"] {
-        let mut children: Vec<PathBuf> = std::fs::read_dir(root.join(parent))
-            .unwrap_or_else(|e| panic!("{parent} must be readable: {e}"))
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| path.join("bundle.json").is_file())
-            .collect();
-        children.sort();
-        dirs.append(&mut children);
-    }
+    let dirs = bundles_in_tree(&root);
     assert!(dirs.len() >= 5, "expected the shipped recipes and bundles");
     for dir in dirs {
         // Against the in-tree library roots explicitly, rather than by
         // changing the process working directory: two tests share one
         // process, and a global `set_current_dir` would make this suite
         // order-dependent.
-        Bundle::compile_with(&dir, &root.join("agents"), &root.join("adapters"))
-            .unwrap_or_else(|e| panic!("{} must compile: {e}", dir.display()));
+        Bundle::compile_with(
+            &root.join(&dir),
+            &root.join("agents"),
+            &root.join("adapters"),
+        )
+        .unwrap_or_else(|e| panic!("{dir} must compile: {e}"));
     }
 }

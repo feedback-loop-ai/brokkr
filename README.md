@@ -36,7 +36,11 @@ On Windows, use WSL2: it is Linux, and every Linux row above serves it (decision
 
 ## 60-second bootstrap
 
-Sixty seconds from a fresh machine to a lit run, then five minutes to the run's first completed effect. Both budgets are measured in CI by [`scripts/bootstrap-bench.sh`](scripts/bootstrap-bench.sh), which prints what it mocks. You need a git repository you are willing to let an agent edit and one agent CLI on `PATH` (`claude`, `codex` or `dsh`).
+Sixty seconds from a fresh machine to a lit run, then five minutes to a completed run. Both budgets are measured in CI on Ubuntu and macOS by [`scripts/bootstrap-bench.sh`](scripts/bootstrap-bench.sh), which prints what it mocks. You need:
+
+- **Every host:** `git`, `bash`, a git repository you are willing to let an agent edit, and `claude` or `codex` on `PATH`. `init` scaffolds for the first of `claude`, `codex` or `dsh` it finds. `dsh` alone is not enough: it cannot hold the review gate, because its adapter is untrusted and names no judges, so a dsh scaffold keeps the reviewer on `claude`.
+- **Linux:** bubblewrap (`bwrap`) 0.10 or newer on `PATH`, with unprivileged user namespaces allowed. The scaffold's verify and ship gates run boxed under the default `namespace` boundary. A codex scaffold declares `harness` instead and needs no bubblewrap.
+- **macOS:** nothing more. `init` declares the `harness` boundary, because `namespace` is Linux-only, so verify and ship run their pinned scripts unboxed.
 
 ```mermaid
 flowchart LR
@@ -54,11 +58,12 @@ flowchart LR
 
 ```console
 brokkr doctor                       # ok / warn / MISSING per tool and driver; executes no agent
-cd your-repo && brokkr init .       # writes bundle.json, policy.json, agents/, adapters/ — open them
+cd your-repo && brokkr init .       # writes bundle.json, policy.json, realms.json, agents/, adapters/, scripts/, .forge/.gitignore (and dialects/ for a spec repo) — open them
+git add -A && git commit -m "starter bundle"   # ship closes out on a clean tree
 brokkr run --bundle . --repo . --feature "add one visible improvement" && brokkr inspect --run latest
 ```
 
-From a clone of this repository skip `init`: `brokkr run --recipe fast --repo . --feature "…"` resolves the library's own Rust recipe under `./recipes`. The run exits `0` at `done`, `2` when it parks for you, `3` when a rule stops it.
+From a clone of this repository skip `init`: `brokkr run --recipe fast --repo . --feature "…"` resolves the library's own Rust recipe under `./recipes`. Its [exit code](docs/reference/cli.md#exit-codes) says whether the run completed, parked for you or stopped; every verb and flag is in the [CLI reference](docs/reference/cli.md).
 
 The inspection is derived from the journal; it shows the reviewer's verdict, the exact rule that accepted it and the phase graph. The sample is abridged: a real trail lists every event, and each finished seat carries its duration.
 
@@ -89,6 +94,7 @@ The [full quickstart](docs/guides/quickstart.md) covers `init` per stack, parks,
 
 - [Guides](docs/guides/README.md) — the task map: first run, recipes, agents, adapters, secrets, journals and repository anatomy.
 - [Decision record](docs/decisions/README.md) — the constitution: every semantic rule, its status and its enforcement binding.
+- [Research registry](docs/research/README.md) — source-backed findings and comparisons, including GitHub peers for graphs, agents and charters.
 - [Essays](docs/essays/README.md) — the paradigm argued against the repository's own history and evidence.
 - [Lore](docs/lore/README.md) — why Brokkr works the bellows, and why story is commentary rather than specification.
 - [Evidence shelf](docs/evidence/README.md) — redacted journal exports that let the project's claims be inspected.
@@ -97,7 +103,7 @@ The [full quickstart](docs/guides/quickstart.md) covers `init` per stack, parks,
 
 ## Acknowledgments
 
-The standing-overseer concept reached this product by way of the lieutenant in Robert C. Martin's [SwarmForge](https://github.com/unclebob/swarm-forge), as [decision 0019 ruling 7](docs/decisions/0019-brokkr.md#rulings) records. The idea is credited here and nothing else is taken: SwarmForge carries no license, which means all rights reserved, so no code, scripts, prompts or prose from it has entered — or may enter — this tree.
+The standing-overseer concept reached this product by way of the lieutenant in Robert C. Martin's [SwarmForge](https://github.com/unclebob/swarm-forge), as [decision 0019 ruling 7](docs/decisions/0019-brokkr.md#decision) records. The idea is credited here and nothing else is taken: SwarmForge carries no license, which means all rights reserved, so no code, scripts, prompts or prose from it has entered — or may enter — this tree.
 
 **Muninn** is an independent design with an inverted authority model, described in decision 0020 (amended for the crossings a map draws by decision 0059) and built as `brokkr muninn`: it reads the journal and the world's crossings, proposes to the operator, and rules nothing.
 

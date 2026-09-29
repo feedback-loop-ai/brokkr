@@ -3,6 +3,9 @@
 Status: accepted (operator ruled in chat, 2026-09-05)
 Date: 2026-09-05
 
+Built: built
+Supersedes in part: 0041, 0043
+
 ## Context
 
 On 2026-09-05 the operator named a new model, GPT-6 Astra, asked for it

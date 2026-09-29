@@ -1,0 +1,23 @@
+---
+source: crates/brokkr-cli/src/tui/snapshot_tests.rs
+---
+"┌runs──────────────────────────────────────────────────────────────────────────┐"
+"│id                       status    phase        seq    age      feature       │"
+"│run-old                  running   design       18     7m03s    an older featu│"
+"│run-unfoldable           ?         -            -      —        a run whose jo│"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+"runs                                                                            "
+"/old▏ filtering · Enter keep · Esc clear · ⌫ delete                             "

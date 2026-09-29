@@ -139,6 +139,122 @@ impl FoldError {
     }
 }
 
+/// The commands an operator gives a live run, through `brokkr operator`
+/// or the Looper bridge, and the word the journal records for each. A
+/// word outside the set can still reach the journal as an
+/// `operator/commanded` (the bridge journals the word it was sent, and
+/// `supersede` is an annotation), and an acceptance of one folds to
+/// [`FoldError::UnknownCommand`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperatorCommand {
+    /// Moves a parked run back to running, into the phase it parked in.
+    Retry,
+    /// Concludes the run wherever it stands, riding an in-flight attempt
+    /// to its boundary first.
+    Stop,
+}
+
+impl OperatorCommand {
+    /// Every command, in the order `brokkr operator` names them.
+    pub const ALL: [OperatorCommand; 2] = [OperatorCommand::Retry, OperatorCommand::Stop];
+
+    /// The word `operator/commanded` records.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            OperatorCommand::Retry => "retry",
+            OperatorCommand::Stop => "stop",
+        }
+    }
+
+    /// The command a typed or journaled word names, or `None` for a word
+    /// outside the set.
+    pub fn parse(word: &str) -> Option<OperatorCommand> {
+        Self::ALL
+            .into_iter()
+            .find(|command| command.as_str() == word)
+    }
+}
+
+/// Why an operator command was refused: the word `operator/rejected`
+/// journals as its `reason`. Two kinds of refusal share it. A command
+/// the run could never have taken names its condition; a command that
+/// was legal when asked and illegal by the time its disposition was
+/// written is [`Refusal::LostFence`], a run that moved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// Not a word in [`OperatorCommand`].
+    CommandNotAllowed,
+    /// The run had already reached `Completed`/`Stopped`. Named for the
+    /// [`FoldError`] an acceptance there would mint, since that error is
+    /// what the refusal exists to prevent.
+    AfterTerminal,
+    /// `retry` asked of a run that is not parked.
+    RunNotAwaitingOperator,
+    /// `retry` asked of a run parked before it entered any phase (a
+    /// selector with no strategy and no default parks at `Start`), so
+    /// there is no phase to return to.
+    NoPhaseToRetry,
+    /// The run moved beneath the command: legal when the operator asked,
+    /// illegal by the time the disposition was written.
+    LostFence,
+    /// The caller's cursor no longer describes the run's head: the
+    /// fenced path's word for a race, `LostFence`'s counterpart on the
+    /// side that HAS a cursor to be stale.
+    StaleCursor,
+    /// A replayed command id whose `operator/commanded` is journaled with
+    /// no disposition after it.
+    IncompleteCommandReplay,
+    /// A replayed rejection whose journaled payload carries no reason.
+    PreviouslyRejected,
+}
+
+impl Refusal {
+    /// The word the journal records.
+    pub const fn word(self) -> &'static str {
+        match self {
+            Refusal::CommandNotAllowed => "command_not_allowed",
+            Refusal::AfterTerminal => "after_terminal",
+            Refusal::RunNotAwaitingOperator => "run_not_awaiting_operator",
+            Refusal::NoPhaseToRetry => "no_phase_to_retry",
+            Refusal::LostFence => "lost_fence",
+            Refusal::StaleCursor => "stale_cursor",
+            Refusal::IncompleteCommandReplay => "incomplete_command_replay",
+            Refusal::PreviouslyRejected => "previously_rejected",
+        }
+    }
+}
+
+fn terminal(status: Status) -> bool {
+    matches!(status, Status::Completed | Status::Stopped)
+}
+
+/// Would an `operator/accepted` for `command` fold against this state,
+/// and if not, which condition refuses it? The one rule both sides read:
+/// [`fold`] refuses an acceptance this names, and the engine asks it
+/// before writing one, because events are immutable and an acceptance
+/// that lands where fold refuses it is a journal that stops folding from
+/// that seq on.
+///
+/// Whether the acceptance disposes of the command still pending is the
+/// other half of fold's check, and is the writer's to fence: this rule
+/// reads the run, not the command queue.
+/// - A run that has gone `Completed`/`Stopped` takes no acceptance.
+/// - `retry` moves a run from parked back to running, so it needs the
+///   run still parked, and a phase to return to.
+/// - `stop` is a live kill switch and lands wherever a live run stands.
+pub fn acceptance_refusal(state: &RunState, command: OperatorCommand) -> Option<Refusal> {
+    if terminal(state.status) {
+        return Some(Refusal::AfterTerminal);
+    }
+    match command {
+        OperatorCommand::Retry if state.status != Status::AwaitingOperator => {
+            Some(Refusal::RunNotAwaitingOperator)
+        }
+        OperatorCommand::Retry if state.phase.is_none() => Some(Refusal::NoPhaseToRetry),
+        OperatorCommand::Retry | OperatorCommand::Stop => None,
+    }
+}
+
 fn payload_str(event: &EventEnvelope, field: &str) -> Result<String, FoldError> {
     event
         .payload
@@ -170,12 +286,16 @@ fn conclude(state: &mut RunState, normal: Cursor) {
 
 /// Fold a verified journal into state. Callers verify the hash chain
 /// first (`envelope::verify_chain`); fold checks protocol shape only.
+///
+/// It is the state `run/started` opens, carried by [`fold_onto`] over the
+/// whole journal, so `fold(prefix ++ suffix)` and
+/// `fold_onto(fold(prefix)?, suffix)` are one state, byte for byte.
 pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
     let first = events.first().ok_or(FoldError::Empty)?;
     if first.event_type != EventType::RunStarted {
         return Err(FoldError::FirstEventNotRunStarted { seq: first.seq });
     }
-    let mut state = RunState {
+    let state = RunState {
         run_id: first.run_id.clone(),
         seq: 0,
         last_hash: String::new(),
@@ -198,22 +318,33 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         pending_command: None,
         riding_stop: false,
     };
+    fold_onto(state, events)
+}
 
-    for event in events {
+/// Carry a fold forward over what landed after it: `state` is what
+/// [`fold`] or `fold_onto` returned for the journal up to `state.seq`,
+/// and `suffix` is the events after it, so a reader that already folded
+/// a prefix pays only for the suffix. Callers verify the suffix against
+/// the head the state names first (`envelope::verify_chain_after` with
+/// `state.seq` and `state.last_hash`); like [`fold`], this checks
+/// protocol shape only.
+pub fn fold_onto(mut state: RunState, suffix: &[EventEnvelope]) -> Result<RunState, FoldError> {
+    for event in suffix {
         state.seq = event.seq;
         state.last_hash = event.event_hash.clone();
         if event.seq == 1 {
-            continue; // run/started consumed above
+            continue; // run/started opened the state in `fold`
         }
         apply(&mut state, event)?;
     }
     Ok(state)
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     use EventType::*;
 
-    if matches!(state.status, Status::Completed | Status::Stopped) {
+    if terminal(state.status) {
         // Terminal runs accept only operator annotations that change nothing.
         return match event.event_type {
             OperatorCommanded | OperatorRejected => Ok(()),
@@ -440,12 +571,20 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             if pending_id != command_id {
                 return Err(FoldError::NoMatchingCommand { seq: event.seq });
             }
-            let parked = state.status == Status::AwaitingOperator;
-            match command.as_str() {
-                "retry" if parked => {
-                    if state.phase.is_none() {
-                        return Err(out_of_place(state));
-                    }
+            let Some(command) = OperatorCommand::parse(&command) else {
+                return Err(FoldError::UnknownCommand {
+                    seq: event.seq,
+                    command,
+                });
+            };
+            // `acceptance_refusal`'s terminal answer never reaches here:
+            // the top of `apply` refuses every event after a terminal
+            // first. What is left is a retry with nothing to return to.
+            if acceptance_refusal(state, command).is_some() {
+                return Err(out_of_place(state));
+            }
+            match command {
+                OperatorCommand::Retry => {
                     state.status = Status::Running;
                     state.park_reason = None;
                     state.cursor = Cursor::RequestEffect;
@@ -464,7 +603,7 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                 // operator answering a park with "stop") and running
                 // between effects are the same sentence, finished at the
                 // first position the journal offers.
-                "stop" => {
+                OperatorCommand::Stop => {
                     if matches!(state.cursor, Cursor::EffectInFlight { .. }) {
                         state.riding_stop = true;
                     } else {
@@ -472,13 +611,6 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                         state.park_reason = None;
                         state.cursor = Cursor::Stop;
                     }
-                }
-                "retry" => return Err(out_of_place(state)),
-                other => {
-                    return Err(FoldError::UnknownCommand {
-                        seq: event.seq,
-                        command: other.to_string(),
-                    })
                 }
             }
             Ok(())

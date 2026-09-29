@@ -49,6 +49,7 @@ use crate::bundle::Limits;
 
 mod load;
 
+pub use brokkr_protocol::adapters::HandsNotice;
 pub use load::{resolve_route, Adapters, Library, LibraryError};
 
 /// The grammar every agent, model, provider and MCP server name obeys.
@@ -415,9 +416,6 @@ pub struct Adapter {
     /// answers for that destination ONLY — a route this file does not
     /// name falls to `Uncontracted`, not to this value, because ruling 1
     /// makes an absent declaration uncontracted (see `resolve_route`).
-    /// It is also where the superseded `binding_grant` lands: a `true`
-    /// grant reads as `Contracted`, a `false` or absent grant as
-    /// `Uncontracted`.
     pub egress: EgressClass,
     /// Decision 0036 ruling 2: route name → declared class, where a
     /// route is the prefix of a concrete model id. An adapter fronting a
@@ -474,6 +472,11 @@ pub struct Adapter {
     /// Every member undeclared for an adapter written before the ruling,
     /// which the loader reads as unsupported, fail-closed.
     pub harness: HarnessHands,
+    /// Decision 0069: the two tool identifiers a boxed seat
+    /// this provider serves needs to find its workspace when the harness
+    /// may defer MCP tools. `None` where the adapter declares none, which
+    /// every adapter written before the decision does.
+    pub hands_notice: Option<HandsNotice>,
     /// Why `tool_permissions` is absent, when the operator MEASURED the
     /// provider's CLI and found no per-tool allow-list to map onto.
     /// Never a capability: a declared gap refuses exactly as a bare
@@ -762,6 +765,10 @@ pub struct Candidate {
     /// context is built there. Empty for an inline site, which no
     /// adapter answers for.
     pub resume: ResumeAssessment,
+    /// The resolved provider's hands-discovery declaration (proposed
+    /// decision 0069), carried for the same reason: the engine decides
+    /// at spawn, per selected link, whether a boxed seat hears it.
+    pub hands_notice: Option<HandsNotice>,
     /// The entry's composition before flattening (design D5.7): who
     /// supplied each token of `argv`, and the local and hands halves of the
     /// expected state, carried from the resolver to dispatch. `argv` is its
@@ -1089,6 +1096,7 @@ fn capability_gap(
 /// template language, so there is no substitution function whose branches
 /// could drift from the data. Each contribution is a segment labelled by
 /// who supplied it at the point it is made.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compose(
     agent: &Agent,
     adapter: &Adapter,
@@ -1582,29 +1590,35 @@ pub(crate) fn resolve_report(
     let candidates: Vec<Candidate> = report.entries[chosen..]
         .iter()
         .filter(|entry| entry.presence != Presence::Unavailable)
-        .map(|entry| Candidate {
-            agent: agent.name.clone(),
-            model: entry.model.clone(),
-            effort: entry.effort.clone(),
-            provider: entry.provider.clone().expect("mapped above"),
-            argv: entry.argv.clone(),
-            hands_fragment: entry.hands_fragment.clone(),
-            harness: entry.harness.clone(),
-            // The resolved provider's own assessment, carried beside
-            // its harness declaration for the same reason: the engine
-            // holds no adapter at spawn. An unmapped provider cannot
-            // reach here — `resolve_report` refuses one above — so an
-            // empty assessment here is an adapter that declares none,
-            // which enables nothing.
-            resume: entry
+        .map(|entry| {
+            let adapter = entry
                 .provider
                 .as_deref()
-                .and_then(|provider| adapters.adapter(provider))
-                .map(|adapter| adapter.resume.clone())
-                .unwrap_or_default(),
-            // Every entry here composed: a gap or an unmapped model was
-            // refused above.
-            lowering: entry.lowering.clone(),
+                .and_then(|provider| adapters.adapter(provider));
+            Candidate {
+                agent: agent.name.clone(),
+                model: entry.model.clone(),
+                effort: entry.effort.clone(),
+                provider: entry.provider.clone().expect("mapped above"),
+                argv: entry.argv.clone(),
+                hands_fragment: entry.hands_fragment.clone(),
+                harness: entry.harness.clone(),
+                // The resolved provider's own assessment, carried beside
+                // its harness declaration for the same reason: the engine
+                // holds no adapter at spawn. An unmapped provider cannot
+                // reach here — `resolve_report` refuses one above — so an
+                // empty assessment here is an adapter that declares none,
+                // which enables nothing.
+                resume: adapter
+                    .map(|adapter| adapter.resume.clone())
+                    .unwrap_or_default(),
+                // The same provider's discovery declaration, read from
+                // the same adapter the consulted digest below pins.
+                hands_notice: adapter.and_then(|adapter| adapter.hands_notice.clone()),
+                // Every entry here composed: a gap or an unmapped model was
+                // refused above.
+                lowering: entry.lowering.clone(),
+            }
         })
         .collect();
     let skipped: Vec<Value> = report.entries[..chosen]

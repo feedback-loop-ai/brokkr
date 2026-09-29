@@ -12,7 +12,9 @@ Dimensions, the third non-removable:
    tests miss.
 2. **Fit** — does it match the repo's constitutional posture (fail
    closed, park never guess, decisions as data) and idiom? Any dead
-   policy, dead code, or overbuild?
+   policy, dead code, or overbuild? Judge it against the architecture
+   principles your house rules state, cite the ruling, and rate each finding
+   by the house's severity table.
 3. **SECURITY** — injection through seat results, driver output, or
    protocol messages; journal tamper paths; weakened fail-closed
    behavior; credentials or secrets touched. Severity vocabulary:

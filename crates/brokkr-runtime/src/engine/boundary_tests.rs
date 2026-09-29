@@ -49,7 +49,17 @@ fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -
             application: Application::Unrestricted,
             serving: Default::default(),
         }),
+        hands_notice: None,
     }
+}
+
+/// The seat input for `work` after `mark_hands` and the result-door mark,
+/// under the engine's current boundary.
+fn marked(engine: &Engine, gate: bool, door: Option<&Candidate>) -> Value {
+    let mut input = json!({});
+    engine.mark_hands("work", &mut input);
+    engine.marks().door("work", gate, door, &mut input);
+    input
 }
 
 fn codex_harness() -> HarnessHands {
@@ -325,6 +335,10 @@ fn a_boundary_this_engine_does_not_build_refuses_at_every_entry_before_any_row()
 /// command that spells exactly those bytes stays the author's, and a
 /// command that is not the link's own composition is refused.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands() {
     let workdir = Path::new("/work");
     let roots = vec![PathBuf::from("/bundle")];
@@ -676,6 +690,7 @@ fn the_compiles_expansion_keeps_every_segments_origin() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compose_site_follows_the_boundary_and_the_class() {
     let workdir = Path::new("/work");
     let roots = vec![PathBuf::from("/bundle")];
@@ -1044,16 +1059,7 @@ fn the_unboxed_exec_dispatch_composes_the_expected_argv_and_rewalk_directory() {
     let spec = &bundle.hands["verify"];
     let (uid, gid) = brokkr_protocol::hands::ids();
     let script = bundle.dir.join("scripts/verify-seat.sh");
-    let script_argv = if cfg!(windows) {
-        script
-            .to_str()
-            .unwrap()
-            .strip_prefix(r"\\?\")
-            .unwrap()
-            .replace('\\', "/")
-    } else {
-        script.display().to_string()
-    };
+    let script_argv = script.display().to_string();
     let mut expected_command = command.clone();
     expected_command[5] = script_argv.clone();
     let prefixed = compose_site(
@@ -1107,23 +1113,17 @@ fn the_unboxed_exec_dispatch_composes_the_expected_argv_and_rewalk_directory() {
     }
 }
 
-/// No filesystem or child process: both platform policies run on Linux.
-/// Native joins keep the pin's components testable on each host; on Linux
-/// the Windows root is one literal component, still distinct from C:/... .
-/// These assertions prove composition only, not native Windows startup
-/// or command parsing: the interpreter remains unpinned under `harness`
-/// and `open`, with no execution guarantee (decision 0049 ruling 3).
+/// No filesystem or child process. The pin is the script's canonical
+/// directory and the argv is compile's spelling, untouched: a root that
+/// resembles another platform's syntax is one literal component. These
+/// assertions prove composition only: the interpreter remains unpinned
+/// under `harness` and `open`, with no execution guarantee (decision
+/// 0049 ruling 3).
 #[test]
 fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() {
-    for (root, windows_argument) in [
-        (
-            r"\\?\C:\Users\gate bundle",
-            "C:/Users/gate bundle/scripts/gate.sh",
-        ),
-        (
-            r"\\?\UNC\server\share\gate bundle",
-            "//server/share/gate bundle/scripts/gate.sh",
-        ),
+    for root in [
+        r"\\?\C:\Users\gate bundle",
+        r"\\?\UNC\server\share\gate bundle",
     ] {
         let root = PathBuf::from(root);
         let directory = root.join("scripts");
@@ -1134,54 +1134,39 @@ fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() 
         let leaf = PathBuf::from(r"\\?\C:\leaf");
         command.push(leaf.join("result.json").display().to_string());
         let roots = [leaf, root];
-        for windows in [false, true] {
-            let spawn = exec_spawn_on(command.clone(), &roots, windows);
-            let mut expected = command.clone();
-            if windows {
-                expected[5] = windows_argument.into();
-            }
-            assert_eq!(spawn.argv, expected);
-            assert_eq!(spawn.rewalk, Some(directory.clone()));
-            assert_eq!(spawn.refusal, None);
-            assert_eq!(spawn.env, SpawnEnv::Inherit);
-            assert_eq!(command[5], script.display().to_string());
-            // Unit 4: the same command supplied in two segments. The
-            // respelled script lands in the segment that supplied it, which
-            // keeps its origin, and the segments stay the argv.
-            let split = exec_segments_on(
-                vec![
-                    Segment::new(Origin::Template, &command[..4]),
-                    Segment::new(Origin::Authored, &command[4..]),
-                ],
-                &roots,
-                windows,
-            );
-            assert_eq!(split.argv, expected);
-            assert_eq!(
-                split.segments,
-                [
-                    Segment::new(Origin::Template, &expected[..4]),
-                    Segment::new(Origin::Authored, &expected[4..]),
-                ]
-            );
-        }
+        let spawn = exec_spawn(command.clone(), &roots);
+        assert_eq!(spawn.argv, command);
+        assert_eq!(spawn.rewalk, Some(directory.clone()));
+        assert_eq!(spawn.refusal, None);
+        assert_eq!(spawn.env, SpawnEnv::Inherit);
+        assert_eq!(command[5], script.display().to_string());
+        // Unit 4: the same command supplied in two segments. Each segment
+        // keeps its origin, and the segments stay the argv.
+        let split = exec_segments(
+            vec![
+                Segment::new(Origin::Template, &command[..4]),
+                Segment::new(Origin::Authored, &command[4..]),
+            ],
+            &roots,
+        );
+        assert_eq!(split.argv, command);
+        assert_eq!(split.rewalk, Some(directory.clone()));
+        assert_eq!(
+            split.segments,
+            [
+                Segment::new(Origin::Template, &command[..4]),
+                Segment::new(Origin::Authored, &command[4..]),
+            ]
+        );
     }
 
-    // On Unix a backslash belongs to the filename, even if it resembles
-    // Windows syntax. The native public composer also exercises its wiring.
-    let root = if cfg!(windows) {
-        r"\\?\C:\bundle"
-    } else {
-        "/bundle"
-    };
-    let root = PathBuf::from(root);
+    // A backslash belongs to the filename, even if it resembles another
+    // platform's separator. The public composer also exercises its wiring.
+    let root = PathBuf::from("/bundle");
     let directory = root.join("scripts");
     let script = directory.join("gate.sh");
     let command = exec_dispatch(&script);
-    let mut expected = command.clone();
-    if cfg!(windows) {
-        expected[5] = "C:/bundle/scripts/gate.sh".into();
-    }
+    let expected = command.clone();
     let spec = HandsSpec::parse(&json!("workspace")).unwrap();
     for boundary in [
         BuiltBoundary::Harness,
@@ -1219,96 +1204,11 @@ fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() 
             assert_eq!(spawn.refusal, None);
         }
     }
-    #[cfg(unix)]
-    {
-        let script = Path::new(r"/bundle/scripts\gate.sh");
-        let command = exec_dispatch(script);
-        let spawn = exec_spawn_on(command.clone(), &[PathBuf::from("/bundle")], false);
-        assert_eq!(spawn.argv, command);
-        assert_eq!(spawn.rewalk, Some(PathBuf::from("/bundle")));
-    }
-}
-
-#[test]
-fn windows_script_arguments_strip_only_safe_short_verbatim_paths() {
-    for path in [
-        "/bundle/scripts/gate.sh",
-        r"C:\bundle\gate.sh",
-        r"\\server\share\gate.sh",
-    ] {
-        assert_eq!(script_argument(path, true).unwrap(), path);
-    }
-    for (path, argument) in [
-        (r"\\?\C:\bundle\gate.sh", "C:/bundle/gate.sh"),
-        (r"\\?\c:\bundle\gate.sh", "c:/bundle/gate.sh"),
-        (r"\\?\UNC\server\share\gate.sh", "//server/share/gate.sh"),
-        (r"\\?\C:\é🌋\.scripts\gate.sh", "C:/é🌋/.scripts/gate.sh"),
-        (r"\\?\C:\bundle\console.sh", "C:/bundle/console.sh"),
-    ] {
-        assert_eq!(script_argument(path, true).unwrap(), argument);
-        assert_eq!(script_argument(path, false).unwrap(), path);
-    }
-    // Exactly 259 UTF-16 units plus NUL fits; one more does not. Counting
-    // UTF-8 bytes or Unicode scalar values gets the Unicode cases wrong.
-    for prefix in [r"\\?\C:\", r"\\?\UNC\server\share\"] {
-        let ordinary_prefix_len = if prefix.contains("UNC") { 15 } else { 3 };
-        for name in ["a", "é", "🌋"] {
-            let count = (259 - ordinary_prefix_len - 4) / name.encode_utf16().count();
-            let mut stem = name.repeat(count);
-            while ordinary_prefix_len + stem.encode_utf16().count() + 4 < 259 {
-                stem.push('a');
-            }
-            let safe = format!("{prefix}{stem}.shx");
-            assert_eq!(
-                script_argument(&safe, true).unwrap().encode_utf16().count(),
-                259
-            );
-            assert!(script_argument(&format!("{safe}x"), true).is_err());
-        }
-    }
-    for path in [
-        r"\\?\Volume{test}\gate.sh",
-        r"\\?\C:gate.sh",
-        r"\\?\1:\gate.sh",
-        r"\\?\C:/gate.sh",
-        r"\\?\C",
-        r"\\?\C:\bundle\",
-        r"\\?\C:\bundle\\gate.sh",
-        r"\\?\C:\bundle.\gate.sh",
-        r"\\?\C:\bundle \gate.sh",
-        r"\\?\C:\bundle\..\gate.sh",
-        r"\\?\C:\bundle\.\gate.sh",
-        r"\\?\C:\bundle\NUL.tar.gz",
-        r"\\?\C:\bundle\nul .sh",
-        r"\\?\C:\COM¹\gate.sh",
-        r"\\?\C:\LPT2\gate.sh",
-        r"\\?\C:\bundle\gate:stream",
-        r"\\?\C:\bundle\gate?.sh",
-        "\\\\?\\C:\\bundle\\gate\u{1}.sh",
-    ] {
-        let error = script_argument(path, true).unwrap_err();
-        assert!(error.contains("cannot be passed safely"), "{error}");
-        assert_eq!(script_argument(path, false).unwrap(), path);
-    }
-}
-
-#[test]
-fn an_unsafe_windows_script_argument_refuses_before_the_child_starts() {
-    let (_dir, engine) = super::tests::engine(single_body(vec!["driver".into()]));
-    let root = PathBuf::from(r"\\?\C:\bundle");
-    let script = root.join("scripts").join(format!("{}.sh", "x".repeat(260)));
-    let spawn = exec_spawn_on(exec_dispatch(&script), &[root], true);
-    let error = spawn_site(
-        &engine.bundle,
-        &spawn,
-        &json!({}),
-        Path::new("/repo"),
-        std::time::Duration::from_secs(1),
-    )
-    .err()
-    .expect("unsafe argv must not spawn");
-    assert!(error.contains("shorter than 260 UTF-16 units"), "{error}");
-    assert_eq!(Some(error), spawn.refusal);
+    let script = Path::new(r"/bundle/scripts\gate.sh");
+    let command = exec_dispatch(script);
+    let spawn = exec_spawn(command.clone(), &[PathBuf::from("/bundle")]);
+    assert_eq!(spawn.argv, command);
+    assert_eq!(spawn.rewalk, Some(PathBuf::from("/bundle")));
 }
 
 /// Decision 0066 ruling 5 at the dispatch door (finding H4): a charter is
@@ -1321,6 +1221,10 @@ fn an_unsafe_windows_script_argument_refuses_before_the_child_starts() {
 /// the library record — and the sibling test below compares it here.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_charter_that_moved_since_the_compile_refuses_the_dispatch() {
     let library = tempfile::tempdir().unwrap();
     let root = library.path().canonicalize().unwrap();
@@ -1549,6 +1453,11 @@ fn charter_spawn(bundle: &Bundle, seat: &str) -> SiteSpawn {
 /// dispatch then refuses the changed file.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_charter_replaced_during_or_after_the_dispatch_read_never_reaches_the_seat() {
     use crate::bundle::{ReadStage, READ_HOOK};
     let home = tempfile::tempdir().unwrap();
@@ -1658,7 +1567,8 @@ fn a_charter_replaced_during_or_after_the_dispatch_read_never_reaches_the_seat()
         let prompt = brokkr_protocol::adapters::render_prompt(
             &input,
             brokkr_protocol::adapters::AdapterKind::Dsh,
-        );
+        )
+        .unwrap();
         assert!(
             prompt.starts_with("# work as written\n\n\n---\n"),
             "{prompt}"
@@ -1686,6 +1596,10 @@ fn a_charter_replaced_during_or_after_the_dispatch_read_never_reaches_the_seat()
 /// what makes it pass.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
     let home = tempfile::tempdir().unwrap();
     let root = home.path().canonicalize().unwrap();
@@ -1989,6 +1903,10 @@ fn an_owner_or_an_ancestor_replaced_since_the_compile_refuses_the_dispatch() {
 /// the library names through a `..` is refused by the compile.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_way_the_dispatch_read_fails_is_refused_by_its_own_kind() {
     use std::os::unix::fs::PermissionsExt;
     let home = tempfile::tempdir().unwrap();
@@ -2403,6 +2321,10 @@ fn an_owner_whose_ancestor_the_compile_cannot_observe_refuses_the_compile() {
 /// at its owner's observation after its library was loaded refuse too.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn the_owner_a_charter_was_read_through_is_the_one_its_binding_records() {
     use crate::bundle::{ReadStage, READ_HOOK};
     let home = tempfile::tempdir().unwrap();
@@ -2649,6 +2571,10 @@ fn moved(owner: &str, cause: &str) -> Result<Value, String> {
 /// compile read, put back, resumes the same run.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume() {
     let home = tempfile::tempdir().unwrap();
     let root = home.path().canonicalize().unwrap();
@@ -2780,6 +2706,10 @@ fn a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume() {
 /// longer selects refuse too.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over() {
     let home = tempfile::tempdir().unwrap();
     let root = home.path().canonicalize().unwrap();
@@ -3076,6 +3006,7 @@ fn pinned_layer(dir: &Path) -> (PathBuf, Bundle) {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
         // A nested box cannot open the namespace this proof needs. A host
@@ -3275,6 +3206,7 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
 // ───────────────────────────────── boundary-record: effect/started
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn effect_started_carries_the_boundary_beside_provenance() {
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     // A plain bundle: no site has hands, no key.
@@ -3436,6 +3368,7 @@ fn effect_started_carries_the_boundary_beside_provenance() {
 // ─────────────────────────────── boundary-record: the stamp beside model
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_stamp_rides_beside_the_model_and_replaces_a_drivers_word() {
     // The rule itself.
     assert_eq!(
@@ -3568,6 +3501,7 @@ fn site_boundary_of(spec: &HandsSpec) -> Option<()> {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
     // Panel members under `harness`: each member's checkpoints and the
     // engine's own `panel-member-finished` marker carry the member's
@@ -3705,9 +3639,7 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     // Unknown confinement: no affirmative marker, under any boundary.
     for boundary in brokkr_core::realms::BOUNDARIES {
         engine.boundary = boundary;
-        let mut input = json!({});
-        engine.mark_hands("work", &mut input);
-        engine.mark_delivery("work", true, Some(&codex), &mut input);
+        let input = marked(&engine, true, Some(&codex));
         assert_eq!(input, json!({"boundary": null, "hands": null}));
     }
     // A registered, resolved no-hands site names both fields
@@ -3738,9 +3670,7 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     for boundary in [Boundary::Namespace, Boundary::Seatbelt, Boundary::Container] {
         engine.boundary = boundary;
-        let mut input = json!({});
-        engine.mark_hands("work", &mut input);
-        engine.mark_delivery("work", true, Some(&codex), &mut input);
+        let input = marked(&engine, true, Some(&codex));
         assert_eq!(
             input,
             json!({"hands": "boxed", "boundary": boundary.word()})
@@ -3749,30 +3679,20 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     // `harness`: the word, no marker; the door only for a gate whose
     // link captures the final message.
     engine.boundary = Boundary::Harness;
-    let mut input = json!({});
-    engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", true, Some(&codex), &mut input);
+    let input = marked(&engine, true, Some(&codex));
     assert_eq!(
         input,
         json!({"boundary": "harness", "hands": "none", "result_delivery": "last-message"})
     );
-    let mut input = json!({});
-    engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", true, Some(&filed), &mut input);
+    let input = marked(&engine, true, Some(&filed));
     assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
-    let mut input = json!({});
-    engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", false, Some(&codex), &mut input);
+    let input = marked(&engine, false, Some(&codex));
     assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
-    let mut input = json!({});
-    engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", true, None, &mut input);
+    let input = marked(&engine, true, None);
     assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
     // `open`: the word and nothing else.
     engine.boundary = Boundary::Open;
-    let mut input = json!({});
-    engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", true, Some(&codex), &mut input);
+    let input = marked(&engine, true, Some(&codex));
     assert_eq!(input, json!({"boundary": "open", "hands": "none"}));
 
     // The requested input carries the word through `seat_input`, and a
@@ -3828,6 +3748,7 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
 /// negative, with its full MCP-bearing fragment, and is not covered by
 /// the narrowed declaration.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -4032,7 +3953,7 @@ fn a_harness_gate_on_a_last_message_door_names_its_result_path() {
     assert_eq!(spawn.env, SpawnEnv::Inherit);
     let mut input = json!({"result_path": "/r/p.json"});
     engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", true, Some(&codex), &mut input);
+    engine.marks().door("work", true, Some(&codex), &mut input);
     assert_eq!(input["result_delivery"], "last-message");
 }
 
@@ -4170,10 +4091,10 @@ fn an_inherited_dispatch_rewalks_its_script_layer_even_when_an_argument_names_th
     command.push(leaf.join("result.json").display().to_string());
     assert_eq!(
         script_directory(&command, &engine.bundle.roots),
-        Some((5, layer.join("scripts")))
+        Some(layer.join("scripts"))
     );
     let spawn = SiteSpawn {
-        rewalk: script_directory(&command, &engine.bundle.roots).map(|(_, directory)| directory),
+        rewalk: script_directory(&command, &engine.bundle.roots),
         ..SiteSpawn::inherit(driver_command(
             "effect",
             "attempt",
@@ -4367,7 +4288,8 @@ fn the_shipped_verify_input_and_prompt_name_no_workspace_tool_under_any_built_bo
         let prompt = brokkr_protocol::adapters::render_prompt(
             &input,
             brokkr_protocol::adapters::AdapterKind::Exec,
-        );
+        )
+        .unwrap();
         assert!(!prompt.contains("mcp__brokkr__workspace"));
         assert!(!prompt.contains("Your hands"));
         assert!(prompt.contains(input["result_path"].as_str().unwrap()));

@@ -38,7 +38,7 @@ fn adapter(name: &str, tier: &str) -> Value {
     let mut value = json!({
         "provider": name,
         "trust_tier": tier,
-        "binding_grant": false,
+        "egress": "uncontracted",
         "binary": name,
         "driver": ["{brokkr}", "driver", name, "--"],
         "models": {},

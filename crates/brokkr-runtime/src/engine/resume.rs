@@ -213,7 +213,7 @@ impl InstanceKey {
     /// Build from the facts the engine holds at dispatch. `candidate` is
     /// `None` for an inline site, which uses its own pinned command and
     /// compiled facts instead of an agent chain.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     pub(super) fn new(
         candidate: Option<&Candidate>,
         chain_index: Option<usize>,
@@ -439,7 +439,6 @@ pub(super) fn unstamped(record: Value) -> Value {
 /// Only when every one of those holds does the handle travel; the last
 /// resort is decision 0030's narrow legacy codex path, and only for a
 /// single work seat whose ancestry was never in question.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn eligible_offer(
     events: &[EventEnvelope],
     key: &SiteKey,

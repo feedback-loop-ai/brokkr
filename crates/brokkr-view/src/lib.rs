@@ -23,12 +23,14 @@
 //! the console renders `?` and keeps the row. Both are repair
 //! (decision 0001).
 
+#![forbid(unsafe_code)]
+
 pub mod js;
 pub mod transcript;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
-use brokkr_core::fold::{RunState, Status};
+use brokkr_core::fold::{acceptance_refusal, OperatorCommand, RunState, Status};
 use brokkr_core::realms::Boundary;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
@@ -59,7 +61,11 @@ use serde_json::Value;
 /// 0047 ruling 3: a residual finding, the run rows that carry it and
 /// the ruling it was read from all state the operator's supersede
 /// annotation when one names it.
-pub const VIEW_VERSION: u32 = 10;
+/// Bumped to 11 by #376, pending the operator's ruling: a participant's
+/// `cost` became every attempt's reported cost summed (the rule
+/// [`reported_cost`] states), where it was the last attempt's alone, and
+/// participants gained `last_attempt_cost` beside it.
+pub const VIEW_VERSION: u32 = 11;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -350,7 +356,12 @@ pub struct Participant {
     pub turns: Option<u64>,
     pub turns_aggregated: bool,
     pub turns_cell: Cell,
+    /// What the seat spent: every attempt's reported cost, summed (the
+    /// rule [`reported_cost`] states), the rule `brokkr costs` sums by.
     pub cost: Option<f64>,
+    /// The last attempt's finishing cost alone, beside the sum and never
+    /// in its place.
+    pub last_attempt_cost: Option<f64>,
     pub cost_aggregated: bool,
     pub cost_cell: Cell,
     pub usage: Option<TokenUsage>,
@@ -671,28 +682,28 @@ pub fn clamp(text: &str, width: usize) -> String {
 
 // -------------------------------------- operator commands and residuals
 
-/// The two commands `brokkr operator` accepts, in the order it names
-/// them.
-pub const OPERATOR_COMMANDS: [&str; 2] = ["retry", "stop"];
-
 /// The phases whose rulings carry residual findings.
 pub const RESIDUAL_PHASES: [&str; 2] = ["verify", "review"];
 
 /// The command word of the operator annotation that closes a residual
-/// finding (decision 0047 ruling 1). Deliberately NOT in
-/// [`OPERATOR_COMMANDS`]: that list is what a PARKED run admits, and a
+/// finding (decision 0047 ruling 1). Deliberately NOT an
+/// [`OperatorCommand`]: those are what a PARKED run admits, and a
 /// supersede is only ever written on a terminal one.
 pub const SUPERSEDE: &str = "supersede";
 
-/// The operator commands a run in this status admits. Only a parked run
-/// admits any: `retry` re-runs its phase, `stop` ends it, and every
-/// other status admits neither. Derived here, once, so a surface that
-/// suggests a command suggests one the engine will actually accept
-/// rather than one it invented.
-pub fn operator_commands(status: &str) -> Vec<String> {
-    match status {
-        "awaiting_operator" => OPERATOR_COMMANDS.iter().map(|c| c.to_string()).collect(),
-        _ => Vec::new(),
+/// The operator commands this run admits: none unless it is parked, the
+/// only state the bridge's door takes one in, and then each command
+/// `fold` would accept ([`acceptance_refusal`]), so a run parked before
+/// any phase offers `stop` alone. Derived here, once, so a surface that
+/// suggests a command suggests one the engine will actually accept.
+pub fn operator_commands(state: &RunState) -> Vec<String> {
+    match state.status {
+        Status::AwaitingOperator => OperatorCommand::ALL
+            .into_iter()
+            .filter(|command| acceptance_refusal(state, *command).is_none())
+            .map(|command| command.as_str().to_string())
+            .collect(),
+        Status::Running | Status::Completed | Status::Stopped => Vec::new(),
     }
 }
 
@@ -1041,8 +1052,8 @@ struct Build {
 struct Scan {
     effects: Vec<EffectFacts>,
     parts: Vec<Build>,
-    by_key: HashMap<String, usize>,
-    boundaries: HashMap<(String, String), Vec<BoundaryEntry>>,
+    by_key: BTreeMap<String, usize>,
+    boundaries: BTreeMap<(String, String), Vec<BoundaryEntry>>,
 }
 
 fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -> usize {
@@ -1083,11 +1094,12 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
     index
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn scan_participants(events: &[EventEnvelope]) -> Scan {
     let mut scan = Scan {
         effects: Vec::new(),
         parts: Vec::new(),
-        by_key: HashMap::new(),
+        by_key: BTreeMap::new(),
         boundaries: events
             .iter()
             .filter(|event| event.event_type == EventType::EffectStarted)
@@ -1102,7 +1114,7 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
             })
             .collect(),
     };
-    let mut by_effect_id: HashMap<String, usize> = HashMap::new();
+    let mut by_effect_id: BTreeMap<String, usize> = BTreeMap::new();
     for (index, event) in events.iter().enumerate() {
         let payload = &event.payload;
         if event.event_type == EventType::EffectRequested {
@@ -1258,7 +1270,8 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                     // and the live session is the one to stream — a
                     // kept guard here would pin the drill to the dead
                     // attempt's transcript. Each finished checkpoint
-                    // replaces in turn, bringing the cost.
+                    // replaces in turn, bringing that attempt's cost;
+                    // the seat's spend sums them all (`spent`).
                     scan.parts[part].session = Some(checkpoint);
                 } else if step == Some("panel-member-finished") && member.is_some() {
                     scan.parts[part].member_outcome = checkpoint.get("outcome").cloned();
@@ -1702,11 +1715,48 @@ fn terminal_line(events: &[EventEnvelope], scan: &Scan, part: &Build) -> Cell {
     }
 }
 
-fn session_cost(part: &Build) -> Option<f64> {
-    part.session
-        .as_ref()
-        .and_then(|session| session.get("total_cost_usd"))
-        .and_then(Value::as_f64)
+/// The spend one record reports: its `total_cost_usd`, nothing else.
+///
+/// The attempt rule is stated here, once (#376): a seat's spend is this
+/// figure summed over every record of every attempt — a retry's
+/// finishing checkpoint beside the concluded attempt's, never the last
+/// alone. Every view surface reads the sum as `Participant::cost`, and
+/// `brokkr costs` sums through this same function, so the ledger and
+/// the views report one number for one run.
+pub fn reported_cost(record: &Value) -> Option<f64> {
+    record.get("total_cost_usd").and_then(Value::as_f64)
+}
+
+/// Every attempt's reported cost, summed in journal order.
+fn spent(part: &Build) -> Option<f64> {
+    let mut total = None;
+    for (checkpoint, _, _) in &part.checkpoints {
+        if let Some(cost) = reported_cost(checkpoint) {
+            total = Some(total.unwrap_or(0.0) + cost);
+        }
+    }
+    total
+}
+
+/// The last attempt's finishing cost alone: what a retry's own session
+/// reported, labelled apart from the sum so neither is read as the other.
+fn last_attempt_cost(part: &Build) -> Option<f64> {
+    part.session.as_ref().and_then(reported_cost)
+}
+
+/// A seat's own figure, or — when it has none — the Σ of its members'
+/// in participant insertion order: `f64` addition is not associative
+/// and the console sums in map order. The flag says which it is.
+fn own_or_members(own: Option<f64>, members: &[Option<f64>]) -> (Option<f64>, bool) {
+    let reported: Vec<f64> = members.iter().flatten().copied().collect();
+    if own.is_some() || reported.is_empty() {
+        return (own, false);
+    }
+    let mut total = 0.0;
+    for value in &reported {
+        total += value;
+    }
+    (Some(total), true)
 }
 
 /// The tokens a seat actually spent, summed across its own turns.
@@ -1847,6 +1897,7 @@ fn fmt_tokens(total: u64) -> String {
     format!("{}.{:02}M tok", hundredths / 100, hundredths % 100)
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
     let mut out = Vec::new();
     for part in &scan.parts {
@@ -1860,32 +1911,28 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                 .filter(|other| other.effect_index == part.effect_index && other.member.is_some())
                 .collect()
         };
-        let mut cost = session_cost(part);
+        let (cost, cost_aggregated) = own_or_members(
+            spent(part),
+            &members.iter().map(|other| spent(other)).collect::<Vec<_>>(),
+        );
+        let (last_cost, _) = own_or_members(
+            last_attempt_cost(part),
+            &members
+                .iter()
+                .map(|other| last_attempt_cost(other))
+                .collect::<Vec<_>>(),
+        );
+        let attempts = scan.effects[part.effect_index].attempts;
         let mut usage = session_usage(part);
         let mut turns = part.turns;
-        let mut cost_aggregated = false;
         let mut usage_aggregated = false;
         let mut turns_aggregated = false;
         if !members.is_empty() {
-            let costs: Vec<f64> = members
-                .iter()
-                .filter_map(|other| session_cost(other))
-                .collect();
             let member_usage: Vec<TokenUsage> = members
                 .iter()
                 .filter_map(|other| session_usage(other))
                 .collect();
             let member_turns: Vec<u64> = members.iter().filter_map(|other| other.turns).collect();
-            if cost.is_none() && !costs.is_empty() {
-                // Summed in participant insertion order: `f64` addition
-                // is not associative and the console sums in map order.
-                let mut total = 0.0;
-                for value in &costs {
-                    total += value;
-                }
-                cost = Some(total);
-                cost_aggregated = true;
-            }
             if usage.is_none() && !member_usage.is_empty() {
                 let mut total = TokenUsage::default();
                 for member in &member_usage {
@@ -1926,8 +1973,15 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
         // right beneath it. Folding tokens into a dollar figure, or
         // printing both in one cell, would be the unit mixing this
         // whole cell exists to refuse.
+        //
+        // A retried seat's dollars are every attempt's, and the cell says
+        // so rather than leaving the sum to be read as one session's.
         let tokens = usage.as_ref().and_then(|usage| usage.total_tokens);
         let cost_text = match (cost, tokens) {
+            (Some(cost), _) if attempts > 1 => Some(format!(
+                "{cost_prefix}${} over {attempts} attempts",
+                js::to_fixed_4(cost)
+            )),
             (Some(cost), _) => Some(format!("{cost_prefix}${}", js::to_fixed_4(cost))),
             (None, Some(tokens)) => Some(format!("{usage_prefix}{}", fmt_tokens(tokens))),
             (None, None) => None,
@@ -1976,7 +2030,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             phase: scan.effects[part.effect_index].phase.clone(),
             status: part.status.to_string(),
             status_class: part.status_class.to_string(),
-            attempts: scan.effects[part.effect_index].attempts,
+            attempts,
             turns,
             turns_aggregated,
             turns_cell: cell_of(
@@ -1984,6 +2038,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                 Some("no turn telemetry recorded"),
             ),
             cost,
+            last_attempt_cost: last_cost,
             cost_aggregated,
             cost_cell: cell_of(cost_text, Some("no session cost or token usage recorded")),
             usage_cell: cell_of(
@@ -2207,18 +2262,18 @@ struct Buckets<'a> {
     /// label a structureless phase draws, and reading it here keeps that
     /// lookup total — a participant always exists for a requested effect,
     /// so a "no participant" fallback would be an uncoverable branch.
-    newest: HashMap<&'a str, (&'a str, &'a str)>,
+    newest: BTreeMap<&'a str, (&'a str, &'a str)>,
     /// Effect id -> its `effect/checkpointed` events, in journal order.
-    checkpoints: HashMap<&'a str, Vec<&'a Value>>,
+    checkpoints: BTreeMap<&'a str, Vec<&'a Value>>,
     /// Effect id -> every phase it was requested in (scope membership).
-    effect_phases: HashMap<&'a str, Vec<String>>,
+    effect_phases: BTreeMap<&'a str, Vec<String>>,
 }
 
 fn bucket(events: &[EventEnvelope]) -> Buckets<'_> {
     let mut buckets = Buckets {
-        newest: HashMap::new(),
-        checkpoints: HashMap::new(),
-        effect_phases: HashMap::new(),
+        newest: BTreeMap::new(),
+        checkpoints: BTreeMap::new(),
+        effect_phases: BTreeMap::new(),
     };
     for event in events {
         let payload = &event.payload;
@@ -2300,6 +2355,7 @@ fn make_node(scan: &Scan, effect_id: &str, label: &str, tag: Option<&str>, done:
 /// Inner topology for one phase, from its NEWEST observed effect. Only
 /// observed events count: declared-but-unstarted topology is never
 /// invented. An empty result means the phase has no observed effect.
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn inner_columns(scan: &Scan, buckets: &Buckets, phase: &str) -> Vec<Column> {
     let Some((effect_id, seat)) = buckets.newest.get(phase).copied() else {
         return Vec::new();
@@ -2596,6 +2652,7 @@ fn label_of(event: &EventEnvelope) -> Cell {
     cell_of(token.map(str::to_string), None)
 }
 
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn journal_rows(
     events: &[EventEnvelope],
     scan: &Scan,
@@ -2605,7 +2662,7 @@ fn journal_rows(
     // `verify_chain` pins `seq == i + 1`, so seq 0 is unrepresentable in
     // a loaded journal and the console's truthiness check on the looked-up
     // seq has nothing to guard. A total map is the whole rule.
-    let mut by_id: HashMap<&str, u64> = HashMap::new();
+    let mut by_id: BTreeMap<&str, u64> = BTreeMap::new();
     for event in events {
         by_id.insert(event.event_id.as_str(), event.seq);
     }

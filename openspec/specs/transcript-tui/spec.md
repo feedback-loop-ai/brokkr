@@ -119,7 +119,7 @@ long path clipped in the participant header remains readable. The CLI JSON
 
 #### Scenario: Legacy Codex eligibility agrees across participant surfaces
 - **WHEN** a pre-0032 Codex participant has only a legacy session id and no common reference
-- **THEN** the TUI shows `no-reference` with no full-session line or active reading door, agreeing with the command and browser participant presentation even if a direct id-only browser lookup could find an unrelated Claude file
+- **THEN** the TUI shows `no-reference` with no full-session line or active reading door, agreeing with the command, browser participant presentation and the participant's browser body route, none of which looks a Claude file up by that bare id
 
 ### Requirement: Notices survive every reading surface
 
@@ -268,3 +268,4 @@ reads and read-only journal/provider access.
 
 - `2026-09-10-read-every-transcript-kind` — folded 2026-09-10
 - `2026-09-14-admit-dsh-session-v3` — folded 2026-09-14
+- `2026-09-27-352-browser-reads-by-participant` — folded 2026-09-27

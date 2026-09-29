@@ -14,13 +14,13 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
-ok       dsh: 0.1.5-rc.2 · serves flash, flash-experiment, glm, glm-flash, glm53, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-flash41, studio-pro · composite a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1 plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
+ok       dsh: 0.1.5-rc.2 · serves flash, glm, … · composite a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1 plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on PATH); container built by slice (iii) (docker found)
 ```
 
 The `dsh` line also reports the **composite** the adapter's own seam
-resolution reads (`BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or `dsh` on `PATH`,
+resolution reads (`BROKKR_DSH_BIN` or `dsh` on `PATH`,
 and `$DSH_HOME` or `$HOME/.dsh`): the canonical composite digest, the
 plugin component, and whether it equals, differs from or has no declared
 `wrapper_digest`. It is informational while no `supported` shape declares
@@ -46,8 +46,8 @@ failure that leaves the version visible, never evidence that the binary
 is missing.
 
 Resolving the seam once means resolving it the way the child would —
-the platform's rule and nothing else. On Unix a program is a path if and
-only if it contains `/`; a backslash, a drive-like spelling, an extension
+the platform's rule and nothing else. On Linux and macOS, the supported
+hosts (decision 0063), a program is a path if and only if it contains `/`; a backslash, a drive-like spelling, an extension
 or a space is an ordinary filename byte, so an override spelled
 `C:\Tools\dsh.exe` is a NAME searched on `PATH`, never a file in the
 working directory. A bare name is searched along `PATH` under the
@@ -58,8 +58,7 @@ cannot pair B's version with A's digest. With no `PATH` in the
 environment at all, the C library's own default search path is consulted,
 exactly as `execvp` does: a name that sits there is selected, a name that
 does not is reported as missing from that default search, and the
-working directory is never searched. On Windows the search is the one
-the standard library's `Command` runs. The line then names the FILE the
+working directory is never searched. The line then names the FILE the
 search chose, not the word that was looked up; a name that resolves to
 nothing keeps its declared spelling, so a missing provider still reports
 what was looked for.
@@ -137,7 +136,7 @@ The built-in adapters are reachable directly as
 is exactly how a bundle names them.
 
 The `dsh` adapter reaches two provider routes through one grammar. A
-bare id (`deepseek-v4-flash`, `deepseek-v4-pro`) is DeepSeek's own API,
+bare id (`deepseek-flash`, `deepseek-v4-pro`) is DeepSeek's own API,
 keyed by `DEEPSEEK_API_KEY` in the engine's launching environment; a
 `dashscope/<id>` lane is Model Studio's Token Plan catalogue
 (`deepseek-v4-flash-0731`, `qwen3.8-max`, `glm-5.2`, …), keyed by
@@ -182,10 +181,13 @@ table is measured (see the `qwen-max` note above). All three new lanes —
 these two and `glm-flash` — sealed a result through `brokkr driver dsh`
 on 2026-09-21 with no effort pinned.
 
-The `flash-experiment` alias pins `deepseek-v4.1-flash-expires-on-0910`
-on DeepSeek's own API. A completion verified this beta id on 2026-09-08;
-it was not yet included in the API's model list. Its name indicates a
-September 10 expiry; the exact cutoff time is unconfirmed.
+The `flash` alias pins `deepseek-flash` on DeepSeek's own API: the name
+DeepSeek's [pricing page](https://api-docs.deepseek.com/quick_start/pricing/)
+gives DeepSeek-V4.1-Flash, and dsh's own default model. The earlier
+`flash-experiment` alias (`deepseek-v4.1-flash-expires-on-0910`) is removed
+because the beta expired. The retired `deepseek-v4-flash` name is no longer
+pinned either. On 2026-09-25, completions against DeepSeek's API under both
+old names answered as `deepseek-flash`.
 
 The same adapter reaches Muse Spark 1.3 through OpenRouter
 (`https://openrouter.ai/api/v1`, OpenAI-compatible, Meta as the sole
@@ -244,6 +246,53 @@ verified public store API and synchronizes ordered evidence plus fenced commands
 it reads its bearer credential from `LOOPER_API_KEY` (or `--token-env`), never
 from a command-line value or the journal.
 
+### The route rulings
+
+A route's class is the operator's ruling, not a fact the data can
+prove (decision
+[0036](../decisions/0036-egress-is-a-property-of-the-route.md)), so
+this table is the one literal list of them, each with the date it was
+ruled. `every_classed_route_is_a_dated_ruling_in_the_guide` in
+`crates/brokkr-runtime/tests/library_data.rs` holds every adapter's
+`routes` to exactly these rows: a route classed in an adapter file and
+missing here fails, and so does a row whose class the file no longer
+declares. A route no row names is `uncontracted` by silence.
+
+| Adapter | Route | Egress | Ruled |
+|---|---|---|---|
+| `dsh` | `spark` | `local` | 2026-09-03 |
+| `dsh` | `spark-glm` | `local` | 2026-09-16 |
+
+### The alias catalogue
+
+Every alias an adapter maps is either hired by an agent under `agents/`
+or listed here: kept on offer for a recipe's inline seat or an
+operator's own, with no library office behind it (decision
+[0071](../decisions/0071-the-architectural-principles.md) ruling 6).
+`every_alias_is_hired_or_catalogued` in
+`crates/brokkr-runtime/tests/library_data.rs` holds this table to the
+adapter files and the library in both directions: an unhired alias
+missing from its row fails, and so does a listed alias that an agent
+now hires or the adapter no longer maps.
+
+| Adapter | Aliases no shipped agent hires |
+|---|---|
+| `claude` | `haiku` |
+| `codex` | `luna`, `terra` |
+| `dsh` | `glm`, `glm-flash`, `glm53`, `muse`, `muse-contributor`, `pro`, `qwen-flash`, `qwen-max`, `qwen-plus`, `qwen36-flash`, `qwen37-max`, `spark-flash`, `studio-flash`, `studio-flash41`, `studio-pro` |
+| `lanetally` | `fable-tallied`, `opus-tallied`, `sonnet-tallied` |
+
+Adding an alias is therefore an edit to its adapter file and, until an
+agent hires it, to its row above. An adapter file is bundle data, so
+the edit also moves the witness digest of every pinned bundle that
+resolves a seat through that adapter; re-pin them with one command and
+commit the rewritten `crates/brokkr-runtime/tests/witnesses.json`
+beside the change:
+
+```
+BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests
+```
+
 ## Hands
 
 `hands` (decision 0043) is the adapter's answer to a site that boxes its
@@ -272,6 +321,52 @@ is the realm's fact, not the bundle's (decision
 builds nothing and the harness's own sandbox is the only wall, so the
 adapter's second answer is `hands.harness`: how that sandbox is addressed
 from argv.
+
+### `hands.notice`
+
+A harness that **defers** MCP tools does not show a boxed seat its only
+writer until the seat searches for it. Codex 0.156.0 does this behind
+`tool_search`, with no switch to turn it off. Such an adapter declares,
+beside its `workspace` fragment, the two tool names a seat needs to find
+its hands (proposed decision
+[0069](../decisions/0069-a-boxed-seat-is-told-how-to-find-its-hands.md)):
+
+```json
+"hands": {
+  "workspace": ["--sandbox", "read-only", "-c", "mcp_servers.brokkr.args={hands_args_toml}"],
+  "notice": {
+    "workspace_tool": "mcp__brokkr__workspace",
+    "discovery_tool": "tool_search"
+  }
+}
+```
+
+The object has exactly those two members, each 1–128 ASCII bytes matching
+`^[A-Za-z_][A-Za-z0-9_]*$`. It carries no prose, template, path or switch,
+and it needs a supported, non-empty `workspace` fragment. Absent is no
+notice, which is every adapter written before the decision, including
+claude's. Anything else present is refused by name (`null`, `false`, a
+string, an array, a missing or extra member, a bad identifier, or a notice
+beside `unsupported` or empty workspace hands). It is never read as
+absence. The shipped codex adapter's `notice` is exactly the one above,
+next to its full workspace fragment, and the adapter suite loads it.
+
+The adapter supplies the names and nothing else. The **engine** decides who
+hears them: a model seat whose own site facts resolve workspace hands, under
+a boundary Brokkr boxes, served *in this attempt* by a provider that
+declares a notice. A fallback from Codex to Claude drops it, a fallback the
+other way gains it, and each panel member and sequence step is judged on
+its own facts. `harness`, `open`, handless sites and exec scripts hear
+nothing new. The **result contract** carries the words, one fixed paragraph
+after decision 0043's, naming the two identifiers. No recipe, agent,
+charter or input can author, replace or suppress it.
+
+The declaration is adapter bytes, so it moves every bundle identity that
+pins the adapter, fallback-only consumers included. Measure the witness
+and compose pins rather than guessing them. A loader older than decision
+0069 refuses the `notice` key, so ship and roll back the engine, the
+adapter and its measured pins together. Declaring a notice qualifies no
+resume: codex's `work-site` identity stays at the measured 0.154.0.
 
 ### `hands.harness`
 

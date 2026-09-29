@@ -2,6 +2,8 @@
 //! commands. Decision authority stays in brokkr-core's evaluator; this
 //! crate only performs journaled effects around it.
 
+#![forbid(unsafe_code)]
+
 pub mod agents;
 pub mod anchor;
 pub mod bundle;
@@ -19,15 +21,23 @@ pub use agents::{
 pub use anchor::{anchor, verify as verify_anchor, AnchorError};
 pub use bundle::compose::Ancestor;
 pub use bundle::{
-    layer_drift, Aggregate, Bundle, CompileError, PanelMember, Seat, SeatBody, SeatClass,
-    SequenceStep, StepBody, ENGINE_VERSION,
+    Aggregate, Bundle, CompileError, PanelMember, Seat, SeatBody, SeatClass, SequenceStep,
+    StepBody, ENGINE_VERSION,
 };
 pub use engine::{
     apply_fenced_operator_command, conclude, git_head, operator_command, operator_supersede,
-    DriveEnd, Engine, EngineError, FencedCommandOutcome, Supersede, LOST_FENCE,
+    CommandWord, DriveEnd, Engine, EngineError, FencedCommand, FencedCommandOutcome, Supersede,
 };
 pub use keep_refs::{
     delete as delete_keep_refs, list as list_keep_refs, plant as plant_keep_refs, plant_or_report,
     KeepRefsError, Planted,
 };
 pub use realms::{World, WorldError};
+
+// The workspace's shared test support (#357).
+#[cfg(test)]
+#[path = "../../../tests/support/dispatch.rs"]
+mod dispatch_fixture;
+#[cfg(test)]
+#[path = "../../../tests/support/envelope.rs"]
+mod envelope_builder;

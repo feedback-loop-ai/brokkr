@@ -2,9 +2,13 @@
 
 Status: proposed
 Date: 2026-09-22
-Amended: 2026-09-23, to incorporate the operator's refuse-never-reconcile ruling.
+
+Built: unbuilt (#319) — built with decision 0065's slice one
 
 ## Context
+
+Amended on 2026-09-23 to incorporate the operator's refuse-never-reconcile
+ruling.
 
 Accepted decision 0065 establishes off by default without grandfathering,
 realm-only grants, and abstract tools made concrete by dialects. Three councils

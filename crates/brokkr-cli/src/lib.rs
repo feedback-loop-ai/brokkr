@@ -12,9 +12,13 @@
 
 mod agents;
 mod boundary;
+mod budget_frame;
 mod cli_args;
 mod compare;
 mod doctor;
+mod exit;
+mod fleet;
+mod hands;
 mod init;
 mod ledger;
 mod muninn;
@@ -24,13 +28,13 @@ mod render;
 mod selector;
 mod tui;
 mod ui;
+mod verbs;
 
-// Test seams for the 11.2 cross-surface proof: the same local reader,
-// HTTP handler and TUI renderers the binary serves, reachable from the
-// integration test. Hidden from documentation and not part of the CLI's
-// supported surface.
+// Test seams, hidden from documentation and outside the CLI's supported
+// surface: the renderers the binary serves, for 11.2's cross-surface proof,
+// and the TUI frame #342's CPU budget draws.
 #[doc(hidden)]
-pub use tui::transcript_surfaces_for_test;
+pub use crate::{budget_frame::run_frame_for_budget, tui::transcript_surfaces_for_test};
 #[doc(hidden)]
 pub use ui::{handle, read_local, Response};
 
@@ -38,14 +42,15 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use brokkr_core::fold::{fold, RunState, Status};
 use brokkr_runtime::realms::{Hearth, World, WorldError};
-use brokkr_runtime::{conclude, operator_command, Bundle, Engine, FencedCommandOutcome};
+use brokkr_runtime::Bundle;
 use brokkr_store::Store;
 use brokkr_view::transcript::{LegacyProvenance, TranscriptRead, Unavailable};
 use clap::{ArgGroup, Parser, Subcommand};
 use cli_args::*;
+use exit::Exit;
 use serde_json::{json, Value};
 
 /// The workspace journal a command opens when neither a map nor `--db`
@@ -70,8 +75,7 @@ pub const DEFAULT_DB: &str = ".forge/forge.db";
 /// their workdir; doctor has no workdir of its own.
 pub const DEFAULT_SECRETS: &str = ".forge/secrets.env";
 
-/// Exit codes: 0 completed/ok · 2 parked (operator needed) · 3 stopped ·
-/// 1 error.
+/// The command line. Its exit codes are [`exit::Exit`]'s.
 #[derive(Parser)]
 // `bin_name` is pinned, not inferred from argv[0]: a renamed or
 // symlinked copy still prints the name this engine answers to
@@ -236,32 +240,11 @@ enum Cmd {
 }
 
 #[derive(Subcommand)]
-enum SecretsCmd {
-    /// Bind NAME to a value read from STDIN (never argv — the CLI obeys
-    /// its own injection discipline). Creates the store 0600.
-    Set {
-        name: String,
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
-    },
-    /// Print bound names, one per line — names, never values.
-    List {
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
-    },
-    /// Remove NAME from the store.
-    Remove {
-        name: String,
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
-    },
-}
-
-#[derive(Subcommand)]
 enum AgentsCmd {
     /// One line per agent — name, model chain, description. A broken
     /// definition prints a warning line and never aborts the listing.
     List {
+        /// The agent library directory.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
         agents_dir: PathBuf,
     },
@@ -269,9 +252,12 @@ enum AgentsCmd {
     /// the compiler would compute. An unknown name errors naming the
     /// known set.
     Show {
+        /// The agent's name in the library.
         name: String,
+        /// The agent library directory.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
         agents_dir: PathBuf,
+        /// The adapter library the chain's models are resolved against.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
         adapters_dir: PathBuf,
     },
@@ -291,16 +277,20 @@ enum MuninnCmd {
         /// either, .forge/forge.db as always.
         #[arg(long)]
         db: Option<PathBuf>,
+        /// The agent library Muninn's own seat is hired from.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
         agents_dir: PathBuf,
+        /// The adapter library that seat's model is resolved against.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
         adapters_dir: PathBuf,
+        /// The append-only file each proposal is recorded in.
         #[arg(long, default_value = muninn::DEFAULT_RECORD)]
         record: PathBuf,
     },
     /// Read the record back: every proposal, with the run ids and
     /// sequence numbers it cited.
     List {
+        /// The record file to read.
         #[arg(long, default_value = muninn::DEFAULT_RECORD)]
         record: PathBuf,
         /// Emit the recorded entries verbatim — this is what scripts read.
@@ -317,20 +307,24 @@ enum KeepRefsCmd {
         /// Full run id, a unique run-id prefix, or `latest`.
         #[arg(long)]
         run: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
+        #[command(flatten)]
+        journal: JournalArgs,
+        /// The git repository the keep-refs are planted in.
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
     /// Which runs hold which exhibits — one `for-each-ref`, no journal
     /// needed. `--run` narrows the listing to one run.
     List {
-        /// Full run id, a unique run-id prefix, or `latest`; without it,
-        /// every run holding keep-refs in this repository.
+        /// A run id; with the workspace journal there, also a unique
+        /// prefix or `latest`, and without it the id is taken literally
+        /// and `latest` is refused. Omitted, every run holding keep-refs
+        /// in this repository.
         #[arg(long)]
         run: Option<String>,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
+        #[command(flatten)]
+        journal: JournalArgs,
+        /// The git repository whose keep-refs are listed.
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
@@ -338,10 +332,14 @@ enum KeepRefsCmd {
     /// operator's decision alone — nothing in the engine ever deletes a
     /// keep-ref, and the objects are then as mortal as gc leaves them.
     Delete {
+        /// A run id; with the workspace journal there, also a unique
+        /// prefix or `latest`, and without it the id is taken literally
+        /// and `latest` is refused.
         #[arg(long)]
         run: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
+        #[command(flatten)]
+        journal: JournalArgs,
+        /// The git repository the keep-refs are removed from.
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
@@ -352,21 +350,27 @@ enum RecipesCmd {
     /// List recipes under --dir plus the built-in bundles; broken ones
     /// print a warning line, never abort the listing.
     List {
+        /// The recipe library directory.
         #[arg(long, default_value = "recipes")]
         dir: PathBuf,
     },
     /// Install a recipe from a local path or a git URL into <dir>/<name>.
     Add {
+        /// A local bundle directory or a git URL.
         source: String,
+        /// The name the recipe is installed under.
         #[arg(long)]
         name: String,
+        /// The recipe library directory it is installed into.
         #[arg(long, default_value = "recipes")]
         dir: PathBuf,
     },
     /// Print one recipe's RESOLVED bundle and, when it extends another,
     /// the composition chain it was resolved from (decision 0017).
     Show {
+        /// The recipe's name, resolved to <dir>/<name>.
         name: String,
+        /// The recipe library directory.
         #[arg(long, default_value = "recipes")]
         dir: PathBuf,
     },
@@ -487,15 +491,17 @@ fn summarize(state: &RunState) -> Value {
     })
 }
 
-/// Exit codes: 0 completed · 2 parked (operator needed) · 3 stopped ·
-/// 1 still running. One mapping, shared by `finish` and `watch`.
-fn status_exit(status: &Status) -> ExitCode {
-    match status {
-        Status::Completed => ExitCode::SUCCESS,
-        Status::AwaitingOperator => ExitCode::from(2),
-        Status::Stopped => ExitCode::from(3),
-        Status::Running => ExitCode::from(1),
+/// Drive a started run to its ending. The start first reaps the scratch
+/// trees of hands servers whose owners died and says each on stderr,
+/// journaling nothing (#415). Then the conclusion's anchor and keep-ref
+/// gaps on stderr, and the summary `finish` prints.
+fn drive_to_end(engine: &mut brokkr_runtime::Engine) -> Result<ExitCode> {
+    eprint!("{}", brokkr_protocol::hands::reap_dead_sessions());
+    let end = engine.drive()?;
+    for gap in &end.gaps {
+        eprintln!("{gap}");
     }
+    Ok(finish(&end.state))
 }
 
 fn finish(state: &RunState) -> ExitCode {
@@ -503,7 +509,7 @@ fn finish(state: &RunState) -> ExitCode {
         "{}",
         serde_json::to_string_pretty(&summarize(state)).unwrap()
     );
-    status_exit(&state.status)
+    Exit::of_status(&state.status).into()
 }
 
 /// The one clock read that keeps the derivation pure: `brokkr-view` has
@@ -540,10 +546,37 @@ fn write_frame(
 /// exits nonzero.
 pub(crate) const WATCH_TRANSIENT_FRAMES: usize = 5;
 
+/// What a verb does to the journal it names, declared at the verb rather
+/// than remembered by it (#375).
+pub(crate) enum Access {
+    /// A look: the journal must already exist and is opened
+    /// `SQLITE_OPEN_READ_ONLY` — no file, WAL, migration or guard repair.
+    Read,
+    /// A writer: the journal is created if absent and brought to the
+    /// current schema, as [`Store::open`] does.
+    Append,
+}
+
+/// Open the journal a verb names, the way its [`Access`] declares.
+pub(crate) fn open_journal(db: &std::path::Path, access: Access) -> Result<Store> {
+    match access {
+        Access::Read => {
+            anyhow::ensure!(
+                db.is_file(),
+                "journal does not exist: {}; a read never creates one",
+                db.display()
+            );
+            Ok(Store::open_read_only(db)?)
+        }
+        Access::Append => Ok(Store::open(db)?),
+    }
+}
+
 /// Poll the journal head and redraw when it moves, comparing **both**
 /// seq and hash: a rewritten journal at equal seq is the tamper case
 /// `anchor` exists for, and `watch` should redraw rather than sit blind.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn watch_loop(
     db: &std::path::Path,
     run: &str,
@@ -561,7 +594,10 @@ fn watch_loop(
         if iteration > 0 {
             sleep(interval_ms.max(100));
         }
-        let head = Store::open(db).and_then(|store| store.head_hash(run).map(|h| (h, store)));
+        // Every poll is a look at a journal a live `brokkr run` may be
+        // writing: it never takes the write path (#375).
+        let head =
+            open_journal(db, Access::Read).and_then(|store| Ok((store.head_hash(run)?, store)));
         match head {
             Ok((head, store)) => {
                 failures = 0;
@@ -578,7 +614,7 @@ fn watch_loop(
                         // hang. The park reason printed first is the
                         // frame's own header.
                         if state.status != Status::Running {
-                            return Ok(status_exit(&state.status));
+                            return Ok(Exit::of_status(&state.status).into());
                         }
                     }
                 }
@@ -595,7 +631,7 @@ fn watch_loop(
             }
         }
     }
-    Ok(ExitCode::from(1))
+    Ok(Exit::Running.into())
 }
 
 /// `--run` for the reading and releasing verbs. Keep-refs outlive
@@ -610,9 +646,10 @@ fn watch_loop(
 /// answer, and no repository holds a run called `latest`. Answering it
 /// literally would report a released or listed nothing as if it were an
 /// answer — the quiet outcome these verbs exist to prevent.
-fn keep_ref_run(db: &std::path::Path, run: &str) -> Result<String> {
+fn keep_ref_run(workspace: &std::path::Path, journal: JournalArgs, run: &str) -> Result<String> {
+    let db = journal.journal(workspace)?;
     if db.is_file() {
-        return selector::resolve_run(&Store::open(db)?, run);
+        return selector::resolve_run(&Store::open(&db)?, run);
     }
     anyhow::ensure!(
         run != selector::LATEST,
@@ -628,10 +665,10 @@ fn keep_ref_run(db: &std::path::Path, run: &str) -> Result<String> {
 /// The keep-ref verbs. Planting reads the journal (so it resolves
 /// strictly, through the store it must open anyway); listing and
 /// deleting read only the repository.
-fn keep_refs(command: KeepRefsCmd) -> Result<ExitCode> {
+fn keep_refs(workspace: &std::path::Path, command: KeepRefsCmd) -> Result<ExitCode> {
     match command {
-        KeepRefsCmd::Plant { run, db, repo } => {
-            let store = Store::open(&db)?;
+        KeepRefsCmd::Plant { run, journal, repo } => {
+            let store = Store::open(&journal.journal(workspace)?)?;
             let run = selector::resolve_run(&store, &run)?;
             let planted = brokkr_runtime::plant_keep_refs(&store, &repo, &run)?;
             eprintln!(
@@ -647,10 +684,10 @@ fn keep_refs(command: KeepRefsCmd) -> Result<ExitCode> {
                 );
             }
         }
-        KeepRefsCmd::List { run, db, repo } => {
+        KeepRefsCmd::List { run, journal, repo } => {
             let mut held = brokkr_runtime::list_keep_refs(&repo)?;
             if let Some(run) = run {
-                let run = keep_ref_run(&db, &run)?;
+                let run = keep_ref_run(workspace, journal, &run)?;
                 held.retain(|holder, _| *holder == run);
             }
             println!(
@@ -658,13 +695,13 @@ fn keep_refs(command: KeepRefsCmd) -> Result<ExitCode> {
                 serde_json::to_string_pretty(&json!({ "keep": held }))?
             );
         }
-        KeepRefsCmd::Delete { run, db, repo } => {
-            let run = keep_ref_run(&db, &run)?;
+        KeepRefsCmd::Delete { run, journal, repo } => {
+            let run = keep_ref_run(workspace, journal, &run)?;
             let removed = brokkr_runtime::delete_keep_refs(&repo, &run)?;
             eprintln!("released {removed} exhibit(s) for {run}");
         }
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 #[derive(Subcommand, Debug)]
@@ -683,63 +720,19 @@ pub enum HandsCommand {
     /// how a deterministic `exec` seat holds a gate. Exits with the
     /// command's own code.
     Exec {
+        /// The worktree, bound read-write at its own path.
         #[arg(long)]
         workdir: PathBuf,
         /// Strategy root, bound read-only at /runtime/bundle.
         #[arg(long)]
         bundle_root: Option<PathBuf>,
+        /// The box spec as JSON, as `serve` takes it.
         #[arg(long, default_value = "\"workspace\"")]
         spec: String,
+        /// The command and its arguments, run inside the box.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
-}
-
-fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
-    use brokkr_protocol::hands;
-    let parse_spec = |spec: &str| -> anyhow::Result<hands::HandsSpec> {
-        let raw: serde_json::Value = serde_json::from_str(spec)?;
-        hands::HandsSpec::parse(&raw).map_err(|problem| anyhow::anyhow!("--spec: {problem}"))
-    };
-    match command {
-        HandsCommand::Serve { workdir, spec } => {
-            let spec = parse_spec(&spec)?;
-            // The session outlives every call: overlay upper layers live
-            // here until the harness closes the server's stdin.
-            let session = hands::session_dir("serve").map_err(anyhow::Error::msg)?;
-            let stdin = std::io::stdin();
-            let served = hands::serve(
-                stdin.lock(),
-                std::io::stdout(),
-                &workdir,
-                &session,
-                &spec,
-                &hands::execute,
-            );
-            let _ = std::fs::remove_dir_all(&session);
-            served?;
-            Ok(ExitCode::SUCCESS)
-        }
-        HandsCommand::Exec {
-            workdir,
-            bundle_root,
-            spec,
-            command,
-        } => {
-            let spec = parse_spec(&spec)?;
-            // Only the leading separator is ours; a command may carry
-            // its own `--`.
-            let command: Vec<String> = match command.first().map(String::as_str) {
-                Some("--") => command[1..].to_vec(),
-                _ => command,
-            };
-            let code = hands::run_boxed(&spec, &workdir, bundle_root.as_deref(), &command)
-                .map_err(anyhow::Error::msg)?;
-            Ok(ExitCode::from(
-                u8::try_from(code.clamp(0, 255)).unwrap_or(1),
-            ))
-        }
-    }
 }
 
 use boundary::refuse_unboxable;
@@ -787,32 +780,29 @@ fn driver_payload(kind: brokkr_protocol::adapters::AdapterKind, args: Vec<String
     }
 }
 
-/// A peer still held the shared journal's write lock when this process
-/// ran out of patience for it. Its own exit code because it is its own
-/// thing: nothing was written, nothing is wrong, and the same command
-/// run again is likely to land. Distinct from 1 (a defect), from 2 (a
-/// park the run itself decided on) and from 3 (stopped).
-pub const CONTENDED_EXIT: u8 = 4;
-
 /// Did this error come from a peer holding the journal's lock?
 ///
 /// Asked of the whole chain and answered by the store's own typed
-/// predicate — never by matching error text. Both shapes it arrives in
-/// are asked: a `StoreError` raised straight out of a store call, and
-/// one an `EngineError` carries — the latter needs asking separately
-/// because that variant is `transparent`, which puts the store error's
-/// own source in the chain and the store error itself nowhere in it.
+/// predicate — never by matching error text. It asks all three shapes: a
+/// `StoreError` straight out of a store call, and one an `EngineError` or
+/// an `ImportError` carries, asked separately because their store variants
+/// are `transparent`, which puts the store error's own source in the chain
+/// and the store error itself nowhere in it.
 ///
 /// A contention that reached here wrote nothing, so there is no
 /// half-done work to describe.
 fn contention(error: &anyhow::Error) -> Option<&brokkr_store::StoreError> {
     error.chain().find_map(|link| {
-        link.downcast_ref::<brokkr_store::StoreError>()
-            .filter(|store| store.is_contention())
-            .or_else(|| {
-                link.downcast_ref::<brokkr_runtime::EngineError>()
-                    .and_then(brokkr_runtime::EngineError::contention)
-            })
+        let store = link.downcast_ref::<brokkr_store::StoreError>().or_else(|| {
+            match link.downcast_ref::<brokkr_store::ImportError>() {
+                Some(brokkr_store::ImportError::Store(store)) => Some(store),
+                _ => None,
+            }
+        });
+        store.filter(|store| store.is_contention()).or_else(|| {
+            link.downcast_ref::<brokkr_runtime::EngineError>()
+                .and_then(brokkr_runtime::EngineError::contention)
+        })
     })
 }
 
@@ -825,19 +815,32 @@ fn contention(error: &anyhow::Error) -> Option<&brokkr_store::StoreError> {
 /// journaled nineteen good events simply vanished. Contention says its
 /// own name now, says that nothing was lost, and carries its own code.
 fn report(error: &anyhow::Error) -> ExitCode {
+    report_to(error, &mut std::io::stderr().lock())
+}
+
+/// `report`, writing its line to `stderr`: the seam a test reads to pin
+/// what the binary prints.
+fn report_to(error: &anyhow::Error, stderr: &mut impl std::io::Write) -> ExitCode {
+    // A stderr that cannot be written leaves the exit code to say it.
     match contention(error) {
         Some(store) => {
-            eprintln!(
+            let _ = writeln!(
+                stderr,
                 "contended: {store}\nA peer is writing this journal. Nothing was \
                  written and nothing was lost — resume when it is done."
             );
-            ExitCode::from(CONTENDED_EXIT)
+            Exit::Contended.into()
         }
         None => {
-            eprintln!("error: {}", safe_lines(&format!("{error:#}")));
-            ExitCode::from(1)
+            let _ = writeln!(stderr, "{}", failure_line(error));
+            Exit::Failed.into()
         }
     }
+}
+
+/// What an uncontended failure prints on stderr.
+fn failure_line(error: &anyhow::Error) -> String {
+    format!("error: {}", safe_lines(&format!("{error:#}")))
 }
 
 /// Sanitize an error display line by line, keeping the chain's own line
@@ -862,9 +865,10 @@ pub fn main() -> ExitCode {
     if let Some(args) = dsh_sandbox_runner_args() {
         return dsh_sandbox_runner(args);
     }
-    match run(Cli::parse()) {
-        Ok(code) => code,
-        Err(e) => report(&e),
+    match Cli::try_parse().map(run) {
+        Ok(Ok(code)) => code,
+        Ok(Err(e)) => report(&e),
+        Err(usage) => Exit::of_parse(&usage).into(),
     }
 }
 
@@ -886,24 +890,17 @@ fn dsh_sandbox_runner(args: Vec<String>) -> ExitCode {
         Ok(argv) => exec_bwrap(&argv, signature),
         Err(problem) => {
             eprintln!("{signature}{problem}");
-            ExitCode::from(127)
+            Exit::RunnerFailed.into()
         }
     }
 }
 
-#[cfg(unix)]
 fn exec_bwrap(argv: &[String], signature: &str) -> ExitCode {
     use std::os::unix::process::CommandExt;
     let (program, rest) = (&argv[0], &argv[1..]);
     let error = std::process::Command::new(program).args(rest).exec();
     eprintln!("{signature}{error}");
-    ExitCode::from(127)
-}
-
-#[cfg(not(unix))]
-fn exec_bwrap(_argv: &[String], signature: &str) -> ExitCode {
-    eprintln!("{signature}the dsh sandbox runner is Linux-only");
-    ExitCode::from(127)
+    Exit::RunnerFailed.into()
 }
 
 /// The in-memory stamp of the selected transcript source: the subject
@@ -962,15 +959,19 @@ fn resolve_subject(
     subject: &tui::Subject,
     force: bool,
     seen: &mut Option<SourceStamp>,
+    secrets: &std::path::Path,
 ) -> (Option<TranscriptRead>, bool) {
     let identity_changed = seen
         .as_ref()
         .is_none_or(|stamp| !stamp.same_subject(subject));
     let fresh = if force || subject.working || identity_changed {
-        Some(ui::read_local(
-            subject.reference.as_ref(),
-            subject.provenance,
-            subject.legacy_id.as_deref(),
+        Some(ui::mask_secrets(
+            ui::read_local(
+                subject.reference.as_ref(),
+                subject.provenance,
+                subject.legacy_id.as_deref(),
+            ),
+            secrets,
         ))
     } else {
         None
@@ -992,12 +993,13 @@ fn resolve_subject(
 fn resolve_transcript(
     ask: &tui::Ask,
     seen: &mut Option<SourceStamp>,
+    secrets: &std::path::Path,
 ) -> (Option<TranscriptRead>, bool) {
     let Some(subject) = ask.subject.as_ref() else {
         *seen = None;
         return (None, false);
     };
-    resolve_subject(subject, ask.force, seen)
+    resolve_subject(subject, ask.force, seen, secrets)
 }
 
 /// Rebuild the selected subject from the freshly folded run, so authority
@@ -1018,38 +1020,6 @@ fn refreshed_subject(prior: &tui::Subject, view: &brokkr_view::RunView) -> Optio
         legacy_id: part.session_id.clone(),
         working: part.status == "working",
     })
-}
-
-/// Fold one run of a FLEET read. A journal that does not fold
-/// quarantines that row — its error text becomes the row's detail — so
-/// one corrupt run cannot blind an operator to every other run. Single-
-/// run verbs (`inspect`, `watch`, `resume`) keep their bare `fold(..)?`:
-/// a command aimed at one run must fail loudly on that run.
-pub(crate) fn fold_or_quarantine(
-    events: &[brokkr_core::EventEnvelope],
-) -> Result<RunState, String> {
-    fold(events).map_err(|error| error.to_string())
-}
-
-/// One run of a fleet listing, read ONCE: what the fold says about it,
-/// and the residual findings its journal carries with the operator's
-/// supersede marks on them (decision 0047 ruling 3). Re-opening the
-/// journal for the marks would be a second derivation waiting to
-/// disagree with the first. A journal that will not open at all states
-/// neither, which is exactly the quarantined row it always was.
-pub(crate) fn listed_run(
-    store: &Store,
-    run_id: &str,
-) -> (
-    Option<Result<RunState, String>>,
-    Vec<brokkr_view::ResidualFinding>,
-) {
-    let read = store.load(run_id).ok();
-    let residuals = read
-        .as_deref()
-        .map(|events| brokkr_view::residual_findings(run_id, events))
-        .unwrap_or_default();
-    (read.map(|events| fold_or_quarantine(&events)), residuals)
 }
 
 /// One refresh for `brokkr tui`: the only place a store is opened on that
@@ -1109,7 +1079,10 @@ fn tui_views(
     // stamp it updates) is what the next tick compares against, whatever
     // the gate rules. A working seat's prose lands between checkpoints,
     // so the read is its own refresh reason.
-    let (transcript, transcript_changed) = resolve_transcript(&ask, seen);
+    // The prose is masked against the secrets store beside this journal
+    // before the stamp keeps it, so a refresh compares masked to masked.
+    let secrets = ui::store_beside(db);
+    let (transcript, transcript_changed) = resolve_transcript(&ask, seen, &secrets);
     let moved = current != *head;
     if !(ask.force || ask.fleet || moved || transcript_changed) {
         // Nothing has moved: the console keeps the frame it has, and
@@ -1117,32 +1090,14 @@ fn tui_views(
         return Ok(None);
     }
     *head = current;
-    let mut folded = Vec::new();
-    for (run_id, feature, created_at) in store.list_runs()? {
-        // Deliberately not `?`: a console would otherwise lose the
-        // operator's whole fleet table because one old run is corrupt.
-        // The absence mark is `RunRow.status_known`'s job (0001), and
-        // the fold's own words now ride along as the row's detail
-        // instead of being discarded.
-        let (folded_run, residuals) = listed_run(&store, &run_id);
-        folded.push((run_id, feature, created_at, folded_run, residuals));
-    }
-    let entries: Vec<brokkr_view::RunEntry> = folded
-        .iter()
-        .map(
-            |(run_id, feature, created_at, folded_run, residuals)| brokkr_view::RunEntry {
-                run_id,
-                feature,
-                created_at,
-                state: folded_run.as_ref().and_then(|folded| folded.as_ref().ok()),
-                detail: folded_run
-                    .as_ref()
-                    .and_then(|folded| folded.as_ref().err())
-                    .map(String::as_str),
-                residuals,
-            },
-        )
-        .collect();
+    // Quarantined per run: a console would otherwise lose the operator's
+    // whole fleet table because one old run is corrupt. The absence mark
+    // is `RunRow.status_known`'s job (0001), and the refusal's own words
+    // ride along as the row's detail.
+    let listed = fleet::read_hearth(&store)
+        .listed()
+        .map_err(anyhow::Error::msg)?;
+    let entries: Vec<brokkr_view::RunEntry> = listed.iter().map(fleet::ListedRun::entry).collect();
     let run = ask.run.and_then(|run| store.load(run).ok()).map(|events| {
         let state = fold(&events).ok();
         brokkr_view::run_view(&events, state.as_ref())
@@ -1154,7 +1109,7 @@ fn tui_views(
     // previous reference's prose.
     let transcript = match (ask.subject.as_ref(), run.as_ref()) {
         (Some(prior), Some(view)) => match refreshed_subject(prior, view) {
-            Some(fresh) if &fresh != prior => resolve_subject(&fresh, true, seen).0,
+            Some(fresh) if &fresh != prior => resolve_subject(&fresh, true, seen, &secrets).0,
             // An unchanged participant: the resolved read still speaks for
             // it.
             Some(_) => transcript,
@@ -1245,36 +1200,17 @@ fn newest_answer(answered: Vec<(usize, String, String)>) -> Option<(usize, Strin
 /// hearths hold runs the recorded stamp decides between them, and the
 /// earliest hearth in map order wins a tie.
 ///
-/// A hearth whose journal is not on disk yet is not consulted, because
-/// resolving would open it and `Store::open` creates a file, a WAL and a
-/// meta row. When NO hearth has one, the selector passes through
+/// A hearth whose journal is not on disk yet is not consulted: there is
+/// nothing to read, and a read never creates one. When NO hearth has one, the selector passes through
 /// unresolved and `tui::start` does the refusing — a read must not create
 /// the database it came to read.
 ///
-/// A MANY-hearth world is walked READ-ONLY, the same way [`tui_views`]
-/// reads it and for the same reason: the peer realms are journals the
-/// operator did not name, and a lookup passing through one must not
-/// migrate it (ruling 5). A world of ONE hearth is the journal the
-/// operator DID name, opened exactly as `inspect` and `watch` open it —
-/// the single-run path is untouched, down to the sidecars it leaves
-/// behind.
+/// Every hearth is walked READ-ONLY, the same way [`tui_views`] reads
+/// it: a peer realm is a journal the operator did not name, and a lookup
+/// passing through one must not migrate it (ruling 5); a SOLE hearth is
+/// the journal the operator did name, and a look is a look there too
+/// (#375) — no WAL, migration or guard repair.
 fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)> {
-    resolve_in_hearths_with(hearths, run, false)
-}
-
-/// Resolve one run across the hearths without ever opening a journal
-/// read-write: the read-only resolution `brokkr transcript` uses so a
-/// look must not create a WAL sidecar, migrate or repair a journal.
-fn resolve_in_hearths_read_only(hearths: &[Hearth], run: String) -> Result<(usize, String)> {
-    resolve_in_hearths_with(hearths, run, true)
-}
-
-fn resolve_in_hearths_with(
-    hearths: &[Hearth],
-    run: String,
-    read_only: bool,
-) -> Result<(usize, String)> {
-    let sole = hearths.len() < 2;
     let mut refusal: Option<anyhow::Error> = None;
     // An ambiguous prefix in any hearth is preserved even when another
     // hearth answers the same selector uniquely: a guess there would
@@ -1287,11 +1223,7 @@ fn resolve_in_hearths_with(
         if !hearth.journal.is_file() {
             continue;
         }
-        let opened = match sole && !read_only {
-            true => Store::open(&hearth.journal),
-            false => Store::open_read_only(&hearth.journal),
-        };
-        let listed = opened
+        let listed = Store::open_read_only(&hearth.journal)
             .map_err(anyhow::Error::from)
             .and_then(|store| Ok(store.list_runs()?));
         let runs = match listed {
@@ -1497,9 +1429,11 @@ fn select_transcript_turn(read: TranscriptRead, turn: Option<u64>) -> Transcript
 }
 
 /// The complete `brokkr.transcript/v1` document, every member present
-/// even when null or empty, serialized from the shared result alone.
-fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Option<u64>) -> Value {
-    json!({
+/// even when null or empty, serialized from the shared result alone: the
+/// bytes `brokkr transcript --json` prints and the browser's transcript
+/// route serves (#352).
+fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Option<u64>) -> String {
+    let document = json!({
         "schema": brokkr_view::transcript::TRANSCRIPT_SCHEMA,
         "run_id": run,
         "seat": seat,
@@ -1514,13 +1448,13 @@ fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Optio
         "notices": &read.notices,
         "unavailable": read.unavailable.map(Unavailable::as_str),
         "full_session": &read.full_session,
-    })
+    });
+    serde_json::to_string_pretty(&document).expect("a JSON value serializes")
 }
 
 /// `brokkr transcript`: resolve the run read-only, select exactly one
 /// participant, run the shared local derivation and render it. Nothing
 /// is launched, written or resumed.
-#[allow(clippy::too_many_arguments)]
 fn transcript_command(
     workspace: &std::path::Path,
     realms: Option<PathBuf>,
@@ -1534,7 +1468,7 @@ fn transcript_command(
     // Consult every distinct existing hearth read-only and apply the one
     // established exact/prefix/`latest` rule; a read never opens a journal
     // read-write, even when `--db` names a sole hearth.
-    let (hearth, run) = resolve_in_hearths_read_only(&hearths, run)?;
+    let (hearth, run) = resolve_in_hearths(&hearths, run)?;
     let store = Store::open_read_only(&hearths[hearth].journal)?;
     let events = store.load(&run)?;
     let state = fold(&events)?;
@@ -1545,16 +1479,12 @@ fn transcript_command(
         participant_legacy_provenance(participant),
         participant.session_id.as_deref(),
     );
+    let read = ui::mask_secrets(read, &ui::store_beside(&hearths[hearth].journal));
     let read = select_transcript_turn(read, turn);
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&transcript_document(
-                &run,
-                &participant.key,
-                &read,
-                turn
-            ))?
+            transcript_document(&run, &participant.key, &read, turn)
         );
     }
     match read.unavailable {
@@ -1571,7 +1501,7 @@ fn transcript_command(
                     )
                 );
             }
-            Ok(ExitCode::SUCCESS)
+            Ok(Exit::Completed.into())
         }
         Some(reason) => {
             // The refusal explanation and notices reach stderr in both
@@ -1588,7 +1518,7 @@ fn transcript_command(
                 line.push_str(render::Safe::new(notice).as_str());
             }
             eprintln!("{line}");
-            Ok(ExitCode::FAILURE)
+            Ok(Exit::Failed.into())
         }
     }
 }
@@ -1650,7 +1580,9 @@ impl Invocation {
     /// doctor` does — a surface that only looks refuses nothing, and
     /// refusing here would blank the readout in exactly the world an
     /// operator opened it to see (decision 0046's Addendum; decision 0023
-    /// ruling 6, which makes `realms` a read surface with no writes).
+    /// ruling 6, which makes `realms` a read surface with no writes). The
+    /// verbs that take the map only for its journal read it this way too
+    /// ([`JournalArgs::journal`]).
     fn inspect(
         workspace: &std::path::Path,
         realms: Option<PathBuf>,
@@ -1770,6 +1702,7 @@ fn supersede(
     // against a world this command only looks at (decision 0026 ruling
     // 5), and the one journal it writes to is the annotated run's.
     let cited = Store::open_read_only(&cited_journal)?;
+    let run = &selector::resolve_run(&store, run)?;
     let operator = std::env::var("USER").unwrap_or("operator".into());
     let written = brokkr_runtime::operator_supersede(
         &mut store,
@@ -1790,7 +1723,7 @@ fn supersede(
          --run {run}",
         written.seq
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// The journal alone, for the read surfaces that take a map only to know
@@ -1803,6 +1736,44 @@ fn journal_of(
     Ok(Invocation::resolve(workspace, realms, db)?
         .announce()
         .journal)
+}
+
+impl JournalArgs {
+    /// The journal a verb that takes the map ONLY for its journal opens
+    /// (#374) — resolved on [`Invocation`]'s three rules, so `resume`,
+    /// `conclude` and `operator stop` address the journal `run` wrote.
+    ///
+    /// Read the way [`Invocation::inspect`] reads it: none of these verbs
+    /// pins the world it read, so a crossing that has moved is not theirs
+    /// to refuse — and a recovery verb that refused there would fail in
+    /// exactly the world it is needed in. `resume` still refuses one
+    /// through its own pinned world's fence, before any seat spawns.
+    fn journal(self, workspace: &std::path::Path) -> Result<PathBuf> {
+        Ok(Invocation::inspect(workspace, self.realms, self.db)?
+            .announce()
+            .journal)
+    }
+}
+
+/// The one journal `brokkr ui` serves: the fleet `brokkr tui` opens, read
+/// the way `tui` reads it ([`hearths_of`]), so the two surfaces never show
+/// different fleets (#374). The web view serves a single journal, so a
+/// world whose realms name several hearths is refused, naming them, rather
+/// than served one of them as though it were the whole fleet.
+fn ui_journal(workspace: &std::path::Path, journal: JournalArgs) -> Result<PathBuf> {
+    let mut hearths = hearths_of(workspace, journal.realms, journal.db)?;
+    anyhow::ensure!(
+        hearths.len() == 1,
+        "brokkr ui serves one journal, and this world's realms name {}: {}; --db names \
+         the one to serve (brokkr tui and brokkr runs read them all)",
+        hearths.len(),
+        hearths
+            .iter()
+            .map(|hearth| hearth.journal.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    Ok(hearths.remove(0).journal)
 }
 
 /// The journals a FLEET read opens (decision 0026 rulings 2 and 3): one
@@ -1860,48 +1831,6 @@ fn fleet_of(
         false => hearths,
     };
     Ok((invocation.world, hearths))
-}
-
-/// One hearth's runs, folded. A journal that will not open at all is the
-/// hearth's own refusal, in its own words: a many-hearth listing survives
-/// a realm whose journal is not there yet, the same way a fleet listing
-/// already survives one unfoldable run.
-///
-/// Opened READ-ONLY, and deliberately: a reading surface that creates the
-/// journal it came to read has written to a world it was only asked to
-/// look at (decision 0026 ruling 5).
-///
-/// One folded run: its id, its feature, when it started, what the fold
-/// says about it, and the residual findings its journal carries
-/// (decision 0047 ruling 3) — all read together, from one load.
-type FoldedRun = (
-    String,
-    String,
-    String,
-    Result<RunState, String>,
-    Vec<brokkr_view::ResidualFinding>,
-);
-
-fn hearth_runs(journal: &std::path::Path) -> Result<Vec<FoldedRun>, String> {
-    // One error voice for the three doors: what a hearth refuses with is
-    // the store's own words, wherever in the read it refused.
-    fn hearth_error(error: brokkr_store::StoreError) -> String {
-        error.to_string()
-    }
-    let store = Store::open_read_only(journal).map_err(hearth_error)?;
-    let mut folded = Vec::new();
-    for (run_id, feature, created_at) in store.list_runs().map_err(hearth_error)? {
-        let events = store.load(&run_id).map_err(hearth_error)?;
-        let residuals = brokkr_view::residual_findings(&run_id, &events);
-        folded.push((
-            run_id,
-            feature,
-            created_at,
-            fold_or_quarantine(&events),
-            residuals,
-        ));
-    }
-    Ok(folded)
 }
 
 /// The pinned manifest an export wrote beside its journal, named the
@@ -2078,6 +2007,10 @@ fn unreproducible(run: &str, error: anyhow::Error) -> anyhow::Error {
     }
 }
 
+/// Dispatch one parsed command to its verb's handler (decision 0071
+/// ruling 10: a verb is a `Cmd` variant plus a handler). The match is
+/// exhaustive and every arm only forwards, so a new verb cannot compile
+/// without naming where it is handled.
 fn run_with(
     cli: Cli,
     // The directory `realms.json`, `agents/` and `adapters/` are
@@ -2090,412 +2023,23 @@ fn run_with(
     watch_iteration_limit: Option<usize>,
     run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<ExitCode>,
 ) -> Result<ExitCode> {
+    use verbs::{delivery, exchange, readouts, setup};
     match cli.command {
-        Cmd::Init(InitArgs { dir }) => {
-            // The recipe lands in `dir`; the repository it describes is
-            // the WORKSPACE, read for its manifests so the implement and
-            // verify seats are told commands that would actually run
-            // there. Same tree every other verb resolves (decision 0023),
-            // for the same reason: what a command produces is a function
-            // of its arguments, not of where the caller happens to stand.
-            let digest = init::init(&dir, workspace)?;
-            eprintln!(
-                "initialized reviewable bundle at {} (digest {digest})",
-                dir.display()
-            );
-            // The scaffold carries its own `adapters/` and `agents/`,
-            // where the trust tier its gate seats compile against and the
-            // tool grants its seats run under are declared (decisions
-            // 0021 and 0016). Every other verb reads those trees from the
-            // workspace, which is the directory brokkr is run in — so say
-            // once, here, where to stand.
-            eprintln!(
-                "run brokkr from inside {} — its adapters/ and agents/ declare \
-                 the trust tier and the tool grants its seats run under",
-                dir.display()
-            );
-            // Decision 0046: the scaffolded seats run under the realm's
-            // boundary, and `namespace` — the default — is the one that
-            // needs bubblewrap; a realm may declare `harness` instead.
-            if let Err(reason) =
-                brokkr_protocol::hands::bwrap_on(&std::env::var_os("PATH").unwrap_or_default())
-            {
-                eprintln!(
-                    "warning: {reason}; the scaffolded seats [\"ship\", \"verify\"] \
-                     declare hands and run under the realm's boundary — `namespace`, \
-                     the default, needs bubblewrap on PATH, and a realm may declare \
-                     `harness` instead (decision 0046)"
-                );
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Costs(CostsArgs { run, db }) => {
-            let store = Store::open(&db)?;
-            let events = store.load(&run)?;
-            let (report, total) = compare::seat_costs(&events);
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json!({
-                    "run_id": run,
-                    "seats": report,
-                    "total_cost_usd": total,
-                }))?
-            );
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Ledger(LedgerArgs { run, db, repo }) => {
-            anyhow::ensure!(
-                db.is_file(),
-                "journal does not exist: {}; ledger reads never create one",
-                db.display()
-            );
-            let store = Store::open_read_only(&db)?;
-            let run = selector::resolve_run(&store, &run)?;
-            let events = store.load(&run)?;
-            match repo {
-                Some(repo) => println!("{}", ledger::write(&run, &events, &repo)?.display()),
-                None => print!("{}", ledger::render(&run, &events, workspace)?),
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Anchor(AnchorArgs {
-            run,
-            db,
-            repo,
-            check,
-        }) => {
-            let store = Store::open(&db)?;
-            let run = selector::resolve_run(&store, &run)?;
-            if check {
-                let report = brokkr_runtime::verify_anchor(&store, &repo, &run)?;
-                println!("{}", serde_json::to_string_pretty(&report)?);
-            } else {
-                let sha = brokkr_runtime::anchor(&store, &repo, &run)?;
-                eprintln!("anchored {run} at {sha}");
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::KeepRefs { command } => keep_refs(command),
-        Cmd::Ui(UiArgs { db, port, open }) => {
-            serve_ui(db, port, open)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Tui(TuiArgs { run, realms, db }) => {
-            let hearths = hearths_of(workspace, realms, db)?;
-            // Selectors resolve through decision 0015's one resolver —
-            // but resolving needs a store, and `brokkr tui` refuses a
-            // missing database *before* anything opens one, because
-            // `Store::open` creates a file, a WAL and a meta row. So
-            // resolution waits until a file is known to exist and
-            // `tui::start` does the refusing. In a many-hearth world it
-            // also says which hearth to open on: the one holding the run.
-            let (tab, run) = match run {
-                Some(run) => {
-                    let (tab, run) = resolve_in_hearths(&hearths, run)?;
-                    (tab, Some(run))
-                }
-                None => (0, None),
-            };
-            run_tui(hearths, run, tab)
-        }
-        Cmd::Doctor(DoctorArgs {
-            bundle,
-            realms,
-            db,
-            secrets_file,
-        }) => {
-            let report = doctor::doctor(bundle.as_deref(), &db, &secrets_file, realms.as_deref());
-            println!("{}", report.render());
-            Ok(if report.healthy {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::from(1)
-            })
-        }
-        Cmd::Compile(CompileArgs { bundle }) => {
-            let world = World::discover(workspace, None)?;
-            let bundle = compile_in_realm(workspace, &bundle, world.as_ref(), workspace)?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&compiled_view(&bundle, world.as_ref()))?
-            );
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Run(RunArgs {
-            bundle,
-            recipe,
-            recipes_dir,
-            feature,
-            realms,
-            db,
-            repo,
-            dispatch,
-            secrets_file,
-        }) => {
-            // The map is read BEFORE anything is compiled, opened or
-            // spawned: a named map that is missing or malformed ends the
-            // invocation here, with no journal touched and no seat run.
-            let Invocation {
-                world,
-                named,
-                journal: db,
-                ..
-            } = Invocation::resolve(workspace, realms, db)?.announce();
-            // A Looper-bound run pins a run-manifest/v2, whose bytes a
-            // counterpart system reads and whose round-trip reconstructs
-            // the manifest from six named keys. A world cannot be pinned
-            // there, so a map the operator NAMED is refused rather than
-            // half-honoured — and refused HERE, in the same breath as a
-            // missing or malformed map, before a bundle is compiled or a
-            // journal is created.
-            anyhow::ensure!(
-                !(named && dispatch.is_some()),
-                "a run with --dispatch cannot pin the map named by --realms: the \
-                 Looper-bound run-manifest/v2 lineage carries no world, and dropping \
-                 the map silently would leave the run unable to say which one it \
-                 believed in. Run without --dispatch, or without --realms, until a \
-                 jointly agreed v2-lineage manifest version exists"
-            );
-            let operated_repo = repo.as_deref().unwrap_or(workspace);
-            let bundle = compile_in_realm(
-                workspace,
-                &recipes::resolve(bundle, recipe, &recipes_dir)?,
-                world.as_ref(),
-                operated_repo,
-            )?;
-            refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
-            let store = Store::open(&db)?;
-            let mut engine = if let Some(path) = dispatch {
-                // A map merely lying in the workspace is a different
-                // matter: it still names the journal this world's fleet
-                // writes, so the run goes there — but it is not pinned,
-                // and a dropped pin is said out loud rather than left to
-                // be discovered in the manifest.
-                if let Some(world) = &world {
-                    eprintln!(
-                        "note: {} is not pinned into this run: --dispatch writes a \
-                         run-manifest/v2, which carries no world",
-                        world.source.display()
-                    );
-                }
-                let raw = std::fs::read_to_string(&path)
-                    .with_context(|| format!("reading dispatch {}", path.display()))?;
-                let envelope: brokkr_core::dispatch::DispatchEnvelopeV2 =
-                    serde_json::from_str(&raw).context("parsing forge-dispatch/v2")?;
-                envelope.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
-                Engine::start_with_dispatch(store, bundle, &feature, repo, envelope)?
-            } else {
-                Engine::start_in_world(store, bundle, &feature, repo, world)?
-            };
-            engine.secrets_file = secrets_file;
-            eprintln!("run started: {}", engine.run_id);
-            let end = engine.drive()?;
-            Ok(finish(&end.state))
-        }
-        Cmd::Resume(ResumeArgs {
-            bundle,
-            recipe,
-            recipes_dir,
-            run,
-            db,
-            repo,
-            secrets_file,
-        }) => {
-            let store = Store::open(&db)?;
-            let manifest = store.manifest(&run)?;
-            let bundle = compile_from_manifest(
-                workspace,
-                &recipes::resolve(bundle, recipe, &recipes_dir)?,
-                &manifest,
-                repo.as_deref().unwrap_or(workspace),
-            )
-            .map_err(|error| unreproducible(&run, error))?;
-            refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
-            let mut engine = Engine::resume(store, bundle, &run, repo)?;
-            // Decision 0057, on decision 0046's Addendum's terms: a
-            // resumed run is fenced where `run` and `rerun` are fenced,
-            // before `drive()` and so before any seat spawns. Here, and
-            // not inside `Engine::resume`, for two reasons that are one
-            // reason: the check needs a workspace to resolve a crossing's
-            // path against and the engine is given none, and this arm is
-            // already where a whole-invocation refusal stands — one line
-            // above, `refuse_unboxable` reads the host's PATH the same
-            // way, right after the compile and right before the drive.
-            //
-            // The world a resumed run holds comes from its own manifest
-            // and has met no disk (`World::from_manifest` resolves no
-            // crossing, deliberately), so without this a run would carry
-            // on over bytes its journal never saw. A Looper-bound run
-            // carries no world at all and has nothing to fence.
-            if let Some(world) = &engine.world {
-                world.verify_crossings(workspace)?;
-            }
-            engine.secrets_file = secrets_file;
-            let end = engine.drive()?;
-            Ok(finish(&end.state))
-        }
-        Cmd::Rerun(RerunArgs {
-            run,
-            bundle,
-            recipe,
-            recipes_dir,
-            db,
-            repo,
-            secrets_file,
-        }) => {
-            let store = Store::open(&db)?;
-            let events = store
-                .load(&run)
-                .with_context(|| format!("loading source run '{run}'"))?;
-            let feature = events
-                .first()
-                .filter(|e| e.event_type == brokkr_core::EventType::RunStarted)
-                .and_then(|e| e.payload.get("feature"))
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("source run '{run}' has no run/started feature to re-run")
-                })?
-                .to_string();
-            // A rerun is a NEW run, and it stands where `run` stands
-            // (decision 0046 ruling 1; design DD6): the workspace map is
-            // discovered, the bundle compiles against the operated
-            // repository's realm — its boundary and its dialect — and
-            // the world is pinned into the new run's manifest. A rerun
-            // that ignored the realm's word would refuse on a `harness`
-            // Mac for want of bubblewrap, and run boxed on a `harness`
-            // Linux while the realm said otherwise.
-            let world = World::discover(workspace, None)?;
-            let operated_repo = repo.as_deref().unwrap_or(workspace);
-            let bundle = compile_in_realm(
-                workspace,
-                &recipes::resolve(bundle, recipe, &recipes_dir)?,
-                world.as_ref(),
-                operated_repo,
-            )?;
-            refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
-            let mut engine = Engine::start_in_world(store, bundle, &feature, repo, world)?;
-            engine.secrets_file = secrets_file;
-            eprintln!(
-                "rerun of {run} as {} under {}",
-                engine.run_id, engine.bundle.name
-            );
-            let end = engine.drive()?;
-            Ok(finish(&end.state))
-        }
-        Cmd::Conclude(ConcludeArgs { run, reason, db }) => {
-            let mut store = Store::open(&db)?;
-            let operator = std::env::var("USER").unwrap_or("operator".into());
-            let state = conclude(&mut store, &run, &operator, &reason)?;
-            Ok(finish(&state))
-        }
-        Cmd::Operator(OperatorArgs {
-            run,
-            command,
-            reason,
-            findings,
-            by_run,
-            by_seq,
-            by_realm,
-            realms,
-            db,
-        }) => {
-            anyhow::ensure!(
-                command == "retry" || command == "stop" || command == brokkr_view::SUPERSEDE,
-                "operator command must be 'retry', 'stop' or 'supersede'"
-            );
-            // Whether any argument that belongs to `supersede` alone
-            // was typed. Asked HERE, before the branch below takes
-            // those arguments, because on a `retry` or a `stop` one of
-            // them is a refusal rather than something quietly ignored.
-            let cited = [
-                !findings.is_empty(),
-                by_run.is_some(),
-                by_seq.is_some(),
-                by_realm.is_some(),
-                realms.is_some(),
-            ]
-            .contains(&true);
-            if command == brokkr_view::SUPERSEDE {
-                return supersede(
-                    workspace,
-                    &run,
-                    &reason,
-                    &findings,
-                    (by_run, by_seq, by_realm),
-                    realms,
-                    db,
-                );
-            }
-            anyhow::ensure!(
-                !cited,
-                "--findings, --by-run, --by-seq, --by-realm and --realms belong to \
-                 'supersede'; '{command}' takes --run, --reason and --db"
-            );
-            // The journal `retry` and `stop` have always opened: this
-            // pair takes no map, so `--db` or the default and nothing
-            // else decides it.
-            let db = db.unwrap_or(PathBuf::from(DEFAULT_DB));
-            let mut store = Store::open(&db)?;
-            let operator = std::env::var("USER").unwrap_or("operator".into());
-            // The command is fenced against a concurrently-driving
-            // engine, so it can come back refused. Saying "recorded"
-            // there would tell the operator the opposite of what the
-            // journal says.
-            match operator_command(&mut store, &run, &command, &operator, &reason)? {
-                FencedCommandOutcome::Accepted { .. } => {
-                    eprintln!(
-                        "recorded operator {command}; continue with: brokkr resume --run {run}"
-                    );
-                    Ok(ExitCode::SUCCESS)
-                }
-                FencedCommandOutcome::Rejected { reason, .. } => {
-                    // The reason word carries which condition it was —
-                    // `lost_fence` for a run that moved under the
-                    // operator, `after_terminal` or
-                    // `run_not_awaiting_operator` for a command the run
-                    // was never in a state to take — so this line states
-                    // the condition and passes the word through rather
-                    // than paraphrasing it into one story.
-                    eprintln!(
-                        "refused operator {command} ({reason}): the run is not in a state \
-                         this command can apply to; the refusal is journaled. Read it with: \
-                         brokkr inspect --run {run}"
-                    );
-                    Ok(ExitCode::FAILURE)
-                }
-            }
-        }
-        Cmd::Inspect(InspectArgs {
-            run,
-            realms,
-            db,
-            json,
-            phase,
-            seat,
-        }) => {
-            let db = journal_of(workspace, realms, db)?;
-            let store = Store::open(&db)?;
-            let run = selector::resolve_run(&store, &run)?;
-            let events = store.load(&run)?;
-            let state = fold(&events)?;
-            let view = brokkr_view::run_view(&events, Some(&state));
-            if json {
-                println!("{}", serde_json::to_string_pretty(&view)?);
-                return Ok(ExitCode::SUCCESS);
-            }
-            // clap's ArgGroup already rules the two mutually exclusive.
-            let scope = match (phase, seat) {
-                (Some(phase), _) => Some(render::Scope::Phase(phase)),
-                (None, Some(seat)) => Some(render::Scope::Seat(seat)),
-                (None, None) => None,
-            };
-            let lens = render::lens_for(&view, scope.as_ref()).map_err(anyhow::Error::msg)?;
-            print!(
-                "{}",
-                render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
-            );
-            Ok(ExitCode::SUCCESS)
-        }
+        Cmd::Init(args) => setup::init(workspace, args),
+        Cmd::Costs(args) => readouts::costs(workspace, args),
+        Cmd::Ledger(args) => readouts::ledger(workspace, args),
+        Cmd::Anchor(args) => exchange::anchor(workspace, args),
+        Cmd::KeepRefs { command } => keep_refs(workspace, command),
+        Cmd::Ui(args) => readouts::ui(workspace, args, serve_ui),
+        Cmd::Tui(args) => readouts::tui(workspace, args, run_tui),
+        Cmd::Doctor(args) => setup::doctor(args),
+        Cmd::Compile(args) => setup::compile(workspace, args),
+        Cmd::Run(args) => delivery::run(workspace, args),
+        Cmd::Resume(args) => delivery::resume(workspace, args),
+        Cmd::Rerun(args) => delivery::rerun(workspace, args),
+        Cmd::Conclude(args) => delivery::conclude(workspace, args),
+        Cmd::Operator(args) => delivery::operator(workspace, args),
+        Cmd::Inspect(args) => readouts::inspect(workspace, args),
         Cmd::Transcript(TranscriptArgs {
             run,
             seat,
@@ -2504,495 +2048,27 @@ fn run_with(
             realms,
             db,
         }) => transcript_command(workspace, realms, db, run, seat, turn, json),
-        Cmd::Seats(SeatsArgs {
-            run,
-            realms,
-            db,
-            json,
-        }) => {
-            // A thin verb (design DD11): the journal `inspect` would
-            // open, the view `inspect` would derive, and either the
-            // seats block of `inspect`'s readout or `inspect --json`'s
-            // own bytes. Nothing is derived here and no wire object is
-            // versioned for the verb.
-            let db = journal_of(workspace, realms, db)?;
-            let store = Store::open(&db)?;
-            let run = selector::resolve_run(&store, &run)?;
-            let events = store.load(&run)?;
-            let state = fold(&events)?;
-            let view = brokkr_view::run_view(&events, Some(&state));
-            if json {
-                println!("{}", serde_json::to_string_pretty(&view)?);
-                return Ok(ExitCode::SUCCESS);
-            }
-            print!("{}", render::seats(&view, &render::Style::detect()));
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Watch(WatchArgs {
-            run,
-            realms,
-            db,
-            once,
-            interval_ms,
-        }) => {
-            let db = journal_of(workspace, realms, db)?;
-            // Selectors resolve once, before the loop: a prefix that is
-            // unique now stays this frame's run even if another run is
-            // started while we watch.
-            let run = selector::resolve_run(&Store::open(&db)?, &run)?;
-            let style = render::Style::detect();
-            let is_tty = std::io::stdout().is_terminal();
-            let iterations = if once {
-                1
-            } else {
-                watch_iteration_limit.unwrap_or(usize::MAX)
-            };
-            watch_loop(
-                &db,
-                &run,
-                interval_ms,
-                is_tty,
-                &style,
-                &mut std::io::stdout(),
-                &mut now_rfc3339,
-                &mut |ms| std::thread::sleep(std::time::Duration::from_millis(ms)),
-                iterations,
-            )
-        }
-        Cmd::Replay(ReplayArgs { run, db }) => {
-            let store = Store::open(&db)?;
-            let run = selector::resolve_run(&store, &run)?;
-            let events = store.load(&run)?;
-            let first = format!("{:?}", fold(&events)?);
-            let second = format!("{:?}", fold(&events)?);
-            anyhow::ensure!(first == second, "replay was not deterministic");
-            let state = fold(&events)?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json!({
-                    "events": events.len(),
-                    "chain": "verified",
-                    "replay": "deterministic",
-                    "state": summarize(&state),
-                }))?
-            );
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Export(ExportArgs {
-            run,
-            out,
-            realms,
-            db,
-            redact,
-        }) => {
-            let db = journal_of(workspace, realms, db)?;
-            let store = Store::open(&db)?;
-            let run = selector::resolve_run(&store, &run)?;
-            std::fs::create_dir_all(&out)?;
-            let ndjson = store.export_ndjson(&run)?;
-            let manifest = store.manifest(&run)?;
-            let journal_path = out.join(format!("{run}.ndjson"));
-            std::fs::write(&journal_path, &ndjson)?;
-            std::fs::write(
-                out.join(format!("{run}.manifest.json")),
-                serde_json::to_string_pretty(&manifest)?,
-            )?;
-            eprintln!("exported {}", journal_path.display());
-            if redact {
-                // A sanitized copy that could pass as verbatim evidence
-                // would be a forgery, so the copy is marked twice: in
-                // its filenames and in its manifest, which also names
-                // the consequence — redaction breaks the recorded event
-                // hashes, and hash verification applies only to the
-                // verbatim export.
-                //
-                // Journal and manifest are scrubbed through ONE
-                // redaction, in that order: the manifest states the
-                // bundle a run was invoked with and, in a mapped world,
-                // the map file and the realm paths it named — operator-
-                // machine detail the journal beside it is published to
-                // withhold. Sharing the table also keeps `[path-1]`
-                // naming one path across the pair.
-                let raw_manifest = serde_json::to_string(&manifest)?;
-                let mut redactor = brokkr_store::Redactor::learn(&[&ndjson, &raw_manifest]);
-                let redacted = redactor.journal(&ndjson)?;
-                let redacted_path = out.join(format!("{run}.redacted.ndjson"));
-                std::fs::write(&redacted_path, &redacted)?;
-                let mut fields = redactor
-                    .document(&manifest)
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default();
-                fields.insert("redacted".into(), json!(true));
-                fields.insert(
-                    "redaction".into(),
-                    json!({
-                        "scheme": "absolute filesystem paths — POSIX, drive-letter, \
-                                   and UNC — in event payload string fields, and in \
-                                   this manifest, rewritten to stable placeholders \
-                                   ([path-N]), usernames to [user-N]; scheme URLs \
-                                   survive as a declared bound",
-                        "hashes": "recorded event hashes predate redaction and no \
-                                   longer match; a pinned realms map's sha256 is \
-                                   likewise the digest of the map as it was, not of \
-                                   the scrubbed copy printed here; hash verification \
-                                   applies only to the verbatim export",
-                    }),
-                );
-                std::fs::write(
-                    out.join(format!("{run}.redacted.manifest.json")),
-                    serde_json::to_string_pretty(&Value::Object(fields))?,
-                )?;
-                eprintln!("exported {} (redacted)", redacted_path.display());
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Import(ImportArgs { from, realms, db }) => {
-            let db = journal_of(workspace, realms, db)?;
-            // The sidecar is required, not optional: it is where an
-            // export declares itself redacted, and an import that
-            // shrugged at a missing manifest would accept exactly the
-            // pair whose declaration went missing.
-            let manifest_path = manifest_beside(&from);
-            let ndjson =
-                std::fs::read_to_string(&from).context(format!("reading {}", from.display()))?;
-            let raw = std::fs::read_to_string(&manifest_path)
-                .context(format!("reading {}", manifest_path.display()))?;
-            let manifest: Value = serde_json::from_str(&raw)
-                .context(format!("parsing {}", manifest_path.display()))?;
-            let mut store = Store::open(&db)?;
-            let adoption = store.import_run(&ndjson, &manifest, &from)?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json!({
-                    "run_id": adoption.run_id,
-                    "events": adoption.events,
-                    "chain": "verified",
-                    "adopted": "byte-identical",
-                    "journal_head_hash": adoption.head_hash,
-                    "imported_at": adoption.arrival.imported_at,
-                    "imported_from": adoption.arrival.imported_from,
-                }))?
-            );
-            // `import_run`'s run_id gate already refuses anything a
-            // terminal could not print plainly, so this is belt over
-            // braces — but the house rule is that a journal string
-            // reaching a tty goes through `Safe`, and the one line
-            // telling an operator the adoption happened is a poor place
-            // to start making exceptions.
-            eprintln!(
-                "imported {} into {} ({} events)",
-                render::Safe::new(&adoption.run_id).as_str(),
-                db.display(),
-                adoption.events
-            );
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::VerifyRun(VerifyRunArgs { file }) => {
-            let ndjson =
-                std::fs::read_to_string(&file).context(format!("reading {}", file.display()))?;
-            let state = brokkr_store::verify_export(&ndjson)?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json!({
-                    "chain": "verified",
-                    "state": summarize(&state),
-                }))?
-            );
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Bridge(BridgeArgs {
-            run,
-            db,
-            looper_url,
-            token_env,
-            follow,
-            interval_ms,
-        }) => {
-            let token = std::env::var(&token_env)
-                .with_context(|| format!("reading producer credential from {token_env}"))?;
-            anyhow::ensure!(!token.trim().is_empty(), "producer credential is empty");
-            let transport = brokkr_bridge::HttpTransport::new(looper_url, token);
-            let mut bridge = brokkr_bridge::Bridge::new(transport);
-            let mut command_cursor = 0;
-            let mut iteration = 0usize;
-            loop {
-                let mut store = Store::open(&db)?;
-                let report = bridge.sync_once(
-                    &mut store,
-                    &run,
-                    time::OffsetDateTime::now_utc(),
-                    command_cursor,
-                )?;
-                command_cursor = report.last_command_cursor;
-                println!(
-                    "{}",
-                    serde_json::to_string(&json!({
-                        "run_id": run,
-                        "registered": report.registered,
-                        "submitted": report.submitted,
-                        "replayed": report.replayed,
-                        "commands": report.commands,
-                        "last_forge_sequence": report.last_forge_sequence,
-                    }))?
-                );
-                iteration += 1;
-                if !follow || bridge_iteration_limit.is_some_and(|limit| iteration >= limit) {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(interval_ms.max(100)));
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Realms(RealmsArgs { realms, db, json }) => {
-            // `inspect`, not `resolve`: `realms` is a read surface with no
-            // writes (decision 0023 ruling 6), and a readout that refuses
-            // to describe the world because one contract moved is at its
-            // least useful in exactly the world an operator typed it in.
-            // The crossing lines below say which pin moved instead.
-            let Invocation { world, journal, .. } =
-                Invocation::inspect(workspace, realms, db)?.announce();
-            let world = world.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no map: this workspace has no {} and none was named with --realms",
-                    brokkr_core::realms::DEFAULT_MAP_FILE
-                )
-            })?;
-            let rows = realms::rows(&world);
-            let source = world.source.display().to_string();
-            let journal = journal.display().to_string();
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&realms::view(&source, &journal, &rows))?
-                );
-            } else {
-                print!(
-                    "{}",
-                    realms::render(&source, &journal, &rows, realms::per_realm(&world, &rows))
-                );
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Runs(RunsArgs { realms, db, json }) => {
-            let hearths = hearths_of(workspace, realms, db)?;
-            // A world with several hearths lists each one under its own
-            // realm; a world with one is byte-for-byte the listing it
-            // always was, down to opening its journal the same way.
-            if hearths.len() > 1 {
-                let read: Vec<Result<Vec<FoldedRun>, String>> = hearths
-                    .iter()
-                    .map(|hearth| hearth_runs(&hearth.journal))
-                    .collect();
-                let entries: Vec<Vec<brokkr_view::RunEntry>> = read
-                    .iter()
-                    .map(|folded| match folded {
-                        Err(_) => Vec::new(),
-                        Ok(runs) => runs
-                            .iter()
-                            .map(|(run_id, feature, created_at, state, residuals)| {
-                                brokkr_view::RunEntry {
-                                    run_id,
-                                    feature,
-                                    created_at,
-                                    state: state.as_ref().ok(),
-                                    detail: state.as_ref().err().map(String::as_str),
-                                    residuals,
-                                }
-                            })
-                            .collect(),
-                    })
-                    .collect();
-                let labels: Vec<String> = hearths.iter().map(Hearth::label).collect();
-                let journals: Vec<String> = hearths
-                    .iter()
-                    .map(|hearth| hearth.journal.display().to_string())
-                    .collect();
-                let grouped: Vec<brokkr_view::HearthEntries> = (0..hearths.len())
-                    .map(|index| brokkr_view::HearthEntries {
-                        realm: &labels[index],
-                        journal: &journals[index],
-                        entries: &entries[index],
-                        detail: read[index].as_ref().err().map(String::as_str),
-                    })
-                    .collect();
-                let view = brokkr_view::fleet_rows(&grouped);
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&view)?);
-                } else {
-                    print!(
-                        "{}",
-                        render::fleet(&view, &now_rfc3339(), &render::Style::detect())
-                    );
-                }
-                return Ok(ExitCode::SUCCESS);
-            }
-            let db = hearths
-                .into_iter()
-                .next()
-                .expect("a world resolves to at least one hearth")
-                .journal;
-            let store = Store::open(&db)?;
-            let mut folded = Vec::new();
-            for (run_id, feature, created_at) in store.list_runs()? {
-                // A fleet listing survives one unfoldable journal: that
-                // run becomes a quarantined row carrying the fold's own
-                // words, and the rest of the fleet is still listed. The
-                // journal is never touched — the refusal is reported.
-                let events = store.load(&run_id)?;
-                let residuals = brokkr_view::residual_findings(&run_id, &events);
-                let folded_run = fold_or_quarantine(&events);
-                folded.push((run_id, feature, created_at, folded_run, residuals));
-            }
-            let entries: Vec<brokkr_view::RunEntry> = folded
-                .iter()
-                .map(
-                    |(run_id, feature, created_at, folded_run, residuals)| brokkr_view::RunEntry {
-                        run_id,
-                        feature,
-                        created_at,
-                        state: folded_run.as_ref().ok(),
-                        detail: folded_run.as_ref().err().map(String::as_str),
-                        residuals,
-                    },
-                )
-                .collect();
-            let view = brokkr_view::run_rows(&entries);
-            if json {
-                println!("{}", serde_json::to_string_pretty(&view)?);
-            } else {
-                print!(
-                    "{}",
-                    render::runs(&view, &now_rfc3339(), &render::Style::detect())
-                );
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Hands { command } => hands(command),
-        Cmd::Driver(DriverArgs { kind, args }) => {
-            let kind = brokkr_protocol::adapters::AdapterKind::parse(&kind).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "unknown driver '{kind}'; known: claude, lanetally, codex, dsh, exec"
-                )
-            })?;
-            let extra = driver_payload(kind, args);
-            brokkr_protocol::adapters::serve(kind, extra)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Compare(CompareArgs { run_a, run_b, db }) => {
-            compare::compare(&run_a, &run_b, &db)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Recipes { command } => {
-            match command {
-                RecipesCmd::List { dir } => recipes::list(workspace, &dir)?,
-                RecipesCmd::Add { source, name, dir } => {
-                    recipes::add(workspace, &source, &name, &dir)?
-                }
-                RecipesCmd::Show { name, dir } => {
-                    let bundle = compile_in(workspace, &recipes::resolve(None, Some(name), &dir)?)?;
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&compiled_view(&bundle, None))?
-                    );
-                }
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Agents { command } => {
-            // Semantic lint reads the OPERATOR's capability definitions
-            // (decision 0065; design D2): beside the active map, else in
-            // the workspace — wherever `--agents-dir` points the library.
-            let world = World::discover(workspace, None)?;
-            let operator_root = capability_context(workspace, world.as_ref(), None, workspace).root;
-            match command {
-                AgentsCmd::List { agents_dir } => agents::list(&agents_dir, &operator_root)?,
-                AgentsCmd::Show {
-                    name,
-                    agents_dir,
-                    adapters_dir,
-                } => agents::show(&name, &agents_dir, &adapters_dir, &operator_root)?,
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::Muninn { command } => match command {
-            MuninnCmd::Run {
-                realms,
-                db,
-                agents_dir,
-                adapters_dir,
-                record,
-            } => {
-                // `world_and_hearths`, not `hearths_of`: the raven reports
-                // a moved crossing as a finding, so it reads the world
-                // with `inspect` and keeps the resolved map beside the
-                // journals it names (decision 0057).
-                let (world, hearths) = world_and_hearths(workspace, realms, db)?;
-                muninn::run(
-                    &hearths,
-                    world.as_ref(),
-                    &agents_dir,
-                    &adapters_dir,
-                    &record,
-                    &now_rfc3339(),
-                )
-            }
-            MuninnCmd::List { record, json } => {
-                muninn::list(&record, json)?;
-                Ok(ExitCode::SUCCESS)
-            }
-        },
-        Cmd::Secrets { command } => {
-            use brokkr_protocol::secret;
-            match command {
-                SecretsCmd::Set { name, secrets_file } => {
-                    let value = std::io::read_to_string(std::io::stdin())
-                        .context("reading the secret value from stdin")?;
-                    // stdin values arrive newline-terminated; the value
-                    // itself must be single-line (validated in the store).
-                    let value = value.strip_suffix('\n').unwrap_or(&value);
-                    let value = value.strip_suffix('\r').unwrap_or(value);
-                    let warning = secret::store_set(&secrets_file, &name, value)
-                        .map_err(|e| anyhow::anyhow!(e))?;
-                    if let Some(warning) = warning {
-                        eprintln!("{warning}");
-                    }
-                    eprintln!("set {name} in {}", secrets_file.display());
-                }
-                SecretsCmd::List { secrets_file } => {
-                    for name in secret::store_names(&secrets_file).map_err(anyhow::Error::msg)? {
-                        println!("{name}");
-                    }
-                }
-                SecretsCmd::Remove { name, secrets_file } => {
-                    let removed =
-                        secret::store_remove(&secrets_file, &name).map_err(anyhow::Error::msg)?;
-                    anyhow::ensure!(
-                        removed,
-                        "no secret named '{name}' in {}",
-                        secrets_file.display()
-                    );
-                    eprintln!("removed {name} from {}", secrets_file.display());
-                }
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        Cmd::FakeDriver(FakeDriverArgs {
-            script,
-            state,
-            model,
-            effort,
-        }) => {
-            brokkr_protocol::fake::run_fake_driver(
-                &script,
-                &state,
-                model.as_deref(),
-                effort.as_deref(),
-            )?;
-            Ok(ExitCode::SUCCESS)
-        }
+        Cmd::Seats(args) => readouts::seats(workspace, args),
+        Cmd::Watch(args) => readouts::watch(workspace, args, watch_iteration_limit),
+        Cmd::Replay(args) => readouts::replay(workspace, args),
+        Cmd::Export(args) => exchange::export(workspace, args),
+        Cmd::Import(args) => exchange::import(workspace, args),
+        Cmd::VerifyRun(args) => exchange::verify_run(args),
+        Cmd::Bridge(args) => exchange::bridge(workspace, args, bridge_iteration_limit),
+        Cmd::Realms(args) => readouts::realms(workspace, args),
+        Cmd::Runs(args) => readouts::runs(workspace, args),
+        Cmd::Hands { command } => hands::run(command),
+        Cmd::Driver(args) => setup::driver(args),
+        Cmd::Compare(args) => readouts::compare(workspace, args),
+        Cmd::Recipes { command } => setup::recipes(workspace, command),
+        Cmd::Agents { command } => setup::agents(workspace, command),
+        Cmd::Muninn { command } => setup::muninn(workspace, command),
+        Cmd::Secrets { command } => setup::secrets(command),
+        Cmd::FakeDriver(args) => setup::fake_driver(args),
     }
 }
 
+#[cfg(test)]
+mod cli_reference_tests;
 #[cfg(test)]
 mod tests;

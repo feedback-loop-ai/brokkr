@@ -245,31 +245,13 @@ fn egress_class(declared: &Value, key: &str, what: &str) -> Result<EgressClass, 
     }
 }
 
-/// A provider's own destination class (decision 0036 ruling 2), and the
-/// one migration decision 0036 ruling 4 rules: `binding_grant` is
-/// superseded, a `true` grant READS as `contracted` and a `false` or
-/// absent one as `uncontracted`, so no adapter file on disk is forced to
-/// change and every one of them keeps the clearance it has. The old key
-/// stays readable for one release; declaring BOTH is refused rather than
-/// silently resolved, because the two could then disagree and only one
-/// of them could win.
+/// A provider's own destination class (decision 0036 ruling 2); absent
+/// is `uncontracted`. Decision 0036 ruling 4's migration read of the
+/// superseded `binding_grant` ended with #355: the key is unknown now.
 fn adapter_egress(map: &Map<String, Value>, what: &str) -> Result<EgressClass, LibraryError> {
-    match (map.get("egress"), map.get("binding_grant")) {
-        (Some(_), Some(_)) => invalid(format!(
-            "{what} declares both 'egress' and the superseded 'binding_grant'; \
-             decision 0036 ruling 4 reads a true grant as \"contracted\" and a \
-             false or absent grant as \"uncontracted\", so keep one of them"
-        )),
-        (Some(declared), None) => egress_class(declared, "egress", what),
-        (None, Some(declared)) => match declared.as_bool() {
-            Some(true) => Ok(EgressClass::Contracted),
-            Some(false) => Ok(EgressClass::Uncontracted),
-            None => invalid(format!(
-                "{what} 'binding_grant' is {declared}; the grant is a boolean, and \
-                 an absent grant is none"
-            )),
-        },
-        (None, None) => Ok(EgressClass::Uncontracted),
+    match map.get("egress") {
+        Some(declared) => egress_class(declared, "egress", what),
+        None => Ok(EgressClass::Uncontracted),
     }
 }
 
@@ -356,7 +338,7 @@ fn credentials(
 /// of decision 0036 makes class assignment operator DATA, and data that
 /// cannot be written is not data. [`NAME_GRAMMAR`] stays exactly what it
 /// is for agents, adapters and abstract model names.
-pub const ROUTE_GRAMMAR: &str = "^[A-Za-z0-9._:-]+$";
+pub(super) const ROUTE_GRAMMAR: &str = "^[A-Za-z0-9._:-]+$";
 
 /// `true` when `name` matches [`ROUTE_GRAMMAR`].
 fn route_name(name: &str) -> bool {
@@ -369,7 +351,7 @@ fn route_name(name: &str) -> bool {
 /// The grammar decision 0012 gives a bindable name, quoted verbatim in
 /// the refusal above: a credential a route names is the same variable a
 /// binding would carry.
-pub const SECRET_NAME_GRAMMAR: &str = "^[A-Z][A-Z0-9_]*$";
+pub(super) const SECRET_NAME_GRAMMAR: &str = "^[A-Z][A-Z0-9_]*$";
 
 fn secret_name(name: &str) -> bool {
     let mut characters = name.chars();
@@ -780,6 +762,7 @@ impl Adapters {
     }
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     let what = format!("adapter '{name}' ({})", path.display());
     if !valid_name(name) {
@@ -792,7 +775,6 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         &[
             "provider",
             "trust_tier",
-            "binding_grant",
             "egress",
             "routes",
             "credentials",
@@ -958,26 +940,30 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     // with decision 0043, and an adapter written before it — including
     // every `brokkr init` scaffold in the field — must keep compiling.
     // Absent reads as unsupported with no reason, fail-closed.
-    let (hands, hands_gap, harness) =
+    let (hands, hands_gap, harness, hands_notice) =
         match map.get("hands").map(|_| capability(map, "hands", &what)) {
-            None | Some(Ok(None)) => (None, None, HarnessHands::default()),
+            None | Some(Ok(None)) => (None, None, HarnessHands::default(), None),
             Some(Err(error)) => return Err(error),
             Some(Ok(Some(value))) => {
                 let raw = object(value, &format!("{what} 'hands'"))?;
                 if raw.contains_key("unsupported") {
+                    no_notice_without_workspace(raw, &what)?;
                     only_keys(raw, &["unsupported"], &format!("{what} 'hands'"))?;
                     (
                         None,
                         Some(string(raw, "unsupported", &format!("{what} 'hands'"))?),
                         HarnessHands::default(),
+                        None,
                     )
                 } else {
-                    only_keys(raw, &["workspace", "harness"], &format!("{what} 'hands'"))?;
-                    (
-                        Some(string_array(raw, "workspace", &format!("{what} 'hands'"))?),
-                        None,
-                        harness_hands(raw, &what)?,
-                    )
+                    only_keys(
+                        raw,
+                        &["workspace", "harness", "notice"],
+                        &format!("{what} 'hands'"),
+                    )?;
+                    let workspace = string_array(raw, "workspace", &format!("{what} 'hands'"))?;
+                    let notice = hands_notice(raw, &workspace, &what)?;
+                    (Some(workspace), None, harness_hands(raw, &what)?, notice)
                 }
             }
         };
@@ -1001,6 +987,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         hands,
         hands_gap,
         harness,
+        hands_notice,
         mcp,
         resume: resume_assessment(map, &what)?,
         native,
@@ -1041,6 +1028,7 @@ const RESUME_TEXT_LIMIT: usize = 400;
 /// entry is not malformed: it IS the honest declaration, and refusing it
 /// would make the preparatory declarations of an unmeasured shape
 /// unwritable. Neither outcome ever enables resume.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn resume_assessment(
     map: &Map<String, Value>,
     what: &str,
@@ -1239,6 +1227,42 @@ fn resume_evidence(raw: &Map<String, Value>, what: &str) -> Result<ResumeEvidenc
         root: read("root")?,
         accounting: read("accounting")?,
     })
+}
+
+/// Why a discovery notice cannot stand without a workspace to discover.
+const NOTICE_NEEDS_WORKSPACE: &str = "needs a supported, non-empty 'hands.workspace' \
+     fragment; a discovery notice names the workspace tool that fragment serves \
+     (decision 0069)";
+
+/// A `hands.notice` beside `hands.unsupported` names a tool nothing
+/// serves. Refused by name before the closed-key check, so the author
+/// reads why rather than only that the key is unknown there.
+fn no_notice_without_workspace(hands: &Map<String, Value>, what: &str) -> Result<(), LibraryError> {
+    if hands.contains_key("notice") {
+        return invalid(format!("{what} 'hands.notice' {NOTICE_NEEDS_WORKSPACE}"));
+    }
+    Ok(())
+}
+
+/// An adapter's optional `hands.notice` (decision 0069): the two
+/// tool identifiers a boxed seat needs to find its workspace when the
+/// harness may defer MCP tools. Presence is inspected before decoding, so
+/// an explicit `null` or `false` is a malformed declaration and never
+/// reads as absence; only an absent key is no notice.
+fn hands_notice(
+    hands: &Map<String, Value>,
+    workspace: &[String],
+    what: &str,
+) -> Result<Option<brokkr_protocol::adapters::HandsNotice>, LibraryError> {
+    let Some(declared) = hands.get("notice") else {
+        return Ok(None);
+    };
+    if workspace.is_empty() {
+        return invalid(format!("{what} 'hands.notice' {NOTICE_NEEDS_WORKSPACE}"));
+    }
+    brokkr_protocol::adapters::HandsNotice::parse(declared)
+        .map(Some)
+        .map_err(|problem| LibraryError::Invalid(format!("{what} 'hands.notice' {problem}")))
 }
 
 /// The two workspace tokens the engine expands only where it serves the

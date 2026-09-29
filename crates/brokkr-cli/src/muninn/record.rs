@@ -24,7 +24,7 @@ use serde_json::Value;
 /// Append one entry. The only write this module has. The path is named
 /// once, on the open: a write that fails after the file opened has
 /// nothing left to say about which file it was.
-pub fn append(path: &Path, entry: &Value) -> Result<()> {
+pub(super) fn append(path: &Path, entry: &Value) -> Result<()> {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -42,7 +42,7 @@ pub fn append(path: &Path, entry: &Value) -> Result<()> {
 /// is an empty record — nothing has been proposed. A line that does not
 /// parse is an error naming the line, never a skipped entry: a record
 /// that silently drops evidence is not a record (decision 0001).
-pub fn read(path: &Path) -> Result<Vec<Value>> {
+pub(super) fn read(path: &Path) -> Result<Vec<Value>> {
     let raw = match std::fs::read_to_string(path) {
         Ok(raw) => raw,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),

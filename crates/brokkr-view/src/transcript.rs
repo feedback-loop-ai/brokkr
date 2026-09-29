@@ -9,7 +9,7 @@
 //! and touches no filesystem — decision 0013's separation is a compile
 //! property, not a convention.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -237,7 +237,7 @@ fn clean_path(text: &str) -> bool {
 
 /// Claude: 1-64 ASCII hexadecimal-or-hyphen characters, first a
 /// hexadecimal character. Leading hyphens are now invalid everywhere.
-pub fn valid_claude_id(id: &str) -> bool {
+pub(crate) fn valid_claude_id(id: &str) -> bool {
     let mut chars = id.chars();
     match chars.next() {
         Some(first) if first.is_ascii_hexdigit() => {}
@@ -516,7 +516,7 @@ impl TranscriptRead {
     }
 
     /// A readable projection, possibly zero-turn.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     pub fn readable(
         reference: Option<Transcript>,
         legacy: bool,
@@ -557,7 +557,7 @@ impl TranscriptRead {
     }
     /// A refused result. `path`, counts, truncation and the hint are
     /// supplied only where the failure-stage matrix establishes them.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     pub fn refused(
         reference: Option<Transcript>,
         legacy: bool,
@@ -815,24 +815,175 @@ fn display_cost(blocks: &[Block]) -> Option<usize> {
     Some(cost)
 }
 
-/// Apply the shared display accounting budget after association and
-/// classification: retain whole turns in source order, stop before the
-/// first turn that would exceed it, never skip forward. Equality fits.
-fn display_cap(turns: Vec<Turn>, truncated: &mut bool) -> Vec<Turn> {
-    let mut out = Vec::new();
-    let mut budget = DISPLAY_CAP;
-    for turn in turns {
-        let Some(cost) = display_cost(&turn.blocks) else {
-            continue;
-        };
-        if cost > budget {
-            *truncated = true;
-            break;
+/// Who speaks a turn: the three roles the classifiers name, or a role a
+/// record names outside them, kept as written (empty when a row supplies
+/// no turn).
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Role {
+    User,
+    Assistant,
+    Tool,
+    Recorded(String),
+}
+
+impl Role {
+    /// The role a record names: one of the three, or kept as written.
+    fn recorded(word: &str) -> Role {
+        match word {
+            "user" => Role::User,
+            "assistant" => Role::Assistant,
+            "tool" => Role::Tool,
+            other => Role::Recorded(other.to_string()),
         }
-        budget -= cost;
-        out.push(turn);
     }
-    out
+
+    /// The spelling every surface shows.
+    fn into_wire(self) -> String {
+        match self {
+            Role::User => "user".to_string(),
+            Role::Assistant => "assistant".to_string(),
+            Role::Tool => "tool".to_string(),
+            Role::Recorded(word) => word,
+        }
+    }
+}
+
+/// What one classified record contributes (#352): its blocks, who speaks
+/// them, its recorded timestamp, and whether it named anything its kind's
+/// table does not recognize. An outcome with no blocks supplies no turn.
+struct RowOutcome<B> {
+    blocks: Vec<B>,
+    role: Role,
+    ts: String,
+    unrecognized: bool,
+}
+
+impl<B> RowOutcome<B> {
+    /// A record that supplies no turn, counted when `unrecognized`.
+    fn nothing(unrecognized: bool) -> RowOutcome<B> {
+        RowOutcome {
+            blocks: Vec::new(),
+            role: Role::Recorded(String::new()),
+            ts: String::new(),
+            unrecognized,
+        }
+    }
+
+    /// A recognized record's blocks, spoken by `role`.
+    fn of(blocks: Vec<B>, role: Role) -> RowOutcome<B> {
+        RowOutcome {
+            blocks,
+            role,
+            ts: String::new(),
+            unrecognized: false,
+        }
+    }
+
+    fn one(block: B, role: Role) -> RowOutcome<B> {
+        RowOutcome::of(vec![block], role)
+    }
+
+    /// The same outcome at its record's recorded timestamp.
+    fn at(mut self, ts: String) -> RowOutcome<B> {
+        self.ts = ts;
+        self
+    }
+}
+
+/// What one member of a declared content list contributes.
+enum Part<B> {
+    Block(B),
+    /// A recognized member with nothing to show.
+    Quiet,
+    Unrecognized,
+}
+
+/// The one content-list loop every kind shares (#352): read a record's
+/// declared content member by member through its kind's `part` table.
+/// Absent or null declares nothing; a value that is not a list, or any
+/// member the table does not recognize, counts the record once.
+fn content_blocks<B>(
+    content: Option<&Value>,
+    role: Role,
+    part: impl Fn(&Value) -> Part<B>,
+) -> RowOutcome<B> {
+    let mut outcome = RowOutcome::of(Vec::new(), role);
+    match content {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(members)) => {
+            for member in members {
+                match part(member) {
+                    Part::Block(block) => outcome.blocks.push(block),
+                    Part::Quiet => {}
+                    Part::Unrecognized => outcome.unrecognized = true,
+                }
+            }
+        }
+        Some(_) => outcome.unrecognized = true,
+    }
+    outcome
+}
+
+/// The one bounded projection collector every kind feeds (design D4,
+/// #352): it retains whole final turns in source order only while they fit
+/// the shared display accounting budget, and seals permanently at the
+/// first turn that would exceed it, never skipping forward. `remaining` is
+/// checked before subtraction, so equality fits and no arithmetic wraps
+/// into admission.
+struct TurnCollector {
+    turns: Vec<Turn>,
+    remaining: usize,
+    truncated: bool,
+    sealed: bool,
+}
+
+impl TurnCollector {
+    fn new(truncated: bool) -> TurnCollector {
+        TurnCollector {
+            turns: Vec::new(),
+            remaining: DISPLAY_CAP,
+            truncated,
+            sealed: false,
+        }
+    }
+
+    /// Charge one turn's display cost, or seal at the first that does not
+    /// fit. A sealed collector admits nothing more.
+    fn charge(&mut self, cost: usize) -> bool {
+        if self.sealed {
+            return false;
+        }
+        if cost > self.remaining {
+            self.truncated = true;
+            self.sealed = true;
+            return false;
+        }
+        self.remaining -= cost;
+        true
+    }
+
+    fn admit(&mut self, role: Role, ts: String, blocks: Vec<Block>) {
+        let Some(cost) = display_cost(&blocks) else {
+            return;
+        };
+        if !self.charge(cost) {
+            return;
+        }
+        #[cfg(test)]
+        let text_bytes: usize = blocks.iter().map(|block| block.text.len()).sum();
+        self.turns.push(Turn {
+            role: role.into_wire(),
+            ts,
+            blocks,
+        });
+        #[cfg(test)]
+        observe::retained_turn(text_bytes, cost);
+    }
+
+    fn finish(self, projection: &mut Projection) {
+        projection.truncated = self.truncated;
+        projection.turns = self.turns;
+    }
 }
 
 /// Project one admitted snapshot of the given kind. A source I/O or
@@ -861,96 +1012,89 @@ pub fn project(kind: TranscriptKind, snapshot: &Snapshot<'_>) -> Projection {
 // -------------------------------------------------------------- Claude
 
 fn project_claude(admitted: &Admitted<'_>, projection: &mut Projection) {
-    let mut turns = Vec::new();
+    let mut collector = TurnCollector::new(projection.truncated);
     projection.skipped_lines = for_each_parsed_row(admitted, |_, value, _| {
-        let (blocks, role, ts, unrecognized) = claude_row(&value);
-        if unrecognized {
+        let outcome = claude_row(&value);
+        if outcome.unrecognized {
             projection.unrecognized_records += 1;
         }
-        if !blocks.is_empty() {
-            turns.push(Turn { role, ts, blocks });
-        }
+        collector.admit(outcome.role, outcome.ts, outcome.blocks);
     });
-    projection.turns = display_cap(turns, &mut projection.truncated);
+    collector.finish(projection);
 }
 
 /// Claude's closed classification table (proposed 0055 ruling 3).
-fn claude_row(value: &Value) -> (Vec<Block>, String, String, bool) {
-    let Some(object) = value.as_object() else {
-        return (Vec::new(), String::new(), String::new(), true);
-    };
-    let Some(kind) = object.get("type").and_then(Value::as_str) else {
-        return (Vec::new(), String::new(), String::new(), true);
+fn claude_row(value: &Value) -> RowOutcome<Block> {
+    let Some(kind) = value.get("type").and_then(Value::as_str) else {
+        return RowOutcome::nothing(true);
     };
     if matches!(
         kind,
         "summary" | "system" | "progress" | "file-history-snapshot" | "queue-operation"
     ) {
-        return (Vec::new(), String::new(), String::new(), false);
+        return RowOutcome::nothing(false);
     }
     if kind != "user" && kind != "assistant" {
-        return (Vec::new(), String::new(), String::new(), true);
+        return RowOutcome::nothing(true);
     }
-    let ts = object
+    let ts = value
         .get("timestamp")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let message = object.get("message");
-    let role = message
-        .and_then(|message| message.get("role"))
-        .and_then(Value::as_str)
-        .unwrap_or(kind)
-        .to_string();
-    let mut blocks = Vec::new();
-    let mut unrecognized = false;
-    match message {
-        None | Some(Value::Null) => {}
+    let message = value.get("message");
+    let role = Role::recorded(
+        message
+            .and_then(|message| message.get("role"))
+            .and_then(Value::as_str)
+            .unwrap_or(kind),
+    );
+    let outcome = match message {
+        None | Some(Value::Null) => RowOutcome::of(Vec::new(), role),
         Some(Value::Object(message)) => match message.get("content") {
-            None | Some(Value::Null) => {}
-            Some(Value::String(text)) => blocks.push(Block::text(text.clone())),
-            Some(Value::Array(parts)) => {
-                for part in parts {
-                    match part {
-                        Value::Object(block) => match block.get("type").and_then(Value::as_str) {
-                            Some("text") => match block.get("text") {
-                                Some(Value::String(text)) => {
-                                    if !text.trim().is_empty() {
-                                        blocks.push(Block::text(text.clone()));
-                                    }
-                                }
-                                None | Some(Value::Null) => {}
-                                Some(_) => unrecognized = true,
-                            },
-                            Some("tool_use") => {
-                                let name = block.get("name").and_then(Value::as_str).unwrap_or("?");
-                                let target = block
-                                    .get("input")
-                                    .and_then(|input| input.get("file_path"))
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("");
-                                let text = if target.is_empty() {
-                                    name.to_string()
-                                } else {
-                                    format!("{name} · {target}")
-                                };
-                                blocks.push(Block::tool(text));
-                            }
-                            Some(
-                                "thinking" | "redacted_thinking" | "tool_result" | "image"
-                                | "document",
-                            ) => {}
-                            _ => unrecognized = true,
-                        },
-                        _ => unrecognized = true,
-                    }
-                }
-            }
-            Some(_) => unrecognized = true,
+            Some(Value::String(text)) => RowOutcome::one(Block::text(text.clone()), role),
+            content => content_blocks(content, role, claude_part),
         },
-        Some(_) => unrecognized = true,
+        Some(_) => RowOutcome {
+            unrecognized: true,
+            ..RowOutcome::of(Vec::new(), role)
+        },
+    };
+    outcome.at(ts)
+}
+
+/// One Claude content member: nonblank prose, or a tool marker naming its
+/// file target only.
+fn claude_part(part: &Value) -> Part<Block> {
+    let Value::Object(block) = part else {
+        return Part::Unrecognized;
+    };
+    match block.get("type").and_then(Value::as_str) {
+        Some("text") => match block.get("text") {
+            Some(Value::String(text)) if !text.trim().is_empty() => {
+                Part::Block(Block::text(text.clone()))
+            }
+            Some(Value::String(_)) | None | Some(Value::Null) => Part::Quiet,
+            Some(_) => Part::Unrecognized,
+        },
+        Some("tool_use") => {
+            let name = block.get("name").and_then(Value::as_str).unwrap_or("?");
+            let target = block
+                .get("input")
+                .and_then(|input| input.get("file_path"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            Part::Block(Block::tool(if target.is_empty() {
+                name.to_string()
+            } else {
+                format!("{name} · {target}")
+            }))
+        }
+        Some("thinking" | "redacted_thinking" | "tool_result" | "image" | "document") => {
+            Part::Quiet
+        }
+        _ => Part::Unrecognized,
     }
-    (blocks, role, ts, unrecognized)
 }
 
 // --------------------------------------------------------------- Codex
@@ -994,7 +1138,7 @@ fn codex_quiet_event(kind: &str) -> bool {
 /// A mirrored Codex fact family. Identity alone is not evidence: a call
 /// and its output are two facts, and message, reasoning and tool facts
 /// never associate across families.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 enum CodexFact {
     Message,
     Reasoning,
@@ -1033,15 +1177,85 @@ impl CodexBlock {
             fact: id.map(|id| (fact, Rc::clone(id))),
         }
     }
+
+    /// A tool call citing `id`, which its text also names.
+    fn call(id: Option<&CodexId>, context: impl Into<String>) -> CodexBlock {
+        let text = tool_text(id.map(|id| &**id), context);
+        CodexBlock::identified(Block::tool(text), CodexFact::Call, id)
+    }
+
+    /// A tool result citing `id`, which its text also names.
+    fn result(id: Option<&CodexId>, context: impl Into<String>) -> CodexBlock {
+        let text = tool_text(id.map(|id| &**id), context);
+        CodexBlock::identified(Block::tool_result(text), CodexFact::Result, id)
+    }
 }
 
-/// One classified Codex record before the association pass.
+/// One classified Codex record. Only a `response_item` is canonical.
 struct CodexRecord {
-    blocks: Vec<CodexBlock>,
-    role: String,
-    ts: String,
-    unrecognized: bool,
+    outcome: RowOutcome<CodexBlock>,
     canonical: bool,
+}
+
+/// The shared identity a record names under `key`.
+fn member_id(value: &Value, key: &str) -> Option<CodexId> {
+    codex_id(value.get(key).and_then(Value::as_str))
+}
+
+/// The shared identity a tool record names under `call_id`, else `id`.
+fn call_or_id(value: &Value) -> Option<CodexId> {
+    codex_id(
+        value
+            .get("call_id")
+            .or_else(|| value.get("id"))
+            .and_then(Value::as_str),
+    )
+}
+
+/// A recorded prose member as one unidentified block, or no block when it
+/// is absent, not a string or empty.
+fn plain_text(
+    text: Option<&Value>,
+    block: fn(String) -> Block,
+    role: Role,
+) -> RowOutcome<CodexBlock> {
+    match text.and_then(Value::as_str).filter(|text| !text.is_empty()) {
+        Some(text) => RowOutcome::one(CodexBlock::plain(block(text.to_string())), role),
+        None => RowOutcome::of(Vec::new(), role),
+    }
+}
+
+/// The text member types a `response_item` message reads.
+const ROLLOUT_TEXT: &[&str] = &["input_text", "output_text"];
+/// A completed item also reads a bare `text` member.
+const COMPLETED_TEXT: &[&str] = &["input_text", "output_text", "text"];
+
+/// One Codex message member citing the message's `id`: recorded text of a
+/// type in `texts`, or a class-named media omission.
+fn message_part(part: &Value, texts: &[&str], id: Option<&CodexId>) -> Part<CodexBlock> {
+    let block = match part.get("type").and_then(Value::as_str) {
+        Some(kind @ ("input_image" | "input_audio" | "image" | "audio")) => {
+            Block::omitted(media_omission(kind))
+        }
+        Some(kind) if texts.contains(&kind) => match part.get("text").and_then(Value::as_str) {
+            Some(text) => Block::text(text),
+            None => return Part::Unrecognized,
+        },
+        _ => return Part::Unrecognized,
+    };
+    Part::Block(CodexBlock::identified(block, CodexFact::Message, id))
+}
+
+/// One reasoning summary member citing the reasoning's `id`.
+fn summary_part(text: Option<&str>, id: Option<&CodexId>) -> Part<CodexBlock> {
+    match text {
+        Some(text) => Part::Block(CodexBlock::identified(
+            Block::reasoning(text),
+            CodexFact::Reasoning,
+            id,
+        )),
+        None => Part::Unrecognized,
+    }
 }
 
 /// A Codex media part stays visible as an omission that names its class,
@@ -1139,83 +1353,72 @@ fn compose(parts: &[&str]) -> String {
         .join(" ")
 }
 
+/// Project a Codex rollout in two passes over the same bounded prefix, as
+/// DSH does (design D1, D4; #352). The fact pass classifies every row,
+/// counts its diagnostics and association keys, and releases it: no
+/// record is retained, so a 32 MiB source of two-byte rows cannot amplify
+/// into records. The projection pass classifies each row again, removes
+/// what association proved mirrored, and feeds the one collector.
 fn project_codex(admitted: &Admitted<'_>, projection: &mut Projection) {
-    let mut records = collect_codex(admitted, projection);
-    // Association is a separate, explicit pass over the complete bounded
-    // prefix: only recorded identity plus direction and compatible family
-    // can remove an event fallback, and only a unique canonical
-    // counterpart can do so.
-    associate_codex(&mut records);
-    let mut turns = Vec::new();
-    for record in records {
-        if record.blocks.is_empty() {
-            continue;
-        }
-        turns.push(Turn {
-            role: record.role,
-            ts: record.ts,
-            blocks: record.blocks.into_iter().map(|block| block.block).collect(),
-        });
-    }
-    projection.turns = display_cap(turns, &mut projection.truncated);
-}
-
-/// Parse the bounded prefix into the records that carry blocks. A row
-/// that projects nothing — a non-object, quiet metadata, or an
-/// unrecognized shape with nothing to show — is counted here and released
-/// with its JSON (design D4): association consumes only blocks, so an
-/// empty record could never change the projection, and retaining one per
-/// row would let a 32 MiB source of two-byte rows amplify into gigabytes
-/// of records on every read.
-fn collect_codex(admitted: &Admitted<'_>, projection: &mut Projection) -> Vec<CodexRecord> {
-    let mut records: Vec<CodexRecord> = Vec::new();
+    let mut association = CodexAssociation::default();
     projection.skipped_lines = for_each_parsed_row(admitted, |_, value, _| {
         let record = codex_row(&value);
-        if record.unrecognized {
+        if record.outcome.unrecognized {
             projection.unrecognized_records += 1;
         }
-        if !record.blocks.is_empty() {
-            records.push(record);
-        }
+        association.count(&record, |_, _, _| {});
     });
-    records
+    let mut collector = TurnCollector::new(projection.truncated);
+    for_each_parsed_row(admitted, |_, value, _| {
+        let mut record = codex_row(&value);
+        association.retain(&mut record, |_, _, _| {});
+        let RowOutcome {
+            blocks, role, ts, ..
+        } = record.outcome;
+        collector.admit(
+            role,
+            ts,
+            blocks.into_iter().map(|block| block.block).collect(),
+        );
+    });
+    collector.finish(projection);
 }
 
-/// Remove the blocks an event fallback provably mirrors. A canonical
-/// record never deduplicates another canonical record, a colliding
-/// identity keeps both records, and only the blocks the canonical record
-/// actually covers disappear.
-fn associate_codex(records: &mut [CodexRecord]) {
-    associate_codex_observed(records, |_, _, _| {});
-}
-
-/// The two places `associate_codex` builds an association key from a
-/// record's shared identity. A test observer names them so a regression
-/// that copies the recorded bytes instead of the `Rc` fails while the
-/// pass is live, not only before and after it.
+/// The two places association builds a key from a record's shared
+/// identity. A test observer names them so a regression that copies the
+/// recorded bytes instead of the `Rc` fails while the pass is live, not
+/// only before and after it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum CodexKeySite {
-    /// Counting `seen`/canonical/fallback during the first sweep.
+    /// Counting `seen`/canonical/fallback in the fact pass.
     Count,
-    /// The fallback-retention lookup in the second sweep.
+    /// The fallback-retention lookup in the projection pass.
     Lookup,
 }
 
-/// `associate_codex` with a live observation of the actual `(source id,
-/// key)` pair at each key construction. The observer borrows both, so it
-/// changes no strong count; production passes a no-op.
-fn associate_codex_observed<F>(records: &mut [CodexRecord], mut observe: F)
-where
-    F: FnMut(CodexKeySite, &CodexId, &CodexId),
-{
-    use std::collections::{HashMap, HashSet};
-    // Keys share each record's id allocation: a key is a reference count,
-    // never a copy of the recorded bytes.
-    let mut canonical: HashMap<(CodexFact, CodexId), usize> = HashMap::new();
-    let mut fallback: HashMap<(CodexFact, CodexId), usize> = HashMap::new();
-    for record in records.iter() {
-        let mut seen: HashSet<(CodexFact, CodexId)> = HashSet::new();
-        for block in &record.blocks {
+/// The association facts of a complete bounded prefix: how many canonical
+/// and how many fallback records cite each `(fact, id)`. Only recorded
+/// identity plus direction and compatible family can remove an event
+/// fallback, and only a unique canonical counterpart can do so. Keys share
+/// each record's id allocation: a key is a reference count, never a copy
+/// of the recorded bytes.
+#[derive(Default)]
+struct CodexAssociation {
+    canonical: BTreeMap<(CodexFact, CodexId), usize>,
+    fallback: BTreeMap<(CodexFact, CodexId), usize>,
+}
+
+impl CodexAssociation {
+    /// Count one record's distinct keys. The observer borrows the source id
+    /// and the key, so it changes no strong count; production passes a
+    /// no-op.
+    fn count<F>(&mut self, record: &CodexRecord, mut observe: F)
+    where
+        F: FnMut(CodexKeySite, &CodexId, &CodexId),
+    {
+        let mut seen: std::collections::BTreeSet<(CodexFact, CodexId)> =
+            std::collections::BTreeSet::new();
+        for block in &record.outcome.blocks {
             let Some((fact, id)) = &block.fact else {
                 continue;
             };
@@ -1224,22 +1427,31 @@ where
             if !seen.insert(key.clone()) {
                 continue;
             }
-            if record.canonical {
-                *canonical.entry(key).or_default() += 1;
+            let counts = if record.canonical {
+                &mut self.canonical
             } else {
-                *fallback.entry(key).or_default() += 1;
-            }
+                &mut self.fallback
+            };
+            *counts.entry(key).or_default() += 1;
         }
     }
-    for record in records.iter_mut() {
+
+    /// Remove the blocks an event fallback provably mirrors. A canonical
+    /// record never deduplicates another canonical record, a colliding
+    /// identity keeps both records, and only the blocks the canonical
+    /// record actually covers disappear.
+    fn retain<F>(&self, record: &mut CodexRecord, mut observe: F)
+    where
+        F: FnMut(CodexKeySite, &CodexId, &CodexId),
+    {
         if record.canonical {
-            continue;
+            return;
         }
-        record.blocks.retain(|block| match &block.fact {
+        record.outcome.blocks.retain(|block| match &block.fact {
             Some((fact, id)) => {
                 let key = (*fact, Rc::clone(id));
                 observe(CodexKeySite::Lookup, id, &key.1);
-                canonical.get(&key) != Some(&1) || fallback.get(&key) != Some(&1)
+                self.canonical.get(&key) != Some(&1) || self.fallback.get(&key) != Some(&1)
             }
             None => true,
         });
@@ -1248,136 +1460,55 @@ where
 
 /// Project one Codex record into its blocks and recorded metadata.
 fn codex_row(value: &Value) -> CodexRecord {
-    let Some(object) = value.as_object() else {
-        return CodexRecord {
-            blocks: Vec::new(),
-            role: String::new(),
-            ts: String::new(),
-            unrecognized: true,
-            canonical: false,
-        };
-    };
-    let ts = object
+    let ts = value
         .get("timestamp")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let quiet = |ts: String, unrecognized: bool| CodexRecord {
-        blocks: Vec::new(),
-        role: String::new(),
-        ts,
-        unrecognized,
-        canonical: false,
+    let payload = value.get("payload");
+    let (outcome, canonical) = match value.get("type").and_then(Value::as_str) {
+        Some("response_item") => (payload.map(codex_response_item), true),
+        Some("event_msg") => (payload.map(codex_event_msg), false),
+        Some(kind) => (Some(RowOutcome::nothing(!codex_quiet_top(kind))), false),
+        None => (None, false),
     };
-    let Some(kind) = object.get("type").and_then(Value::as_str) else {
-        return quiet(ts, true);
-    };
-    match kind {
-        "response_item" => {
-            let Some(payload) = object.get("payload") else {
-                return quiet(ts, true);
-            };
-            let (blocks, role, unrecognized) = codex_response_item(payload);
-            CodexRecord {
-                blocks,
-                role,
-                ts,
-                unrecognized,
-                canonical: true,
-            }
-        }
-        "event_msg" => {
-            let Some(payload) = object.get("payload") else {
-                return quiet(ts, true);
-            };
-            let (blocks, role, unrecognized) = codex_event_msg(payload);
-            CodexRecord {
-                blocks,
-                role,
-                ts,
-                unrecognized,
-                canonical: false,
-            }
-        }
-        _ if codex_quiet_top(kind) => quiet(ts, false),
-        _ => quiet(ts, true),
+    CodexRecord {
+        outcome: outcome.unwrap_or_else(|| RowOutcome::nothing(true)).at(ts),
+        canonical,
     }
 }
 
-fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
+fn codex_response_item(payload: &Value) -> RowOutcome<CodexBlock> {
     let Some(kind) = payload.get("type").and_then(Value::as_str) else {
-        return (Vec::new(), String::new(), true);
+        return RowOutcome::nothing(true);
     };
     match kind {
         "message" => {
-            let role = payload
-                .get("role")
-                .and_then(Value::as_str)
-                .unwrap_or("assistant")
-                .to_string();
-            let id = if role == "assistant" {
-                codex_id(payload.get("id").and_then(Value::as_str))
+            let role = Role::recorded(
+                payload
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or("assistant"),
+            );
+            let id = if role == Role::Assistant {
+                member_id(payload, "id")
             } else {
                 None
             };
-            let mut blocks = Vec::new();
-            let mut unrecognized = false;
-            match payload.get("content") {
-                Some(Value::Array(parts)) => {
-                    for part in parts {
-                        match part.get("type").and_then(Value::as_str) {
-                            Some("input_text" | "output_text") => {
-                                match part.get("text").and_then(Value::as_str) {
-                                    Some(text) => blocks.push(CodexBlock::identified(
-                                        Block::text(text),
-                                        CodexFact::Message,
-                                        id.as_ref(),
-                                    )),
-                                    None => unrecognized = true,
-                                }
-                            }
-                            Some(kind @ ("input_image" | "input_audio" | "image" | "audio")) => {
-                                blocks.push(CodexBlock::identified(
-                                    Block::omitted(media_omission(kind)),
-                                    CodexFact::Message,
-                                    id.as_ref(),
-                                ));
-                            }
-                            _ => unrecognized = true,
-                        }
-                    }
-                }
-                None | Some(Value::Null) => {}
-                Some(_) => unrecognized = true,
-            }
-            (blocks, role, unrecognized)
+            content_blocks(payload.get("content"), role, |part| {
+                message_part(part, ROLLOUT_TEXT, id.as_ref())
+            })
         }
         "reasoning" => {
-            let id = codex_id(payload.get("id").and_then(Value::as_str));
-            let mut blocks = Vec::new();
-            let mut unrecognized = false;
-            match payload.get("summary") {
-                Some(Value::Array(parts)) => {
-                    for part in parts {
-                        match part.get("type").and_then(Value::as_str) {
-                            Some("summary_text") => {
-                                match part.get("text").and_then(Value::as_str) {
-                                    Some(text) => blocks.push(CodexBlock::identified(
-                                        Block::reasoning(text),
-                                        CodexFact::Reasoning,
-                                        id.as_ref(),
-                                    )),
-                                    None => unrecognized = true,
-                                }
-                            }
-                            _ => unrecognized = true,
-                        }
+            let id = member_id(payload, "id");
+            content_blocks(payload.get("summary"), Role::Assistant, |part| {
+                match part.get("type").and_then(Value::as_str) {
+                    Some("summary_text") => {
+                        summary_part(part.get("text").and_then(Value::as_str), id.as_ref())
                     }
+                    _ => Part::Unrecognized,
                 }
-                None | Some(Value::Null) => {}
-                Some(_) => unrecognized = true,
-            }
-            (blocks, "assistant".to_string(), unrecognized)
+            })
         }
         "function_call" | "custom_tool_call" => {
             let name = payload.get("name").and_then(Value::as_str).unwrap_or("?");
@@ -1386,237 +1517,106 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                 Some(arguments) => format!("{name} {arguments}"),
                 None => name.to_string(),
             };
-            let id = codex_id(payload.get("call_id").and_then(Value::as_str));
-            (
-                vec![CodexBlock::identified(
-                    Block::tool(tool_text(id.as_deref(), context)),
-                    CodexFact::Call,
-                    id.as_ref(),
-                )],
-                "assistant".to_string(),
-                false,
-            )
+            let id = member_id(payload, "call_id");
+            RowOutcome::one(CodexBlock::call(id.as_ref(), context), Role::Assistant)
         }
         "function_call_output" | "custom_tool_call_output" => {
             let output = payload.get("output").map(content_text).unwrap_or_default();
-            let id = codex_id(payload.get("call_id").and_then(Value::as_str));
-            (
-                vec![CodexBlock::identified(
-                    Block::tool_result(tool_text(id.as_deref(), output)),
-                    CodexFact::Result,
-                    id.as_ref(),
-                )],
-                "tool".to_string(),
-                false,
-            )
+            let id = member_id(payload, "call_id");
+            RowOutcome::one(CodexBlock::result(id.as_ref(), output), Role::Tool)
         }
         "local_shell_call" | "web_search_call" => {
             let action = payload_text(payload.get("action")).unwrap_or_default();
-            let id = codex_id(
-                payload
-                    .get("call_id")
-                    .or_else(|| payload.get("id"))
-                    .and_then(Value::as_str),
-            );
-            (
-                vec![CodexBlock::identified(
-                    Block::tool(tool_text(id.as_deref(), action)),
-                    CodexFact::Call,
-                    id.as_ref(),
-                )],
-                "assistant".to_string(),
-                false,
-            )
+            let id = call_or_id(payload);
+            RowOutcome::one(CodexBlock::call(id.as_ref(), action), Role::Assistant)
         }
         "tool_search_call" => {
             let arguments = payload_text(payload.get("arguments")).unwrap_or_default();
-            let id = codex_id(
-                payload
-                    .get("call_id")
-                    .or_else(|| payload.get("id"))
-                    .and_then(Value::as_str),
-            );
-            (
-                vec![CodexBlock::identified(
-                    Block::tool(tool_text(id.as_deref(), format!("tool_search {arguments}"))),
-                    CodexFact::Call,
-                    id.as_ref(),
-                )],
-                "assistant".to_string(),
-                false,
+            let context = format!("tool_search {arguments}");
+            RowOutcome::one(
+                CodexBlock::call(call_or_id(payload).as_ref(), context),
+                Role::Assistant,
             )
         }
         "tool_search_output" => {
             let tools = payload_text(payload.get("tools")).unwrap_or_default();
-            let id = codex_id(
-                payload
-                    .get("call_id")
-                    .or_else(|| payload.get("id"))
-                    .and_then(Value::as_str),
-            );
-            (
-                vec![CodexBlock::identified(
-                    Block::tool_result(tool_text(id.as_deref(), tools)),
-                    CodexFact::Result,
-                    id.as_ref(),
-                )],
-                "tool".to_string(),
-                false,
-            )
+            let id = call_or_id(payload);
+            RowOutcome::one(CodexBlock::result(id.as_ref(), tools), Role::Tool)
         }
         "additional_tools" | "compaction" | "compaction_summary" | "context_compaction"
-        | "compaction_trigger" => (Vec::new(), String::new(), false),
-        _ => (Vec::new(), String::new(), true),
+        | "compaction_trigger" => RowOutcome::nothing(false),
+        _ => RowOutcome::nothing(true),
     }
 }
 
-fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
+fn codex_event_msg(payload: &Value) -> RowOutcome<CodexBlock> {
     let Some(kind) = payload.get("type").and_then(Value::as_str) else {
-        return (Vec::new(), String::new(), true);
+        return RowOutcome::nothing(true);
     };
     match kind {
         "item_completed" => codex_completed_item(payload.get("item").unwrap_or(&Value::Null)),
-        "user_message" => {
-            let text = payload
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            if text.is_empty() {
-                (Vec::new(), "user".to_string(), false)
-            } else {
-                (
-                    vec![CodexBlock::plain(Block::text(text))],
-                    "user".to_string(),
-                    false,
-                )
-            }
-        }
-        "agent_message" => {
-            let text = payload
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            if text.is_empty() {
-                (Vec::new(), "assistant".to_string(), false)
-            } else {
-                (
-                    vec![CodexBlock::plain(Block::text(text))],
-                    "assistant".to_string(),
-                    false,
-                )
-            }
-        }
-        "agent_reasoning" => {
-            let text = payload
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            if text.is_empty() {
-                (Vec::new(), "assistant".to_string(), false)
-            } else {
-                (
-                    vec![CodexBlock::plain(Block::reasoning(text))],
-                    "assistant".to_string(),
-                    false,
-                )
-            }
-        }
-        "exec_command_begin" | "exec_command_end" => {
+        "user_message" => plain_text(payload.get("message"), Block::text, Role::User),
+        "agent_message" => plain_text(payload.get("message"), Block::text, Role::Assistant),
+        "agent_reasoning" => plain_text(payload.get("text"), Block::reasoning, Role::Assistant),
+        "exec_command_begin" => {
             let command = payload_text(payload.get("command")).unwrap_or_default();
-            let id = codex_id(payload.get("call_id").and_then(Value::as_str));
-            if kind == "exec_command_begin" {
-                (
-                    vec![CodexBlock::identified(
-                        Block::tool(tool_text(id.as_deref(), command)),
-                        CodexFact::Call,
-                        id.as_ref(),
-                    )],
-                    "assistant".to_string(),
-                    false,
-                )
-            } else {
-                (
-                    vec![CodexBlock::identified(
-                        Block::tool_result(tool_text(id.as_deref(), codex_command_output(payload))),
-                        CodexFact::Result,
-                        id.as_ref(),
-                    )],
-                    "tool".to_string(),
-                    false,
-                )
-            }
+            let id = member_id(payload, "call_id");
+            RowOutcome::one(CodexBlock::call(id.as_ref(), command), Role::Assistant)
         }
-        "mcp_tool_call_begin" | "mcp_tool_call_end" => {
-            let id = codex_id(payload.get("call_id").and_then(Value::as_str));
-            let (context, role, fact) = if kind == "mcp_tool_call_begin" {
-                let server = payload
-                    .pointer("/invocation/server")
-                    .and_then(Value::as_str)
-                    .unwrap_or("mcp");
-                let tool = payload
-                    .pointer("/invocation/tool")
-                    .and_then(Value::as_str)
-                    .unwrap_or("?");
-                let arguments =
-                    payload_text(payload.pointer("/invocation/arguments")).unwrap_or_default();
-                (
-                    format!("{server} {tool} {arguments}"),
-                    "assistant",
-                    CodexFact::Call,
-                )
-            } else {
-                let result = payload
-                    .pointer("/result/Ok/content")
-                    .map(content_text)
-                    .or_else(|| payload_text(payload.pointer("/result/Err")))
-                    .unwrap_or_default();
-                (result, "tool", CodexFact::Result)
-            };
-            let block = if kind == "mcp_tool_call_begin" {
-                Block::tool(tool_text(id.as_deref(), context))
-            } else {
-                Block::tool_result(tool_text(id.as_deref(), context))
-            };
-            (
-                vec![CodexBlock::identified(block, fact, id.as_ref())],
-                role.to_string(),
-                false,
-            )
+        "exec_command_end" => {
+            let id = member_id(payload, "call_id");
+            let output = codex_command_output(payload);
+            RowOutcome::one(CodexBlock::result(id.as_ref(), output), Role::Tool)
         }
-        "dynamic_tool_call_request" | "dynamic_tool_call_response" => {
-            let id = codex_id(if kind == "dynamic_tool_call_request" {
-                payload.get("callId").and_then(Value::as_str)
-            } else {
-                payload.get("call_id").and_then(Value::as_str)
-            });
-            let (context, role, fact) = if kind == "dynamic_tool_call_request" {
-                let tool = payload.get("tool").and_then(Value::as_str).unwrap_or("?");
-                let arguments = payload_text(payload.get("arguments")).unwrap_or_default();
-                (format!("{tool} {arguments}"), "assistant", CodexFact::Call)
-            } else {
-                let content = payload
-                    .get("content_items")
-                    .map(content_text)
-                    .unwrap_or_default();
-                let error = payload_text(payload.get("error")).unwrap_or_default();
-                (format!("{content} {error}"), "tool", CodexFact::Result)
-            };
-            let block = if kind == "dynamic_tool_call_request" {
-                Block::tool(tool_text(id.as_deref(), context))
-            } else {
-                Block::tool_result(tool_text(id.as_deref(), context))
-            };
-            (
-                vec![CodexBlock::identified(block, fact, id.as_ref())],
-                role.to_string(),
-                false,
-            )
+        _ => codex_event_tool(kind, payload),
+    }
+}
+
+/// The MCP and dynamic tool events, and the quiet and unrecognized rest.
+fn codex_event_tool(kind: &str, payload: &Value) -> RowOutcome<CodexBlock> {
+    match kind {
+        "mcp_tool_call_begin" => {
+            let server = payload
+                .pointer("/invocation/server")
+                .and_then(Value::as_str)
+                .unwrap_or("mcp");
+            let tool = payload
+                .pointer("/invocation/tool")
+                .and_then(Value::as_str)
+                .unwrap_or("?");
+            let arguments =
+                payload_text(payload.pointer("/invocation/arguments")).unwrap_or_default();
+            let id = member_id(payload, "call_id");
+            let context = format!("{server} {tool} {arguments}");
+            RowOutcome::one(CodexBlock::call(id.as_ref(), context), Role::Assistant)
         }
-        _ if codex_quiet_event(kind) => (Vec::new(), String::new(), false),
-        _ => (Vec::new(), String::new(), true),
+        "mcp_tool_call_end" => {
+            let result = payload
+                .pointer("/result/Ok/content")
+                .map(content_text)
+                .or_else(|| payload_text(payload.pointer("/result/Err")))
+                .unwrap_or_default();
+            let id = member_id(payload, "call_id");
+            RowOutcome::one(CodexBlock::result(id.as_ref(), result), Role::Tool)
+        }
+        "dynamic_tool_call_request" => {
+            let tool = payload.get("tool").and_then(Value::as_str).unwrap_or("?");
+            let arguments = payload_text(payload.get("arguments")).unwrap_or_default();
+            let id = member_id(payload, "callId");
+            let context = format!("{tool} {arguments}");
+            RowOutcome::one(CodexBlock::call(id.as_ref(), context), Role::Assistant)
+        }
+        "dynamic_tool_call_response" => {
+            let content = payload
+                .get("content_items")
+                .map(content_text)
+                .unwrap_or_default();
+            let error = payload_text(payload.get("error")).unwrap_or_default();
+            let id = member_id(payload, "call_id");
+            let context = format!("{content} {error}");
+            RowOutcome::one(CodexBlock::result(id.as_ref(), context), Role::Tool)
+        }
+        _ => RowOutcome::nothing(!codex_quiet_event(kind)),
     }
 }
 
@@ -1640,110 +1640,52 @@ fn codex_command_output(payload: &Value) -> String {
         .to_string()
 }
 
-fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
+fn codex_completed_item(item: &Value) -> RowOutcome<CodexBlock> {
     let Some(kind) = item.get("type").and_then(Value::as_str) else {
-        return (Vec::new(), String::new(), true);
+        return RowOutcome::nothing(true);
     };
     match kind {
         "UserMessage" | "AgentMessage" => {
-            let assistant = kind == "AgentMessage";
-            let role = if assistant { "assistant" } else { "user" };
-            let id = if assistant {
-                codex_id(item.get("id").and_then(Value::as_str))
+            let (role, id) = if kind == "AgentMessage" {
+                (Role::Assistant, member_id(item, "id"))
             } else {
-                None
+                (Role::User, None)
             };
-            let mut blocks = Vec::new();
-            let mut unrecognized = false;
             match item.get("content") {
-                Some(Value::Array(parts)) => {
-                    for part in parts {
-                        match part.get("type").and_then(Value::as_str) {
-                            Some("input_text" | "output_text" | "text") => {
-                                match part.get("text").and_then(Value::as_str) {
-                                    Some(text) => blocks.push(CodexBlock::identified(
-                                        Block::text(text),
-                                        CodexFact::Message,
-                                        id.as_ref(),
-                                    )),
-                                    None => unrecognized = true,
-                                }
-                            }
-                            Some(kind @ ("input_image" | "input_audio" | "image" | "audio")) => {
-                                blocks.push(CodexBlock::identified(
-                                    Block::omitted(media_omission(kind)),
-                                    CodexFact::Message,
-                                    id.as_ref(),
-                                ));
-                            }
-                            _ => unrecognized = true,
-                        }
-                    }
-                }
-                Some(Value::String(text)) => blocks.push(CodexBlock::identified(
-                    Block::text(text.clone()),
-                    CodexFact::Message,
-                    id.as_ref(),
-                )),
-                None | Some(Value::Null) => {}
-                Some(_) => unrecognized = true,
+                Some(Value::String(text)) => RowOutcome::one(
+                    CodexBlock::identified(
+                        Block::text(text.clone()),
+                        CodexFact::Message,
+                        id.as_ref(),
+                    ),
+                    role,
+                ),
+                content => content_blocks(content, role, |part| {
+                    message_part(part, COMPLETED_TEXT, id.as_ref())
+                }),
             }
-            (blocks, role.to_string(), unrecognized)
         }
         "Reasoning" => {
-            let id = codex_id(item.get("id").and_then(Value::as_str));
-            let mut blocks = Vec::new();
-            let mut unrecognized = false;
-            match item.get("summary_text") {
-                Some(Value::Array(parts)) => {
-                    for part in parts {
-                        match part.as_str() {
-                            Some(text) => blocks.push(CodexBlock::identified(
-                                Block::reasoning(text),
-                                CodexFact::Reasoning,
-                                id.as_ref(),
-                            )),
-                            None => unrecognized = true,
-                        }
-                    }
-                }
-                None | Some(Value::Null) => {}
-                Some(_) => unrecognized = true,
-            }
-            (blocks, "assistant".to_string(), unrecognized)
+            let id = member_id(item, "id");
+            content_blocks(item.get("summary_text"), Role::Assistant, |part| {
+                summary_part(part.as_str(), id.as_ref())
+            })
         }
         "FunctionCallOutput" => {
             let output = item.get("output").map(content_text).unwrap_or_default();
-            let id = codex_id(item.get("call_id").and_then(Value::as_str));
-            (
-                vec![CodexBlock::identified(
-                    Block::tool_result(tool_text(id.as_deref(), output)),
-                    CodexFact::Result,
-                    id.as_ref(),
-                )],
-                "tool".to_string(),
-                false,
-            )
+            let id = member_id(item, "call_id");
+            RowOutcome::one(CodexBlock::result(id.as_ref(), output), Role::Tool)
         }
         "CommandExecution" => {
             let command = payload_text(item.get("command")).unwrap_or_default();
             let output = codex_command_output(item);
-            let id = codex_id(item.get("id").and_then(Value::as_str));
-            (
+            let id = member_id(item, "id");
+            RowOutcome::of(
                 vec![
-                    CodexBlock::identified(
-                        Block::tool(tool_text(id.as_deref(), command)),
-                        CodexFact::Call,
-                        id.as_ref(),
-                    ),
-                    CodexBlock::identified(
-                        Block::tool_result(tool_text(id.as_deref(), output)),
-                        CodexFact::Result,
-                        id.as_ref(),
-                    ),
+                    CodexBlock::call(id.as_ref(), command),
+                    CodexBlock::result(id.as_ref(), output),
                 ],
-                "assistant".to_string(),
-                false,
+                Role::Assistant,
             )
         }
         "DynamicToolCall" | "McpToolCall" => {
@@ -1773,41 +1715,17 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
                     &payload_text(item.get("error")).unwrap_or_default(),
                 ])
             };
-            let id = codex_id(item.get("id").and_then(Value::as_str));
-            (
+            let id = member_id(item, "id");
+            RowOutcome::of(
                 vec![
-                    CodexBlock::identified(
-                        Block::tool(tool_text(id.as_deref(), call)),
-                        CodexFact::Call,
-                        id.as_ref(),
-                    ),
-                    CodexBlock::identified(
-                        Block::tool_result(tool_text(id.as_deref(), output)),
-                        CodexFact::Result,
-                        id.as_ref(),
-                    ),
+                    CodexBlock::call(id.as_ref(), call),
+                    CodexBlock::result(id.as_ref(), output),
                 ],
-                "assistant".to_string(),
-                false,
+                Role::Assistant,
             )
         }
-        "Plan" => {
-            let text = item
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            if text.is_empty() {
-                (Vec::new(), "assistant".to_string(), false)
-            } else {
-                (
-                    vec![CodexBlock::plain(Block::text(text))],
-                    "assistant".to_string(),
-                    false,
-                )
-            }
-        }
-        _ => (Vec::new(), String::new(), true),
+        "Plan" => plain_text(item.get("text"), Block::text, Role::Assistant),
+        _ => RowOutcome::nothing(true),
     }
 }
 
@@ -2206,6 +2124,7 @@ struct UniqueSegments {
 }
 
 impl UniqueSegments {
+    #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
     fn new(spans: &[(i64, i64)]) -> UniqueSegments {
         // Half-open endpoint deltas over `i128`: a span ending at
         // `i64::MAX` still has a representable exclusive endpoint, and an
@@ -2267,12 +2186,13 @@ type CoverageEdge = (i128, i32, u32);
 /// citing row ordinal. A chunk is suppressed when its sequence is unique
 /// and this value is strictly greater than the chunk's own row ordinal.
 struct CitationCoverage {
-    by_step: HashMap<StepKey, Vec<CoveredSpan>>,
+    by_step: BTreeMap<StepKey, Vec<CoveredSpan>>,
 }
 
 impl CitationCoverage {
+    #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
     fn new(assemblies: &[AssemblyFact]) -> CitationCoverage {
-        let mut grouped: HashMap<StepKey, Vec<CoverageEdge>> = HashMap::new();
+        let mut grouped: BTreeMap<StepKey, Vec<CoverageEdge>> = BTreeMap::new();
         for assembly in assemblies {
             for &(start, end) in &assembly.cited {
                 let entries = grouped.entry((assembly.turn, assembly.step)).or_default();
@@ -2280,7 +2200,7 @@ impl CitationCoverage {
                 entries.push((end as i128 + 1, -1, assembly.ordinal));
             }
         }
-        let mut by_step = HashMap::new();
+        let mut by_step = BTreeMap::new();
         for (key, mut entries) in grouped {
             entries.sort_unstable();
             let mut segments: Vec<(i64, i64, u32)> = Vec::new();
@@ -2367,49 +2287,6 @@ fn dsh_suppressed(
             .is_some_and(|later| later > ordinal)
 }
 
-/// The bounded DSH projection collector (design D4): it retains whole final
-/// turns only while they fit the shared display accounting budget, keeps at
-/// most one current candidate, and seals permanently at the first overflow.
-/// `remaining` is checked before subtraction, so equality fits and no
-/// arithmetic wraps into admission.
-struct DshCollector {
-    turns: Vec<Turn>,
-    remaining: usize,
-    truncated: bool,
-    sealed: bool,
-}
-
-impl DshCollector {
-    fn new(truncated: bool) -> DshCollector {
-        DshCollector {
-            turns: Vec::new(),
-            remaining: DISPLAY_CAP,
-            truncated,
-            sealed: false,
-        }
-    }
-
-    fn admit(&mut self, role: String, ts: String, blocks: Vec<Block>) {
-        if self.sealed {
-            return;
-        }
-        let Some(cost) = display_cost(&blocks) else {
-            return;
-        };
-        if cost > self.remaining {
-            self.truncated = true;
-            self.sealed = true;
-            return;
-        }
-        #[cfg(test)]
-        let text_bytes: usize = blocks.iter().map(|block| block.text.len()).sum();
-        self.remaining -= cost;
-        self.turns.push(Turn { role, ts, blocks });
-        #[cfg(test)]
-        observe::retained_turn(text_bytes, cost);
-    }
-}
-
 /// Test-only observations of the DSH projector's actual construction,
 /// retention and release lifetimes across both passes (design D8). They
 /// compile only for this crate's unit tests, so a production build carries
@@ -2417,27 +2294,40 @@ impl DshCollector {
 /// counters are logical, not allocator measurements.
 #[cfg(test)]
 mod observe {
-    use std::cell::Cell;
+    /// The counters alone: the one place a pure crate holds thread-local
+    /// state, and only in its unit tests. The scanner in
+    /// crates/brokkr-cli/tests/layering/ admits this exemption in exactly
+    /// this shape and refuses every other.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "test-only counters; thread-local state never reaches a production build (#336)"
+    )]
+    mod cells {
+        use std::cell::Cell;
 
-    thread_local! {
-        static PACKED_CANDIDATES: Cell<usize> = const { Cell::new(0) };
-        static LIVE_CANDIDATES: Cell<usize> = const { Cell::new(0) };
-        static PEAK_CANDIDATES: Cell<usize> = const { Cell::new(0) };
-        static PEAK_CANDIDATE_TEXT: Cell<usize> = const { Cell::new(0) };
-        static RETAINED_TURNS: Cell<usize> = const { Cell::new(0) };
-        static PEAK_RETAINED: Cell<usize> = const { Cell::new(0) };
-        static RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
-        static PEAK_RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
-        static RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
-        static PEAK_RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
-        /// Ordinary events that reached the fact pass's retained buffer.
-        static FACT_RETAINED: Cell<usize> = const { Cell::new(0) };
-        static PEAK_FACT_DEPTH: Cell<usize> = const { Cell::new(0) };
-        static FACT_LIVE_TEXT: Cell<usize> = const { Cell::new(0) };
-        static PEAK_FACT_TEXT: Cell<usize> = const { Cell::new(0) };
-        /// Blockless ordinary events released without retention.
-        static BLOCKLESS_RELEASED: Cell<usize> = const { Cell::new(0) };
+        thread_local! {
+            pub(super) static PACKED_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+            pub(super) static LIVE_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_CANDIDATE_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static RETAINED_TURNS: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_RETAINED: Cell<usize> = const { Cell::new(0) };
+            pub(super) static RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
+            /// Ordinary events that reached the fact pass's retained buffer.
+            pub(super) static FACT_RETAINED: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_FACT_DEPTH: Cell<usize> = const { Cell::new(0) };
+            pub(super) static FACT_LIVE_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_FACT_TEXT: Cell<usize> = const { Cell::new(0) };
+            /// Blockless ordinary events released without retention.
+            pub(super) static BLOCKLESS_RELEASED: Cell<usize> = const { Cell::new(0) };
+        }
     }
+
+    use cells::*;
+    use std::cell::Cell;
 
     pub(super) fn reset() {
         PACKED_CANDIDATES.with(|cell| cell.set(0));
@@ -2568,6 +2458,7 @@ fn block_text_bytes(blocks: &[DshBlock]) -> usize {
     blocks.iter().map(|block| block.block.text.len()).sum()
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // Format admission precedes every projection allocation: a refused
     // opening header returns before any later physical row is decoded,
@@ -2598,7 +2489,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // payload is ever appended to a complete-prefix event vector. ----
     let mut spans: Vec<(i64, i64)> = Vec::new();
     let mut assemblies: Vec<AssemblyFact> = Vec::new();
-    let mut dedicated: HashMap<(String, DshDirection, Position, Position), u32> = HashMap::new();
+    let mut dedicated: BTreeMap<(String, DshDirection, Position, Position), u32> = BTreeMap::new();
     let mut refused = false;
     let mut unrecognized = 0u64;
     let mut retained: Vec<DshEvent> = Vec::new();
@@ -2675,7 +2566,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // collect only final content-bearing turns that fit the shared display
     // accounting budget. Classification, diagnostics and association
     // ordering were completed by the fact pass. ----
-    let mut collector = DshCollector::new(projection.truncated);
+    let mut collector = TurnCollector::new(projection.truncated);
     for_each_parsed_row(admitted, |index, value, raw| {
         if index == 0 || collector.sealed {
             return;
@@ -2708,8 +2599,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
             _ => {}
         }
     });
-    projection.truncated = collector.truncated;
-    projection.turns = collector.turns;
+    collector.finish(projection);
 }
 
 /// Validate one packed row and observe its whole member span, without
@@ -2735,7 +2625,7 @@ fn collect_ordinary_facts(
     ordinal: u32,
     associate: bool,
     assemblies: &mut Vec<AssemblyFact>,
-    dedicated: &mut HashMap<(String, DshDirection, Position, Position), u32>,
+    dedicated: &mut BTreeMap<(String, DshDirection, Position, Position), u32>,
 ) {
     #[cfg(test)]
     observe::fact_retained(
@@ -2770,8 +2660,8 @@ fn collect_ordinary_facts(
         let (Some(turn), Some(step)) = (row.turn, row.step) else {
             continue;
         };
-        let mut seen: std::collections::HashSet<(String, DshDirection, Position, Position)> =
-            std::collections::HashSet::new();
+        let mut seen: std::collections::BTreeSet<(String, DshDirection, Position, Position)> =
+            std::collections::BTreeSet::new();
         for block in &row.blocks {
             let Some(tool) = &block.tool else { continue };
             let key = (tool.id.clone(), tool.direction, turn, step);
@@ -2787,7 +2677,7 @@ fn collect_ordinary_facts(
 /// becomes one turn, a suppressed readable member splits the run, empty
 /// members do not, and the run keeps its first surviving member's timestamp.
 fn emit_packed(
-    collector: &mut DshCollector,
+    collector: &mut TurnCollector,
     kind: &str,
     view: &PackedView<'_>,
     ordinal: u32,
@@ -2856,7 +2746,7 @@ fn emit_packed(
 /// its text is allocated, so an over-budget chunk is discarded whole rather
 /// than materialized and then rejected.
 fn flush_run(
-    collector: &mut DshCollector,
+    collector: &mut TurnCollector,
     kind: BlockKind,
     members: &[Value],
     start: usize,
@@ -2864,15 +2754,10 @@ fn flush_run(
     run_length: usize,
     run_ts: i64,
 ) {
-    if collector.sealed {
-        return;
-    }
     // Saturating addition cannot wrap; an impossibly huge run stays over
     // budget and is refused whole.
     let cost = DISPLAY_EVENT_COST.saturating_add(run_length);
-    if cost > collector.remaining {
-        collector.truncated = true;
-        collector.sealed = true;
+    if !collector.charge(cost) {
         return;
     }
     let mut text = String::with_capacity(run_length);
@@ -2883,9 +2768,8 @@ fn flush_run(
         // nothing and never splits the run.
         text.push_str(member.as_str().unwrap_or_default());
     }
-    collector.remaining -= cost;
     collector.turns.push(Turn {
-        role: "assistant".to_string(),
+        role: Role::Assistant.into_wire(),
         ts: run_ts.to_string(),
         blocks: vec![Block { kind, text }],
     });
@@ -2898,12 +2782,12 @@ fn flush_run(
 /// Emit one ordinary DSH event: suppression first, then dedicated-tool
 /// association, then the bounded collector (design D1, D4).
 fn emit_ordinary(
-    collector: &mut DshCollector,
+    collector: &mut TurnCollector,
     row: DshEvent,
     ordinal: u32,
     associate: bool,
     suppression: &Suppression,
-    dedicated: &HashMap<(String, DshDirection, Position, Position), u32>,
+    dedicated: &BTreeMap<(String, DshDirection, Position, Position), u32>,
 ) {
     if row.chunk {
         if let (Some(turn), Some(step), Some(seq)) = (row.turn, row.step, row.seq) {
@@ -2934,7 +2818,7 @@ fn emit_ordinary(
 }
 
 /// The recorded identifier and direction a DSH tool block carries.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 enum DshDirection {
     Call,
     Result,
@@ -2954,6 +2838,22 @@ struct DshBlock {
 impl DshBlock {
     fn plain(block: Block) -> DshBlock {
         DshBlock { block, tool: None }
+    }
+
+    /// A tool call or result retaining the nonempty recorded id it cites,
+    /// which its text also names.
+    fn tool(id: Option<&str>, direction: DshDirection, context: String) -> DshBlock {
+        let text = tool_text(id, context);
+        DshBlock {
+            block: match direction {
+                DshDirection::Call => Block::tool(text),
+                DshDirection::Result => Block::tool_result(text),
+            },
+            tool: id.map(|id| DshTool {
+                id: id.to_string(),
+                direction,
+            }),
+        }
     }
 }
 
@@ -3005,7 +2905,7 @@ impl Position {
 
 struct DshEvent {
     blocks: Vec<DshBlock>,
-    role: String,
+    role: Role,
     ts: String,
     seq: Option<i64>,
     turn: Option<Position>,
@@ -3015,6 +2915,26 @@ struct DshEvent {
     cited: Vec<(i64, i64)>,
     /// A dedicated `tool/call` or `tool/result` event.
     dedicated: bool,
+}
+
+impl DshEvent {
+    /// An event at its row's recorded time, sequence and `data` position,
+    /// neither chunk, assembly nor dedicated, and citing nothing.
+    fn at(value: &Value, raw_time: RawToken<'_>, role: Role, blocks: Vec<DshBlock>) -> DshEvent {
+        let data = value.get("data").unwrap_or(&Value::Null);
+        DshEvent {
+            blocks,
+            role,
+            ts: dsh_time(value.get("time"), raw_time),
+            seq: dsh_seq(value),
+            turn: data.get("turn").and_then(Position::parse),
+            step: data.get("step").and_then(Position::parse),
+            chunk: false,
+            assembly: false,
+            cited: Vec::new(),
+            dedicated: false,
+        }
+    }
 }
 
 enum DshRow {
@@ -3063,67 +2983,46 @@ fn dsh_time(value: Option<&Value>, raw: RawToken<'_>) -> String {
 
 /// An ordinary (unpacked) DSH message row's blocks, each retaining the
 /// recorded tool identifier it stores.
-fn dsh_message_blocks(data: &Value) -> (Vec<DshBlock>, bool) {
-    let mut blocks = Vec::new();
-    let mut unrecognized = false;
-    let content = data.get("content");
-    match content {
-        Some(Value::Array(parts)) => {
-            for part in parts {
-                match part.get("type").and_then(Value::as_str) {
-                    Some("text") => match part.get("text").and_then(Value::as_str) {
-                        Some(text) => blocks.push(DshBlock::plain(Block::text(text))),
-                        None => unrecognized = true,
-                    },
-                    Some("reasoning") => match part.get("text").and_then(Value::as_str) {
-                        Some(text) => blocks.push(DshBlock::plain(Block::reasoning(text))),
-                        None => unrecognized = true,
-                    },
-                    Some("tool-call") => {
-                        let name = part.get("name").and_then(Value::as_str).unwrap_or("?");
-                        let arguments = payload_text(part.get("arguments")).unwrap_or_default();
-                        let id = part
-                            .get("id")
-                            .and_then(Value::as_str)
-                            .filter(|id| !id.is_empty());
-                        blocks.push(DshBlock {
-                            block: Block::tool(tool_text(id, compose(&[name, &arguments]))),
-                            tool: id.map(|id| DshTool {
-                                id: id.to_string(),
-                                direction: DshDirection::Call,
-                            }),
-                        });
-                    }
-                    Some("tool-result") => {
-                        let output = part
-                            .get("content")
-                            .map(content_text)
-                            .or_else(|| payload_text(part.get("text")))
-                            .unwrap_or_default();
-                        let id = part
-                            .get("toolCallId")
-                            .and_then(Value::as_str)
-                            .filter(|id| !id.is_empty());
-                        blocks.push(DshBlock {
-                            block: Block::tool_result(tool_text(id, output)),
-                            tool: id.map(|id| DshTool {
-                                id: id.to_string(),
-                                direction: DshDirection::Result,
-                            }),
-                        });
-                    }
-                    Some("image") => {
-                        blocks.push(DshBlock::plain(Block::omitted("[image omitted]")))
-                    }
-                    _ => unrecognized = true,
-                }
-            }
+fn dsh_message_blocks(data: &Value, role: Role) -> RowOutcome<DshBlock> {
+    match data.get("content") {
+        Some(Value::String(text)) => {
+            RowOutcome::one(DshBlock::plain(Block::text(text.clone())), role)
         }
-        Some(Value::String(text)) => blocks.push(DshBlock::plain(Block::text(text.clone()))),
-        None | Some(Value::Null) => {}
-        Some(_) => unrecognized = true,
+        content => content_blocks(content, role, dsh_part),
     }
-    (blocks, unrecognized)
+}
+
+/// One DSH message content member.
+fn dsh_part(part: &Value) -> Part<DshBlock> {
+    let text = part.get("text").and_then(Value::as_str);
+    match (part.get("type").and_then(Value::as_str), text) {
+        (Some("text"), Some(text)) => Part::Block(DshBlock::plain(Block::text(text))),
+        (Some("reasoning"), Some(text)) => Part::Block(DshBlock::plain(Block::reasoning(text))),
+        (Some("tool-call"), _) => {
+            let name = part.get("name").and_then(Value::as_str).unwrap_or("?");
+            let arguments = payload_text(part.get("arguments")).unwrap_or_default();
+            let id = part
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty());
+            let context = compose(&[name, &arguments]);
+            Part::Block(DshBlock::tool(id, DshDirection::Call, context))
+        }
+        (Some("tool-result"), _) => {
+            let output = part
+                .get("content")
+                .map(content_text)
+                .or_else(|| payload_text(part.get("text")))
+                .unwrap_or_default();
+            let id = part
+                .get("toolCallId")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty());
+            Part::Block(DshBlock::tool(id, DshDirection::Result, output))
+        }
+        (Some("image"), _) => Part::Block(DshBlock::plain(Block::omitted("[image omitted]"))),
+        _ => Part::Unrecognized,
+    }
 }
 
 /// Validate and extract `sourceEventSeqs` under the reading delta.
@@ -3179,6 +3078,7 @@ fn dsh_seq(value: &Value) -> Option<i64> {
         .and_then(Value::as_i64)
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
     let Some(object) = value.as_object() else {
         return DshRow::Unrecognized;
@@ -3216,17 +3116,15 @@ fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
             } else {
                 data.get("message").unwrap_or(&Value::Null)
             };
-            let (blocks, unrecognized) = dsh_message_blocks(message);
-            let owning = dsh_seq(value);
-            let cited = match dsh_citations(value, owning) {
+            let role = if kind == "user/message" {
+                Role::User
+            } else {
+                Role::Assistant
+            };
+            let outcome = dsh_message_blocks(message, role);
+            let cited = match dsh_citations(value, dsh_seq(value)) {
                 Ok(cited) => cited,
                 Err(()) => return DshRow::Refused,
-            };
-            let ts = dsh_time(object.get("time"), raw_time);
-            let role = if kind == "user/message" {
-                "user"
-            } else {
-                "assistant"
             };
             // The version-three `user/message` definition declares no
             // `turn` or `step`, so under `Three` a user message supplies
@@ -3244,23 +3142,15 @@ fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
                 (None, None)
             };
             let event = DshEvent {
-                blocks,
-                role: role.to_string(),
-                ts,
-                seq: owning,
                 turn,
                 step,
-                chunk: false,
                 assembly: kind == "assistant/message",
                 cited,
-                dedicated: false,
+                ..DshEvent::at(value, raw_time, outcome.role, outcome.blocks)
             };
-            if unrecognized {
-                // A recognized envelope with an unsupported nested
-                // variant keeps its supported siblings and counts once.
-                return DshRow::Events(vec![event], true);
-            }
-            DshRow::Events(vec![event], unrecognized)
+            // A recognized envelope with an unsupported nested variant
+            // keeps its supported siblings and counts once.
+            DshRow::Events(vec![event], outcome.unrecognized)
         }
         "tool/call" => {
             let name = data.get("name").and_then(Value::as_str).unwrap_or("?");
@@ -3269,50 +3159,31 @@ fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
                 .get("callId")
                 .and_then(Value::as_str)
                 .filter(|id| !id.is_empty());
+            let call = DshBlock::tool(id, DshDirection::Call, compose(&[name, &arguments]));
+            let event = DshEvent::at(value, raw_time, Role::Assistant, vec![call]);
             DshRow::Events(
                 vec![DshEvent {
-                    blocks: vec![DshBlock {
-                        block: Block::tool(tool_text(id, compose(&[name, &arguments]))),
-                        tool: id.map(|id| DshTool {
-                            id: id.to_string(),
-                            direction: DshDirection::Call,
-                        }),
-                    }],
-                    role: "assistant".to_string(),
-                    ts: dsh_time(object.get("time"), raw_time),
-                    seq: dsh_seq(value),
-                    turn: data.get("turn").and_then(Position::parse),
-                    step: data.get("step").and_then(Position::parse),
-                    chunk: false,
-                    assembly: false,
-                    cited: Vec::new(),
                     dedicated: true,
+                    ..event
                 }],
                 false,
             )
         }
         "tool/result" => {
             let message = data.get("message").unwrap_or(&Value::Null);
-            let (blocks, unrecognized) = dsh_message_blocks(message);
-            let owning = dsh_seq(value);
-            let cited = match dsh_citations(value, owning) {
+            let outcome = dsh_message_blocks(message, Role::Tool);
+            let cited = match dsh_citations(value, dsh_seq(value)) {
                 Ok(cited) => cited,
                 Err(()) => return DshRow::Refused,
             };
+            let event = DshEvent::at(value, raw_time, outcome.role, outcome.blocks);
             DshRow::Events(
                 vec![DshEvent {
-                    blocks,
-                    role: "tool".to_string(),
-                    ts: dsh_time(object.get("time"), raw_time),
-                    seq: owning,
-                    turn: data.get("turn").and_then(Position::parse),
-                    step: data.get("step").and_then(Position::parse),
-                    chunk: false,
-                    assembly: false,
                     cited,
                     dedicated: true,
+                    ..event
                 }],
-                unrecognized,
+                outcome.unrecognized,
             )
         }
         "assistant/chunk" => {
@@ -3323,44 +3194,22 @@ fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
                 return DshRow::Omission;
             };
             match chunk_kind {
-                "text-delta" => {
+                "text-delta" | "reasoning-delta" => {
                     let text = chunk.get("text").and_then(Value::as_str).unwrap_or("");
                     if text.is_empty() {
                         return DshRow::Quiet;
                     }
+                    let block = if chunk_kind == "text-delta" {
+                        Block::text(text)
+                    } else {
+                        Block::reasoning(text)
+                    };
+                    let blocks = vec![DshBlock::plain(block)];
+                    let event = DshEvent::at(value, raw_time, Role::Assistant, blocks);
                     DshRow::Events(
                         vec![DshEvent {
-                            blocks: vec![DshBlock::plain(Block::text(text))],
-                            role: "assistant".to_string(),
-                            ts: dsh_time(object.get("time"), raw_time),
-                            seq: dsh_seq(value),
-                            turn: data.get("turn").and_then(Position::parse),
-                            step: data.get("step").and_then(Position::parse),
                             chunk: true,
-                            assembly: false,
-                            cited: Vec::new(),
-                            dedicated: false,
-                        }],
-                        false,
-                    )
-                }
-                "reasoning-delta" => {
-                    let text = chunk.get("text").and_then(Value::as_str).unwrap_or("");
-                    if text.is_empty() {
-                        return DshRow::Quiet;
-                    }
-                    DshRow::Events(
-                        vec![DshEvent {
-                            blocks: vec![DshBlock::plain(Block::reasoning(text))],
-                            role: "assistant".to_string(),
-                            ts: dsh_time(object.get("time"), raw_time),
-                            seq: dsh_seq(value),
-                            turn: data.get("turn").and_then(Position::parse),
-                            step: data.get("step").and_then(Position::parse),
-                            chunk: true,
-                            assembly: false,
-                            cited: Vec::new(),
-                            dedicated: false,
+                            ..event
                         }],
                         false,
                     )

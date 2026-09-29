@@ -3,26 +3,17 @@
 //! reads any of it.
 
 use super::*;
-use crate::agents::Candidate;
+use crate::agents::{Candidate, HarnessHands};
 use crate::bundle::{PanelMember, SequenceStep};
 
 use super::tests::{engine, single_body, templated};
+use crate::envelope_builder::EnvelopeBuilder;
 
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "run".into(),
-        seq: 1,
-        event_id: "event".into(),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "run".into(),
-        attempt_id: None,
-        recorded_at: "2026-08-29T00:00:00Z".into(),
-        previous_hash: brokkr_core::canonical::ZERO_HASH.into(),
-        event_hash: "a".repeat(64),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .at("2026-08-29T00:00:00Z")
+        .hash("a".repeat(64))
+        .build()
 }
 
 fn candidate(agent: &str, model: &str) -> Candidate {
@@ -36,6 +27,7 @@ fn candidate(agent: &str, model: &str) -> Candidate {
         harness: HarnessHands::default(),
         resume: Default::default(),
         lowering: Lowering::Unavailable,
+        hands_notice: None,
     })
 }
 
@@ -202,6 +194,8 @@ fn the_fail_to_start_predicate_reads_only_structure() {
         outcome: AttemptOutcome::Failed {
             error: "model not found".into(),
         },
+        refused: None,
+        cleanup: Cleanup::Settled,
         session_ref: None,
         checkpoints,
         stderr: "provider says: unknown model".into(),
@@ -221,6 +215,14 @@ fn the_fail_to_start_predicate_reads_only_structure() {
         deadline_killed: true,
         ..failed(false, Vec::new())
     }));
+    // A tree not proven over (#403): whatever the driver said, something
+    // of it may still be running, so no fallback starts beside it.
+    assert!(!failed_to_start(&AttemptReport {
+        cleanup: Cleanup::Unresolved {
+            reason: brokkr_protocol::process::Unsettled::Stdout,
+        },
+        ..failed(false, Vec::new())
+    }));
     // Succeeded and indeterminate are never fail-to-start.
     for outcome in [
         AttemptOutcome::Succeeded { result: json!({}) },
@@ -230,6 +232,8 @@ fn the_fail_to_start_predicate_reads_only_structure() {
     ] {
         assert!(!failed_to_start(&AttemptReport {
             outcome,
+            refused: None,
+            cleanup: Cleanup::Settled,
             session_ref: None,
             checkpoints: Vec::new(),
             stderr: String::new(),
@@ -266,6 +270,8 @@ fn start_failure_sites_names_the_members_that_never_started() {
         outcome: AttemptOutcome::Failed {
             error: "boom".into(),
         },
+        refused: None,
+        cleanup: Cleanup::Settled,
         session_ref: None,
         checkpoints: Vec::new(),
         stderr: String::new(),
@@ -385,6 +391,7 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: vec!["driver".into(), "--model".into(), "fable".into()],
             lowering: Lowering::Unavailable,
         }),
@@ -399,6 +406,8 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
                 outcome: AttemptOutcome::Failed {
                     error: reason.into(),
                 },
+                refused: None,
+                cleanup: Cleanup::Settled,
                 session_ref: None,
                 checkpoints: Vec::new(),
                 stderr: String::new(),

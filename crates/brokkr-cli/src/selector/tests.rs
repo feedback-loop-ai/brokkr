@@ -43,6 +43,17 @@ fn an_unknown_selector_says_so_and_cannot_smuggle_control_characters() {
 }
 
 #[test]
+fn an_empty_selector_is_refused_even_where_it_would_name_the_sole_run() {
+    let runs = refs(&[("run-alpha", "2026-08-29T10:00:00Z")]);
+    let blank = resolve(&runs, "").unwrap_err();
+    assert_eq!(refusal_kind(&blank), Some(Refusal::Blank));
+    assert_eq!(
+        blank.to_string(),
+        "an empty --run names no run; pass an id, a prefix or 'latest'"
+    );
+}
+
+#[test]
 fn latest_is_the_newest_created_at_and_an_empty_database_errors() {
     // Deliberately out of stamp order: "newest" is a property of the
     // runs, not of the order they were handed over in.

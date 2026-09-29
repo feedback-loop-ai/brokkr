@@ -15,9 +15,9 @@ can still guess what a command does with no glossary: `.forge/`,
 
 **The binary is `brokkr`, and now the only one.** The `forge` shim that
 rode along for one release is gone, and the crates are `brokkr-*`.
-Environment override names carry one-release legacy fallbacks documented
-in the [versioning guide](../guides/versioning.md), and the `{forge}`
-token in bundle argv still answers to `{brokkr}` for the same window.
+The pre-rename environment override names and the `{forge}` token in
+bundle argv are gone too: the [versioning guide](../guides/versioning.md)
+records when their window closed.
 
 [Decision 0019](../decisions/0019-brokkr.md) is the ruling, with the
 reasoning and the five laws that bound it. [The Edda](edda.md)

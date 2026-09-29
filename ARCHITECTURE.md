@@ -31,16 +31,18 @@ flowchart TB
     store --> core
   end
   protocol -- "NDJSON" --> harness([Claude Code · Codex · dsh · exec<br/>capability, as leaf effects])
+  seatbelt-probe["brokkr-seatbelt-probe<br/>test-support"]
 ```
 
-Every edge is a real dependency; all seven crates are drawn. Transitive
-edges are omitted (decision 0037).
+Every edge is a real dependency and every crate is drawn, without transitive
+edges (decision 0037).
 
-`brokkr-core` performs no I/O, clock reads, randomness or process execution.
-The same journal and bundle produce the same state and ruling. Effectful work
-sits above it and is journaled. `brokkr-view` is also pure: one display
-answer rendered as HTML or terminal text. Its dependencies are restricted to
-`brokkr-core`, `serde` and `serde_json` (decision 0013).
+`brokkr-core` performs no I/O, clock reads, randomness or process execution,
+so state and ruling replay exactly; effects sit above, journaled.
+`brokkr-view`, equally pure, renders one answer, HTML or terminal text, from
+`brokkr-core`, `serde` and `serde_json` alone (decision 0013). Gates hold both
+against mistakes, not adversaries (decision 0071 ruling 1): `clippy.toml`,
+`deny.toml` bans, `brokkr-cli/tests/layering/`.
 
 Brokkr decides how far delivery advances. Product priorities are decided above
 it; costs are measured beside it from seat ids and checkpoints; harnesses below
@@ -112,7 +114,7 @@ never retries, because a retry could duplicate or re-pay for finished
 work. Exhaustion, schema violations, unmatched results and unknown
 anything park the run with the raw evidence attached — never repaired,
 coerced, or handed to a model to fix (decision 0001). Operator commands
-are journal events, not prose. `operator --action supersede` records the named
+are journal events, not prose. `operator supersede` records the named
 residual findings an operator closes, with the actor and optional closing-run
 citation (decision 0047); it does not rewrite a past verdict or resume a
 completed run.
@@ -269,13 +271,14 @@ pins the selected boundary, and CLI, TUI and web readouts retain that fact.
 
 ## The operating surface
 
-```
+```text
 brokkr init · doctor · compile · run · resume · operator · inspect · watch ·
        replay · export · import · verify-run · runs · costs · anchor ·
        ui · tui · muninn · driver
 ```
 
-Exit codes: `0` completed · `2` parked (operator needed) · `3` stopped.
+Verbs, flags and [exit codes](docs/reference/cli.md#exit-codes): the
+[CLI reference](docs/reference/cli.md).
 `brokkr ui`, `brokkr tui` and `brokkr inspect` are three renderers over
 the same `brokkr-view` models (decision 0014): read-only, no operator
 command, nothing written to the journal. `brokkr costs` reports per-seat

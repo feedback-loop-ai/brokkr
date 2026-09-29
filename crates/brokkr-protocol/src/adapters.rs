@@ -9,10 +9,8 @@
 //! the ENGINE parks with raw evidence (decision 0001). Adapters never
 //! repair anything.
 //!
-//! Env overrides for conformance shims: BROKKR_CLAUDE_BIN,
-//! BROKKR_LANETALLY_BIN, BROKKR_CODEX_BIN, BROKKR_DSH_BIN,
-//! BROKKR_EXEC_NAME. All five names answer to their old `FORGE_*`
-//! spelling for one more release (decision 0019, `legacy`).
+//! Env overrides for conformance shims are `overrides::Override`'s, read
+//! once per seat by `run_seat`. One that cannot be read refuses the seat.
 
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
@@ -22,6 +20,7 @@ use serde_json::{json, Map, Value};
 
 mod composite;
 mod route_overlay;
+mod start;
 // Design D6 (b) seals the producer: the seams, the structured
 // observation, its error and the one entry point. Every parser, hasher,
 // serializer and injected helper stays private to `composite`, so no
@@ -33,9 +32,11 @@ pub use composite::{
 
 use crate::dsh_sandbox;
 use crate::hands::GitFacts;
+use crate::overrides::{Override, OverrideError};
 use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
 use crate::{Body, Message, ResultStatus};
+use start::start_prompt;
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MODEL_NOT_REPORTED: &str = "not reported";
@@ -120,11 +121,129 @@ impl AdapterKind {
             AdapterKind::Lanetally => "claude-lanetally".to_string(),
             AdapterKind::Codex => "codex".to_string(),
             AdapterKind::Dsh => "deepseek-harness".to_string(),
-            AdapterKind::Exec => {
-                adapter_binary("BROKKR_EXEC_NAME", Some("FORGE_EXEC_NAME"), "exec")
-            }
+            // A name the reader refuses labels the driver `exec`, and
+            // `run_seat` refuses every start on it by that name.
+            AdapterKind::Exec => crate::overrides::read(Override::ExecName)
+                .unwrap_or_else(|_| Override::ExecName.fallback().to_string()),
         }
     }
+}
+
+/// The workspace tool the generic boxed paragraph names when no provider
+/// declaration applies — the tool `brokkr hands serve` has always served.
+pub const DEFAULT_WORKSPACE_TOOL: &str = "mcp__brokkr__workspace";
+
+/// The longest tool identifier a hands notice may carry, in ASCII bytes.
+pub const TOOL_IDENTIFIER_LIMIT: usize = 128;
+
+/// A provider's hands-discovery declaration (decision 0069): the
+/// two tool identifiers a boxed seat needs when its harness may defer MCP
+/// tools behind a search tool — the workspace tool, and the tool that
+/// loads it. Exactly two names and nothing else: no prose, no template,
+/// no switch, so no other adapter value can reach a prompt through it.
+/// The adapter owns the names, the engine decides which seat hears them,
+/// and [`render_prompt`] owns the words around them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandsNotice {
+    workspace_tool: String,
+    discovery_tool: String,
+}
+
+impl HandsNotice {
+    /// The only two members, in the order a refusal names them.
+    pub const MEMBERS: [&'static str; 2] = ["workspace_tool", "discovery_tool"];
+
+    /// Read a declaration, refusing every other shape with the rule it
+    /// broke. The caller supplies the provider and field context.
+    pub fn parse(value: &Value) -> Result<HandsNotice, String> {
+        let Some(object) = value.as_object() else {
+            return Err(
+                "must be an object with exactly 'workspace_tool' and 'discovery_tool'".into(),
+            );
+        };
+        if let Some(key) = object
+            .keys()
+            .find(|key| !HandsNotice::MEMBERS.contains(&key.as_str()))
+        {
+            return Err(format!(
+                "has unknown member '{key}'; only 'workspace_tool' and 'discovery_tool' are allowed"
+            ));
+        }
+        let member = |name: &str| -> Result<String, String> {
+            match object.get(name) {
+                None => Err(format!("is missing '{name}'")),
+                Some(Value::String(text)) => {
+                    tool_identifier(text).map_err(|rule| format!("'{name}' {rule}"))?;
+                    Ok(text.clone())
+                }
+                Some(_) => Err(format!("'{name}' must be a string")),
+            }
+        };
+        Ok(HandsNotice {
+            workspace_tool: member("workspace_tool")?,
+            discovery_tool: member("discovery_tool")?,
+        })
+    }
+
+    pub fn workspace_tool(&self) -> &str {
+        &self.workspace_tool
+    }
+
+    pub fn discovery_tool(&self) -> &str {
+        &self.discovery_tool
+    }
+
+    /// The private carrier the engine writes into a driver's input.
+    pub fn to_value(&self) -> Value {
+        json!({
+            "workspace_tool": self.workspace_tool,
+            "discovery_tool": self.discovery_tool,
+        })
+    }
+}
+
+/// A tool identifier: 1 to [`TOOL_IDENTIFIER_LIMIT`] ASCII bytes matching
+/// `^[A-Za-z_][A-Za-z0-9_]*$`. A byte check, not a pattern engine.
+fn tool_identifier(text: &str) -> Result<(), String> {
+    if text.is_empty() || text.len() > TOOL_IDENTIFIER_LIMIT {
+        return Err(format!(
+            "must be 1 to {TOOL_IDENTIFIER_LIMIT} ASCII bytes; it is {} bytes",
+            text.len()
+        ));
+    }
+    let bytes = text.as_bytes();
+    let head = bytes[0].is_ascii_alphabetic() || bytes[0] == b'_';
+    let tail = bytes[1..]
+        .iter()
+        .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_');
+    if !(head && tail) {
+        return Err("must match ^[A-Za-z_][A-Za-z0-9_]*$".into());
+    }
+    Ok(())
+}
+
+/// The engine-supplied notice for this invocation, when the input carries
+/// a valid one. Read only inside the boxed arm of [`hands_paragraph`], so
+/// an unboxed seat never consults it. The carrier is written by the engine
+/// alone; an absent or malformed one supplies nothing.
+fn applicable_notice(input: &Value) -> Option<HandsNotice> {
+    input
+        .get("hands_notice")
+        .and_then(|value| HandsNotice::parse(value).ok())
+}
+
+/// The discovery paragraph (decision 0069): which tool is the
+/// workspace, how to load it when the harness has deferred it, and that
+/// the native writes the box refuses are refused by design.
+fn discovery_paragraph(notice: &HandsNotice) -> String {
+    format!(
+        "\n\nYour workspace tool is `{workspace}`. If it is not listed, use `{discovery}` to \
+         load it before doing workspace work. Native shell and apply_patch writes are refused \
+         by design; this is not a blocker. Use the workspace tool for all workspace writes, \
+         including the result file.",
+        workspace = notice.workspace_tool(),
+        discovery = notice.discovery_tool(),
+    )
 }
 
 /// The hands paragraph a model-backed seat reads inside its result
@@ -132,7 +251,10 @@ impl AdapterKind {
 /// the input's `hands` marker and `boundary` word:
 ///
 /// - `hands: boxed` — today's words: the workspace tool is the only
-///   writer, whatever the boxed word is;
+///   writer, whatever the boxed word is. The tool is the one the
+///   provider's notice declares, when one applies, and otherwise the one
+///   `brokkr hands serve` has always served; the discovery paragraph
+///   follows it when a notice applies;
 /// - `boundary: harness` — the harness's own sandbox stands, no
 ///   workspace tool is served, and the result reaches the engine through
 ///   the door the input names: the one file the sandbox lets the seat
@@ -143,12 +265,18 @@ impl AdapterKind {
 fn hands_paragraph(input: &Value) -> String {
     let word = input.get("boundary").and_then(Value::as_str);
     if input.get("hands").and_then(Value::as_str) == Some("boxed") {
-        return "\n\nYour hands are boxed: the worktree, and this result file, are \
-         reachable ONLY through the `mcp__brokkr__workspace` tool. Your \
+        let notice = applicable_notice(input);
+        let workspace = notice
+            .as_ref()
+            .map_or(DEFAULT_WORKSPACE_TOOL, HandsNotice::workspace_tool);
+        let discovery = notice.as_ref().map(discovery_paragraph).unwrap_or_default();
+        return format!(
+            "\n\nYour hands are boxed: the worktree, and this result file, are \
+         reachable ONLY through the `{workspace}` tool. Your \
          harness's own shell runs outside the box and cannot write here — a \
          file written through it never reaches the engine. Write the result \
-         file with the workspace tool."
-            .to_string();
+         file with the workspace tool.{discovery}"
+        );
     }
     match word {
         Some("harness") if last_message_door(input) => "\n\nYour hands stand under the \
@@ -176,8 +304,44 @@ fn last_message_door(input: &Value) -> bool {
     input.get("result_delivery").and_then(Value::as_str) == Some("last-message")
 }
 
+/// Why a seat refused to start before any provider was invoked (#372).
+/// The charter is the office — its result vocabulary, its read-only
+/// rules, its floor rules — and the correlation is how the engine
+/// attributes the attempt, so neither is ever defaulted to empty.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum StartRefusal {
+    /// The start message named no `effect_id` or `attempt_id`.
+    #[error("seat refused to start: the start names no {0}")]
+    MissingCorrelation(&'static str),
+    /// The charter at `path` could not be read.
+    #[error("seat refused to start: charter '{path}' is unreadable: {error}")]
+    UnreadableCharter { path: String, error: String },
+    /// The driver's override cannot be read: its value is not UTF-8, or
+    /// only its retired spelling is set.
+    #[error("seat refused to start: {0}")]
+    Override(OverrideError),
+}
+
+/// The seat's charter text. A model kind must be able to read it. An exec
+/// site is the script it names and has no model to instruct, so its
+/// charter is optional: it compiles to an empty `role_path`, and a boxed
+/// gate's driver runs inside the namespace, where the bundle that holds a
+/// declared charter is not mounted.
+fn read_charter(input: &Value, kind: AdapterKind) -> Result<String, StartRefusal> {
+    let path = input.get("role_path").and_then(Value::as_str).unwrap_or("");
+    match std::fs::read_to_string(path) {
+        Ok(charter) => Ok(charter),
+        Err(_) if kind == AdapterKind::Exec => Ok(String::new()),
+        Err(error) => Err(StartRefusal::UnreadableCharter {
+            path: path.to_string(),
+            error: error.to_string(),
+        }),
+    }
+}
+
 /// Render the model-facing prompt from the three independently owned texts in
 /// one engine input: charter, optional realm house, and site result contract.
+/// A model seat's charter that cannot be read refuses the render (#372).
 ///
 /// `kind` is the driver about to read it (decision 0046; design DD21): the
 /// hands paragraph is prose for a model, so it is rendered for the four
@@ -185,28 +349,32 @@ fn last_message_door(input: &Value) -> bool {
 /// environment and not a sentence. The rest of the prompt is the same
 /// for every kind, which is what lets the shipped verify and ship
 /// scripts keep reading the result path off it by line.
-pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
+pub fn render_prompt(input: &Value, kind: AdapterKind) -> Result<String, StartRefusal> {
     let get = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or("");
     // Second council H6: the charter is the text the dispatch door read
     // when it compared the pin, carried here. The path is retained for
     // identity and diagnostics and is NOT reopened — an engine launch
-    // that names a role and carries no text is refused before this, in
-    // `composed_launch`. A driver run by hand over a hand-written input
-    // has no such door, and reads the path it was given.
+    // that names a role and carries no text is refused before it is
+    // served, in `composed_launch`. A driver run by hand over a
+    // hand-written input has no such door, and reads the path it was
+    // given, refusing a model seat's charter it cannot read (#372).
     //
     // Rebuild unit 18 (design D7): an ENGINE launch — the managed-launch
     // contract, whose input the engine always gives `native_controls` —
-    // never reopens the path, whatever else it carries. `run_seat_with`
-    // refuses such a launch that names a role without its verified text
-    // before rendering, so the empty charter below is never sent.
+    // never reopens a path it names, whatever else it carries.
+    // `run_seat_with` refuses such a launch that names a role without its
+    // verified text before invoking anything, so the empty charter below
+    // is never sent. One that names no role has no path to reopen, and
+    // is read as any other: an exec site's charter is optional, and a
+    // model seat without one refuses to start (#372).
+    let named = input
+        .get("role_path")
+        .and_then(Value::as_str)
+        .is_some_and(|path| !path.is_empty());
     let role = match input.get(crate::native_controls::ROLE_TEXT) {
         Some(Value::String(text)) => text.clone(),
-        _ if input.get("native_controls").is_some() => String::new(),
-        _ => input
-            .get("role_path")
-            .and_then(Value::as_str)
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .unwrap_or_default(),
+        _ if named && input.get("native_controls").is_some() => String::new(),
+        _ => read_charter(input, kind)?,
     };
     let context = serde_json::to_string_pretty(input.get("context").unwrap_or(&json!({})))
         .unwrap_or_default();
@@ -267,7 +435,7 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
              writing the file counts as producing no result.",
         )
     };
-    format!(
+    Ok(format!(
         "{role}{house}{dialect}\n\n---\n## Task\n\nFeature: {feature}\nPhase: {phase} (you are this \
          phase's only seat)\nWorking directory: {workdir}\n\nRun context \
          (journal-derived, read-only):\n```json\n{context}\n```\n\n## Result contract \
@@ -291,7 +459,7 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
         result_path = get("result_path"),
         allowed = allowed,
         hands = hands,
-    )
+    ))
 }
 
 struct Invocation {
@@ -501,12 +669,12 @@ fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String>
     }
 }
 
-/// One reader for every override, so the one-release fallback and its
-/// one-time note are wired once rather than per variable. `legacy` is
-/// the old `FORGE_*` spelling where decision 0019 renamed the variable,
-/// and `None` where it did not.
-fn adapter_binary(primary: &str, legacy: Option<&str>, fallback: &str) -> String {
-    crate::legacy::env(primary, legacy).unwrap_or_else(|| fallback.to_string())
+/// The executable a seat runs, as `run_seat` read it through
+/// `overrides::read`, beside the argv its recipe added.
+#[derive(Clone, Copy)]
+struct Pinned<'a> {
+    binary: &'a str,
+    extra: &'a [String],
 }
 
 fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
@@ -514,6 +682,43 @@ fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
         writer.write_all(payload.as_bytes()),
         "could not write the prompt",
     )
+}
+
+/// Injection discipline (decision 0012, layer 3): values reach the child
+/// ONLY through its environment, resolved at spawn time — never argv
+/// (/proc/*/cmdline is world-readable), never the template. Every harness
+/// spawn — claude, lanetally, codex, dsh and exec alike — binds through
+/// here, so this holds the sole production call site of
+/// expose_for_spawn, CI-grep pinned. A declared name overrides any
+/// pre-existing env entry: the declaration is in the reviewed charter, so
+/// a collision is visible at review time.
+fn bind_environment(command: &mut Command, bindings: &[secret::BoundSecret]) -> Result<(), String> {
+    for binding in bindings {
+        let value = match std::str::from_utf8(binding.secret().expose_for_spawn()) {
+            Ok(value) => value,
+            Err(_) => return Err(format!("secret '{}' is not valid UTF-8", binding.name())),
+        };
+        command.env(binding.name(), value);
+    }
+    Ok(())
+}
+
+/// Drain a child's stderr on its own thread, so a chatty session cannot
+/// deadlock the stdout stream being folded live. The bytes come back
+/// raw: known-plaintext masking (decision 0012, layer 5) runs on them
+/// before any string conversion, in [`masked_text`].
+fn drain_stderr(child: &mut std::process::Child) -> std::thread::JoinHandle<Vec<u8>> {
+    let mut pipe = child.stderr.take().expect("piped");
+    std::thread::spawn(move || {
+        let mut captured = Vec::new();
+        let _ = pipe.read_to_end(&mut captured);
+        captured
+    })
+}
+
+/// Captured child bytes as text, masked first and converted second.
+fn masked_text(bytes: &[u8], bindings: &[secret::BoundSecret]) -> String {
+    String::from_utf8_lossy(&secret::mask_bytes(bytes, bindings)).into_owned()
 }
 
 fn run_cli(
@@ -532,20 +737,7 @@ fn run_cli(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    // Injection discipline (decision 0012, layer 3): values reach the
-    // child ONLY through its environment, resolved at spawn time — never
-    // argv (/proc/*/cmdline is world-readable), never the template. This
-    // is the sole production call site of expose_for_spawn, CI-grep
-    // pinned. A declared name overrides any pre-existing env entry: the
-    // declaration is in the reviewed charter, so a collision is visible
-    // at review time.
-    for binding in bindings {
-        let value = match std::str::from_utf8(binding.secret().expose_for_spawn()) {
-            Ok(value) => value,
-            Err(_) => return Err(format!("secret '{}' is not valid UTF-8", binding.name())),
-        };
-        invocation.env(binding.name(), value);
-    }
+    bind_environment(&mut invocation, bindings)?;
     let mut child = io_context(invocation.spawn(), "could not invoke the agent CLI")?;
     if let Some(payload) = stdin_payload {
         let mut stdin = child.stdin.take().expect("piped");
@@ -1031,7 +1223,11 @@ fn observed_version(command: &[String]) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    let text = String::from_utf8_lossy(&output.stdout);
+    // Strictly decoded: output that is not valid UTF-8 is unreadable, and
+    // an unreadable answer observes no version even where the bytes also
+    // carry one (tasks 5302–5306). A lossy read would substitute and
+    // qualify the matching number beside the garbage.
+    let text = std::str::from_utf8(&output.stdout).ok()?;
     // The version token, not the banner around it. All three installed
     // CLIs put the number in a different place on the line, and the
     // three shapes are measured rather than guessed
@@ -1307,6 +1503,7 @@ fn codex_refusal(event: &Value) -> Option<String> {
 /// Privacy invariant (journal is evidence, not transcript): checkpoints
 /// carry turn index, a ≤80-char tool name, and a ≤80-char target only —
 /// never message text, thinking, or full tool inputs.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn fold_stream_event(
     event: &Value,
     assistant_turns: &mut u64,
@@ -1929,8 +2126,9 @@ fn fold_dsh_event(
             // applies and omits it when none does, so an absent field
             // leaves the seat saying `not reported`, honestly — for a
             // seat that pinned one. A seat that arrived with no pin
-            // carries invoke_dsh_with's seed (`not applicable`, by the
-            // compile law that only effortless routes compile pin-less),
+            // carries invoke_dsh_launch_observed's seed (`not
+            // applicable`, by the compile law that only effortless routes
+            // compile pin-less),
             // which an absent field leaves standing.
             if let Some(effort) = event
                 .pointer("/data/header/config/reasoningEffort")
@@ -2145,6 +2343,7 @@ fn drain_dsh_transcript(
     first_seq: Option<u64>,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
+    bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) {
     if tail.file.is_none() {
@@ -2158,9 +2357,10 @@ fn drain_dsh_transcript(
     tail.pending.extend_from_slice(&chunk);
     while let Some(index) = tail.pending.iter().position(|byte| *byte == b'\n') {
         let line: Vec<u8> = tail.pending.drain(..=index).collect();
-        let Ok(event) = serde_json::from_slice::<Value>(&line) else {
+        let Ok(mut event) = serde_json::from_slice::<Value>(&line) else {
             continue;
         };
+        secret::mask_json(&mut event, bindings);
         fold_dsh_event(&event, first_seq, turns, session_meta, emit);
     }
 }
@@ -2241,19 +2441,21 @@ fn invoke_stream_json(
     command: &[String],
     prompt: &str,
     workdir: &str,
+    bindings: &[secret::BoundSecret],
     hold: &mut LaunchHold,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession)?;
     let (program, args) = (&command[0], &command[1..]);
-    let child = Command::new(program)
+    let mut builder = Command::new(program);
+    builder
         .args(args)
         .current_dir(if workdir.is_empty() { "." } else { workdir })
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    let mut child = io_context(child, "could not invoke the agent CLI")?;
+        .stderr(Stdio::piped());
+    bind_environment(&mut builder, bindings)?;
+    let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
     {
         let mut stdin = child.stdin.take().expect("piped");
         io_context(
@@ -2261,15 +2463,7 @@ fn invoke_stream_json(
             "could not write the prompt",
         )?;
     }
-    // stderr drains on its own thread so a chatty session cannot
-    // deadlock the stdout stream we are folding live.
-    let stderr_pipe = child.stderr.take().expect("piped");
-    let stderr_thread = std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        let mut pipe = stderr_pipe;
-        let _ = pipe.read_to_end(&mut captured);
-        String::from_utf8_lossy(&captured).into_owned()
-    });
+    let stderr_thread = drain_stderr(&mut child);
     let stdout = child.stdout.take().expect("piped");
     let mut session_meta = Map::new();
     let mut assistant_turns = 0u64;
@@ -2288,9 +2482,12 @@ fn invoke_stream_json(
             let Ok(line) = line else { break };
             // Unparseable stream lines are noise, never repaired
             // (decision 0001).
-            let Ok(event) = serde_json::from_str::<Value>(&line) else {
+            let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
+            // Masked before the fold clamps or rewrites anything it takes
+            // (decision 0012, layer 5): see `secret::mask_json`.
+            secret::mask_json(&mut event, bindings);
             let classified = fold_stream_event(
                 &event,
                 &mut assistant_turns,
@@ -2308,7 +2505,7 @@ fn invoke_stream_json(
         exit_code: status.code().unwrap_or(-1),
         session_meta,
         stdout: String::new(),
-        stderr: stderr_thread.join().unwrap_or_default(),
+        stderr: masked_text(&stderr_thread.join().unwrap_or_default(), bindings),
         state: None,
         refusal,
         launch: LaunchTerminal::Cold,
@@ -2330,6 +2527,16 @@ const CODEX_SHAPE: &str = "work-site";
 const CLAUDE_SHAPE: &str = "boxed-workspace";
 const LANETALLY_SHAPE: &str = "wrapper-work-site";
 const DSH_SHAPE: &str = "headless-work";
+
+/// The shape a claude stream-json seat runs: the wrapper's own when it is
+/// LaneTally's, otherwise claude's.
+const fn claude_shape(wrapped: bool) -> &'static str {
+    if wrapped {
+        LANETALLY_SHAPE
+    } else {
+        CLAUDE_SHAPE
+    }
+}
 
 /// `codex exec` takes no effort FLAG: the level is a configuration key
 /// (`model_reasoning_effort`, verified against codex-cli 0.153.0, whose
@@ -3541,32 +3748,28 @@ fn invoke_codex(
     command: &[String],
     prompt: &str,
     workdir: &str,
+    bindings: &[secret::BoundSecret],
     hold: &mut LaunchHold,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
     let (program, args) = (&command[0], &command[1..]);
-    let child = Command::new(program)
+    let mut builder = Command::new(program);
+    builder
         .args(args)
         .current_dir(if workdir.is_empty() { "." } else { workdir })
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    let mut child = io_context(child, "could not invoke the agent CLI")?;
+        .stderr(Stdio::piped());
+    bind_environment(&mut builder, bindings)?;
+    let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
     let mut stdin = child.stdin.take().expect("piped");
     io_context(
         stdin.write_all(prompt.as_bytes()),
         "could not write the prompt",
     )?;
     drop(stdin);
-    let stderr_pipe = child.stderr.take().expect("piped");
-    let stderr_thread = std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        let mut pipe = stderr_pipe;
-        let _ = pipe.read_to_end(&mut captured);
-        String::from_utf8_lossy(&captured).into_owned()
-    });
+    let stderr_thread = drain_stderr(&mut child);
     let mut session_meta = Map::new();
     let mut turn = 0;
     let mut echo = CodexThreadEcho::default();
@@ -3581,7 +3784,8 @@ fn invoke_codex(
         let mut watch = |data: &Value| hold.observe(data, emit);
         for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
             let Ok(line) = line else { break };
-            if let Ok(event) = serde_json::from_str::<Value>(&line) {
+            if let Ok(mut event) = serde_json::from_str::<Value>(&line) {
+                secret::mask_json(&mut event, bindings);
                 let classified = fold_codex_event(
                     &event,
                     &mut turn,
@@ -3595,7 +3799,7 @@ fn invoke_codex(
         }
         io_context(child.wait(), "agent CLI did not conclude")?
     };
-    let stderr = stderr_thread.join().unwrap_or_default();
+    let stderr = masked_text(&stderr_thread.join().unwrap_or_default(), bindings);
     // An attempt that concluded without ever reaching a `turn.completed`
     // — a release that folds none, or a codex that exits before its
     // first turn finishes — has read the thread record not at all. Ask
@@ -3604,7 +3808,7 @@ fn invoke_codex(
     //
     // NOT the deadline case, though it reads like one: a deadline is
     // enforced one process up, where the watchdog SIGKILLs this whole
-    // driver (`process.rs::kill_driver`), so nothing after `child.wait`
+    // driver's group (`process::tree::kill_group`), so nothing after `child.wait`
     // runs for a seat that parks. What a parked codex ran under reaches
     // the journal from the other direction — the `turn-completed`
     // checkpoint each folded turn already emitted names its model and
@@ -3659,18 +3863,22 @@ fn invoke_codex(
 /// journaled. stderr is piped and drained on its own thread so a chatty
 /// session cannot deadlock the poll loop.
 fn invoke_dsh(
-    extra: &[String],
+    pinned: Pinned<'_>,
     prompt: &str,
     workdir: &str,
     input: &Value,
     session: Option<&str>,
+    bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
-    invoke_dsh_with(extra, prompt, workdir, input, session, emit, |child| {
+    let launch = dsh_launch(pinned.binary, pinned.extra, workdir, session, input)?;
+    let command = dsh_served(pinned.binary, &launch, pinned.extra, prompt, workdir, input)?;
+    let wait = |child: &mut std::process::Child| {
         child
             .try_wait()
             .map(|status| status.map(|status| status.code().unwrap_or(-1)))
-    })
+    };
+    invoke_dsh_launch_observed(launch, command, workdir, bindings, emit, wait, &mut |_| {})
 }
 
 /// The DSH plugin's own value-taking selectors and the launcher's control
@@ -4111,7 +4319,7 @@ struct DshLaunch {
     /// The absolute retained root the transcript fold follows.
     root: std::path::PathBuf,
     /// Held for the child's lifetime; dropping it removes the staged file.
-    #[allow(dead_code)]
+    /// Its path is the overlay the final check serves (`dsh_served`).
     overlay: DshSeatOverlay,
     /// True when the seat pinned no `--effort`, so the absence is the
     /// standing and every row reads `not applicable` (decision 0035
@@ -4173,7 +4381,9 @@ fn dsh_launch(
     session: Option<&str>,
     input: &Value,
 ) -> Result<DshLaunch, String> {
-    dsh_launch_resolving(bin, extra, workdir, session, input, DshSeams::resolve)
+    dsh_launch_resolving(bin, extra, workdir, session, input, || {
+        DshSeams::resolve_declared(bin)
+    })
 }
 
 /// `dsh_launch` over an injected seam resolver, so the unreadable-seams
@@ -4197,6 +4407,11 @@ fn dsh_launch_resolving(
 
 /// `dsh_launch` over an injected composite producer, so every drift and
 /// mismatch case is a plain test over synthetic homes.
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09, #288"
+)]
 fn dsh_launch_with(
     bin: &str,
     extra: &[String],
@@ -4497,28 +4712,6 @@ fn owned_dsh_root(
     Ok((root, boundary))
 }
 
-/// The same invocation with the one question the OS answers — "is the
-/// child still running?" — injectable, the way `stage_prompt_with` and
-/// `dsh_transcript_root_in` make their own syscalls injectable. A real
-/// `waitpid` failure cannot be provoked from a test, and the arm that
-/// handles it is the difference between a seat that reports a refusal
-/// and a seat that spins in silence forever, so it is reachable here.
-#[allow(clippy::too_many_arguments)]
-fn invoke_dsh_with(
-    extra: &[String],
-    prompt: &str,
-    workdir: &str,
-    input: &Value,
-    session: Option<&str>,
-    emit: &mut impl FnMut(&Value),
-    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
-) -> Result<Invocation, String> {
-    let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
-    let launch = dsh_launch(&bin, extra, workdir, session, input)?;
-    let command = dsh_served(&bin, &launch, extra, prompt, workdir, input)?;
-    invoke_dsh_launch_observed(launch, command, workdir, emit, wait, &mut |_| {})
-}
-
 /// The command one DSH launch spawns: its command, then the prompt as data,
 /// and only what the final check returns, cold or with the session it
 /// rejoins (rebuild units 14 and 15).
@@ -4545,22 +4738,30 @@ fn dsh_served(
     served("dsh", command, handed, input, chosen)
 }
 
-/// `invoke_dsh_with` over an already-settled launch, so the qualified
+/// `invoke_dsh` over an already-settled launch, so the qualified
 /// stream-json arm is reachable from a test without a real composite
 /// install and its node probe. Production never reaches it: its launches
 /// come through `dsh_launch`, which still performs every qualification
 /// check, and are served through [`dsh_served`].
+///
+/// The one question the OS answers — "is the child still running?" — is
+/// injectable too, the way `stage_prompt_with` and
+/// `dsh_transcript_root_in` make their own syscalls injectable. A real
+/// `waitpid` failure cannot be provoked from a test, and the arm that
+/// handles it is the difference between a seat that reports a refusal
+/// and a seat that spins in silence forever, so it is reachable here.
 #[cfg(test)]
 fn invoke_dsh_launch(
     launch: DshLaunch,
     prompt: &str,
     workdir: &str,
+    bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
     let mut command = launch.command.clone();
     command.push(prompt.to_string());
-    invoke_dsh_launch_observed(launch, command, workdir, emit, wait, &mut |_| {})
+    invoke_dsh_launch_observed(launch, command, workdir, bindings, emit, wait, &mut |_| {})
 }
 
 /// `invoke_dsh_launch` with this ONE invocation's observer of the
@@ -4572,6 +4773,7 @@ fn invoke_dsh_launch_observed(
     mut launch: DshLaunch,
     command: Vec<String>,
     workdir: &str,
+    bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
     observer: &mut impl FnMut(&DshObservation),
@@ -4621,6 +4823,7 @@ fn invoke_dsh_launch_observed(
             &command,
             &launch,
             workdir,
+            bindings,
             &mut watch,
             &mut hold,
             &mut session_meta,
@@ -4628,7 +4831,15 @@ fn invoke_dsh_launch_observed(
             observer,
         )
     } else {
-        invoke_dsh_shipped(&command, workdir, &launch, wait, &mut session_meta, emit)
+        invoke_dsh_shipped(
+            &command,
+            workdir,
+            &launch,
+            bindings,
+            wait,
+            &mut session_meta,
+            emit,
+        )
     };
     let mut invocation = match attempt {
         Ok(invocation) => invocation,
@@ -4663,7 +4874,8 @@ fn spawn_dsh(
     workdir: &str,
     stdout: Stdio,
     facts: &GitFacts,
-) -> Result<(std::process::Child, std::thread::JoinHandle<String>), String> {
+    bindings: &[secret::BoundSecret],
+) -> Result<(std::process::Child, std::thread::JoinHandle<Vec<u8>>), String> {
     let mut builder = Command::new(&command[0]);
     builder
         .args(&command[1..])
@@ -4684,15 +4896,9 @@ fn spawn_dsh(
     for (key, value) in &facts.identity {
         builder.env(key, value);
     }
-    let child = builder.spawn();
-    let mut child = io_context(child, "could not invoke the agent CLI")?;
-    let stderr_pipe = child.stderr.take().expect("piped");
-    let stderr_thread = std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        let mut pipe = stderr_pipe;
-        let _ = pipe.read_to_end(&mut captured);
-        String::from_utf8_lossy(&captured).into_owned()
-    });
+    bind_environment(&mut builder, bindings)?;
+    let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
+    let stderr_thread = drain_stderr(&mut child);
     Ok((child, stderr_thread))
 }
 
@@ -4704,11 +4910,13 @@ fn invoke_dsh_shipped(
     command: &[String],
     workdir: &str,
     launch: &DshLaunch,
+    bindings: &[secret::BoundSecret],
     mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
-    let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::null(), &launch.facts)?;
+    let (mut child, stderr_thread) =
+        spawn_dsh(command, workdir, Stdio::null(), &launch.facts, bindings)?;
     let mut turns = 0u64;
     let mut tail = DshTail::default();
     let exit_code = poll_until_exit(
@@ -4720,11 +4928,12 @@ fn invoke_dsh_shipped(
                 launch.first_seq,
                 &mut turns,
                 session_meta,
+                bindings,
                 emit,
             )
         },
     )?;
-    finish_dsh(session_meta, exit_code, stderr_thread)
+    finish_dsh(session_meta, exit_code, stderr_thread, bindings)
 }
 
 /// The qualified `--output-format stream-json` exchange (task 8.8(d)):
@@ -4733,18 +4942,20 @@ fn invoke_dsh_shipped(
 /// driver accepts. The retained transcript is folded alongside it, only
 /// past the offered root's own sequence boundary, so a warm session never
 /// re-counts its restored history.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn invoke_dsh_stream_json(
     command: &[String],
     launch: &DshLaunch,
     workdir: &str,
+    bindings: &[secret::BoundSecret],
     watch: &mut DshRootWatch,
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
-    let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::piped(), &launch.facts)?;
+    let (mut child, stderr_thread) =
+        spawn_dsh(command, workdir, Stdio::piped(), &launch.facts, bindings)?;
     let stdout = child.stdout.take().expect("piped");
     let mut turns = 0u64;
     let mut tail = DshTail::default();
@@ -4769,7 +4980,8 @@ fn invoke_dsh_stream_json(
             break;
         };
         let read = match serde_json::from_str::<Value>(&line) {
-            Ok(event) => {
+            Ok(mut event) => {
+                secret::mask_json(&mut event, bindings);
                 fold_dsh_stream_event(&event, watch, hold, session_meta, emit);
                 DshStreamLine::Event
             }
@@ -4794,6 +5006,7 @@ fn invoke_dsh_stream_json(
                 launch.first_seq,
                 &mut turns,
                 session_meta,
+                bindings,
                 emit,
             );
         }
@@ -4809,10 +5022,16 @@ fn invoke_dsh_stream_json(
             launch.first_seq,
             &mut turns,
             session_meta,
+            bindings,
             emit,
         );
     }
-    finish_dsh(session_meta, status.code().unwrap_or(-1), stderr_thread)
+    finish_dsh(
+        session_meta,
+        status.code().unwrap_or(-1),
+        stderr_thread,
+        bindings,
+    )
 }
 
 /// One line of the plugin's stream-json envelope. The init event names the
@@ -4947,6 +5166,7 @@ struct DshBaseline {
 /// it — publishing the locator and launch row AFTER their own work rows,
 /// and returning a confirmed rejoin built on work that was never
 /// confirmed. `may_fold` withholds the fold until the hold releases.
+#[expect(clippy::struct_excessive_bools, reason = "baseline 2026-09, #288")]
 struct DshRootWatch {
     /// The exact root this launch was built to rejoin. `None` is a cold
     /// launch, which has no offer to confirm and publishes as it always
@@ -5258,7 +5478,8 @@ fn dsh_census_within(
 fn finish_dsh(
     session_meta: &mut Map<String, Value>,
     exit_code: i32,
-    stderr_thread: std::thread::JoinHandle<String>,
+    stderr_thread: std::thread::JoinHandle<Vec<u8>>,
+    bindings: &[secret::BoundSecret],
 ) -> Result<Invocation, String> {
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
@@ -5270,10 +5491,14 @@ fn finish_dsh(
     // dsh classifies nothing here and a refusal before its first turn
     // follows decision 0006 unchanged; the guide says so beside claude
     // and codex.
-    let stderr = redact_dsh_reasoning(&stderr_thread.join().unwrap_or_default());
+    let stderr = redact_dsh_reasoning(&masked_text(
+        &stderr_thread.join().unwrap_or_default(),
+        bindings,
+    ));
     // The promotion that moves the seat's commits out of the private
-    // store happens in `invoke_dsh_with`, which owns the store for the
-    // seat's whole life and is the one place both routes return through.
+    // store happens in `invoke_dsh_launch_observed`, which owns the store
+    // for the seat's whole life and is the one place both routes return
+    // through.
     Ok(Invocation {
         exit_code,
         session_meta: session_meta.clone(),
@@ -5333,31 +5558,10 @@ fn redact_dsh_reasoning(stderr: &str) -> String {
     text
 }
 
-fn invoke(
-    kind: AdapterKind,
-    extra: &[String],
-    prompt: &str,
-    input: &Value,
-    session: Option<&str>,
-    bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
-) -> Result<Invocation, String> {
-    invoke_with_stager(
-        kind,
-        extra,
-        prompt,
-        input,
-        session,
-        bindings,
-        emit,
-        stage_prompt,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn invoke_with_stager(
     kind: AdapterKind,
-    extra: &[String],
+    pinned: Pinned<'_>,
     prompt: &str,
     input: &Value,
     session: Option<&str>,
@@ -5365,51 +5569,40 @@ fn invoke_with_stager(
     emit: &mut impl FnMut(&Value),
     mut stage: impl FnMut(&str) -> Result<tempfile::NamedTempFile, String>,
 ) -> Result<Invocation, String> {
+    let Pinned { binary: bin, extra } = pinned;
     let workdir = input
         .get("workdir")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
     match kind {
-        AdapterKind::Claude => {
-            let bin = adapter_binary("BROKKR_CLAUDE_BIN", Some("FORGE_CLAUDE_BIN"), "claude");
-            let plan = claude_launch(&bin, extra, session, input, CLAUDE_SHAPE, None)?;
-            let command = plan.command.clone();
-            let mut hold = LaunchHold::new("claude", plan);
-            let mut invocation = invoke_stream_json(&command, prompt, &workdir, &mut hold, emit)?;
-            hold.finish(emit);
-            invocation.launch = hold.terminal();
-            Ok(invocation)
-        }
         // Same harness, same stream: LaneTally's wrapper is
         // argv-compatible with claude (including stream-json), so the
-        // only difference IS the binary. No spawn-time fallback to plain
-        // `claude` when the wrapper is missing — that would silently
-        // un-capture sessions; doctor is the advisory surface, and
-        // substituting plain claude to make a resume work would be the
-        // same silent un-capture one ruling later (proposed decision
-        // 0056 ruling 5: a wrapper is qualified on its own wrapper).
-        AdapterKind::Lanetally => {
-            let bin = adapter_binary(
-                "BROKKR_LANETALLY_BIN",
-                Some("FORGE_LANETALLY_BIN"),
-                "claude-lanetally",
-            );
-            let plan = claude_launch(&bin, extra, session, input, LANETALLY_SHAPE, None)?;
+        // only differences ARE the binary and the shape it is measured
+        // under. No spawn-time fallback to plain `claude` when the
+        // wrapper is missing — that would silently un-capture sessions;
+        // doctor is the advisory surface, and substituting plain claude
+        // to make a resume work would be the same silent un-capture one
+        // ruling later (proposed decision 0056 ruling 5: a wrapper is
+        // qualified on its own wrapper).
+        AdapterKind::Claude | AdapterKind::Lanetally => {
+            let shape = claude_shape(kind == AdapterKind::Lanetally);
+            let plan = claude_launch(bin, extra, session, input, shape, None)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("claude", plan);
-            let mut invocation = invoke_stream_json(&command, prompt, &workdir, &mut hold, emit)?;
+            let mut invocation =
+                invoke_stream_json(&command, prompt, &workdir, bindings, &mut hold, emit)?;
             hold.finish(emit);
             invocation.launch = hold.terminal();
             Ok(invocation)
         }
         AdapterKind::Codex => {
-            let bin = adapter_binary("BROKKR_CODEX_BIN", Some("FORGE_CODEX_BIN"), "codex");
             let (plan, validated_cold) =
-                codex_launch_and_cold(&bin, extra, &workdir, session, input)?;
+                codex_launch_and_cold(bin, extra, &workdir, session, input)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
-            let mut invocation = invoke_codex(&command, prompt, &workdir, &mut hold, emit)?;
+            let mut invocation =
+                invoke_codex(&command, prompt, &workdir, bindings, &mut hold, emit)?;
             hold.finish(emit);
             invocation.launch = hold.terminal();
             // Ruling 8's ONE pre-work replacement, and only on evidence
@@ -5446,7 +5639,8 @@ fn invoke_with_stager(
                     LaunchPlan::cold(validated_cold, "codex-thread", Some("harness-refused"));
                 let command = cold.command.clone();
                 let mut replacement = LaunchHold::new("codex", cold);
-                let mut outcome = invoke_codex(&command, prompt, &workdir, &mut replacement, emit)?;
+                let mut outcome =
+                    invoke_codex(&command, prompt, &workdir, bindings, &mut replacement, emit)?;
                 replacement.finish(emit);
                 outcome.launch = replacement.terminal();
                 // No recursion: a failed replacement reports its own
@@ -5455,7 +5649,7 @@ fn invoke_with_stager(
             }
             Ok(invocation)
         }
-        AdapterKind::Dsh => invoke_dsh(extra, prompt, &workdir, input, session, emit),
+        AdapterKind::Dsh => invoke_dsh(pinned, prompt, &workdir, input, session, bindings, emit),
         AdapterKind::Exec => {
             if extra.is_empty() {
                 return Err("exec driver needs a command template after '--'".to_string());
@@ -5863,7 +6057,13 @@ struct DshSeatOverlay {
     /// Held for the child's lifetime, never read back by this driver:
     /// dsh reads the document live, and a path that vanished mid-seat
     /// would be a level that vanished with it.
-    #[allow(dead_code)]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "held for its Drop: dsh reads the settings file live while the seat runs"
+        )
+    )]
     settings: Option<tempfile::NamedTempFile>,
 }
 
@@ -5937,8 +6137,10 @@ fn dsh_sandbox_row_for(
     if let Some(problem) = dsh_sandbox::scope_refusal(&scope) {
         return Err(format!("dsh driver: {problem}"));
     }
+    // An override that cannot be read refuses by name before anything is
+    // looked up (#355).
+    let program = dsh_runner_program().map_err(|refused| format!("dsh driver: {refused}"))?;
     let bwrap = dsh_bwrap()?;
-    let program = dsh_runner_program();
     let staged = dsh_sandbox::stage_seat_store(&scope)?;
     let row = dsh_sandbox::sandbox_row(&program, &bwrap, &staged, &scope)?;
     Ok(Some((row, scope, staged)))
@@ -5993,15 +6195,18 @@ fn dsh_runner_program_from(
     }
     match executable {
         Ok(path) => path.to_string_lossy().into_owned(),
-        Err(_) => "brokkr".to_string(),
+        Err(_) => Override::DshRunner.fallback().to_string(),
     }
 }
 
-fn dsh_runner_program() -> String {
-    dsh_runner_program_from(
-        crate::legacy::env("BROKKR_DSH_RUNNER", None),
+/// The runner program, or the refusal of an override that cannot be read
+/// (#355): unreadable is never unset, which would run this binary in
+/// place of the pin.
+fn dsh_runner_program() -> Result<String, OverrideError> {
+    Ok(dsh_runner_program_from(
+        crate::overrides::read_set(Override::DshRunner)?,
         std::env::current_exe(),
-    )
+    ))
 }
 
 /// The seat overlay with the scoped sandbox row a linked-worktree seat
@@ -6265,8 +6470,28 @@ fn run_seat(
     session: Option<&str>,
     send: &mut impl FnMut(Body),
 ) {
-    run_seat_with(kind, start, send, |prompt, input, bindings, mut emit| {
-        invoke(kind, extra, prompt, input, session, bindings, &mut emit)
+    // The driver's override is read once, here, and the launch runs what
+    // was read. A refused read never reaches the closure: `run_seat_with`
+    // fails the start before it invokes anything, so the empty default is
+    // never launched (`a_current_override_that_is_not_unicode_runs_nothing`).
+    let pin = crate::overrides::read(Override::of_driver(kind));
+    let gate = pin.clone().map(drop);
+    let binary = pin.unwrap_or_default();
+    run_seat_with(kind, gate, start, send, |prompt, input, bound, mut emit| {
+        let pinned = Pinned {
+            binary: &binary,
+            extra,
+        };
+        invoke_with_stager(
+            kind,
+            pinned,
+            prompt,
+            input,
+            session,
+            bound,
+            &mut emit,
+            stage_prompt,
+        )
     });
 }
 
@@ -6276,8 +6501,10 @@ fn run_seat(
 /// delivered-file fact and the unsettled-launch guard — so a test that
 /// drives a real synthetic child through here meets production's own
 /// terminal rule, not a copy of it.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn run_seat_with(
     kind: AdapterKind,
+    gate: Result<(), OverrideError>,
     start: &Value,
     send: &mut impl FnMut(Body),
     invoke: impl FnOnce(
@@ -6290,6 +6517,24 @@ fn run_seat_with(
     let input = start.get("input").cloned().unwrap_or(json!({}));
     let effect_id = start["effect_id"].as_str().unwrap_or("").to_string();
     let attempt_id = start["attempt_id"].as_str().unwrap_or("").to_string();
+    // #372: a start with no correlation, a retired override (#355) or a
+    // model seat whose charter cannot be read launches nothing. The refusal
+    // is `result: failed` with NO `accepted` and NO checkpoint — decision
+    // 0053's failure to start — and it comes before the secret store is
+    // opened, so no other refusal can put an `accepted` ahead of it.
+    let prompt = match start_prompt(&effect_id, &attempt_id, gate, &input, kind) {
+        Ok(prompt) => prompt,
+        Err(refusal) => {
+            send(Body::Result {
+                effect_id,
+                attempt_id,
+                status: ResultStatus::Failed,
+                result: None,
+                error: Some(refusal.to_string()),
+            });
+            return;
+        }
+    };
     // Decision 0053: `accepted` is withheld until a checkpoint proves a
     // turn began. A provider that refuses before its first turn sends
     // `result: failed` with NO `accepted` and NO checkpoint — exactly the
@@ -6363,10 +6608,11 @@ fn run_seat_with(
     };
 
     // Rebuild unit 18 (design D7): an engine launch that names a charter
-    // and carries none of its verified text is refused BEFORE its prompt is
-    // rendered, so no prompt is ever built around an empty or reread
-    // charter. A determinate refusal like a missing secret's: the driver
-    // has not spawned, so no turn can have begun.
+    // and carries none of its verified text is refused BEFORE anything is
+    // invoked, so no prompt is ever sent around an empty or reread
+    // charter: `render_prompt` above reopened no path for it. A
+    // determinate refusal like a missing secret's: the driver has not
+    // spawned, so no turn can have begun.
     if input.get("native_controls").is_some() {
         if let Err(error) = crate::native_controls::verified_role(&input) {
             send(Body::Accepted {
@@ -6384,11 +6630,17 @@ fn run_seat_with(
             return;
         }
     }
-    let prompt = render_prompt(&input, kind);
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
     let invocation = match invoke(&prompt, &input, &bindings, &mut |data: &Value| {
         let mut data = data.clone();
+        // Masking choke point for the model harnesses (decision 0012,
+        // layer 5): a checkpoint is folded from the child's stdout, so a
+        // bound value the seat echoed must not reach the journal through
+        // it. Masked on the parsed strings — see `secret::mask_json`.
+        if !bindings.is_empty() {
+            secret::mask_json(&mut data, &bindings);
+        }
         // Every fold emits a JSON object and the seat record (0034)
         // is defined on objects, so there is no non-object
         // checkpoint to branch on.
@@ -6484,13 +6736,21 @@ fn run_seat_with(
     };
     let Invocation {
         exit_code,
-        session_meta,
+        mut session_meta,
         stdout,
         stderr,
         state,
         refusal,
         launch,
     } = invocation;
+    // The same choke point for what the folds kept aside: the session
+    // record and a provider's refusal prose both come from the child's
+    // stream and both can reach the journal. stdout, stderr and state
+    // were masked on raw bytes where they were captured.
+    for value in session_meta.values_mut() {
+        secret::mask_json(value, &bindings);
+    }
+    let refusal = refusal.map(|reason| masked_text(reason.as_bytes(), &bindings));
     // A provider refusal before the first turn is a determinate failure
     // to start (decision 0053): `result: failed`, no `accepted`, no
     // checkpoint, and the reason is the result's error so the journal
@@ -6680,13 +6940,22 @@ fn run_seat_with(
     // append-only journal via EffectSucceeded — a child that echoes
     // $TOKEN into its notes must not put plaintext there. Raw bytes
     // first, string conversion second.
-    let raw = secret::mask_bytes(&raw, &bindings);
+    // Parsed FIRST and masked second: a bound value with a character JSON
+    // escapes never appears verbatim in the escaped bytes, so a raw-bytes
+    // pass would miss it and the parse would decode it back to plaintext.
     let raw = String::from_utf8_lossy(&raw);
     // Typed-invalid on purpose when unparseable: the engine parks with
-    // raw evidence (decision 0001); adapters repair nothing.
+    // raw evidence (decision 0001); adapters repair nothing. The parse
+    // error is masked too, since it is the one string here that can quote
+    // the file.
     let mut seat_result = match serde_json::from_str::<Value>(&raw) {
-        Ok(result) => result,
-        Err(error) => json!({"__unparseable_result_file__": error.to_string()}),
+        Ok(mut result) => {
+            secret::mask_json(&mut result, &bindings);
+            result
+        }
+        Err(error) => {
+            json!({"__unparseable_result_file__": masked_text(error.to_string().as_bytes(), &bindings)})
+        }
     };
     // Result contracts are objects. Enrich the driver's copy with the
     // provider report after masking/parsing so seat-authored content can
@@ -6870,3 +7139,6 @@ pub fn serve(kind: AdapterKind, extra: Vec<String>) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod notice_tests;

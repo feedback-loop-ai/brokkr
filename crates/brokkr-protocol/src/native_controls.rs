@@ -1059,6 +1059,10 @@ fn tagged<'a>(
     Ok((kind, value))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn decode_record(record: Option<&Value>) -> Result<LaunchRecord, Fault> {
     let record = match record {
         None => return Err(("record".to_string(), "is missing")),
@@ -1813,6 +1817,10 @@ fn measured_off(assignment: &str) -> Option<&'static str> {
 /// spaced key, a trailing space, `web_search="live"`, `web_search=garbage`,
 /// a web search mode, a sandbox or approval table — is read as neither ON
 /// nor OFF, and refuses.
+#[expect(
+    clippy::excessive_nesting,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn read_state(command: &Command) -> Result<State, String> {
     let mut state = State::default();
     for node in &command.nodes {
@@ -2193,6 +2201,10 @@ fn captured(
 /// adapter's pins, then the lowered local permissions and, where no hands
 /// carry it, the adapter's local fragment for the typed class; the fragment
 /// is the expanded hands, then the dialect's boundary.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn sealed_inputs(
     table: &grammar::Grammar,
     controls: &Controls,
@@ -3920,6 +3932,10 @@ pub fn compose_for_provider(
 /// [`compose_for_provider`], telling a held capability an explicit limit
 /// excludes apart from every other refusal, so that resolution can drop a
 /// wanted holding with OFF and refuse a required one (CQ1).
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 pub fn compose_or_exclude(
     provider: &str,
     authored: &[String],

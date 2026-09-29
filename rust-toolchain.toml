@@ -1,0 +1,9 @@
+# The stable compiler every verdict is judged by (issue #340). Clippy runs
+# with `-D warnings`, so a floating stable could turn main red with no code
+# change; a toolchain bump is a reviewed pull request that edits this line.
+# The workflows install this channel by name, and a test holds them to it.
+# The MSRV check and the exact coverage gate select their own pins
+# (`rust-version` in Cargo.toml, rust-nightly-version.txt) explicitly.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]

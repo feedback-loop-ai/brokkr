@@ -2,6 +2,8 @@
 
 Status: accepted (operator ruling in chat, 2026-08-28)
 
+Built: built
+
 ## Context
 
 Checkpoint targets journal file paths only. Commands, URLs, and prose are

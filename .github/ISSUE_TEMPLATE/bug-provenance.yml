@@ -1,0 +1,53 @@
+name: Bug with delivery provenance
+description: Report a defect and trace it to the changes and runs involved.
+type: Bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report what you observed first. Only the affected version and reproduction
+        are required; maintainers can investigate the introducing change and fix later.
+        An affected run is not necessarily the run that introduced the bug.
+  - type: input
+    id: observed-version
+    attributes:
+      label: Observed version
+      description: Brokkr release or full commit SHA where you observed the problem. Enter unknown if unavailable.
+      placeholder: Release tag or full commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction and expected behavior
+      description: Describe what you did, what happened, and what you expected. Include a failing test or reproduction if available; say when it is intermittent.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Relevant OS, installation method, recipe, adapter/model and configuration. Remove credentials and private content from logs.
+  - type: textarea
+    id: discovery
+    attributes:
+      label: Discovery and affected run
+      description: Optional affected repository, run ID, evidence links, and who or what discovered the bug. Include discovery time if it differs from this report's creation time.
+  - type: textarea
+    id: provenance
+    attributes:
+      label: Delivery provenance
+      description: |
+        Maintainers complete this during investigation. Leave the empty record as-is when unknown.
+        See the [format guide](https://github.com/feedback-loop-ai/brokkr/blob/main/docs/guides/bug-provenance.md)
+        for entry fields. GitHub does not validate this JSON.
+      render: json
+      value: |
+        {
+          "schema": "brokkr.bug-provenance/v1",
+          "classification": "unknown",
+          "observations": [],
+          "introductions": [],
+          "fixes": [],
+          "commit_mappings": []
+        }

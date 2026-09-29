@@ -1,11 +1,12 @@
 use super::*;
+use crate::agents::HarnessHands;
 use crate::bundle::{Limits, Seat};
+use crate::dispatch_fixture::dispatch_envelope;
+use crate::envelope_builder::EnvelopeBuilder;
 use brokkr_core::canonical::ZERO_HASH;
-use brokkr_core::dispatch::PRODUCER_EFFECTS;
 use brokkr_core::policy::Machine;
 use brokkr_protocol::{Body, Message, ResultStatus};
 use std::collections::BTreeMap;
-use time::format_description::well_known::Rfc3339;
 
 fn machine() -> Machine {
     Machine::from_table(&json!({
@@ -347,7 +348,6 @@ fn an_undeclared_change_claim_is_dropped() {
     runtime
         .decide(
             &state(Some("work"), Cursor::Idle),
-            "effect",
             json!({"result":"complete", "inputs":{"change":"must-not-pass"}}),
         )
         .unwrap();
@@ -361,7 +361,6 @@ fn an_undeclared_change_claim_is_dropped() {
     declared
         .decide(
             &state(Some("work"), Cursor::Idle),
-            "effect",
             json!({"result":"complete", "inputs":{"change":"Not/a/change"}}),
         )
         .unwrap();
@@ -373,16 +372,17 @@ fn an_undeclared_change_claim_is_dropped() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dialect_change_expands_from_typed_history_and_absence_parks() {
     assert!(matches!(
-        dialect_attempt_outcome(DriverRun::SpawnFailed("gone".into())),
+        dialect_attempt_outcome(DriverRun::SpawnFailed("gone".into()), &mut Unproven::Proven),
         AttemptOutcome::Failed { error } if error == "gone"
     ));
     assert!(matches!(
         dialect_attempt_outcome(DriverRun::Ran(report(
             AttemptOutcome::Indeterminate { reason: "lost".into() },
             ""
-        ))),
+        )), &mut Unproven::Proven),
         AttemptOutcome::Indeterminate { reason } if reason == "lost"
     ));
     let step = SequenceStep {
@@ -598,6 +598,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: driver_command(
                 "effect",
                 "attempt",
@@ -632,6 +633,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
     let first = SequenceStep {
         name: "author".into(),
@@ -685,6 +687,7 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: driver_command(
                 "effect",
                 "attempt",
@@ -873,6 +876,8 @@ pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
 pub(super) fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
     AttemptReport {
         outcome,
+        refused: None,
+        cleanup: Cleanup::Settled,
         session_ref: Some("session".into()),
         checkpoints: vec![json!({"step":"inner"})],
         stderr: stderr.into(),
@@ -1027,6 +1032,7 @@ enum StepOrder {
 /// the given order, each step committing or leaving the tree alone. The
 /// non-final step declares its own closed vocabulary; the final step is
 /// the seat boundary and inherits the seat's.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compiled_two_step_sequence(
     dir: &Path,
     order: StepOrder,
@@ -1079,7 +1085,7 @@ read -r done
         serde_json::to_vec_pretty(&json!({
             "provider": "judge",
             "trust_tier": "trusted",
-            "binding_grant": true,
+            "egress": "contracted",
             "binary": "sh",
             "driver": ["sh", "-c", validator_driver],
             "models": {"judge": "judge-1"},
@@ -1387,53 +1393,16 @@ fn an_all_gate_sequence_arms_no_observation_outside_its_steps() {
 }
 
 pub(super) fn event(event_type: EventType, payload: Value) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "run".into(),
-        seq: 2,
-        event_id: "event".into(),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "run".into(),
-        attempt_id: None,
-        recorded_at: "2026-08-28T00:00:00Z".into(),
-        previous_hash: ZERO_HASH.into(),
-        event_hash: "a".repeat(64),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .seq(2)
+        .at("2026-08-28T00:00:00Z")
+        .hash("a".repeat(64))
+        .build()
 }
 
 pub(super) fn dispatch(bundle: &Bundle) -> DispatchEnvelopeV2 {
-    let now = time::OffsetDateTime::now_utc();
-    serde_json::from_value::<DispatchEnvelopeV2>(json!({
-        "schema":"forge-dispatch/v2", "envelope_id":"envelope", "forge_run_id":"bound-run",
-        "issued_at":(now-time::Duration::minutes(1)).format(&Rfc3339).unwrap(),
-        "expires_at":(now+time::Duration::minutes(5)).format(&Rfc3339).unwrap(),
-        "canonical_digest":"",
-        "looper":{"organization_id":"org","product_id":"product","story_id":"story",
-            "delivery_run_id":"delivery","request_grant_id":"grant","feature_path":"feature",
-            "immutable_inputs_sha256":"a".repeat(64)},
-        "actor":{"principal_kind":"api_key","principal_id":"key","actor_kind":"service",
-            "actor_id":"brokkr","accountable_operator_id":"operator","authority_source":"looper-grant",
-            "operating_profile":"bounded"},
-        "repository":{"owner":"owner","name":"repo","base_sha":"b".repeat(64),
-            "candidate_sha":null,"workspace_class":"isolated","target_environment":"dogfood"},
-        "recipe":{"name":"test","compiled_sha256":bundle.manifest_digest()},
-        "budget":{"lane_tally_run_id":"lane","reservation_id":null,"cost_state":"known",
-            "ceiling_microunits":1000,"currency":"USD"},
-        "producer":{"registration_id":"registration","token_reference":"key",
-            "callback_audience":"https://dogfood.example","accepting_service_id":"looper-api",
-            "runtime_id":"runtime","producer_release":"brokkr@test","protocol_version":1,
-            "starting_cursor":0},
-        "allowed_effects":PRODUCER_EFFECTS,"forbidden_actions":["grant_create","grant_widen",
-            "artifact_decide","workflow_advance","release_promote"],
-        "bounds":{"max_attempts":3,"max_parallel_effects":4,"max_event_bytes":65536,
-            "max_events_per_ten_seconds":40,"replay_retention_seconds":604800,
-            "safe_stop":"boundary","cancellation":"fenced"},
-        "evidence_requirements":["ordered_hash_chain"],"attestation_requirement":"self_reported"
-    }))
-    .unwrap()
-    .sealed()
+    let digest = bundle.manifest_digest();
+    dispatch_envelope("bound-run", "test", &digest, "https://dogfood.example")
 }
 
 #[test]
@@ -1748,6 +1717,7 @@ fn request_finish_input_and_execute_refusals_are_journaled() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
     engine
@@ -1858,6 +1828,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
     let outcomes = vec![
@@ -2216,26 +2187,7 @@ fn carry_definitions(operated: &Path) {
 
 fn git_commit(repo: &Path, message: &str) -> String {
     if !repo.join(".git").exists() {
-        assert!(Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(repo)
-            .status()
-            .unwrap()
-            .success());
-        for (key, value) in [("user.name", "Brokkr Test"), ("user.email", "brokkr@test")] {
-            assert!(Command::new("git")
-                .args(["config", key, value])
-                .current_dir(repo)
-                .status()
-                .unwrap()
-                .success());
-        }
-        assert!(Command::new("git")
-            .args(["config", "commit.gpgSign", "false"])
-            .current_dir(repo)
-            .status()
-            .unwrap()
-            .success());
+        crate::realms::tests::initialised(repo);
     }
     std::fs::write(repo.join(format!("{message}.txt")), message).unwrap();
     assert!(Command::new("git")
@@ -2257,21 +2209,16 @@ fn git_commit(repo: &Path, message: &str) -> String {
 fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     let (dir, mut engine) = engine(single_body(vec!["driver".into()]));
     assert!(engine
-        .decide(
-            &state(None, Cursor::Idle),
-            "effect",
-            json!({"result":"complete"})
-        )
+        .decide(&state(None, Cursor::Idle), json!({"result":"complete"}))
         .unwrap_err()
         .to_string()
         .contains("without a phase"));
     engine
-        .decide(&state(Some("work"), Cursor::Idle), "effect", json!(2))
+        .decide(&state(Some("work"), Cursor::Idle), json!(2))
         .unwrap();
     engine
         .decide(
             &state(Some("work"), Cursor::Idle),
-            "effect",
             json!({"notes":"missing result"}),
         )
         .unwrap();
@@ -2286,7 +2233,6 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     engine
         .decide(
             &state(Some("work"), Cursor::Idle),
-            "effect",
             json!({"result":"unruled"}),
         )
         .unwrap();
@@ -2294,20 +2240,17 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
     let reviewed = git_commit(&repo, "reviewed");
-    engine.repo = Some(repo.clone());
+    engine.repo = repo.clone();
     engine
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result":"clean"}),
         )
         .unwrap();
     git_commit(&repo, "moved");
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({"repo":reviewed}));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     assert!(events.iter().any(|event| {
         event.payload["inputs"]["drift_detected"] == true
@@ -2334,7 +2277,6 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     engine
         .decide(
             &state(Some("triage"), Cursor::Idle),
-            "effect",
             json!({"result":"chore", "notes":"seat reason"}),
         )
         .unwrap();
@@ -2411,7 +2353,7 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     // stop is legal, it is accepted.
     assert!(
         matches!(
-            operator_command(&mut store, "raced", "stop", "operator", "enough").unwrap(),
+            operator_command(&mut store, "raced", Stop, "operator", "enough").unwrap(),
             FencedCommandOutcome::Accepted { .. }
         ),
         "a stop on a parked run is still accepted",
@@ -2421,10 +2363,10 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     // running, and `retry` is legal only on a parked run. The run did not
     // move under this command — it was in the wrong state before the
     // command was even journaled — so the refusal says which state.
-    let refused = operator_command(&mut store, "raced", "retry", "operator", "once more").unwrap();
+    let refused = operator_command(&mut store, "raced", Retry, "operator", "once more").unwrap();
     assert!(
         matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
-            if reason == RUN_NOT_AWAITING_OPERATOR),
+            if reason == Refusal::RunNotAwaitingOperator.word()),
         "{refused:?}",
     );
 
@@ -2442,13 +2384,13 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
             None,
         )
         .unwrap();
-    for command in ["retry", "stop"] {
+    for command in OperatorCommand::ALL {
         let refused = operator_command(&mut store, "raced", command, "operator", "too late")
-            .unwrap_or_else(|error| panic!("{command} errored instead of refusing: {error}"));
+            .unwrap_or_else(|error| panic!("{command:?} errored instead of refusing: {error}"));
         assert!(
             matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
-                if reason == AFTER_TERMINAL),
-            "{command}: {refused:?}",
+                if reason == Refusal::AfterTerminal.word()),
+            "{command:?}: {refused:?}",
         );
     }
 
@@ -2475,8 +2417,8 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
         .filter(|event| event.event_type == EventType::OperatorRejected)
     {
         assert!(
-            rejected.payload["reason"] == json!(RUN_NOT_AWAITING_OPERATOR)
-                || rejected.payload["reason"] == json!(AFTER_TERMINAL),
+            rejected.payload["reason"] == json!(Refusal::RunNotAwaitingOperator.word())
+                || rejected.payload["reason"] == json!(Refusal::AfterTerminal.word()),
             "a refusal that was not a race must not claim one: {}",
             rejected.payload["reason"],
         );
@@ -2491,7 +2433,7 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     // the unfenced path used to write into this position — the journal
     // stops folding, permanently, because events are immutable.
     let mut poisoned = parked_store(&dir.path().join("poisoned.db"), "poisoned");
-    operator_command(&mut poisoned, "poisoned", "stop", "operator", "enough").unwrap();
+    operator_command(&mut poisoned, "poisoned", Stop, "operator", "enough").unwrap();
     poisoned
         .append_next(
             "poisoned",
@@ -2521,20 +2463,54 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     );
     // And a fenced command arriving at that already-broken journal
     // refuses to add to it rather than folding it again.
-    assert!(operator_command(&mut poisoned, "poisoned", "stop", "operator", "later").is_err());
+    assert!(operator_command(&mut poisoned, "poisoned", Stop, "operator", "later").is_err());
 }
 
 /// A command the vocabulary does not know is refused by NAME before any
-/// question of fences or cursors: `refusal_for` closes the verb set.
+/// question of fences or cursors: `OperatorCommand` closes the verb set,
+/// and the bridge's door, which journals the word it was sent, refuses
+/// one it does not parse even under a cursor that still holds.
 #[test]
 fn a_command_outside_the_vocabulary_is_refused_by_name() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = parked_store(&dir.path().join("verbs.db"), "verbs");
-    let refused = operator_command(&mut store, "verbs", "dance", "operator", "please").unwrap();
+    assert_eq!(OperatorCommand::parse("dance"), None);
+    let (seq, hash) = store.head_hash("verbs").unwrap();
+    let dance = FencedCommand {
+        operator: "op",
+        reason: "please",
+        ..looper("d", "dance", seq, &hash)
+    };
+    let refused = apply_fenced_operator_command(&mut store, "verbs", &dance).unwrap();
     assert!(
-        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == COMMAND_NOT_ALLOWED),
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
+            if reason == Refusal::CommandNotAllowed.word()),
         "{refused:?}"
     );
+    let events = store.load("verbs").unwrap();
+    let commanded = events
+        .iter()
+        .find(|event| event.event_type == EventType::OperatorCommanded)
+        .unwrap();
+    assert_eq!(commanded.payload["command"], "dance");
+}
+
+/// A Looper command whose word is parsed the way the bridge parses it,
+/// asked by "operator" for "reason" against the head `seq`/`hash`.
+pub(super) fn looper<'a>(
+    command_id: &'a str,
+    word: &'a str,
+    seq: u64,
+    hash: &'a str,
+) -> FencedCommand<'a> {
+    FencedCommand {
+        command_id,
+        command: CommandWord::parse(word),
+        operator: "operator",
+        reason: "reason",
+        expected_seq: seq,
+        expected_hash: hash,
+    }
 }
 
 /// A contender that NEVER yields: the head moves in every window the
@@ -2549,7 +2525,7 @@ fn a_fence_lost_every_round_is_refused_not_spun_forever() {
     let refused = operator_command_racing(
         &mut store,
         "relentless",
-        "stop",
+        Stop,
         "operator",
         "enough",
         |store: &mut Store| {
@@ -2570,7 +2546,8 @@ fn a_fence_lost_every_round_is_refused_not_spun_forever() {
     )
     .unwrap();
     assert!(
-        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == LOST_FENCE),
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
+            if reason == Refusal::LostFence.word()),
         "{refused:?}"
     );
     assert!(
@@ -2578,6 +2555,26 @@ fn a_fence_lost_every_round_is_refused_not_spun_forever() {
         "the bound was reached, not merely approached: {checkpoints}"
     );
     fold(&store.load("relentless").unwrap()).unwrap();
+}
+
+/// A second operator, at another terminal, who commands once: in the first
+/// window a fence opens, and never again.
+fn a_peer_commands_once(run_id: &'static str) -> impl FnMut(&mut Store) {
+    let mut peers = 1;
+    move |store: &mut Store| {
+        if peers > 0 {
+            peers -= 1;
+            store
+                .append_next(
+                    run_id,
+                    EventType::OperatorCommanded,
+                    json!({"command_id":"peer","command":"stop","args":{},"operator":"other"}),
+                    None,
+                    None,
+                )
+                .unwrap();
+        }
+    }
 }
 
 /// The fenced path's own append-time race: the cursor check passed, the
@@ -2589,30 +2586,15 @@ fn a_fenced_acceptance_beaten_to_the_head_reports_a_stale_cursor() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = parked_store(&dir.path().join("beaten.db"), "beaten");
     let (seq, hash) = store.head_hash("beaten").unwrap();
-    let mut peers = 1;
+    let once_more = FencedCommand {
+        reason: "once more",
+        ..looper("looper-command", "retry", seq, &hash)
+    };
     let refused = apply_fenced_racing(
         &mut store,
         "beaten",
-        "looper-command",
-        "retry",
-        "operator",
-        "once more",
-        seq,
-        &hash,
-        |store: &mut Store| {
-            if peers > 0 {
-                peers -= 1;
-                store
-                    .append_next(
-                        "beaten",
-                        EventType::OperatorCommanded,
-                        json!({"command_id":"peer","command":"stop","args":{},"operator":"other"}),
-                        None,
-                        None,
-                    )
-                    .unwrap();
-            }
-        },
+        &once_more,
+        a_peer_commands_once("beaten"),
     )
     .unwrap();
     assert!(
@@ -2660,7 +2642,7 @@ fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
     let refused = operator_command_racing(
         &mut store,
         "raced",
-        "stop",
+        Stop,
         "operator",
         "enough",
         |store: &mut Store| {
@@ -2686,7 +2668,8 @@ fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
     )
     .unwrap();
     assert!(
-        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == LOST_FENCE),
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
+            if reason == Refusal::LostFence.word()),
         "a command that WAS legal when it was decided reports the race: {refused:?}",
     );
 
@@ -2725,7 +2708,7 @@ fn a_command_still_legal_after_the_head_moved_is_decided_again_and_accepted() {
     let accepted = operator_command_racing(
         &mut store,
         "checkpointed",
-        "stop",
+        Stop,
         "operator",
         "enough",
         |store: &mut Store| {
@@ -2781,31 +2764,18 @@ fn a_second_operators_command_in_the_window_takes_the_acceptance_with_it() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = parked_store(&dir.path().join("two-terminals.db"), "two-terminals");
 
-    let mut peers = 1;
     let refused = operator_command_racing(
         &mut store,
         "two-terminals",
-        "retry",
+        Retry,
         "operator",
         "once more",
-        |store: &mut Store| {
-            if peers > 0 {
-                peers -= 1;
-                store
-                    .append_next(
-                        "two-terminals",
-                        EventType::OperatorCommanded,
-                        json!({"command_id":"peer","command":"stop","args":{},"operator":"other"}),
-                        None,
-                        None,
-                    )
-                    .unwrap();
-            }
-        },
+        a_peer_commands_once("two-terminals"),
     )
     .unwrap();
     assert!(
-        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == LOST_FENCE),
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
+            if reason == Refusal::LostFence.word()),
         "{refused:?}",
     );
     let events = store.load("two-terminals").unwrap();
@@ -2822,33 +2792,14 @@ fn a_second_operators_command_in_the_window_takes_the_acceptance_with_it() {
 fn operator_and_fenced_replay_cover_every_disposition() {
     let dir = tempfile::tempdir().unwrap();
     let mut ordinary = parked_store(&dir.path().join("ordinary.db"), "ordinary");
-    operator_command(&mut ordinary, "ordinary", "retry", "operator", "reason").unwrap();
+    operator_command(&mut ordinary, "ordinary", Retry, "operator", "reason").unwrap();
 
     let mut accepted = parked_store(&dir.path().join("accepted.db"), "accepted");
     let (seq, hash) = accepted.head_hash("accepted").unwrap();
-    let first = apply_fenced_operator_command(
-        &mut accepted,
-        "accepted",
-        "command",
-        "retry",
-        "operator",
-        "reason",
-        seq,
-        &hash,
-    )
-    .unwrap();
+    let command = looper("command", "retry", seq, &hash);
+    let first = apply_fenced_operator_command(&mut accepted, "accepted", &command).unwrap();
     assert!(matches!(first, FencedCommandOutcome::Accepted { .. }));
-    let replay = apply_fenced_operator_command(
-        &mut accepted,
-        "accepted",
-        "command",
-        "retry",
-        "operator",
-        "reason",
-        seq,
-        &hash,
-    )
-    .unwrap();
+    let replay = apply_fenced_operator_command(&mut accepted, "accepted", &command).unwrap();
     assert!(matches!(replay, FencedCommandOutcome::Accepted { .. }));
 
     let mut incomplete = parked_store(&dir.path().join("incomplete.db"), "incomplete");
@@ -2874,12 +2825,7 @@ fn operator_and_fenced_replay_cover_every_disposition() {
         apply_fenced_operator_command(
             &mut incomplete,
             "incomplete",
-            "incomplete-command",
-            "retry",
-            "operator",
-            "reason",
-            0,
-            ZERO_HASH,
+            &looper("incomplete-command", "retry", 0, ZERO_HASH),
         )
         .unwrap(),
         FencedCommandOutcome::Rejected { reason, .. } if reason == "incomplete_command_replay"
@@ -2888,10 +2834,8 @@ fn operator_and_fenced_replay_cover_every_disposition() {
     let mut forbidden = parked_store(&dir.path().join("forbidden.db"), "forbidden");
     let (seq, hash) = forbidden.head_hash("forbidden").unwrap();
     assert!(matches!(
-        apply_fenced_operator_command(
-            &mut forbidden, "forbidden", "bad", "widen", "operator", "reason", seq, &hash,
-        )
-        .unwrap(),
+        apply_fenced_operator_command(&mut forbidden, "forbidden", &looper("bad", "widen", seq, &hash))
+            .unwrap(),
         FencedCommandOutcome::Rejected { reason, .. } if reason == "command_not_allowed"
     ));
 
@@ -2901,12 +2845,7 @@ fn operator_and_fenced_replay_cover_every_disposition() {
         apply_fenced_operator_command(
             &mut stale_hash,
             "stale-hash",
-            "stale",
-            "retry",
-            "operator",
-            "reason",
-            seq,
-            &"f".repeat(64),
+            &looper("stale", "retry", seq, &"f".repeat(64)),
         )
         .unwrap(),
         FencedCommandOutcome::Rejected { reason, .. } if reason == "stale_cursor"
@@ -2920,7 +2859,9 @@ fn operator_and_fenced_replay_cover_every_disposition() {
     let run_id = running_engine.run_id.clone();
     assert!(matches!(
         apply_fenced_operator_command(
-            &mut running_engine.store, &run_id, "early", "stop", "operator", "reason", seq, &hash,
+            &mut running_engine.store,
+            &run_id,
+            &looper("early", "stop", seq, &hash),
         )
         .unwrap(),
         FencedCommandOutcome::Rejected { reason, .. } if reason == "run_not_awaiting_operator"
@@ -2951,6 +2892,7 @@ fn journal(path: &Path, run_id: &str, manifest: &Value, events: &[(EventType, Va
 /// mid-flight to the boundary the ENGINE itself produces, and between
 /// effects with nothing to wait for.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("work")).unwrap();
@@ -2970,7 +2912,8 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
         ),
     ];
     let drive = |store: Store, run_id: &str| {
-        let mut engine = Engine::resume(store, bundle.clone(), run_id, None).unwrap();
+        let mut engine =
+            Engine::resume(store, bundle.clone(), run_id, Some(dir.path().join("work"))).unwrap();
         let end = engine.drive().unwrap();
         let events = engine.store.load(run_id).unwrap();
         // Round trip: the fold reads back every journal the engine
@@ -3008,14 +2951,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
             .append_next("mid", event_type, payload, None, None)
             .unwrap();
     }
-    operator_command(
-        &mut store,
-        "mid",
-        "stop",
-        "vyanakiev",
-        "the mock reads wrong",
-    )
-    .unwrap();
+    operator_command(&mut store, "mid", Stop, "vyanakiev", "the mock reads wrong").unwrap();
     for (event_type, payload) in [
         (
             EventType::EffectCheckpointed,
@@ -3056,7 +2992,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
         &manifest,
         &in_flight,
     );
-    operator_command(&mut store, "boundary", "stop", "vyanakiev", "enough").unwrap();
+    operator_command(&mut store, "boundary", Stop, "vyanakiev", "enough").unwrap();
     let events = drive(store, "boundary");
     let types: Vec<EventType> = events.iter().rev().take(2).map(|e| e.event_type).collect();
     assert_eq!(
@@ -3074,14 +3010,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
         &manifest,
         &in_flight[..2],
     );
-    operator_command(
-        &mut store,
-        "between",
-        "stop",
-        "vyanakiev",
-        "between effects",
-    )
-    .unwrap();
+    operator_command(&mut store, "between", Stop, "vyanakiev", "between effects").unwrap();
     let events = drive(store, "between");
     assert_eq!(
         events.len(),
@@ -3109,6 +3038,7 @@ fn engine_failing(event_type: &str) -> (tempfile::TempDir, Engine) {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn start_append_and_running_cursor_storage_failures_propagate() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("start.db");
@@ -3248,7 +3178,7 @@ fn start_append_and_running_cursor_storage_failures_propagate() {
 #[test]
 fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
     let (missing_dir, mut missing) = engine(single_body(vec!["driver".into()]));
-    missing.repo = Some(missing_dir.path().join("not-a-repository"));
+    missing.repo = missing_dir.path().join("not-a-repository");
     // The run cites a head, so the conclusion has an exhibit it cannot
     // keep in a repository that is not one: the anchor gap AND the
     // keep-ref gap are both reported, and neither fails the run.
@@ -3277,13 +3207,28 @@ fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
     ] {
         missing.append(event_type, payload, None).unwrap();
     }
-    assert_eq!(missing.drive().unwrap().state.status, Status::Completed);
+    let end = missing.drive().unwrap();
+    assert_eq!(end.state.status, Status::Completed);
+    // Returned to the caller, never printed by the engine (#355): one
+    // line per gap, in the order the acts ran.
+    let run = missing.run_id.clone();
+    assert_eq!(end.gaps.len(), 2, "{:?}", end.gaps);
+    assert!(
+        end.gaps[0].starts_with(&format!("anchor gap for {run}: ")),
+        "{:?}",
+        end.gaps
+    );
+    assert!(
+        end.gaps[1].starts_with(&format!("keep-ref gap for {run}: ")),
+        "{:?}",
+        end.gaps
+    );
 
     let (dir, mut anchored) = engine(single_body(vec!["driver".into()]));
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
     let head = git_commit(&repo, "base");
-    anchored.repo = Some(repo.clone());
+    anchored.repo = repo.clone();
     // A run that reached a decision citing this repository's head: the
     // exhibit its own conclusion must keep, with no operator verb (0026).
     for (event_type, payload) in [
@@ -3310,7 +3255,9 @@ fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
     ] {
         anchored.append(event_type, payload, None).unwrap();
     }
-    assert_eq!(anchored.drive().unwrap().state.status, Status::Completed);
+    let end = anchored.drive().unwrap();
+    assert_eq!(end.state.status, Status::Completed);
+    assert_eq!(end.gaps, Vec::<String>::new());
     let verify = |name: String| {
         Command::new("git")
             .args(["show-ref", "--verify", &name])
@@ -3424,7 +3371,7 @@ fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
     let workdir = dir.path().join("work");
     engine.store = Store::open(&workdir.join("journal.db")).unwrap();
     assert!(engine.runtime_hands("ship").unwrap().binds.is_empty());
-    engine.repo = Some(dir.path().join("not-created"));
+    engine.repo = dir.path().join("not-created");
     assert_eq!(engine.runtime_hands("ship").unwrap().binds.len(), 1);
     assert!(engine.runtime_hands("missing").is_none());
 }
@@ -3575,6 +3522,7 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_and_sequence_storage_failures_propagate() {
     let (_kept, mut failed_panel) = engine_failing("effect/failed");
     assert!(failed_panel
@@ -3890,19 +3838,19 @@ fn panel_and_sequence_storage_failures_propagate() {
 fn decision_and_operator_storage_failures_propagate() {
     let (_kept, mut decision) = engine_failing("transition/decided");
     assert!(decision
-        .decide(&state(Some("work"), Cursor::Idle), "effect", json!(2))
+        .decide(&state(Some("work"), Cursor::Idle), json!(2))
         .is_err());
 
     let dir = tempfile::tempdir().unwrap();
     let first_path = dir.path().join("operator-commanded.db");
     let mut first = parked_store(&first_path, "first");
     fail_event(&first_path, "operator/commanded");
-    assert!(operator_command(&mut first, "first", "retry", "operator", "reason").is_err());
+    assert!(operator_command(&mut first, "first", Retry, "operator", "reason").is_err());
 
     let second_path = dir.path().join("operator-accepted.db");
     let mut second = parked_store(&second_path, "second");
     fail_event(&second_path, "operator/accepted");
-    assert!(operator_command(&mut second, "second", "retry", "operator", "reason").is_err());
+    assert!(operator_command(&mut second, "second", Retry, "operator", "reason").is_err());
 
     let incomplete_path = dir.path().join("incomplete-failure.db");
     let mut incomplete = parked_store(&incomplete_path, "incomplete-failure");
@@ -3919,12 +3867,7 @@ fn decision_and_operator_storage_failures_propagate() {
     assert!(apply_fenced_operator_command(
         &mut incomplete,
         "incomplete-failure",
-        "incomplete",
-        "retry",
-        "operator",
-        "reason",
-        0,
-        ZERO_HASH,
+        &looper("incomplete", "retry", 0, ZERO_HASH),
     )
     .is_err());
 
@@ -3935,12 +3878,7 @@ fn decision_and_operator_storage_failures_propagate() {
     assert!(apply_fenced_operator_command(
         &mut commanded,
         "fenced-commanded",
-        "command",
-        "retry",
-        "operator",
-        "reason",
-        seq,
-        &hash,
+        &looper("command", "retry", seq, &hash),
     )
     .is_err());
 
@@ -3951,12 +3889,7 @@ fn decision_and_operator_storage_failures_propagate() {
     assert!(apply_fenced_operator_command(
         &mut rejected,
         "fenced-rejected",
-        "command",
-        "widen",
-        "operator",
-        "reason",
-        seq,
-        &hash,
+        &looper("command", "widen", seq, &hash),
     )
     .is_err());
 
@@ -3967,42 +3900,19 @@ fn decision_and_operator_storage_failures_propagate() {
     assert!(apply_fenced_operator_command(
         &mut accepted,
         "fenced-accepted",
-        "command",
-        "retry",
-        "operator",
-        "reason",
-        seq,
-        &hash,
+        &looper("command", "retry", seq, &hash),
     )
     .is_err());
 
     let replay_path = dir.path().join("replayed-rejection.db");
     let mut replayed = parked_store(&replay_path, "replayed-rejection");
     let (seq, hash) = replayed.head_hash("replayed-rejection").unwrap();
-    let rejected = apply_fenced_operator_command(
-        &mut replayed,
-        "replayed-rejection",
-        "same-command",
-        "widen",
-        "operator",
-        "reason",
-        seq,
-        &hash,
-    )
-    .unwrap();
+    let widen = looper("same-command", "widen", seq, &hash);
+    let rejected =
+        apply_fenced_operator_command(&mut replayed, "replayed-rejection", &widen).unwrap();
     assert!(matches!(rejected, FencedCommandOutcome::Rejected { .. }));
     assert!(matches!(
-        apply_fenced_operator_command(
-            &mut replayed,
-            "replayed-rejection",
-            "same-command",
-            "widen",
-            "operator",
-            "reason",
-            seq,
-            &hash,
-        )
-        .unwrap(),
+        apply_fenced_operator_command(&mut replayed, "replayed-rejection", &widen).unwrap(),
         FencedCommandOutcome::Rejected { .. }
     ));
 }
@@ -4111,7 +4021,7 @@ fn seat_input_spells_the_workdir_and_result_path_absolutely() {
     // A path that cannot be made absolute at all is threaded as written:
     // the driver receives what it would have received anyway, and the
     // refusal belongs to the driver rather than to this composition.
-    engine.repo = Some(std::path::PathBuf::new());
+    engine.repo = std::path::PathBuf::new();
     let unresolvable = engine
         .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
         .unwrap();
@@ -4304,7 +4214,6 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     engine
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result":"clean"}),
         )
         .unwrap();
@@ -4317,9 +4226,7 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     git_commit(&repo, "moved");
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "brokkr": reviewed }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[2].payload["inputs"].clone();
     assert_eq!(inputs["drift_detected"], json!(true));
     assert_eq!(inputs["dirty_worktrees"], json!(false));
@@ -4347,9 +4254,7 @@ fn an_unresolvable_realm_at_ship_is_drift_not_silence() {
     git_commit(&elsewhere, "unrelated");
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "brokkr": reviewed }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
     assert_eq!(
         inputs["drift_detected"],
@@ -4372,9 +4277,7 @@ fn a_head_recorded_before_the_map_still_drives_the_ship_gate() {
     let reviewed = git_commit(&repo, "reviewed");
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "repo": reviewed }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
     assert_eq!(inputs["drift_detected"], json!(false));
     assert_eq!(
@@ -4399,7 +4302,6 @@ fn a_repository_the_map_does_not_name_keeps_the_unkeyed_facts() {
     engine
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result":"clean"}),
         )
         .unwrap();
@@ -4421,7 +4323,6 @@ fn realm_facts_state_only_what_the_tree_answers() {
     engine
         .decide(
             &state(Some("ship"), Cursor::Idle),
-            "effect",
             json!({"result":"shipped"}),
         )
         .unwrap();
@@ -4496,7 +4397,6 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     engine
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result":"clean"}),
         )
         .unwrap();
@@ -4507,9 +4407,7 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     );
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "alpha": moved }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[2].payload["inputs"].clone();
     let facts = inputs["realm_facts"].clone();
     assert_eq!(keys(&facts), vec!["alpha".to_string()]);
@@ -4543,9 +4441,7 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     );
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "beta": beta_head }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
     let facts = inputs["realm_facts"].clone();
     assert_eq!(keys(&facts), vec!["beta".to_string()]);
@@ -4578,9 +4474,7 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     );
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "alpha": moved }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
     assert_eq!(inputs["drift_detected"], json!(true));
     assert_eq!(inputs["realm_facts"]["beta"]["drift_detected"], json!(true));
@@ -4616,7 +4510,6 @@ fn a_resumed_run_keeps_the_world_its_manifest_pinned() {
     resumed
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result": "clean"}),
         )
         .unwrap();
@@ -4711,6 +4604,7 @@ pub(super) fn capturing_driver_command(
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
     let captures = tempfile::tempdir().unwrap();
     let first_capture = captures.path().join("first.json");
@@ -4804,14 +4698,19 @@ fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
         final_step["input"]["house_rules"], "One realm rule.\n",
         "a sequence panel passes the realm house through to every member"
     );
-    let first_prompt = brokkr_protocol::adapters::render_prompt(
-        &first["input"],
-        brokkr_protocol::adapters::AdapterKind::Claude,
-    );
-    let final_prompt = brokkr_protocol::adapters::render_prompt(
-        &final_step["input"],
-        brokkr_protocol::adapters::AdapterKind::Claude,
-    );
+    // The fixture charters are names, not files; the vocabulary is read
+    // over a readable empty charter, since an unreadable one refuses (#372).
+    let render = |input: &Value| {
+        let mut input = input.clone();
+        input["role_path"] = json!("/dev/null");
+        brokkr_protocol::adapters::render_prompt(
+            &input,
+            brokkr_protocol::adapters::AdapterKind::Claude,
+        )
+        .unwrap()
+    };
+    let first_prompt = render(&first["input"]);
+    let final_prompt = render(&final_step["input"]);
     assert!(first_prompt.contains("<one of: drafted, blocked>"));
     assert!(!first_prompt.contains("<one of: pass, fail>"));
     assert!(final_prompt.contains("<one of: pass, fail>"));
@@ -5006,7 +4905,7 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
             .iter()
             .any(|event| event.payload["checkpoint"]["step_name"] == "validate"));
 
-        engine.decide(&current, "upstream-effect", result).unwrap();
+        engine.decide(&current, result).unwrap();
         let decided = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
         assert_eq!(decided.payload["rule_id"], expected_rule);
         assert_eq!(decided.payload["next"].as_str(), expected_next);
@@ -5017,6 +4916,7 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
 /// overrule. Clarify parks on a contradictory `clear`; analyze still lets
 /// its judge classify the finding and routes on the returned `drift_in`.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compiled_loop_check_failure_cannot_be_judged_away() {
     let (_dir, mut engine) = compiled_triage_engine();
     let SeatBody::Sequence { mut steps } = engine.bundle.seats["clarify"].body.clone() else {
@@ -5050,6 +4950,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: driver_command(
                 "check-effect",
                 "check-attempt",
@@ -5120,6 +5021,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: driver_command(
                 "clean-effect",
                 "clean-attempt",
@@ -5186,6 +5088,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: driver_command(
                 "analyze-effect",
                 "analyze-attempt",
@@ -5223,7 +5126,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
         .payload["result"]
         .clone();
     assert_eq!(result["inputs"]["drift_in"], "design");
-    engine.decide(&current, "analyze-effect", result).unwrap();
+    engine.decide(&current, result).unwrap();
     let decided = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
     assert_eq!(decided.payload["rule_id"], "ANALYZE-DRIFT-DESIGN");
     assert_eq!(decided.payload["next"], "design");
@@ -5241,6 +5144,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
 /// the seat's first law, and why this test asserts the mechanism rather
 /// than pretending the engine forbids the lowering.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
     for (chief_rules, expected) in [("security-hold", "security-hold"), ("residual", "residual")] {
         let capture = tempfile::tempdir().unwrap();
@@ -5419,7 +5323,6 @@ fn review_inputs(engine: &mut Engine, claim: Value) -> Map<String, Value> {
     engine
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result": "clean", "inputs": claim}),
         )
         .unwrap();
@@ -5464,7 +5367,6 @@ fn a_returning_implement_exposes_its_docs_delta_and_takes_review_directly() {
     engine
         .decide(
             &returned,
-            "effect",
             json!({"result": "complete", "inputs": {"fixes_docs_only": false}}),
         )
         .unwrap();
@@ -5511,11 +5413,7 @@ fn a_verify_fail_return_with_a_docs_delta_still_goes_through_verify() {
     returned.visits.insert("implement".into(), 2);
     returned.last_decision = Some(json!({"from": "verify"}));
     engine
-        .decide(
-            &returned,
-            "effect",
-            json!({"result": "complete", "inputs": {}}),
-        )
+        .decide(&returned, json!({"result": "complete", "inputs": {}}))
         .unwrap();
     let event = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
     assert!(event.payload["inputs"].get("fixes_docs_only").is_none());
@@ -5543,18 +5441,17 @@ fn a_review_return_exposes_no_docs_fact_without_both_heads() {
     let mut returned = state(Some("implement"), Cursor::Idle);
     returned.last_decision = Some(json!({"from": "review"}));
 
-    engine
-        .decide(&returned, "first", json!({"result": "complete"}))
-        .unwrap();
-    let event = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
-    assert!(event.payload["inputs"].get("fixes_docs_only").is_none());
-
-    std::fs::remove_dir_all(repo.join(".git")).unwrap();
-    engine
-        .decide(&returned, "second", json!({"result": "complete"}))
-        .unwrap();
-    let event = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
-    assert!(event.payload["inputs"].get("fixes_docs_only").is_none());
+    // Without both heads, then without a repository at all.
+    for unreadable in [false, true] {
+        if unreadable {
+            std::fs::remove_dir_all(repo.join(".git")).unwrap();
+        }
+        engine
+            .decide(&returned, json!({"result": "complete"}))
+            .unwrap();
+        let event = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
+        assert!(event.payload["inputs"].get("fixes_docs_only").is_none());
+    }
 }
 
 /// Ruling 1: the protected phase and a returning implement carry their
@@ -6154,10 +6051,15 @@ fn a_refused_checkpoint_becomes_the_attempts_outcome_once_its_driver_ends() {
     else {
         panic!("the driver spawned");
     };
-    let AttemptOutcome::Failed { error } = report.outcome else {
+    let AttemptOutcome::Failed { error } = report.settled_outcome() else {
         panic!("a refused checkpoint fails the attempt");
     };
     assert!(refusal_text(&error), "{error}");
+    assert!(
+        matches!(&report.outcome, AttemptOutcome::Succeeded { result }
+            if *result == json!({"result":"complete"})),
+        "the outcome received is kept beside the refusal"
+    );
     assert_eq!(
         driven
             .store

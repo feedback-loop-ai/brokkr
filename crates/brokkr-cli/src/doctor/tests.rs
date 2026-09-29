@@ -923,18 +923,16 @@ fn a_host_only_dialect_tool_is_unreachable_in_the_gate_box() {
     // The host PATH finds the fixture, which is the reading doctor used to
     // take and report as green. PATH is prepended, never replaced, and
     // restored before the box is opened, so no other test's lookup moves.
-    let original = std::env::var_os("PATH");
-    let mut search = tools.clone().into_os_string();
-    if let Some(path) = &original {
-        search.push(":");
-        search.push(path);
-    }
-    std::env::set_var("PATH", &search);
-    let on_host = tool_version("brokkr-218-fixture");
-    match original {
-        Some(path) => std::env::set_var("PATH", path),
-        None => std::env::remove_var("PATH"),
-    }
+    let on_host = {
+        let mut env = crate::tests::env_guard::EnvGuard::lock();
+        let mut search = tools.clone().into_os_string();
+        if let Some(path) = std::env::var_os("PATH") {
+            search.push(":");
+            search.push(path);
+        }
+        env.set("PATH", &search);
+        tool_version("brokkr-218-fixture")
+    };
     assert_eq!(on_host, Some("fixture 1.0.0".into()));
 
     // ...but the gate's box binds no part of that home, so the same bare
@@ -1111,7 +1109,7 @@ fn public_doctor_includes_the_workspace_house_check() {
     let dir = tempfile::tempdir().unwrap();
     let report = doctor(
         None,
-        &dir.path().join("forge.db"),
+        Some(&dir.path().join("forge.db")),
         &dir.path().join("secrets.env"),
         None,
     );
@@ -2441,12 +2439,11 @@ fn recorded_invocation_version(invocation: &DshInvocation) -> Option<String> {
 }
 
 /// Task 8.8(c), hermetically: the adapter seam's `BROKKR_DSH_BIN`, then
-/// `FORGE_DSH_BIN`, then PATH precedence moves BOTH halves of the DSH
-/// line together.
+/// PATH precedence moves BOTH halves of the DSH line together.
 ///
 /// The environment is process-global, so each case runs in a re-executed
 /// copy of this test binary rather than racing every other test here.
-/// Each child installs three distinguishable DSH trees and asserts that
+/// Each child installs two distinguishable DSH trees and asserts that
 /// the version probe and the producer-derived composite both describe the
 /// one the seam selected — the pairing the measured 2026-09-19 defect
 /// broke.
@@ -2456,6 +2453,7 @@ fn recorded_invocation_version(invocation: &DshInvocation) -> Option<String> {
 /// production seam is platform-correct; only this fixture is not.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
     const CASE: &str = "BROKKR_DOCTOR_SEAM_CASE";
     const CHOSEN: &str = "BROKKR_DOCTOR_SEAM_CHOSEN";
@@ -2604,9 +2602,8 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
 
     let dir = tempfile::tempdir().unwrap();
     let primary = install_dsh(&dir.path().join("primary"), "0.1.5-rc.2");
-    let legacy = install_dsh(&dir.path().join("legacy"), "0.1.4");
     let on_path = install_dsh(&dir.path().join("pathwise"), "0.1.3");
-    assert_ne!(primary, legacy);
+    assert_ne!(primary, on_path);
     let home = dir.path().join("primary/home");
 
     // The child's whole `PATH`: a scripted `node` so the producer never
@@ -2631,35 +2628,18 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
     let broken_home = dir.path().join("broken-home");
     std::fs::create_dir_all(&broken_home).unwrap();
 
-    for (case, set_primary, set_legacy, chosen, rejected, dsh_home) in [
-        // Primary wins over legacy.
-        ("both", true, true, primary.as_str(), legacy.as_str(), &home),
-        // Legacy alone is honoured.
-        (
-            "legacy-only",
-            false,
-            true,
-            legacy.as_str(),
-            primary.as_str(),
-            &home,
-        ),
+    for (case, set_primary, chosen, rejected, dsh_home) in [
+        // The override wins over PATH.
+        ("override", true, primary.as_str(), on_path.as_str(), &home),
         // Neither: the bare name the adapter declares, resolved on the
         // child's PATH — and reported as the FILE it resolved to.
-        (
-            "neither",
-            false,
-            false,
-            on_path.as_str(),
-            primary.as_str(),
-            &home,
-        ),
+        ("neither", false, on_path.as_str(), primary.as_str(), &home),
         // The same seam, over an installation the producer cannot read.
         (
             "unreadable",
             true,
-            false,
             primary.as_str(),
-            legacy.as_str(),
+            on_path.as_str(),
             &broken_home,
         ),
     ] {
@@ -2680,13 +2660,9 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             .env(REJECTED, rejected)
             .env("DSH_HOME", dsh_home)
             .env("PATH", &shims)
-            .env_remove("BROKKR_DSH_BIN")
-            .env_remove("FORGE_DSH_BIN");
+            .env_remove("BROKKR_DSH_BIN");
         if set_primary {
             child.env("BROKKR_DSH_BIN", &primary);
-        }
-        if set_legacy {
-            child.env("FORGE_DSH_BIN", &legacy);
         }
         // Only ETXTBSY is retried: a test that re-executes its own
         // binary can reach `exec` while another thread of this run still
@@ -2808,6 +2784,104 @@ fn a_failed_selection_probes_nothing_and_carries_its_cause() {
         observed.cause.as_deref(),
         Some("the DSH layout is unreadable: /override/dsh: missing")
     );
+}
+
+/// R4 (review of run `124cca78`) at doctor's callback seam, over the
+/// REAL selection: a bare or blank-tailed `#!/usr/bin/env` launcher is
+/// refused by the resolver itself, so the line carries the exact
+/// missing-program cause and neither the probe nor the producer is
+/// called. Both callbacks panic, so admitting the launcher as "no node
+/// selected" fails here without spawning the loop it would start.
+///
+/// The protocol crate's `select_in` is private to its own suite; doctor
+/// reaches the same lookup through `DshSeams::selected`, which reads the
+/// process `PATH`, so each case runs in a re-executed copy of this test
+/// binary. The home admits (asserted below), so the refusal is the only
+/// thing between the selection and the probe.
+#[cfg(unix)]
+#[test]
+fn an_env_launcher_without_a_program_reaches_neither_doctor_callback() {
+    const CASE: &str = "BROKKR_DOCTOR_BLANK_ENV_CASE";
+    const LAUNCHER: &str = "BROKKR_DOCTOR_BLANK_ENV_LAUNCHER";
+
+    if let Ok(case) = std::env::var(CASE) {
+        let launcher = std::env::var(LAUNCHER).expect("the parent names the launcher");
+        let observed = dsh_provider_line_with(
+            &dsh_adapter_declaring(None),
+            |invocation| {
+                panic!("{case}: a probe of {invocation:?} after a missing-program refusal")
+            },
+            DshSeams::selected,
+            |_| panic!("{case}: no selection, no producer call"),
+        );
+        assert_eq!(observed.binary, "dsh", "{case}: the spelling looked for");
+        assert_eq!(observed.version, None, "{case}");
+        assert!(!observed.warning, "{case}");
+        assert_eq!(observed.suffix, "", "{case}");
+        assert_eq!(
+            observed.cause,
+            Some(format!(
+                "the DSH layout is unreadable: {launcher}: its #! interpreter '/usr/bin/env' is \
+                 the platform's env utility given no nonblank program, so the program it would \
+                 run is the launcher itself"
+            )),
+            "{case}: the exact missing-program cause"
+        );
+        return;
+    }
+
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join("home");
+    for (tag, shebang) in [
+        ("bare", "#!/usr/bin/env\n"),
+        ("blank", "#!/usr/bin/env \t \n"),
+    ] {
+        let search = root.join(tag);
+        std::fs::create_dir_all(&search).unwrap();
+        let launcher = search.join("dsh");
+        std::fs::write(&launcher, format!("{shebang}echo v9.9.9\n")).unwrap();
+        std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let launcher = launcher.display().to_string();
+        assert_eq!(
+            seams_at(&launcher, &home).unwrap().admission.map(|_| ()),
+            Ok(()),
+            "{tag}: the home admits"
+        );
+
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child
+            .args([
+                "doctor::tests::an_env_launcher_without_a_program_reaches_neither_doctor_callback",
+                "--exact",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(CASE, tag)
+            .env(LAUNCHER, &launcher)
+            .env("DSH_HOME", &home)
+            .env("PATH", &search)
+            .env_remove("BROKKR_DSH_BIN");
+        // Only ETXTBSY is retried, as in the seam-precedence test (#255).
+        let output = loop {
+            match child.output() {
+                Ok(output) => break output,
+                Err(error) if error.raw_os_error() == Some(26) => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(error) => panic!("{tag}: the child test binary runs: {error}"),
+            }
+        };
+        let said = String::from_utf8_lossy(&output.stdout).into_owned()
+            + &String::from_utf8_lossy(&output.stderr);
+        // A filter that matches nothing exits zero.
+        assert!(
+            said.contains("1 passed") || said.contains("1 failed"),
+            "{tag}: the child ran the case: {said}"
+        );
+        assert!(output.status.success(), "{tag}: {said}");
+    }
 }
 
 /// R1 and R3 (review of run `124cca78`) at doctor's callback seam: a

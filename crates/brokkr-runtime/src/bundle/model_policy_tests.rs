@@ -32,7 +32,9 @@ const POLICY: &str = r#"{
 
 /// One adapter as data: a provider that declares a tier, a grant, both
 /// or neither. `None` is the ABSENT declaration every fail-closed
-/// assertion below turns on — the key is not written at all.
+/// assertion below turns on — the key is not written at all. A grant is
+/// written as its egress class: `true` as `contracted`, `false` as
+/// `uncontracted`.
 fn adapter(name: &str, tier: Option<&str>, grant: Option<bool>) -> Value {
     let mut value = json!({
         "provider": name,
@@ -49,7 +51,7 @@ fn adapter(name: &str, tier: Option<&str>, grant: Option<bool>) -> Value {
         value["trust_tier"] = json!(tier);
     }
     if let Some(grant) = grant {
-        value["binding_grant"] = json!(grant);
+        value["egress"] = json!(if grant { "contracted" } else { "uncontracted" });
     }
     value
 }
@@ -550,6 +552,72 @@ fn a_longer_flag_of_the_same_family_leaves_both_pins_stated() {
             .contains("do not pin a model"),
         "a model pinned twice is unreadable however many other flags surround it"
     );
+}
+
+/// Issue #373: the dsh driver refuses every `--model…` word but the
+/// separate `--model <id>` before it spawns, so a dsh seat carrying one
+/// is refused here, at compile, rather than parked after its run exists.
+/// The joined pin and the long neighbour both readers above accept are
+/// the two words it names.
+#[test]
+fn a_dsh_seat_is_refused_at_compile_for_the_model_words_its_driver_refuses_at_spawn() {
+    let fixture = Fixture::new();
+    let mut dsh = adapter("dsh", Some("untrusted"), Some(false));
+    dsh["models"] = json!({"flash": "deepseek-v4-flash"});
+    dsh["model_flag"] = json!("--model");
+    dsh["efforts"] = json!(["low", "medium", "high", "xhigh"]);
+    dsh["effort_flag"] = json!("--effort");
+    fixture.write_adapter(dsh);
+    // No trailing positional word: decision 0065's dsh command grammar
+    // places none, and would refuse the seat for that word before the
+    // model words under test were ever read (decision 0066 ruling 6).
+    let dsh_seat = |pin: &[&str]| {
+        let mut command = vec!["{brokkr}", "driver", "dsh", "--"];
+        command.extend_from_slice(pin);
+        command.extend_from_slice(&["--effort", "medium"]);
+        let mut work = seat("dsh", None, None);
+        work["driver"]["command"] = json!(command);
+        work
+    };
+
+    fixture
+        .compile(dsh_seat(&["--model", "deepseek-v4-flash"]))
+        .expect("the separate spelling is the one the dsh driver admits");
+    for pin in [
+        &["--model=deepseek-v4-flash"][..],
+        &[
+            "--model",
+            "deepseek-v4-flash",
+            "--model-fallback",
+            "deepseek-v4-pro",
+        ],
+        &[
+            "--model",
+            "deepseek-v4-flash",
+            "--model-fallback=deepseek-v4-pro",
+        ],
+    ] {
+        match fixture.compile(dsh_seat(pin)) {
+            Err(CompileError::Invalid(refusal)) => assert_eq!(
+                refusal,
+                "dsh seats 'work' carry a '--model…' word the dsh driver refuses at \
+                 spawn; write the pin as '--model <concrete-model-id>' and no other \
+                 '--model…' flag (issue #373)",
+                "{pin:?}"
+            ),
+            other => panic!("{pin:?} must be refused at compile: {other:?}"),
+        }
+    }
+
+    // The same words on any other built-in stay what decision 0040
+    // ruling 2 reads them as: a pin, and a neighbour walked past.
+    let claude = json!({"work": {"driver": {"command": [
+        "{brokkr}", "driver", "claude", "--",
+        "--model=claude-opus-5", "--model-fallback", "claude-sonnet-5",
+        "--effort", "high"
+    ]}}});
+    enforce_model_pins(claude.as_object().unwrap(), None)
+        .expect("only the dsh driver refuses these words at spawn");
 }
 
 /// Decision 0040 ruling 2's premise, asserted on the function that holds
@@ -1149,6 +1217,7 @@ fn a_route_named_on_the_adapters_own_flag_is_the_route_that_is_read() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_value_attached_to_a_short_flag_is_the_pin_that_flag_carries() {
     // Decision 0040 ruling 2, on the shape that has three spellings.
     // A SHORT flag is one dash and one character, and the getopt
@@ -1937,17 +2006,6 @@ fn a_tier_outside_the_vocabulary_refuses_at_load() {
 }
 
 #[test]
-fn a_grant_that_is_not_a_boolean_refuses_at_load() {
-    let fixture = Fixture::new();
-    let mut broken = adapter("wordy", None, None);
-    broken["binding_grant"] = json!("yes");
-    fixture.write_adapter(broken);
-    let refusal = fixture.refusal(seat("judge", Some("gate"), None));
-    assert!(refusal.contains("'binding_grant' is"), "{refusal}");
-    assert!(refusal.contains("the grant is a boolean"), "{refusal}");
-}
-
-#[test]
 fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     // The honest declarations item 3 of this slice recorded, asserted
     // where a future edit will trip over them: the incumbent's tier
@@ -1957,10 +2015,10 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     //
     // Decision 0036 ruling 4's MIGRATION test, and the reason it sits
     // here rather than in a new file: the clearances are the same five
-    // facts, re-read through the class vocabulary. `binding_grant: true`
-    // reads as `contracted`, and a `false` or absent grant as
-    // `uncontracted`, so every adapter carried its old clearance across
-    // the enactment unchanged. What has moved since is one operator
+    // facts, re-read through the class vocabulary. A true grant became
+    // `contracted`, and a false or absent grant `uncontracted`, so every
+    // adapter carried its old clearance across the enactment and across
+    // #355's rewrite of the shipped files. What has moved since is one operator
     // RULING, not a migration: `dsh`'s `spark` route is `local` as of
     // 2026-09-03. The adapter-level clearances below are still the five
     // the migration pinned — a route class changes no adapter's own.
@@ -1983,7 +2041,10 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
         // one class at the adapter and no routes (ruling 2), and every
         // model they map resolves to exactly where it stood the day
         // before this decision landed. `dsh` is the exception the
-        // operator has since ruled on, and it is pinned in full below.
+        // operator has since ruled on: its routes are classed in
+        // `adapters/dsh.json`, held to the dated route rulings table of
+        // the provider-adapters guide, and `tests/library_data.rs` proves
+        // both, and that every model it maps resolves to a declared class.
         if provider == "dsh" {
             continue;
         }
@@ -1997,70 +2058,6 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
         }
     }
     assert!(adapters.adapter("nobody").is_none());
-
-    // The operator ruled on 2026-09-03 that `dsh`'s `spark` route — the
-    // DGX Spark in their own building — is `local`, and on 2026-09-16
-    // that the `spark-glm` route — a vLLM on the same box — is `local`
-    // too. Those rulings are the whole of what they classed, so this
-    // states all four of `dsh`'s fronts rather than dropping the
-    // assertion that used to cover them: `uncontracted` now means two
-    // different things behind this one binary, and a test that said
-    // only "the floor" would stop telling the adapter's own word apart
-    // from nobody's word.
-    let dsh = adapters.adapter("dsh").expect("a shipped adapter");
-    assert_eq!(dsh.routes.len(), 2, "dsh classes exactly two routes");
-    assert_eq!(
-        dsh.routes.get("spark"),
-        Some(&EgressClass::Local),
-        "the operator's own hardware, ruled 2026-09-03"
-    );
-    assert_eq!(
-        dsh.routes.get("spark-glm"),
-        Some(&EgressClass::Local),
-        "the same box over vLLM, ruled 2026-09-16"
-    );
-    for (model, expected, ground) in [
-        (
-            "deepseek-v4-pro",
-            EgressClass::Uncontracted,
-            "unprefixed: dsh's own adapter class, because the id reaches \
-             whatever the harness profile resolves",
-        ),
-        (
-            "dashscope/qwen3.8-max",
-            EgressClass::Uncontracted,
-            "a route this file does not name: the floor by ruling 1, and \
-             no longer by the adapter declaring no routes at all",
-        ),
-        (
-            "spark/qwen3.8-flash",
-            EgressClass::Local,
-            "the route the operator ruled: local, and the Alibaba front \
-             beside it is not carried along",
-        ),
-        (
-            "spark-glm/GLM-5.3-Flash-EXL3",
-            EgressClass::Local,
-            "the same box over vLLM, ruled 2026-09-16: local, and still \
-             not carried onto any other front",
-        ),
-    ] {
-        assert_eq!(
-            resolve_route(dsh, model).1,
-            expected,
-            "dsh '{model}' — {ground}"
-        );
-    }
-    // And completely, over every model `dsh` maps: local exactly where
-    // the id runs on the operator's own box (`spark/`, `spark-glm/`),
-    // uncontracted everywhere else.
-    for model in dsh.models.values() {
-        let expected = match model.starts_with("spark/") || model.starts_with("spark-glm/") {
-            true => EgressClass::Local,
-            false => EgressClass::Uncontracted,
-        };
-        assert_eq!(resolve_route(dsh, model).1, expected, "dsh '{model}'");
-    }
 }
 
 #[test]
@@ -2109,8 +2106,8 @@ fn the_shipped_codex_adapter_may_now_hold_a_gate() {
 #[test]
 fn the_shipped_codex_adapter_still_binds_no_secrets() {
     // The other half of the addendum, and the half that did NOT move:
-    // codex's clearance to receive stays unruled — `binding_grant:
-    // false`, which decision 0036 ruling 4 reads as `uncontracted` — so
+    // codex's clearance to receive stays unruled — `egress:
+    // "uncontracted"`, decision 0036 ruling 4's reading of its old grant — so
     // the ruling 4 refusal must still fire for codex on the shipped
     // adapter. A future edit that grants the tier a second axis by
     // accident trips here, naming what it took.
@@ -2217,18 +2214,6 @@ fn the_shipped_dsh_adapter_re_measures_its_tool_gap_on_the_pinned_release() {
         .get("spark")
         .expect("spark stays the measured effortless route");
     assert!(spark.contains("0.1.5-rc.1"), "{spark}");
-    // The vLLM GLM lane beside it: effort refused at start
-    // (UNSUPPORTED_REASONING_EFFORT, measured 2026-09-16), so it
-    // stands for the same reason — pinned here so a re-pin that
-    // drops the route trips beside the spark half of the same task.
-    let spark_glm = dsh
-        .effortless_routes
-        .get("spark-glm")
-        .expect("spark-glm stays the measured effortless route");
-    assert!(
-        spark_glm.contains("UNSUPPORTED_REASONING_EFFORT"),
-        "{spark_glm}"
-    );
     // The neighbours are untouched by this slice: bare `unsupported`
     // stays bare, so the re-measured reason cannot be mistaken for a
     // capability somebody forgot to wire.
@@ -2249,27 +2234,21 @@ fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     // transcribed, not remembered. On 2026-09-22 (codex-cli 0.154.0)
     // `sol` and `luna` moved to `gpt-6-sol` and `gpt-6-luna`, each probed
     // with a `codex exec` turn; the `gpt-6.0-*` spellings are refused for
-    // a ChatGPT-account codex. `terra` has no 6 release and stays. The abstract names are codex's own family words —
+    // a ChatGPT-account codex. `terra` has no 6 release and stays. The
+    // pairs live once, in `adapters/codex.json` (#358); what holds here
+    // is what each must satisfy: the id is a `gpt-` slug from codex's
+    // own catalog, and the abstract names are codex's own family words —
     // NOT claude tiers, so no fallback chain written for one provider
     // can quietly land on the other.
     let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
     let codex = adapters.adapter("codex").expect("a shipped adapter");
-    assert_eq!(
-        codex.models.get("astra").map(String::as_str),
-        Some("gpt-6-astra")
-    );
-    assert_eq!(
-        codex.models.get("sol").map(String::as_str),
-        Some("gpt-6-sol")
-    );
-    assert_eq!(
-        codex.models.get("terra").map(String::as_str),
-        Some("gpt-5.6-terra")
-    );
-    assert_eq!(
-        codex.models.get("luna").map(String::as_str),
-        Some("gpt-6-luna")
-    );
+    assert!(!codex.models.is_empty(), "codex maps its catalog's models");
+    for (alias, id) in &codex.models {
+        assert!(
+            id.starts_with("gpt-"),
+            "codex '{alias}' maps '{id}', which is no slug of codex's catalog"
+        );
+    }
     for claude_tier in ["opus", "sonnet", "haiku", "fable"] {
         assert!(
             !codex.models.contains_key(claude_tier),
@@ -2852,6 +2831,7 @@ fn pinned_script_components_reject_ambiguity_and_directories() {
 /// This does not exercise Windows' native command line, MSYS startup or
 /// PowerShell command parsing, and claims no execution guarantee (0049).
 #[test]
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn pinned_script_startup_metacharacters_are_refused_at_compile_on_every_host() {
     let fixture = Fixture::new();
     fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
@@ -3181,6 +3161,7 @@ fn a_dialect_step_under_an_unboxed_boundary_is_refused_until_a_decision_admits_i
 /// pinned; and a work seat under `harness` without a `work` fragment is
 /// a capability gap.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_gate_law_reads_the_boundary_for_sites_that_declare_hands() {
     let fixture = Fixture::new();
     fixture.write_boxed_agent(
@@ -3371,6 +3352,7 @@ fn a_gate_without_hands_is_untouched_and_an_inline_model_site_with_hands_is_refu
 /// workspace capability gap: namespace refuses the untrusted tier;
 /// harness refuses the absent gate fragment, naming the provider and link.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
     let fixture = Fixture::new();
     fixture.write_agent_file(
@@ -3868,6 +3850,7 @@ fn assert_refused_at_the_dialect_step(relative: &str, refusal: &str) {
 /// And under `namespace` every shipped bundle is exactly today: the
 /// manifest `compile_with` produces, every `boundary` entry `namespace`.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured() {
     let root = workspace();
     let dialect = Dialect::load(&root.join("dialects/openspec.json"))
@@ -4150,7 +4133,7 @@ fn effortless_routes_excuse_only_their_own_lanes() {
     let seats = json!({"implement": spark()});
 
     // Exempt, with the answering digest witnessed beside the exemption.
-    let (witnessed, _resume, _resume_witness) =
+    let (witnessed, _resume, _resume_witness, _notice) =
         enforce_model_pins(seats.as_object().unwrap(), Some(&adapters)).unwrap();
     assert_eq!(
         witnessed["implement"]["dsh"],
@@ -4191,7 +4174,7 @@ fn effortless_routes_excuse_only_their_own_lanes() {
         "--model", "spark/qwen3.8-flash",
         "--effort", "low",
     ]))});
-    let (witnessed, _resume, _resume_witness) =
+    let (witnessed, _resume, _resume_witness, _notice) =
         enforce_model_pins(pinned.as_object().unwrap(), Some(&adapters)).unwrap();
     assert!(witnessed.is_empty());
 }

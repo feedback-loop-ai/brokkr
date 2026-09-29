@@ -3,6 +3,8 @@
 Status: proposed
 Date: 2026-09-08
 
+Built: built
+
 ## Context
 
 While commissioning v0.10.0, the operator requested a Brokkr release agent:

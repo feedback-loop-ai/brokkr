@@ -240,12 +240,7 @@ fn churn_the_write_lock(db: PathBuf, until: std::sync::Arc<std::sync::atomic::At
     while until.load(std::sync::atomic::Ordering::SeqCst) {
         turn += 1;
         conn.execute_batch("BEGIN IMMEDIATE").unwrap();
-        conn.execute(
-            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-             VALUES (?1, 'churn', 'self', '{}', '2026-01-01T00:00:00Z')",
-            rusqlite::params![format!("churn-{turn}")],
-        )
-        .unwrap();
+        brokkr_store::test_support::plant_run(&conn, &format!("churn-{turn}"), "{}").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(15));
         conn.execute_batch("ROLLBACK").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(3));
@@ -278,6 +273,9 @@ fn two_real_engines_share_one_journal_and_neither_exits_on_busy() {
     let spawn = |role: &str| {
         Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "two_engines_engine_child", "--nocapture"])
+            // The child starts without a repository, so it operates the
+            // directory it stands in: the scratch one, never this tree.
+            .current_dir(dir.path())
             .env(DB_VAR, &db)
             .env(BUNDLE_VAR, &bundle)
             .env(ROLE_VAR, role)

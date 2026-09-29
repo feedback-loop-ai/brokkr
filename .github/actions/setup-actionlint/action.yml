@@ -1,0 +1,27 @@
+name: setup-actionlint
+description: >-
+  Install actionlint from its own release, verified by digest, for the
+  non-Rust lints job.
+# actionlint is pinned by version AND digest and installed from rhysd's own
+# release: the digest is the one the release's checksums file publishes,
+# checked on the host before it was recorded here (issue #339). Bumping the
+# version means bumping the digest.
+runs:
+  using: composite
+  steps:
+    - name: actionlint, pinned by version and digest
+      shell: bash
+      env:
+        ACTIONLINT_VERSION: 1.7.12
+        ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      run: |
+        set -euo pipefail
+        asset="actionlint_${ACTIONLINT_VERSION}_linux_amd64"
+        tarball="${RUNNER_TEMP}/${asset}.tar.gz"
+        curl -sSfL --retry 3 -o "$tarball" \
+          "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${asset}.tar.gz"
+        echo "${ACTIONLINT_SHA256}  ${tarball}" | sha256sum -c -
+        mkdir -p "${RUNNER_TEMP}/bin"
+        tar xzf "$tarball" -C "${RUNNER_TEMP}/bin" actionlint
+        install -m 0755 "${RUNNER_TEMP}/bin/actionlint" "$HOME/.cargo/bin/actionlint"
+        actionlint -version

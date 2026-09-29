@@ -13,29 +13,6 @@ fn same_place(answered: &str, built: &Path) -> bool {
     resolve(Path::new(answered)) == resolve(built)
 }
 
-/// A host path spelled the way THIS platform spells an absolute one.
-/// What `--bwrap`, `--store` and `--trusted` must BE is absolute, and
-/// which spellings are absolute is the operating system's answer, not a
-/// shape: Windows calls a rooted path with no drive letter RELATIVE, so
-/// a bare `/usr/bin/bwrap` literal there measures the fixture rather
-/// than the runner — the runner refuses it before it reads a single
-/// profile token, and every argv assertion behind that refusal stops
-/// meaning anything. The drive prefix is the whole difference, because
-/// every Rust path API takes forward slashes on Windows too, so the
-/// shapes below stay the ones a reader recognises.
-#[cfg(windows)]
-macro_rules! absolute {
-    ($path:literal) => {
-        concat!("C:", $path)
-    };
-}
-#[cfg(not(windows))]
-macro_rules! absolute {
-    ($path:literal) => {
-        $path
-    };
-}
-
 /// One name inside a directory, spelled the way the runner spells it.
 /// The runner composes its argv with `Path::join`, which uses the host's
 /// own separator; a `/` a test glues on by hand agrees with that on Unix
@@ -76,7 +53,7 @@ fn dsh_workspace_write_profile(workspace: &Path) -> Vec<String> {
 }
 
 /// The absolute bubblewrap the driver probed and the runner must exec.
-const BWRAP: &str = absolute!("/usr/bin/bwrap");
+const BWRAP: &str = "/usr/bin/bwrap";
 
 /// A linked worktree's administrative layout on disk, exactly as `git
 /// worktree add` writes it: `<common>/worktrees/<name>` with a `gitdir`
@@ -199,6 +176,7 @@ fn runner_args_for(
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
     let layout = Layout::linked();
     let argv = layout.argv(&["bash", "-lc", "git add -A"]).unwrap();
@@ -490,6 +468,7 @@ fn a_bind_whose_source_is_not_its_destination_is_not_the_workspace_grant() {
 /// entry is exercised here, and an option outside the table refuses the
 /// command rather than being skipped.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_known_bubblewrap_option_is_stepped_over_by_its_own_arity() {
     let none: &[&str] = &[];
     /// One row of the table under test: the option, how many arguments
@@ -1075,31 +1054,21 @@ fn the_runner_refuses_a_malformed_scope_or_profile() {
     assert!(runner_argv(&s(&head))
         .unwrap_err()
         .contains("--bwrap is required"));
-    assert!(runner_argv(&s(
-        &[&head[..], &["--bwrap", absolute!("/bin/bwrap")][..]].concat()
-    ))
-    .unwrap_err()
-    .contains("--store is required"));
+    assert!(
+        runner_argv(&s(&[&head[..], &["--bwrap", "/bin/bwrap"][..]].concat()))
+            .unwrap_err()
+            .contains("--store is required")
+    );
     assert!(runner_argv(&s(&[
         &head[..],
-        &[
-            "--bwrap",
-            absolute!("/bin/bwrap"),
-            "--store",
-            absolute!("/tmp/store")
-        ][..]
+        &["--bwrap", "/bin/bwrap", "--store", "/tmp/store"][..]
     ]
     .concat()))
     .unwrap_err()
     .contains("--trusted is required"));
     assert!(runner_argv(&s(&[
         &head[..],
-        &[
-            "--bwrap",
-            absolute!("/bin/bwrap"),
-            "--bwrap",
-            absolute!("/other/bwrap")
-        ][..]
+        &["--bwrap", "/bin/bwrap", "--bwrap", "/other/bwrap"][..]
     ]
     .concat()))
     .unwrap_err()
@@ -1120,11 +1089,11 @@ fn the_runner_refuses_a_malformed_scope_or_profile() {
             &head[..],
             &[
                 "--bwrap",
-                pick("--bwrap", absolute!("/bin/bwrap")),
+                pick("--bwrap", "/bin/bwrap"),
                 "--store",
-                pick("--store", absolute!("/tmp/store")),
+                pick("--store", "/tmp/store"),
                 "--trusted",
-                pick("--trusted", absolute!("/tmp/trusted")),
+                pick("--trusted", "/tmp/trusted"),
             ][..],
         ]
         .concat()))
@@ -2474,13 +2443,13 @@ fn walk(root: &Path) -> Vec<String> {
 /// 3. **`/var/tmp`**, the system temporary directory the profile does
 ///    NOT replace — it puts its tmpfs over `/tmp` and nothing else.
 ///
-/// The third is what makes the proof runnable under the exact-coverage
-/// gate: `scripts/coverage-exact.sh` gives cargo-llvm-cov a unique target
-/// directory under `${TMPDIR:-/tmp}`, so on a CI runner with no `TMPDIR`
-/// the test binary itself runs from `/tmp` and the first two candidates
-/// are both inside the tmpfs. Without a third the proof would skip there
-/// — and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` would rightly turn that skip
-/// into a failure. `None` when none of the three can hold a directory,
+/// The third is what keeps the proof runnable under the exact-coverage
+/// gate wherever its instrumented target sits: `scripts/coverage-exact.sh`
+/// builds it under its cache root, which a host may place in `/tmp`
+/// (`BROKKR_COVERAGE_CACHE`), and on a runner with no `TMPDIR` the first
+/// two candidates are then both inside the tmpfs. Without a third the
+/// proof would skip there — and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` would
+/// rightly turn that skip into a failure. `None` when none of the three can hold a directory,
 /// which is still a skip rather than a proof.
 fn fixture_root() -> Option<tempfile::TempDir> {
     fixture_root_in([
@@ -2517,8 +2486,8 @@ fn fixture_root_in(
 
 /// The proof above must be RUNNABLE on an ordinary CI runner, not only on
 /// a host whose operator exported a `TMPDIR` outside `/tmp`. Under
-/// `scripts/coverage-exact.sh` the test binary itself runs from
-/// `${TMPDIR:-/tmp}/forge-coverage.*/target`, so on a runner with no
+/// `scripts/coverage-exact.sh` the test binary itself runs from the gate's
+/// cache root, which a host may place in `/tmp`, so on a runner with no
 /// `TMPDIR` the binary's own directory AND `std::env::temp_dir()` are both
 /// inside the tmpfs the profile creates — and a proof that skips there is
 /// a proof `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` rightly fails the run over.
@@ -2608,6 +2577,7 @@ fn the_fixture_root_refuses_the_profiles_tmpfs_and_takes_the_next_place() {
 /// skipping, so this proof cannot report `ok` without running.
 #[cfg(target_os = "linux")]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     use crate::hands::{boundary_evidence_required, skip_boundary_proof};
     let required = boundary_evidence_required();

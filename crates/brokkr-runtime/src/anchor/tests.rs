@@ -6,14 +6,7 @@ const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 fn repo() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    for args in [
-        &["init", "-q"][..],
-        &["config", "user.email", "test@example.invalid"],
-        &["config", "user.name", "test"],
-        &["config", "commit.gpgsign", "false"],
-    ] {
-        git(dir.path(), args, None).unwrap();
-    }
+    crate::realms::tests::initialised(dir.path());
     dir
 }
 
@@ -255,14 +248,8 @@ fn the_patch_identity_survives_a_rebase_and_names_the_file_that_changed() {
 /// that is its sibling's too.
 #[test]
 fn a_path_is_a_name_not_a_pattern_and_keeps_its_own_id() {
-    // The colon is pathspec magic and the point of the test; NTFS reads it
-    // as a stream separator, so Windows keeps the glob and the non-ASCII
-    // byte and drops the colon.
-    let odd = if cfg!(windows) {
-        "docs/a[1]ð.md"
-    } else {
-        "docs/:a[1]ð.md"
-    };
+    // The colon is pathspec magic and the point of the test.
+    let odd = "docs/:a[1]ð.md";
     let dir = repo();
     git(
         dir.path(),
@@ -334,19 +321,14 @@ fn an_unknown_anchor_version_is_refused_not_guessed() {
 
 #[test]
 fn a_vouched_head_is_one_full_recorded_object_id_or_nothing() {
-    let event = |reviewed_heads: serde_json::Value| EventEnvelope {
-        run_id: "run".into(),
-        seq: 1,
-        event_id: "event".into(),
-        event_schema_version: 1,
-        event_type: EventType::TransitionDecided,
-        payload: json!({"inputs": {"reviewed_heads": reviewed_heads}}),
-        causation_id: None,
-        correlation_id: "run".into(),
-        attempt_id: None,
-        recorded_at: "2026-09-02T00:00:00Z".into(),
-        previous_hash: "0".repeat(64),
-        event_hash: "a".repeat(64),
+    let event = |reviewed_heads: serde_json::Value| {
+        crate::envelope_builder::EnvelopeBuilder::new(
+            EventType::TransitionDecided,
+            json!({"inputs": {"reviewed_heads": reviewed_heads}}),
+        )
+        .at("2026-09-02T00:00:00Z")
+        .hash("a".repeat(64))
+        .build()
     };
     let head = "A".repeat(40);
     assert_eq!(

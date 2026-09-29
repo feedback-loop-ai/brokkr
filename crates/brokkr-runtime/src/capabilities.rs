@@ -992,6 +992,10 @@ impl NativeInventory {
     /// harness brokkr models no grammar for (`exec`, an opaque custom
     /// driver) has no final command the engine reads, so nothing is asked
     /// of it here. No refusal echoes a declared token.
+    #[expect(
+        clippy::excessive_nesting,
+        reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+    )]
     pub fn check_declared(&self, what: &str, harness: &str) -> Result<(), String> {
         use launch::grammar::{self, ListKind};
         let NativeInventory::Known { known, selection } = self else {
@@ -1648,6 +1652,10 @@ impl Authority {
 
     /// Why this candidate cannot hold `capability`, or the holding and
     /// the native key that serves it.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+    )]
     fn holding(
         &self,
         site: &SiteAsks,
@@ -1890,6 +1898,10 @@ impl Authority {
     /// this candidate's harness is known to have is switched ON if held
     /// through it and OFF otherwise — and one that cannot be switched off
     /// refuses the seat (ruling 4).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+    )]
     fn native_plan(
         &self,
         who: brokkr_protocol::native_controls::Site<'_>,

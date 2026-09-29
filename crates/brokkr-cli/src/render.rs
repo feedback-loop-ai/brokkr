@@ -47,7 +47,7 @@ const FEATURE_FLOOR: usize = 8;
 /// A string safe to interpolate into a terminal frame. The field is
 /// private and the only constructor sanitizes: this is enforced by
 /// construction, not by discipline.
-pub struct Safe(String);
+pub(crate) struct Safe(String);
 
 /// The formatting characters that reorder or hide a line without being
 /// control characters: the Arabic letter mark (U+061C), the zero-width
@@ -67,7 +67,7 @@ fn reorders(character: char) -> bool {
 }
 
 impl Safe {
-    pub fn new(text: &str) -> Safe {
+    pub(crate) fn new(text: &str) -> Safe {
         Safe(
             text.chars()
                 .filter(|c| !c.is_control() && !reorders(*c))
@@ -75,17 +75,17 @@ impl Safe {
         )
     }
 
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 
     /// Display width in `char`s — computed on the sanitized text, so a
     /// stripped escape sequence cannot claim invisible columns.
-    pub fn width(&self) -> usize {
+    pub(crate) fn width(&self) -> usize {
         self.0.chars().count()
     }
 
-    pub fn padded(&self, width: usize) -> String {
+    pub(crate) fn padded(&self, width: usize) -> String {
         let mut out = self.0.clone();
         for _ in self.width()..width {
             out.push(' ');
@@ -96,13 +96,13 @@ impl Safe {
 
 /// How the terminal wants to be written to. Both facts come from the
 /// environment; the rules that read them are pure.
-pub struct Style {
+pub(crate) struct Style {
     pub color: bool,
     pub width: usize,
 }
 
 impl Style {
-    pub fn detect() -> Style {
+    pub(crate) fn detect() -> Style {
         Style {
             color: color_enabled(
                 std::io::stdout().is_terminal(),
@@ -116,7 +116,7 @@ impl Style {
     /// The shape every golden runs in: colour is a post-processing wrap,
     /// so the goldens prove content and exactly one test proves colour.
     #[cfg(test)]
-    pub fn plain(width: usize) -> Style {
+    pub(crate) fn plain(width: usize) -> Style {
         Style {
             color: false,
             width,
@@ -221,7 +221,7 @@ pub(crate) fn served_json(served: &ModelAtBoundary) -> serde_json::Value {
 /// One clamped line per run, newest first: id, status, phase, seq, age,
 /// feature. Columns are sized to the widest value in the batch; the
 /// feature takes what is left.
-pub fn runs(view: &RunsView, now: &str, style: &Style) -> String {
+pub(crate) fn runs(view: &RunsView, now: &str, style: &Style) -> String {
     run_lines(&view.runs, now, style)
 }
 
@@ -298,7 +298,7 @@ fn run_lines(view_runs: &[RunRow], now: &str, style: &Style) -> String {
 /// under its own heading rather than interleaved with another realm's
 /// (decision 0026 ruling 3). A one-hearth world never reaches here —
 /// `brokkr runs` renders it exactly as it always has.
-pub fn fleet(view: &FleetView, now: &str, style: &Style) -> String {
+pub(crate) fn fleet(view: &FleetView, now: &str, style: &Style) -> String {
     let mut out = String::new();
     for (index, realm) in view.realms.iter().enumerate() {
         if index > 0 {
@@ -330,7 +330,7 @@ pub fn fleet(view: &FleetView, now: &str, style: &Style) -> String {
 // -------------------------------------------------------- brokkr inspect
 
 /// The console's exclusive scoping, as the verbs a terminal has.
-pub enum Scope {
+pub(crate) enum Scope {
     Phase(String),
     Seat(String),
 }
@@ -338,7 +338,7 @@ pub enum Scope {
 /// A resolved scope: which phases survive, and — for `--seat` — which
 /// participant keys. Membership itself is a model field on both sides,
 /// so this never re-implements the predicate.
-pub struct Lens {
+pub(crate) struct Lens {
     phases: Vec<String>,
     keys: Vec<String>,
     by_key: bool,
@@ -348,7 +348,7 @@ pub struct Lens {
 /// A value matching nothing is an error rather than an empty table: an
 /// empty seats table reads as "this phase did nothing", which is a claim
 /// about a run this tool cannot make.
-pub fn lens_for(view: &RunView, scope: Option<&Scope>) -> Result<Option<Lens>, String> {
+pub(crate) fn lens_for(view: &RunView, scope: Option<&Scope>) -> Result<Option<Lens>, String> {
     let Some(scope) = scope else {
         return Ok(None);
     };
@@ -446,7 +446,7 @@ pub(crate) fn keeps_row(lens: Option<&Lens>, row: &JournalRow) -> bool {
 /// The seats block alone, as `brokkr seats` prints it (decision 0046
 /// ruling 3; design DD11): the same block `inspect` renders, from the
 /// same view, unscoped.
-pub fn seats(view: &RunView, style: &Style) -> String {
+pub(crate) fn seats(view: &RunView, style: &Style) -> String {
     seats_block(view, None, style)
 }
 
@@ -688,7 +688,7 @@ fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
 /// The human readout: header, ruling, park reason, live seat activity,
 /// the seats table, the decision trail, and the phase tree. A `watch`
 /// frame is this without the trail.
-pub fn inspect(view: &RunView, lens: Option<&Lens>, trail: bool, style: &Style) -> String {
+pub(crate) fn inspect(view: &RunView, lens: Option<&Lens>, trail: bool, style: &Style) -> String {
     let mut out = String::new();
     match &view.summary {
         Some(summary) => {
@@ -806,7 +806,7 @@ pub fn inspect(view: &RunView, lens: Option<&Lens>, trail: bool, style: &Style) 
 /// every retained block in order. Content, references, paths, stamps,
 /// hints and explanations all pass through [`Safe`]; the matching JSON
 /// document keeps its escaped originals.
-pub fn transcript(
+pub(crate) fn transcript(
     run: &str,
     seat: &str,
     read: &TranscriptRead,

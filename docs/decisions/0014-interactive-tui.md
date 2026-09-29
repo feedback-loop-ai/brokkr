@@ -2,6 +2,8 @@
 
 Status: accepted (operator ruling in chat, 2026-08-29)
 
+Built: built
+
 ## Context
 
 Decision 0013 gave the terminal two static readouts and a live one, and
@@ -66,6 +68,25 @@ the de-facto standard for the task, permissively licensed, and the
 RustSec audit job in CI covers the added tree. They may be used ONLY
 on the TUI path: no other crate gains a terminal dependency, and
 `forge-view` stays free of rendering concerns entirely.
+
+**2026-09-25: `insta` 1.48.0 is admitted as a dev-dependency of
+`brokkr-cli`** (operator ruling, issue #343), for the TUI's snapshot
+tests only: every pane and level drawn through `TestBackend` is pinned
+as a committed `.snap` file before the split of #288 moves `tui.rs`. It
+is never a runtime dependency and no other test or crate uses it. With
+`CI=true` or `INSTA_UPDATE=no` it refuses to write a snapshot and fails
+a mismatch, so the existing test jobs are the gate and no job is added.
+It brings `console`, `encode_unicode` and `similar` into the lockfile.
+No PTY driver (`expectrl`, `termlens`) is admitted by this ruling.
+
+**The budget gates' dev-dependencies are admitted (operator ruling,
+2026-09-26, #342)**: `dhat` 0.3.3 for the heap budgets of transcript
+projection, `gungraun` 0.19.4 for the instruction-count budgets of the
+hot paths, which Valgrind runs on Linux only, and `tiktoken-rs` 0.12.1
+for report-only token counts beside the gated prompt byte budgets. They
+are dev-dependencies, used by those gates only, and never linked into
+the release binary. `tokenizers` was asked for and not admitted, so
+open-weight token counts stay out of scope.
 
 ## Constraints
 

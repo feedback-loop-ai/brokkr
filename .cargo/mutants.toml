@@ -1,0 +1,8 @@
+# cargo-mutants configuration (#289). The exact coverage gate proves every
+# production line runs; mutation testing asks whether any test would notice
+# that line changing. Test sources are the gate's own test paths, never
+# mutated.
+exclude_globs = ["**/tests.rs", "**/*_tests.rs", "**/tests/**"]
+# The workspace's slowest suites (the adapter and engine matrices) run for
+# minutes; a mutant's test run gets three times the clean run's time.
+timeout_multiplier = 3.0

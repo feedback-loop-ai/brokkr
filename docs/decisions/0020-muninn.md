@@ -11,6 +11,9 @@ crossing)` pair beside a `(run_id, seq)`, and a mapped world that draws a
 crossing yields a dossier before any journal exists. Rulings 2, 4, 5 and
 6 stand. See [0059](0059-muninn-reads-the-crossings-the-map-draws.md).
 
+Built: built
+Amended by: 0059
+
 ## Context
 
 Decision 0019 reserved the name: Muninn, Odin's raven — Memory — who flies

@@ -1,0 +1,29 @@
+[package]
+name = "brokkr-seatbelt-probe"
+description = "Decision 0046 slice II's bounded Seatbelt feasibility probe and its helper executable. Never published."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+# One committed test-support executable provides the probe's payload,
+# descendant, guard, supervisor and startup roles, so the native feasibility
+# path has no interpreter dependency (decision 0046 slice II design D3). Its
+# Gate B roles run only inside a macOS `sandbox-exec` cell under launchd, so
+# no Linux run can reach most of it, and this package is the exact-coverage
+# gate's one named exclusion
+# (scripts/coverage-exact.sh, issue #341), and it lives outside the published
+# brokkr-protocol.
+[[bin]]
+name = "seatbelt-probe-helper"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dev-dependencies]
+brokkr-protocol = { workspace = true }

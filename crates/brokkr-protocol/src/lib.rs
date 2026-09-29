@@ -10,9 +10,9 @@ pub mod adapters;
 pub mod dsh_sandbox;
 pub mod fake;
 pub mod hands;
-pub mod legacy;
 pub mod native_controls;
 pub mod oneshot;
+pub mod overrides;
 pub mod process;
 pub mod secret;
 mod transcript;
@@ -104,17 +104,49 @@ impl Message {
 
 /// What one driver attempt came to. `Indeterminate` is a first-class
 /// outcome: the engine parks rather than guessing (target-architecture,
-/// outbox discipline step 4).
-#[derive(Debug, Clone)]
+/// outbox discipline step 4). Serialized, it is the `received` evidence
+/// of an attempt whose cleanup is unresolved.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "lowercase")]
 pub enum AttemptOutcome {
     Succeeded { result: Value },
     Failed { error: String },
     Indeterminate { reason: String },
 }
 
+impl AttemptOutcome {
+    /// The outcome in words, for a reason that has to name it.
+    fn reached(&self) -> &str {
+        match self {
+            AttemptOutcome::Succeeded { .. } => "the driver reported success",
+            AttemptOutcome::Failed { error } => error,
+            AttemptOutcome::Indeterminate { reason } => reason,
+        }
+    }
+}
+
+/// Is the attempt's process tree proven over (#403)? Kept beside the
+/// outcome the driver reached, never folded into it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum Cleanup {
+    /// Every process of the attempt is gone.
+    Settled,
+    /// Something of the attempt may still be running.
+    Unresolved { reason: process::Unsettled },
+}
+
 #[derive(Debug, Clone)]
 pub struct AttemptReport {
+    /// What the driver reached, as it reached it: the `received`
+    /// evidence. Act on [`AttemptReport::settled_outcome`], which also
+    /// reads `refused` and `cleanup`.
     pub outcome: AttemptOutcome,
+    /// The outcome the engine put in place of `outcome` when the journal
+    /// refused one of the attempt's checkpoints (decision 0034, ruling
+    /// 6). It replaces the outcome acted on, never the one received.
+    pub refused: Option<AttemptOutcome>,
+    pub cleanup: Cleanup,
     pub session_ref: Option<String>,
     pub checkpoints: Vec<Value>,
     pub stderr: String,
@@ -137,3 +169,50 @@ pub struct AttemptReport {
     /// boundary: the engine ended it, no provider refused it.
     pub deadline_killed: bool,
 }
+
+impl AttemptReport {
+    /// The outcome a caller may act on (#403, decision 0006): the one the
+    /// driver reached, or the one a refusal put in its place, once its
+    /// tree is proven over, and `Indeterminate`, which parks, while it is
+    /// not. No settlement, retry or fallback is certified beside what may
+    /// still be running.
+    pub fn settled_outcome(&self) -> AttemptOutcome {
+        let reached = self.refused.as_ref().unwrap_or(&self.outcome);
+        match &self.cleanup {
+            Cleanup::Settled => reached.clone(),
+            Cleanup::Unresolved { reason } => AttemptOutcome::Indeterminate {
+                reason: format!(
+                    "{}; the attempt is not proven over: {reason}",
+                    reached.reached()
+                ),
+            },
+        }
+    }
+
+    /// The evidence a terminal event carries for an unresolved cleanup:
+    /// the outcome received, typed, beside the cleanup. None once settled,
+    /// so a settled attempt's event keeps its bytes.
+    pub fn cleanup_evidence(&self) -> Option<CleanupEvidence> {
+        match &self.cleanup {
+            Cleanup::Settled => None,
+            Cleanup::Unresolved { .. } => Some(CleanupEvidence {
+                received: self.outcome.clone(),
+                cleanup: self.cleanup.clone(),
+            }),
+        }
+    }
+}
+
+/// An attempt not proven over, as its terminal event carries it (#403):
+/// the `received` and `cleanup` fields of
+/// `contracts/effect-cleanup.v1.schema.json`.
+#[derive(Debug, Clone, Serialize)]
+pub struct CleanupEvidence {
+    received: AttemptOutcome,
+    cleanup: Cleanup,
+}
+
+// The binary's one environment guard (#357).
+#[cfg(test)]
+#[path = "../../../tests/support/env_guard.rs"]
+mod env_guard;

@@ -192,7 +192,7 @@ fn claude() -> Value {
         // The fixture grants bindings so the seats here that declare
         // them still compile (decision 0021 ruling 4); the tier stays
         // undeclared, which is untrusted — no seat here is a gate.
-        "binding_grant": true,
+        "egress": "contracted",
         "binary": "claude",
         "driver": ["{brokkr}", "driver", "claude", "--"],
         "models": {"opus": "claude-opus-5"},
@@ -1187,6 +1187,10 @@ fn panel_policy() -> Value {
 /// are untouched, and every widening, empty, classed or malformed
 /// declaration refuses with the site and its complete cause.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_agent_backed_seat_narrows_its_office_per_field_and_records_the_effective_value() {
     let fixture = AgentFixture::new();
     write_office(&fixture);
@@ -1397,6 +1401,10 @@ fn an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_
 /// as the engine's `local` segment — the authored command untouched — and
 /// every other inline shape refuses with its own complete cause.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_refuses() {
     let fixture = AgentFixture::new();
     let compiled = |command: Value, tools: Value, hands: bool| {
@@ -2033,6 +2041,10 @@ fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_ref
 /// `Declared`, or `None` for an adapter declaring nothing — exactly where
 /// the allow lowers, expanded as the segment is.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_inline_site_records_its_adapters_permission_template_only_where_its_allow_lowers() {
     let fixture = AgentFixture::new();
     let compiled = |command: Value, tools: Option<Value>, hands: bool| {
@@ -2283,6 +2295,10 @@ fn codex_carries(class: &str, canonical: &str, at: usize, kind: &str) -> String 
 /// other class at either kind of seat, and every other shape, refuses with
 /// its own complete, value-free cause.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuses() {
     use crate::agents::ResultDoor;
     use brokkr_protocol::native_controls::Origin;
@@ -2851,6 +2867,10 @@ fn with_schema(fragment: &[&str]) -> Vec<String> {
 /// boundary, and the agent's typed hands. The adapters name a
 /// bundle-relative model and schema, so an expanded carrier cannot pass.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_agent_backed_sites_compiled_composition_keeps_each_serving_input_as_declared() {
     use crate::agents::{BoundaryFragments, DeclaredDialect, ServingInputs};
     use brokkr_protocol::native_controls::ListFlag;
@@ -3041,6 +3061,10 @@ fn an_inline_codex_class_carries_its_declared_fragment_beside_its_expanded_emiss
 /// key with another value) and an option the grammar cannot place refuse,
 /// each naming the seat and the option.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_misbound_capture() {
     let fixture = AgentFixture::new();
     let compiled = |class: Option<&str>, sandbox: &str, adapter: Value| {
@@ -3899,6 +3923,10 @@ fn tools_beside_a_container_refuse_at_every_container_form() {
 /// an inherited body each yield the same effective value or the complete
 /// owning-site refusal.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_executable_form_owns_its_local_declaration() {
     let fixture = AgentFixture::new();
     write_office(&fixture);
@@ -4109,6 +4137,10 @@ fn with_tools(mut site: Value, value: Option<Value>) -> Value {
 /// each refuses a nonempty or malformed field with its own site named
 /// (review return F5).
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_inline_executable_form_records_or_refuses_its_own_declaration() {
     let fixture = AgentFixture::new();
     fixture.write("adapters/codex.json", codex());
@@ -4309,6 +4341,10 @@ fn two_sites_sharing_one_office_keep_their_own_effective_fields_in_either_order(
 /// refusal keeps its precedence. Admitted fixtures keep their holdings,
 /// native OFF, hands and boundary unchanged.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exactly() {
     let fixture = AgentFixture::new();
     fixture.write("adapters/codex.json", codex());
@@ -4871,6 +4907,10 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
 /// full cause; the same fixtures without the control admit with their
 /// exact facts.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution() {
     let fixture = AgentFixture::new();
     let seat = |class: Option<&str>| {
@@ -5306,6 +5346,10 @@ fn a_root_selector_beside_a_matching_sandbox_refuses_in_the_authored_command_and
 /// reader refuses — a sandbox or feature table, a descendant key — is
 /// refused where the adapter loads.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox() {
     let fixture = AgentFixture::new();
     let long = format!("--add-dir={}", long_payload());
@@ -5446,6 +5490,10 @@ fn a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox() {
 /// rebuild unit 11, a native OFF the grammar cannot place is refused where
 /// the adapter loads, by the same position and cause and a bounded label.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_unreadable_contribution_refuses_by_position_without_echoing_its_token() {
     let fixture = AgentFixture::new();
     declare_sandbox(&fixture, "workspace-write");
@@ -5569,6 +5617,10 @@ fn an_unreadable_contribution_refuses_by_position_without_echoing_its_token() {
 /// allowance is the resolved plan's alone: the same assignment written in
 /// the authored command or the selected fragment is unqualified there.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_valid_native_denial_keeps_a_matching_sandbox_admitted_and_only_there() {
     let fixture = AgentFixture::new();
     fixture.write("adapters/codex.json", codex());
@@ -5732,6 +5784,10 @@ fn grant_web_search(
 /// operator's ruling of 2026-09-25). Synthetic transport here qualifies no
 /// provider's restriction support (unit 9).
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
     let fixture = AgentFixture::new();
     fixture.write(
@@ -6374,6 +6430,10 @@ fn bound(bundle: &Bundle, label: &str) -> String {
 /// path and target are three facts. An agent site's fallback candidate is
 /// the same office, bound once. The library stands outside the recipe.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_selected_site_binds_its_charter_owner_reference_target_and_digest() {
     let fixture = AgentFixture::new();
     std::os::unix::fs::symlink("work.md", fixture.library().join("charters/linked.md")).unwrap();
@@ -6557,6 +6617,10 @@ fn every_selected_site_binds_its_charter_owner_reference_target_and_digest() {
 /// pin, and a recipe reference out of its tree to an external library's
 /// charter is refused at compile, never bound as a library pin.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified() {
     let fixture = AgentFixture::new();
     let nested = fixture.bundle().join("lib");

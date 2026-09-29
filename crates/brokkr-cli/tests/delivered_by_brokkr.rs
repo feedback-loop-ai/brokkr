@@ -437,6 +437,7 @@ fn boundary_entries(events: &[EventEnvelope]) -> Vec<Value> {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_gate_cuts_the_tier_by_the_delta_since_the_judgment() {
     let side = tempfile::tempdir().unwrap();
     let repo = side.path().join("repo");
@@ -704,6 +705,7 @@ fn a_v2_anchor_vouches_for_its_head_and_nothing_else() {
 /// manifest carrying both `hands` and `boundary` whose journal holds no
 /// entry yet (proposal D34).
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_harness_judged_run_reads_unboxed_and_an_unrecorded_boundary_says_so() {
     let side = tempfile::tempdir().unwrap();
     let repo = init_repo(side.path());

@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use brokkr_core::realms::Boundary;
+use brokkr_core::{fold::OperatorCommand::Retry, realms::Boundary};
 use brokkr_runtime::agents::{Adapters, Availability, Library};
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::engine::{compose_site, BuiltBoundary};
@@ -260,6 +260,42 @@ fn codex_refusal_before_the_first_turn_is_determinate() {
         dir.path(),
     );
     assert_determinate_refusal(&out, "codex", "rate limit");
+}
+
+/// #372: the charter is the office. A seat whose charter path does not
+/// exist refuses to start through every built model driver — one failed
+/// result, never `accepted`, never a checkpoint — with the path in the
+/// error, and its provider is never spawned. (An exec site has no model to
+/// instruct, so its charter stays optional.)
+#[test]
+fn a_missing_charter_refuses_to_start_on_every_model_driver() {
+    for kind_args in [
+        vec!["claude"],
+        vec!["lanetally"],
+        vec!["codex"],
+        vec!["dsh"],
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let spawned = dir.path().join("spawned");
+        let shim = make_shim(
+            dir.path(),
+            &format!("#!/bin/sh\ntouch '{}'\n", spawned.display()),
+        );
+        let missing = dir.path().join("missing-role.md");
+        let out = drive_charter(&kind_args, &shim, dir.path(), &missing);
+        let label = kind_args[0];
+        assert_determinate_refusal(&out, label, "");
+        assert_eq!(
+            out[1]["error"],
+            format!(
+                "seat refused to start: charter '{}' is unreadable: \
+                 No such file or directory (os error 2)",
+                missing.display()
+            ),
+            "{label}"
+        );
+        assert!(!spawned.exists(), "{label}: no provider is spawned");
+    }
 }
 
 #[test]
@@ -517,7 +553,7 @@ fn a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement() {
         ("HOME", fixture.operator_home.to_str().unwrap()),
         ("DSH_HOME", fixture.dsh_home.to_str().unwrap()),
         ("TMPDIR", fixture.staging.to_str().unwrap()),
-        ("FORGE_DSH_BIN", fixture.binary.to_str().unwrap()),
+        ("BROKKR_DSH_BIN", fixture.binary.to_str().unwrap()),
     ]
     .into_iter()
     .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -931,7 +967,7 @@ impl DshFixture {
         }
         let input = json!({
             "feature": "admission", "phase": "intake", "seat": "intake",
-            "role_path": self.workdir.join("missing-role.md"),
+            "role_path": charter(&self.workdir),
             "workdir": self.workdir,
             "result_path": self.workdir.join("results/fx.json"),
             "allowed_results": ["resolved"], "context": {},
@@ -970,11 +1006,9 @@ impl DshFixture {
             .arg("dsh")
             .arg("--")
             .args(extra)
-            // Pinned at the shim, and the newer spelling removed, for the
-            // reason `drive` states: no conformance run may reach a real
-            // dsh.
-            .env_remove("BROKKR_DSH_BIN")
-            .env("FORGE_DSH_BIN", &self.binary)
+            // Pinned at the shim, for the reason `drive` states: no
+            // conformance run may reach a real dsh.
+            .env("BROKKR_DSH_BIN", &self.binary)
             .env("HOME", &self.operator_home)
             .env("DSH_HOME", &self.dsh_home)
             // The seat overlay is staged under the driver's own TMPDIR,
@@ -1105,7 +1139,19 @@ fn make_named_shim(dir: &Path, name: &str, body: &str) -> PathBuf {
     path
 }
 
+/// A real charter in the workdir: a seat whose charter cannot be read
+/// refuses to start (#372), so every start that means to run carries one.
+fn charter(workdir: &Path) -> PathBuf {
+    let path = workdir.join("role.md");
+    std::fs::write(&path, "# conformance charter\n").unwrap();
+    path
+}
+
 fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
+    drive_charter(kind_args, shim, workdir, &charter(workdir))
+}
+
+fn drive_charter(kind_args: &[&str], shim: &Path, workdir: &Path, role: &Path) -> Vec<Value> {
     // Every harness home is test-owned. Conformance must never make a
     // driver name (or create under) the operator's real transcript home.
     let operator_home = tempfile::tempdir().unwrap();
@@ -1114,7 +1160,7 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
     let result_path = workdir.join("results/fx.json");
     let input = json!({
         "feature": "conformance", "phase": "intake", "seat": "intake",
-        "role_path": workdir.join("missing-role.md"),
+        "role_path": role,
         "workdir": workdir,
         "result_path": result_path,
         "allowed_results": ["resolved"], "context": {},
@@ -1134,15 +1180,8 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
         // Pinned unconditionally: no conformance test may ever spawn a
         // real claude-lanetally on a LaneTally-equipped machine.
         .env("BROKKR_LANETALLY_BIN", shim)
-        // Deliberately split: codex is pinned through the new spelling
-        // and dsh through the old one, so a conformance run proves both
-        // reach the same adapter for the release the old names survive
-        // (decision 0019). The new dsh spelling is REMOVED rather than
-        // left inherited: it outranks the old one, so an operator who
-        // has it exported would otherwise send this test at a real dsh.
         .env("BROKKR_CODEX_BIN", shim)
-        .env_remove("BROKKR_DSH_BIN")
-        .env("FORGE_DSH_BIN", shim)
+        .env("BROKKR_DSH_BIN", shim)
         .env("HOME", operator_home.path())
         .env("CODEX_HOME", codex_home.path())
         .env("DSH_HOME", dsh_home.path())
@@ -1331,6 +1370,7 @@ fn the_shipped_cold_transcript_name_keeps_its_seat_telemetry() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn conformance_across_all_builtin_adapters() {
     for case in ["obedient", "silent"] {
         let dir = tempfile::tempdir().unwrap();
@@ -1941,7 +1981,7 @@ fn drive_with_secrets(
     let result_path = workdir.join("results/fx.json");
     let input = json!({
         "feature": "conformance", "phase": "intake", "seat": "intake",
-        "role_path": workdir.join("missing-role.md"),
+        "role_path": charter(workdir),
         "workdir": workdir,
         "result_path": result_path,
         "allowed_results": ["resolved"], "context": {},
@@ -2161,7 +2201,7 @@ fn a_resumed_mismatch_is_never_an_accepted_success() {
         );
         let input = json!({
             "feature": "conformance", "phase": "work", "seat": "work",
-            "role_path": workdir.join("missing-role.md"),
+            "role_path": charter(workdir),
             "workdir": workdir,
             "result_path": result,
             "allowed_results": ["complete"], "context": {},
@@ -2247,6 +2287,7 @@ fn a_resumed_mismatch_is_never_an_accepted_success() {
 /// first gate decline with `unsupported-resume` and this test fails, so
 /// it proves behavior rather than reading a declaration back.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -2329,7 +2370,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
         .value();
     let input = json!({
         "feature": "conformance", "phase": "work", "seat": "work",
-        "role_path": workdir.path().join("missing-role.md"),
+        "role_path": charter(workdir.path()),
         "workdir": workdir.path(),
         "result_path": result_path,
         "allowed_results": ["resolved"], "context": {},
@@ -2431,6 +2472,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
 /// status to `unmeasured` — or dropping `not applicable` from the declared
 /// boundaries — makes the retry cold and fails this test.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -2488,7 +2530,7 @@ fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
     // gate requires (design D10 F1).
     let input = json!({
         "feature": "conformance", "phase": "work", "seat": "work",
-        "role_path": workdir.path().join("missing-role.md"),
+        "role_path": charter(workdir.path()),
         "workdir": workdir.path(),
         "result_path": result_path,
         "allowed_results": ["resolved"], "context": {},
@@ -2836,7 +2878,9 @@ fn drive_codex(driver: &[String], shim: &Path, messages: &[Value]) -> Vec<Value>
 /// two proof tests running together must not borrow each other's shim.
 /// The other conformance tests pass their shim per child and never read
 /// these process variables.
-static PROOF_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+#[path = "../../../tests/support/env_guard.rs"]
+mod env_guard;
+use env_guard::EnvGuard;
 
 const PROOF_OFFER: &str = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
@@ -3211,7 +3255,7 @@ fn capture_proof_input(run_dir: &Path, bundle: Bundle, label: &str) -> Value {
 /// runs cold, never resumed without its confinement re-expressed.
 #[test]
 fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() {
-    let _guard = PROOF_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     for (shape, wrapped) in [
         (ProofShape::Single, true),
         (ProofShape::Single, false),
@@ -3225,9 +3269,9 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
             run_dir.path(),
             &proof_shim_body(run_dir.path(), PROOF_OFFER),
         );
-        std::env::set_var("BROKKR_CODEX_BIN", &shim);
-        std::env::set_var("HOME", run_dir.path());
-        std::env::set_var("CODEX_HOME", run_dir.path().join("codex-home"));
+        env.set("BROKKR_CODEX_BIN", &shim);
+        env.set("HOME", run_dir.path());
+        env.set("CODEX_HOME", run_dir.path().join("codex-home"));
         let member = proof_member_of(shape, wrapped);
 
         let (mut store, run_id, events) = run_proof_engine(run_dir.path(), bundle.clone());
@@ -3248,7 +3292,7 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
             "{shape:?} wrapped={wrapped}: a resolved no-hands site is affirmative"
         );
 
-        operator_command(&mut store, &run_id, "retry", "operator", "once more").unwrap();
+        operator_command(&mut store, &run_id, Retry, "operator", "once more").unwrap();
         let mut engine =
             Engine::resume(store, bundle, &run_id, Some(run_dir.path().join("work"))).unwrap();
         engine.drive().unwrap();
@@ -3314,9 +3358,6 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
         );
         drop(recipe);
     }
-    std::env::remove_var("BROKKR_CODEX_BIN");
-    std::env::remove_var("HOME");
-    std::env::remove_var("CODEX_HOME");
 }
 
 /// Design D10 item 1: the compiled hands-bearing namespace site (panel
@@ -3332,7 +3373,7 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
 /// hands site as known no-hands fails at the gate's own decision.
 #[test]
 fn the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement() {
-    let _guard = PROOF_ENV.lock().unwrap();
+    let _env = EnvGuard::lock();
     for (shape, wrapped) in [
         (ProofShape::HandsMember, true),
         (ProofShape::HandsMember, false),

@@ -2,6 +2,8 @@
 
 Status: accepted (operator ruling in chat, 2026-08-30)
 
+Built: built
+
 ## Context
 
 The project had no license, which in practice means "all rights

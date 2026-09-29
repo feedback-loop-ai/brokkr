@@ -1,34 +1,36 @@
 use super::*;
+use crate::env_guard::EnvGuard;
 use crate::transcript::{dsh_home, dsh_home_from};
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
-use std::sync::Mutex;
 
-/// A host path spelled the way THIS platform spells an absolute one.
-/// `dsh_git_runner_scope` absolutizes the workdir against the host, and
-/// Windows calls a rooted path with no drive letter relative — so it
-/// answers `/work/wt` with the current drive prepended, and a literal
-/// `/work/wt` on the other side of the comparison is measuring the
-/// fixture rather than the driver. Only the prefix differs; every Rust
-/// path API takes forward slashes on Windows too.
-#[cfg(windows)]
-macro_rules! absolute {
-    ($path:literal) => {
-        concat!("C:", $path)
+/// One invocation of `kind` over its override as this test's environment
+/// holds it, read by the one reader the way `run_seat` reads it.
+fn invoke(
+    kind: AdapterKind,
+    extra: &[String],
+    prompt: &str,
+    input: &Value,
+    session: Option<&str>,
+    bindings: &[secret::BoundSecret],
+    emit: &mut impl FnMut(&Value),
+) -> Result<Invocation, String> {
+    let binary = crate::overrides::read(Override::of_driver(kind)).unwrap();
+    let pinned = Pinned {
+        binary: &binary,
+        extra,
     };
+    invoke_with_stager(
+        kind,
+        pinned,
+        prompt,
+        input,
+        session,
+        bindings,
+        emit,
+        stage_prompt,
+    )
 }
-#[cfg(not(windows))]
-macro_rules! absolute {
-    ($path:literal) => {
-        $path
-    };
-}
-
-/// The one lock every adapter test that MUTATES or READS the process
-/// environment takes. It is reachable from the sibling composite suite
-/// because a reader there is as much a party to the race as a writer
-/// here: the process has one `DSH_HOME`, and a reader that skips this
-/// lock observes another test's temporary home.
-pub(in crate::adapters) static ADAPTER_ENV: Mutex<()> = Mutex::new(());
 
 fn binding(name: &str, value: &str) -> secret::BoundSecret {
     let dir = tempfile::tempdir().unwrap();
@@ -96,6 +98,7 @@ fn claude_fold_journals_file_paths_only_and_bash_stays_targetless() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     assert_eq!(AdapterKind::parse("claude"), Some(AdapterKind::Claude));
     assert_eq!(
@@ -126,7 +129,8 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
             "allowed_results": ["clean", 2, "residual"],
         }),
         AdapterKind::Claude,
-    );
+    )
+    .unwrap();
     assert!(prompt.contains("trusted role"));
     assert!(prompt.contains("clean, residual"));
     // Decision 0034 rulings 6 and 7 seal the record with no extra
@@ -154,6 +158,7 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
             }),
             AdapterKind::Claude,
         )
+        .unwrap()
     };
     let carried = verified(json!("the charter the door read"));
     assert!(carried.contains("the charter the door read"));
@@ -197,7 +202,8 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
             "allowed_results": ["clean"],
         }),
         AdapterKind::Claude,
-    );
+    )
+    .unwrap();
     assert_eq!(housed.matches("## House rules").count(), 1);
     assert_eq!(housed.matches("## Spec dialect").count(), 1);
     assert!(housed.find("trusted role").unwrap() < housed.find("## House rules").unwrap());
@@ -221,7 +227,8 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
             "allowed_results": ["clean"],
         }),
         AdapterKind::Claude,
-    );
+    )
+    .unwrap();
     assert!(boxed.contains("reachable ONLY through the `mcp__brokkr__workspace` tool"));
     assert!(
         boxed.find("## Result contract").unwrap() < boxed.find("mcp__brokkr__workspace").unwrap()
@@ -327,8 +334,9 @@ fn served_model_evidence_is_strict_and_dsh_reads_nested_usage_chunks() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     struct BrokenWriter;
     impl Write for BrokenWriter {
         fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
@@ -377,33 +385,13 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
         .unwrap_err()
         .contains("not valid UTF-8"));
 
-    assert_eq!(
-        adapter_binary("BROKKR_TEST_BINARY_NEVER_DEFINED", None, "fallback"),
-        "fallback"
-    );
-    assert!(!adapter_binary("PATH", None, "fallback").is_empty());
-    // The renamed overrides: the new spelling wins, the old one answers
-    // when the new one is absent (decision 0019, one release).
-    std::env::set_var("BROKKR_TEST_BINARY_RENAMED", "new");
-    std::env::set_var("FORGE_TEST_BINARY_RENAMED", "old");
-    assert_eq!(
-        adapter_binary(
-            "BROKKR_TEST_BINARY_RENAMED",
-            Some("FORGE_TEST_BINARY_RENAMED"),
-            "fallback"
-        ),
-        "new"
-    );
-    std::env::remove_var("BROKKR_TEST_BINARY_RENAMED");
-    assert_eq!(
-        adapter_binary(
-            "BROKKR_TEST_BINARY_RENAMED",
-            Some("FORGE_TEST_BINARY_RENAMED"),
-            "fallback"
-        ),
-        "old"
-    );
-    std::env::remove_var("FORGE_TEST_BINARY_RENAMED");
+    // Exec's driver name is its override's, and one the reader refuses
+    // labels it `exec`: `run_seat` refuses every start on it by name.
+    env.set("BROKKR_EXEC_NAME", "named");
+    assert_eq!(AdapterKind::Exec.driver_name(), "named");
+    env.set("BROKKR_EXEC_NAME", std::ffi::OsStr::from_bytes(b"\xff"));
+    assert_eq!(AdapterKind::Exec.driver_name(), "exec");
+    env.remove("BROKKR_EXEC_NAME");
     assert_eq!(io_context::<()>(Ok(()), "ok"), Ok(()));
     assert!(
         io_context::<()>(Err(std::io::Error::other("no")), "context")
@@ -424,7 +412,10 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
     let prompt_template = vec!["true".into(), "{prompt_file}".into()];
     let staged = invoke_with_stager(
         AdapterKind::Exec,
-        &prompt_template,
+        Pinned {
+            binary: "exec",
+            extra: &prompt_template,
+        },
         "prompt",
         &json!({}),
         None,
@@ -528,6 +519,110 @@ fn run_seat_covers_absent_input_and_unparseable_result_evidence() {
     ));
 }
 
+/// #372: the charter is the office, so a seat whose charter cannot be read
+/// — or a start that names no correlation — launches nothing. The one
+/// body sent is `result: failed` with no `accepted` and no checkpoint,
+/// decision 0053's failure to start, and the error names the path.
+#[test]
+fn an_unreadable_charter_or_a_missing_correlation_refuses_to_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing-role.md");
+    let input = json!({"role_path": missing, "workdir": dir.path(),
+        "result_path": dir.path().join("result.json"), "allowed_results": ["complete"]});
+    assert_eq!(
+        render_prompt(&input, AdapterKind::Claude),
+        Err(StartRefusal::UnreadableCharter {
+            path: missing.display().to_string(),
+            error: "No such file or directory (os error 2)".into(),
+        })
+    );
+    // A model seat handed no path at all is refused on the same terms;
+    // an exec site, which has no model to instruct, reads no charter.
+    let mut bare = input.clone();
+    bare.as_object_mut().unwrap().remove("role_path");
+    assert_eq!(
+        render_prompt(&bare, AdapterKind::Codex),
+        Err(StartRefusal::UnreadableCharter {
+            path: String::new(),
+            error: "No such file or directory (os error 2)".into(),
+        })
+    );
+    for exec_input in [&bare, &input] {
+        assert!(render_prompt(exec_input, AdapterKind::Exec)
+            .unwrap()
+            .starts_with("\n\n---\n## Task"));
+    }
+
+    let admitted_as = |start: Value, admitted: Result<(), OverrideError>| {
+        let mut bodies = Vec::new();
+        run_seat_with(
+            AdapterKind::Claude,
+            admitted,
+            &start,
+            &mut |body| bodies.push(serde_json::to_value(body).unwrap()),
+            |_, _, _, _| panic!("a refused seat never invokes its driver"),
+        );
+        bodies
+    };
+    let refused = |start: Value| admitted_as(start, Ok(()));
+    let full = json!({"effect_id": "fx", "attempt_id": "a1", "input": input});
+    let failed = |effect_id: &str, attempt_id: &str, error: String| {
+        serde_json::to_value(Body::Result {
+            effect_id: effect_id.into(),
+            attempt_id: attempt_id.into(),
+            status: ResultStatus::Failed,
+            result: None,
+            error: Some(error),
+        })
+        .unwrap()
+    };
+    assert_eq!(
+        refused(full.clone()),
+        vec![failed(
+            "fx",
+            "a1",
+            format!(
+                "seat refused to start: charter '{}' is unreadable: \
+                 No such file or directory (os error 2)",
+                missing.display()
+            )
+        )]
+    );
+    // A readable charter, so the missing correlation is the only reason.
+    let mut chartered = full.clone();
+    chartered["input"]["role_path"] = json!("/dev/null");
+    for (field, effect_id, attempt_id) in [("effect_id", "", "a1"), ("attempt_id", "fx", "")] {
+        let mut start = chartered.clone();
+        start.as_object_mut().unwrap().remove(field);
+        assert_eq!(
+            refused(start),
+            vec![failed(
+                effect_id,
+                attempt_id,
+                format!("seat refused to start: the start names no {field}")
+            )]
+        );
+    }
+    // A driver whose override is set only by its retired spelling (#355):
+    // the charter reads, so the spelling is the only reason.
+    let refusal = OverrideError::Retired {
+        retired: Override::ClaudeBin.retired().unwrap(),
+        current: "BROKKR_CLAUDE_BIN",
+    };
+    assert_eq!(
+        admitted_as(chartered, Err(refusal.clone())),
+        vec![failed(
+            "fx",
+            "a1",
+            format!("seat refused to start: {refusal}")
+        )]
+    );
+    assert!(
+        !dir.path().join("result.json").exists(),
+        "a refused seat writes nothing"
+    );
+}
+
 /// The staging sibling's own name: short, unique within this run, and
 /// derived from NOTHING about the destination.
 ///
@@ -598,7 +693,7 @@ fn executable(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathB
 #[cfg(unix)]
 #[test]
 fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let invalid = executable(
         dir.path(),
@@ -610,22 +705,14 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
         "closed-stdin",
         "#!/bin/sh\nexec 0<&-\nsleep 0.1\n",
     );
-    let prior_claude = std::env::var_os("BROKKR_CLAUDE_BIN");
-    let prior_codex = std::env::var_os("FORGE_CODEX_BIN");
-    // Codex is pinned here through its OLD spelling, which the new one
-    // outranks (decision 0019): an inherited BROKKR_CODEX_BIN would
-    // send this test at a real codex, so it goes for the duration.
-    let prior_brokkr_codex = std::env::var_os("BROKKR_CODEX_BIN");
-    std::env::remove_var("BROKKR_CODEX_BIN");
-
     for (kind, variable) in [
         (AdapterKind::Claude, "BROKKR_CLAUDE_BIN"),
-        (AdapterKind::Codex, "FORGE_CODEX_BIN"),
+        (AdapterKind::Codex, "BROKKR_CODEX_BIN"),
     ] {
-        std::env::set_var(variable, &invalid);
+        env.set(variable, &invalid);
         assert!(invoke(kind, &[], "prompt", &json!({}), None, &[], &mut |_| {}).is_ok());
 
-        std::env::set_var(variable, &closed);
+        env.set(variable, &closed);
         let prompt = "x".repeat(1_000_000);
         let error = match invoke(kind, &[], &prompt, &json!({}), None, &[], &mut |_| {}) {
             Ok(_) => panic!("closed stdin must refuse prompt delivery"),
@@ -633,63 +720,12 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
         };
         assert!(error.contains("could not write the prompt"));
     }
-
-    match prior_claude {
-        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
-        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
-    }
-    match prior_codex {
-        Some(value) => std::env::set_var("FORGE_CODEX_BIN", value),
-        None => std::env::remove_var("FORGE_CODEX_BIN"),
-    }
-    if let Some(value) = prior_brokkr_codex {
-        std::env::set_var("BROKKR_CODEX_BIN", value);
-    }
-}
-
-#[cfg(unix)]
-#[test]
-fn claude_and_lanetally_accept_their_one_release_legacy_overrides() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let shim = executable(
-        dir.path(),
-        "legacy-override",
-        "#!/bin/sh\ncat >/dev/null\nprintf '{\"type\":\"result\"}\\n'\n",
-    );
-
-    for (kind, primary, legacy) in [
-        (AdapterKind::Claude, "BROKKR_CLAUDE_BIN", "FORGE_CLAUDE_BIN"),
-        (
-            AdapterKind::Lanetally,
-            "BROKKR_LANETALLY_BIN",
-            "FORGE_LANETALLY_BIN",
-        ),
-    ] {
-        let prior_primary = std::env::var_os(primary);
-        let prior_legacy = std::env::var_os(legacy);
-        std::env::remove_var(primary);
-        std::env::set_var(legacy, &shim);
-
-        let invocation = invoke(kind, &[], "prompt", &json!({}), None, &[], &mut |_| {})
-            .expect("the legacy override must select the shim");
-        assert_eq!(invocation.exit_code, 0);
-
-        match prior_primary {
-            Some(value) => std::env::set_var(primary, value),
-            None => std::env::remove_var(primary),
-        }
-        match prior_legacy {
-            Some(value) => std::env::set_var(legacy, value),
-            None => std::env::remove_var(legacy),
-        }
-    }
 }
 
 #[cfg(unix)]
 #[test]
 fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     // A stand-in wrapper whose result event tries to smuggle a
     // stream-derived `capture`: the run_seat source literal is inserted
@@ -706,12 +742,10 @@ fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
     let start = json!({
         "effect_id":"fx", "attempt_id":"a1",
         "input": {"workdir": dir.path(), "result_path": result,
-                  "allowed_results": ["complete"]}
+                  "allowed_results": ["complete"], "role_path": "/dev/null"}
     });
-    let prior_lanetally = std::env::var_os("BROKKR_LANETALLY_BIN");
-    let prior_claude = std::env::var_os("BROKKR_CLAUDE_BIN");
-    std::env::set_var("BROKKR_LANETALLY_BIN", &shim);
-    std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+    env.set("BROKKR_LANETALLY_BIN", &shim);
+    env.set("BROKKR_CLAUDE_BIN", &shim);
     let mut bodies = Vec::new();
     run_seat(AdapterKind::Lanetally, &[], &start, None, &mut |b| {
         bodies.push(b)
@@ -719,14 +753,6 @@ fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
     run_seat(AdapterKind::Claude, &[], &start, None, &mut |b| {
         bodies.push(b)
     });
-    match prior_lanetally {
-        Some(value) => std::env::set_var("BROKKR_LANETALLY_BIN", value),
-        None => std::env::remove_var("BROKKR_LANETALLY_BIN"),
-    }
-    match prior_claude {
-        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
-        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
-    }
     let finished: Vec<&Value> = bodies
         .iter()
         .filter_map(|body| match body {
@@ -799,7 +825,7 @@ fn adapter_stdio_ignores_noise_and_handles_control_messages() {
 
 #[test]
 fn dialect_exec_turns_command_output_and_state_into_a_typed_result() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let start = |dialect: Value| {
         json!({
@@ -896,8 +922,9 @@ fn init_journals_the_shared_transcript_checkpoint_with_the_id() {
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let overlay = dir.path().join("overlay.yml");
@@ -925,14 +952,10 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
             settings = settings.display()
         ),
     );
-    let prior = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", &fake);
-    std::env::remove_var("FORGE_DSH_BIN");
+    env.set("BROKKR_DSH_BIN", &fake);
     // The seat's transcript is kept under the harness home; in a test
     // that home is this test's own directory, never the operator's.
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
 
     let extra: Vec<String> = ["--model", "deepseek-v4-flash"]
         .iter()
@@ -1097,18 +1120,6 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     // No pin, still a served model: the record carries what the harness
     // reported, never a default (decision 0031).
     assert_eq!(invocation.session_meta["model"], "served-by-dsh");
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[test]
@@ -1154,12 +1165,11 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
 #[cfg(unix)]
 #[test]
 fn dsh_driver_refuses_a_transcript_root_that_spans_a_line() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home\nline");
     std::fs::create_dir_all(&home).unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &home);
+    env.set("DSH_HOME", &home);
     let mut emitted = Vec::new();
     let refused = match invoke(
         AdapterKind::Dsh,
@@ -1174,10 +1184,6 @@ fn dsh_driver_refuses_a_transcript_root_that_spans_a_line() {
         Err(problem) => problem,
     };
     assert!(refused.contains("spans more than one line"), "{refused}");
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// An effort pinned with no model beside it is refused, not dropped: the
@@ -1398,6 +1404,7 @@ fn a_cold_dsh_launch_folds_its_first_event_and_a_warm_one_folds_past_the_boundar
             boundary,
             &mut turns,
             &mut meta,
+            &[],
             &mut |value| emitted.push(value.clone()),
         );
         assert_eq!(turns, expected_turns, "boundary {boundary:?}: {emitted:?}");
@@ -1906,7 +1913,7 @@ fn a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too() {
     // own error, raised before any codex is spawned — no shim is needed
     // because no binary is reached.
     {
-        let _guard = ADAPTER_ENV.lock().unwrap();
+        let _env = EnvGuard::lock();
         let error = invoke(
             AdapterKind::Codex,
             &s(&["resume", thread]),
@@ -1943,6 +1950,10 @@ fn a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too() {
 /// while `-i=FILE` still travels.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_final_parse() {
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     for extra in [
@@ -1966,7 +1977,7 @@ fn an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_fin
         s(&["codex", "exec", "--json", "-C", "/w", "--image", "resume"])
     );
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let workdir = root.to_string_lossy().into_owned();
@@ -2032,7 +2043,7 @@ fn an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_fin
         let argv = root.join(format!("argv-{case}"));
         let shim = codex_shim(&root, &format!("codex-{case}"), &argv);
         let mut emitted = Vec::new();
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &extra,
@@ -2467,6 +2478,7 @@ fn codex_shim(dir: &std::path::Path, name: &str, argv: &std::path::Path) -> std:
 fn enabled_input(shape: &str, version: &str, workdir: &std::path::Path) -> Value {
     let mut input = enabled_assessment(shape, version, "namespace", "boxed");
     input["workdir"] = json!(workdir);
+    input["role_path"] = json!("/dev/null");
     input
 }
 
@@ -2490,35 +2502,25 @@ fn recorded(argv: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
-/// Pin the codex binary for one test and put back whatever was there.
+/// Pin the codex binary for one test; the guard puts back whatever was
+/// there.
 #[cfg(unix)]
-fn with_codex_bin<T>(shim: &std::path::Path, body: impl FnOnce() -> T) -> T {
-    let prior = std::env::var_os("BROKKR_CODEX_BIN");
-    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
-    std::env::set_var("BROKKR_CODEX_BIN", shim);
-    std::env::remove_var("FORGE_CODEX_BIN");
-    let outcome = body();
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
-        None => std::env::remove_var("BROKKR_CODEX_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_CODEX_BIN", value);
-    }
-    outcome
+fn with_codex_bin<T>(env: &mut EnvGuard, shim: &std::path::Path, body: impl FnOnce() -> T) -> T {
+    env.set("BROKKR_CODEX_BIN", shim);
+    body()
 }
 
 #[cfg(unix)]
 #[test]
 fn codex_uses_its_own_model_header_when_the_event_stream_omits_it() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
         dir.path(),
         "codex-model-header",
         "#!/bin/sh\ncat >/dev/null\nprintf 'model: gpt-from-header\\n' >&2\n",
     );
-    let invocation = with_codex_bin(&shim, || {
+    let invocation = with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &["--model".into(), "gpt-pinned".into()],
@@ -2550,8 +2552,9 @@ fn codex_uses_its_own_model_header_when_the_event_stream_omits_it() {
 /// accounting (2026-09-16 live proof) requires.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     for (case, sandbox, class) in [
         ("short-separate", vec!["-s", "read-only"], "read-only"),
@@ -2568,7 +2571,7 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
         extra.push("--model".into());
         extra.push("gpt-5.6-sol".into());
         let mut emitted = Vec::new();
-        let invocation = with_codex_bin(&shim, || {
+        let invocation = with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &extra,
@@ -2705,7 +2708,7 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
 #[cfg(unix)]
 #[test]
 fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     for (case, pin) in [
         ("separate", vec!["--effort", "high"]),
@@ -2718,7 +2721,7 @@ fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
             .map(|part| part.to_string())
             .collect();
         extra.extend(pin.iter().map(|part| part.to_string()));
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &extra,
@@ -2788,8 +2791,9 @@ fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
 /// checkpoint saying why.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let cases: [(&str, Vec<&str>, &str); 20] = [
         // Nothing declared: a codex resume does not inherit the class
@@ -2958,7 +2962,7 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
             THREAD
         };
         let mut emitted = Vec::new();
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &extra,
@@ -3001,7 +3005,7 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
 #[cfg(unix)]
 #[test]
 fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
@@ -3019,7 +3023,7 @@ fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
     );
     let extra = vec!["--sandbox".to_string(), "read-only".into()];
     let mut emitted = Vec::new();
-    let invocation = with_codex_bin(&shim, || {
+    let invocation = with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &extra,
@@ -3063,7 +3067,7 @@ fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
 #[cfg(unix)]
 #[test]
 fn a_resume_that_started_and_failed_is_not_respawned_cold() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
@@ -3079,7 +3083,7 @@ fn a_resume_that_started_and_failed_is_not_respawned_cold() {
     );
     let extra = vec!["--sandbox".to_string(), "workspace-write".into()];
     let mut emitted = Vec::new();
-    let invocation = with_codex_bin(&shim, || {
+    let invocation = with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &extra,
@@ -3157,6 +3161,7 @@ fn the_sandbox_declaration_is_read_in_both_of_its_spellings() {
 /// spellings of a value flag are the same declaration, and a value is
 /// never read as a part in its own right.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn only_the_flags_a_resume_can_safely_carry_travel_with_it() {
     let blocker = |parts: &[&str]| {
         let passthrough: Vec<String> = parts.iter().map(|part| part.to_string()).collect();
@@ -3379,7 +3384,7 @@ fn only_the_flags_a_resume_can_safely_carry_travel_with_it() {
 #[cfg(unix)]
 #[test]
 fn the_resume_message_hands_one_session_to_the_next_seat_and_no_other() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let shim = codex_shim(dir.path(), "codex", &argv);
@@ -3411,7 +3416,7 @@ fn the_resume_message_hands_one_session_to_the_next_seat_and_no_other() {
     let extra = vec!["--sandbox".to_string(), "read-only".into()];
     let input = format!("{hello}\n{resume}\n{}\n{}\n", start("a1"), start("a2"));
     let mut output = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         serve_io(AdapterKind::Codex, &extra, input.as_bytes(), &mut output).unwrap()
     });
     let messages: Vec<Value> = String::from_utf8(output)
@@ -3467,7 +3472,7 @@ fn the_resume_message_hands_one_session_to_the_next_seat_and_no_other() {
 #[cfg(unix)]
 #[test]
 fn a_codex_whose_installed_version_has_moved_declines_the_offer() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     // The shim answers a DIFFERENT version than the assessment's.
@@ -3483,7 +3488,7 @@ fn a_codex_whose_installed_version_has_moved_declines_the_offer() {
         ),
     );
     let mut emitted = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &["--sandbox".to_string(), "read-only".into()],
@@ -3562,6 +3567,7 @@ fn a_codex_whose_version_cannot_be_read_declines_the_offer() {
 /// into a different valid-looking identifier, and a version nobody can
 /// compare is treated as no version at all.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
     for (id, ok) in [
         ("019c4b7e-0000-7000-8000-000000000001", true),
@@ -3858,6 +3864,7 @@ fn qualify_refuses_a_current_version_stale_origin() {
 /// also carry.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_claude_resume_is_the_cold_argv_plus_exactly_one_owned_selector() {
     const CLAUDE_VERSION: &str = "2.1.266";
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
@@ -4093,6 +4100,7 @@ fn a_claude_argument_that_selects_a_conversation_refuses_before_any_provider_wor
 // `executable`/`version_preamble` are Unix-only helpers.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_lanetally_wrapper_resumes_on_its_own_shape_and_its_own_binary() {
     const WRAPPER_VERSION: &str = "2.1.266";
     let dir = tempfile::tempdir().unwrap();
@@ -4419,7 +4427,7 @@ fn claude_refuses_a_duplicate_or_valueless_authoritative_restriction() {
 #[cfg(unix)]
 #[test]
 fn a_launch_is_published_on_confirmation_and_a_mismatch_publishes_nothing() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
     let other = "01a06183-0000-0000-0000-000000000000";
     for (case, announced, exit, launch, spawns) in [
@@ -4469,7 +4477,7 @@ fn a_launch_is_published_on_confirmation_and_a_mismatch_publishes_nothing() {
             ),
         );
         let mut emitted = Vec::new();
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &["--sandbox".to_string(), "read-only".into()],
@@ -4513,7 +4521,7 @@ fn a_launch_is_published_on_confirmation_and_a_mismatch_publishes_nothing() {
 #[cfg(unix)]
 #[test]
 fn a_rejoin_that_delivered_its_result_is_never_replaced_by_a_cold_spawn() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let result = dir.path().join("result.json");
@@ -4530,7 +4538,7 @@ fn a_rejoin_that_delivered_its_result_is_never_replaced_by_a_cold_spawn() {
     let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
     input["result_path"] = json!(result);
     let mut emitted = Vec::new();
-    let invocation = with_codex_bin(&shim, || {
+    let invocation = with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &["--sandbox".to_string(), "read-only".into()],
@@ -4563,7 +4571,7 @@ fn a_rejoin_that_delivered_its_result_is_never_replaced_by_a_cold_spawn() {
 #[cfg(unix)]
 #[test]
 fn an_unsettled_codex_rejoin_is_never_accepted_even_when_it_delivers_a_result() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
     let other = "01a06183-0000-0000-0000-000000000000";
     for (case, announced) in [("a different root", other), ("no root at all", "")] {
@@ -4590,7 +4598,7 @@ fn an_unsettled_codex_rejoin_is_never_accepted_even_when_it_delivers_a_result() 
         let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
         input["result_path"] = json!(result);
         let mut messages = Vec::new();
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             run_seat(
                 AdapterKind::Codex,
                 &["--sandbox".to_string(), "read-only".into()],
@@ -4642,7 +4650,7 @@ fn an_unsettled_codex_rejoin_is_never_accepted_even_when_it_delivers_a_result() 
 #[cfg(unix)]
 #[test]
 fn an_unsettled_claude_rejoin_is_never_accepted_even_when_it_delivers_a_result() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let version = version_preamble("2.1.266 (Claude Code)");
     let offered = "019c4b7e-0000-7000-8000-000000000001";
     let other = "019c4b7e-0000-7000-8000-0000000000ff";
@@ -4673,8 +4681,7 @@ fn an_unsettled_claude_rejoin_is_never_accepted_even_when_it_delivers_a_result()
         );
         let mut input = enabled_input(CLAUDE_SHAPE, "2.1.266", dir.path());
         input["result_path"] = json!(result);
-        let prior = std::env::var_os("BROKKR_CLAUDE_BIN");
-        std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+        env.set("BROKKR_CLAUDE_BIN", &shim);
         let mut messages = Vec::new();
         run_seat(
             AdapterKind::Claude,
@@ -4685,10 +4692,6 @@ fn an_unsettled_claude_rejoin_is_never_accepted_even_when_it_delivers_a_result()
             Some(offered),
             &mut |body| messages.push(body),
         );
-        match prior {
-            Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
-            None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
-        }
         let (status, error) = messages
             .iter()
             .find_map(|body| match body {
@@ -4725,7 +4728,7 @@ fn an_unsettled_claude_rejoin_is_never_accepted_even_when_it_delivers_a_result()
 #[cfg(unix)]
 #[test]
 fn work_that_began_is_never_replaced_and_a_replacement_counts_only_its_own() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
     for (case, rejected, spawns, usage) in [
         (
@@ -4758,7 +4761,7 @@ fn work_that_began_is_never_replaced_and_a_replacement_counts_only_its_own() {
             ),
         );
         let mut emitted = Vec::new();
-        let invocation = with_codex_bin(&shim, || {
+        let invocation = with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &["--sandbox".to_string(), "read-only".into()],
@@ -4794,10 +4797,9 @@ fn work_that_began_is_never_replaced_and_a_replacement_counts_only_its_own() {
 #[cfg(unix)]
 #[test]
 fn a_dsh_offer_is_declined_and_its_retained_directory_is_not_a_handle() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
 
     // No assessment: the fail-closed default every unmeasured shape gets.
     let bare = json!({"workdir": dir.path()});
@@ -4845,11 +4847,6 @@ fn a_dsh_offer_is_declined_and_its_retained_directory_is_not_a_handle() {
     assert_eq!(missing.refusal, Some("unverified-harness"));
     assert!(!missing.stream_json);
     assert!(missing.rejoining.is_none());
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// A synthetic composite with a chosen canonical digest, so every
@@ -5107,11 +5104,10 @@ fn dsh_owned_locators_resolve_only_beneath_the_home_and_name_the_offered_root() 
 #[cfg(unix)]
 #[test]
 fn a_retained_dsh_directory_alone_never_supplies_a_provider_handle() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(dir.path()).unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &root);
+    env.set("DSH_HOME", &root);
     let home = root.as_path();
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(home, "dsh-retained", "0.1.5-rc.1");
@@ -5183,20 +5179,14 @@ fn a_retained_dsh_directory_alone_never_supplies_a_provider_handle() {
     assert_eq!(warm.rejoining.as_deref(), Some("session-1"));
     assert_eq!(warm.first_seq, Some(9));
     assert_eq!(warm.root, home.join("sessions/brokkr/seat-1"));
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
 #[test]
 fn a_qualified_dsh_launch_uses_the_stream_json_forms_and_records_observed_identity() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
     let shim = dsh_version_shim(dir.path(), "dsh-cold", "0.1.5-rc.1");
@@ -5271,20 +5261,14 @@ fn a_qualified_dsh_launch_uses_the_stream_json_forms_and_records_observed_identi
         || panic!("a refused control never reaches the recompute"),
     );
     assert!(conflicted.is_err());
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
 #[test]
 fn a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     plant_dsh_session(
         dir.path(),
@@ -5355,11 +5339,6 @@ fn a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence() {
     .unwrap();
     assert_eq!(declined.refusal, Some("unverified-harness"));
     assert!(!declined.stream_json);
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// The boundary the planner settles is the boundary the real transcript
@@ -5369,11 +5348,11 @@ fn a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence() {
 /// drives the plan's own `first_seq` through `drain_dsh_transcript`.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(dir.path(), "dsh-fold-boundary", "0.1.5-rc.1");
     let shim_text = shim.to_string_lossy().into_owned();
@@ -5404,6 +5383,7 @@ fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
             boundary,
             &mut turns,
             &mut meta,
+            &[],
             &mut |_| {},
         );
         turns
@@ -5509,11 +5489,6 @@ fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
         "the warm plan folds past its stored boundary"
     );
     assert_eq!(warm.first_seq, Some(0), "the offered store's boundary");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// A settled DSH launch over a synthetic store and a synthetic child, so
@@ -5552,6 +5527,7 @@ fn run_dsh_stream(launch: DshLaunch, workdir: &std::path::Path) -> (Invocation, 
         launch,
         "the prompt",
         workdir.to_str().unwrap(),
+        &[],
         &mut |value| emitted.push(value.clone()),
         |_| panic!("the qualified arm does not poll the child"),
     )
@@ -6253,13 +6229,15 @@ fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
     let start = json!({
         "effect_id": "effect", "attempt_id": "attempt",
         "input": {"workdir": here, "result_path": here.join("result.json"),
-                  "allowed_results": ["complete"], "feature": "f", "phase": "work"}
+                  "allowed_results": ["complete"], "feature": "f", "phase": "work",
+                  "role_path": "/dev/null"}
     });
     let mut bodies = Vec::new();
     let mut observations = Vec::new();
     let mut acknowledged = 0usize;
     run_seat_with(
         AdapterKind::Dsh,
+        Ok(()),
         &start,
         &mut |body| bodies.push(body),
         |prompt, input, _bindings, mut emit| {
@@ -6268,6 +6246,7 @@ fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
                 launch,
                 command,
                 input["workdir"].as_str().unwrap(),
+                &[],
                 &mut emit,
                 |_| panic!("the qualified arm does not poll the child"),
                 &mut |observation: &DshObservation| {
@@ -6824,6 +6803,7 @@ fn dsh_census_identity_counts_occurrences_and_addresses_not_distinct_ids() {
 /// still lets the store behind it confirm.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body() {
     let cases = [
         DshLatchCase {
@@ -7128,7 +7108,7 @@ fn dsh_stderr_prose_and_a_nonzero_exit_start_no_cold_replacement() {
 /// watchdog thread waits out a real deadline and then kills the provider
 /// child, which is what the runtime's own process-tree kill reaches when
 /// a DSH seat exceeds its deadline or the run is cancelled
-/// (`process::kill_driver`; design D7 keeps termination there and adds no
+/// (`process::tree::kill_group`; design D7 keeps termination there and adds no
 /// asynchronous cancel protocol). The child publishes its pid and then
 /// `exec`s its stall, so the kill lands on the process holding the
 /// stream, exactly as the tree kill does.
@@ -7142,6 +7122,7 @@ fn dsh_stderr_prose_and_a_nonzero_exit_start_no_cold_replacement() {
 /// `a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement`.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn a_dsh_deadline_kill_inside_the_open_launch_hold_fabricates_nothing() {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
@@ -7290,13 +7271,12 @@ fn a_cancel_reaching_the_dsh_driver_publishes_nothing_and_launches_nothing() {
 #[cfg(unix)]
 #[test]
 fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
     // The admitted home IS the tempdir, so the locator this launch
     // records resolves back to the planted store: the round trip below
     // reads the same address a later attempt would be handed.
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let root = dir.path().join("seat");
     plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
     let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
@@ -7377,11 +7357,6 @@ fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
     assert_eq!(invocation.session_meta["num_turns"], 1);
     assert_eq!(invocation.session_meta["input_tokens"], 5);
     assert_eq!(invocation.session_meta["output_tokens"], 2);
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// A qualified stream-json launch whose stdout carries a line the plugin's
@@ -7424,6 +7399,7 @@ fn a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms() {
         launch,
         "the prompt",
         dir.path().to_str().unwrap(),
+        &[],
         &mut |value| emitted.push(value.clone()),
         |_| panic!("the qualified arm does not poll the child"),
     )
@@ -7486,6 +7462,7 @@ fn a_qualified_stream_json_launch_finishes_its_held_row_without_a_confirmation()
         launch,
         "the prompt",
         dir.path().to_str().unwrap(),
+        &[],
         &mut |value| emitted.push(value.clone()),
         |_| panic!("the qualified arm does not poll the child"),
     )
@@ -7553,14 +7530,10 @@ fn a_qualified_stream_json_launch_ends_on_a_non_utf8_line() {
 #[cfg(unix)]
 #[test]
 fn a_dsh_seat_journals_its_declined_offer_and_flushes_its_held_rows_on_a_failed_spawn() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", dir.path().join("dsh-does-not-exist"));
-    std::env::remove_var("FORGE_DSH_BIN");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("BROKKR_DSH_BIN", dir.path().join("dsh-does-not-exist"));
+    env.set("DSH_HOME", dir.path());
 
     let result = dir.path().join("result.json");
     let mut messages = Vec::new();
@@ -7570,23 +7543,12 @@ fn a_dsh_seat_journals_its_declined_offer_and_flushes_its_held_rows_on_a_failed_
         &json!({
             "effect_id":"effect", "attempt_id":"attempt",
             "input": {"workdir": dir.path(), "result_path": result,
-                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
         }),
         Some("session-019c4b7e"),
         &mut |body| messages.push(body),
     );
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 
     let accepted = messages
         .iter()
@@ -7627,11 +7589,8 @@ fn a_dsh_seat_journals_its_declined_offer_and_flushes_its_held_rows_on_a_failed_
 #[cfg(unix)]
 #[test]
 fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
     let argv = dir.path().join("argv");
     let result = dir.path().join("result.json");
     // No installed provider: a shim that records every invocation's argv,
@@ -7648,9 +7607,8 @@ fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
             result = result.display()
         ),
     );
-    std::env::set_var("BROKKR_DSH_BIN", &shim);
-    std::env::remove_var("FORGE_DSH_BIN");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("BROKKR_DSH_BIN", &shim);
+    env.set("DSH_HOME", dir.path());
     let mut messages = Vec::new();
     run_seat(
         AdapterKind::Dsh,
@@ -7658,22 +7616,12 @@ fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
         &json!({
             "effect_id":"effect", "attempt_id":"attempt",
             "input": {"workdir": dir.path(), "result_path": result,
-                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
         }),
         Some("session-019c4b7e"),
         &mut |body| messages.push(body),
     );
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 
     let spawned = std::fs::read_to_string(&argv).unwrap();
     assert_eq!(
@@ -7728,8 +7676,9 @@ fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
 /// actually came back on the wire.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_miscorrelated_duplicate_or_unnegotiated_offer_launches_nothing() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let shim = codex_shim(dir.path(), "codex", &argv);
@@ -7760,9 +7709,9 @@ fn a_miscorrelated_duplicate_or_unnegotiated_offer_launches_nothing() {
         .unwrap()
     };
     let extra = vec!["--sandbox".to_string(), "read-only".into()];
-    let drive = |input: String| -> Vec<Value> {
+    let mut drive = |input: String| -> Vec<Value> {
         let mut output = Vec::new();
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             serve_io(AdapterKind::Codex, &extra, input.as_bytes(), &mut output).unwrap()
         });
         String::from_utf8(output)
@@ -7935,17 +7884,13 @@ printf 'a last line still being written' >> "$f"
 #[cfg(unix)]
 #[test]
 fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let fake = executable(dir.path(), "dsh", DSH_TRANSCRIPT_SHIM);
-    let prior = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", &fake);
-    std::env::remove_var("FORGE_DSH_BIN");
+    env.set("BROKKR_DSH_BIN", &fake);
     // The seat's transcript is kept under the harness home; in a test
     // that home is this test's own directory, never the operator's.
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
 
     let seen = dir.path().join("dsh-seen");
     let mut emitted: Vec<Value> = Vec::new();
@@ -8038,7 +7983,7 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     // seat is silent, not broken. Named workdir absent too, so the
     // driver falls back to its own directory as every other arm does.
     let quiet = executable(dir.path(), "quiet-dsh", "#!/bin/sh\nexit 0\n");
-    std::env::set_var("BROKKR_DSH_BIN", &quiet);
+    env.set("BROKKR_DSH_BIN", &quiet);
     let mut emitted: Vec<Value> = Vec::new();
     let invocation = invoke(
         AdapterKind::Dsh,
@@ -8055,18 +8000,6 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     assert_eq!(emitted[1]["step"], "harness-started");
     assert_eq!(invocation.exit_code, 0);
     assert!(invocation.session_meta.get("num_turns").is_none());
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[test]
@@ -8151,6 +8084,7 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
         None,
         &mut turns,
         &mut meta,
+        &[],
         &mut |value| emitted.push(value.clone()),
     );
     assert!(tail.file.is_none());
@@ -8171,6 +8105,7 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
         None,
         &mut turns,
         &mut meta,
+        &[],
         &mut |value| emitted.push(value.clone()),
     );
     assert!(tail.file.is_some());
@@ -8342,34 +8277,30 @@ fn the_transcript_root_is_kept_under_the_harness_home_and_survives_the_seat() {
 #[test]
 fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
     let linked = GitFacts {
-        git_dir: Some(PathBuf::from(absolute!("/main/.git/worktrees/wt"))),
-        common_dir: Some(PathBuf::from(absolute!("/main/.git"))),
+        git_dir: Some(PathBuf::from("/main/.git/worktrees/wt")),
+        common_dir: Some(PathBuf::from("/main/.git")),
         identity: Vec::new(),
     };
-    let scope = dsh_git_runner_scope(absolute!("/work/wt"), &linked, "workspace-write")
+    let scope = dsh_git_runner_scope("/work/wt", &linked, "workspace-write")
         .expect("a linked worktree needs the runner");
-    assert_eq!(scope.workspace, PathBuf::from(absolute!("/work/wt")));
-    assert_eq!(
-        scope.git_dir,
-        PathBuf::from(absolute!("/main/.git/worktrees/wt"))
-    );
-    assert_eq!(scope.common_dir, PathBuf::from(absolute!("/main/.git")));
+    assert_eq!(scope.workspace, PathBuf::from("/work/wt"));
+    assert_eq!(scope.git_dir, PathBuf::from("/main/.git/worktrees/wt"));
+    assert_eq!(scope.common_dir, PathBuf::from("/main/.git"));
 
     // The workspace's own git directory is already inside the writable
     // root, so a primary checkout needs nothing.
     let primary = GitFacts {
-        git_dir: Some(PathBuf::from(absolute!("/repo/.git"))),
-        common_dir: Some(PathBuf::from(absolute!("/repo/.git"))),
+        git_dir: Some(PathBuf::from("/repo/.git")),
+        common_dir: Some(PathBuf::from("/repo/.git")),
         identity: Vec::new(),
     };
-    assert!(dsh_git_runner_scope(absolute!("/repo"), &primary, "workspace-write").is_none());
+    assert!(dsh_git_runner_scope("/repo", &primary, "workspace-write").is_none());
     // A subdirectory of a checkout cannot reach the git directory the
     // session cwd does not contain, but its git directory IS the shared
     // repository: the driver refuses rather than mounting the whole shared
     // `.git` writable (decision 0054).
-    assert!(dsh_git_runner_scope(absolute!("/repo/src"), &primary, "workspace-write").is_some());
-    let refused =
-        dsh_sandbox_row_for(absolute!("/repo/src"), &primary, "workspace-write").unwrap_err();
+    assert!(dsh_git_runner_scope("/repo/src", &primary, "workspace-write").is_some());
+    let refused = dsh_sandbox_row_for("/repo/src", &primary, "workspace-write").unwrap_err();
     assert!(
         refused.contains("shared repository's own git directory"),
         "{refused}"
@@ -8377,14 +8308,9 @@ fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
     assert!(refused.starts_with("dsh driver: "), "{refused}");
     // No writes to confine, and not a repository at all.
     for mode in ["read-only", "danger-full-access"] {
-        assert!(dsh_git_runner_scope(absolute!("/work/wt"), &linked, mode).is_none());
+        assert!(dsh_git_runner_scope("/work/wt", &linked, mode).is_none());
     }
-    assert!(dsh_git_runner_scope(
-        absolute!("/work/wt"),
-        &GitFacts::default(),
-        "workspace-write"
-    )
-    .is_none());
+    assert!(dsh_git_runner_scope("/work/wt", &GitFacts::default(), "workspace-write").is_none());
     // A workdir that is not a path at all names no writable root to be
     // outside of, so there is nothing to scope.
     assert!(dsh_git_runner_scope("", &linked, "workspace-write").is_none());
@@ -8393,11 +8319,10 @@ fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
     // then refuses, rather than the driver guessing a worktree name.
     let shared_only = GitFacts {
         git_dir: None,
-        common_dir: Some(PathBuf::from(absolute!("/main/.git"))),
+        common_dir: Some(PathBuf::from("/main/.git")),
         identity: Vec::new(),
     };
-    let scope =
-        dsh_git_runner_scope(absolute!("/work/wt"), &shared_only, "workspace-write").unwrap();
+    let scope = dsh_git_runner_scope("/work/wt", &shared_only, "workspace-write").unwrap();
     assert_eq!(scope.git_dir, scope.common_dir);
     assert!(dsh_sandbox::scope_refusal(&scope)
         .unwrap()
@@ -8541,12 +8466,11 @@ fn a_failure_before_the_promotion_keeps_the_private_store_and_names_it() {
     std::fs::remove_dir_all(&store).unwrap();
 }
 
-/// The whole driver decision on a real linked worktree: the row is built
-/// where bubblewrap can stand in, and the refusal names the reason where
-/// it cannot.
+/// A real repository under `dir/main` with one commit, its linked
+/// worktree `dir/wt` on branch `slice` and that worktree's git facts, and
+/// the directory holding both.
 #[cfg(target_os = "linux")]
-#[test]
-fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() {
+fn real_linked_worktree() -> (tempfile::TempDir, PathBuf, GitFacts) {
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("main");
     std::fs::create_dir_all(&main).unwrap();
@@ -8585,6 +8509,39 @@ fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() 
     );
 
     let facts = crate::hands::git_facts(&worktree);
+    (dir, worktree, facts)
+}
+
+/// A runner override that is not UTF-8 refuses a real linked worktree's
+/// seat by name, with or without bubblewrap, and never falls to this
+/// binary (#355).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_runner_override_that_is_not_unicode_refuses_the_row_by_name() {
+    let (_dir, worktree, facts) = real_linked_worktree();
+    let mut env = EnvGuard::lock();
+    env.set(
+        "BROKKR_DSH_RUNNER",
+        std::ffi::OsStr::from_bytes(b"/opt/\xff/brokkr"),
+    );
+    let not_unicode = OverrideError::NotUnicode {
+        variable: "BROKKR_DSH_RUNNER",
+    };
+    assert_eq!(
+        dsh_sandbox_row_for(worktree.to_str().unwrap(), &facts, "workspace-write").unwrap_err(),
+        format!("dsh driver: {not_unicode}")
+    );
+}
+
+/// The whole driver decision on a real linked worktree: the row is built
+/// where bubblewrap can stand in, and the refusal names the reason where
+/// it cannot.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() {
+    // Held so the runner override another test sets is not read here.
+    let _env = EnvGuard::lock();
+    let (dir, worktree, facts) = real_linked_worktree();
     match dsh_sandbox_row_for(worktree.to_str().unwrap(), &facts, "workspace-write") {
         Ok(Some((row, _, staged))) => {
             assert!(row.contains("- id: sandbox\n"), "{row}");
@@ -8669,7 +8626,7 @@ fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() 
 #[cfg(unix)]
 #[test]
 fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -8691,12 +8648,8 @@ fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
         "dsh",
         &format!("#!/bin/sh\nenv > {}\n", dump.display()),
     );
-    let prior_bin = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", &fake);
-    std::env::remove_var("FORGE_DSH_BIN");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("BROKKR_DSH_BIN", &fake);
+    env.set("DSH_HOME", dir.path());
 
     invoke(
         AdapterKind::Dsh,
@@ -8708,18 +8661,6 @@ fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
         &mut |_| {},
     )
     .unwrap();
-
-    match prior_bin {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 
     let seen = std::fs::read_to_string(&dump).unwrap();
     assert!(seen.contains("GIT_CONFIG_COUNT=1"), "{seen}");
@@ -8740,8 +8681,9 @@ fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
 /// runner would, and commits through it.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("main");
     std::fs::create_dir_all(&main).unwrap();
@@ -8800,12 +8742,9 @@ fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
             gitdir = git_dir.display()
         ),
     );
-    let prior_bin = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", &fake);
-    std::env::remove_var("FORGE_DSH_BIN");
-    std::env::set_var("DSH_HOME", dir.path());
-    std::env::set_var("DSH_PERMISSION_MODE", "workspace-write");
+    env.set("BROKKR_DSH_BIN", &fake);
+    env.set("DSH_HOME", dir.path());
+    env.set("DSH_PERMISSION_MODE", "workspace-write");
 
     let run = invoke(
         AdapterKind::Dsh,
@@ -8820,7 +8759,7 @@ fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
     // A seat that committed nothing — a verify or review seat reusing the
     // same worktree — leaves the branch where it was and says nothing.
     let idle = executable(dir.path(), "idle-dsh", "#!/bin/sh\nexit 0\n");
-    std::env::set_var("BROKKR_DSH_BIN", &idle);
+    env.set("BROKKR_DSH_BIN", &idle);
     let quiet = invoke(
         AdapterKind::Dsh,
         &[],
@@ -8831,15 +8770,7 @@ fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
         &mut |_| {},
     );
 
-    match prior_bin {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
-    std::env::remove_var("DSH_PERMISSION_MODE");
+    env.remove("DSH_PERMISSION_MODE");
 
     match run {
         Ok(run) => {
@@ -8966,16 +8897,12 @@ printf '{"type":"thread.started","thread_id":"01a0619c-928b-7ad3-8cc9-9eaa94c3ae
 #[cfg(unix)]
 #[test]
 fn a_codex_that_completes_no_turn_still_names_what_served_it_on_the_way_out() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("codex-home");
     let fake = executable(dir.path(), "codex", CODEX_NO_TURN_SHIM);
-    let prior = std::env::var_os("BROKKR_CODEX_BIN");
-    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
-    let prior_home = std::env::var_os("CODEX_HOME");
-    std::env::set_var("BROKKR_CODEX_BIN", &fake);
-    std::env::remove_var("FORGE_CODEX_BIN");
-    std::env::set_var("CODEX_HOME", &home);
+    env.set("BROKKR_CODEX_BIN", &fake);
+    env.set("CODEX_HOME", &home);
 
     let mut emitted: Vec<Value> = Vec::new();
     let invocation = invoke(
@@ -8988,18 +8915,6 @@ fn a_codex_that_completes_no_turn_still_names_what_served_it_on_the_way_out() {
         &mut |event| emitted.push(event.clone()),
     )
     .unwrap();
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
-        None => std::env::remove_var("BROKKR_CODEX_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_CODEX_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("CODEX_HOME", value),
-        None => std::env::remove_var("CODEX_HOME"),
-    }
 
     assert_eq!(invocation.exit_code, 0, "{emitted:?}");
     assert!(
@@ -9036,16 +8951,12 @@ printf '{"type":"thread.started","thread_id":"01a0619c-928b-7ad3-8cc9-9eaa94c3ae
 #[cfg(unix)]
 #[test]
 fn a_refused_effort_does_not_hide_the_one_the_thread_still_names() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("codex-home");
     let fake = executable(dir.path(), "codex", CODEX_REFUSED_EFFORT_SHIM);
-    let prior = std::env::var_os("BROKKR_CODEX_BIN");
-    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
-    let prior_home = std::env::var_os("CODEX_HOME");
-    std::env::set_var("BROKKR_CODEX_BIN", &fake);
-    std::env::remove_var("FORGE_CODEX_BIN");
-    std::env::set_var("CODEX_HOME", &home);
+    env.set("BROKKR_CODEX_BIN", &fake);
+    env.set("CODEX_HOME", &home);
 
     let mut emitted: Vec<Value> = Vec::new();
     let invocation = invoke(
@@ -9058,18 +8969,6 @@ fn a_refused_effort_does_not_hide_the_one_the_thread_still_names() {
         &mut |event| emitted.push(event.clone()),
     )
     .unwrap();
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
-        None => std::env::remove_var("BROKKR_CODEX_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_CODEX_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("CODEX_HOME", value),
-        None => std::env::remove_var("CODEX_HOME"),
-    }
 
     let meta = &invocation.session_meta;
     assert_eq!(meta["model"], "gpt-5.6-sol", "{emitted:?}");
@@ -9103,16 +9002,12 @@ printf '{"type":"thread.started","thread_id":"01a0619c-928b-7ad3-8cc9-9eaa94c3ae
 #[cfg(unix)]
 #[test]
 fn a_refused_model_walks_back_while_the_newest_effort_stands() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("codex-home");
     let fake = executable(dir.path(), "codex", CODEX_REFUSED_MODEL_SHIM);
-    let prior = std::env::var_os("BROKKR_CODEX_BIN");
-    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
-    let prior_home = std::env::var_os("CODEX_HOME");
-    std::env::set_var("BROKKR_CODEX_BIN", &fake);
-    std::env::remove_var("FORGE_CODEX_BIN");
-    std::env::set_var("CODEX_HOME", &home);
+    env.set("BROKKR_CODEX_BIN", &fake);
+    env.set("CODEX_HOME", &home);
 
     let mut emitted: Vec<Value> = Vec::new();
     let invocation = invoke(
@@ -9125,18 +9020,6 @@ fn a_refused_model_walks_back_while_the_newest_effort_stands() {
         &mut |event| emitted.push(event.clone()),
     )
     .unwrap();
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
-        None => std::env::remove_var("BROKKR_CODEX_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_CODEX_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("CODEX_HOME", value),
-        None => std::env::remove_var("CODEX_HOME"),
-    }
 
     let meta = &invocation.session_meta;
     assert_eq!(meta["model"], "gpt-5.5-sol", "{emitted:?}");
@@ -9167,14 +9050,10 @@ fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
     // only, which the journal sees once — inside the finishing
     // checkpoint — so `brokkr inspect --seat` on a WORKING codex seat
     // showed no session id and the drilldown had nothing to open.
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let fake = executable(dir.path(), "codex", CODEX_THREAD_SHIM);
-    let prior = std::env::var_os("BROKKR_CODEX_BIN");
-    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
-    std::env::set_var("BROKKR_CODEX_BIN", &fake);
-    std::env::remove_var("FORGE_CODEX_BIN");
-
+    env.set("BROKKR_CODEX_BIN", &fake);
     let seen = dir.path().join("codex-seen");
     let mut emitted: Vec<Value> = Vec::new();
     let invocation = invoke(
@@ -9192,14 +9071,6 @@ fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
         },
     )
     .unwrap();
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
-        None => std::env::remove_var("BROKKR_CODEX_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_CODEX_BIN", value);
-    }
 
     let thread = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
     assert_eq!(invocation.exit_code, 0, "{emitted:?}");
@@ -9279,26 +9150,23 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
     // checkpoints exist to end, reached by a longer road. A real
     // `waitpid` cannot be made to fail from here, so the question is
     // injected the way this driver's other syscalls already are.
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let fake = executable(dir.path(), "dsh", "#!/bin/sh\nexit 0\n");
-    let prior = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", &fake);
-    std::env::remove_var("FORGE_DSH_BIN");
+    env.set("BROKKR_DSH_BIN", &fake);
     // The seat's transcript is kept under the harness home; in a test
     // that home is this test's own directory, never the operator's.
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
 
     let mut passes = 0;
     let mut emitted: Vec<Value> = Vec::new();
-    let refused = invoke_dsh_with(
-        &[],
+    let workdir = dir.path().to_str().unwrap();
+    let launch = dsh_launch(fake.to_str().unwrap(), &[], workdir, None, &json!({})).unwrap();
+    let refused = invoke_dsh_launch(
+        launch,
         "the prompt",
-        dir.path().to_str().unwrap(),
-        &json!({}),
-        None,
+        workdir,
+        &[],
         &mut |event: &Value| emitted.push(event.clone()),
         |child| {
             passes += 1;
@@ -9312,18 +9180,6 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
             Err(std::io::Error::other("no child processes"))
         },
     );
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 
     let refused = match refused {
         Ok(_) => panic!("a child that cannot be waited on is not a success"),
@@ -9429,15 +9285,16 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
     let boxed = render_prompt(
         &input(json!({"hands": "boxed", "boundary": "namespace"})),
         AdapterKind::Claude,
-    );
-    let legacy = render_prompt(&input(json!({"hands": "boxed"})), AdapterKind::Codex);
+    )
+    .unwrap();
+    let legacy = render_prompt(&input(json!({"hands": "boxed"})), AdapterKind::Codex).unwrap();
     assert_eq!(boxed, legacy);
     assert!(boxed.contains("reachable ONLY through the `mcp__brokkr__workspace` tool"));
     assert!(boxed.contains("write a JSON object to exactly this file"));
 
     // `harness` on a `file` door: the word, no workspace tool, the one
     // file the sandbox lets the seat write.
-    let filed = render_prompt(&input(json!({"boundary": "harness"})), AdapterKind::Claude);
+    let filed = render_prompt(&input(json!({"boundary": "harness"})), AdapterKind::Claude).unwrap();
     assert!(
         filed.contains("stand under the `harness` boundary"),
         "{filed}"
@@ -9461,7 +9318,8 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
     let captured = render_prompt(
         &input(json!({"boundary": "harness", "result_delivery": "last-message"})),
         AdapterKind::Codex,
-    );
+    )
+    .unwrap();
     assert!(
         captured.contains("Your FINAL message must be exactly the result object"),
         "{captured}"
@@ -9485,13 +9343,13 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
     assert!(!captured.contains("mcp__brokkr__workspace"), "{captured}");
 
     // `open`: the word and no delivery change.
-    let open = render_prompt(&input(json!({"boundary": "open"})), AdapterKind::Dsh);
+    let open = render_prompt(&input(json!({"boundary": "open"})), AdapterKind::Dsh).unwrap();
     assert!(open.contains("stand under the `open` boundary"), "{open}");
     assert!(open.contains("Write the result file yourself"), "{open}");
     assert!(!open.contains("mcp__brokkr__workspace"), "{open}");
 
     // A site without hands: no paragraph, today's contract.
-    let plain = render_prompt(&input(json!({})), AdapterKind::Lanetally);
+    let plain = render_prompt(&input(json!({})), AdapterKind::Lanetally).unwrap();
     assert!(!plain.contains("Your hands"), "{plain}");
     assert!(plain.contains("write a JSON object to exactly this file"));
 
@@ -9504,7 +9362,7 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
         json!({"boundary": "harness", "result_delivery": "last-message"}),
         json!({"boundary": "open"}),
     ] {
-        let exec = render_prompt(&input(extra), AdapterKind::Exec);
+        let exec = render_prompt(&input(extra), AdapterKind::Exec).unwrap();
         assert!(!exec.contains("Your hands"), "{exec}");
         assert!(!exec.contains("mcp__brokkr__workspace"), "{exec}");
         assert!(!exec.contains("harness"), "{exec}");
@@ -9522,7 +9380,7 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
 #[cfg(unix)]
 #[test]
 fn a_last_message_capture_uses_the_ordinary_result_file_door_and_rejects_prose() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("result.json");
     for (message, valid) in [
@@ -9544,13 +9402,14 @@ printf '%s' '{message}' > "$capture"
 "#
             ),
         );
-        let input = json!({"feature":"judge", "phase":"verify", "workdir":dir.path(), "result_path":path,
-            "boundary":"harness", "result_delivery":"last-message", "allowed_results":["pass","fail"]});
-        let prompt = render_prompt(&input, AdapterKind::Codex);
+        let input = json!({"role_path":"/dev/null", "feature":"judge", "phase":"verify",
+            "workdir":dir.path(), "result_path":path, "boundary":"harness",
+            "result_delivery":"last-message", "allowed_results":["pass","fail"]});
+        let prompt = render_prompt(&input, AdapterKind::Codex).unwrap();
         assert!(prompt.contains(path.to_str().unwrap()));
         assert!(prompt.contains("final message"));
         let mut messages = Vec::new();
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             run_seat(
                 AdapterKind::Codex,
                 &[
@@ -9759,7 +9618,7 @@ fn a_refusal_reason_is_one_bounded_line() {
 #[cfg(unix)]
 #[test]
 fn a_refusing_claude_stream_is_reported_without_accepted_or_checkpoint() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
         dir.path(),
@@ -9772,8 +9631,7 @@ printf '{"type":"result","is_error":true,"error":"rate_limit","result":"You have
 "#,
     );
     let result = dir.path().join("result.json");
-    let prior = std::env::var_os("BROKKR_CLAUDE_BIN");
-    std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+    env.set("BROKKR_CLAUDE_BIN", &shim);
     let mut messages = Vec::new();
     run_seat(
         AdapterKind::Claude,
@@ -9781,15 +9639,12 @@ printf '{"type":"result","is_error":true,"error":"rate_limit","result":"You have
         &json!({
             "effect_id":"effect", "attempt_id":"attempt",
             "input": {"workdir": dir.path(), "result_path": result,
-                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
         }),
         None,
         &mut |body| messages.push(body),
     );
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
-        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
-    }
     assert!(
         !messages
             .iter()
@@ -9825,7 +9680,7 @@ printf '{"type":"result","is_error":true,"error":"rate_limit","result":"You have
 #[cfg(unix)]
 #[test]
 fn a_refusing_codex_stream_is_reported_without_accepted_or_checkpoint() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
         dir.path(),
@@ -9838,14 +9693,15 @@ printf '{"type":"error","message":"stream error: still refused"}\n'
     );
     let result = dir.path().join("result.json");
     let mut messages = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         run_seat(
             AdapterKind::Codex,
             &[],
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -9941,7 +9797,7 @@ fn a_refusal_reason_with_empty_text_adds_no_excerpt() {
 #[cfg(unix)]
 #[test]
 fn an_exec_that_cannot_spawn_accepts_once_and_fails_after_its_launch_row() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
     let mut messages = Vec::new();
@@ -9951,7 +9807,8 @@ fn an_exec_that_cannot_spawn_accepts_once_and_fails_after_its_launch_row() {
         &json!({
             "effect_id":"effect", "attempt_id":"attempt",
             "input": {"workdir": dir.path(), "result_path": result,
-                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
         }),
         None,
         &mut |body| messages.push(body),
@@ -9989,7 +9846,7 @@ fn an_exec_that_cannot_spawn_accepts_once_and_fails_after_its_launch_row() {
 #[cfg(unix)]
 #[test]
 fn a_refusal_after_work_began_is_not_a_failure_to_start() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
         dir.path(),
@@ -10002,14 +9859,15 @@ printf '{"type":"error","message":"stream error: rate limit"}\n'
     );
     let result = dir.path().join("result.json");
     let mut messages = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         run_seat(
             AdapterKind::Codex,
             &[],
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -10050,19 +9908,20 @@ printf '{"type":"error","message":"stream error: rate limit"}\n'
 #[cfg(unix)]
 #[test]
 fn a_codex_that_cannot_spawn_reports_no_launch_and_keeps_its_accepted() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
     let missing = dir.path().join("codex-does-not-exist");
     let mut messages = Vec::new();
-    with_codex_bin(&missing, || {
+    with_codex_bin(&mut env, &missing, || {
         run_seat(
             AdapterKind::Codex,
             &[],
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -10182,7 +10041,7 @@ fn a_refused_attempt_names_its_transcript_only_when_there_is_one() {
 #[cfg(unix)]
 #[test]
 fn a_harness_that_errs_and_then_works_keeps_its_session_and_its_result() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
     let thread = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
@@ -10202,14 +10061,15 @@ fn a_harness_that_errs_and_then_works_keeps_its_session_and_its_result() {
         ),
     );
     let mut messages = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         run_seat(
             AdapterKind::Codex,
             &[],
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -10254,7 +10114,7 @@ fn a_harness_that_errs_and_then_works_keeps_its_session_and_its_result() {
 #[cfg(unix)]
 #[test]
 fn the_pre_session_rows_are_held_until_the_first_turn_and_then_flushed_in_order() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
     let shim = executable(
@@ -10271,14 +10131,15 @@ fn the_pre_session_rows_are_held_until_the_first_turn_and_then_flushed_in_order(
         ),
     );
     let mut messages = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         run_seat(
             AdapterKind::Codex,
             &[],
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -10326,7 +10187,7 @@ fn the_pre_session_rows_are_held_until_the_first_turn_and_then_flushed_in_order(
 #[cfg(unix)]
 #[test]
 fn a_refusal_never_discards_a_session_that_delivered_its_result() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
     // No turn row at all, so `began_work` stays false and the delivery
@@ -10343,14 +10204,15 @@ fn a_refusal_never_discards_a_session_that_delivered_its_result() {
         ),
     );
     let mut messages = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         run_seat(
             AdapterKind::Codex,
             &[],
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -10471,11 +10333,11 @@ fn dsh_recording_version_shim(
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let marker = dir.path().join("version-was-called");
     let shim = dsh_recording_version_shim(dir.path(), "dsh-gate", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
@@ -10620,24 +10482,21 @@ fn a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route
             );
         }
     }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    let canonical = dir.path().canonicalize().unwrap();
+    let home = canonical.as_path();
+    env.set("DSH_HOME", home);
     let digest = "b".repeat(64);
-    let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
-    let workdir = dir.path().to_str().unwrap();
-    let shim = dsh_version_shim(dir.path(), "dsh-id", "0.1.5-rc.1");
+    let input = dsh_enabled_input("0.1.5-rc.1", &digest, home);
+    let workdir = home.to_str().unwrap();
+    let shim = dsh_version_shim(home, "dsh-id", "0.1.5-rc.1");
     let shim_text = shim.to_string_lossy().into_owned();
 
     // A producer error leaves the observed version recorded (the probe
@@ -10660,9 +10519,9 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     assert!(moved.wrapper_digest.is_none());
     assert!(!moved.stream_json);
 
-    // A version-command failure and unreadable output both observe
+    // A version-command failure and a version-less banner both observe
     // nothing and never reach the producer.
-    let failing = executable(dir.path(), "dsh-id-fail", "#!/bin/sh\nexit 3\n");
+    let failing = executable(home, "dsh-id-fail", "#!/bin/sh\nexit 3\n");
     let failed = dsh_launch_with(
         &failing.to_string_lossy(),
         &[],
@@ -10674,24 +10533,24 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     .unwrap();
     assert_eq!(failed.observed, None);
     assert!(!failed.stream_json);
-    let banner = dsh_version_shim(dir.path(), "dsh-id-banner", "no-version-here");
-    let unreadable = dsh_launch_with(
+    let banner = dsh_version_shim(home, "dsh-id-banner", "no-version-here");
+    let bannered = dsh_launch_with(
         &banner.to_string_lossy(),
         &[],
         workdir,
         None,
         &input,
-        || panic!("an unreadable probe never reaches the producer"),
+        || panic!("a version-less probe never reaches the producer"),
     )
     .unwrap();
-    assert_eq!(unreadable.observed, None);
-    assert!(!unreadable.stream_json);
+    assert_eq!(bannered.observed, None);
+    assert!(!bannered.stream_json);
 
     // Version drift observes the shim's version, never the requested pin,
     // and calls the producer zero times because the version gate is first.
     let calls = std::cell::Cell::new(0u32);
     let drifted = dsh_launch_with(
-        &dsh_version_shim(dir.path(), "dsh-id-drift", "9.9.9").to_string_lossy(),
+        &dsh_version_shim(home, "dsh-id-drift", "9.9.9").to_string_lossy(),
         &[],
         workdir,
         None,
@@ -10709,10 +10568,10 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
 
     // A missing or malformed declared digest prevents the probe AND the
     // producer, and an offer declines unverified-harness.
-    let marker_absent = dir.path().join("m-absent");
+    let marker_absent = home.join("m-absent");
     let shim_absent =
-        dsh_recording_version_shim(dir.path(), "dsh-id-absent", "0.1.5-rc.1", &marker_absent);
-    let no_declared = enabled_input(DSH_SHAPE, "0.1.5-rc.1", dir.path());
+        dsh_recording_version_shim(home, "dsh-id-absent", "0.1.5-rc.1", &marker_absent);
+    let no_declared = enabled_input(DSH_SHAPE, "0.1.5-rc.1", home);
     let absent = dsh_launch_with(
         &shim_absent.to_string_lossy(),
         &[],
@@ -10726,8 +10585,8 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     assert!(!absent.stream_json && absent.rejoining.is_none());
     assert!(!marker_absent.exists(), "no declared digest, no probe");
 
-    let marker_bad = dir.path().join("m-bad");
-    let shim_bad = dsh_recording_version_shim(dir.path(), "dsh-id-bad", "0.1.5-rc.1", &marker_bad);
+    let marker_bad = home.join("m-bad");
+    let shim_bad = dsh_recording_version_shim(home, "dsh-id-bad", "0.1.5-rc.1", &marker_bad);
     let mut malformed = input.clone();
     malformed["resume_context"]["assessment"][DSH_SHAPE]["identity"]["wrapper_digest"] =
         json!("A".repeat(64));
@@ -10746,55 +10605,197 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
 
     // A matching current identity still declines an offer whose recorded
     // originating version or digest differs.
-    plant_dsh_session(
-        dir.path(),
-        "sessions/brokkr/seat-1",
-        "--w--",
-        "session-1",
-        3,
-    );
+    plant_dsh_session(home, "sessions/brokkr/seat-1", "--w--", "session-1", 3);
+    let offered_root = home.join("sessions/brokkr/seat-1");
     let mut warm = input.clone();
     warm["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
     warm["resume_context"]["originating_wrapper_digest"] = json!(digest);
     warm["resume_context"]["owned_target"] = json!({
         "provider_id": "session-1",
         "persistence_locator": "sessions/brokkr/seat-1",
-        "persistence_home": dir.path().to_str().unwrap(),
+        "persistence_home": home.to_str().unwrap(),
     });
-    for (case, mutate) in [
-        ("originating version", "version"),
-        ("originating digest", "digest"),
-        ("missing originating digest", "null"),
+
+    // The control: the unvaried offer rejoins its own root after one
+    // producer call, so every decline below is its one varied field's.
+    let calls = std::cell::Cell::new(0u32);
+    let rejoined = dsh_launch_with(&shim_text, &[], workdir, Some("session-1"), &warm, || {
+        calls.set(calls.get() + 1);
+        Ok(synthetic_dsh_composite(&digest))
+    })
+    .unwrap();
+    assert_eq!(rejoined.refusal, None);
+    assert_eq!(rejoined.rejoining.as_deref(), Some("session-1"));
+    assert_eq!(rejoined.root, offered_root);
+    assert_eq!(calls.get(), 1);
+
+    // Each originating field is varied independently through missing
+    // (absent and null), mistyped, malformed and different values. Every
+    // one declines `unverified-harness` after the one producer call the
+    // current identity costs, and plans the cold route under the current
+    // home: a fresh root beside the offered one, no rejoin, no fold
+    // boundary (tasks 8.8(d) and 8.10).
+    const VERSION: &str = "originating_harness_version";
+    const DIGEST: &str = "originating_wrapper_digest";
+    for (case, field, value) in [
+        ("different version", VERSION, Some(json!("0.1.4-rc.1"))),
+        ("absent version", VERSION, None),
+        ("null version", VERSION, Some(Value::Null)),
+        ("mistyped version", VERSION, Some(json!(7))),
+        ("malformed version", VERSION, Some(json!("zz-not-hex"))),
+        ("different digest", DIGEST, Some(json!("d".repeat(64)))),
+        ("absent digest", DIGEST, None),
+        ("null digest", DIGEST, Some(Value::Null)),
+        ("mistyped digest", DIGEST, Some(json!(8))),
+        ("malformed digest", DIGEST, Some(json!("z".repeat(64)))),
     ] {
         let mut declined_input = warm.clone();
-        match mutate {
-            "version" => {
-                declined_input["resume_context"]["originating_harness_version"] =
-                    json!("0.1.4-rc.1")
-            }
-            "digest" => {
-                declined_input["resume_context"]["originating_wrapper_digest"] =
-                    json!("d".repeat(64))
-            }
-            _ => declined_input["resume_context"]["originating_wrapper_digest"] = Value::Null,
-        }
+        let context = declined_input["resume_context"].as_object_mut().unwrap();
+        match value {
+            Some(value) => context.insert(field.into(), value),
+            None => context.remove(field),
+        };
+        let calls = std::cell::Cell::new(0u32);
         let declined = dsh_launch_with(
             &shim_text,
             &[],
             workdir,
             Some("session-1"),
             &declined_input,
-            || Ok(synthetic_dsh_composite(&digest)),
+            || {
+                calls.set(calls.get() + 1);
+                Ok(synthetic_dsh_composite(&digest))
+            },
         )
         .unwrap();
         assert_eq!(declined.refusal, Some("unverified-harness"), "{case}");
+        assert_eq!(calls.get(), 1, "{case}: one producer call, never more");
         assert!(!declined.stream_json, "{case}");
-        assert!(declined.rejoining.is_none(), "{case}");
+        assert_eq!(declined.rejoining, None, "{case}");
+        assert_eq!(declined.first_seq, None, "{case}");
+        assert_ne!(declined.root, offered_root, "{case}");
+        assert_eq!(
+            declined.root.parent(),
+            Some(home.join("sessions/brokkr").as_path()),
+            "{case}: the cold root is fresh under the current home"
+        );
+        assert!(
+            !declined.command.contains(&"--session".to_string()),
+            "{case}: {:?}",
+            declined.command
+        );
     }
 
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
+    // The rest of B59's version-output matrix on the same offer, each
+    // vector isolated to one property (tasks 5302–5306): absent output
+    // (nothing printed, exit 0), malformed output (a valid-UTF-8 line
+    // carrying no version, exit 0) and a version-command failure (the
+    // MATCHING version printed, then exit 3, so the decline is the exit
+    // status's alone). Each observes nothing, never reaches the producer,
+    // declines `unverified-harness` and plans the cold route under the
+    // current home. The unreadable vector follows.
+    for (case, body, expected, code) in [
+        ("absent version output", "exit 0", &b""[..], 0),
+        (
+            "malformed version output",
+            "printf 'no-version-here\\n'\nexit 0",
+            &b"no-version-here\n"[..],
+            0,
+        ),
+        (
+            "version command failure",
+            "printf '0.1.5-rc.1\\n'\nexit 3",
+            &b"0.1.5-rc.1\n"[..],
+            3,
+        ),
+    ] {
+        let shim = executable(home, "dsh-id-output", &format!("#!/bin/sh\n{body}\n"));
+        let output = std::process::Command::new(&shim)
+            .arg("--version")
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(code), "{case}: the exit status");
+        assert_eq!(output.stdout, expected, "{case}: the shim's exact bytes");
+        assert!(std::str::from_utf8(&output.stdout).is_ok(), "{case}");
+        let declined = dsh_launch_with(
+            &shim.to_string_lossy(),
+            &[],
+            workdir,
+            Some("session-1"),
+            &warm,
+            || panic!("{case}: a probe that observes nothing never reaches the producer"),
+        )
+        .unwrap();
+        assert_eq!(declined.refusal, Some("unverified-harness"), "{case}");
+        assert_eq!(declined.observed, None, "{case}");
+        assert_eq!(declined.wrapper_digest, None, "{case}");
+        assert!(!declined.stream_json, "{case}");
+        assert_eq!(declined.rejoining, None, "{case}");
+        assert_eq!(declined.first_seq, None, "{case}");
+        assert_ne!(declined.root, offered_root, "{case}");
+        assert_eq!(
+            declined.root.parent(),
+            Some(home.join("sessions/brokkr").as_path()),
+            "{case}: the cold root is fresh under the current home"
+        );
+        assert!(
+            !declined.command.contains(&"--session".to_string()),
+            "{case}: {:?}",
+            declined.command
+        );
+    }
+
+    // Unreadable version output: bytes that are not valid UTF-8 on exit
+    // 0, carrying the matching version beside them, so the decline is the
+    // unreadability's alone and not a missing number's. It observes
+    // nothing, never reaches the producer and plans the cold route under
+    // the current home (tasks 5302–5306; `qualify`'s contract).
+    for (case, printed, expected) in [
+        (
+            "invalid line after the version",
+            "0.1.5-rc.1\\n\\377\\376",
+            &b"0.1.5-rc.1\n\xff\xfe\n"[..],
+        ),
+        (
+            "invalid byte beside the version",
+            "0.1.5-rc.1 \\377",
+            &b"0.1.5-rc.1 \xff\n"[..],
+        ),
+    ] {
+        let shim = dsh_version_shim(home, "dsh-id-unreadable", printed);
+        let output = std::process::Command::new(&shim)
+            .arg("--version")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{case}");
+        assert_eq!(output.stdout, expected, "{case}: the shim's exact bytes");
+        assert!(std::str::from_utf8(&output.stdout).is_err(), "{case}");
+        let declined = dsh_launch_with(
+            &shim.to_string_lossy(),
+            &[],
+            workdir,
+            Some("session-1"),
+            &warm,
+            || panic!("{case}: an unreadable probe never reaches the producer"),
+        )
+        .unwrap();
+        assert_eq!(declined.refusal, Some("unverified-harness"), "{case}");
+        assert_eq!(declined.observed, None, "{case}");
+        assert_eq!(declined.wrapper_digest, None, "{case}");
+        assert!(!declined.stream_json, "{case}");
+        assert_eq!(declined.rejoining, None, "{case}");
+        assert_eq!(declined.first_seq, None, "{case}");
+        assert_ne!(declined.root, offered_root, "{case}");
+        assert_eq!(
+            declined.root.parent(),
+            Some(home.join("sessions/brokkr").as_path()),
+            "{case}: the cold root is fresh under the current home"
+        );
+        assert!(
+            !declined.command.contains(&"--session".to_string()),
+            "{case}: {:?}",
+            declined.command
+        );
     }
 }
 
@@ -10824,13 +10825,14 @@ enum DshAdmission {
 /// (safety / AS3, evidence / LE2; tasks 8.8(d)/8.10).
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
     use DshAdmission::{Control, Field};
     // A plain identifier, so it is also a VALID model id: the control
     // cases pin it, and no control refusal may name it.
     const MARK: &str = "zzz-9f31c7-marker";
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     // The fixture root is canonicalized once and every path below is
     // derived from it: on macOS the temporary directory is reached
@@ -10838,8 +10840,7 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
     // spelled the other way is a different path to the admission
     // comparisons this ledger drives.
     let root = dir.path().canonicalize().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &root);
+    env.set("DSH_HOME", &root);
     let marker = root.join("m-controls");
     let shim = dsh_recording_version_shim(&root, "dsh-ctl", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
@@ -11099,11 +11100,6 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
         // the seat's own store was never created either.
         assert!(!root.join("sessions").exists(), "{path}: no retained root");
     }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// The counter the ledger's zero assertions read against is calibrated on
@@ -11115,13 +11111,12 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
 #[cfg(unix)]
 #[test]
 fn both_dsh_effort_spellings_are_admitted_and_stage_one_overlay() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
     // Derived from one canonicalized root, for the reason the ledger
     // above states: `/var` and `/private/var` are not the same path.
     let root = dir.path().canonicalize().unwrap();
-    std::env::set_var("DSH_HOME", &root);
+    env.set("DSH_HOME", &root);
     let marker = root.join("m-effort");
     let shim = dsh_recording_version_shim(&root, "dsh-effort", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
@@ -11165,11 +11160,6 @@ fn both_dsh_effort_spellings_are_admitted_and_stage_one_overlay() {
     );
     assert!(separate.contains("reasoningEffort: 'xhigh'"), "{separate}");
     assert!(!marker.exists(), "a disabled gate probes no version");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// A transcript root the overlay cannot write as one YAML scalar refuses
@@ -11187,13 +11177,12 @@ fn a_dsh_transcript_root_refusal_names_its_field_and_never_the_root() {
     // cannot write: no diagnostic may carry either back to the seat.
     const MARK: &str = "zzz-4a0e13-home";
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let home = root.join(format!("{MARK}\nline"));
     std::fs::create_dir_all(&home).unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &home);
+    env.set("DSH_HOME", &home);
     let marker = root.join("m-transcript");
     let shim = dsh_recording_version_shim(&root, "dsh-root", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
@@ -11221,11 +11210,6 @@ fn a_dsh_transcript_root_refusal_names_its_field_and_never_the_root() {
             !error.contains(root.to_str().unwrap()),
             "{path}: the root path echoed in {error}"
         );
-    }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
     }
 }
 
@@ -11388,7 +11372,7 @@ fn a_dsh_retained_root_refusal_names_its_field_and_never_the_home() {
     use std::os::unix::fs::PermissionsExt;
     const MARK: &str = "zzz-1e84fa-retained";
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let home = root.join(MARK);
@@ -11404,8 +11388,7 @@ fn a_dsh_retained_root_refusal_names_its_field_and_never_the_home() {
         "the source error must carry the home it tried: {source}"
     );
 
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &home);
+    env.set("DSH_HOME", &home);
     let marker = root.join("m-retained");
     let shim = dsh_recording_version_shim(&root, "dsh-retained", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
@@ -11441,10 +11424,6 @@ fn a_dsh_retained_root_refusal_names_its_field_and_never_the_home() {
 
     // Writable again, so the fixture's own directory can be reaped.
     std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// The shipped cold command shape, asserted whole rather than by the
@@ -11464,11 +11443,11 @@ fn assert_shipped_cold_command(command: &[String], bin: &str) {
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(dir.path(), "dsh-own", "0.1.5-rc.1");
     let shim_text = shim.to_string_lossy().into_owned();
@@ -11692,11 +11671,6 @@ fn a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator() {
     let error =
         resolve_dsh_root(dir.path(), "zzz-marker/../zzz-marker", "session-zzz-marker").unwrap_err();
     assert!(!error.contains("zzz-marker"), "{error}");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
@@ -11704,10 +11678,9 @@ fn a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator() {
 fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_staging() {
     use sha2::{Digest, Sha256};
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let valid = b"- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n            reasoningEfforts:\n              high: high\n";
     let invalid = String::from_utf8(valid.to_vec())
         .unwrap()
@@ -11801,11 +11774,6 @@ fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_sta
     .unwrap();
     assert!(error.contains("no bound route overlay"), "{error}");
     assert_eq!(dsh_staging_calls(), 0, "an absent binding precedes staging");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
@@ -11813,11 +11781,10 @@ fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_sta
 fn dsh_route_overlay_path_refusals_precede_any_probe_or_staging() {
     use sha2::{Digest, Sha256};
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let valid = b"- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n            reasoningEfforts:\n              high: high\n";
     let digest = |bytes: &[u8]| {
         let mut hasher = Sha256::new();
@@ -11898,18 +11865,15 @@ fn dsh_route_overlay_path_refusals_precede_any_probe_or_staging() {
     let raw = b"- id: llm-pi-ai\n  # zzz-marker\n\xff\n";
     std::fs::write(&route_path, raw).unwrap();
     check(&digest(raw), "non-utf8");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path();
+    let canonical = dir.path().canonicalize().unwrap();
+    let home = canonical.as_path();
     let session = home.join("sessions/brokkr/seat-1/--x--/session-1");
     std::fs::create_dir_all(&session).unwrap();
     let id = "a".repeat(200);
@@ -12010,6 +11974,22 @@ fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
     assert!(dsh_session_file_with(&root, &id, 1).is_err());
     assert!(dsh_session_file_with(&root, &id, 2).is_ok());
 
+    // A stored session of exactly the file cap is admitted and read to its
+    // true maximum: the header, then one complete event row padded with
+    // JSON whitespace so its newline is the file's last byte.
+    let at_cap = home.join("at-cap-session.jsonl");
+    let mut bytes =
+        b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":0}\n{\"seq\":5}".to_vec();
+    bytes.resize(DSH_SESSION_FILE_LIMIT as usize - 1, b' ');
+    bytes.push(b'\n');
+    std::fs::write(&at_cap, &bytes).unwrap();
+    drop(bytes);
+    assert_eq!(
+        std::fs::metadata(&at_cap).unwrap().len(),
+        DSH_SESSION_FILE_LIMIT
+    );
+    assert_eq!(dsh_session_last_seq(&at_cap), Some(5));
+
     // An over-budget stored session, a root that is not a directory and a
     // root that does not resolve are all bounded refusals.
     let huge = home.join("huge-session.jsonl");
@@ -12033,11 +12013,12 @@ fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
 #[test]
 fn dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum() {
     let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
     let header = b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":0}\n";
     let write = |rows: &[u8]| -> std::path::PathBuf {
         // Named for the direct reader only; the planner's generation
         // basename is asserted by `a_dsh_warm_offer_reads_the_selected_storage_generation`.
-        let path = dir.path().join("stored.jsonl");
+        let path = root.join("stored.jsonl");
         let mut bytes = header.to_vec();
         bytes.extend_from_slice(rows);
         std::fs::write(&path, &bytes).unwrap();
@@ -12062,8 +12043,14 @@ fn dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum() {
     assert_eq!(dsh_session_last_seq(&write(large.as_bytes())), Some(8));
 
     // An event row cut at the event budget is truncated evidence: it must
-    // not be skipped while reporting the lower maximum.
-    assert_eq!(dsh_session_last_seq_with(&write(b"{\"seq\":7}\n"), 4), None);
+    // not be skipped while reporting the lower maximum. A row whose newline
+    // lands exactly on the budget is complete and admitted; one byte less
+    // cuts it.
+    let row = b"{\"seq\":7}\n";
+    let limit = row.len() as u64;
+    assert_eq!(dsh_session_last_seq_with(&write(row), 4), None);
+    assert_eq!(dsh_session_last_seq_with(&write(row), limit), Some(7));
+    assert_eq!(dsh_session_last_seq_with(&write(row), limit - 1), None);
 
     // A valid prefix followed by a truncated final JSON row declines.
     assert_eq!(
@@ -12105,10 +12092,9 @@ fn dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum() {
 #[cfg(unix)]
 #[test]
 fn a_dsh_warm_offer_reads_the_selected_storage_generation() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(dir.path(), "dsh-generation", "0.1.5-rc.1");
     let shim_text = shim.to_string_lossy().into_owned();
@@ -12165,11 +12151,6 @@ fn a_dsh_warm_offer_reads_the_selected_storage_generation() {
     assert_eq!(declined.refusal, Some("unverified-harness"));
     assert!(!declined.stream_json && declined.rejoining.is_none());
     assert_shipped_cold_command(&declined.command, &shim_text);
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[test]
@@ -12179,10 +12160,9 @@ fn the_planned_locator_is_bounded_before_anything_is_staged() {
     // address under the home, and a root whose address is longer than
     // the admitted bound is refused rather than silently clamped into a
     // different address.
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let transcript = Transcript::resolve(TranscriptKind::DshSession).unwrap();
 
     let ordinary = dir.path().join("sessions").join("brokkr").join("seat-1");
@@ -12222,20 +12202,15 @@ fn the_planned_locator_is_bounded_before_anything_is_staged() {
         refused.contains("planned dsh locator is outside the admitted bound"),
         "{refused}"
     );
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_unsafe_stored_candidates_decline_instead_of_being_skipped() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let home = dir.path().to_path_buf();
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(&home, "dsh-unsafe", "0.1.5-rc.1");
@@ -12414,25 +12389,19 @@ fn dsh_unsafe_stored_candidates_decline_instead_of_being_skipped() {
     .unwrap();
     assert!(dsh_session_file(&padded_header, "session-1").is_err());
     refused("padded-header");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
 #[test]
 fn a_dsh_overlong_locator_is_never_truncated_into_another_valid_root() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     // The CANONICAL spelling of the root, because the round trip below
     // compares a resolved root against a path this test joins by hand
     // (review 2026-09-23, finding 2).
     let home = std::fs::canonicalize(dir.path()).unwrap();
     let home = home.as_path();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", home);
+    env.set("DSH_HOME", home);
     let valid = format!("sessions/brokkr/{}", "a".repeat(64));
     assert_eq!(valid.chars().count(), 80, "the prefix itself is the bound");
     plant_dsh_session(home, &valid, "--p--", "session-80", 2);
@@ -12482,11 +12451,6 @@ fn a_dsh_overlong_locator_is_never_truncated_into_another_valid_root() {
     .unwrap();
     assert_eq!(launch.refusal, Some("unverified-harness"));
     assert!(!launch.stream_json && launch.rejoining.is_none());
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
@@ -12494,10 +12458,9 @@ fn a_dsh_overlong_locator_is_never_truncated_into_another_valid_root() {
 fn a_dsh_route_overlay_planner_folds_on_the_offered_and_unmeasured_paths() {
     use sha2::{Digest, Sha256};
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let route = b"- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n            reasoningEfforts:\n              high: high\n";
     std::fs::write(dir.path().join("route.yml"), route).unwrap();
     let route_digest = {
@@ -12561,11 +12524,6 @@ fn a_dsh_route_overlay_planner_folds_on_the_offered_and_unmeasured_paths() {
     assert!(!cold.stream_json && cold.rejoining.is_none());
     let folded = std::fs::read_to_string(cold.overlay.path()).unwrap();
     assert!(folded.contains("- id: llm-pi-ai"), "{folded}");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -12642,11 +12600,11 @@ fn assert_dsh_planner_overlay(launch: &DshLaunch, stream: bool) {
 /// identity mismatch with an offer.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let (route, route_digest) = shipped_dsh_route();
     std::fs::write(dir.path().join("route.yml"), &route).unwrap();
     let declared = "b".repeat(64);
@@ -12786,11 +12744,6 @@ fn dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows() 
     assert!(!origin.stream_json && origin.rejoining.is_none());
     assert_dsh_planner_overlay(&origin, false);
     levels(&origin);
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// R3: the route grammar matrix through all three planner paths. Each
@@ -12799,24 +12752,18 @@ fn dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows() 
 /// producer call or the version probe, and names no value.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
     use sha2::{Digest, Sha256};
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let declared = "b".repeat(64);
     let marker = dir.path().join("m-matrix");
     let shim = dsh_recording_version_shim(dir.path(), "dsh-matrix", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
     let workdir = dir.path().to_str().unwrap();
-    let extra = vec![
-        "--model".to_string(),
-        "deepseek/deepseek-v4-flash".to_string(),
-        "--patch".to_string(),
-        "route.yml".to_string(),
-    ];
     let valid = "- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        \
                  apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n";
     let with_line = |line: &str| {
@@ -12914,8 +12861,135 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
             "plain identifier",
         ),
     ];
+    // The reader-only classes and the two classes no suite carried, each
+    // breaching a route the reader admits for the pin, so the refusal is
+    // the breach's own and its reason is asserted whole. `leaked` rides in
+    // every breaching value and must never come back.
+    let pin = "deepseek/deepseek-v4-flash";
+    let complete = format!("{valid}            reasoningEfforts:\n              high: high\n");
+    assert_eq!(
+        route_overlay::validate(complete.as_bytes(), pin),
+        Ok(()),
+        "the route the vectors below breach is admitted"
+    );
+    let refusing = |reason: &str| format!("refusing to invoke the dsh driver: {reason}");
+    let at_line_six = |line: &str| {
+        complete.replace(
+            "        apiKeyEnv: DEEPSEEK_API_KEY\n",
+            &format!("        apiKeyEnv: DEEPSEEK_API_KEY\n{line}\n"),
+        )
+    };
+    let endpoint = refusing("baseURL leaves the closed endpoint grammar");
+    let mut exact: Vec<(&str, Option<&str>, String, String)> = [
+        ("userinfo endpoint", "https://leaked:pw@host/x"),
+        ("fragment endpoint", "https://host/x#leaked"),
+        ("percent-escape endpoint", "https://host/leaked%2fx"),
+        ("whitespace endpoint", "https://host/leaked x"),
+        ("bracketed endpoint", "https://[::1]/leaked"),
+        ("empty-segment endpoint", "https://host//leaked"),
+        ("invalid host label endpoint", "https://-leaked/x"),
+        ("invalid port endpoint", "https://host:123456/leaked"),
+        ("uppercase-scheme endpoint", "HTTPS://host/leaked"),
+        ("schemeless endpoint", "host/leaked"),
+        ("non-ASCII endpoint", "https://hóst/leaked"),
+    ]
+    .into_iter()
+    .map(|(name, base)| {
+        (
+            name,
+            Some(pin),
+            at_line_six(&format!("        baseURL: {base}")),
+            endpoint.clone(),
+        )
+    })
+    .collect();
+    let reserved = |line: usize| {
+        refusing(&format!(
+            "route overlay line {line} carries a value beginning with a reserved character"
+        ))
+    };
+    let control = refusing("route overlay line 6 carries a tab or control character");
+    exact.extend([
+        (
+            "__jsExpr mapping",
+            Some(pin),
+            at_line_six("        __jsExpr:\n          leaked: leaked"),
+            refusing("route overlay line 6 carries a key that is not a plain identifier"),
+        ),
+        (
+            "alias",
+            Some(pin),
+            at_line_six("        displayName: *leaked"),
+            reserved(6),
+        ),
+        (
+            "block scalar",
+            Some(pin),
+            at_line_six("        displayName: |\n          leaked"),
+            reserved(6),
+        ),
+        (
+            "quoted scalar",
+            Some(pin),
+            at_line_six("        displayName: 'leaked'"),
+            reserved(6),
+        ),
+        (
+            "tab",
+            Some(pin),
+            at_line_six("        displayName:\tleaked"),
+            control.clone(),
+        ),
+        (
+            "control character",
+            Some(pin),
+            at_line_six("        displayName: leaked\u{7}"),
+            control,
+        ),
+        (
+            "document marker",
+            Some(pin),
+            format!(
+                "{complete}---\n{}",
+                complete.replace("deepseek-v4", "leaked")
+            ),
+            refusing("route overlay line 10 is a document marker"),
+        ),
+        (
+            "second top-level entry",
+            Some(pin),
+            format!("{complete}{}", complete.replace("deepseek-v4", "leaked")),
+            refusing("route overlay must hold exactly one top-level entry"),
+        ),
+        // No pin at all: the admitted route refuses at the claim boundary.
+        (
+            "absent model pin",
+            None,
+            complete.clone(),
+            refusing("a route overlay needs a pinned `--model` with a provider segment"),
+        ),
+        // A pin with no provider segment, beside a route keyed to the
+        // provider `parse_dsh_model` defaults that pin to, so no grammar
+        // check can refuse it: only the claim boundary does.
+        (
+            "model pin without a provider segment",
+            Some("deepseek-v4-flash"),
+            valid.replace("      deepseek:", "      deepseek-official:")
+                + "            reasoningEfforts:\n              high: high\n",
+            refusing("a route overlay needs a pinned `--model` with a provider segment"),
+        ),
+    ]);
+    let vectors = vectors
+        .into_iter()
+        .map(|(name, body, needle)| (name, Some(pin), body, needle.to_string()))
+        .chain(exact);
 
-    for (name, body, needle) in vectors {
+    for (name, model, body, needle) in vectors {
+        let mut extra = Vec::new();
+        if let Some(model) = model {
+            extra.extend(["--model".to_string(), model.to_string()]);
+        }
+        extra.extend(["--patch".to_string(), "route.yml".to_string()]);
         std::fs::write(dir.path().join("route.yml"), &body).unwrap();
         let mut hasher = Sha256::new();
         hasher.update(body.as_bytes());
@@ -12948,21 +13022,25 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
             assert_eq!(calls.get(), 0, "{name}/{path}: no producer call");
             assert!(!marker.exists(), "{name}/{path}: no version probe");
             assert!(
-                error.contains(needle),
+                error.contains(&needle),
                 "{name}/{path}: expected {needle:?} in {error:?}"
             );
-            for echo in ["route.yml", "deepseek-v4-flash", "DEEPSEEK_API_KEY"] {
+            if needle.starts_with("refusing to invoke the dsh driver: ") {
+                assert_eq!(error, needle, "{name}/{path}: the exact reason");
+            }
+            for echo in [
+                "route.yml",
+                "deepseek-v4-flash",
+                "deepseek-official",
+                "DEEPSEEK_API_KEY",
+                "leaked",
+            ] {
                 assert!(
                     !error.contains(echo),
                     "{name}/{path}: {echo} echoed in {error}"
                 );
             }
         }
-    }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
     }
 }
 
@@ -12972,13 +13050,13 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
 /// refuse pre-staging; the digest check runs before the shape check.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path() {
     use sha2::{Digest, Sha256};
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let declared = "b".repeat(64);
     let marker = dir.path().join("m-binding");
     let shim = dsh_recording_version_shim(dir.path(), "dsh-binding", "0.1.5-rc.1", &marker);
@@ -13120,11 +13198,6 @@ fn dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path() {
             );
         }
     }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// R4: an eligible locator of at most 80 Rust characters whose UTF-8
@@ -13135,10 +13208,9 @@ fn dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path() {
 #[cfg(unix)]
 #[test]
 fn an_eighty_character_multibyte_dsh_locator_round_trips_through_warm_planning() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(dir.path(), "dsh-multibyte", "0.1.5-rc.1");
     let shim_text = shim.to_string_lossy().into_owned();
@@ -13198,11 +13270,6 @@ fn an_eighty_character_multibyte_dsh_locator_round_trips_through_warm_planning()
         emitted.push(value.clone())
     });
     assert_eq!(meta["transcript"]["locator"], locator);
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[test]
@@ -13409,7 +13476,8 @@ fn a_session_file_whose_first_row_is_not_the_header_is_unreadable() {
 /// directly, so this covers the real call.
 #[test]
 fn the_runner_program_resolves_a_nonempty_program() {
-    assert!(!dsh_runner_program().is_empty());
+    let _env = EnvGuard::lock();
+    assert!(!dsh_runner_program().unwrap().is_empty());
 }
 
 /// A route whose bytes are not UTF-8 is refused by name after the model
@@ -13609,20 +13677,15 @@ fn a_retained_session_entry_the_reader_cannot_yield_is_a_bounded_refusal() {
 #[cfg(unix)]
 #[test]
 fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    let prior_bin = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    std::env::set_var("DSH_HOME", dir.path());
-    std::env::remove_var("FORGE_DSH_BIN");
     let digest = "b".repeat(64);
     let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
     let shim = dsh_version_shim(dir.path(), "dsh-real-seams", "0.1.5-rc.1");
-    // The closure's seam resolver reads this override, not the `bin`
-    // argument; the home is a bare directory, so the composite read is
-    // refused and the cold route ships.
-    std::env::set_var("BROKKR_DSH_BIN", &shim);
+    // The closure's seam resolver reads this home and the `bin` argument,
+    // the override `run_seat` already read (#355); the home is a bare
+    // directory, so the composite read is refused and the cold route ships.
+    env.set("DSH_HOME", dir.path());
     let launch = dsh_launch(
         &shim.to_string_lossy(),
         &[],
@@ -13632,18 +13695,6 @@ fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {
     )
     .unwrap();
     assert!(!launch.stream_json);
-
-    match prior_bin {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// `dsh_launch`'s own seam probe refuses an unreadable seam set; the
@@ -13652,10 +13703,9 @@ fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {
 #[cfg(unix)]
 #[test]
 fn the_dsh_launch_reports_unreadable_seams_over_the_injected_resolver() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
     let shim = dsh_version_shim(dir.path(), "dsh-launch-seams", "0.1.5-rc.1");
@@ -13694,10 +13744,6 @@ fn the_dsh_launch_reports_unreadable_seams_over_the_injected_resolver() {
     let launch = launch.unwrap();
     assert!(!launch.stream_json);
     assert!(launch.rejoining.is_none());
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -13720,7 +13766,10 @@ fn the_dsh_launch_reports_unreadable_seams_over_the_injected_resolver() {
 /// because it is the same producer that reads it.
 #[cfg(unix)]
 struct DshInstall {
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "held for its Drop: the install's temp dir lives as long as the install"
+    )]
     dir: tempfile::TempDir,
     root: std::path::PathBuf,
     home: std::path::PathBuf,
@@ -13906,11 +13955,9 @@ fn dsh_logging_version_shim(
 /// safety / AS1, evidence / LE2).
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_dsh_component_drift_declines_the_offer_before_any_provider_work() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    let prior_user_home = std::env::var_os("HOME");
-    let prior_node_path = std::env::var_os("NODE_PATH");
+    let mut env = EnvGuard::lock();
 
     // Each case is one drifted source, applied to its own fresh install.
     type Drift = fn(&DshInstall);
@@ -13978,13 +14025,13 @@ fn every_dsh_component_drift_declines_the_offer_before_any_provider_work() {
 
     for (case, drift) in cases {
         let install = synthetic_dsh_install();
-        std::env::set_var("DSH_HOME", &install.home);
+        env.set("DSH_HOME", &install.home);
         // The bundle search reads Node's global folders, which the child
         // environment spells from `HOME` and `NODE_PATH`; both are pinned
         // inside the fixture so no directory of this host's can answer a
         // bundle lookup.
-        std::env::set_var("HOME", &install.root);
-        std::env::remove_var("NODE_PATH");
+        env.set("HOME", &install.root);
+        env.remove("NODE_PATH");
 
         let declared = install.composite().canonical().to_string();
         assert_eq!(declared.len(), 64, "{case}");
@@ -14067,17 +14114,444 @@ fn every_dsh_component_drift_declines_the_offer_before_any_provider_work() {
             "{case}: the only provider invocation is the identity probe"
         );
     }
+}
 
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
+// ---------------------------------------------------------------------------
+// Acceptance ledger unit 4a (F8): the privacy exclusions where the clauses
+// put them. Task 8.8(d) (4993–4995) and 8.10 (5251–5254) require that no
+// route byte and no binding reach the composite, the launch row or the
+// journal. The planner cases above read argv and the written overlay; the
+// case below drives a valid, marked route through production's own seat
+// body (`run_seat_with`), planner (`dsh_launch_with` over the real
+// producer) and launch lifecycle (`invoke_dsh_launch`), and reads every
+// wire message the engine would journal.
+// ---------------------------------------------------------------------------
+
+/// A spelling every value of the marked route carries and no other byte of
+/// the fixture does, so the route's CONTENT is found under any field name.
+#[cfg(unix)]
+const ROUTE_MARKER: &str = "route4amarker";
+
+/// A valid route for a `deepseek/deepseek-v4-flash` pin whose display
+/// name, key variable and endpoint all carry the marker. The runtime
+/// suite's `marked_route_layer` binds the same bytes.
+#[cfg(unix)]
+fn marked_dsh_route() -> String {
+    format!(
+        "- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        \
+         displayName: {ROUTE_MARKER}\n        apiKeyEnv: ROUTE4AMARKER_KEY\n        \
+         baseURL: https://{ROUTE_MARKER}.example/v1\n        models:\n          \
+         - id: deepseek-v4-flash\n            reasoningEfforts:\n              \
+         medium: medium\n"
+    )
+}
+
+/// Plan over the real producer until the version probe answers. The probe
+/// can fail transiently under load, which observes no version at all; that
+/// is a fact about the moment, so it is retried rather than asserted away,
+/// the way the drift cases above retry it.
+#[cfg(unix)]
+fn dsh_plan_probed(
+    shim: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+    seams: &DshSeams,
+) -> DshLaunch {
+    // A closed gate never probes, so there is nothing to wait for.
+    let probes = input.pointer("/resume_context/assessment").is_some();
+    let mut planned = None;
+    for _ in 0..8 {
+        let launch = dsh_launch_with(shim, extra, workdir, session, input, || {
+            dsh_composite(seams).map_err(|error| error.to_string())
+        })
+        .unwrap();
+        let observed = launch.observed.is_some();
+        planned = Some(launch);
+        if observed || !probes {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    match prior_user_home {
-        Some(value) => std::env::set_var("HOME", value),
-        None => std::env::remove_var("HOME"),
+    planned.unwrap()
+}
+
+/// A bound route folds into the launched child's overlay and nowhere else:
+/// the same install composes to one identity under a bound and an unbound
+/// route, and on a qualified cold launch, a confirmed rejoin, the shipped
+/// cold route under a closed gate and a declined offer alike, the launch
+/// row and every wire message carry neither the route's content, its
+/// path, its digest, the binding nor any private carrier — while a
+/// confirmed launch row keeps its `root_session` and `transcript`.
+#[cfg(unix)]
+#[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_journal() {
+    use sha2::{Digest, Sha256};
+
+    let mut env = EnvGuard::lock();
+    let install = synthetic_dsh_install();
+    env.set("DSH_HOME", &install.home);
+    env.set("HOME", &install.root);
+    env.remove("NODE_PATH");
+
+    let model = "deepseek/deepseek-v4-flash";
+    let route = marked_dsh_route();
+    assert_eq!(
+        route_overlay::validate(route.as_bytes(), model),
+        Ok(()),
+        "the marked route is a valid route"
+    );
+    let work = install.root.join("work");
+    write_under(&work, "recipe/route.yml", route.as_bytes());
+    let route_file = work.join("recipe/route.yml").display().to_string();
+    let digest = hex::encode(Sha256::digest(route.as_bytes()));
+    let binding = json!({"value": "recipe/route.yml", "digest": digest});
+    let workdir = work.to_str().unwrap().to_string();
+    let bound_extra: Vec<String> = ["--model", model, "--patch", "recipe/route.yml"]
+        .map(str::to_string)
+        .to_vec();
+    let unbound_extra: Vec<String> = ["--model", model].map(str::to_string).to_vec();
+    let declared = install.composite().canonical().to_string();
+    let probe = dsh_version_shim(&install.root, "dsh-4a-probe", "0.1.5-rc.2");
+    let probe = probe.to_string_lossy().into_owned();
+
+    // The composite: one install, a bound and an unbound seat. Each plan
+    // qualifies only if the producer's observation equals the declared
+    // identity, so both carrying it is the equality.
+    let mut bound_input = dsh_enabled_input("0.1.5-rc.2", &declared, &work);
+    bound_input["resume_context"]["route_overlay"] = binding.clone();
+    let unbound_input = dsh_enabled_input("0.1.5-rc.2", &declared, &work);
+    let bound = dsh_plan_probed(
+        &probe,
+        &bound_extra,
+        &workdir,
+        None,
+        &bound_input,
+        &install.seams,
+    );
+    let unbound = dsh_plan_probed(
+        &probe,
+        &unbound_extra,
+        &workdir,
+        None,
+        &unbound_input,
+        &install.seams,
+    );
+    assert_eq!(bound.wrapper_digest.as_deref(), Some(declared.as_str()));
+    assert_eq!(unbound.wrapper_digest.as_deref(), Some(declared.as_str()));
+    assert!(bound.stream_json && unbound.stream_json);
+    // The route really is folded — into the bound seat's overlay only —
+    // and the producer, run again while that overlay is staged, still
+    // observes the one identity.
+    let folded = std::fs::read_to_string(bound.overlay.path()).unwrap();
+    assert_eq!(folded.matches(ROUTE_MARKER).count(), 2, "{folded}");
+    assert_eq!(folded.matches("ROUTE4AMARKER_KEY").count(), 1, "{folded}");
+    let bare = std::fs::read_to_string(unbound.overlay.path()).unwrap();
+    assert_eq!(bare.to_lowercase().find(ROUTE_MARKER), None, "{bare}");
+    assert_eq!(install.composite().canonical(), declared);
+    drop(bound);
+    drop(unbound);
+
+    // The launch, in every shape a bound seat can take, each run through
+    // the seat body with its complete private start context: qualified
+    // cold, a confirmed rejoin, the shipped cold route under a closed gate,
+    // and an offer declined for its originating composite.
+    let locator = "sessions/brokkr/seat-1";
+    let stored = install
+        .home
+        .join(locator)
+        .join("--w--")
+        .join("s-1")
+        .join(DSH_TRANSCRIPT);
+    for (case, session) in [
+        ("cold", None),
+        ("resumed", Some("s-1")),
+        ("disabled", None),
+        ("declined", Some("s-1")),
+    ] {
+        plant_dsh_session(&install.home, locator, "--w--", "s-1", 4);
+        let id = session.unwrap_or("fresh-4a");
+        let confirms = matches!(case, "cold" | "resumed");
+        let result = install.root.join(format!("result-{case}.json"));
+        let seen = install.root.join(format!("overlay-{case}.yml"));
+        // The child copies the overlay it was handed ($4, behind
+        // `--profile headless --patch`), names its root and — when
+        // rejoining — appends one current event past the stored boundary.
+        // On the shipped route its stdout is `/dev/null` and names nothing.
+        let append = if case == "resumed" {
+            format!(
+                "printf '{{\"type\":\"assistant/message\",\"seq\":5,\"data\":{{\"message\":\
+                 {{\"source\":{{\"model\":\"deepseek-v4-flash\"}}}},\"usage\":{{\"inputTokens\":3,\
+                 \"outputTokens\":1}}}}}}\\n' >> '{}'\n",
+                stored.display()
+            )
+        } else {
+            String::new()
+        };
+        let child = executable(
+            &install.root,
+            &format!("dsh-4a-{case}"),
+            &format!(
+                "#!/bin/sh\n\
+                 case \"$1\" in --version) printf '0.1.5-rc.2\\n'; exit 0 ;; esac\n\
+                 cp \"$4\" '{seen}'\n\
+                 printf 'dsh child {case} wrote this\\n' >&2\n\
+                 printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"{id}\"}}\\n'\n\
+                 {append}\
+                 printf '{{\"result\":\"complete\"}}' > '{result}'\n\
+                 printf '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\
+                 \"session_id\":\"{id}\"}}\\n'\n",
+                seen = seen.display(),
+                result = result.display(),
+            ),
+        );
+        let child = child.to_string_lossy().into_owned();
+        let mut input = if case == "disabled" {
+            json!({"workdir": work})
+        } else {
+            dsh_enabled_input("0.1.5-rc.2", &declared, &work)
+        };
+        input["resume_context"]["route_overlay"] = binding.clone();
+        input["result_path"] = json!(result);
+        input["allowed_results"] = json!(["complete"]);
+        input["feature"] = json!("f");
+        input["phase"] = json!("work");
+        input["role_path"] = json!("/dev/null");
+        if session.is_some() {
+            // The declined offer was opened under a different composite.
+            let originating = if case == "declined" {
+                "d".repeat(64)
+            } else {
+                declared.clone()
+            };
+            input["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.2");
+            input["resume_context"]["originating_wrapper_digest"] = json!(originating);
+            input["resume_context"]["owned_target"] = json!({
+                "provider_id": "s-1",
+                "persistence_locator": locator,
+                "persistence_home": install.home.to_str().unwrap(),
+            });
+        }
+        let start = json!({"effect_id": "effect", "attempt_id": "attempt", "input": input});
+        let mut messages: Vec<Body> = Vec::new();
+        // The invocation's stderr, whose tail `run_seat_with` re-emits and
+        // the engine journals on a failed or indeterminate attempt — the
+        // one surface a wire message does not carry.
+        let mut stderr: Option<String> = None;
+        run_seat_with(
+            AdapterKind::Dsh,
+            Ok(()),
+            &start,
+            &mut |body| messages.push(body),
+            |prompt, input, _, emit| {
+                let launch = dsh_plan_probed(
+                    &child,
+                    &bound_extra,
+                    &workdir,
+                    session,
+                    input,
+                    &install.seams,
+                );
+                let invocation = invoke_dsh_launch(
+                    launch,
+                    prompt,
+                    &workdir,
+                    &[],
+                    &mut |row: &Value| emit(row),
+                    |child| {
+                        child
+                            .try_wait()
+                            .map(|status| status.map(|status| status.code().unwrap_or(-1)))
+                    },
+                );
+                stderr = invocation.as_ref().ok().map(|done| done.stderr.clone());
+                invocation
+            },
+        );
+
+        // The route reached the launched child, in this very invocation.
+        let handed = std::fs::read_to_string(&seen).unwrap();
+        assert_eq!(handed.matches(ROUTE_MARKER).count(), 2, "{case}: {handed}");
+
+        // The launch evidence: exactly its own vocabulary. A confirmed
+        // launch retains its root and address, the root carrying the
+        // unbound composite; an unconfirmed cold one carries neither, and
+        // only the declined offer names its refusal.
+        let rows: Vec<&Value> = messages
+            .iter()
+            .filter_map(|body| match body {
+                Body::Checkpoint { data, .. } if data["step"] == "harness-started" => Some(data),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rows.len(), 1, "{case}: one launch row: {messages:?}");
+        let row = rows[0];
+        let mut keys: Vec<&str> = row
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        let expected: &[&str] = match case {
+            "cold" | "resumed" => &[
+                "effort",
+                "harness",
+                "launch",
+                "model",
+                "root_session",
+                "step",
+                "transcript",
+            ],
+            "disabled" => &["effort", "harness", "launch", "model", "step"],
+            _ => &[
+                "effort",
+                "harness",
+                "launch",
+                "model",
+                "resume_refusal",
+                "step",
+            ],
+        };
+        assert_eq!(keys, expected, "{case}: {row}");
+        assert_eq!(
+            row["launch"],
+            if case == "resumed" { "resumed" } else { "cold" },
+            "{case}: {row}"
+        );
+        if case == "declined" {
+            assert_eq!(row["resume_refusal"], "unverified-harness", "{row}");
+        }
+        if confirms {
+            assert_eq!(
+                row["root_session"],
+                json!({
+                    "kind": "dsh-session",
+                    "id": id,
+                    "harness_version": "0.1.5-rc.2",
+                    "wrapper_digest": declared,
+                    "persistent": true,
+                }),
+                "{case}: {row}"
+            );
+            let address = row["transcript"].as_object().unwrap();
+            let mut fields: Vec<&str> = address.keys().map(String::as_str).collect();
+            fields.sort_unstable();
+            assert_eq!(fields, ["home", "kind", "locator"], "{case}: {row}");
+            assert_eq!(row["transcript"]["kind"], "dsh-session", "{case}");
+            assert_eq!(
+                row["transcript"]["home"],
+                install.home.to_str().unwrap(),
+                "{case}"
+            );
+        }
+        if case == "resumed" {
+            assert_eq!(row["transcript"]["locator"], locator, "{case}");
+        }
+
+        // Every wire message — what the engine journals — is free of the
+        // route's content, path, digest and binding, and of every private
+        // carrier the start context held.
+        let needles = [
+            ROUTE_MARKER,
+            "recipe/route.yml",
+            route_file.as_str(),
+            digest.as_str(),
+            "\"resume_context\"",
+            "\"route_overlay\"",
+            "\"owned_target\"",
+            "\"assessment\"",
+            "\"originating_harness_version\"",
+            "\"originating_wrapper_digest\"",
+            "\"persistence_home\"",
+            "\"persistence_locator\"",
+        ];
+        for body in &messages {
+            let text = serde_json::to_string(body).unwrap().to_lowercase();
+            for needle in needles {
+                assert_eq!(
+                    text.find(&needle.to_lowercase()),
+                    None,
+                    "{case}: a wire message carries {needle}: {text}"
+                );
+            }
+        }
+        // The stderr carries none of them either, and is exactly the
+        // child's own line: the driver adds no byte to it.
+        let text = stderr
+            .as_deref()
+            .unwrap_or_else(|| panic!("{case}: the invocation ran"))
+            .to_lowercase();
+        for needle in needles {
+            assert_eq!(
+                text.find(&needle.to_lowercase()),
+                None,
+                "{case}: the stderr carries {needle}: {text}"
+            );
+        }
+        assert_eq!(
+            stderr.as_deref(),
+            Some(format!("dsh child {case} wrote this\n").as_str()),
+            "{case}: the invocation's stderr"
+        );
+        assert!(
+            matches!(
+                messages.last(),
+                Some(Body::Result {
+                    status: ResultStatus::Succeeded,
+                    ..
+                })
+            ),
+            "{case}: the seat completes: {messages:?}"
+        );
     }
-    if let Some(value) = prior_node_path {
-        std::env::set_var("NODE_PATH", value);
+}
+
+/// Issue #370, decisions 0012, 0021 ruling 4 and 0036 ruling 4: a seat
+/// that declares a binding receives it in its environment on every model
+/// harness, not only on exec. Each shim refuses (exit 7) unless the value
+/// arrived, and echoes it to stderr so the same run proves that surface
+/// is masked before it is text.
+#[cfg(unix)]
+#[test]
+fn every_model_harness_receives_its_bindings_and_masks_its_stderr() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let bindings = [binding("API_TOKEN", "tok-3xample-value")];
+    let body = "#!/bin/sh\n\
+                cat >/dev/null\n\
+                printf 'leaked %s\\n' \"$API_TOKEN\" >&2\n\
+                [ \"$API_TOKEN\" = \"tok-3xample-value\" ] || exit 7\n";
+    for (kind, variable) in [
+        (AdapterKind::Claude, "BROKKR_CLAUDE_BIN"),
+        (AdapterKind::Lanetally, "BROKKR_LANETALLY_BIN"),
+        (AdapterKind::Codex, "BROKKR_CODEX_BIN"),
+    ] {
+        let shim = executable(dir.path(), &format!("{variable}-shim"), body);
+        env.set(variable, &shim);
+        let outcome = invoke(
+            kind,
+            &[],
+            "the prompt",
+            &json!({"workdir": dir.path()}),
+            None,
+            &bindings,
+            &mut |_| {},
+        );
+        let invocation = outcome.unwrap_or_else(|error| panic!("{kind:?}: {error}"));
+        assert_eq!(
+            invocation.exit_code, 0,
+            "{kind:?}: the binding never reached the child: {}",
+            invocation.stderr
+        );
+        assert!(
+            invocation.stderr.contains("leaked [secret:API_TOKEN]"),
+            "{kind:?}: {}",
+            invocation.stderr
+        );
+        assert!(!invocation.stderr.contains("tok-3xample-value"), "{kind:?}");
     }
 }
 
@@ -14117,11 +14591,18 @@ fn codex_held() -> Value {
 /// capability plan, and beside it the argv's two parts by who wrote them —
 /// the last `managed` tokens of `extra` are the fragment the engine
 /// appended for the boundary, everything before them the recipe's or its
-/// agent's.
+/// agent's. A charter the input names rides with the text the dispatch
+/// door read from it (second council H6), since a model seat's fixture
+/// names one (#372) and an engine launch never reopens it.
 fn engine_input(mut input: Value, plan: Value, extra: &[String], managed: usize) -> Value {
     let (authored, fragment) = extra.split_at(extra.len() - managed);
     input["native_controls"] = plan;
     input["launch_arguments"] = json!({"authored": authored, "managed": fragment});
+    let role = input["role_path"].as_str().unwrap_or_default().to_string();
+    if !role.is_empty() && input.get(crate::native_controls::ROLE_TEXT).is_none() {
+        input[crate::native_controls::ROLE_TEXT] =
+            json!(std::fs::read_to_string(&role).expect("the fixture's charter is readable"));
+    }
     input
 }
 
@@ -14424,7 +14905,7 @@ fn a_cold_codex_argv_carries_the_off_pair_exactly_when_search_is_not_held() {
 #[cfg(unix)]
 #[test]
 fn an_eligible_codex_resume_reimposes_the_capability_control() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     for (case, plan, managed) in [
         ("denied", codex_denied(), CODEX_OFF.to_vec()),
@@ -14493,7 +14974,7 @@ fn an_eligible_codex_resume_reimposes_the_capability_control() {
 #[cfg(unix)]
 #[test]
 fn an_authored_config_still_turns_a_rejoin_cold_and_the_fallback_stays_denied() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = codex_shim(dir.path(), "codex-authored", &dir.path().join("argv"));
     // The class is the adapter's template, after the recipe's words, as
@@ -14536,7 +15017,7 @@ fn an_authored_config_still_turns_a_rejoin_cold_and_the_fallback_stays_denied() 
 #[cfg(unix)]
 #[test]
 fn a_boxed_codex_offer_stays_ineligible_and_its_denied_cold_fallback_carries_off_once() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = codex_shim(dir.path(), "codex-boxed", &dir.path().join("argv"));
     let bin = shim.to_str().unwrap();
@@ -14634,7 +15115,7 @@ fn a_boxed_codex_offer_stays_ineligible_and_its_denied_cold_fallback_carries_off
 #[cfg(unix)]
 #[test]
 fn a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
@@ -14667,7 +15148,7 @@ fn a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied() {
             Seal::codex_template(0, &["--sandbox", "read-only"]),
         );
         let mut emitted = Vec::new();
-        let invocation = with_codex_bin(&shim, || {
+        let invocation = with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &extra,
@@ -14716,7 +15197,7 @@ fn a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied() {
 #[test]
 fn the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam() {
     use crate::native_controls::Serving;
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let workdir = root.to_str().unwrap();
@@ -14745,7 +15226,7 @@ fn the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam() {
 
     // Driven whole, the eligible rejoin refuses before either spawn.
     let mut emitted = Vec::new();
-    let refused = with_codex_bin(&shim, || {
+    let refused = with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &extra,
@@ -15021,6 +15502,10 @@ fn shipped_codex_plan(argv: &[&str]) -> (Value, Value) {
 /// the audit found no test naming first, then the whole shipped block, so a
 /// key added to the adapter is judged here without a second list to edit.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_authored_spelling_the_shipped_codex_adapter_guards_is_refused() {
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let refusal = |written: &str| {
@@ -15322,11 +15807,10 @@ const NO_AUTHORITY: &str = "refusing to invoke the agent CLI: the engine compute
 #[cfg(unix)]
 #[test]
 fn a_dsh_launch_with_no_computed_authority_is_refused_before_any_provider_work() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let workdir = dir.path().to_str().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
 
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let missing = json!({"workdir": dir.path(), "native_controls": null});
@@ -15391,11 +15875,6 @@ fn a_dsh_launch_with_no_computed_authority_is_refused_before_any_provider_work()
         assert_eq!(launch.refusal, None, "{case}");
         assert!(launch.rejoining.is_none(), "{case}");
     }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// The two guards of the DSH launch, in the order the operator ruled
@@ -15408,13 +15887,16 @@ fn a_dsh_launch_with_no_computed_authority_is_refused_before_any_provider_work()
 /// first.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let workdir = root.to_str().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &root);
+    env.set("DSH_HOME", &root);
 
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let unmeasured = json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
@@ -15534,11 +16016,6 @@ fn a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv() {
         ]
     );
     assert_eq!(launched.refusal, None);
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// Every recognized MODEL launch path, at the one dispatcher a seat's
@@ -15548,7 +16025,7 @@ fn a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv() {
 /// own to switch; it is not a model launch and is not judged here.)
 #[test]
 fn every_model_launch_path_refuses_a_site_with_no_computed_authority() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let _env = EnvGuard::lock();
     let missing = json!({"workdir": "/w", "native_controls": null});
     for kind in [
         AdapterKind::Claude,
@@ -16053,6 +16530,10 @@ fn a_held_supported_restriction_reaches_the_cold_and_resumed_claude_commands() {
 /// denies `WebFetch` by name. Composition evidence, not a live Claude
 /// measurement — that check is the controller's.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn claude_admits_only_held_native_tools_beside_its_hands() {
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     // Boxed, everything after the permission mode is the adapter's hands
@@ -16309,6 +16790,10 @@ fn claude_sealed(extra: &[&str], plan: Value, seal: Seal) -> Result<Vec<String>,
 /// lowered it. The local permission that launches is the typed one, lowered
 /// onto `--allowedTools`, which gains the held tool where it stands.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag() {
     let denied = || claude_plan(&[], &[], &["WebSearch", "WebFetch"]);
     let search = || claude_plan(&["WebSearch"], &["WebSearch"], &["WebFetch"]);
@@ -16474,6 +16959,10 @@ fn a_malformed_claude_list_is_refused_under_a_managed_plan() {
 /// without a prompt, and whatever is not held is denied by name.
 /// Composition evidence, not a live Claude measurement.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list() {
     let local = [
         "--permission-mode",
@@ -16593,11 +17082,11 @@ fn an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list() {
 fn the_rendered_prompt_names_the_capabilities_beside_the_hands() {
     let input = json!({
         "feature": "f", "phase": "research", "workdir": "/w", "result_path": "/w/r.json",
-        "allowed_results": ["complete"],
+        "allowed_results": ["complete"], "role_path": "/dev/null",
         "capabilities": {"held": {}, "not_held": {
             "web-search": "the realm does not grant it to this office"}}
     });
-    let prompt = render_prompt(&input, AdapterKind::Codex);
+    let prompt = render_prompt(&input, AdapterKind::Codex).unwrap();
     assert!(
         prompt.ends_with(
             "\n\n## Capabilities\n\nBeyond your hands you hold NO capability in this realm.\n\
@@ -16609,7 +17098,9 @@ fn the_rendered_prompt_names_the_capabilities_beside_the_hands() {
         "{prompt}"
     );
     // An exec driver reads no paragraph: its script reads the environment.
-    assert!(!render_prompt(&input, AdapterKind::Exec).contains("## Capabilities"));
+    assert!(!render_prompt(&input, AdapterKind::Exec)
+        .unwrap()
+        .contains("## Capabilities"));
 }
 
 /// Design D8 in the prompt a seat actually reads, for every model kind and
@@ -16674,7 +17165,7 @@ fn the_rendered_prompt_carries_every_capability_fact_whole() {
         let mut bare = json!({
             "feature": "f", "phase": "research", "seat": "research", "workdir": "/w",
             "result_path": "/w/r.json", "allowed_results": ["complete"],
-            "boundary": "namespace"
+            "boundary": "namespace", "role_path": "/dev/null"
         });
         bare["hands"] = hands.clone();
         for kind in [
@@ -16683,12 +17174,12 @@ fn the_rendered_prompt_carries_every_capability_fact_whole() {
             AdapterKind::Codex,
             AdapterKind::Dsh,
         ] {
-            let without = render_prompt(&bare, kind);
+            let without = render_prompt(&bare, kind).unwrap();
             for (capabilities, paragraph) in &cases {
                 let mut input = bare.clone();
                 input["capabilities"] = capabilities.clone();
                 assert_eq!(
-                    render_prompt(&input, kind),
+                    render_prompt(&input, kind).unwrap(),
                     format!(
                         "{}\n\n## Capabilities\n\n{paragraph}\n",
                         without.strip_suffix('\n').unwrap()
@@ -16846,6 +17337,10 @@ fn inline_codex_input(
 /// here but by the final check, and the plan with no record is refused
 /// (rebuild unit 15-fix-b).
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it() {
     use crate::native_controls::{HandsIntent, SandboxIntent};
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
@@ -17088,17 +17583,20 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
 /// engine's plan sealed with neither (rebuild unit 15-fix-b).
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
     use crate::native_controls::{
         AllowIntent, Application, Expected, HandsIntent, Identity, LaunchRecord, LocalExpectation,
         NativeExpectation, SandboxIntent, SealedServing, TemplateExpectation, SERVING_INPUTS,
     };
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let workdir = root.to_str().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &root);
+    env.set("DSH_HOME", &root);
 
     let reason = "unsupported mcp and tool_permissions do not establish absence of native egress";
     let mut input = engine_input(
@@ -17236,11 +17734,6 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
         dsh_served(bin, &settled, &[], prompt, workdir, &unpaired),
         Err(UNSEALED_REFUSAL.to_string())
     );
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// Rebuild unit 15 (tasks 15.1 and 15.2) at the Codex seam: an eligible
@@ -17256,9 +17749,13 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
 /// command, published as cold, never as a resume.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked() {
     use crate::native_controls::{HandsIntent, SandboxIntent, Serving, SERVING_INPUTS};
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let workdir = root.to_str().unwrap();
@@ -17441,7 +17938,7 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
     // End to end: the harness refuses the rejoin before any work, and the
     // one replacement is the checked cold command, published as cold.
     let mut emitted = Vec::new();
-    let invocation = with_codex_bin(&shim, || {
+    let invocation = with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &extra,
@@ -17480,12 +17977,11 @@ fn a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it() {
         AllowIntent, Application, Expected, HandsIntent, Identity, LaunchRecord, LocalExpectation,
         NativeExpectation, SandboxIntent, SealedServing, TemplateExpectation, SERVING_INPUTS,
     };
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let workdir = root.to_str().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &root);
+    env.set("DSH_HOME", &root);
 
     let reason = "unsupported mcp and tool_permissions do not establish absence of native egress";
     let mut input = engine_input(
@@ -17570,11 +18066,6 @@ fn a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it() {
         dsh_served(bin, &named, &[], prompt, workdir, &input),
         departs(7)
     );
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// Rebuild unit 5d-fix-c2 (chief F2): the REJOIN the driver composes for an
@@ -17588,9 +18079,13 @@ fn a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it() {
 /// `--effort ultra` translation is refused too.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn the_final_rejoin_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it() {
     use crate::native_controls::{HandsIntent, SandboxIntent};
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = codex_shim(dir.path(), "codex-inline", &dir.path().join("argv"));
     let bin = shim.to_str().unwrap();
@@ -17814,7 +18309,7 @@ fn the_final_judgment_refuses_what_it_cannot_attribute() {
 /// verified. The path is retained for identity and is never reopened: bytes
 /// written to it after the door read it reach no prompt, and a launch that
 /// names a charter without its verified text is refused before its prompt
-/// is rendered, with no provider work.
+/// is sent, with no provider work.
 #[test]
 fn an_engine_launch_renders_only_the_verified_buffer_and_never_rereads_its_charter() {
     let dir = tempfile::tempdir().unwrap();
@@ -17836,21 +18331,32 @@ fn an_engine_launch_renders_only_the_verified_buffer_and_never_rereads_its_chart
         input
     };
     // The verified buffer is the charter, whatever the path holds now.
-    let told = render_prompt(&input(Some("# the verified charter\n")), AdapterKind::Dsh);
+    let told = render_prompt(&input(Some("# the verified charter\n")), AdapterKind::Dsh).unwrap();
     assert!(
         told.starts_with("# the verified charter\n\n\n---\n## Task\n"),
         "{told}"
     );
     assert!(!told.contains("bytes written after"), "{told}");
     // Without it, an engine launch never reopens the path.
-    let unread = render_prompt(&input(None), AdapterKind::Dsh);
+    let unread = render_prompt(&input(None), AdapterKind::Dsh).unwrap();
     assert!(unread.starts_with("\n\n---\n## Task\n"), "{unread}");
     assert!(!unread.contains("bytes written after"), "{unread}");
-    // And the driver refuses that launch before rendering it: the invocation
-    // is never reached.
+    // One that names no charter has no path to reopen, and is read as any
+    // other: an exec site's charter is optional, and a model seat without
+    // one refuses to start (#372).
+    let mut unnamed = input(None);
+    unnamed["role_path"] = json!("");
+    assert!(render_prompt(&unnamed, AdapterKind::Exec).is_ok());
+    assert!(matches!(
+        render_prompt(&unnamed, AdapterKind::Dsh),
+        Err(StartRefusal::UnreadableCharter { .. })
+    ));
+    // And the driver refuses that launch before invoking anything: the
+    // invocation is never reached.
     let mut bodies = Vec::new();
     run_seat_with(
         AdapterKind::Dsh,
+        Ok(()),
         &json!({"effect_id": "effect", "attempt_id": "attempt", "input": input(None)}),
         &mut |body| bodies.push(serde_json::to_value(body).unwrap()),
         |_, _, _, _| panic!("no provider work: the launch is refused before its prompt"),
@@ -17917,4 +18423,407 @@ fn an_unmeasured_plan_is_decoded_with_the_provenance_it_carries() {
         plan(json!({"local": [1]})),
         refused("'local' is not an array of strings")
     );
+}
+
+/// The dsh arm of #370, through `invoke_dsh_launch` — production's spawn
+/// path, `invoke_dsh_launch_observed`, once a launch is settled — so the
+/// binding crosses `spawn_dsh` and the stderr crosses `finish_dsh`.
+#[cfg(unix)]
+#[test]
+fn a_dsh_seat_receives_its_bindings_and_masks_its_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    std::fs::create_dir_all(&root).unwrap();
+    let shim = executable(
+        dir.path(),
+        "dsh-bound",
+        "#!/bin/sh\n\
+         printf 'leaked %s\\n' \"$API_TOKEN\" >&2\n\
+         [ \"$API_TOKEN\" = \"tok-3xample-value\" ] || exit 7\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n",
+    );
+    let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
+    let launch = DshLaunch {
+        command: vec![shim.to_string_lossy().into_owned()],
+        rejoining: None,
+        refusal: None,
+        observed: Some("0.1.5-rc.1".to_string()),
+        wrapper_digest: None,
+        stream_json: true,
+        effortless: true,
+        facts: crate::hands::GitFacts::default(),
+        staged: None,
+        first_seq: None,
+        locator: "seat".to_string(),
+        root: root.clone(),
+        overlay,
+    };
+    let invocation = invoke_dsh_launch(
+        launch,
+        "the prompt",
+        dir.path().to_str().unwrap(),
+        &[binding("API_TOKEN", "tok-3xample-value")],
+        &mut |_| {},
+        |_| panic!("the qualified arm does not poll the child"),
+    )
+    .unwrap();
+    assert_eq!(invocation.exit_code, 0, "{}", invocation.stderr);
+    assert!(
+        invocation.stderr.contains("leaked [secret:API_TOKEN]"),
+        "{}",
+        invocation.stderr
+    );
+    assert!(!invocation.stderr.contains("tok-3xample-value"));
+}
+
+/// End to end through `run_seat` for a claude seat declaring a binding:
+/// the seat runs (the shim refuses without the value), and every
+/// journal-bound surface the child reached — a checkpoint's tool target,
+/// the result file's notes — carries the name, never the value.
+#[cfg(unix)]
+#[test]
+fn a_bound_claude_seat_runs_and_journals_only_the_secret_name() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("secrets.env");
+    secret::store_set(&store, "API_TOKEN", "tok-3xample-value").unwrap();
+    let result = dir.path().join("result.json");
+    let shim = executable(
+        dir.path(),
+        "claude-bound",
+        &format!(
+            "#!/bin/sh\n\
+             cat >/dev/null\n\
+             [ \"$API_TOKEN\" = \"tok-3xample-value\" ] || exit 7\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"sealed-1\"}}\\n'\n\
+             printf '{{\"type\":\"assistant\",\"message\":{{\"model\":\"claude-test\",\"content\":[{{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{{\"file_path\":\"/work/%s\"}}}}],\"usage\":{{\"input_tokens\":3,\"output_tokens\":4}}}}}}\\n' \"$API_TOKEN\"\n\
+             printf '{{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"done\"}}\\n'\n\
+             printf '{{\"result\":\"complete\",\"notes\":\"used %s\"}}' \"$API_TOKEN\" > '{}'\n",
+            result.display()
+        ),
+    );
+    env.set("BROKKR_CLAUDE_BIN", &shim);
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Claude,
+        &[],
+        &json!({
+            "effect_id":"effect", "attempt_id":"attempt",
+            "input": {"workdir": dir.path(), "result_path": result,
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null",
+                      "secrets": ["API_TOKEN"], "secrets_file": store}
+        }),
+        None,
+        &mut |body| messages.push(body),
+    );
+    let journaled = format!("{messages:?}");
+    assert!(!journaled.contains("tok-3xample-value"), "{journaled}");
+    assert!(
+        messages.iter().any(|body| matches!(
+            body,
+            Body::Checkpoint { data, .. } if data["target"] == "/work/[secret:API_TOKEN]"
+        )),
+        "the checkpoint target is masked: {journaled}"
+    );
+    let Some(Body::Result {
+        status: ResultStatus::Succeeded,
+        result: Some(seat_result),
+        ..
+    }) = messages.last()
+    else {
+        panic!("the bound seat ran to a result: {journaled}");
+    };
+    assert_eq!(seat_result["notes"], "used [secret:API_TOKEN]");
+}
+
+/// A provider refusal is prose the harness wrote, and it becomes the
+/// attempt's journaled error: a refusal that quotes a bound value reaches
+/// the result masked.
+#[cfg(unix)]
+#[test]
+fn a_refusal_that_quotes_a_bound_value_is_journaled_masked() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("secrets.env");
+    secret::store_set(&store, "API_TOKEN", "tok-3xample-value").unwrap();
+    let shim = executable(
+        dir.path(),
+        "claude-refusal-bound",
+        "#!/bin/sh\n\
+         cat >/dev/null\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"refused-2\"}\\n'\n\
+         printf '{\"type\":\"result\",\"is_error\":true,\"error\":\"authentication_failed\",\"result\":\"key %s rejected\"}\\n' \"$API_TOKEN\"\n",
+    );
+    let result = dir.path().join("result.json");
+    env.set("BROKKR_CLAUDE_BIN", &shim);
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Claude,
+        &[],
+        &json!({
+            "effect_id":"effect", "attempt_id":"attempt",
+            "input": {"workdir": dir.path(), "result_path": result,
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null",
+                      "secrets": ["API_TOKEN"], "secrets_file": store}
+        }),
+        None,
+        &mut |body| messages.push(body),
+    );
+    let Some(Body::Result {
+        status: ResultStatus::Failed,
+        error: Some(error),
+        ..
+    }) = messages.last()
+    else {
+        panic!("the refusal is a failed result: {messages:?}");
+    };
+    assert!(error.contains("key [secret:API_TOKEN] rejected"), "{error}");
+    assert!(!format!("{messages:?}").contains("tok-3xample-value"));
+}
+
+/// A claude seat bound to `API_TOKEN` = `value`, whose shim refuses
+/// unless the value arrived, replays `stream` (JSON built here, so the
+/// escaping on the wire is serde's, exactly as a harness writes it) and,
+/// given `result`, writes it as the result file. Returns every protocol
+/// message the seat sent.
+#[cfg(unix)]
+fn run_bound_claude(
+    env: &mut EnvGuard,
+    dir: &std::path::Path,
+    value: &str,
+    stream: &[Value],
+    result: Option<&Value>,
+) -> Vec<Body> {
+    let store = dir.join("secrets.env");
+    secret::store_set(&store, "API_TOKEN", value).unwrap();
+    let expected = dir.join("expected");
+    std::fs::write(&expected, value).unwrap();
+    let lines = dir.join("stream.ndjson");
+    let text: String = stream.iter().map(|event| format!("{event}\n")).collect();
+    std::fs::write(&lines, text).unwrap();
+    let result_path = dir.join("result.json");
+    let result_source = dir.join("result.source");
+    let write_result = match result {
+        Some(result) => {
+            std::fs::write(&result_source, result.to_string()).unwrap();
+            format!(
+                "cat '{}' > '{}'\n",
+                result_source.display(),
+                result_path.display()
+            )
+        }
+        None => String::new(),
+    };
+    let shim = executable(
+        dir,
+        "claude-bound-replay",
+        &format!(
+            "#!/bin/sh\n\
+             cat >/dev/null\n\
+             [ \"$API_TOKEN\" = \"$(cat '{}')\" ] || exit 7\n\
+             cat '{}'\n\
+             {write_result}",
+            expected.display(),
+            lines.display()
+        ),
+    );
+    env.set("BROKKR_CLAUDE_BIN", &shim);
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Claude,
+        &[],
+        &json!({
+            "effect_id":"effect", "attempt_id":"attempt",
+            "input": {"workdir": dir, "result_path": result_path,
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null",
+                      "secrets": ["API_TOKEN"], "secrets_file": store}
+        }),
+        None,
+        &mut |body| messages.push(body),
+    );
+    messages
+}
+
+/// Review finding 1 on #381: a bound value with a character JSON escapes
+/// never appears verbatim in the result file's bytes, so the file is
+/// parsed first and masked second — a raw-bytes pass would miss it and
+/// the parse would decode it back to plaintext for the journal.
+#[cfg(unix)]
+#[test]
+fn a_result_file_quoting_an_escaped_bound_value_is_journaled_masked() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let value = "zq\"7w\\k-leak-value";
+    let messages = run_bound_claude(
+        &mut env,
+        dir.path(),
+        value,
+        &[json!({"type":"system","subtype":"init","session_id":"escaped-1"})],
+        Some(&json!({"result": "complete", "notes": format!("used {value}")})),
+    );
+    let journaled = format!("{messages:?}");
+    assert!(!journaled.contains("leak-value"), "{journaled}");
+    let Some(Body::Result {
+        status: ResultStatus::Succeeded,
+        result: Some(seat_result),
+        ..
+    }) = messages.last()
+    else {
+        panic!("the bound seat ran to a result: {journaled}");
+    };
+    assert_eq!(seat_result["notes"], "used [secret:API_TOKEN]");
+}
+
+/// Review finding 2 on #381: a checkpoint clamps its tool target to 80
+/// characters, so the stream is masked before the fold takes anything —
+/// a bound value longer than the clamp would otherwise journal its
+/// prefix, which no whole-needle mask can match.
+#[cfg(unix)]
+#[test]
+fn a_bound_value_longer_than_the_target_clamp_leaks_no_prefix() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let value = format!("longsecret-{}", "0123456789".repeat(9));
+    assert!(value.len() > 80);
+    let messages = run_bound_claude(
+        &mut env,
+        dir.path(),
+        &value,
+        &[
+            json!({"type":"system","subtype":"init","session_id":"long-1"}),
+            json!({"type":"assistant","message":{"model":"claude-test","content":[
+                {"type":"tool_use","name":"Read","input":{"file_path": format!("/work/{value}")}}
+            ],"usage":{"input_tokens":3,"output_tokens":4}}}),
+        ],
+        None,
+    );
+    let journaled = format!("{messages:?}");
+    assert!(!journaled.contains("longsecret-0123"), "{journaled}");
+    assert!(
+        messages.iter().any(|body| matches!(
+            body,
+            Body::Checkpoint { data, .. } if data["target"] == "/work/[secret:API_TOKEN]"
+        )),
+        "{journaled}"
+    );
+}
+
+/// Review finding 2, the chief's extension: a refusal reason collapses
+/// whitespace and control characters before it is clamped, so a bound
+/// value holding a tab or a double space must be masked before that
+/// rewrite or the rewritten form no longer matches it.
+#[cfg(unix)]
+#[test]
+fn a_refusal_quoting_a_bound_value_with_tab_and_double_space_is_masked() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let value = "tok  3x\tample-leak-value";
+    let messages = run_bound_claude(
+        &mut env,
+        dir.path(),
+        value,
+        &[
+            json!({"type":"system","subtype":"init","session_id":"refused-3"}),
+            json!({"type":"result","is_error":true,"error":"authentication_failed",
+                   "result": format!("key {value} rejected")}),
+        ],
+        None,
+    );
+    let Some(Body::Result {
+        status: ResultStatus::Failed,
+        error: Some(error),
+        ..
+    }) = messages.last()
+    else {
+        panic!("the refusal is a failed result: {messages:?}");
+    };
+    assert!(error.contains("key [secret:API_TOKEN] rejected"), "{error}");
+    assert!(!format!("{messages:?}").contains("leak-value"));
+}
+
+/// The codex arm of review finding 2: a pre-turn `error` event is folded
+/// into a refusal that collapses whitespace and clamps, so the event is
+/// masked before the fold reads it.
+#[cfg(unix)]
+#[test]
+fn a_codex_refusal_quoting_a_long_bound_value_leaks_no_prefix() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let value = format!("codexsecret  \t{}", "0123456789".repeat(20));
+    let lines = dir.path().join("codex.ndjson");
+    std::fs::write(
+        &lines,
+        format!(
+            "{}\n",
+            json!({"type":"error","message": format!("key {value} rejected")})
+        ),
+    )
+    .unwrap();
+    let shim = executable(
+        dir.path(),
+        "codex-bound-refusal",
+        &format!("#!/bin/sh\ncat >/dev/null\ncat '{}'\n", lines.display()),
+    );
+    env.set("BROKKR_CODEX_BIN", &shim);
+    let store = dir.path().join("secrets.env");
+    secret::store_set(&store, "API_TOKEN", &value).unwrap();
+    let bindings = secret::resolve_bindings(&store, &["API_TOKEN".to_string()]).unwrap();
+    let outcome = invoke(
+        AdapterKind::Codex,
+        &[],
+        "the prompt",
+        &json!({"workdir": dir.path()}),
+        None,
+        &bindings,
+        &mut |_| {},
+    );
+    let refusal = outcome.unwrap().refusal.expect("an error before any turn");
+    assert!(
+        refusal.contains("key [secret:API_TOKEN] rejected"),
+        "{refusal}"
+    );
+    assert!(!refusal.contains("codexsecret"), "{refusal}");
+}
+
+/// The dsh arm of review finding 2: the transcript fold clamps a tool
+/// name to 80 characters, so each transcript event is masked before it.
+#[test]
+fn a_dsh_transcript_tool_quoting_a_long_bound_value_leaks_no_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    let session = root.join("project").join("session");
+    std::fs::create_dir_all(&session).unwrap();
+    let value = format!("dshsecret-{}", "0123456789".repeat(9));
+    std::fs::write(
+        session.join(DSH_TRANSCRIPT),
+        format!(
+            "{}\n{}\n{}\n",
+            json!({"type":"session","id":"s","delegationDepth":0}),
+            json!({"type":"assistant/message","data":{"turn":1,"step":1,
+                "message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":5,"outputTokens":2}}}),
+            json!({"type":"tool/call","data":{"name": format!("probe-{value}")}}),
+        ),
+    )
+    .unwrap();
+    let store = dir.path().join("secrets.env");
+    secret::store_set(&store, "API_TOKEN", &value).unwrap();
+    let bindings = secret::resolve_bindings(&store, &["API_TOKEN".to_string()]).unwrap();
+    let mut tail = DshTail::default();
+    let mut turns = 0u64;
+    let mut meta = serde_json::Map::new();
+    let mut emitted: Vec<Value> = Vec::new();
+    drain_dsh_transcript(
+        &mut tail,
+        &root,
+        None,
+        &mut turns,
+        &mut meta,
+        &bindings,
+        &mut |value| emitted.push(value.clone()),
+    );
+    let tools: Vec<&Value> = emitted.iter().filter_map(|row| row.get("tool")).collect();
+    assert_eq!(tools, vec!["probe-[secret:API_TOKEN]"], "{emitted:?}");
 }

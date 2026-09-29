@@ -27,6 +27,16 @@ impl World {
     fn projects(&self) -> PathBuf {
         self.home.join(".claude").join("projects")
     }
+
+    /// No secrets store sits beside the journal, so a read with turns
+    /// says it masked nothing and names where it looked (#380).
+    fn no_store(&self) -> String {
+        format!(
+            "secrets not masked: no values found in {}; a value bound from another store, \
+             or removed since the run, is shown as written",
+            self.path().join("secrets.env").display()
+        )
+    }
 }
 
 /// A run with one participant and no transcript reference yet.
@@ -1025,6 +1035,7 @@ fn selecting_a_retained_turn_keeps_the_whole_reads_notices() {
         json!([
             "transcript truncated (size cap)",
             "unrecognized transcript records: 1",
+            world.no_store(),
         ])
     );
     let past = run(
@@ -1095,6 +1106,7 @@ fn a_turn_past_a_complete_projection_is_not_retained() {
 /// equivalent ordinary rows keep four turns, so ordinary index two selects
 /// `b` while packed index two selects `q`.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn packed_dsh_members_coalesce_into_selectable_chunks() {
     let world = world_effects(&[("eff1", "review", None)]);
     let packed = concat!(
@@ -1287,7 +1299,10 @@ fn structural_charge_bounds_tiny_dsh_calls_whole_and_selected() {
     assert_eq!(whole["truncated"], true);
     assert_eq!(whole["skipped_lines"], 0);
     assert_eq!(whole["unrecognized_records"], 0);
-    assert_eq!(whole["notices"], json!(["transcript truncated (size cap)"]));
+    assert_eq!(
+        whole["notices"],
+        json!(["transcript truncated (size cap)", world.no_store()])
+    );
     let retained_text: usize = turns
         .iter()
         .map(|turn| turn["blocks"][0]["text"].as_str().unwrap().len())
@@ -1600,7 +1615,7 @@ fn the_shipped_claude_fixture_keeps_its_counts_under_selection() {
     assert_eq!(document["turns"].as_array().unwrap().len(), 2);
     assert_eq!(
         document["notices"],
-        json!(["malformed transcript lines skipped: 1"])
+        json!(["malformed transcript lines skipped: 1", world.no_store()])
     );
     let selected = run(
         &world,
@@ -1622,7 +1637,7 @@ fn the_shipped_claude_fixture_keeps_its_counts_under_selection() {
     assert_eq!(document["turns"][0]["role"], "user");
     assert_eq!(
         document["notices"],
-        json!(["malformed transcript lines skipped: 1"])
+        json!(["malformed transcript lines skipped: 1", world.no_store()])
     );
 }
 
@@ -2148,15 +2163,10 @@ fn a_future_transcript_kind_is_fenced_at_the_journal() {
 #[test]
 fn hostile_confirmed_paths_stay_portable_display_data() {
     let mut world = world();
-    // Windows forbids the operator, quote and backslash characters in a
-    // path component, so the hostile fixture keeps the portable-display
-    // alphabet there; the Unix fixture carries the complete shell
-    // fragment. Both exercise the same escaping proof.
-    let hostile_home = world.path().join(if cfg!(windows) {
-        "home $(x) `t` ;a&b%c!d é😀"
-    } else {
-        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
-    });
+    // The fixture carries the complete shell fragment.
+    let hostile_home = world
+        .path()
+        .join("home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀");
     std::fs::create_dir_all(&hostile_home).unwrap();
     world.home = hostile_home;
     let home_text = world.home.to_str().unwrap().to_string();

@@ -237,6 +237,7 @@ impl DispatchEnvelopeV2 {
         self
     }
 
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     pub fn verify(
         &self,
         now: OffsetDateTime,

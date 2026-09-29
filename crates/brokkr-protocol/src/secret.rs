@@ -19,12 +19,11 @@ use std::path::Path;
 /// Enforced at bundle compile AND at `brokkr secrets set`.
 pub const DENYLIST: [&str; 4] = ["PATH", "IFS", "LD_PRELOAD", "LD_LIBRARY_PATH"];
 
-/// The harness-owned prefixes: `BROKKR_*` names configure the harness
-/// itself (BROKKR_CODEX_BIN and friends) and are never bindable — nor is
-/// the `FORGE_*` spelling they answer to for one more release (decision
-/// 0019), which would otherwise be the same primitive under the old
-/// name.
-pub const DENYLIST_PREFIXES: [&str; 2] = ["BROKKR_", "FORGE_"];
+/// The harness-owned prefix: `BROKKR_*` names configure the harness
+/// itself (BROKKR_CODEX_BIN and friends) and are never bindable. The
+/// pre-rename spelling left the denylist (#355): the harness reads it
+/// only to refuse it (`overrides`), so it can stop a seat, never aim one.
+pub const DENYLIST_PREFIXES: [&str; 1] = ["BROKKR_"];
 
 /// Values shorter than this are refused at `set`: masking a 2-byte
 /// value turns the journal into `[secret:X]` confetti.
@@ -131,8 +130,7 @@ pub fn validate_name(name: &str) -> Result<(), String> {
     if denylisted(name) {
         return Err(format!(
             "secret name '{name}' is denylisted (PATH, IFS, LD_PRELOAD, \
-             LD_LIBRARY_PATH, and the BROKKR_ and FORGE_ prefixes are \
-             never bindable)"
+             LD_LIBRARY_PATH, and the BROKKR_ prefix are never bindable)"
         ));
     }
     Ok(())
@@ -224,7 +222,7 @@ pub fn scan_secret_refs(text: &str) -> Result<Vec<String>, String> {
             ));
         }
         names.push(name.to_string());
-        search = name_end + 2;
+        search = name_end; // the closing "}}" cannot begin "secret:"
     }
     Ok(names)
 }
@@ -581,12 +579,38 @@ fn enc_pct_lower(bytes: &[u8]) -> Vec<u8> {
 /// split across two chunks silently reopens the leak. Do not "optimize
 /// to streaming" without carrying that window.
 pub fn mask_bytes(bytes: &[u8], bindings: &[BoundSecret]) -> Vec<u8> {
+    mask_needles(bytes, bindings, &NEEDLE_ENCODINGS)
+}
+
+/// [`mask_bytes`] for text a transcript reader projected (#380), which
+/// also masks each value as it reads inside a JSON string.
+///
+/// A projector renders a structured sub-value — a tool call's arguments
+/// object, a shell action — as serialised JSON, so a value holding a
+/// `"`, a `\` or a control character reaches the text re-escaped and
+/// never matches the raw needle. The extra needle is that value's own
+/// JSON string escaping, the same bytes the projector's serialiser
+/// writes. It stays off the shared [`NEEDLE_ENCODINGS`]: the surfaces
+/// the driver masks decode JSON before masking instead.
+pub fn mask_projected(text: &str, bindings: &[BoundSecret]) -> String {
+    let mut encodings = NEEDLE_ENCODINGS.to_vec();
+    encodings.push(("json-string", enc_json_string));
+    String::from_utf8_lossy(&mask_needles(text.as_bytes(), bindings, &encodings)).into_owned()
+}
+
+/// A value as it reads between the quotes of a serialised JSON string.
+fn enc_json_string(bytes: &[u8]) -> Vec<u8> {
+    let quoted = serde_json::Value::String(String::from_utf8_lossy(bytes).into_owned()).to_string();
+    quoted.as_bytes()[1..quoted.len() - 1].to_vec()
+}
+
+fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Encoder)]) -> Vec<u8> {
     if bindings.is_empty() {
         return bytes.to_vec();
     }
     let mut needles: Vec<(Vec<u8>, &str)> = Vec::new();
     for binding in bindings {
-        for (_, encode) in NEEDLE_ENCODINGS {
+        for (_, encode) in encodings {
             let needle = encode(&binding.secret.bytes);
             if !needle.is_empty() && !needles.iter().any(|(n, _)| *n == needle) {
                 needles.push((needle, binding.name.as_str()));
@@ -608,6 +632,45 @@ pub fn mask_bytes(bytes: &[u8], bindings: &[BoundSecret]) -> Vec<u8> {
         i += 1;
     }
     out
+}
+
+/// [`mask_bytes`] over every string inside a JSON value — object keys
+/// included — in place.
+///
+/// For the surfaces that reach the driver as JSON: a harness's stream,
+/// a harness's transcript and a seat's result file. A secret the model
+/// echoed arrives there JSON-escaped on the wire (a `"`, a `\`, a tab),
+/// so it never matches in the raw bytes; it must be masked on the
+/// DECODED strings, and before anything clamps or rewrites them — a
+/// prefix cut at a length limit, or whitespace collapsed for a one-line
+/// reason, no longer matches the whole needle. Keys are masked too
+/// because a result file's keys are the seat's to choose. Numbers are
+/// left as numbers: a count must stay a count for the seat record, so a
+/// wholly numeric secret echoed as a bare JSON number is not rewritten
+/// (the secrets guide says so).
+pub fn mask_json(value: &mut serde_json::Value, bindings: &[BoundSecret]) {
+    match value {
+        serde_json::Value::String(text) => {
+            *text = mask_text(text, bindings);
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                mask_json(item, bindings);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            let entries = std::mem::take(map);
+            for (key, mut item) in entries {
+                mask_json(&mut item, bindings);
+                map.insert(mask_text(&key, bindings), item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn mask_text(text: &str, bindings: &[BoundSecret]) -> String {
+    String::from_utf8_lossy(&mask_bytes(text.as_bytes(), bindings)).into_owned()
 }
 
 #[cfg(test)]

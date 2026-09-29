@@ -26,6 +26,9 @@ their say.
 
 ```
 $ brokkr init my-bundle
+```
+
+```text
 initialized reviewable bundle at my-bundle (digest 73c4d35763c6684dbf95b299968ba59739af86124c5dc764899565263f2e875d)
 run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
@@ -33,8 +36,8 @@ run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust
 ## What it wrote
 
 The same scaffold shape as every stack: `agents/README.md`, `bundle.json`,
-`policy.json`, model and exec adapters, three model definitions and
-charters, plus verify and ship scripts. The invariant `bundle.json` is in
+`policy.json`, `realms.json`, model and exec adapters, three model
+definitions and charters, plus verify and ship scripts. The invariant `bundle.json` is in
 [rust.md](rust.md#what-it-wrote), and so are the fixed parts of the
 agent files. What this repository changed is the stack's own data:
 the implementer charter and verifier script below, plus the model adapter's
@@ -130,6 +133,9 @@ carrying `package.json`, `turbo.json` and `pnpm-lock.yaml`:
 
 ```
 $ brokkr init my-bundle
+```
+
+```text
 initialized reviewable bundle at my-bundle (digest 1359509b294a10b7d46885bd112459f90198b39d882db8d7b363c3b6e392c07c)
 run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```

@@ -163,8 +163,10 @@ started=$(date +%s)
 install_seconds=$(( $(date +%s) - started ))
 
 # ── path 2: init to the first completed effect ───────────────────────
-# The stub the adapter spawns instead of Claude Code. It receives the
-# seat prompt on stdin — the same prompt a real session would — and
+# The stub the adapter spawns instead of Claude Code. It stands first on
+# PATH as `claude`, so `init` scaffolds for claude on any host. It
+# receives the seat prompt on stdin — the same prompt a real session
+# would — and
 # writes the typed result to the exact file the prompt names, which is
 # the only channel the engine reads.
 stub_dir="$workdir/stub"
@@ -184,11 +186,15 @@ prompt="$(cat)"
 # charter's indented lines are commands and come first.
 result_file="$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | tail -n 1)"
 phase="$(printf '%s\n' "$prompt" | sed -n 's/^Phase: \([a-z-]*\).*/\1/p' | head -n 1)"
+inputs='{}'
 case "$phase" in
   intake) result=resolved ;;
-  # A scripted `blocked` is a HARD stop at implement, so the run ends
-  # one seat past its first completed effect. The window therefore
+  implement) result=complete ;;
+  # Verify and ship are the scaffold's own exec scripts and run for
+  # real; the model review answers clean with nothing fixed, so the
+  # run is carried all the way to `done`. The window therefore
   # OVER-measures time-to-first-effect and never under-measures it.
+  review) result=clean; inputs='{"fixes_applied":false}' ;;
   *) result=blocked ;;
 esac
 if [ -z "$result_file" ]; then
@@ -196,7 +202,7 @@ if [ -z "$result_file" ]; then
   exit 1
 fi
 mkdir -p "$(dirname "$result_file")"
-printf '{"result":"%s","notes":"benchmark stub; no agent ran"}\n' "$result" >"$result_file"
+printf '{"result":"%s","inputs":%s,"notes":"benchmark stub; no agent ran"}\n' "$result" "$inputs" >"$result_file"
 printf '{"type":"result","subtype":"success","num_turns":1,"total_cost_usd":0.0}\n'
 STUB
 chmod +x "$stub_dir/claude"
@@ -207,41 +213,44 @@ git -C "$trial" init -q
 git -C "$trial" config user.email bench@example.invalid
 git -C "$trial" config user.name 'bootstrap bench'
 git -C "$trial" config commit.gpgSign false
-printf '{\n  "name": "bench-app",\n  "private": true\n}\n' >"$trial/package.json"
-printf '.forge/\n' >"$trial/.gitignore"
+# The fixture's suite: `init` reads the Makefile as the make stack, and
+# the real verify gate runs `make test` and `make lint`.
+# No `.gitignore`: the README asks for none, and `init` ignores the run's
+# own `.forge/` itself.
+printf 'build:\n\t@true\ntest:\n\t@true\nlint:\n\t@true\n' >"$trial/Makefile"
 git -C "$trial" add -A
 git -C "$trial" commit -qm 'bench fixture'
 
-say 'timing init-to-first-run (init . + run to first completed effect)…'
+say 'timing init-to-first-run (init . + commit + run to done)…'
 started=$(date +%s)
 set +e
 (
   cd "$trial"
   export BROKKR_CLAUDE_BIN="$stub_dir/claude"
+  export PATH="$stub_dir:$PATH"
   "$install_dir/brokkr" init .
+  git add -A && git commit -qm 'brokkr starter'
   "$install_dir/brokkr" run --bundle . --repo . --db .forge/forge.db \
-    --feature 'bootstrap benchmark: reach one completed effect'
+    --feature 'bootstrap benchmark: reach a completed run'
 ) >"$workdir/run.log" 2>&1
 run_exit=$?
 set -e
 first_run_seconds=$(( $(date +%s) - started ))
 
-# Exit 3 is a stopped run, which is what the scripted `blocked` at
-# implement rules. Anything else means the path did not execute and the
-# number above would be timing a failure.
-if [ "$run_exit" -ne 3 ]; then
-  printf 'bootstrap-bench refusal: the init-to-first-run path exited %s, expected 3 (stopped):\n' "$run_exit" >&2
+# Exit 0 is a run at `done`. Anything else means the path parked or
+# stopped and the number above would be timing a failure.
+if [ "$run_exit" -ne 0 ]; then
+  printf 'bootstrap-bench refusal: the init-to-first-run path exited %s, expected 0 (done):\n' "$run_exit" >&2
   cat "$workdir/run.log" >&2
   exit 1
 fi
-# And the first effect really did complete, ended by the ruling the
-# stub scripted: a run that stopped without one would have timed
-# nothing worth reporting. (This is the same pair of assertions
-# `crates/brokkr-cli/tests/bootstrap_bench.rs` makes, so the mechanism
-# is under the workspace suite and not only under this script.)
+# And the effects really did complete, the real verify gate passed, and
+# the run closed out by the table's own ruling. (These are the
+# assertions `crates/brokkr-cli/tests/bootstrap_bench.rs` makes, so the
+# mechanism is under the workspace suite and not only under this script.)
 ( cd "$trial" && "$install_dir/brokkr" inspect --run latest --db .forge/forge.db --json ) \
   >"$workdir/inspect.json" 2>&1 || true
-for expected in 'effect/succeeded' 'IMPL-BLOCKED'; do
+for expected in 'effect/succeeded' 'VERIFY-PASS' 'REVIEW-CLEAN-NO-FIXES' 'SHIP-COMPLETE'; do
   if ! grep -q "$expected" "$workdir/inspect.json"; then
     printf 'bootstrap-bench refusal: the timed run never reached %s:\n' "$expected" >&2
     cat "$workdir/run.log" >&2

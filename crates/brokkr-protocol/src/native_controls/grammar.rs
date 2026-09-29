@@ -682,6 +682,11 @@ impl Grammar {
     /// Parse the options standing in `argv[start..end]`, naming every
     /// position in the whole argv. No value is taken from beyond `end`, so
     /// a final positional can never become an option's value.
+    #[expect(
+        clippy::excessive_nesting,
+        clippy::too_many_lines,
+        reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+    )]
     fn parse_span(&self, argv: &[String], start: usize, end: usize) -> Result<Command, Problem> {
         let problem = |at: usize, token: &str, cause: &str| self.problem(at, token, cause);
         let argv = &argv[..end];

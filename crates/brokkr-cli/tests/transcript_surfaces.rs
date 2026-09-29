@@ -1,9 +1,10 @@
 //! One local derivation across the surfaces (#222, proposed decision
 //! 0055; design D11). A synthetic source of each kind is read once
 //! through `brokkr_cli::read_local`; the command's text and JSON, the
-//! TUI pane keys and both doors, Claude's `/api/session/<id>` body and
-//! the browser participant presentation are then compared against that
-//! one result. The browser transport is asserted prose-free.
+//! TUI pane keys and both doors, the browser's transcript route (the
+//! command's JSON less its trailing newline, #352) and the browser participant
+//! presentation are then compared against that one result. The
+//! presentation transport is asserted prose-free.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -15,13 +16,10 @@ use serde_json::{json, Value};
 
 /// `HOME` is process-global and `read_local` reads it (for legacy
 /// synthesis) even when the selected reference carries its own home, so
-/// every test in this file takes its turn. This is the integration-test
-/// twin of `crate::tests::HOME`.
-static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn home_lock() -> std::sync::MutexGuard<'static, ()> {
-    HOME.lock().unwrap_or_else(|error| error.into_inner())
-}
+/// every test in this file holds the binary's environment guard.
+#[path = "../../../tests/support/env_guard.rs"]
+mod env_guard;
+use env_guard::EnvGuard;
 
 struct World {
     dir: tempfile::TempDir,
@@ -107,36 +105,10 @@ fn make_world_named(kind: &str, locator: &str, body: &str, home_name: &str) -> W
     let home = dir.path().join(home_name);
     std::fs::create_dir_all(&home).unwrap();
     let (reference, path) = source(&home, kind, locator, body);
-    let mut store = Store::open(&db).unwrap();
-    store
-        .create_run("r222", "feat", "self", &json!({"files": {}}))
-        .unwrap();
-    let events: Vec<(EventType, Value)> = vec![
-        (
-            EventType::RunStarted,
-            json!({"feature": "feat", "manifest": {}}),
-        ),
-        (EventType::PhaseEntered, json!({"phase": "intake"})),
-        (
-            EventType::EffectRequested,
-            json!({"effect_id": "eff1", "seat": "review", "phase": "intake"}),
-        ),
-        (
-            EventType::EffectStarted,
-            json!({"effect_id": "eff1", "attempt_id": "att0"}),
-        ),
-        (
-            EventType::EffectCheckpointed,
-            json!({"effect_id": "eff1", "attempt_id": "att0",
-                   "checkpoint": {"step": "session-finished",
-                                  "transcript": reference}}),
-        ),
-    ];
-    for (event_type, payload) in events {
-        store
-            .append_next("r222", event_type, payload, None, None)
-            .unwrap();
-    }
+    journal(
+        &db,
+        json!({"step": "session-finished", "transcript": reference}),
+    );
     World {
         dir,
         db,
@@ -146,14 +118,51 @@ fn make_world_named(kind: &str, locator: &str, body: &str, home_name: &str) -> W
     }
 }
 
+/// The one-participant run every world records at `db`, its seat's last
+/// checkpoint being `checkpoint`.
+fn journal(db: &Path, checkpoint: Value) {
+    let mut store = Store::open(db).unwrap();
+    store
+        .create_run("r222", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    let opening = [
+        (EventType::RunStarted, r#"{"feature":"feat","manifest":{}}"#),
+        (EventType::PhaseEntered, r#"{"phase":"intake"}"#),
+        (
+            EventType::EffectRequested,
+            r#"{"effect_id":"eff1","seat":"review","phase":"intake"}"#,
+        ),
+        (
+            EventType::EffectStarted,
+            r#"{"effect_id":"eff1","attempt_id":"att0"}"#,
+        ),
+    ];
+    let checkpointed = json!({"effect_id": "eff1", "attempt_id": "att0", "checkpoint": checkpoint});
+    let opening =
+        opening.map(|(event_type, payload)| (event_type, serde_json::from_str(payload).unwrap()));
+    for (event_type, payload) in opening
+        .into_iter()
+        .chain([(EventType::EffectCheckpointed, checkpointed)])
+    {
+        store
+            .append_next("r222", event_type, payload, None, None)
+            .unwrap();
+    }
+}
+
 fn command(world: &World, extra: &[&str]) -> std::process::Output {
+    command_under(world, &world.home, extra)
+}
+
+/// The command run with `home` as its `HOME`.
+fn command_under(world: &World, home: &Path, extra: &[&str]) -> std::process::Output {
     let mut args = vec!["transcript", "--run", "r222", "--seat", "eff1"];
     args.extend_from_slice(extra);
     Command::new(brokkr_bin())
         .args(args)
         .arg("--db")
         .arg(&world.db)
-        .env("HOME", &world.home)
+        .env("HOME", home)
         .current_dir(world.dir.path())
         .output()
         .unwrap()
@@ -168,28 +177,125 @@ fn parse(output: &std::process::Output) -> Value {
     })
 }
 
-/// Compare every surface against one shared read, for one source.
-fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
-    // The API's Claude body agrees on turns and truncation and keeps its
-    // three-field envelope.
-    if world.reference.kind == "claude-session" {
-        let response = brokkr_cli::handle(
-            &world.db,
-            &format!("/api/session/{}", world.reference.locator),
-        );
-        assert_eq!(response.status, "200 OK");
-        let body: Value = serde_json::from_str(&response.body).unwrap();
-        let mut keys: Vec<&str> = body
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect();
-        keys.sort_unstable();
-        assert_eq!(keys, vec!["session_id", "truncated", "turns"]);
-        assert_eq!(body["turns"], serde_json::to_value(&read.turns).unwrap());
-        assert_eq!(body["truncated"], read.truncated);
+/// The browser's transcript route serves `brokkr transcript --json`'s
+/// document byte for byte, for every kind (#352): the command prints the
+/// same bytes and a newline. A refused read keeps its document under a 404.
+fn same_bytes_in_the_browser(world: &World, command: &std::process::Output, status: &str) {
+    let response = brokkr_cli::handle(&world.db, "/api/transcript/r222/eff1");
+    assert_eq!(response.status, status, "{}", response.body);
+    assert_eq!(
+        format!("{}\n", response.body),
+        String::from_utf8_lossy(&command.stdout),
+        "{}",
+        world.reference.kind
+    );
+}
+
+/// A `brokkr ui` child serving `world`'s journal on an ephemeral port. It is
+/// killed when dropped, so a failed assertion leaves no server behind; its
+/// stderr stays open for the child's lifetime.
+struct Server {
+    child: std::process::Child,
+    _stderr: std::io::BufReader<std::process::ChildStderr>,
+    port: u16,
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
+}
+
+impl Server {
+    fn start(world: &World) -> Self {
+        use std::io::BufRead;
+        let mut child = Command::new(brokkr_bin())
+            .args(["ui", "--port", "0", "--db"])
+            .arg(&world.db)
+            .env("HOME", &world.home)
+            .current_dir(world.dir.path())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
+        // "brokkr ui: http://127.0.0.1:<port>/ (read-only; Ctrl-C to stop)"
+        let mut line = String::new();
+        let _ = stderr.read_line(&mut line);
+        let port = line
+            .split_once("127.0.0.1:")
+            .and_then(|(_, rest)| rest.split_once('/'))
+            .and_then(|(port, _)| port.parse().ok());
+        let server = Server {
+            child,
+            _stderr: stderr,
+            port: port.unwrap_or_default(),
+        };
+        assert!(port.is_some(), "no bound url: {line}");
+        server
+    }
+
+    /// The raw response to one GET, split at the blank line.
+    fn get(&self, path: &str) -> (String, Vec<u8>) {
+        use std::io::{Read, Write};
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        write!(stream, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        let split = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("a head and a body");
+        let head = String::from_utf8(response[..split].to_vec()).unwrap();
+        (head, response[split + 4..].to_vec())
+    }
+}
+
+/// Decision 0073 ruling 1 on the wire: `/api/transcript/<run>/<key>`,
+/// served by `brokkr ui` over TCP, carries exactly the document `brokkr
+/// transcript --json` prints, which ends in the one newline the command
+/// adds, readable (Claude, 200) or refused (non-UTF-8 Codex, 404).
+#[test]
+fn the_wire_body_is_the_commands_stdout_without_its_newline() {
+    let _env = EnvGuard::lock();
+    let claude = make_world(
+        "claude-session",
+        "abcd-1234",
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"on the wire\"}}\n",
+    );
+    let codex = make_world("codex-thread", "0199wire", "");
+    std::fs::write(&codex.path, [0xff, 0xfe]).unwrap();
+    for (world, exit, status) in [(&claude, 0, "200 OK"), (&codex, 1, "404 Not Found")] {
+        let stdout = command(world, &["--json"]);
+        assert_eq!(stdout.status.code(), Some(exit), "{}", world.reference.kind);
+        let (head, body) = Server::start(world).get("/api/transcript/r222/eff1");
+        assert!(
+            head.starts_with(&format!("HTTP/1.1 {status}\r\n")),
+            "{head}"
+        );
+        assert_eq!([&body[..], b"\n"].concat(), stdout.stdout, "{head}");
+        assert!(
+            head.contains(&format!("\r\nContent-Length: {}\r\n", body.len())),
+            "{head}"
+        );
+    }
+}
+
+/// Compare every surface against one shared read, for one source.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
+    // No secrets store sits beside the world's journal, so every surface
+    // that masks says it masked nothing and names where it looked (#380).
+    let mut read = read.clone();
+    if !read.turns.is_empty() {
+        read.notices.push(format!(
+            "secrets not masked: no values found in {}; a value bound from another store, or \
+             removed since the run, is shown as written",
+            world.dir.path().join("secrets.env").display()
+        ));
+    }
+    let read = &read;
 
     // The browser participant presentation carries only the shared
     // metadata, never transcript prose.
@@ -281,6 +387,7 @@ fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
     assert_eq!(document["full_session"], json!(read.full_session));
     // A readable derivation is never an unavailable one.
     assert_eq!(document["unavailable"], Value::Null);
+    same_bytes_in_the_browser(world, &whole, "200 OK");
 
     // The text command carries the same one-based numbering, roles,
     // stamps, blocks, notices and hint as the pane and the JSON face.
@@ -388,6 +495,7 @@ fn compare_refusal(world: &World, read: &TranscriptRead, expected: &str) {
     let document = parse(&whole);
     assert_eq!(document["unavailable"], expected);
     assert_eq!(document["turns"], json!([]));
+    same_bytes_in_the_browser(world, &whole, "404 Not Found");
     assert_eq!(document["path"], json!(read.path));
     assert_eq!(document["full_session"], json!(read.full_session));
     assert_eq!(document["truncated"], read.truncated);
@@ -414,8 +522,9 @@ fn compare_refusal(world: &World, read: &TranscriptRead, expected: &str) {
 /// readable zero-turn source, a truncated source, a counted omission and
 /// each DSH refusal.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn one_derivation_reaches_every_surface() {
-    let _home = home_lock();
+    let mut env = EnvGuard::lock();
     for (kind, locator, body) in [
         (
             "claude-session",
@@ -440,7 +549,7 @@ fn one_derivation_reaches_every_surface() {
         let world = make_world(kind, locator, body);
         // The in-process handler and the child process must agree on the
         // local projects root for the Claude drill.
-        std::env::set_var("HOME", &world.home);
+        env.set("HOME", &world.home);
         let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
         assert!(read.is_readable(), "{kind}: {read:?}");
         assert_eq!(read.path.as_deref(), Some(world.path.as_str()));
@@ -450,7 +559,7 @@ fn one_derivation_reaches_every_surface() {
 
     // A readable zero-turn source.
     let world = make_world("codex-thread", "0199zero", "{\"type\":\"turn_context\"}\n");
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert!(read.is_readable() && read.turns.is_empty());
     compare(&world, &read, None);
@@ -466,7 +575,7 @@ fn one_derivation_reaches_every_surface() {
          {{\"type\":\"future-record\"}}\n"
     );
     let world = make_world("claude-session", "abcd-1234", &body);
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert!(read.truncated && read.unrecognized_records == 1, "{read:?}");
     compare(&world, &read, Some(1));
@@ -478,7 +587,7 @@ fn one_derivation_reaches_every_surface() {
         "{\"type\":\"session\",\"version\":0}\n\
          {\"type\":\"future/event\",\"ignorable\":true}\n",
     );
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert!(
         read.is_readable() && read.unrecognized_records == 1,
@@ -495,7 +604,7 @@ fn one_derivation_reaches_every_surface() {
         "{\"type\":\"session\",\"version\":1}\n\
          {\"type\":\"user/message\",\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"hidden\"}]}}\n",
     );
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert_eq!(
         read.unavailable,
@@ -516,7 +625,7 @@ fn one_derivation_reaches_every_surface() {
         "sessions/one",
         "{\"type\":\"session\",\"delegationDepth\":1,\"version\":0}\n",
     );
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert_eq!(
         read.unavailable,
@@ -535,18 +644,81 @@ fn one_derivation_reaches_every_surface() {
     compare_refusal(&world, &read, "not-found");
 }
 
+/// Operator ruling 2026-09-27 (decision 0073 rulings 3 and 4): the browser
+/// reads what the command reads. A Claude reference recorded under a home
+/// that is not the local projects home gets the command's bytes.
+#[test]
+fn a_foreign_home_claude_reference_reads_the_same_bytes_in_the_browser() {
+    let mut env = EnvGuard::lock();
+    let world = make_world(
+        "claude-session",
+        "abcd-1234",
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"from another home\"}}\n",
+    );
+    let local = world.dir.path().join("local");
+    std::fs::create_dir_all(local.join(".claude").join("projects")).unwrap();
+    env.set("HOME", &local);
+    let whole = command_under(&world, &local, &["--json"]);
+    assert_eq!(whole.status.code(), Some(0), "the command reads it");
+    assert_eq!(
+        parse(&whole)["turns"][0]["blocks"][0]["text"],
+        "from another home"
+    );
+    same_bytes_in_the_browser(&world, &whole, "200 OK");
+}
+
+/// The same ruling for a legacy flat id whose local projects home does not
+/// exist: the command refuses the read with its document, and the browser
+/// serves that document, not a refusal of its own.
+#[test]
+fn a_legacy_id_under_a_missing_projects_home_reads_the_same_bytes_in_the_browser() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    // No provider provenance and no common reference: the pre-provider
+    // Claude era, whose flat id is synthesized under the local projects
+    // home, which this home does not hold.
+    let db = dir.path().join("forge.db");
+    journal(
+        &db,
+        json!({"step": "session-started", "session_id": "abcd-1234"}),
+    );
+    let projects = home.join(".claude").join("projects");
+    let world = World {
+        reference: brokkr_view::Transcript {
+            kind: "claude-session".into(),
+            locator: "abcd-1234".into(),
+            home: projects.to_str().unwrap().into(),
+        },
+        path: String::new(),
+        dir,
+        db,
+        home,
+    };
+    env.set("HOME", &world.home);
+    let whole = command(&world, &["--json"]);
+    assert_eq!(whole.status.code(), Some(1), "the command refuses the read");
+    let document = parse(&whole);
+    assert_eq!(
+        (&document["legacy"], &document["unavailable"]),
+        (&json!(true), &json!("not-found"))
+    );
+    same_bytes_in_the_browser(&world, &whole, "404 Not Found");
+}
+
 /// A real packed DSH source reaches CLI text/JSON, the TUI pane and both
 /// doors as the same coalesced chunks: consecutive text and reasoning
 /// members become one chunk each at the first member's stamp, so packed and
 /// ordinary indices deliberately differ (command delta).
 #[test]
 fn packed_dsh_coalescing_reaches_every_surface() {
-    let _home = home_lock();
+    let mut env = EnvGuard::lock();
     let body = "{\"type\":\"session\",\"version\":0}\n\
         {\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1,1],\"texts\":[\"Prose-Alpha \",\"Prose-Bravo \",\"Prose-Charlie\"]}}\n\
         {\"type\":\"reasoning-chunks\",\"seq0\":20,\"time0\":2000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1],\"texts\":[\"Reason-Delta \",\"Reason-Echo\"]}}\n";
     let world = make_world("dsh-session", "sessions/one", body);
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert!(read.is_readable(), "{read:?}");
     assert_eq!(read.turns.len(), 2);
@@ -566,7 +738,7 @@ fn packed_dsh_coalescing_reaches_every_surface() {
 /// document all carry the same truncation notice.
 #[test]
 fn structural_cap_notices_reach_every_surface() {
-    let _home = home_lock();
+    let mut env = EnvGuard::lock();
     let mut body = String::from("{\"type\":\"session\",\"version\":0}\n");
     for seq in 1..=10_000 {
         body.push_str(&format!(
@@ -574,7 +746,7 @@ fn structural_cap_notices_reach_every_surface() {
         ));
     }
     let world = make_world("dsh-session", "sessions/one", &body);
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert!(read.is_readable(), "{read:?}");
     assert_eq!(read.turns.len(), 7_797);
@@ -592,7 +764,7 @@ fn structural_cap_notices_reach_every_surface() {
 /// the same command document.
 #[test]
 fn dsh_semantic_refusals_reach_the_tui_seam() {
-    let _home = home_lock();
+    let mut env = EnvGuard::lock();
     // A DSH semantic refusal after a readable-looking prefix is the same
     // unavailability through every surface, with its counts and notices
     // intact and no refused prose anywhere.
@@ -603,7 +775,7 @@ fn dsh_semantic_refusals_reach_the_tui_seam() {
          not json\n\
          {\"type\":\"future/required\"}\n",
     );
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert_eq!(
         read.unavailable,
@@ -627,7 +799,7 @@ fn dsh_semantic_refusals_reach_the_tui_seam() {
         "{\"type\":\"session\",\"version\":1}\n",
     )
     .unwrap();
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert_eq!(
         read.unavailable,
@@ -641,7 +813,7 @@ fn dsh_semantic_refusals_reach_the_tui_seam() {
 /// every readable kind.
 #[test]
 fn recorded_tool_identity_and_context_reach_every_surface() {
-    let _home = home_lock();
+    let _env = EnvGuard::lock();
     let cases: [(&str, &str, &str, Vec<&str>); 3] = [
         (
             "claude-session",
@@ -675,7 +847,7 @@ fn recorded_tool_identity_and_context_reach_every_surface() {
     for (kind, locator, body, needles) in cases {
         let world = make_world(kind, locator, body);
         // The common reference needs no ambient HOME, but `read_local`
-        // still reads HOME, so this test holds the file's HOME lock.
+        // still reads HOME, so this test holds the environment guard.
         let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
         assert!(read.is_readable(), "{kind}: {read:?}");
         let texts: Vec<&str> = read
@@ -752,12 +924,8 @@ fn recorded_tool_identity_and_context_reach_every_surface() {
 /// surface reconstructing a fragment.
 #[test]
 fn r25_portable_hint_is_identical_across_every_surface() {
-    let _home = home_lock();
-    let hostile = if cfg!(windows) {
-        "home $(x) `t` ;a&b%c!d é😀"
-    } else {
-        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
-    };
+    let _env = EnvGuard::lock();
+    let hostile = "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀";
     for (kind, locator, body) in [
         ("codex-thread", "0199mine", "{\"type\":\"turn_context\"}\n"),
         (
@@ -768,7 +936,7 @@ fn r25_portable_hint_is_identical_across_every_surface() {
     ] {
         let world = make_world_named(kind, locator, body, hostile);
         // The common reference needs no ambient HOME, but `read_local`
-        // still reads HOME, so this test holds the file's HOME lock.
+        // still reads HOME, so this test holds the environment guard.
         let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
         assert!(read.is_readable(), "{kind}: {read:?}");
         let hint = read
@@ -814,5 +982,95 @@ fn r25_portable_hint_is_identical_across_every_surface() {
             page.body.contains("el('p', 'cause', view.hint)"),
             "the page paints the shared hint verbatim"
         );
+    }
+}
+
+/// #380: a value the model echoed into its Codex rollout reaches
+/// `brokkr transcript` as `[secret:NAME]`, masked against the store beside
+/// the journal. A value rotated away since the run is no longer in the
+/// store and stays as written, and the command says that masking covers
+/// only the store's current values rather than passing it silently.
+#[test]
+fn the_command_masks_a_bound_value_and_states_what_a_rotation_leaves() {
+    let body = "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"now ghp-bound-7f3a9c, before ghp-rotated-0c11\"}]}}\n";
+    let world = make_world("codex-thread", "0199mine", body);
+    brokkr_protocol::secret::store_set(
+        &world.dir.path().join("secrets.env"),
+        "GH_TOKEN",
+        "ghp-bound-7f3a9c",
+    )
+    .unwrap();
+    let notice = "secrets masked against the store's current values for GH_TOKEN; a value \
+                  rotated or removed since the run is not masked";
+
+    let json_face = command(&world, &["--json"]);
+    assert!(json_face.status.success());
+    let document = parse(&json_face);
+    assert_eq!(
+        document["turns"][0]["blocks"][0]["text"],
+        "now [secret:GH_TOKEN], before ghp-rotated-0c11"
+    );
+    assert_eq!(document["notices"], json!([notice]));
+
+    let text_face = command(&world, &[]);
+    assert!(text_face.status.success());
+    let rendered = String::from_utf8_lossy(&text_face.stdout);
+    assert!(
+        rendered.contains("  text: now [secret:GH_TOKEN], before ghp-rotated-0c11"),
+        "{rendered}"
+    );
+    assert!(rendered.contains(&format!("notice {notice}")), "{rendered}");
+    assert!(!rendered.contains("ghp-bound-7f3a9c"), "{rendered}");
+}
+
+/// #380: a projector renders a Codex shell action and a DSH tool call's
+/// arguments as serialised JSON, so a bound value holding a quote and a
+/// backslash reaches the text re-escaped. `brokkr transcript` masks that
+/// escaped form too, never printing the value in either spelling.
+#[test]
+fn the_command_masks_a_bound_value_a_structured_call_reserialised() {
+    let value = "tok\"en\\7f3a9c";
+    let escaped = "tok\\\"en\\\\7f3a9c";
+    let arguments = json!({"command": ["curl", "-H", value], "type": "exec"});
+    let codex = format!(
+        "{}\n",
+        json!({"timestamp": "t1", "type": "response_item", "payload": {
+            "type": "local_shell_call", "call_id": "c1", "action": arguments}})
+    );
+    let dsh = format!(
+        "{}\n{}\n",
+        json!({"type": "session", "version": 0}),
+        json!({"type": "tool/call", "seq": 5, "time": 1001, "data": {
+            "callId": "c1", "name": "Bash", "arguments": arguments, "turn": 1, "step": 1}})
+    );
+    let masked = "{\"command\":[\"curl\",\"-H\",\"[secret:GH_TOKEN]\"],\"type\":\"exec\"}";
+    for (world, text) in [
+        (
+            make_world("codex-thread", "0199mine", &codex),
+            format!("{masked} [c1]"),
+        ),
+        (
+            make_world("dsh-session", "sessions/one", &dsh),
+            format!("Bash {masked} [c1]"),
+        ),
+    ] {
+        assert!(std::fs::read_to_string(&world.path)
+            .unwrap()
+            .contains(escaped));
+        brokkr_protocol::secret::store_set(
+            &world.dir.path().join("secrets.env"),
+            "GH_TOKEN",
+            value,
+        )
+        .unwrap();
+        let json_face = command(&world, &["--json"]);
+        assert!(json_face.status.success());
+        let document = parse(&json_face);
+        assert_eq!(document["turns"][0]["blocks"][0]["text"], text.as_str());
+        let text_face = command(&world, &[]);
+        assert!(text_face.status.success());
+        let rendered = String::from_utf8_lossy(&text_face.stdout);
+        assert!(rendered.contains(&format!("  tool: {text}")), "{rendered}");
+        assert!(!rendered.contains("7f3a9c"), "{rendered}");
     }
 }

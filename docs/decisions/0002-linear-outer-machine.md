@@ -2,6 +2,8 @@
 
 **Status**: accepted (operator ruling, 2026-08-21)
 
+Built: built
+
 ## Ruling
 
 The outer phase machine is and remains a linear finite state machine: one

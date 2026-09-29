@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use brokkr_core::EventType;
 use serde_json::{json, Value};
 
 fn brokkr() -> &'static str {
@@ -438,12 +439,93 @@ fn the_map_chooses_the_journal_for_the_run_and_for_every_read_surface() {
         .join(format!("exported/{run_id}.ndjson"))
         .is_file());
 
-    // `--db` outranks the map's journal, and the fleet there is empty —
-    // and the operator's own answer is not announced back to them.
+    // `--db` outranks the map's journal: the read goes to the journal
+    // named, which is not there, so it refuses by that name and creates
+    // nothing (#375) — and the operator's own answer is not announced
+    // back to them.
     let (code, listed, stderr) = ws.run(&["runs", "--json", "--db", "state/other.db"]);
-    assert_eq!(code, Some(0), "{stderr}");
-    assert!(!listed.contains(&run_id), "{listed}");
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(listed.is_empty(), "{listed}");
+    assert!(
+        stderr.contains("journal does not exist: state/other.db; a read never creates one"),
+        "{stderr}"
+    );
+    assert!(!ws.path().join("state/other.db").exists());
     assert!(!announced(&stderr), "{stderr}");
+}
+
+/// #374: the recovery verbs address the journal `run` wrote. In a mapped
+/// world a parked run is resumed, stopped and concluded with no `--db`
+/// anywhere, every step lands in the map's journal, and the default one
+/// is never so much as created. The read verbs that took only `--db`
+/// before find the run there too.
+#[test]
+fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
+    let ws = Workspace::new(Some(map_over(".")));
+    // The implementer vanishes, so the run — and its rerun — parks
+    // awaiting an operator.
+    std::fs::write(
+        ws.path().join("script.json"),
+        json!({"seats": {
+            "implement": [{"behavior": "vanish"}, {"behavior": "vanish"}],
+            "review": [{"behavior": "succeed", "result": {"result": "clean"}}],
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let (code, run_id, stderr) = ws.brokkr_run(&[]);
+    assert_eq!(code, Some(2), "{stderr}");
+    let world = ws.path().join("state/world.db");
+    let default = ws.path().join(".forge/forge.db");
+    let last_event = || {
+        let store = brokkr_store::Store::open_read_only(&world).unwrap();
+        let events = store.load(&run_id).unwrap();
+        events.last().unwrap().event_type
+    };
+
+    let (code, _, stderr) = ws.run(&["resume", "--run", &run_id, "--bundle", "bundle"]);
+    assert_eq!(code, Some(2), "resumed and still parked: {stderr}");
+
+    let (code, _, stderr) = ws.run(&["operator", "stop", "--run", &run_id, "--reason", "done"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "recorded operator stop; continue with: brokkr resume --run {run_id}"
+        )),
+        "{stderr}"
+    );
+    assert_eq!(last_event(), EventType::OperatorAccepted);
+
+    let (code, _, stderr) = ws.run(&["conclude", "--run", &run_id, "--reason", "closing"]);
+    assert_eq!(code, Some(3), "concluded as stopped: {stderr}");
+    assert_eq!(last_event(), EventType::RunStopped);
+
+    for verb in [
+        vec!["costs", "--run", &run_id],
+        vec!["replay", "--run", &run_id],
+        vec!["ledger", "--run", &run_id],
+        vec!["compare", &run_id, &run_id],
+    ] {
+        let (code, _, stderr) = ws.run(&verb);
+        assert_eq!(code, Some(0), "{verb:?}: {stderr}");
+    }
+    let (code, _, stderr) = ws.run(&["rerun", "--run", &run_id, "--bundle", "bundle"]);
+    assert_eq!(code, Some(2), "{stderr}");
+    assert!(
+        stderr.contains(&format!("rerun of {run_id} as ")),
+        "{stderr}"
+    );
+    let runs = brokkr_store::Store::open_read_only(&world)
+        .unwrap()
+        .list_runs()
+        .unwrap();
+    assert_eq!(runs.len(), 2, "the rerun is in the map's journal: {runs:?}");
+    let (_, readout, _) = ws.run(&["doctor"]);
+    assert!(
+        readout.contains(&format!("{} opens", world.display())),
+        "{readout}"
+    );
+    assert!(!default.exists(), "no verb opened the default journal");
 }
 
 /// Many hearths (decision 0026 rulings 1, 3 and 5), through the shipped
@@ -553,6 +635,89 @@ fn a_many_hearth_world_lists_its_fleet_grouped_by_realm() {
         .as_str()
         .unwrap()
         .ends_with("ghost.db"));
+}
+
+/// A running run written straight into a journal, and — when asked — a
+/// third event inserted verbatim behind it whose `previous_hash` names no
+/// event, so `Store::load` refuses the run at `verify_chain`.
+fn journal_run(db: &Path, run_id: &str, broken: bool) {
+    use brokkr_core::envelope::EventType;
+    let mut store = brokkr_store::Store::open(db).unwrap();
+    store
+        .create_run(run_id, "feature", "test", &json!({"files": {}}))
+        .unwrap();
+    for (kind, payload) in [
+        (
+            EventType::RunStarted,
+            json!({"feature": "feature", "manifest": {}}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "implement"})),
+    ] {
+        store
+            .append_next(run_id, kind, payload, None, None)
+            .unwrap();
+    }
+    if broken {
+        let events = store.load(run_id).unwrap();
+        let conn = rusqlite::Connection::open(db).unwrap();
+        brokkr_store::test_support::plant_broken_link(&conn, &events[1], 3).unwrap();
+    }
+}
+
+/// One broken chain (#377), through the shipped binary: `runs` lists
+/// every healthy run and one quarantined row naming the broken run, the
+/// same way whether its journal is the world's only hearth or one of
+/// several — where the one hearth used to exit 1 and the many-hearth
+/// listing collapsed the whole hearth to a detail line.
+#[test]
+fn one_broken_chain_is_one_quarantined_row_in_every_runs_listing() {
+    let ws = Workspace::new(Some(json!({
+        "schema": "forge.realms/v2",
+        "realms": [
+            {"name": "alpha", "path": ".", "default_branch": "main"},
+            {"name": "beta", "path": ".", "default_branch": "main",
+             "journal": "state/beta.db"},
+        ],
+        "journal": "state/world.db",
+    })));
+    let world = ws.path().join("state/world.db");
+    journal_run(&world, "healthy", false);
+    journal_run(&world, "broken", true);
+    journal_run(&ws.path().join("state/beta.db"), "beta-run", false);
+    const REFUSAL: &str = "chain: event 3: previous_hash does not match event 2";
+    let sorted = |runs: &Value| -> Vec<Value> {
+        let mut runs = runs.as_array().unwrap().clone();
+        runs.sort_by_key(|row| row["run_id"].as_str().unwrap().to_string());
+        runs
+    };
+
+    let (code, listed, stderr) = ws.run(&["runs", "--json"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let view: Value = serde_json::from_str(&listed).unwrap();
+    assert_eq!(view["count"], json!(3), "{listed}");
+    assert_eq!(view["realms"][0]["detail"], Value::Null, "{listed}");
+    let alpha = sorted(&view["realms"][0]["runs"]);
+    assert_eq!(alpha[0]["run_id"], "broken");
+    assert_eq!(alpha[0]["status"], Value::Null);
+    assert_eq!(alpha[0]["detail"], REFUSAL);
+    assert_eq!(alpha[1]["run_id"], "healthy");
+    assert_eq!(alpha[1]["status"], "running");
+    assert_eq!(view["realms"][1]["runs"][0]["run_id"], "beta-run");
+
+    let (code, listed, stderr) = ws.run(&["runs", "--json", "--db", "state/world.db"]);
+    assert_eq!(
+        code,
+        Some(0),
+        "the one-hearth listing survives it: {stderr}"
+    );
+    let view: Value = serde_json::from_str(&listed).unwrap();
+    let runs = sorted(&view["runs"]);
+    assert_eq!(runs.len(), 2, "{listed}");
+    assert_eq!(runs[0]["run_id"], "broken");
+    assert_eq!(runs[0]["status"], Value::Null);
+    assert_eq!(runs[0]["detail"], REFUSAL);
+    assert_eq!(runs[1]["run_id"], "healthy");
+    assert_eq!(runs[1]["status"], "running");
 }
 
 /// Pinned AND embedded: the exported manifest carries the map's content

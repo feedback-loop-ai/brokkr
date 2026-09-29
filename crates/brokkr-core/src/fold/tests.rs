@@ -1,21 +1,16 @@
 use super::*;
+use crate::envelope_builder::EnvelopeBuilder;
 use serde_json::json;
 
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "r1".into(),
-        seq: 2,
-        event_id: "e2".into(),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "r1".into(),
-        attempt_id: None,
-        recorded_at: "2026-08-23T00:00:00Z".into(),
-        previous_hash: String::new(),
-        event_hash: "hash".into(),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .run("r1")
+        .seq(2)
+        .event_id("e2")
+        .at("2026-08-23T00:00:00Z")
+        .previous("")
+        .hash("hash")
+        .build()
 }
 
 fn state(cursor: Cursor) -> RunState {
@@ -180,6 +175,77 @@ fn operator_and_terminal_refusals_are_explicit() {
     }
 }
 
+/// `acceptance_refusal` is the one rule the fold and the engine both
+/// read: it names each condition an acceptance would fail on, and every
+/// word the journal records for a command or a refusal is pinned here.
+#[test]
+fn the_acceptance_rule_names_each_condition_and_pins_its_word() {
+    use OperatorCommand::{Retry, Stop};
+    let parked = Status::AwaitingOperator;
+    for (status, phase, command, expected) in [
+        (
+            Status::Completed,
+            Some("work"),
+            Stop,
+            Some(Refusal::AfterTerminal),
+        ),
+        (
+            Status::Stopped,
+            Some("work"),
+            Retry,
+            Some(Refusal::AfterTerminal),
+        ),
+        (
+            Status::Running,
+            Some("work"),
+            Retry,
+            Some(Refusal::RunNotAwaitingOperator),
+        ),
+        (parked, None, Retry, Some(Refusal::NoPhaseToRetry)),
+        (parked, Some("work"), Retry, None),
+        (parked, None, Stop, None),
+        (Status::Running, None, Stop, None),
+    ] {
+        let mut current = state(Cursor::Idle);
+        current.status = status;
+        current.phase = phase.map(str::to_string);
+        let refusal = acceptance_refusal(&current, command);
+        assert_eq!(refusal, expected, "{status:?} {phase:?} {command:?}");
+    }
+
+    assert_eq!(
+        OperatorCommand::ALL.map(OperatorCommand::as_str),
+        ["retry", "stop"]
+    );
+    for command in OperatorCommand::ALL {
+        assert_eq!(OperatorCommand::parse(command.as_str()), Some(command));
+    }
+    assert_eq!(OperatorCommand::parse("supersede"), None);
+    let refusals = [
+        Refusal::CommandNotAllowed,
+        Refusal::AfterTerminal,
+        Refusal::RunNotAwaitingOperator,
+        Refusal::NoPhaseToRetry,
+        Refusal::LostFence,
+        Refusal::StaleCursor,
+        Refusal::IncompleteCommandReplay,
+        Refusal::PreviouslyRejected,
+    ];
+    assert_eq!(
+        refusals.map(Refusal::word),
+        [
+            "command_not_allowed",
+            "after_terminal",
+            "run_not_awaiting_operator",
+            "no_phase_to_retry",
+            "lost_fence",
+            "stale_cursor",
+            "incomplete_command_replay",
+            "previously_rejected",
+        ]
+    );
+}
+
 /// Every refusal names the position it refused at. A fleet read cites
 /// that number as the quarantined run's one stated fact, so a reader —
 /// or the operator's aide — can go to the journal and check it.
@@ -220,6 +286,44 @@ fn a_refusal_cites_the_position_it_refused_at() {
     ] {
         assert_eq!(refusal.seq(), 3, "{refusal}");
     }
+}
+
+/// The refusal names the cursor it met, as the operator will look for it
+/// in the journal (#419).
+#[test]
+fn an_out_of_place_refusal_names_the_cursor_it_met() {
+    let mut current = state(Cursor::Idle);
+    assert_eq!(
+        apply(
+            &mut current,
+            &event(EventType::TransitionDecided, json!({}))
+        ),
+        Err(FoldError::OutOfPlace {
+            seq: 2,
+            event: "TransitionDecided".into(),
+            cursor: "Idle".into(),
+        })
+    );
+}
+
+/// A `fail` is a failure only where the table scoped a counter to it
+/// (`inputs.consecutive_failures`); any other result under that scope
+/// resets the count (#419).
+#[test]
+fn a_scoped_fail_counts_and_a_scoped_pass_resets() {
+    let decide = |result: &str| {
+        let mut current = state(Cursor::Decide {
+            effect_id: "e".into(),
+            result: json!({}),
+        });
+        current.consecutive_failures.insert("verify".into(), 1);
+        let decided = json!({"from": "verify", "result": result, "next": "done",
+                             "inputs": {"consecutive_failures": 2}});
+        apply(&mut current, &event(EventType::TransitionDecided, decided)).unwrap();
+        current.consecutive_failures["verify"]
+    };
+    assert_eq!(decide("fail"), 2);
+    assert_eq!(decide("pass"), 0);
 }
 
 #[test]

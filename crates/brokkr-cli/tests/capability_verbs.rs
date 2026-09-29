@@ -414,7 +414,9 @@ fn a_pinned_resume_refuses_a_typed_lanetally_allow_on_its_unmeasured_plan() {
             form,
             Some(1),
             format!(
-                "error: run '{run}' pins a different bundle: capabilities differ: the \
+                "note: the map ./realms.json found in this workspace is adopted (journal \
+                 unchanged); --realms names it explicitly\n\
+                 error: run '{run}' pins a different bundle: capabilities differ: the \
                  capability authority the run was started under cannot be reproduced here \
                  — seat 'work' (office '{office}') in realm 'app': its typed 'tools.allow' \
                  refuses at compile, as harness 'lanetally' of provider 'lanetally' has \

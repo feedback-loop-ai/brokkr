@@ -10,6 +10,11 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Row planting for tests that need a journal the store would never write
+# (#354). Only dev-dependencies enable it.
+test-support = []
+
 [dependencies]
 brokkr-core = { workspace = true }
 serde_json = { workspace = true }

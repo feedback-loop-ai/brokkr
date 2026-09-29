@@ -93,14 +93,14 @@ honest.
 
 Design artifacts:
 
-- [specs/one-derivation-two-surfaces/spec.md](../../../specs/one-derivation-two-surfaces/spec.md)
+- [specs/one-derivation-two-surfaces/spec.md](../../features/one-derivation-two-surfaces/spec.md)
   — WHAT and WHY, the normative models, the ported-rule divergence
   table, and 24 acceptance criteria.
-- [specs/one-derivation-two-surfaces/plan.md](../../../specs/one-derivation-two-surfaces/plan.md)
+- [specs/one-derivation-two-surfaces/plan.md](../../features/one-derivation-two-surfaces/plan.md)
   — HOW: the position reconciliation (fourteen numbered rulings, with
   what was adopted, rejected and reconciled), the four movements, the
   files touched, the console parity table, and the risk register.
-- [specs/one-derivation-two-surfaces/tasks.md](../../../specs/one-derivation-two-surfaces/tasks.md)
+- [specs/one-derivation-two-surfaces/tasks.md](../../features/one-derivation-two-surfaces/tasks.md)
   — twenty-two ordered tasks, each paired with the test that proves it.
 
 ## Impact

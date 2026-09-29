@@ -758,6 +758,10 @@ fn a_codex_seat_that_holds_search_is_launched_without_the_off_pair() {
 /// outcome's expected state. An inline seat whose arguments spell the very
 /// same bytes stays the author's.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_authored() {
     use brokkr_protocol::native_controls::{flatten, Origin, Segment};
     use brokkr_runtime::agents::Lowering;
@@ -1171,6 +1175,10 @@ fn tampered_launch(
 /// with the check's whole reason. The command is never read back from the
 /// argv, so none of them is reconciled.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_compiled_cold_command_is_served_only_as_its_final_check_returns_it() {
     let operator = Operator::new();
     let context = CapabilityContext::no_grants("private", operator.root());
@@ -1387,7 +1395,10 @@ fn a_compiled_cold_command_is_served_only_as_its_final_check_returns_it() {
 /// after — with the ordered names and limits in its composition's local
 /// expectation, independently of the joined flag value. Rebuild unit
 /// 5c-fix2: the seat's emitted permission template is sealed as the
-/// adapter's declaration its expected state records.
+/// adapter's declaration its expected state records. The office names
+/// `gh-pr-view` before `cargo`: a limit the adapter spells apart from its
+/// name, in an order the adapter's map does not hold (it named `pytest`
+/// until #355 retired that grant from the shipped adapters).
 #[test]
 fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
     let operator = Operator::new();
@@ -1399,7 +1410,7 @@ fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
             "charter": "charters/searcher.md",
             "models": ["opus"],
             "efforts": {"opus": "high"},
-            "tools": {"allow": ["pytest", "cargo"]},
+            "tools": {"allow": ["gh-pr-view", "cargo"]},
         }),
     );
     one_inline_seat(&operator, &["driver"]);
@@ -1437,23 +1448,23 @@ fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
         }),
         json!({
             "template": {"kind": "declared", "argv": ["--permission-mode", "acceptEdits"]},
-            "local": {"allow": {"kind": "listed", "names": ["pytest", "cargo"]},
+            "local": {"allow": {"kind": "listed", "names": ["gh-pr-view", "cargo"]},
                       "sandbox": {"kind": "unspecified"},
                       "application": {"kind": "direct",
-                                      "limits": ["Bash(.venv/bin/pytest:*)", "Bash(cargo:*)"]}},
+                                      "limits": ["Bash(gh pr view:*)", "Bash(cargo:*)"]}},
             "segments": [
                 {"origin": "template", "argv": ["--permission-mode", "acceptEdits"]},
                 {"origin": "template", "argv": ["--model", "claude-opus-5-5"]},
                 {"origin": "template", "argv": ["--effort", "high"]},
                 {"origin": "local",
-                 "argv": ["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]},
+                 "argv": ["--allowedTools", "Bash(gh pr view:*),Bash(cargo:*)"]},
             ],
             "composed": format!("{:?}", brokkr_protocol::native_controls::LocalExpectation {
                 allow: brokkr_protocol::native_controls::AllowIntent::Listed(vec![
-                    "pytest".into(), "cargo".into()]),
+                    "gh-pr-view".into(), "cargo".into()]),
                 sandbox: brokkr_protocol::native_controls::SandboxIntent::Unspecified,
                 application: brokkr_protocol::native_controls::Application::Direct(vec![
-                    "Bash(.venv/bin/pytest:*)".into(), "Bash(cargo:*)".into()]),
+                    "Bash(gh pr view:*)".into(), "Bash(cargo:*)".into()]),
             }),
         })
     );
@@ -1472,6 +1483,10 @@ fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
 /// the engine composes whole and never parses, declares no template behind
 /// one and records `none`.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_agent_backed_seat_records_the_permission_template_its_adapter_declares() {
     let operator = Operator::new();
     one_inline_seat(&operator, &["driver"]);
@@ -1628,6 +1643,10 @@ fn untemplated_claude(root: &Path) {
 /// naming the contribution and a fixed cause. The legitimate `--model` and
 /// `--effort` pins compile, seal `none` and reach the final command.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the_compile() {
     let operator = Operator::new();
     let context = CapabilityContext::no_grants("private", operator.root());
@@ -1836,6 +1855,10 @@ fn an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the
 /// The legitimate model pin, with no effort and with one, compiles, seals
 /// `none` and reaches the final command with native search switched off.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_codex_adapter_whose_effort_flag_assigns_a_permission_table_refuses_the_compile() {
     let operator = Operator::new();
     let context = CapabilityContext::no_grants("private", operator.root());
@@ -1975,6 +1998,10 @@ fn a_codex_adapter_whose_effort_flag_assigns_a_permission_table_refuses_the_comp
 /// expectation that records a template the spawn does not emit refuses,
 /// and every refusal seals nothing.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_template_contribution_of_an_agent_backed_seat_is_judged_before_the_seal() {
     use brokkr_protocol::native_controls::{flatten, Origin, Segment, TemplateExpectation};
     use brokkr_runtime::agents::Lowering;
@@ -2179,6 +2206,10 @@ fn every_template_contribution_of_an_agent_backed_seat_is_judged_before_the_seal
 /// second mode ADDED behind the pins, or the composition's recorded
 /// declaration moved to `none` or to another mode while the emission is not.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_agent_backed_claude_seat_seals_its_declared_template_and_refuses_a_contradiction() {
     use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
     use brokkr_runtime::agents::Lowering;
@@ -2353,7 +2384,7 @@ fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_l
         "high",
     ];
     one_inline_seat(&operator, &authored);
-    typed_allow(&operator, json!(["pytest", "cargo"]));
+    typed_allow(&operator, json!(["gh-pr-view", "cargo"]));
     let context = CapabilityContext::no_grants("private", operator.root());
     let bundle = solo_bundle(&operator, &workspace().join("adapters"), &context).unwrap();
     let exe = std::env::current_exe()
@@ -2379,22 +2410,22 @@ fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_l
                                  "--model", "claude-opus-5-5", "--effort", "high"],
             "spawn": [&exe, "driver", "claude", "--", "--model", "claude-opus-5-5",
                       "--effort", "high", "--permission-mode", "acceptEdits",
-                      "--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"],
+                      "--allowedTools", "Bash(gh pr view:*),Bash(cargo:*)"],
             "segments": [
                 {"origin": "authored",
                  "argv": ["--model", "claude-opus-5-5", "--effort", "high"]},
                 {"origin": "template", "argv": ["--permission-mode", "acceptEdits"]},
                 {"origin": "local",
-                 "argv": ["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]},
+                 "argv": ["--allowedTools", "Bash(gh pr view:*),Bash(cargo:*)"]},
             ],
             "expected": {
                 "identity": {"provider": "claude", "harness": "claude",
                              "model": {"kind": "none"}},
                 "native": {"kind": "known", "held": [], "denied": ["web-fetch", "web-search"]},
-                "local": {"allow": {"kind": "listed", "names": ["pytest", "cargo"]},
+                "local": {"allow": {"kind": "listed", "names": ["gh-pr-view", "cargo"]},
                           "sandbox": {"kind": "unspecified"},
                           "application": {"kind": "direct",
-                                          "limits": ["Bash(.venv/bin/pytest:*)",
+                                          "limits": ["Bash(gh pr view:*)",
                                                      "Bash(cargo:*)"]}},
                 "hands": {"kind": "none"},
                 "template": {"kind": "declared",
@@ -2415,7 +2446,7 @@ fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_l
                     "--permission-mode",
                     "acceptEdits",
                     "--allowedTools",
-                    "Bash(.venv/bin/pytest:*),Bash(cargo:*)",
+                    "Bash(gh pr view:*),Bash(cargo:*)",
                     "--disallowedTools",
                     "WebFetch,WebSearch"
                 ]
@@ -2502,6 +2533,10 @@ fn an_inline_claude_seat_whose_adapter_declares_no_template_gets_none() {
 /// composed spawn; the declaration contradicting an unchanged emission;
 /// and a declaration never recorded, which refuses the expected state.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_inline_seal_whose_emitted_template_contradicts_the_declared_one_refuses() {
     use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
     use brokkr_runtime::bundle::SiteFacts;
@@ -3239,6 +3274,10 @@ fn an_inline_codex_work_seat_and_gate_reach_their_final_commands_with_the_engine
 /// the command refuses whole and seals nothing, as does a contradiction
 /// between the declared and the lowered class.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_inline_codex_seal_whose_emitted_class_contradicts_the_declared_one_refuses() {
     use brokkr_protocol::native_controls::{Origin, Segment};
     use brokkr_runtime::agents::Sandbox;
@@ -3398,6 +3437,10 @@ fn an_inline_codex_seal_whose_emitted_class_contradicts_the_declared_one_refuses
 /// admitted class: file delivery at a gate refuses with or without its
 /// capture (chief F4).
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misbound_capture() {
     use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
     use brokkr_runtime::agents::ResultDoor;
@@ -3823,6 +3866,10 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
 /// not admit each refuse before any provider work, naming the seat bounded;
 /// the compiled work seat and gate, as handed, launch.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_inline_codex_launch_judges_the_native_plan_and_binds_the_door_to_the_class() {
     use brokkr_runtime::SeatClass;
     let operator = Operator::new();
@@ -4087,6 +4134,10 @@ fn unread_plan(named: &str) -> String {
 /// in admission's bounded representation: a dotted label keeps its identity,
 /// and a long label with a newline is named by its lead and length.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_inline_codex_launch_requires_its_native_plan_and_proves_each_sealed_denial() {
     use brokkr_runtime::capabilities::NativePlan;
     use brokkr_runtime::SeatClass;
@@ -4279,6 +4330,10 @@ fn an_inline_codex_launch_requires_its_native_plan_and_proves_each_sealed_denial
 /// door-admitted `--effort ultra` refuses once it is translated, and an
 /// authored `--json` beside the driver's own refuses as the repeat it is.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_inline_codex_launch_reads_its_keys_as_the_harness_does_and_is_judged_as_composed() {
     use brokkr_runtime::engine::SiteSpawn;
     use brokkr_runtime::SeatClass;
@@ -4592,7 +4647,7 @@ fn claude_reporting(dir: &Path, version: &str) -> PathBuf {
 /// confinement markers and a resume `assessment` beside it, changed by
 /// `tamper` and handed to its provider's driver run as `bin`.
 #[cfg(unix)]
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
 fn sealed_rejoin(
     bundle: &Bundle,
     label: &str,
@@ -4654,6 +4709,10 @@ fn sealed_rejoin(
 /// one to reach the rejoin at all.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
     let operator = Operator::new();
     let codex = codex_reporting(operator.root(), "0.154.0");
@@ -5789,8 +5848,9 @@ fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_de
 /// directory in a realm that grants nothing and composed and sealed by the
 /// engine's own functions, holds nothing; the engine emits the adapter's
 /// `acceptEdits` template and the list it lowers, every concrete prefix the
-/// recipe used to write — `.venv/bin/pytest` included — in the order it
-/// wrote them; and the whole ordered final command ends in Claude's native
+/// recipe used to write, in the order it wrote them, less `python3` and
+/// `pytest`, which #355 retired from the shipped recipes (decision 0041
+/// ruling 2); and the whole ordered final command ends in Claude's native
 /// denial and nothing wider. The literals are the recipes' former authored
 /// values, written out here, not derived from the adapter.
 #[test]
@@ -5798,9 +5858,8 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
     let operator = Operator::new();
     let context = CapabilityContext::no_grants("private", operator.root());
     let fast = (
-        ["cargo", "git", "python3", "pytest", "ls", "rg", "mkdir"],
-        "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),\
-         Bash(rg:*),Bash(mkdir:*)",
+        ["cargo", "git", "ls", "rg", "mkdir"],
+        "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
     );
     let node = (
         ["npm", "npx", "node", "git", "ls", "rg", "mkdir"],
@@ -5893,7 +5952,8 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
 /// that grants nothing, then composed, sealed and launched by the engine's
 /// own functions, and none holds anything. The reviewer's typed allow
 /// lowers to its former list, both narrow gh prefixes included, never
-/// unrestricted gh. Each Codex seat's typed class is the engine's own
+/// unrestricted gh, less `python3` and `pytest`, which #355 retired from
+/// the shipped bundle. Each Codex seat's typed class is the engine's own
 /// `local` segment at its narrowed class: the standby implementer runs
 /// `workspace-write` (it was `danger-full-access`) and delivers by file,
 /// and both reviewers run `read-only` (they were `workspace-write`) and
@@ -5901,6 +5961,10 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
 /// provider's native denial and nothing wider. The literals are written
 /// out here, not derived from the adapters.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_engines_own() {
     use brokkr_runtime::SeatClass;
     let operator = Operator::new();
@@ -5982,8 +6046,8 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
         );
     }
 
-    let list = "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),\
-                Bash(rg:*),Bash(gh pr view:*),Bash(gh run view:*)";
+    let list = "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),\
+                Bash(gh run view:*)";
     let claude_pins = ["--model", "claude-fable-5-1", "--effort", "high"];
     let codex_pins = ["--model", "gpt-6-astra", "--effort", "xhigh"];
     let codex = |segment: &[&str], class: &str, door: &str| {
@@ -6035,7 +6099,7 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
                 {"origin": "local", "argv": ["--allowedTools", list]},
             ],
             "local": {"allow": {"kind": "listed",
-                                "names": ["cargo", "git", "python3", "pytest", "ls", "rg",
+                                "names": ["cargo", "git", "ls", "rg",
                                           "gh-pr-view", "gh-run-view"]},
                       "sandbox": {"kind": "unspecified"},
                       "application": {"kind": "direct",
@@ -6331,6 +6395,10 @@ fn a_panel_member_and_a_sequence_step_resolve_under_their_own_labels() {
 /// (a requirement included), `{}` subtracts everything, and the office
 /// keeps its name under every execution label (ruling 5; design D2).
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_office_is_inherited_subset_and_emptied_the_same_way_in_every_body() {
     let operator = Operator::new();
     let root = operator.root();
@@ -6625,6 +6693,10 @@ const CODEX_SEAT: [&str; 8] = [
 /// map at all, a realm that grants nothing (what v1 to v5 mean, and v6 with
 /// the field omitted), and v6 with an explicit empty map.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_known_native_power_with_no_valid_denial_refuses_the_seat() {
     let operator = Operator::new();
     one_inline_seat(&operator, &CODEX_SEAT);
@@ -6844,6 +6916,10 @@ fn an_agent_backed_link_on_legacy_adapter_data_refuses_too() {
 /// value copied — while the ENGINE's hands, in an agent-backed boxed seat
 /// of the same realm, reach the final command exactly as they did.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still_launch() {
     let operator = Operator::new();
     let context = operator.context(json!({}));
@@ -7029,6 +7105,10 @@ fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still
 /// without the option compiles in every state, and where it holds nothing
 /// its final command carries the engine's managed denial alone.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_authored_capability_option_refuses_the_compile_under_every_grant_state() {
     let operator = Operator::new();
     let adapters = workspace().join("adapters");
@@ -7256,6 +7336,10 @@ fn a_native_control_declared_as_argv_reaches_the_final_claude_command() {
 /// composed (unit 12-fix; CQ1). A limit that names WebFetch reaches its
 /// literal command with the admission, so always-OFF is no grant support.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant() {
     let operator = Operator::new();
     one_inline_seat(
@@ -7425,6 +7509,10 @@ fn fetch_dialect(operator: &Operator, name: &str, tools: Value) {
 /// tool is bounded like every allowance (rebuild unit 12-fix-c, I1): a
 /// limit that does not name it refuses the whole conflict, at compile.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit() {
     let operator = Operator::new();
     fetch_dialect(&operator, "claude-native-fetch", json!(["WebFetch"]));
@@ -7579,6 +7667,10 @@ fn a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit
 /// `--tools Read,Bash,WebFetch`. A template limit that names the held tool
 /// holds it within.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened() {
     let operator = Operator::new();
     fetch_dialect(&operator, "claude-fetch-read", json!(["WebFetch", "Read"]));
@@ -7733,6 +7825,10 @@ fn a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened() {
 /// 12-fix-c, I1); one that does not refuses at compile. Every launch goes
 /// through the seal and `verify_record` to the command builder (C3).
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
     let operator = Operator::new();
     fetch_dialect(&operator, "claude-native-fetch", json!(["WebFetch"]));
@@ -7957,6 +8053,10 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
 /// Since rebuild unit 14 the Claude driver runs the same check at its cold
 /// seam, so under `open` it is the driver that refuses.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open() {
     use brokkr_protocol::native_controls::{SealedServing, SERVING_INPUTS};
     let operator = Operator::new();
@@ -8075,6 +8175,10 @@ fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open()
 /// lower is refused (SC-1); lowered, it is admitted, and still bounded by
 /// the template's limit. Accepted launches go through the seal.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_position_reproduction_refuses_by_provenance_and_typed_origins_launch() {
     let operator = Operator::new();
     fetch_dialect(&operator, "claude-native-fetch", json!(["WebFetch"]));
@@ -8991,6 +9095,10 @@ fn compile_every_shape(operator: &Operator, tally: Option<&str>) -> Result<Bundl
 /// [`compile_every_shape`] against a stated adapters root and realm
 /// context, with `asks` written on every inline site and every office
 /// where it is given (rebuild unit 21-fix-b).
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn compile_every_shape_on(
     operator: &Operator,
     tally: Option<&str>,
@@ -9274,6 +9382,10 @@ fn dsh_prompt(charter: &str, phase: &str, workdir: &str) -> String {
 /// [`a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape`].
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside_its_charter() {
     use brokkr_runtime::bundle::CharterOwner;
     use brokkr_runtime::SeatClass::{Gate, Work};
@@ -9699,6 +9811,10 @@ fn a_compiled_unmeasured_site_carries_its_typed_hands_into_its_compose() {
 /// option's. An agent-backed site has no recipe-authored command: its
 /// argv is the adapter's data, judged at load (unit 11).
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_authored_capability_option_refuses_every_site_shape_of_every_harness() {
     let operator = Operator::new();
     let root = operator.root();
@@ -10043,6 +10159,10 @@ fn bounded(line: String) -> String {
 /// unmeasured and owed to the controller.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_resume() {
     use brokkr_runtime::bundle::CharterOwner;
     let operator = Operator::new();
@@ -10292,6 +10412,10 @@ fn a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_
 ///   no LaneTally shape is served a managed limit.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_inventory_apart() {
     use brokkr_runtime::bundle::CharterOwner;
     let operator = Operator::new();
@@ -10549,6 +10673,10 @@ fn hosts_grant(operator: &Operator) -> (Value, CapabilityContext) {
 /// [`a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_shape`]'s.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_resume() {
     use brokkr_runtime::bundle::CharterOwner;
     let operator = Operator::new();
@@ -11050,6 +11178,10 @@ fn matrix_charter(
 /// unmeasured and owed to the controller.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape() {
     use brokkr_runtime::SeatClass::Work;
     let operator = Operator::new();
@@ -11317,6 +11449,10 @@ fn a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape() {
 /// [`a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape`]'s.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_shape() {
     use brokkr_runtime::SeatClass::{Gate, Work};
     let operator = Operator::new();
@@ -11516,6 +11652,11 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_sh
 /// carries its host.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape() {
     use brokkr_runtime::SeatClass::{Gate, Work};
     let operator = Operator::new();

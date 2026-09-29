@@ -10,6 +10,10 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread::JoinHandle;
 
+#[path = "../../../tests/support/envelope.rs"]
+mod envelope_builder;
+use envelope_builder::EnvelopeBuilder;
+
 fn fixture() -> (Value, DispatchEnvelopeV2, OffsetDateTime) {
     let bundle = json!({
         "engine":"0.2.0", "event_schema":1, "database_schema":1,
@@ -100,6 +104,10 @@ fn fixture() -> (Value, DispatchEnvelopeV2, OffsetDateTime) {
     (manifest, dispatch, now)
 }
 
+/// The audience `fixture()` seals, which a mock transport delivers to
+/// unless a test names another origin.
+const FIXTURE_AUDIENCE: &str = "https://dogfood.feedback-loop.ai";
+
 #[derive(Default)]
 struct MockTransport {
     state: Option<RegistrationState>,
@@ -107,14 +115,21 @@ struct MockTransport {
     commands: Vec<ProducerCommand>,
     receipts: Vec<CommandReceipt>,
     replay_all: bool,
+    origin: Option<String>,
+    registrations: usize,
 }
 
 impl ProducerTransport for MockTransport {
+    fn origin(&self) -> &str {
+        self.origin.as_deref().unwrap_or(FIXTURE_AUDIENCE)
+    }
+
     fn register(
         &mut self,
         dispatch: &DispatchEnvelopeV2,
         _: &Value,
     ) -> Result<RegistrationState, BridgeError> {
+        self.registrations += 1;
         Ok(self
             .state
             .get_or_insert_with(|| RegistrationState {
@@ -172,32 +187,13 @@ impl ProducerTransport for MockTransport {
 /// out. The fence refuses this row today; the journals that already hold
 /// one are the reason the bridge's redaction stays tested.
 fn plant_unfenced(db: &std::path::Path, run_id: &str, payload: Value, now: OffsetDateTime) {
-    let envelope = brokkr_core::EventEnvelope {
-        run_id: run_id.to_string(),
-        seq: 1,
-        event_id: "planted-1".to_string(),
-        event_schema_version: 1,
-        event_type: EventType::EffectCheckpointed,
-        payload,
-        causation_id: None,
-        correlation_id: run_id.to_string(),
-        attempt_id: Some("attempt-1".to_string()),
-        recorded_at: now.format(&Rfc3339).unwrap(),
-        previous_hash: ZERO_HASH.to_string(),
-        event_hash: String::new(),
-    }
-    .sealed();
-    rusqlite::Connection::open(db)
-        .unwrap()
-        .execute(
-            "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![
-                run_id,
-                envelope.seq as i64,
-                envelope.event_hash,
-                serde_json::to_string(&envelope).unwrap()
-            ],
-        )
+    let envelope = EnvelopeBuilder::new(EventType::EffectCheckpointed, payload)
+        .run(run_id)
+        .event_id("planted-1")
+        .attempt(Some("attempt-1"))
+        .at(now.format(&Rfc3339).unwrap())
+        .sealed();
+    brokkr_store::test_support::plant_envelope(&rusqlite::Connection::open(db).unwrap(), &envelope)
         .unwrap();
 }
 
@@ -446,24 +442,7 @@ fn http_transport_round_trips_every_protocol_operation() {
     let registration = transport.register(&dispatch, &manifest).unwrap();
     assert_eq!(registration.registration_id, "registration-1");
 
-    let event = normalize_event(
-        &dispatch,
-        &EventEnvelope {
-            run_id: "forge-run-1".into(),
-            seq: 1,
-            event_id: "event-1".into(),
-            event_schema_version: 1,
-            event_type: EventType::RunCompleted,
-            payload: json!({}),
-            causation_id: None,
-            correlation_id: "forge-run-1".into(),
-            attempt_id: None,
-            recorded_at: "2026-08-28T08:10:00Z".into(),
-            previous_hash: ZERO_HASH.into(),
-            event_hash: "a".repeat(64),
-        },
-    )
-    .unwrap();
+    let event = normalize_event(&dispatch, &raw_event(EventType::RunCompleted, json!({}))).unwrap();
     assert!(transport.submit(&event).unwrap());
     assert!(transport.commands("registration-1", 3).unwrap().is_empty());
     transport
@@ -498,8 +477,12 @@ fn http_transport_refuses_origin_status_connection_and_shape_defects() {
     let mut wrong_origin = HttpTransport::new("http://127.0.0.1:1", "secret");
     assert!(matches!(
         wrong_origin.register(&dispatch, &json!({})),
-        Err(BridgeError::Transport(message)) if message.contains("sealed callback audience")
+        Err(BridgeError::AudienceMismatch)
     ));
+    assert_eq!(
+        BridgeError::AudienceMismatch.to_string(),
+        "producer transport: transport origin does not match the sealed callback audience"
+    );
 
     let (base_url, server) = loopback_server(vec![(401, json!({"error": "no"}).to_string())]);
     let error = HttpTransport::new(&base_url, "secret")
@@ -563,20 +546,12 @@ fn every_http_operation_propagates_transport_refusal() {
 }
 
 fn raw_event(event_type: EventType, payload: Value) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "forge-run-1".into(),
-        seq: 1,
-        event_id: "event-1".into(),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "forge-run-1".into(),
-        attempt_id: None,
-        recorded_at: "2026-08-28T08:10:00Z".into(),
-        previous_hash: ZERO_HASH.into(),
-        event_hash: "a".repeat(64),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .run("forge-run-1")
+        .event_id("event-1")
+        .at("2026-08-28T08:10:00Z")
+        .hash("a".repeat(64))
+        .build()
 }
 
 #[test]
@@ -976,4 +951,66 @@ fn sync_replays_and_receipts_cover_rejected_and_cursor_refusals() {
     let transport = bridge.into_transport();
     assert_eq!(transport.receipts[0].outcome, "rejected");
     assert!(transport.receipts[0].reason.is_some());
+}
+
+#[test]
+fn sync_refuses_a_transport_whose_origin_is_not_the_sealed_audience() {
+    // The audience rule belongs to the bridge, not to one transport: a
+    // transport that delivers anywhere else is refused before it is
+    // asked to register, so no registration and no event leaves.
+    let (manifest, _, now) = fixture();
+    for origin in [
+        "http://127.0.0.1:1",
+        "https://dogfood.feedback-loop.ai.attacker.example",
+        "https://dogfood.feedback-loop.ai/elsewhere",
+        "",
+    ] {
+        let (_, mut store) = store_with_manifest(&manifest, "forge-run-1");
+        let mut bridge = Bridge::new(MockTransport {
+            origin: Some(origin.into()),
+            ..Default::default()
+        });
+        let error = bridge
+            .sync_once(&mut store, "forge-run-1", now, 0)
+            .unwrap_err();
+        assert!(
+            matches!(error, BridgeError::AudienceMismatch),
+            "{origin}: {error}"
+        );
+        let transport = bridge.into_transport();
+        assert_eq!(transport.registrations, 0, "{origin}: registered anyway");
+        assert!(transport.events.is_empty(), "{origin}: submitted anyway");
+    }
+}
+
+#[test]
+fn sync_admits_the_sealed_audience_with_or_without_a_trailing_slash() {
+    let (manifest, _, now) = fixture();
+    for origin in [FIXTURE_AUDIENCE.to_string(), format!("{FIXTURE_AUDIENCE}/")] {
+        let (_, mut store) = store_with_manifest(&manifest, "forge-run-1");
+        let mut bridge = Bridge::new(MockTransport {
+            origin: Some(origin.clone()),
+            ..Default::default()
+        });
+        bridge
+            .sync_once(&mut store, "forge-run-1", now, 0)
+            .unwrap_or_else(|error| panic!("{origin}: {error}"));
+        assert_eq!(bridge.into_transport().registrations, 1);
+    }
+}
+
+#[test]
+fn checkpoint_fields_outside_the_producer_vocabulary_stay_withheld() {
+    // `effort` and `reasoning_output_tokens` reached checkpoints after
+    // the producer vocabulary was fixed. Forwarding them is a change to
+    // that vocabulary, ruled on its consumer's side, so they are withheld
+    // on purpose and this pins it: the next field is a decision, not a
+    // drift.
+    let safe = safe_checkpoint(&json!({
+        "step": "seat-turn",
+        "input_tokens": 12,
+        "effort": "high",
+        "reasoning_output_tokens": 34,
+    }));
+    assert_eq!(safe, json!({"step": "seat-turn", "input_tokens": 12}));
 }

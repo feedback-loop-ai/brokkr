@@ -18,7 +18,9 @@ and the third is non-removable:
    three directories away; a script added to `package.json` that
    nothing calls; dead exports. Check that the change follows the
    module system, runner, and `tsconfig.json` strictness already in use
-   rather than introducing a second convention.
+   rather than introducing a second convention. Judge the change against the
+   architecture principles your house rules state, cite the ruling, and rate
+   each finding by the house's severity table.
 3. **SECURITY** — command injection through `child_process.exec` or a
    shell-interpolated string, `eval`/`new Function`/dynamic `require` on
    anything a caller controls, prototype pollution through unchecked

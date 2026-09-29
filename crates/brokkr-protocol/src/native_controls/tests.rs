@@ -70,6 +70,10 @@ fn unreadable(problem: &str) -> Result<Option<Controls>, String> {
 /// with it instead. The fixtures are otherwise valid plans, one part at a
 /// time made wrong.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_plan_is_read_whole_and_a_malformed_one_refuses_naming_its_fault() {
     let plan = json!({"native_controls": {
         "inventory": "known", "provider": "claude", "harness": "claude",
@@ -875,6 +879,10 @@ const BEARS: &str = "a capability-bearing option";
 /// control stays inert; and the same bytes in the ENGINE's fragment are
 /// the workspace hands and compose as they always did.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes() {
     let codex = ready("codex", &[], &["web-search"]);
     let claude = ready("claude", &[], &["web-search", "web-fetch"]);
@@ -1180,6 +1188,10 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
 /// judged here; an assignment with no bounded meaning refuses with its
 /// fixed cause; a token the grammar cannot place is the grammar's refusal.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_authored_capability_option_is_refused_by_origin_whatever_its_value_or_form() {
     let pins = ["--model", "a-model", "--effort", "high"];
     let written = |harness: &str, extra: &[&str]| {
@@ -1453,6 +1465,10 @@ fn form_refusal(provider: &str, form: &str) -> Refusal {
 /// A restriction transport — not a list — rides verbatim, last. What a
 /// provider's launch does not consume is refused by form.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_control_representation_reaches_the_composed_command_or_refuses() {
     let claude = |argv_: &[&str], include: &[&str], allow: &[&str], deny: &[&str]| Controls {
         argv: argv(argv_),
@@ -1801,6 +1817,10 @@ const UNPLAIN_TOOL: &str = "a tool whose name is not plain";
 /// that would widen a boxed seat's own empty list; a held tool it does
 /// name reaches its literal command, so always-OFF is no grant support.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
     let plan = |argv_: &[&str], held: &[&str], include: &[&str], allow: &[&str]| Controls {
         argv: argv(argv_),
@@ -2030,6 +2050,10 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
 /// the spelling the seat's own option has. What the plan holds and what it
 /// admits answer for each other.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn authority_follows_the_selected_holding_and_every_limit_holds() {
     let hands = argv(&[
         "--tools",
@@ -2540,6 +2564,11 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
 /// The oracle reads the axes a row was built from — which lists are limits,
 /// what is typed — and never the composer's answer.
 #[test]
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn the_final_lists_hold_their_invariants_over_every_combination() {
     const W: &str = "mcp__brokkr__workspace";
     const LOCAL: &str = "Bash(ls:*)";
@@ -3233,6 +3262,10 @@ fn a_limit_refusal_names_bounded_identities_and_never_a_payload() {
 /// words the launch boundary uses, and the compiler's whole line, its site
 /// cut to what the cause leaves it, stays within 512 (the second return).
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_composition_conflict_is_refused_in_bounded_identities() {
     const SENTINEL: &str = "REVIEW_SENTINEL";
     let tool = format!("T{}", "a".repeat(127));
@@ -3546,6 +3579,10 @@ fn bounded(line: &str) {
 /// 12-fix-f); the clause a dropped holding carries, and the plan and
 /// provenance readers' lines, too. Every [`Why`] is reached.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_refusal_line_is_one_bounded_line_naming_no_payload() {
     let adversaries = [
         "a".repeat(1000),
@@ -4501,6 +4538,10 @@ type Malformed = (&'static str, Option<Value>, String);
 /// never the supplied tag, key or payload — and none becomes an empty or
 /// default value. The old two-array pair is not a record.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn the_private_reader_refuses_each_malformed_member_with_its_full_cause() {
     // A sentinel that must never surface in a cause: long, multi-line and
     // Unicode, used as an unknown tag, an unknown key and a wrong payload.
@@ -5199,6 +5240,10 @@ fn every_spelling_of_a_permission_control_is_named_canonically() {
 /// split `-c KEY=VALUE` into a permission or sandbox table spells its
 /// control behind any driver; an effort assignment does not.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin() {
     let claude = argv(&["{brokkr}", "driver", "claude", "--"]);
     let codex = argv(&["{brokkr}", "driver", "codex", "--"]);
@@ -5346,6 +5391,10 @@ fn unplaced(harness: &str, at: usize, label: &str, cause: &str) -> String {
 /// that bound, so a repeated longest canonical name renders a refusal
 /// longer than 512 while its option/cause portion stays inside it.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_grammar_refusal_names_a_bounded_label_and_never_a_payload() {
     const SENTINEL: &str = "REVIEW_SENTINEL";
     const UNMODELLED: &str = "an option the grammar does not model, whose spelling is not echoed";
@@ -5515,6 +5564,10 @@ type Row = (
 /// a `Control` of their class; every option left `Inert` or `Switch` is
 /// outside that catalogue. DSH's `--patch` is its route overlay.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_table_is_inventoried_with_its_forms_and_effects() {
     use grammar::{Arity::*, Power};
     let rows = |table: &grammar::Grammar| -> Vec<Row> {
@@ -5810,6 +5863,10 @@ fn grammar_problem(harness: &str, at: usize, label: &str, cause: &str) -> String
 /// supported grammar does not model — no alias is invented for it —
 /// refuses in every spelling, named by its plain long name.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_catalogue_spelling_bears_a_capability_or_refuses_by_name() {
     use grammar::Power;
     const NO_NAME: &str = "names no option";
@@ -6187,6 +6244,10 @@ fn a_prompt_value_is_data_and_never_absorbs_a_control() {
 /// one inert key admits only its levels, and nothing else passes as
 /// opaque configuration. No cause echoes the key or the value.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_codex_assignment_has_a_bounded_meaning_or_refuses() {
     use grammar::{setting, Setting};
     const NOT_ASSIGNMENT: &str = "is not a KEY=VALUE configuration assignment";
@@ -6404,6 +6465,10 @@ fn a_managed_list_is_bounded_in_its_patterns_and_separator() {
 /// stays an image's value, and Claude, LaneTally and DSH carry no
 /// positional at all.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_final_command_places_its_positions_and_nothing_else() {
     let names = |command: &grammar::Command| -> Vec<(&str, Vec<String>)> {
         command
@@ -7267,6 +7332,10 @@ fn every_codex_transport_value_decodes_as_toml_to_exactly_itself() {
 /// server, refuses as both admitted and denied although the fragment never
 /// spelled the allowance.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn typed_hands_carry_their_whole_transport_through_the_composer() {
     let sealed = claude_final();
     let listless = argv(&["--strict-mcp-config", "--mcp-config", "{hands_mcp_json}"]);
@@ -7625,6 +7694,10 @@ fn codex_gate(fragment: &[&str], output: Option<&'static str>) -> Sealed {
 /// other contribution, a literal destination even where it equals the chosen
 /// path, `{result_path}` anywhere but the capture's value, and two captures.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn the_result_capture_is_one_typed_sink_the_engine_emits() {
     const CHOSEN: &str = "/r/chosen.json";
     let lead = || argv(&CODEX_LEAD);
@@ -8185,6 +8258,10 @@ fn a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged() 
 /// include list is not an absent one, and `--tools=` is not `--tools ""`:
 /// the complete argv is compared token for token (R4).
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
     let sealed = claude_final();
     let cold = claude_cold();
@@ -8368,6 +8445,10 @@ fn the_final_command_keeps_every_effect_in_its_composed_order() {
 /// a plan denying a held one refuse as the composer refuses them. A harness
 /// with no grammar or a command with no program is not read.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn the_sealed_inputs_are_checked_independently_of_the_command() {
     let sealed = claude_final();
     let cold = claude_cold();
@@ -8803,6 +8884,10 @@ fn codex_hands(hands: &[&str]) -> Sealed {
 /// OFF where it denies it, a class the typed declaration does not name,
 /// missing hands and local permissions Codex has no list for.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
     let sealed = codex_final(false, true);
     let cold = argv(&[
@@ -9019,6 +9104,10 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
 /// mode, or carries another server, a disabling assignment or a load beside
 /// the transport is not the engine's workspace hands; and DSH has none.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
     let boxed = codex_hands(&CODEX_HANDS);
     let cold = boxed.served(&CODEX_LEAD);
@@ -9248,6 +9337,10 @@ fn an_unselected_entrys_off_for_a_held_capability_is_no_denial() {
 /// denials, Codex's class beside its OFF — refuses as the effect the
 /// command's own state lacks.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_restriction_the_serving_builder_drops_is_refused_by_the_final_check() {
     let session = "019c4b7e-0000-7000-8000-000000000021";
     let base = claude_final();
@@ -9441,6 +9534,10 @@ fn codex_harness(boundary: &[&str], output: Option<&'static str>) -> Sealed {
 /// sealed. Hands without their typed declaration refuse, and so does the
 /// same shape sealed under `open`, under the box, or under no boundary.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn under_harness_the_hands_are_the_adapters_harness_fragment_alone() {
     let work = codex_harness(&["--sandbox", "workspace-write"], None);
     let cold = work.served(&CODEX_LEAD);
@@ -9744,6 +9841,10 @@ fn an_exactly_denied_local_permission_refuses_as_the_composer_refuses_it() {
 /// controls, and a boundary that cannot be read. The template's mode, an
 /// agent's boundary class and the plan's own OFF check.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_sealed_contribution_carries_only_established_effects() {
     let unestablished = |harness: &str, effect: &str, source: &str| {
         Err(final_refusal(
@@ -9929,6 +10030,10 @@ fn a_sealed_contribution_carries_only_established_effects() {
 /// no mapping refuse as sealed; the same class expressed twice recomposes a
 /// command that cannot be read.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_sealed_sandbox_contribution_names_one_admitted_class() {
     use SandboxIntent::{DangerFullAccess, ReadOnly, Unspecified, WorkspaceWrite};
     let refused = |problem: &str| Err(final_refusal("codex", problem));
@@ -10547,6 +10652,10 @@ fn dsh_sealed() -> Sealed {
 /// driver-input grammar is not the serving one; and DSH has no hands
 /// transport.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
     let sealed = dsh_sealed();
     let cold = argv(&[
@@ -10965,6 +11074,10 @@ const HANDS_TOOL: &str = "mcp__brokkr__workspace";
 
 /// One Claude or LaneTally generated launch.
 #[derive(Debug, Clone, Copy)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 struct ClaudeCase {
     harness: &'static str,
     search: Answer,
@@ -11020,6 +11133,10 @@ fn patterns(part: &Part) -> Vec<String> {
         .collect()
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn claude_case(case: ClaudeCase) -> Generated {
     let ClaudeCase {
         harness,
@@ -11451,6 +11568,11 @@ fn claude_case(case: ClaudeCase) -> Generated {
 /// naming the held tools but not the hands tool (R2) — and plans with no
 /// selection mapping at all, their denials delivered by the boundary or
 /// not (R3).
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn claude_states() -> Vec<Generated> {
     use Answer::{Denied, Held, Unanswered};
     let base = ClaudeCase {
@@ -11656,6 +11778,11 @@ const ESCAPED_ARGUMENTS: &str = "[\"hands\",\"serve\",\"--workdir\",\"/w/a\\\"b\
 /// binding (R1); cold and rejoined. A gate captures into the engine's
 /// result path. A boxed rejoin is one the driver declines, since the
 /// hands' bindings are assignments a rejoin cannot carry.
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn codex_states() -> Vec<Generated> {
     use SandboxIntent::{ReadOnly, Unspecified, WorkspaceWrite};
     type Site = (
@@ -12014,6 +12141,10 @@ fn dsh_states() -> Vec<Generated> {
 /// the plan's controls at a work seat, a gate fragment where the engine
 /// chose no result path, a chosen path no fragment captures into, and two
 /// captures.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn capture_states() -> Vec<Generated> {
     use SandboxIntent::{ReadOnly, Unspecified, WorkspaceWrite};
     let refuse = |problem: &str| final_refusal("codex", problem);
@@ -12415,6 +12546,10 @@ fn unmatched(harness: &str, expected: &[String], command: &[String]) -> Option<R
 /// executable; one that cannot be read refuses at its position. A DSH
 /// command, which serves no composition, has its executable, prompt,
 /// overlay and session altered, its prompt dropped and a positional added.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn mutations(state: &Generated, expected: &[String]) -> Vec<(String, Vec<String>, Refusal)> {
     let harness = state.sealed.harness;
     let refuse = |problem: &str| final_refusal(harness, problem);
@@ -12765,6 +12900,10 @@ fn sealed_serving_inputs_round_trip_byte_exactly() {
 /// the complete bounded cause — a fixed path and numeric positions, never
 /// the supplied value — and none becomes an empty or default input.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn sealed_serving_inputs_refuse_each_tampered_member_with_its_full_cause() {
     let sentinel = format!("SENTINEL\n{}ü", "x".repeat(600));
     let valid = full_serving().value();

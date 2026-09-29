@@ -3,6 +3,8 @@
 **Status**: accepted (operator ruling, 2026-08-26; strengthened the same
 day to full obliteration)
 
+Built: built
+
 ## Ruling
 
 The Forge is a standalone product with no reference to the workspace it

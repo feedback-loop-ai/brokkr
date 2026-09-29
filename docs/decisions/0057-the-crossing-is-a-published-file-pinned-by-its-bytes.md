@@ -5,6 +5,8 @@
 Status: proposed
 Date: 2026-09-09
 
+Built: built
+
 ## Context
 
 Decision 0023 drew the world and deferred the paths between its realms.

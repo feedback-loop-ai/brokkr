@@ -3,6 +3,9 @@
 Status: proposed
 Date: 2026-09-10
 
+Built: built
+Amends: 0041
+
 ## Context
 
 Decision 0041 ruling 2 made the library the roster: "One hire per office,

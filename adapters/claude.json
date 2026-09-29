@@ -1,7 +1,7 @@
 {
   "provider": "claude",
   "trust_tier": "trusted",
-  "binding_grant": true,
+  "egress": "contracted",
   "binary": "claude",
   "driver": [
     "{brokkr}",
@@ -14,7 +14,7 @@
   "models": {
     "fable": "claude-fable-5-1",
     "opus": "claude-opus-5-5",
-    "sonnet": "claude-sonnet-5",
+    "sonnet": "claude-sonnet-5-5",
     "haiku": "claude-haiku-4-5-20251001"
   },
   "judges": [
@@ -36,8 +36,6 @@
     "names": {
       "cargo": "Bash(cargo:*)",
       "git": "Bash(git:*)",
-      "python3": "Bash(python3:*)",
-      "pytest": "Bash(.venv/bin/pytest:*)",
       "ls": "Bash(ls:*)",
       "rg": "Bash(rg:*)",
       "mkdir": "Bash(mkdir:*)",

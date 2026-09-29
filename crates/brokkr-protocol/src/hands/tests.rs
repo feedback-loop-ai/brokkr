@@ -119,6 +119,7 @@ fn home_expands_only_the_tilde_prefix() {
 /// Unix only: the argv it checks names Unix paths, and the box is Linux's.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
@@ -393,9 +394,8 @@ fn bwrap_is_required_not_simulated() {
         Err("hands doing: boom".to_string())
     );
     assert_eq!(io_context(Ok(1), "doing"), Ok(1));
-    let session = session_dir("test").unwrap();
-    assert!(session.is_dir());
-    let _ = std::fs::remove_dir_all(&session);
+    let session = Session::create("test").unwrap();
+    assert!(session.path().is_dir());
 }
 
 #[test]
@@ -426,6 +426,52 @@ fn the_rendering_labels_every_section_and_output_is_bounded_while_draining() {
         .ends_with(&format!("[output truncated at {OUTPUT_BYTES} bytes]")));
     let (kept, truncated) = drain_bounded(Cursor::new(b"tiny".to_vec()));
     assert_eq!((kept.as_slice(), truncated), (&b"tiny"[..], false));
+    // Exactly the bound fits whole: nothing was cut (#419).
+    let (kept, truncated) = drain_bounded(Cursor::new(vec![b'a'; OUTPUT_BYTES]));
+    assert_eq!((kept.len(), truncated), (OUTPUT_BYTES, false));
+}
+
+/// A toolchain variable follows its own bind and no other: a box that
+/// binds none of the three toolchain homes is handed none of them (#419).
+#[test]
+fn a_toolchain_variable_is_set_by_its_own_bind_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let toolchain = |raw: Value| -> Vec<String> {
+        let argv = box_argv(
+            &spec_of(raw),
+            dir.path(),
+            &dir.path().join("home"),
+            &dir.path().join("scratch"),
+            &dir.path().join("session"),
+            &GitFacts::default(),
+            None,
+            &one("true"),
+        )
+        .unwrap();
+        argv.windows(2)
+            .filter(|pair| pair[0] == "--setenv")
+            .map(|pair| pair[1].clone())
+            .filter(|key| ["CARGO_HOME", "RUSTUP_HOME", "NPM_CONFIG_CACHE"].contains(&key.as_str()))
+            .collect()
+    };
+    let bind = |path: &str| json!({"kind": "workspace", "binds": [{"path": path, "mode": "ro"}]});
+    assert_eq!(toolchain(bind("/opt/scratchpad")), Vec::<String>::new());
+    assert_eq!(toolchain(bind("~/.rustup")), ["RUSTUP_HOME"]);
+}
+
+/// The box's `runner` is the engine's own uid and gid, as the host's
+/// `id` reports them (#419).
+#[test]
+fn the_box_identity_is_the_engines_own() {
+    let id = |flag: &str| -> u32 {
+        let out = Command::new("/usr/bin/id").arg(flag).output().unwrap();
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap()
+    };
+    assert_eq!(ids(), (id("-u"), id("-g")));
 }
 
 fn fake_run(
@@ -617,6 +663,7 @@ fn the_harness_config_names_this_binary_and_the_spec() {
 /// boundary is meant to hold and the only place it is claimed to.
 #[cfg(target_os = "linux")]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_box_hides_the_host_and_holds_the_worktree() {
     if !can_create_namespace() {
         skip_boundary_proof(
@@ -632,7 +679,8 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
     let host_secret = dir.path().join("host-secret");
     std::fs::write(&host_secret, "never\n").unwrap();
     let spec = HandsSpec::default();
-    let session = session_dir("test").unwrap();
+    let owner = Session::create("test").unwrap();
+    let session = owner.path().to_path_buf();
     let long = Duration::from_secs(30);
 
     let seen = execute(
@@ -751,7 +799,6 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
     )
     .unwrap_err();
     assert!(blocked.contains("namespace"), "{blocked}");
-    let _ = std::fs::remove_dir_all(&session);
 }
 
 /// Ruling 6, for real: git works inside the box for a `git worktree`,
@@ -759,6 +806,7 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
 /// hooks nor config can be written from inside.
 #[cfg(target_os = "linux")]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn git_works_in_the_box_and_cannot_plant_a_hook() {
     if !can_create_namespace() {
         skip_boundary_proof(
@@ -833,7 +881,8 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     assert_eq!(git_facts(dir.path()).common_dir, None);
 
     let spec = HandsSpec::default();
-    let session = session_dir("git").unwrap();
+    let owner = Session::create("git").unwrap();
+    let session = owner.path().to_path_buf();
     let long = Duration::from_secs(30);
     let status = execute(
         &spec,
@@ -903,7 +952,6 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     assert!(!std::fs::read_to_string(common.join("config"))
         .unwrap()
         .contains("evil"));
-    let _ = std::fs::remove_dir_all(&session);
 }
 
 /// Decision 0054: a boundary proof that cannot open a namespace logs a
@@ -1009,6 +1057,7 @@ fn engine_env(home: &Path) -> std::collections::BTreeMap<String, String> {
 /// proof about the ENVIRONMENT, not the filesystem — the same script
 /// naming the operator's home by absolute path reads it.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_unboxed_environment_hands_nothing_of_the_engines_over() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
@@ -1075,12 +1124,10 @@ fn the_unboxed_environment_hands_nothing_of_the_engines_over() {
         "SSH_AUTH_SOCK",
         "NPM_CONFIG_CACHE",
         HANDS_BOX_ENV,
+        "USERPROFILE",
     ] {
         assert!(!table.contains_key(absent), "{absent} leaked");
     }
-    // The Windows bootstrap names are carried verbatim on Windows and
-    // not consulted anywhere else.
-    assert_eq!(table.contains_key("USERPROFILE"), cfg!(windows));
 
     // A spawned shell in that table cannot find the planted key through
     // its home; the locator still names the planted cargo home.
@@ -1126,18 +1173,12 @@ fn the_unboxed_environment_hands_nothing_of_the_engines_over() {
     assert_eq!(table[HANDS_BOX_ENV], "1");
     assert!(!table.contains_key("USER"));
     assert!(!table.contains_key("LOGNAME"));
-    // No HOME nor USERPROFILE: the home is empty and nothing panics.
+    // No HOME: the home is empty and nothing panics, whatever else the
+    // table names.
     assert_eq!(home_dir(&std::collections::BTreeMap::new()), PathBuf::new());
     let profiled: std::collections::BTreeMap<String, String> =
         [("USERPROFILE".to_string(), "C:\\Users\\carol".to_string())].into();
-    assert_eq!(
-        home_dir(&profiled),
-        if cfg!(windows) {
-            PathBuf::from("C:\\Users\\carol")
-        } else {
-            PathBuf::new()
-        }
-    );
+    assert_eq!(home_dir(&profiled), PathBuf::new());
 }
 
 /// The network prefix's eight tokens, and the probe's arms: no
@@ -1200,48 +1241,11 @@ fn the_network_prefix_is_eight_tokens_and_the_probe_asks_the_dispatchs_path() {
     }
 }
 
+/// The complete table, key for key, on both supported hosts: nothing
+/// beyond the allow-list is inherited, whatever the engine's environment
+/// carries.
 #[test]
-fn windows_bootstrap_is_verbatim_on_windows_and_absent_elsewhere() {
-    let mut engine = std::collections::BTreeMap::new();
-    let names = [
-        "USERPROFILE",
-        "HOMEDRIVE",
-        "HOMEPATH",
-        "SystemRoot",
-        "SYSTEMDRIVE",
-        "WINDIR",
-        "COMSPEC",
-        "PATHEXT",
-        "TEMP",
-        "TMP",
-        "USERNAME",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "PROGRAMDATA",
-    ];
-    for name in names {
-        engine.insert(name.to_string(), format!("value-for-{name}"));
-    }
-    let table = unboxed_environment(
-        &engine,
-        Path::new("engine-home"),
-        &HandsSpec::default(),
-        &[],
-        Path::new("private-home"),
-        Path::new("private-tmp"),
-    );
-    for name in names {
-        assert_eq!(
-            table.get(name),
-            cfg!(windows).then(|| &engine[name]),
-            "{name}"
-        );
-    }
-}
-
-/// Both complete tables run on Linux too: a Windows-only test cannot
-/// protect the Windows allow-list in the literal coverage gate.
-#[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_unboxed_environment_has_exact_keys_on_both_platforms() {
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -1265,9 +1269,8 @@ fn the_unboxed_environment_has_exact_keys_on_both_platforms() {
             "seat@example.invalid".to_string(),
         ),
     ];
-    // Deliberately independent of WINDOWS_BOOTSTRAP: dropping a name
-    // from production must fail this proof. Mixed case is native on
-    // Windows; startup names and their values are preserved verbatim.
+    // The process-startup names a Windows host sets: no supported host
+    // inherits them (decision 0063).
     let windows_names = [
         "USERPROFILE",
         "HOMEDRIVE",
@@ -1299,138 +1302,91 @@ fn the_unboxed_environment_has_exact_keys_on_both_platforms() {
         engine.insert(name.to_string(), "must-not-be-inherited".to_string());
     }
 
-    for windows in [false, true] {
-        let table = unboxed_environment_on(
-            windows,
-            &engine,
-            home,
-            &spec,
-            &identity,
-            private_home,
-            private_tmp,
-        );
-        let mut expected: BTreeSet<&str> = [
-            "HOME",
-            "TMPDIR",
-            "PATH",
-            "USER",
-            "LOGNAME",
-            "BROKKR_HANDS_BOX",
-            "CARGO_HOME",
-            "RUSTUP_HOME",
-            "NPM_CONFIG_CACHE",
-            "LANG",
-            "LC_ALL",
-            "CI",
-            "DISABLE_AUTOUPDATER",
-            "DISABLE_TELEMETRY",
-            "GIT_CONFIG_COUNT",
-            "GIT_CONFIG_KEY_0",
-            "GIT_CONFIG_VALUE_0",
-            "GIT_AUTHOR_NAME",
-            "GIT_AUTHOR_EMAIL",
-            "GIT_COMMITTER_NAME",
-            "GIT_COMMITTER_EMAIL",
-        ]
-        .into();
-        if windows {
-            expected.extend(windows_names);
-            for name in windows_names {
-                assert_eq!(table[name], engine[name], "{name}");
-            }
-        }
-        assert_eq!(
-            table.keys().map(String::as_str).collect::<BTreeSet<_>>(),
-            expected
-        );
-        assert_eq!(
-            table["CARGO_HOME"],
-            home.join(".cargo").display().to_string()
-        );
-        assert_eq!(
-            table["RUSTUP_HOME"],
-            home.join(".rustup").display().to_string()
-        );
-        assert_eq!(
-            table["NPM_CONFIG_CACHE"],
-            home.join(".npm").display().to_string()
-        );
-        assert_eq!(
-            unboxed_environment(&engine, home, &spec, &identity, private_home, private_tmp),
-            unboxed_environment_on(
-                cfg!(windows),
-                &engine,
-                home,
-                &spec,
-                &identity,
-                private_home,
-                private_tmp
-            ),
-        );
-
-        let mut mixed = engine.clone();
-        for (canonical, spelling) in [
-            ("PATH", "Path"),
-            ("USER", "User"),
-            ("LOGNAME", "LogName"),
-            ("BROKKR_HANDS_BOX", "brokkr_hands_box"),
-        ] {
-            let value = mixed.remove(canonical).unwrap();
-            mixed.insert(spelling.to_string(), value);
-            if !windows {
-                expected.remove(canonical);
-            }
-        }
-        let mixed_table = unboxed_environment_on(
-            windows,
-            &mixed,
-            home,
-            &spec,
-            &identity,
-            private_home,
-            private_tmp,
-        );
-        assert_eq!(
-            mixed_table
-                .keys()
-                .map(String::as_str)
-                .collect::<BTreeSet<_>>(),
-            expected
-        );
-        if windows {
-            assert_eq!(
-                mixed_table, table,
-                "Path must survive as PATH, with its value verbatim"
-            );
-        }
-
-        // Nothing inherited is synthesized when absent, including the
-        // Windows startup names, the marker and undeclared locators.
-        let minimal = unboxed_environment_on(
-            windows,
-            &BTreeMap::new(),
-            home,
-            &HandsSpec::default(),
-            &[],
-            private_home,
-            private_tmp,
-        );
-        let expected: BTreeSet<&str> = [
-            "HOME",
-            "TMPDIR",
-            "LANG",
-            "LC_ALL",
-            "CI",
-            "DISABLE_AUTOUPDATER",
-            "DISABLE_TELEMETRY",
-            "GIT_CONFIG_COUNT",
-            "GIT_CONFIG_KEY_0",
-            "GIT_CONFIG_VALUE_0",
-        ]
-        .into();
-        assert_eq!(
-            minimal.keys().map(String::as_str).collect::<BTreeSet<_>>(),
-            expected
-        );
+    let table = unboxed_environment(&engine, home, &spec, &identity, private_home, private_tmp);
+    let mut expected: BTreeSet<&str> = [
+        "HOME",
+        "TMPDIR",
+        "PATH",
+        "USER",
+        "LOGNAME",
+        "BROKKR_HANDS_BOX",
+        "CARGO_HOME",
+        "RUSTUP_HOME",
+        "NPM_CONFIG_CACHE",
+        "LANG",
+        "LC_ALL",
+        "CI",
+        "DISABLE_AUTOUPDATER",
+        "DISABLE_TELEMETRY",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0",
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+    ]
+    .into();
+    assert_eq!(
+        table.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+        expected
+    );
+    for (key, dir) in [
+        ("CARGO_HOME", ".cargo"),
+        ("RUSTUP_HOME", ".rustup"),
+        ("NPM_CONFIG_CACHE", ".npm"),
+    ] {
+        assert_eq!(table[key], home.join(dir).display().to_string(), "{key}");
     }
+
+    // Names are matched exactly: another spelling of an allowed name is
+    // not that name, and is not inherited.
+    let mut mixed = engine.clone();
+    for (canonical, spelling) in [
+        ("PATH", "Path"),
+        ("USER", "User"),
+        ("LOGNAME", "LogName"),
+        ("BROKKR_HANDS_BOX", "brokkr_hands_box"),
+    ] {
+        let value = mixed.remove(canonical).unwrap();
+        mixed.insert(spelling.to_string(), value);
+        expected.remove(canonical);
+    }
+    let mixed_table =
+        unboxed_environment(&mixed, home, &spec, &identity, private_home, private_tmp);
+    assert_eq!(
+        mixed_table
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>(),
+        expected
+    );
+
+    // Nothing inherited is synthesized when absent, including the marker
+    // and undeclared locators.
+    let minimal = unboxed_environment(
+        &BTreeMap::new(),
+        home,
+        &HandsSpec::default(),
+        &[],
+        private_home,
+        private_tmp,
+    );
+    let expected: BTreeSet<&str> = [
+        "HOME",
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "CI",
+        "DISABLE_AUTOUPDATER",
+        "DISABLE_TELEMETRY",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0",
+    ]
+    .into();
+    assert_eq!(
+        minimal.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+        expected
+    );
 }

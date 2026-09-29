@@ -1,6 +1,3 @@
-//! Decision 0046: hands sites now pin the realm boundary; codex
-//! harness fragments also move every identity that consults that adapter.
-//! Pins below are updated only from the tests' reported left/right pairs.
 //! Composition proof (decision 0017). The resolver is a pure function
 //! over recipe sources, so every test here is a library of small JSON
 //! documents on disk and an assertion about the ONE flat bundle they
@@ -164,6 +161,7 @@ fn resolution_is_pure_and_walks_the_chain_to_arbitrary_depth() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_derived_recipe_overrides_one_named_select_case_and_no_neighbour() {
     let library = Library::new();
     let body = |driver: &str| json!({"role":"roles/role.md", "driver":{"command":[driver]}});
@@ -608,6 +606,7 @@ fn bundle_members_and_marker_shapes_are_checked_by_name() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn policy_is_per_layer_and_tables_merge_by_name() {
     let library = Library::new();
     library.recipe("base", &base_bundle(), Some(&base_policy()));
@@ -984,136 +983,23 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
     );
 }
 
-/// Decision 0039 moved `recipes/fast` here as it moved it in the witness
-/// file: the table gained `REVIEW-CLEAN-DOCS-FIXES`, and a table that
-/// rules differently is a different bundle. Nothing else in this list moved.
-/// Decision 0043 moved every pinned bundle at once, and for one reason:
-/// every adapter file gained `hands` — how the provider puts its hands in
-/// the box, or the measured reason it cannot — and a bundle whose inline
-/// gate pins the adapter declaration that authorised it (decision 0021)
-/// carries that file's digest in its identity. The bundles hiring the
-/// review agents moved further: those agents now chain fable@high →
-/// opus@xhigh → sol@xhigh and declare boxed hands, so their resolution
-/// records and the manifest's `hands` key changed. Nothing else moved.
-/// The five bundles that declare no `extends`. Their digests are pinned
-/// to what MAIN produces without composition — three of them moved when
-/// those recipes adopted agents (decision 0016), and four moved again
-/// when their tables gained the reforging back-edge (decision 0022);
-/// each time that is a different bundle and so legitimately a different
-/// identity, re-recorded as the identity change it is. All five moved
-/// again with decision 0019's rename: the `{forge}` token in bundle
-/// argv became `{brokkr}`, and the adapters and charters those bundles
-/// resolve moved with it. All five moved a fourth time when decision
-/// 0021's compile-time refusals landed: every seat, step and panel
-/// member gained the class that says whether it works or judges, and
-/// every adapter gained the trust tier and binding grant those refusals
-/// read — the law is part of what a bundle IS, so a bundle that now
-/// declares it is a different bundle. Every one of them is a different
-/// bundle now. Closing decision 0019's rename moved the living role text
-/// and policy descriptions once more. The two with INLINE gates — `recipes/fast` and
-/// `bundles/verify` — moved once more when those gates began pinning
-/// the adapter declaration that authorises them, so a tier demoted in
-/// `adapters/` moves the identity of the bundles it was standing behind.
-/// Decision 0033 moved the three recipe entries once more by adding the
-/// descriptions and relative costs rendered in the contributing guide;
-/// the two system bundles did not move.
-/// Decision 0035 ruling 5 moved all five: every model pin now carries an
-/// effort pin, whether the pin lives in an inline argv (`recipes/fast`,
-/// `bundles/verify`) or in the agent library a bundle resolves against
-/// (`recipes/panel-review`, `recipes/triage`, `bundles/self`, whose agents
-/// now name the effort they hire beside the model). A hire that gained
-/// half its terms is a different hire, and therefore a different bundle.
-/// Decision 0041 moves all five again: ruling 1 advances the fable
-/// adapter mapping, ruling 2 reorders and re-efforts the roster, and
-/// ruling 3 adds the judges declaration to every adapter digest.
-/// The ruling-2 review correction moves the three adopters again because
-/// intake and implement now name and receive the Git capability their
-/// charters require, while dead allow-lists no longer sit beside hands.
-/// Rulings 4 and 5 move all five for the declared reason: reviewer fixes
-/// disappear, implementers gain `oversized`, and every finding-bearing
-/// table gains its bounded return edges (or, for verify, the read-only
-/// charter and inputs that make the absence of such an edge explicit).
-/// The boxed-gate correction moves the five again because each exec
-/// script is now explicitly bundle-relative and travels through the
-/// read-only bundle mount instead of being mistaken for repository data.
-/// The returned implementation moves them once more because the scripts
-/// themselves now live under, and are digested with, the roots that own
-/// those commands.
+/// The bundles that declare no `extends`. Their digests are the ones the
+/// witness table (`tests/witnesses.json`, #358) pins, which is what MAIN
+/// produces without composition.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
 /// asked to touch — or the engine version did, which is the other thing
 /// a bundle's identity legitimately covers.
-/// Decision 0041 ruling 8 moves the agent-backed entries because their
-/// charters now contain only office text, and moves triage again because
-/// non-final sequence vocabularies are pinned in its manifest.
-/// Decision 0044 ruling 5 moves all four entries: the claude adapter's
-/// declared tool vocabulary gained `webfetch` and `websearch`, and every
-/// bundle here pins that adapter through an agent or an inline gate. No
-/// recipe charter, table or hire moved.
-/// Proposed decision 0056 moves all four again for the same reason: the
-/// `resume` assessment is adapter DATA, so it rides the declaration
-/// digest every one of these bundles pins. That is not incidental — a
-/// declaration edit moving bundle identity is what makes an in-flight
-/// run refuse the offer rather than resume under a changed rule.
-/// The returned F1 correction moves `recipes/fast` once more alone: its
-/// inline Claude implementer now pins the declaration it reads its resume
-/// assessment from, exactly as its gate seats already pinned the
-/// declaration that authorises them. The other three witness only
-/// deterministic exec gates, so composition still moves none of them.
-/// The 2026-09-16 Codex declaration reconciliation moves
-/// `recipes/panel-review` and `bundles/self` among these four: each
-/// pins the codex adapter declaration its seats resolve, so the measured
-/// declaration edit moves their composed identity. `recipes/fast` and
-/// `bundles/verify` keep their digests.
-/// Decision 0065 slice one moves all four, for two reasons each one can
-/// be checked against. Every compiled manifest now carries the REQUIRED
-/// `capabilities` section (run-manifest v11): the operated realm, its
-/// grants — none here — and per executable site the office, its asks and
-/// one outcome per provider candidate, with the native powers composed
-/// off. "This realm grants nothing and this seat holds nothing" is part
-/// of what a bundle IS, so a bundle that now says it is a different
-/// bundle. And every adapter these bundles pin gained its
-/// `native_capabilities` declaration — Codex's measured OFF switch,
-/// Claude's two tools, `unmeasured` for dsh, LaneTally and exec — which is
-/// adapter data and rides the declaration digest as `resume` does.
-/// Composition still moves none of them: an ancestor layer holds no
-/// capability and its own digest carries no such section.
-/// Proposed decision 0066 ruling 8 (finding M3) moves `recipes/panel-review`
-/// and `bundles/self`, the two here that load the shipped library: a
-/// compile now resolves the asks of every loaded agent, seated or not, so
-/// the researcher's two wants are consulted and their definitions pinned
-/// though neither bundle seats it. `recipes/fast` and `bundles/verify` load
-/// no library and keep their digests. Rebuild unit 1 replays the slice
-/// onto main at `072cdd9b` and moves all four: the engine version
-/// (v0.11.0) participates in every manifest's identity, and the claude and
-/// codex adapters they pin carry the 2026-09-22 roster's model maps.
-/// Rebuild unit 5 moves all four again: the claude adapter each pins
-/// gained the typed-migration command names in `tool_permissions.names`.
-/// Rebuild unit 6 moves `recipes/fast` alone: its two Claude seats replace
-/// their authored permission flags with a typed `tools.allow`.
-/// Rebuild unit 7 moves `bundles/verify` alone, for the same reason at its
-/// review seat.
-/// The values below are the actual compiles of the final tree, never
-/// recomputed guesses.
-const UNCOMPOSED: [(&str, &str); 4] = [
-    (
-        "recipes/fast",
-        "cdaf49404807ed930201e101eb2bab9a9e363b71ff71342b82f3dc31a3d40e1c",
-    ),
-    (
-        "recipes/panel-review",
-        "ab743b3542218e0ad093bbfc5c124a980ea107925f08a138a4111db9faaa2d3a",
-    ),
-    (
-        "bundles/self",
-        "025d81237189d5b1d2e6156882a3fa7b940b51d8b6ef8783c805569567bcfa86",
-    ),
-    (
-        "bundles/verify",
-        "7263ad3612bcde086918d48f236147eef288c250b2ee5e9fefe95f262bcf4f3c",
-    ),
+const UNCOMPOSED: [&str; 4] = [
+    "recipes/fast",
+    "recipes/panel-review",
+    "bundles/self",
+    "bundles/verify",
 ];
+
+#[path = "../../tests/support/witnesses.rs"]
+mod witnesses;
 
 /// Windows spells the same path with backslashes. Every assertion here
 /// is about WHICH file an error names, never about how the platform
@@ -1134,7 +1020,9 @@ fn workspace() -> PathBuf {
 #[test]
 fn recipes_that_opted_into_nothing_keep_their_digests() {
     // AC-21, the hard regression.
-    for (path, digest) in UNCOMPOSED {
+    let pinned = witnesses::Witnesses::load(&workspace()).bundles;
+    for path in UNCOMPOSED {
+        let digest = &pinned[path];
         // Explicit roots: the defaults are relative, and a test's cwd
         // is the crate, not the workspace.
         let bundle = Bundle::compile_with(
@@ -1143,7 +1031,7 @@ fn recipes_that_opted_into_nothing_keep_their_digests() {
             &workspace().join("adapters"),
         )
         .unwrap();
-        assert_eq!(bundle.manifest_digest(), digest, "{path} digest moved");
+        assert_eq!(&bundle.manifest_digest(), digest, "{path} digest moved");
         assert_eq!(bundle.chain.len(), 0, "{path} composed nothing");
         assert_eq!(bundle.roots, vec![bundle.dir.clone()], "{path} is one root");
         for key in bundle.manifest["files"].as_object().unwrap().keys() {
@@ -1224,56 +1112,9 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         triage.manifest_digest(),
-        // Decision 0042's five SDD phases and the returned reviews' restored
-        // contracts are bundle identity: judges consume the deterministic
-        // check and closed drift vocabulary, and the smith names every result.
-        // Moved by proposed decision 0056: an adapter's `resume` assessment
-        // is adapter data, so it rides the declaration digest the manifest
-        // pins — which is exactly what makes a declaration edit spawn cold.
-        // Its ruling 10 moves it again through the SDD smith's charter,
-        // which every phase of this route resolves. The F1 return moves it
-        // once more: the Codex declaration's preserved shape now names the
-        // inline `not applicable` coordinate too, so the adapter digest the
-        // route's Codex lanes witness moved. The 2026-09-16 Codex
-        // declaration reconciliation moves it again, and this value agrees
-        // with the `recipes/triage` pin in `tests/witness_digests.rs`; both
-        // are that edit's actual compiles. Task 11.1's 2026-09-17 interface
-        // closure moves it once more: the declaration's `evidence.interface`
-        // and `reason` no longer recite a debt the controller has since
-        // measured, and one dated limitation was appended beside them.
-        // The 2026-09-19 ruling on #303 moves it again: the triage charter's
-        // `design` and `feature` criteria are rewritten to the who-decides
-        // cut, and the charter's bytes ride every route that seats it —
-        // `night-shift` and `gpt-flash` move for the same reason.
-        // Issue #307 (operator rulings 2026-09-20 and 2026-09-21) moves it
-        // once more through the engine smith this route seats: the office
-        // now hires astra@high then fable@high, and decision 0043's
-        // workspace hands replace its Cargo/Git tool list, so the agent
-        // digest, the adapters its chain consults and the `engine` case's
-        // `hands` and `boundary` entries all changed. The value agrees with
-        // the `recipes/triage` pin in `tests/witness_digests.rs`; both are
-        // this tree's actual compile.
-        // Decision 0065 slice one moves it again: the manifest gains the
-        // required `capabilities` section — no grant, and per site of
-        // every case body its office, its asks and each candidate's
-        // outcome — and the adapters its lanes pin gained their
-        // `native_capabilities` declarations. Its ancestor `fast` layer's
-        // own digest did not move: a layer holds no capability.
-        // Proposed decision 0066 ruling 8 (finding M3) moves it once more:
-        // triage loads the shipped library without seating its researcher,
-        // and a compile now resolves every loaded agent's asks, so the
-        // researcher's `web-search` and `web-fetch` definitions are pinned
-        // as consulted. The `fast` layer's digest still does not move.
-        // Rebuild unit 1's replay onto main at `072cdd9b` moves it with the
-        // v0.11.0 engine version and the 2026-09-22 roster's model maps.
-        // Rebuild unit 5 moves it with the typed-migration command names
-        // the claude and LaneTally adapters gained. Rebuild unit 6 moves it
-        // through its `fast` layer, whose Claude seats now declare a typed
-        // `tools.allow` instead of authored permission flags.
-        // This value agrees with the `recipes/triage` pin in
-        // `tests/witness_digests.rs`; both are the final tree's actual
-        // compile.
-        "30396159d3dad83f45bc49ee989a21e382ade1d89240c6c5c53f9f6e7553efc1",
+        // Decision 0042's five SDD phases and every office they resolve
+        // are bundle identity; the value is the witness table's pin.
+        witnesses::Witnesses::load(&workspace()).bundles["recipes/triage"],
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 
@@ -2064,6 +1905,10 @@ fn a_missing_or_unresolvable_input_names_its_source_kind_and_reference() {
 /// so no fixture writes into another's FIFO.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_replacement_between_check_and_read_is_refused_never_read() {
     use std::os::unix::fs::symlink;
     let library = Library::new();
@@ -2523,6 +2368,10 @@ fn a_declaring_document_is_bound_like_any_consumed_input() {
 /// was reused, which is what the baseline this repairs accepted.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn an_input_unlinked_and_recreated_after_its_check_is_never_read() {
     use std::os::unix::fs::MetadataExt;
     for (label, policy) in [("equal", base_policy()), ("changed", other_policy())] {
@@ -2746,6 +2595,10 @@ type Act = (ReadStage, PathBuf, Box<dyn FnOnce()>);
 /// What compiling `leaf` said while each act ran once, the first time a
 /// bound read, its resolution or the walk reached the act's stage at its
 /// path.
+#[expect(
+    clippy::excessive_nesting,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn said_acting(leaf: &Path, acts: Vec<Act>) -> String {
     let mut acts: Vec<_> = acts
         .into_iter()
@@ -3143,6 +2996,10 @@ fn another_name(other: &str, consumed: &str) -> String {
 /// lookup fails; once the walk has passed its table, A is put back as with
 /// `supply`, without B.
 #[cfg(unix)]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn hidden_at_every_observation(
     library: &Library,
     base: &Path,
@@ -3532,28 +3389,11 @@ fn replaced_directory(key: &str, moment: &str) -> String {
 /// it lists, so an empty list is a directory nothing listed.
 #[cfg(target_os = "linux")]
 fn opened_while(watched: &Path, act: impl FnOnce() -> String) -> (String, Vec<u32>) {
+    use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
     use std::io::Read;
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::io::FromRawFd;
-    extern "C" {
-        fn inotify_init1(flags: std::ffi::c_int) -> std::ffi::c_int;
-        fn inotify_add_watch(
-            fd: std::ffi::c_int,
-            path: *const std::ffi::c_char,
-            mask: u32,
-        ) -> std::ffi::c_int;
-    }
-    // `IN_NONBLOCK`, and `IN_OPEN | IN_ACCESS`.
-    let (nonblocking, opened_or_read) = (0o4000, 0x20 | 0x01);
-    // SAFETY: a plain call; the descriptor it returns is owned just below.
-    let fd = unsafe { inotify_init1(nonblocking) };
-    assert!(fd >= 0, "inotify: {}", std::io::Error::last_os_error());
-    // SAFETY: `fd` was just returned by `inotify_init1`; nothing else owns it.
-    let mut events = unsafe { std::fs::File::from_raw_fd(fd) };
-    let path = std::ffi::CString::new(watched.as_os_str().as_bytes()).unwrap();
-    // SAFETY: `fd` is open, and `path` is NUL-terminated and outlives the call.
-    let watch = unsafe { inotify_add_watch(fd, path.as_ptr(), opened_or_read) };
-    assert!(watch >= 0, "inotify: {}", std::io::Error::last_os_error());
+    let fd = inotify::init(CreateFlags::NONBLOCK | CreateFlags::CLOEXEC).expect("inotify");
+    inotify::add_watch(&fd, watched, WatchFlags::OPEN | WatchFlags::ACCESS).expect("inotify");
+    let mut events = std::fs::File::from(fd);
     let said = act();
     let mut buffer = vec![0u8; 64 * 1024];
     let length = match events.read(&mut buffer) {
@@ -4040,6 +3880,10 @@ fn no_spelling_and_no_link_hides_an_active_input_under_a_skipped_tree() {
 /// and hands written on a seat compile and record exactly those hands and
 /// the realm's boundary.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_bundle_root_is_a_closed_vocabulary_at_every_layer() {
     let library = Library::new();
     let refusal = |recipe: &str, key: &str| {

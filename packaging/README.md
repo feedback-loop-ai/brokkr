@@ -137,10 +137,10 @@ curl -fsSL https://feedback-loop-ai.github.io/brokkr/brokkr-archive-keyring.asc 
   | sudo tee /usr/share/keyrings/brokkr-archive-keyring.asc >/dev/null
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/brokkr-archive-keyring.asc] https://feedback-loop-ai.github.io/brokkr/apt stable main" \
   | sudo tee /etc/apt/sources.list.d/brokkr.list
-sudo apt-get update && sudo apt-get install brokkr
+sudo apt-get update
 ```
 
-`apt-get upgrade` picks up later releases from the same line.
+and then `sudo apt-get install brokkr`. `apt-get upgrade` picks up later releases from the same line.
 
 The `Release` file carries a `Valid-Until` 90 days past the release that
 built it. That is what lets apt notice a frozen or replayed repository —
@@ -157,8 +157,9 @@ dependence on cadence, and `--valid-days` on
 ```
 sudo curl -fsSL -o /etc/yum.repos.d/brokkr.repo \
   https://feedback-loop-ai.github.io/brokkr/rpm/brokkr.repo
-sudo dnf install brokkr
 ```
+
+and then `sudo dnf install brokkr`.
 
 The `.repo` file sets `repo_gpgcheck=1` (the metadata is signed) and
 `gpgcheck=0` (the packages themselves are not signed yet — see the
@@ -247,8 +248,8 @@ None of the scripts carries an executable bit; each is invoked as
   nothing publishes it: `aur.archlinux.org` accepts pushes from a
   registered maintainer's SSH key, which is the operator's account and
   not a workflow secret.
-- **winget.** Per-release manifests submitted to `microsoft/winget-pkgs`
-  run on that project's review cadence, not ours.
+- **winget.** Windows is not a host (decision 0063), so no Windows
+  package manager is a channel; WSL2 takes the Linux channels.
 - **snap, flatpak.** Deferred. Both want their own build and runtime
   story, which is the opposite of this directory's one rule.
 

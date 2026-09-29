@@ -1,17 +1,25 @@
 use super::*;
+use brokkr_bridge::BridgeError;
 use brokkr_core::canonical::{sha256_hex, ZERO_HASH};
-use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2, PRODUCER_EFFECTS};
+use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2};
 use brokkr_core::fold::Cursor;
 use brokkr_core::EventType;
+use brokkr_store::test_support::plant_broken_link;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::process::Command;
-use time::format_description::well_known::Rfc3339;
 
-/// `HOME` is process-global and the transcript lookup reads it, so the
-/// tests that point it at a temp projects tree take turns. One lock for
-/// the whole binary, named where both surfaces' test modules can see it.
-pub(crate) static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+#[path = "../../../tests/support/dispatch.rs"]
+mod dispatch_fixture;
+/// The binary's one environment guard: `HOME` is process-global and the
+/// transcript lookup reads it, so the tests that point it at a temp
+/// projects tree take turns with every other writer.
+#[path = "../../../tests/support/env_guard.rs"]
+pub(crate) mod env_guard;
+#[path = "../../../tests/support/envelope.rs"]
+pub(crate) mod envelope_builder;
+use dispatch_fixture::dispatch_envelope;
+use env_guard::EnvGuard;
 
 /// Rebuild unit 12-fix-f, the council's A-E1 (design D6): a resume whose
 /// capability authority cannot be reproduced re-wraps the compiler's raw
@@ -185,7 +193,7 @@ fn stopped_mid_flight_copy(
     }
 }
 
-fn cli(command: Cmd) -> Cli {
+pub(crate) fn cli(command: Cmd) -> Cli {
     Cli { command }
 }
 
@@ -198,7 +206,7 @@ fn ledger_command_renders_to_stdout_or_the_repository() {
     assert_eq!(
         run(cli(Cmd::Ledger(LedgerArgs {
             run: "ledger-run".into(),
-            db: db.clone(),
+            journal: at(&db),
             repo: None,
         })))
         .unwrap(),
@@ -207,7 +215,7 @@ fn ledger_command_renders_to_stdout_or_the_repository() {
     assert_eq!(
         run(cli(Cmd::Ledger(LedgerArgs {
             run: "ledger-run".into(),
-            db,
+            journal: at(&db),
             repo: Some(dir.path().to_path_buf()),
         })))
         .unwrap(),
@@ -218,7 +226,7 @@ fn ledger_command_renders_to_stdout_or_the_repository() {
     let missing = dir.path().join("missing.db");
     assert!(run(cli(Cmd::Ledger(LedgerArgs {
         run: "ledger-run".into(),
-        db: missing.clone(),
+        journal: at(&missing),
         repo: None,
     })))
     .is_err());
@@ -374,12 +382,31 @@ fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd
         by_run: None,
         by_seq: None,
         by_realm: None,
-        realms: None,
-        db: Some(db.to_path_buf()),
+        journal: at(db),
     })
 }
 
+/// `--db <path>` and no `--realms`: the journal a test names outright.
+pub(crate) fn at(db: &std::path::Path) -> JournalArgs {
+    JournalArgs {
+        realms: None,
+        db: Some(db.to_path_buf()),
+    }
+}
+
+/// `--bundle <path>`, no recipe and no secrets store: what a test
+/// delivers under.
+pub(crate) fn bundled(bundle: std::path::PathBuf) -> DeliveryArgs {
+    DeliveryArgs {
+        bundle: Some(bundle),
+        recipe: None,
+        recipes_dir: workspace().join("recipes"),
+        secrets_file: None,
+    }
+}
+
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -418,7 +445,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     assert_eq!(
         run(cli(Cmd::Costs(CostsArgs {
             run: "r1".into(),
-            db: db.clone(),
+            journal: at(&db),
         })))
         .unwrap(),
         ExitCode::SUCCESS
@@ -496,12 +523,9 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
         .unwrap();
     assert!(run(cli(Cmd::Rerun(RerunArgs {
         run: "missing-feature".into(),
-        bundle: Some(workspace().join("recipes/fast")),
-        recipe: None,
-        recipes_dir: workspace().join("recipes"),
-        db,
+        delivery: bundled(workspace().join("recipes/fast")),
+        journal: at(&db),
         repo: None,
-        secrets_file: None,
     })))
     .unwrap_err()
     .to_string()
@@ -514,6 +538,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
 /// fields), and no absolute path or username survives in the sanitized
 /// journal. Without the flag no `.redacted.` file exists at all.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -678,7 +703,7 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
         assert_eq!(
             run(cli(Cmd::Anchor(AnchorArgs {
                 run: "r1".into(),
-                db: db.clone(),
+                journal: at(&db),
                 repo: repo.clone(),
                 check,
             })))
@@ -690,7 +715,7 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
     let mut seen = None;
     let code = run_with(
         cli(Cmd::Ui(UiArgs {
-            db: db.clone(),
+            journal: at(&db),
             port: 4321,
             open: true,
         })),
@@ -708,7 +733,131 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
     assert_eq!(seen, Some((db, 4321, true)));
 }
 
+/// #374: `ui` and `tui` read one fleet. In a mapped workspace, with no
+/// `--db` typed, the journal `ui` serves is the one hearth `tui` opens —
+/// the map's, not `.forge/forge.db`.
 #[test]
+fn ui_and_tui_open_the_journal_the_map_names() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("realms.json"),
+        json!({
+            "schema": "forge.realms/v1",
+            "realms": [{"name": "here", "path": ".", "default_branch": "main"}],
+            "journal": "state/world.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut served = None;
+    run_with(
+        cli(Cmd::Ui(UiArgs {
+            journal: JournalArgs {
+                realms: None,
+                db: None,
+            },
+            port: 0,
+            open: false,
+        })),
+        dir.path(),
+        |db, _, _| {
+            served = Some(db);
+            Ok(())
+        },
+        None,
+        None,
+        run_tui,
+    )
+    .unwrap();
+    let mut opened = None;
+    run_with(
+        cli(Cmd::Tui(TuiArgs {
+            run: None,
+            realms: None,
+            db: None,
+        })),
+        dir.path(),
+        ui::serve,
+        None,
+        None,
+        |hearths, _, _| {
+            opened = Some(hearths.into_iter().map(|hearth| hearth.journal).collect());
+            Ok(ExitCode::SUCCESS)
+        },
+    )
+    .unwrap();
+    let world = dir.path().join("state/world.db");
+    assert_eq!(served, Some(world.clone()));
+    assert_eq!(opened, Some(vec![world]));
+}
+
+/// #374: where the realms name two hearths, `tui` opens both and `ui`,
+/// which serves one journal, refuses and names them — it never serves
+/// one hearth as though it were the fleet `tui` shows.
+#[test]
+fn ui_refuses_a_world_of_two_hearths_that_tui_reads_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("realms.json"),
+        json!({
+            "schema": "forge.realms/v2",
+            "realms": [
+                {"name": "alpha", "path": ".", "default_branch": "main", "journal": "alpha.db"},
+                {"name": "beta", "path": ".", "default_branch": "main", "journal": "beta.db"},
+            ],
+            "journal": "alpha.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut opened = None;
+    run_with(
+        cli(Cmd::Tui(TuiArgs {
+            run: None,
+            realms: None,
+            db: None,
+        })),
+        dir.path(),
+        ui::serve,
+        None,
+        None,
+        |hearths, _, _| {
+            opened = Some(hearths.into_iter().map(|hearth| hearth.journal).collect());
+            Ok(ExitCode::SUCCESS)
+        },
+    )
+    .unwrap();
+    let (alpha, beta) = (dir.path().join("alpha.db"), dir.path().join("beta.db"));
+    assert_eq!(opened, Some(vec![alpha.clone(), beta.clone()]));
+    let refused = run_with(
+        cli(Cmd::Ui(UiArgs {
+            journal: JournalArgs {
+                realms: None,
+                db: None,
+            },
+            port: 0,
+            open: false,
+        })),
+        dir.path(),
+        |_, _, _| panic!("a two-hearth world is never served as one journal"),
+        None,
+        None,
+        run_tui,
+    )
+    .unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "brokkr ui serves one journal, and this world's realms name 2: {}, {}; --db names \
+             the one to serve (brokkr tui and brokkr runs read them all)",
+            alpha.display(),
+            beta.display()
+        )
+    );
+}
+
+#[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -756,7 +905,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     assert_eq!(
         keep(KeepRefsCmd::Plant {
             run: "latest".into(),
-            db: db.clone(),
+            journal: at(&db),
             repo: repo.clone(),
         }),
         ExitCode::SUCCESS
@@ -784,7 +933,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     assert_eq!(
         keep(KeepRefsCmd::Plant {
             run: "r1".into(),
-            db: db.clone(),
+            journal: at(&db),
             repo: repo.clone(),
         }),
         ExitCode::SUCCESS
@@ -802,7 +951,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
         assert_eq!(
             keep(KeepRefsCmd::List {
                 run: run_selector,
-                db: db.clone(),
+                journal: at(&db),
                 repo: repo.clone(),
             }),
             ExitCode::SUCCESS
@@ -812,7 +961,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     assert_eq!(
         keep(KeepRefsCmd::List {
             run: Some("r1".into()),
-            db: moved_on.clone(),
+            journal: at(&moved_on),
             repo: repo.clone(),
         }),
         ExitCode::SUCCESS
@@ -826,12 +975,12 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     for command in [
         KeepRefsCmd::List {
             run: Some(selector::LATEST.into()),
-            db: moved_on.clone(),
+            journal: at(&moved_on),
             repo: repo.clone(),
         },
         KeepRefsCmd::Delete {
             run: selector::LATEST.into(),
-            db: moved_on.clone(),
+            journal: at(&moved_on),
             repo: repo.clone(),
         },
     ] {
@@ -848,7 +997,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     assert_eq!(
         keep(KeepRefsCmd::Delete {
             run: "r1".into(),
-            db,
+            journal: at(&db),
             repo: repo.clone(),
         }),
         ExitCode::SUCCESS
@@ -857,39 +1006,14 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
 }
 
 fn dispatch_for(bundle: &Bundle, run_id: &str, callback: &str) -> DispatchEnvelopeV2 {
-    let now = time::OffsetDateTime::now_utc();
-    serde_json::from_value::<DispatchEnvelopeV2>(json!({
-        "schema":"forge-dispatch/v2", "envelope_id":"envelope", "forge_run_id":run_id,
-        "issued_at":(now-time::Duration::minutes(1)).format(&Rfc3339).unwrap(),
-        "expires_at":(now+time::Duration::minutes(5)).format(&Rfc3339).unwrap(),
-        "canonical_digest":"",
-        "looper":{"organization_id":"org","product_id":"product","story_id":"story",
-            "delivery_run_id":"delivery","request_grant_id":"grant","feature_path":"feature",
-            "immutable_inputs_sha256":"a".repeat(64)},
-        "actor":{"principal_kind":"api_key","principal_id":"key","actor_kind":"service",
-            "actor_id":"brokkr","accountable_operator_id":"operator","authority_source":"looper-grant",
-            "operating_profile":"bounded"},
-        "repository":{"owner":"owner","name":"repo","base_sha":"b".repeat(64),
-            "candidate_sha":null,"workspace_class":"isolated","target_environment":"dogfood"},
-        "recipe":{"name":bundle.name,"compiled_sha256":bundle.manifest_digest()},
-        "budget":{"lane_tally_run_id":"lane","reservation_id":null,"cost_state":"known",
-            "ceiling_microunits":1000,"currency":"USD"},
-        "producer":{"registration_id":"registration","token_reference":"key",
-            "callback_audience":callback,"accepting_service_id":"looper-api",
-            "runtime_id":"runtime","producer_release":"brokkr@test","protocol_version":1,
-            "starting_cursor":0},
-        "allowed_effects":PRODUCER_EFFECTS,"forbidden_actions":["grant_create","grant_widen",
-            "artifact_decide","workflow_advance","release_promote"],
-        "bounds":{"max_attempts":3,"max_parallel_effects":4,"max_event_bytes":65536,
-            "max_events_per_ten_seconds":40,"replay_retention_seconds":604800,
-            "safe_stop":"boundary","cancellation":"fenced"},
-        "evidence_requirements":["ordered_hash_chain"],"attestation_requirement":"self_reported"
-    }))
-    .unwrap()
-    .sealed()
+    dispatch_envelope(run_id, &bundle.name, &bundle.manifest_digest(), callback)
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let dir = tempfile::tempdir().unwrap();
     // The tempdir is the workspace these invocations stand in, so it
@@ -899,18 +1023,14 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     // reason the digest witnesses are recorded rather than asserted.
     stage_adapters(dir.path());
     let bundle_path = stage_hands_free_fast(dir.path(), "fast-hands-free", false);
-    let recipes_dir = workspace().join("recipes");
     let base = |dispatch| {
         Cmd::Run(RunArgs {
-            bundle: Some(bundle_path.clone()),
-            recipe: None,
-            recipes_dir: recipes_dir.clone(),
+            delivery: bundled(bundle_path.clone()),
             feature: "feature".into(),
             realms: None,
             db: Some(dir.path().join("dispatch.db")),
             repo: None,
             dispatch,
-            secrets_file: None,
         })
     };
 
@@ -974,15 +1094,12 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     .unwrap();
     let gated = |dispatch| {
         Cmd::Run(RunArgs {
-            bundle: Some(gated_path.clone()),
-            recipe: None,
-            recipes_dir: recipes_dir.clone(),
+            delivery: bundled(gated_path.clone()),
             feature: "feature".into(),
             realms: None,
             db: Some(dir.path().join("dispatch.db")),
             repo: None,
             dispatch,
-            secrets_file: None,
         })
     };
     let refusal = run_in(&unmapped, cli(gated(Some(gated_dispatch_path))))
@@ -1010,17 +1127,11 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let path = dir.path().join("dispatch.json");
     std::fs::write(&path, serde_json::to_string(&dispatch).unwrap()).unwrap();
     let accept = |dispatch_path| {
-        Cmd::Run(RunArgs {
-            bundle: Some(bundle_path.clone()),
-            recipe: None,
-            recipes_dir: recipes_dir.clone(),
-            feature: "feature".into(),
-            realms: None,
-            db: Some(dir.path().join("dispatch.db")),
-            repo: None,
-            dispatch: Some(dispatch_path),
-            secrets_file: None,
-        })
+        let mut accepted = base(Some(dispatch_path));
+        if let Cmd::Run(RunArgs { repo, .. }) = &mut accepted {
+            *repo = Some(dir.path().to_path_buf());
+        }
+        accepted
     };
     // Decision 0065 ruling 8 (design D7) meets the same frozen lineage:
     // EVERY compiled bundle now pins its capability authority — an
@@ -1104,6 +1215,29 @@ fn loopback_server(responses: Vec<String>) -> (String, std::thread::JoinHandle<(
     (format!("http://{address}"), handle)
 }
 
+/// A completed run named `bridge-run` in `db`, whose manifest seals
+/// `base_url` as its Looper callback audience.
+fn completed_bridge_run(db: &std::path::Path, base_url: &str) {
+    let base_manifest = json!({
+        "engine":"0.2.0", "event_schema":1, "database_schema":1,
+        "driver_protocol":1, "bundle_name":"fast", "files":{"bundle.json":"a".repeat(64)}
+    });
+    let mut shell_bundle = compiled_recipe("recipes/fast");
+    shell_bundle.name = "fast".into();
+    shell_bundle.manifest = base_manifest.clone();
+    let mut dispatch = dispatch_for(&shell_bundle, "bridge-run", base_url);
+    dispatch.recipe.compiled_sha256 = sha256_hex(&base_manifest);
+    dispatch = dispatch.sealed();
+    let manifest = build_run_manifest_v2(&base_manifest, dispatch).unwrap();
+    let mut store = Store::open(db).unwrap();
+    store
+        .create_run("bridge-run", "feature", "fast", &manifest)
+        .unwrap();
+    store
+        .append_next("bridge-run", EventType::RunCompleted, json!({}), None, None)
+        .unwrap();
+}
+
 #[test]
 fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
     let dir = tempfile::tempdir().unwrap();
@@ -1121,31 +1255,15 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
             })
             .collect(),
     );
-    let base_manifest = json!({
-        "engine":"0.2.0", "event_schema":1, "database_schema":1,
-        "driver_protocol":1, "bundle_name":"fast", "files":{"bundle.json":"a".repeat(64)}
-    });
-    let mut shell_bundle = compiled_recipe("recipes/fast");
-    shell_bundle.name = "fast".into();
-    shell_bundle.manifest = base_manifest.clone();
-    let mut dispatch = dispatch_for(&shell_bundle, "bridge-run", &base_url);
-    dispatch.recipe.compiled_sha256 = sha256_hex(&base_manifest);
-    dispatch = dispatch.sealed();
-    let manifest = build_run_manifest_v2(&base_manifest, dispatch).unwrap();
-    let mut store = Store::open(&db).unwrap();
-    store
-        .create_run("bridge-run", "feature", "fast", &manifest)
-        .unwrap();
-    store
-        .append_next("bridge-run", EventType::RunCompleted, json!({}), None, None)
-        .unwrap();
+    completed_bridge_run(&db, &base_url);
 
-    let token_name = format!("FORGE_TEST_TOKEN_{}", std::process::id());
-    std::env::remove_var(&token_name);
+    let mut env = EnvGuard::lock();
+    let token_name = format!("BROKKR_TEST_TOKEN_{}", std::process::id());
+    env.remove(&token_name);
     let command = |follow| {
         Cmd::Bridge(BridgeArgs {
             run: "bridge-run".into(),
-            db: db.clone(),
+            journal: at(&db),
             looper_url: base_url.clone(),
             token_env: token_name.clone(),
             follow,
@@ -1156,28 +1274,36 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         .unwrap_err()
         .to_string()
         .contains("reading producer credential"));
-    std::env::set_var(&token_name, "   ");
+    env.set(&token_name, "   ");
     assert!(run(cli(command(true)))
         .unwrap_err()
         .to_string()
         .contains("credential is empty"));
-    std::env::set_var(&token_name, "test-token");
-    assert!(run_with(
-        cli(Cmd::Bridge(BridgeArgs {
-            run: "missing-run".into(),
-            db: db.clone(),
-            looper_url: "http://127.0.0.1:1".into(),
-            token_env: token_name.clone(),
-            follow: false,
-            interval_ms: 0,
-        })),
-        unmapped(),
-        ui::serve,
-        Some(1),
-        None,
-        run_tui,
-    )
-    .is_err());
+    env.set(&token_name, "test-token");
+    let sync_once_at = |run: &str| {
+        run_with(
+            cli(Cmd::Bridge(BridgeArgs {
+                run: run.into(),
+                journal: at(&db),
+                looper_url: "http://127.0.0.1:1".into(),
+                token_env: token_name.clone(),
+                follow: false,
+                interval_ms: 0,
+            })),
+            unmapped(),
+            ui::serve,
+            Some(1),
+            None,
+            run_tui,
+        )
+    };
+    let missing = selector::refusal_kind(&sync_once_at("missing-run").unwrap_err());
+    assert_eq!(missing, Some(selector::Refusal::Missing));
+    // A resolved run synced against a Looper its manifest did not seal:
+    // the sync refuses, and the verb returns that refusal, not a report.
+    let mismatch = sync_once_at("bridge-run").unwrap_err();
+    let mismatch = mismatch.downcast_ref::<BridgeError>();
+    assert!(matches!(mismatch, Some(BridgeError::AudienceMismatch)));
     assert_eq!(
         run_with(
             cli(command(false)),
@@ -1202,7 +1328,6 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         .unwrap(),
         ExitCode::SUCCESS
     );
-    std::env::remove_var(&token_name);
     server.join().unwrap();
 }
 
@@ -1361,6 +1486,7 @@ fn fixed_clock() -> String {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn watch_redraws_on_seq_and_on_a_hash_only_change_and_leaves_the_journal_alone() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -1497,6 +1623,7 @@ fn watch_redraws_on_seq_and_on_a_hash_only_change_and_leaves_the_journal_alone()
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn watch_frames_a_transient_error_gives_up_on_a_persistent_one_and_reports_a_closed_pipe() {
     let dir = tempfile::tempdir().unwrap();
     let style = render::Style::plain(80);
@@ -1614,6 +1741,156 @@ fn watch_frames_a_transient_error_gives_up_on_a_persistent_one_and_reports_a_clo
         1,
     );
     assert!(closed_tty.is_err());
+}
+
+/// #375: every reading verb, pointed at a journal that is not there,
+/// refuses in the same words and leaves the directory as empty as it
+/// found it — no `.forge/`, no database, no WAL, no export directory.
+#[test]
+fn every_reading_verb_in_an_empty_directory_refuses_and_creates_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join(".forge/forge.db");
+    let refusal = format!(
+        "journal does not exist: {}; a read never creates one",
+        db.display()
+    );
+    let verbs = [
+        (
+            "costs",
+            Cmd::Costs(CostsArgs {
+                run: "x".into(),
+                journal: at(&db),
+            }),
+        ),
+        (
+            "inspect",
+            Cmd::Inspect(InspectArgs {
+                run: "x".into(),
+                realms: None,
+                db: Some(db.clone()),
+                json: false,
+                phase: None,
+                seat: None,
+            }),
+        ),
+        (
+            "seats",
+            Cmd::Seats(SeatsArgs {
+                run: "x".into(),
+                realms: None,
+                db: Some(db.clone()),
+                json: false,
+            }),
+        ),
+        (
+            "watch",
+            Cmd::Watch(WatchArgs {
+                run: "x".into(),
+                realms: None,
+                db: Some(db.clone()),
+                once: true,
+                interval_ms: 750,
+            }),
+        ),
+        (
+            "replay",
+            Cmd::Replay(ReplayArgs {
+                run: "x".into(),
+                journal: at(&db),
+            }),
+        ),
+        (
+            "export",
+            Cmd::Export(ExportArgs {
+                run: "x".into(),
+                out: dir.path().join("out"),
+                realms: None,
+                db: Some(db.clone()),
+                redact: false,
+            }),
+        ),
+        (
+            "runs",
+            Cmd::Runs(RunsArgs {
+                realms: None,
+                db: Some(db.clone()),
+                json: false,
+            }),
+        ),
+        (
+            "compare",
+            Cmd::Compare(CompareArgs {
+                run_a: "x".into(),
+                run_b: "y".into(),
+                journal: at(&db),
+            }),
+        ),
+    ];
+    for (name, verb) in verbs {
+        let error = run_in(dir.path(), cli(verb)).unwrap_err().to_string();
+        assert_eq!(error, refusal, "{name}");
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "{name} created a file"
+        );
+    }
+}
+
+/// #375: `watch` polls a journal a live writer holds open, and every
+/// poll is a read-only open. A read-write open repairs a missing append
+/// guard (`Store::migrate`); a read-only one cannot, so the dropped
+/// guard staying dropped across polls — while the writer appends — is
+/// the proof no poll took the write path.
+#[test]
+fn watch_never_opens_a_live_journal_read_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    let mut writer = Store::open(&db).unwrap();
+    let guard = "events_append_only_delete";
+    let raw = rusqlite::Connection::open(&db).unwrap();
+    raw.execute_batch(&format!("DROP TRIGGER {guard}")).unwrap();
+    let guards = || -> i64 {
+        raw.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'trigger' AND name = ?1",
+            [guard],
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+    let style = render::Style::plain(80);
+    let mut frames = Vec::new();
+    let mut sleep = |_: u64| {
+        writer
+            .append_next(
+                "r1",
+                EventType::EffectRequested,
+                json!({"effect_id": "eff1", "seat": "work", "phase": "work"}),
+                None,
+                None,
+            )
+            .unwrap();
+    };
+    watch_loop(
+        &db,
+        "r1",
+        750,
+        false,
+        &style,
+        &mut frames,
+        &mut fixed_clock,
+        &mut sleep,
+        2,
+    )
+    .unwrap();
+    let text = String::from_utf8(frames).unwrap();
+    assert_eq!(text.matches("── ").count(), 2, "the writer moved the head");
+    assert_eq!(
+        guards(),
+        0,
+        "a poll repaired the guard, so it opened read-write"
+    );
 }
 
 /// The verb, its selector, and the promise that a read never creates a
@@ -1917,6 +2194,70 @@ fn a_vanished_participant_clears_the_same_frames_transcript() {
     );
 }
 
+/// #380: a value the model echoed into its dsh session file reaches the
+/// console as `[secret:NAME]`, masked against the store beside the
+/// journal before the pane draws it, and the pane says what the masking
+/// covered.
+#[test]
+fn the_console_masks_a_bound_value_the_dsh_session_file_holds() {
+    let _env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    brokkr_protocol::secret::store_set(
+        &dir.path().join("secrets.env"),
+        "GH_TOKEN",
+        "ghp-bound-7f3a9c",
+    )
+    .unwrap();
+    let home = dir.path().join("dsh");
+    let seat = home.join("sessions/one/project/seat");
+    std::fs::create_dir_all(&seat).unwrap();
+    std::fs::write(
+        seat.join("session.jsonl"),
+        "{\"type\":\"session\",\"version\":0}\n\
+         {\"type\":\"assistant/message\",\"data\":{\"message\":{\"content\":[{\"type\":\"text\",\
+         \"text\":\"the token is ghp-bound-7f3a9c\"}]}},\"time\":2000}\n",
+    )
+    .unwrap();
+    let ask = tui::Ask {
+        tab: 0,
+        run: Some("r1"),
+        subject: Some(tui::Subject {
+            tab: 0,
+            realm: None,
+            run: "r1".to_string(),
+            key: "eff".to_string(),
+            reference: Some(brokkr_view::Transcript {
+                kind: "dsh-session".to_string(),
+                locator: "sessions/one".to_string(),
+                home: home.to_str().unwrap().to_string(),
+            }),
+            provenance: LegacyProvenance::Absent,
+            legacy_id: None,
+            working: false,
+        }),
+        force: true,
+        fleet: false,
+    };
+    let clock = || "2026-01-01T00:07:03Z".to_string();
+    let views = tui_views(&db, true, ask, &mut None, &mut None, clock)
+        .unwrap()
+        .expect("the forced frame is built");
+    let read = views.transcript.expect("the subject's transcript is read");
+    assert_eq!(
+        read.turns[0].blocks[0].text,
+        "the token is [secret:GH_TOKEN]"
+    );
+    let notice = "secrets masked against the store's current values for GH_TOKEN; a value \
+                  rotated or removed since the run is not masked";
+    assert_eq!(read.notices, vec![notice.to_string()]);
+    let (_, _, pane) = crate::transcript_surfaces_for_test(&read, None);
+    assert!(pane.contains("[secret:GH_TOKEN]"), "{pane}");
+    assert!(pane.contains(notice), "{pane}");
+    assert!(!pane.contains("ghp-bound-7f3a9c"), "{pane}");
+}
+
 /// The lookup reads every hearth it passes READ-ONLY (ruling 5): a
 /// console asked about ONE run must not migrate the journals of the
 /// realms it merely walked past. An empty file is the proof — a
@@ -1947,9 +2288,9 @@ fn resolving_across_hearths_migrates_no_journal_it_passes() {
     assert!(!dir.path().join("alpha.db-wal").exists());
 }
 
-/// The transcript command resolves even a SOLE named hearth read-only: a
-/// read must not create a WAL sidecar, migrate or repair the journal it
-/// came to read.
+/// Resolution opens even a SOLE named hearth read-only (#375): a read
+/// must not create a WAL sidecar, migrate or repair the journal it came
+/// to read.
 #[test]
 fn read_only_resolution_opens_a_sole_hearth_without_writing() {
     let dir = tempfile::tempdir().unwrap();
@@ -1961,7 +2302,7 @@ fn read_only_resolution_opens_a_sole_hearth_without_writing() {
         journal: db.clone(),
     }];
     assert_eq!(
-        resolve_in_hearths_read_only(&world, "run-al".to_string()).unwrap(),
+        resolve_in_hearths(&world, "run-al".to_string()).unwrap(),
         (0, "run-alpha".to_string())
     );
     assert_eq!(
@@ -1980,7 +2321,7 @@ fn read_only_resolution_opens_a_sole_hearth_without_writing() {
         journal: unborn.clone(),
     }];
     assert!(
-        resolve_in_hearths_read_only(&sole_unborn, "latest".to_string()).is_err(),
+        resolve_in_hearths(&sole_unborn, "latest".to_string()).is_err(),
         "an unmigrated sole journal is refused, not repaired"
     );
     assert_eq!(
@@ -1997,7 +2338,7 @@ fn read_only_resolution_opens_a_sole_hearth_without_writing() {
         journal: ghost.clone(),
     }];
     assert_eq!(
-        resolve_in_hearths_read_only(&empty, "latest".to_string()).unwrap(),
+        resolve_in_hearths(&empty, "latest".to_string()).unwrap(),
         (0, "latest".to_string())
     );
     assert!(
@@ -2010,6 +2351,7 @@ fn read_only_resolution_opens_a_sole_hearth_without_writing() {
 /// path: head-gated on both seq and hash, fleet on the slower cadence,
 /// and one unfoldable run keeping its row.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -2270,6 +2612,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
 /// in-memory stamp is the bounded result, not a length or an mtime, so a
 /// same-length rewrite would be noticed as well.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -2616,24 +2959,20 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
     stopped_mid_flight_store(&db, "stopped-mid-flight");
     running_store(&db, "healthy");
 
-    let store = Store::open(&db).unwrap();
-    let events = store.load("stopped-mid-flight").unwrap();
-    let folded = fold_or_quarantine(&events);
-    let state = folded.as_ref().expect("the live journal folds");
+    let read = fleet::read_hearth(&Store::open(&db).unwrap());
+    let listed = read
+        .runs
+        .iter()
+        .find(|run| run.run_id == "stopped-mid-flight")
+        .expect("the run is read");
+    let state = listed.entry().state.expect("the live journal folds");
     assert_eq!(state.seq, 105);
     assert_eq!(state.status, Status::Running);
     assert_eq!(state.phase.as_deref(), Some("verify"));
     assert_eq!(state.cursor, Cursor::Stop, "concluded per the operator");
 
     let entries = [
-        brokkr_view::RunEntry {
-            run_id: "stopped-mid-flight",
-            feature: "tui graph: the selection box",
-            created_at: "2026-08-30T22:20:34Z",
-            state: folded.as_ref().ok(),
-            detail: folded.as_ref().err().map(String::as_str),
-            residuals: &[],
-        },
+        listed.entry(),
         brokkr_view::RunEntry {
             run_id: "healthy",
             feature: "feature",
@@ -2701,13 +3040,10 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
         run_in(
             &workspace(),
             cli(Cmd::Resume(ResumeArgs {
-                bundle: Some(bundle_path.clone()),
-                recipe: None,
-                recipes_dir: workspace().join("recipes"),
+                delivery: bundled(bundle_path.clone()),
                 run: run.into(),
-                db: db.clone(),
-                repo: None,
-                secrets_file: None,
+                journal: at(&db),
+                repo: Some(dir.path().to_path_buf()),
             })),
         )
     };
@@ -2782,34 +3118,9 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     // The rows that listing built, checked at the model rather than
     // through the terminal: both runs present, one of them quarantined
     // in the fold's own words.
-    let store = Store::open(&db).unwrap();
-    let folded: Vec<(
-        String,
-        String,
-        String,
-        std::result::Result<RunState, String>,
-    )> = store
-        .list_runs()
-        .unwrap()
-        .into_iter()
-        .map(|(run_id, feature, created_at)| {
-            let folded = fold_or_quarantine(&store.load(&run_id).unwrap());
-            (run_id, feature, created_at, folded)
-        })
-        .collect();
-    let entries: Vec<brokkr_view::RunEntry> = folded
-        .iter()
-        .map(
-            |(run_id, feature, created_at, folded)| brokkr_view::RunEntry {
-                run_id,
-                feature,
-                created_at,
-                state: folded.as_ref().ok(),
-                detail: folded.as_ref().err().map(String::as_str),
-                residuals: &[],
-            },
-        )
-        .collect();
+    let read = fleet::read_hearth(&Store::open(&db).unwrap());
+    let entries: Vec<brokkr_view::RunEntry> =
+        read.runs.iter().map(fleet::ListedRun::entry).collect();
     let view = serde_json::to_value(brokkr_view::run_rows(&entries)).unwrap();
     assert_eq!(view["count"], 2, "no run is dropped: {view}");
     let row = |run_id: &str| -> Value {
@@ -2848,7 +3159,7 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
         }),
         Cmd::Replay(ReplayArgs {
             run: "poisoned".into(),
-            db: db.clone(),
+            journal: at(&db),
         }),
     ] {
         let error = run(cli(command)).unwrap_err().to_string();
@@ -2869,6 +3180,110 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
         })))
         .unwrap(),
         ExitCode::from(1)
+    );
+}
+
+/// A journal whose hash chain was broken behind the store's back: a
+/// running run, then a third event inserted verbatim whose
+/// `previous_hash` names no event. `Store::load` refuses it at
+/// `verify_chain` (#377), before any fold is asked.
+pub(crate) fn broken_chain_store(db: &std::path::Path, run_id: &str) {
+    running_store(db, run_id);
+    let events = Store::open(db).unwrap().load(run_id).unwrap();
+    let journal = rusqlite::Connection::open(db).unwrap();
+    plant_broken_link(&journal, &events[1], 3).unwrap();
+}
+
+/// One broken chain reads ONE way on every fleet surface (#377): the
+/// healthy runs beside it are all listed, and the broken one is a
+/// quarantined row carrying the store's own words — on `runs`, `tui`,
+/// `ui` and Muninn alike, where it used to exit 1, blank the dossier and
+/// show a bare `?` by turns.
+#[test]
+fn one_broken_chain_is_one_quarantined_row_on_every_fleet_surface() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "healthy");
+    broken_chain_store(&db, "broken");
+    running_store(&db, "also-healthy");
+    const REFUSAL: &str = "chain: event 3: previous_hash does not match event 2";
+
+    // Every surface's rows, in the shape each one hands them over, put in
+    // run-id order: the three runs may share a creation second.
+    let listing = |surface: &str, rows: &Value| -> Vec<Value> {
+        let mut rows = rows.as_array().unwrap().clone();
+        rows.sort_by_key(|row| row["run_id"].as_str().unwrap().to_string());
+        let ids: Vec<&str> = rows
+            .iter()
+            .map(|row| row["run_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            ids,
+            ["also-healthy", "broken", "healthy"],
+            "{surface} lists every run: {rows:?}"
+        );
+        for healthy in [&rows[0], &rows[2]] {
+            assert_eq!(healthy["status"], "running", "{surface}: {healthy}");
+        }
+        rows
+    };
+
+    // `runs`: the listing no longer exits 1 on the broken run.
+    assert_eq!(
+        run(cli(Cmd::Runs(RunsArgs {
+            realms: None,
+            db: Some(db.clone()),
+            json: true,
+        })))
+        .unwrap(),
+        ExitCode::SUCCESS
+    );
+
+    // `tui`: the forced fleet frame, with the refusal as the row's detail
+    // where it used to be a bare `?`.
+    let ask = tui::Ask {
+        tab: 0,
+        run: None,
+        subject: None,
+        force: true,
+        fleet: false,
+    };
+    let views = tui_views(&db, true, ask, &mut None, &mut None, now_rfc3339)
+        .unwrap()
+        .expect("the forced frame is built");
+    let tui_rows = listing("tui", &serde_json::to_value(&views.runs).unwrap()["runs"]);
+    assert_eq!(tui_rows[1]["status"], Value::Null, "printed as '?'");
+    assert_eq!(tui_rows[1]["detail"], REFUSAL);
+    assert_eq!(tui_rows[0]["detail"], Value::Null);
+
+    // `ui`: the same rows over HTTP.
+    let response = ui::handle(&db, "/api/runs");
+    assert_eq!(response.status, "200 OK");
+    let ui_rows = listing("ui", &serde_json::from_str(&response.body).unwrap());
+    assert_eq!(ui_rows[1]["status"], Value::Null);
+    assert_eq!(ui_rows[1]["detail"], REFUSAL);
+
+    // Muninn: a dossier, with the broken run quarantined and raised as
+    // a finding, where it used to be no dossier at all.
+    let store = Store::open_read_only(&db).unwrap();
+    let dossier = muninn::dossier_of(
+        &[muninn::Source {
+            realm: None,
+            store: &store,
+        }],
+        &[],
+        "2026-09-25T00:00:00Z",
+    )
+    .unwrap();
+    let muninn_rows = listing("muninn", &dossier.value["runs"]);
+    assert_eq!(muninn_rows[1]["status"], "?");
+    assert_eq!(muninn_rows[1]["fold_error"], REFUSAL);
+    assert_eq!(muninn_rows[1]["seq"], 0);
+    assert_eq!(dossier.value["fleet"]["quarantined"], 1);
+    assert_eq!(dossier.value["fleet"]["running"], 2);
+    assert_eq!(
+        dossier.value["residual_findings"][0]["line"],
+        format!("broken seq 0 · journal does not fold · {REFUSAL}")
     );
 }
 
@@ -3153,6 +3568,7 @@ fn the_realms_verb_reads_the_world_or_says_there_is_none() {
 /// journal it came from renders it. The arrival is queryable beside the
 /// chain (decision 0027) and appears in no readout that existed before.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
     let dir = tempfile::tempdir().unwrap();
     let native = dir.path().join("native.db");
@@ -3347,11 +3763,8 @@ fn conclude_fixture_store(db: &std::path::Path, name: &str) {
     let connection = rusqlite::Connection::open(db).unwrap();
     for line in ndjson.lines().filter(|line| !line.trim().is_empty()) {
         let event: brokkr_core::envelope::EventEnvelope = serde_json::from_str(line).unwrap();
-        connection
-            .execute(
-                "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![name, event.seq as i64, event.event_hash, line],
-            )
+        let seq = event.seq as i64;
+        brokkr_store::test_support::plant_event(&connection, name, &seq, &event.event_hash, line)
             .unwrap();
     }
 }
@@ -3373,7 +3786,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
         run(cli(Cmd::Conclude(ConcludeArgs {
             run: "stranded".into(),
             reason: "the engine moved on without it".into(),
-            db: db.clone(),
+            journal: at(&db),
         })))
         .unwrap(),
         ExitCode::from(3),
@@ -3385,7 +3798,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     let refusal = run(cli(Cmd::Conclude(ConcludeArgs {
         run: "stranded".into(),
         reason: "again".into(),
-        db: db.clone(),
+        journal: at(&db),
     })))
     .unwrap_err()
     .to_string();
@@ -3399,7 +3812,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
         run(cli(Cmd::Conclude(ConcludeArgs {
             run: "conclude-parked-hand-built".into(),
             reason: "closing the books".into(),
-            db: db.clone(),
+            journal: at(&db),
         })))
         .unwrap(),
         ExitCode::from(3),
@@ -3417,7 +3830,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     let missing = run(cli(Cmd::Conclude(ConcludeArgs {
         run: "no-such-run".into(),
         reason: "nothing to close".into(),
-        db,
+        journal: at(&db),
     })))
     .unwrap_err()
     .to_string();
@@ -3457,7 +3870,7 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
     let reason =
         "closed\u{061c}\u{202e}drawrof\u{200b}\nOPERATOR-STOP: operator 'ci' commanded stop";
     let mut store = Store::open(&db).unwrap();
-    let state = conclude(&mut store, run_id, operator, reason).unwrap();
+    let state = brokkr_runtime::conclude(&mut store, run_id, operator, reason).unwrap();
     assert_eq!(state.status, Status::Stopped);
 
     // Verbatim in the journal: the citation names the operator as given,
@@ -3543,12 +3956,22 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     let found = contention(&deep).expect("contention buried in a chain is still contention");
     assert!(found.is_contention());
     assert!(found.to_string().contains("nothing was written"));
-    assert_eq!(report(&deep), ExitCode::from(CONTENDED_EXIT));
+    assert_eq!(report(&deep), ExitCode::from(Exit::Contended));
 
     // And straight out of a store call, which is how every reading verb
     // in this file would meet one.
     let bare: anyhow::Error = contended().into();
     assert!(contention(&bare).is_some());
+
+    // And out of an import, whose store variant is transparent too: a
+    // busy journal leaves `brokkr import` with the contended exit.
+    let import =
+        anyhow::Error::from(brokkr_store::ImportError::Store(contended())).context("importing r1");
+    assert_eq!(report(&import), ExitCode::from(Exit::Contended));
+    let collision: anyhow::Error = brokkr_store::ImportError::Collision("r1".into()).into();
+    assert!(contention(&collision).is_none());
+    let import_moved: anyhow::Error = brokkr_store::ImportError::Store(moved()).into();
+    assert!(contention(&import_moved).is_none());
 
     // The fenced-append refusal next door is NOT contention, by either
     // road: it is a verdict about content, and giving it the retryable
@@ -3562,7 +3985,7 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     let defect = anyhow::anyhow!("a real defect");
     assert!(contention(&defect).is_none());
     assert_eq!(report(&defect), ExitCode::from(1));
-    assert_eq!(CONTENDED_EXIT, 4);
+    assert_eq!(Exit::Contended.code(), 4);
 }
 
 /// Decision 0043 through the in-process verb: a boxed command runs whole
@@ -3808,15 +4231,12 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let refusal = run_in(
         &root,
         cli(Cmd::Run(RunArgs {
-            bundle: Some(root.join("recipes/triage")),
-            recipe: None,
-            recipes_dir: root.join("recipes"),
+            delivery: bundled(root.join("recipes/triage")),
             feature: "dialect refusal".into(),
             realms: Some(no_dialect_path),
             db: Some(dir.path().join("never-created.db")),
             repo: Some(root.clone()),
             dispatch: None,
-            secrets_file: None,
         })),
     )
     .unwrap_err()
@@ -3828,13 +4248,10 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     assert!(run_in(
         &root,
         cli(Cmd::Resume(ResumeArgs {
-            bundle: Some(dir.path().join("missing-bundle")),
-            recipe: None,
-            recipes_dir: root.join("recipes"),
+            delivery: bundled(dir.path().join("missing-bundle")),
             run: "resume-missing-bundle".into(),
-            db: resume_db,
+            journal: at(&resume_db),
             repo: None,
-            secrets_file: None,
         })),
     )
     .is_err());
@@ -3938,6 +4355,7 @@ fn held_and_shipped(db: &std::path::Path) {
 /// 2): the verb writes one annotation, and every way of asking for it
 /// wrong is refused with nothing written.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -3951,8 +4369,7 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
             by_run: by_run.map(str::to_string),
             by_seq,
             by_realm: None,
-            realms: None,
-            db: Some(db.clone()),
+            journal: at(&db),
         })
     };
 
@@ -4059,8 +4476,10 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
                 by_run: Some("later".into()),
                 by_seq: Some(6),
                 by_realm: Some("next-door".into()),
-                realms: Some(workspace.path().join("realms.json")),
-                db: None,
+                journal: JournalArgs {
+                    realms: Some(workspace.path().join("realms.json")),
+                    db: None,
+                },
             })),
         )
         .unwrap(),
@@ -4083,7 +4502,11 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     })
     .unwrap_err()
     .to_string();
-    assert!(refusal.contains("belong to 'supersede'"), "{refusal}");
+    assert_eq!(
+        refusal,
+        "--findings, --by-run, --by-seq and --by-realm belong to 'supersede'; \
+         'retry' takes --run, --reason, --realms and --db"
+    );
 }
 
 #[test]

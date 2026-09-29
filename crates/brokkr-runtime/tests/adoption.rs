@@ -1,12 +1,7 @@
 //! Decision 0041 adoption pins: library-backed sites resolve the roster's
-//! current first hire and the charter recorded in the compiled manifest.
-//! The fable pins deliberately moved to `claude-fable-5-1` under ruling 1;
-//! ruling 2 moved tools and model choices into one office definition.
-//! Rulings 4 and 5 move the charter witnesses again: judges no longer fix,
-//! implementers answer returned findings, and spec compliance can return a
-//! defective specification to design.
-//! Ruling 8 moves the affected charter witnesses once more: repository rules
-//! now come from the realm's house rather than the portable office.
+//! current first hire and the charter recorded in the compiled manifest,
+//! whose digest is the witness table's pin (`witnesses.json`, #358).
+//! Ruling 2 moved tools and model choices into one office definition.
 //! Decision 0045 moves the self bundle's review site across the vendor
 //! line: the last judge before ship is hired on codex's `astra`.
 
@@ -33,6 +28,11 @@ fn compile(relative: &str) -> Bundle {
     )
     .unwrap_or_else(|e| panic!("{relative} must compile: {e}"))
 }
+
+#[path = "support/witnesses.rs"]
+mod witnesses;
+
+use witnesses::Witnesses;
 
 /// Every invocation site of a bundle: label → (charter path, argv).
 fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
@@ -94,104 +94,49 @@ fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
     out
 }
 
-/// site → (concrete model id, current charter digest).
+/// site → (concrete model id, the charter under `agents/charters/` it
+/// resolves). The charter's digest is the witness table's pin (#358).
 type Roster = [(&'static str, &'static str, &'static str)];
 
 const PANEL_REVIEW: &Roster = &[
-    (
-        "intake",
-        "claude-sonnet-5",
-        "fbdb7dba8e34fbc0b02e0f7fd7540fd0ab9313e40cdbcb03c27c22d78c138756",
-    ),
-    (
-        "implement",
-        "claude-opus-5-5",
-        "b750b0a401fa7fc1aad5dd929bf136cf961b12d2e11ac9fc67995927ea686ad7",
-    ),
-    (
-        "review:correctness",
-        "gpt-6-sol",
-        "7d11cd3201c6bf9464b7092e456ad0e432772aa7cf0fee28d3b18782733b172b",
-    ),
-    (
-        "review:security",
-        "claude-fable-5-1",
-        "33d6b92f2a349636e60cb9a4ef6a90fcf6925709742457ef918fbaf80a2f0b89",
-    ),
+    ("intake", "claude-sonnet-5-5", "intake.md"),
+    ("implement", "claude-opus-5-5", "implementer.md"),
+    ("review:correctness", "gpt-6-sol", "review-correctness.md"),
+    ("review:security", "claude-fable-5-1", "review-security.md"),
 ];
 
 const TRIAGE: &Roster = &[
-    (
-        "implement:design",
-        "claude-opus-5-5",
-        // Moved by proposed decision 0056 ruling 10: the SDD smith's
-        // charter gained the progress-timing and recovery clauses.
-        "ce6456bf7466cddf9ff73a18ab3e4ce0df9ecfb0a490d1940dbcaabe9aa1e07c",
-    ),
+    ("implement:design", "claude-opus-5-5", "implementer-sdd.md"),
     (
         "review:design:positions:spec-compliance",
         "claude-opus-5-5",
-        "bcfc9eedf910ddae08807b3720558d665a03ca9ddb2211dbfddc5839da946782",
+        "review-spec-compliance.md",
     ),
     (
         "review:design:positions:security",
         "claude-fable-5-1",
-        "33d6b92f2a349636e60cb9a4ef6a90fcf6925709742457ef918fbaf80a2f0b89",
+        "review-security.md",
     ),
-    (
-        "design:chief",
-        "claude-fable-5-1",
-        "c6d224031f2e18010fc5e104cf4692fe7c51713e9c43da9f89f748331f4a69da",
-    ),
-    (
-        "specify:author",
-        "claude-fable-5-1",
-        "c6d224031f2e18010fc5e104cf4692fe7c51713e9c43da9f89f748331f4a69da",
-    ),
-    (
-        "tasks:author",
-        "claude-opus-5-5",
-        // Moved by proposed decision 0056 ruling 10: the SDD smith's
-        // charter gained the progress-timing and recovery clauses.
-        "ce6456bf7466cddf9ff73a18ab3e4ce0df9ecfb0a490d1940dbcaabe9aa1e07c",
-    ),
-    (
-        "clarify:judge",
-        "claude-opus-5-5",
-        "5028f0624c92272ce12a4cc50fd771e86591436dd912d31b2127687a3d233fa7",
-    ),
-    (
-        "analyze:judge",
-        "claude-fable-5-1",
-        "964414f4d6e6f4bc871e793707197eb38b3aa6005051fe5012187a160d1f44e0",
-    ),
+    ("design:chief", "claude-fable-5-1", "chief-architect.md"),
+    ("specify:author", "claude-fable-5-1", "chief-architect.md"),
+    ("tasks:author", "claude-opus-5-5", "implementer-sdd.md"),
+    ("clarify:judge", "claude-opus-5-5", "clarifier.md"),
+    ("analyze:judge", "claude-fable-5-1", "analyst.md"),
     (
         "design:positions:simplicity",
         "claude-opus-5-5",
-        "81a14dffa301d38f2d523d0a828fd7ce5accf38a0e75dc3995f9682c9cf72b0d",
+        "position-simplicity.md",
     ),
     (
         "design:positions:robustness",
         "gpt-6-sol",
-        "696802b3d981e7d487926500a749c699e1697b05a0d7e5686639f8dd09067533",
+        "position-robustness.md",
     ),
 ];
 const SELF: &Roster = &[
-    (
-        "intake",
-        "claude-sonnet-5",
-        "fbdb7dba8e34fbc0b02e0f7fd7540fd0ab9313e40cdbcb03c27c22d78c138756",
-    ),
-    (
-        "implement",
-        "claude-opus-5-5",
-        "b750b0a401fa7fc1aad5dd929bf136cf961b12d2e11ac9fc67995927ea686ad7",
-    ),
-    (
-        "review",
-        "gpt-6-astra",
-        "4efedc43f0b8ac110000f4ffa3b3205aac3acac0850485b027d298dd2b8aa4e8",
-    ),
+    ("intake", "claude-sonnet-5-5", "intake.md"),
+    ("implement", "claude-opus-5-5", "implementer.md"),
+    ("review", "gpt-6-astra", "reviewer.md"),
 ];
 
 fn expected_argv(site: &str, model: &str) -> Vec<String> {
@@ -265,7 +210,9 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
 fn assert_adopted(relative: &str, roster: &Roster) {
     let bundle = compile(relative);
     let sites = sites(&bundle);
-    for (site, model, charter_digest) in roster {
+    let charters = Witnesses::load(&workspace()).charters;
+    for (site, model, charter_name) in roster {
+        let charter_digest = &charters[*charter_name];
         let (charter, argv) = sites
             .get(*site)
             .unwrap_or_else(|| panic!("{relative} has no site '{site}'"));

@@ -27,7 +27,6 @@ implementer-engine	astra → fable	Engine-class implementer: builds core, store,
 implementer-sdd	opus → sonnet	Smith for spec-driven delivery: writes the breakdown, builds it, and closes out the dialect change.
 implementer	opus → sonnet	Builds the framed task to the repository's conventions and commits the work with its tests.
 intake	sonnet → opus	Frames a raw request into a recorded, actionable task before any code is written.
-intake-sdd	sonnet → opus	Intake for spec-driven delivery: frames the request before the dialect's artifact phases.
 muninn	opus	Reads the fleet dossier and proposes operator actions; issues none.
 position-robustness	sol → opus	Design panel member: argues the failure modes the simple design would leave open, with evidence.
 position-simplicity	opus → sol	Design panel member: argues the simplest design that meets the ruling, and names what it gives up.

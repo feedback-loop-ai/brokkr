@@ -620,6 +620,10 @@ fn a_dialect_outside_the_contract_is_refused_naming_the_file_and_the_field() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys() {
     let schema_of = |restrictions: Value| {
         let mut value = native_dialect("d", "web-search", &["lookup"]);
@@ -1723,6 +1727,10 @@ fn a_declared_transport_carries_only_the_empty_restriction() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks() {
     let root = cq1_root();
     let stuck = NativeInventory::parse(

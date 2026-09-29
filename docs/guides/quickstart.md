@@ -25,7 +25,7 @@ Then three things extend the spine rather than restating it:
 **About the two budgets.** They are measured, not claimed.
 [`scripts/bootstrap-bench.sh`](../../scripts/bootstrap-bench.sh) times
 both paths on a clean tempdir and exits non-zero when either blows, and
-it runs as the `bootstrap-budgets` job in CI. Read what it does *not*
+it runs as the `bootstrap-budgets` jobs in CI, one per host. Read what it does *not*
 measure before you trust a number: it prints that itself, and
 [§ what the budgets do not cover](#what-the-budgets-do-not-cover) says
 it here.
@@ -127,8 +127,11 @@ record of that split. The fifth refusal is `recipes/release`: its boxed
 `implement` office reaches claude without a measured `hands.harness.work`
 fragment before compilation reaches the review gate.
 
-```
+```console
 $ brokkr --version
+```
+
+```text
 brokkr 0.8.0
 ```
 
@@ -137,7 +140,7 @@ brokkr 0.8.0
 > attestation covers. If you want it:
 >
 > ```
-> cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
+> cargo install --path crates/brokkr-cli    # builds and installs the binary
 > ```
 >
 > This is the path for people changing Brokkr, not for people using it.
@@ -146,6 +149,9 @@ brokkr 0.8.0
 
 ```
 $ brokkr doctor
+```
+
+```text
 ok       contracts: engine 0.8.0, event_schema 1, database_schema 1, driver_protocol 1
 ok       git: git version 2.51.0
 ok       claude: 2.1.252 (Claude Code) · serves fable, haiku, opus, sonnet
@@ -163,9 +169,12 @@ find out mid-run. Warnings are optional capabilities. `doctor` executes
 no agent. Dialect lines compare the installed specification tool with the
 realm's pin and check every file its dialect requires; a missing dialect tool
 warns that the design route will refuse without making the whole doctor fail.
-Three flags: `--bundle <dir>` also compiles a bundle and reports
-the result, and `--db <path>` chooses the workspace journal (default
-`.forge/forge.db`); `--realms <path>` selects a non-default realm map.
+Four flags: `--bundle <dir>` also compiles a bundle and reports
+the result, and `--db <path>` chooses the workspace journal (default: the
+map's journal, else `.forge/forge.db`); `--realms <path>` selects a
+non-default realm map, and `--secrets-file <path>` names the secrets
+store (default `.forge/secrets.env`) so doctor can say which declared
+credentials a route takes from the ambient environment instead.
 
 ### Step 2 — `brokkr init .`
 
@@ -176,6 +185,9 @@ model chain and tool grant; deterministic offices carry a boxed exec script.
 
 ```
 $ brokkr init .
+```
+
+```text
 initialized reviewable bundle at . (digest 4a0f568f35fd6efec2fc66574651c3d786fbfcf54fcdc2bb34a247f0fcf426c9)
 run brokkr from inside . — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
@@ -193,6 +205,7 @@ What it wrote:
 ```
 ./bundle.json          # five seats: three model offices and two boxed exec gates
 ./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
+./realms.json          # the realm map: this repository, its journal, and the boundary where one is declared
 ./adapters/claude.json # the trust tier your gates judge on, and the tool map — yours to edit
 ./adapters/exec.json   # the deterministic boxed driver
 ./agents/README.md     # what was written, and which tools the seats were granted — your own README is untouched
@@ -204,7 +217,22 @@ What it wrote:
 ./agents/charters/reviewer.md
 ./scripts/verify-seat.sh # detected test and lint commands, boxed without network
 ./scripts/ship-seat.sh   # deterministic ledger and closeout
+./dialects/              # only in a spec-kit or OpenSpec repository: the detected dialect's pinned data
+./.forge/.gitignore      # ignores the run's own journal, results and ledger; one already there is kept
 ```
+
+`init` scaffolds for the first agent CLI on `PATH`: `claude`, `codex`
+or `dsh`, and `claude` when none is found. A codex scaffold writes
+`adapters/codex.json` in place of `adapters/claude.json`, hires every
+seat from codex, and declares the `harness` boundary in `realms.json`,
+so codex's own sandbox holds each seat's hands. dsh cannot hold the
+review gate, because its adapter is untrusted and names no judges. A dsh
+scaffold therefore hires intake and implement from dsh and keeps the
+reviewer on claude, and says so. On macOS `realms.json` declares
+`harness` whatever the CLI, because the default `namespace` boundary
+needs Linux bubblewrap 0.10 or newer. Commit the scaffold before the
+first run: the ship gate closes out only on a clean tree, and the
+`.forge/.gitignore` keeps the run's own output out of it.
 
 The table has five working phases — `intake`, `implement`, `verify`,
 `review`, `ship` — plus the two terminals `done` and `stop`. `review` is
@@ -293,9 +321,10 @@ start a run.
 
 ### Step 4 — read the journal
 
-`brokkr run` exits **0** when the run reaches `done`, **2** when it
-parks for the operator, **3** when it stops, and **1** on an error — so
-a shell script can tell them apart without parsing anything.
+`brokkr run`'s exit code says whether the run reached `done`, parked
+for the operator, stopped, or met an error — so a shell script can tell
+them apart without parsing anything. The codes are
+[one table](../reference/cli.md#exit-codes) in the CLI reference.
 
 Then ask the run what happened:
 
@@ -477,16 +506,20 @@ Add `.forge/` to your `.gitignore`. It is evidence, not source.
 
 ### The escape hatches
 
-#### Operator commands — `retry` and `stop`
+#### Operator commands — `retry`, `stop` and `supersede`
 
 ```
 brokkr operator --run <id> retry --reason "the flaky test passes on re-run"
 brokkr operator --run <id> stop  --reason "requirements changed"
+brokkr operator --run <id> supersede --reason "fixed on main" \
+  --findings 41 --by-run <other id> --by-seq 97
 ```
 
 The command is a **positional argument** and `--reason` is **required**;
-`--db` defaults to `.forge/forge.db`. There are exactly two commands:
-`retry` re-runs the current phase, `stop` ends the run. Both are
+`--db` defaults to `.forge/forge.db`. There are three commands:
+`retry` re-runs the current phase, `stop` ends the run, and `supersede`
+records that residual findings on a run that has already finished were
+closed by another run's ruling (decision 0047). `retry` and `stop` are
 recorded as `operator/commanded` plus the engine's disposition —
 `operator/accepted` when it lands, `operator/rejected` when it does not.
 Approval is an entry in the record, not a prose convention, and so is a
@@ -514,7 +547,7 @@ never an operator verb. A run parks when the machine cannot rule:
   `forge.phase-machine/v2`).
 
 A parked run sits in `awaiting_operator` with the raw evidence attached
-and leaves only through one of the two commands above.
+and leaves only through `retry` or `stop`.
 
 #### Resume
 
@@ -530,9 +563,10 @@ edited files. If you changed the bundle, that is a new run, not a
 resumed one.
 
 `brokkr resume` takes `--bundle`/`--recipe` (exactly one), `--run`,
-`--db` (default `.forge/forge.db`), `--repo` and `--secrets-file`. It
-takes **no `--realms`**: a run started in a mapped world whose journal
-is not `.forge/forge.db` is resumed by naming that journal with `--db`.
+`--realms`, `--db`, `--repo` and `--secrets-file`. The journal is the one
+`run` wrote: `--db` when typed, else the journal the map names, else
+`.forge/forge.db` — so a run started in a mapped world is resumed with no
+`--db`.
 
 #### Conclude — closing a run whose bundle no longer compiles
 
@@ -597,13 +631,13 @@ $ brokkr costs --run latest
 
 Per seat: `attempts` counted from `effect/started` events, and `turns`
 and `cost_usd` summed from the `num_turns` and `total_cost_usd` fields
-the driver reported in its checkpoints. `--db` defaults to
-`.forge/forge.db`; `brokkr costs` takes no `--realms`.
+the driver reported in its checkpoints. `--db` defaults to the journal
+the map names, else `.forge/forge.db`; `--realms` names the map.
 
 Be clear-eyed about this:
 
 - **A run spawns real, billed agent sessions.** Every seat is a Claude
-  Code or Codex session against your account. A five-phase recipe with
+  Code, Codex or dsh session against your account. A five-phase recipe with
   retries is five or more sessions on a repository the agent is reading
   and editing.
 - **Cost is only as complete as the harness reports.** A provider whose
@@ -645,11 +679,24 @@ Neither number is a claim about your machine. Run the script.
 - **One journal per world.** A realms map names a set of repositories
   and exactly one `journal` they share (`forge.realms/v1`). There is no
   per-realm journal.
-- **`--realms` reaches only some commands.** `run` and the read surfaces
-  the ruling names — `runs`, `realms`, `tui`, `watch`, `inspect`,
-  `export`, `muninn run` — accept it. `resume`, `conclude`, `rerun`,
-  `doctor`, `ui`, `costs`, `compare`, `anchor` and `bridge` take `--db`
-  alone.
+- **Three drivers per journal is the practical ceiling.** Every driver
+  on a world writes the same journal, and SQLite's write lock is not a
+  fair queue. On 2026-09-25, three or four drivers on one journal met a
+  42 s wait against the 30 s patience (#394). A working seat's
+  checkpoints are now held behind a peer's lock without waiting, so the
+  seat never stalls. When the seat stops, the
+  checkpoints still held get three patiences, its terminal event three,
+  and the same outcome three more, so an attempt can wait nine
+  patiences to settle. Each marker the engine journals for a panel
+  member or a sequence step gets three of its own. The run carries on
+  once the outcome lands. A lock that outlasts them all ends the engine
+  with the attempt open, and the next `resume` settles it as restarted
+  and parks.
+  Nothing caps writers until decision 0068's dispatcher is built (#430).
+- **`ui` serves one journal.** Every verb that opens a journal takes
+  `--realms` and opens the journal the map names unless `--db` outranks
+  it (#374), but `ui` refuses a world whose realms name several hearths
+  until `--db` picks one; `tui` and `runs` read them all.
 - **A Looper-dispatched run (`--dispatch`) cannot adopt agents and
   carries no realms map.** The v2 manifest lineage would silently drop
   both, so the engine refuses instead.
@@ -686,33 +733,38 @@ gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 **Or build it.** Rust 1.88 or newer:
 
 ```
-cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
+cargo install --path crates/brokkr-cli    # builds and installs the binary
 ```
 
 **Then deliver something.**
 
 ```
 $ brokkr doctor                           # tools, agent CLIs, database, contracts
+```
+
+```text
 ok       contracts: engine 0.8.0, event_schema 1, database_schema 1, driver_protocol 1
 ok       git: git version 2.51.0
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       agent implementer: would run opus via claude here (chain opus → sonnet)
 ok       dialect brokkr: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0
 …
+```
 
-$ brokkr init my-bundle                   # scaffold a reviewable starter recipe
-initialized reviewable bundle at my-bundle (digest …)
+```
+$ brokkr init .                           # scaffold a reviewable starter recipe
+initialized reviewable bundle at . (digest …)
 
-$ brokkr run --bundle my-bundle --repo . --feature "prefix selectors for the read surfaces"
+$ brokkr run --bundle . --repo . --feature "prefix selectors for the read surfaces"
 run started: prefix-selectors-for-the-read-su-8bf6d692
 …
 
 $ brokkr tui                              # explore what just happened
 ```
 
-`brokkr run` exits 0 when the run reaches `done`, 2 when it parks for the
-operator, and 3 when it stops — so a shell script can tell the three
-apart without parsing anything.
+`brokkr run`'s [exit code](../reference/cli.md#exit-codes) tells a shell
+script whether the run reached `done`, parked for the operator or
+stopped, without parsing anything.
 
 `brokkr init` writes a starter recipe you are meant to read: a seven-phase
 policy table (five working phases plus `done` and `stop`) with the review

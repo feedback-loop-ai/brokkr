@@ -33,7 +33,6 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use brokkr_core::fold::fold;
 use brokkr_protocol::oneshot::{self, OneShot};
 use brokkr_runtime::bundle::expand_command;
 use brokkr_runtime::realms::{Hearth, World};
@@ -45,25 +44,25 @@ use crate::realms::{Consumed, Pin, Published};
 use crate::render::Safe;
 
 /// The agent definition this command invokes.
-pub const AGENT: &str = "muninn";
+pub(crate) const AGENT: &str = "muninn";
 
 /// The seat name the driver is started with. There is no phase here —
 /// this seat belongs to no run — but the protocol names a seat, and this
 /// is the honest name for it.
-pub const SEAT: &str = "muninn";
+pub(crate) const SEAT: &str = "muninn";
 
 /// The one result the seat is allowed to reach.
-pub const PROPOSED: &str = "proposed";
+pub(crate) const PROPOSED: &str = "proposed";
 
 /// Wire version of the dossier handed to the seat.
-pub const DOSSIER_VERSION: u32 = 1;
+pub(crate) const DOSSIER_VERSION: u32 = 1;
 
 /// Wire version of one line in the record.
-pub const RECORD_VERSION: u32 = 1;
+pub(crate) const RECORD_VERSION: u32 = 1;
 
 /// The record's default location: beside the workspace journal, and
 /// deliberately not inside it.
-pub const DEFAULT_RECORD: &str = ".forge/muninn.ndjson";
+pub(crate) const DEFAULT_RECORD: &str = ".forge/muninn.ndjson";
 
 /// The one-line task the seat's prompt carries.
 const TASK: &str = "Read the fleet dossier below and propose operator actions. \
@@ -73,7 +72,7 @@ const TASK: &str = "Read the fleet dossier below and propose operator actions. \
 /// report is judged against: the facts the dossier states, and the
 /// operator commands each run admits.
 #[derive(Debug)]
-pub struct Dossier {
+pub(crate) struct Dossier {
     /// The dossier as the seat receives it.
     pub value: Value,
     /// Every (realm, run id, sequence number) the dossier states — the
@@ -163,7 +162,7 @@ impl Dossier {
 /// journal a realm's runs land in, so it is named for what it is even in
 /// a one-hearth world, where the journal-derived facts beside it name no
 /// realm at all.
-pub struct RealmCrossings {
+pub(crate) struct RealmCrossings {
     pub realm: String,
     /// What this realm publishes, in map order — the identity a reader
     /// needs, and never a bare count.
@@ -186,7 +185,7 @@ type CitedCrossing = (String, String);
 ///
 /// A world with no map at all draws none, which is every workspace that
 /// never wrote a `realms.json`.
-pub fn world_crossings(world: Option<&World>) -> Vec<RealmCrossings> {
+pub(crate) fn world_crossings(world: Option<&World>) -> Vec<RealmCrossings> {
     let Some(world) = world else {
         return Vec::new();
     };
@@ -209,7 +208,7 @@ pub fn world_crossings(world: Option<&World>) -> Vec<RealmCrossings> {
 /// belong to when the world holds more than one (decision 0026 ruling
 /// 3). A one-hearth world names no realm, and its dossier is exactly the
 /// dossier it always was.
-pub struct Source<'a> {
+pub(crate) struct Source<'a> {
     pub realm: Option<&'a str>,
     pub store: &'a Store,
 }
@@ -227,7 +226,12 @@ pub struct Source<'a> {
 /// ([`world_crossings`] over `World::crossings_report`), passed in rather
 /// than resolved here: a second resolution would hash the publisher's
 /// bytes again and could disagree with the one `World::load` stands on.
-pub fn dossier_of(sources: &[Source], crossings: &[RealmCrossings], now: &str) -> Result<Dossier> {
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+pub(crate) fn dossier_of(
+    sources: &[Source],
+    crossings: &[RealmCrossings],
+    now: &str,
+) -> Result<Dossier> {
     let mut rows: Vec<Value> = Vec::new();
     let mut findings: Vec<Value> = Vec::new();
     let mut facts: Vec<(Option<String>, String, u64)> = Vec::new();
@@ -241,21 +245,28 @@ pub fn dossier_of(sources: &[Source], crossings: &[RealmCrossings], now: &str) -
     for source in sources {
         let realm = source.realm.map(str::to_string);
         let store = source.store;
-        for (run_id, feature, created_at) in store.list_runs()? {
-            let events = store
-                .load(&run_id)
-                .with_context(|| format!("loading run '{run_id}'"))?;
-            let state = match fold(&events) {
+        let listed = crate::fleet::read_hearth(store)
+            .listed()
+            .map_err(anyhow::Error::msg)?;
+        for crate::fleet::ListedRun {
+            run_id,
+            feature,
+            created_at,
+            events,
+            state,
+            residuals,
+        } in listed
+        {
+            let state = match state {
                 Ok(state) => state,
-                Err(error) => {
-                    // One unfoldable journal must not blind the aide to the
+                Err(crate::fleet::Quarantine { detail, seq }) => {
+                    // One corrupt journal must not blind the aide to the
                     // fleet. The run is quarantined — listed as `?` with the
-                    // fold's own words — and raised as a finding, because an
-                    // unfoldable journal is exactly what the operator needs
-                    // surfaced, not hidden. Its citation is the sequence the
-                    // fold refused at, so a proposal naming it validates.
-                    let seq = error.seq();
-                    let detail = error.to_string();
+                    // refusal's own words — and raised as a finding, because
+                    // a journal that will not load or fold is exactly what
+                    // the operator needs surfaced, not hidden. Its citation
+                    // is the sequence the fold refused at, so a proposal
+                    // naming it validates.
                     let finding = brokkr_view::quarantine_finding(&run_id, seq, &detail);
                     facts.push((realm.clone(), run_id.clone(), seq));
                     findings.push(keyed(&realm, serde_json::to_value(&finding)?));
@@ -283,14 +294,14 @@ pub fn dossier_of(sources: &[Source], crossings: &[RealmCrossings], now: &str) -
                 .summary
                 .as_ref()
                 .expect("a folded state always summarizes");
-            let admits = brokkr_view::operator_commands(&summary.status);
+            let admits = brokkr_view::operator_commands(&state);
             *counts.entry(summary.status.clone()).or_default() += 1;
             facts.push((realm.clone(), run_id.clone(), summary.seq));
             // First hearth wins, matching [`Dossier::realm_of`]: where
             // two journals hold one run id, one answer is stated for it
             // and it is the same one on both sides.
             commands.entry(run_id.clone()).or_insert(admits.clone());
-            for finding in brokkr_view::residual_findings(&run_id, &events) {
+            for finding in residuals {
                 facts.push((realm.clone(), run_id.clone(), finding.seq));
                 // The annotation is a citable fact in its own right
                 // (decision 0047 ruling 4), so a report may say "the
@@ -473,7 +484,7 @@ fn keyed(realm: &Option<String>, value: Value) -> Value {
 /// One resolved invocation of the overseer: the command, the charter it
 /// reads, the deadline it runs under, and the model actually serving it.
 #[derive(Debug)]
-pub struct Seat {
+pub(crate) struct Seat {
     pub command: Vec<String>,
     pub charter: PathBuf,
     pub deadline: Duration,
@@ -485,7 +496,7 @@ pub struct Seat {
 /// definition that gives this seat a retry ladder: ruling 4 says one
 /// invocation produces its report or nothing, and `max_attempts` is
 /// where that would quietly stop being true.
-pub fn seat(agents_dir: &Path, adapters_dir: &Path) -> Result<Seat> {
+pub(crate) fn seat(agents_dir: &Path, adapters_dir: &Path) -> Result<Seat> {
     let library = Library::load(agents_dir)?;
     let adapters = Adapters::load(adapters_dir)?;
     let resolved =
@@ -530,7 +541,7 @@ fn seat_input(seat: &Seat, dossier: &Dossier, scratch: &Path) -> Value {
 
 /// A validated report. The fields are the three proposal kinds v1
 /// carries, plus the citations every entry in them stated.
-pub struct Report {
+pub(crate) struct Report {
     pub fleet_summary: String,
     pub parked_runs: Vec<Value>,
     pub work_queue: Vec<Value>,
@@ -630,7 +641,7 @@ fn cite(realm: &Option<String>, run_id: &str, seq: u64) -> serde_json::Map<Strin
 /// Read the seat's result into a report, or say exactly what is wrong
 /// with it. Nothing is repaired and nothing is partially accepted
 /// (decision 0001): a report with one bad entry is a bad report.
-pub fn validate(dossier: &Dossier, result: &Value) -> Result<Report, String> {
+pub(crate) fn validate(dossier: &Dossier, result: &Value) -> Result<Report, String> {
     let reached = result.get("result").and_then(Value::as_str);
     if reached != Some(PROPOSED) {
         return Err(format!(
@@ -894,7 +905,7 @@ fn render(entry: &Value) -> String {
 /// `brokkr muninn run`. A refused invocation and an unusable report both
 /// record nothing, print one plain line, and exit nonzero: the record is
 /// evidence, and evidence nobody can check is not evidence.
-pub fn run(
+pub(crate) fn run(
     hearths: &[Hearth],
     world: Option<&World>,
     agents_dir: &Path,
@@ -983,7 +994,7 @@ pub fn run(
                 "muninn produced no report and recorded nothing: {}",
                 Safe::new(&reason).as_str()
             );
-            return Ok(ExitCode::from(1));
+            return Ok(crate::Exit::Failed.into());
         }
         OneShot::Produced {
             result,
@@ -997,7 +1008,7 @@ pub fn run(
                 "muninn's report was not usable and was not recorded: {}",
                 Safe::new(&problem).as_str()
             );
-            return Ok(ExitCode::from(1));
+            return Ok(crate::Exit::Failed.into());
         }
     };
     let entry = entry(now, &seat, &dossier, &report, usage(&checkpoints));
@@ -1007,11 +1018,11 @@ pub fn run(
         "recorded in {}; nothing was executed — issue any command yourself",
         record_path.display()
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(crate::Exit::Completed.into())
 }
 
 /// `brokkr muninn list`. Reads the record back, citations included.
-pub fn list(record_path: &Path, json: bool) -> Result<()> {
+pub(crate) fn list(record_path: &Path, json: bool) -> Result<()> {
     let entries = record::read(record_path)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&entries)?);

@@ -220,9 +220,23 @@ fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/init-stacks")
 }
 
+/// Run `brokkr`. An `init` runs with a `claude` first on PATH: it
+/// scaffolds for the first of claude, codex or dsh it finds, and these
+/// proofs are about the claude scaffold whatever agent CLIs this host
+/// carries. Every other verb sees the host's own PATH.
 fn brokkr(args: &[&str], cwd: &Path) -> (Option<i32>, String, String) {
+    let stubs = tempfile::tempdir().unwrap();
+    std::fs::write(stubs.path().join("claude"), "").unwrap();
+    let mut path = std::env::var_os("PATH").unwrap();
+    if args.first() == Some(&"init") {
+        path = std::env::join_paths(
+            std::iter::once(stubs.path().to_path_buf()).chain(std::env::split_paths(&path)),
+        )
+        .unwrap();
+    }
     let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
         .args(args)
+        .env("PATH", path)
         .current_dir(cwd)
         .output()
         .unwrap();
@@ -383,7 +397,7 @@ const SCAFFOLD_ONLY: &[(&str, &[&str])] = &[
     ("node-yarn", &["yarn"]),
     ("node-npm", &[]),
     ("python-uv", &["uv"]),
-    ("python", &[]),
+    ("python", &["pytest", "python3"]),
     ("go", &["go"]),
     ("make", &["make"]),
     ("turbo-pnpm", &["pnpm"]),
@@ -402,6 +416,10 @@ const SCAFFOLD_ONLY: &[(&str, &[&str])] = &[
 /// capability, and every Claude seat is composed with both native tools
 /// denied by name. Every row is computed before any is judged.
 #[test]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_stacks_typed_restrictions_are_shipped_vocabulary_and_add_no_grant() {
     let shipped =
         read_json(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/claude.json"));
@@ -914,7 +932,7 @@ fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
         let mut implement: Vec<String> = prefix.iter().map(|s| s.to_string()).collect();
         implement.extend([
             "--model".to_string(),
-            "claude-opus-5".to_string(),
+            "claude-opus-5-5".to_string(),
             "--effort".to_string(),
             "high".to_string(),
             "--allowedTools".to_string(),

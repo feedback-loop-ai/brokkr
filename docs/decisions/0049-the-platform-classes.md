@@ -3,6 +3,15 @@
 Status: accepted (operator ruled in chat, 2026-09-07)
 Date: 2026-09-07
 
+> **Forward pointer (2026-09-27, #356):** decision
+> [0063](0063-windows-is-not-a-host.md) ruled on 2026-09-21 that the
+> supported hosts are Linux and macOS and that native Windows is not a
+> host. The `best-effort` row and ruling 2's Windows CI promise below are
+> retired by it; the rest of this decision stands as written.
+
+Built: built
+Superseded in part by: 0063
+
 ## Context
 
 Decision 0046 named the boundary a run stands behind so that every seat

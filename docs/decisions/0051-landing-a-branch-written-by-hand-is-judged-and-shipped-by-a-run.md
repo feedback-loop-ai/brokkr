@@ -3,6 +3,8 @@
 Status: proposed
 Date: 2026-09-08
 
+Built: built
+
 ## Context
 
 On 2026-09-08 the operator read the contribution gate's numbers and

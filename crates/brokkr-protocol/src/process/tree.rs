@@ -1,0 +1,331 @@
+//! The attempt's process tree (#403). Two means reach it, and the attempt
+//! is over only when both read it gone.
+//!
+//! The group. The driver leads a session, and so a process group, of its
+//! own, so the harness under it, the harness's tool subprocesses and any
+//! workspace-tool child that stays in the group are reached by one signal
+//! to the group. The
+//! group id is the leader's pid, which is not reused while the leader is
+//! unreaped, so the group is SIGNALLED only then: by the watchdog, which
+//! `finish` joins before the reap, by `end` before its reap, and by the
+//! stop handler (`attempts`) until `end` closes the attempt. After the
+//! reap the group is only read from the process table, and a reused id
+//! reads as a survivor: fail-closed, never a signal to a stranger.
+//!
+//! The recorded descendants. What leaves the group (a `setsid` child, as
+//! Node's `detached` spawn makes, or a job that shell job control moves
+//! to a group of its own) is out of the group signal's reach, so
+//! `attempts` records every descendant of the attempt by pid and start
+//! stamp while the tree is alive, reads the table once more at every
+//! kill, and ends those identities with the group.
+//!
+//! Linux is closed but for the two ruled residuals below. The engine and
+//! every driver are child subreapers. An
+//! orphan of the tree goes to its driver while the driver runs, where the
+//! tracker records it as a descendant, and to the engine once the driver
+//! is gone, whatever its session or group. Every running child of the
+//! engine outside the engine's own group that no live attempt leads,
+//! records or began after is a stray. A child the engine spawns stays in
+//! that group, and nothing of an attempt can join it: the driver's
+//! session is its own, and `setpgid` refuses a group in another session.
+//! A stray is attributed to the attempts that could have left it: those
+//! it does not predate, whose leader no longer runs, and that had not yet
+//! ended when it was born (its start stamp is no later than the youngest
+//! one the table showed when it first found the attempt ended). One such
+//! attempt ends it with its own tree. When there are several, the stray
+//! is ended and every one of them parks. When there is none, the stray is
+//! the engine's own (git's detached maintenance, say). Every read of the
+//! table is taken under the registry's lock, in order, and the read
+//! before a spawn is taken afresh, never shared with an earlier one, so
+//! an orphan of the engine's own born before it is not the attempt's. A
+//! signal to an identity rides a pidfd checked against the start stamp.
+//! So, but for the first residual below, no descendant the engine can see is
+//! left running while an attempt is certified settled. A kernel that
+//! refuses the engine the subreaper or a pidfd leaves the second means
+//! absent: a kill that saw any descendant then parks, naming the means
+//! that was missing.
+//!
+//! Two Linux residuals remain, both accepted by the operator's rulings of
+//! 2026-09-28 and closed by construction only by per-attempt cgroup
+//! containment (#472). The first is the table-read race. A Linux read is a `/proc`
+//! listing followed by one stat read per pid. Suppose a failed driver's
+//! last live descendant forks a detached child after the listing and
+//! exits before its own row is read. That read shows nothing of the
+//! attempt running, and so sets the attempt's end. The next read, up to
+//! the tracker's 100 ms later, finds the child with the engine, born
+//! after that end, and files it as the engine's own. Cleanup can then be
+//! certified while the child runs. The same read has a second ordering.
+//! Once the pid counter has wrapped, a detached child can have a lower
+//! pid than its parent, so its row is read first, still naming that
+//! parent, and the parent exits before its own row is read. That read
+//! records the child neither as a descendant nor as a stray, and the same
+//! certification follows. A third ordering needs no wrap. A detached
+//! descendant born after one read is listed by the next, whose row for
+//! the driver is read first and shows it running. The descendant's parent
+//! and the driver then exit before the descendant's own row is read, so
+//! that row names the engine as its parent while the driver still reads
+//! as leading: no attempt could have left it, and it is filed, once, as
+//! the engine's own. A later read finds nothing of the attempt running,
+//! and the same certification follows.
+//!
+//! The second is the read-to-fork instant, a wrong kill rather than a
+//! missed one. No read is atomic with the fork, so an orphan of the
+//! engine's own (git's detached maintenance, say) that the engine adopts
+//! between the fresh read before a spawn and the fork itself is absent
+//! from what ran before the attempt. If the driver exits before the next
+//! read, the attempt is found not leading and not yet ended, the orphan is
+//! attributed to it, and its close kills the engine's own process.
+//!
+//! The driver leading a session of its own has one more consequence: a
+//! SIGKILL to the engine's process group no longer reaches a seat's tree.
+//! Only the stop signals the engine handles (`attempts`) end it.
+//!
+//! Every read fails closed. A table that cannot be read, a row that
+//! cannot be read or parsed, a `ps` that exits nonzero and a snapshot
+//! without the engine's own row prove nothing; a row that vanished
+//! between the listing and its read is gone. A read before the spawn that
+//! fails refuses the spawn: without it, nothing tells the attempt's
+//! orphans from what ran before it. A kill the kernel refuses on a live
+//! identity leaves the cleanup unresolved. So does a kill it refuses on
+//! the group, with one exception: an EPERM on the group is read against
+//! the table. Darwin refuses a group with EPERM when its only members are
+//! zombies or exiting, so a group whose fresh, whole read shows no member
+//! running is gone. An EPERM group with a member running and any other
+//! refusal stay unresolved, reported ahead of an identity's refusal. One
+//! whose table cannot be read whole stays unresolved too, and the cleanup
+//! reports what the read shows: an identity's refusal first, otherwise
+//! the read's own failure.
+//!
+//! macOS has no subreaper and no pidfd. There the engine reads the table
+//! synchronously at the kill, ends what it attributes, and parks on any
+//! doubt. One residual remains, accepted by the operator's ruling of
+//! 2026-09-28 (LINUX CLOSED, MACOS RESIDUAL ACCEPTED): a descendant that
+//! leaves the group and whose parent exits between two reads of the
+//! table, faster than the tracker's 100 ms interval, is reparented to
+//! launchd unseen. Beside it, and not a limit of settlement: without a
+//! pidfd, a pid reused between `ps`'s confirmation and the signal could
+//! be signalled.
+//!
+//! Nothing is ever chosen by working directory or repository, so a
+//! concurrent run in the same checkout is never touched.
+
+use std::process::Child;
+use std::time::{Duration, Instant};
+
+use rustix::io::Errno;
+use rustix::process::{getpid, kill_process_group, waitid, Pid, Signal, WaitId, WaitIdOptions};
+use thiserror::Error;
+
+use super::attempts::{self, Attempt};
+use super::table::{self, Entry, Identity, TableError};
+
+/// How often a bounded wait looks again.
+const POLL: Duration = Duration::from_millis(10);
+
+/// The bounds on ending an attempt. Each is a ceiling on waiting for a
+/// driver that does not cooperate, never a delay a cooperative one pays.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Bounds {
+    /// How long the driver has to take `shutdown` and exit on its own.
+    pub grace: Duration,
+    /// How long the killed tree has to be reaped and gone.
+    pub settle: Duration,
+    /// How long the pipes have to reach EOF once the tree is killed.
+    pub drain: Duration,
+}
+
+impl Bounds {
+    pub(super) const DEFAULT: Bounds = Bounds {
+        grace: Duration::from_secs(5),
+        settle: Duration::from_secs(5),
+        drain: Duration::from_secs(5),
+    };
+}
+
+/// The host calls ending an attempt makes, held as data so a test can
+/// stand in a kill the kernel refuses, a table that never reads settled,
+/// or a host that refuses the engine a means.
+#[derive(Clone, Copy)]
+pub(super) struct Host {
+    pub kill_group: fn(Pid) -> rustix::io::Result<()>,
+    pub kill: fn(&Identity) -> std::io::Result<()>,
+    pub table: fn() -> Result<Vec<Entry>, TableError>,
+    /// The means this host refused the engine, if one (`attempts`).
+    pub missing: fn() -> Option<Unsettled>,
+}
+
+impl Host {
+    pub(super) const REAL: Host = Host {
+        kill_group,
+        kill: table::kill,
+        table: table::snapshot,
+        missing: attempts::missing,
+    };
+}
+
+/// Why an attempt's end could not be certified: something of it may
+/// still be running, so it parks rather than settles or retries.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum Unsettled {
+    #[error("its process group {group} could not be signalled: {}", std::io::Error::from_raw_os_error(*errno))]
+    Kill { group: i32, errno: i32 },
+    #[error("its descendant {pid} could not be signalled: {error}")]
+    Signal { pid: i32, error: String },
+    #[error("its driver {pid} was not reaped after the kill")]
+    Reap { pid: i32 },
+    #[error("its process group {group} still had members after the kill")]
+    Group { group: i32 },
+    #[error("its descendants {} were still running after the kill", listed(pids))]
+    Descendants { pids: Vec<i32> },
+    #[error(
+        "processes {} the engine adopted could not be attributed to one attempt",
+        listed(pids)
+    )]
+    Strays { pids: Vec<i32> },
+    #[error("the process table could not be read: {error}")]
+    Table { error: String },
+    #[error("it had descendants, and the engine is no child subreaper here: {}", std::io::Error::from_raw_os_error(*.0))]
+    Subreaper(i32),
+    #[error("it had descendants, and this kernel gives the engine no pidfd: {}", std::io::Error::from_raw_os_error(*.0))]
+    Pidfd(i32),
+    #[error("a process outside its tree still held the driver's stdout")]
+    Stdout,
+    #[error("a process outside its tree still held the driver's stderr")]
+    Stderr,
+}
+
+/// A cleanup reason is journaled in the operator's words.
+impl serde::Serialize for Unsettled {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+fn listed(pids: &[i32]) -> String {
+    let pids: Vec<String> = pids.iter().map(i32::to_string).collect();
+    pids.join(", ")
+}
+
+/// SIGKILL every member of the group. Only while the leader is
+/// unreaped (see the module comment).
+pub(super) fn kill_group(group: Pid) -> rustix::io::Result<()> {
+    kill_process_group(group, Signal::KILL)
+}
+
+/// Has the leader exited? Observed with `WNOWAIT`, so it stays unreaped
+/// and the group id stays the attempt's.
+fn exited(group: Pid) -> bool {
+    let options = WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
+    matches!(waitid(WaitId::Pid(group), options), Ok(Some(_)))
+}
+
+/// End the tree: wait until `grace` for the leader to exit on its own,
+/// read the table and kill the group and every identity the attempt owns,
+/// reap the leader, wait up to `settle` for the table to read every part
+/// of it gone, and then refuse what still casts doubt on it.
+pub(super) fn end(
+    child: &mut Child,
+    attempt: &Attempt,
+    grace: Instant,
+    bounds: &Bounds,
+    host: Host,
+) -> Result<(), Unsettled> {
+    let group = Pid::from_child(child);
+    while !exited(group) && Instant::now() < grace {
+        std::thread::sleep(POLL);
+    }
+    let closed = attempt.close(host);
+    let settle = Instant::now() + bounds.settle;
+    let reaped = reap(child, settle);
+    closed?;
+    reaped?;
+    wait(settle, || attempt.survivors(host))?;
+    attempt.doubts((host.missing)())
+}
+
+/// Reap the killed leader, waiting no later than `until`.
+fn reap(child: &mut Child, until: Instant) -> Result<(), Unsettled> {
+    while !matches!(child.try_wait(), Ok(Some(_))) {
+        if Instant::now() >= until {
+            return Err(Unsettled::Reap {
+                pid: Pid::from_child(child).as_raw_pid(),
+            });
+        }
+        std::thread::sleep(POLL);
+    }
+    Ok(())
+}
+
+/// Look until `until` for `settled` to hold, and return what it last
+/// found when it never does.
+pub(super) fn wait(
+    until: Instant,
+    mut settled: impl FnMut() -> Result<(), Unsettled>,
+) -> Result<(), Unsettled> {
+    loop {
+        match settled() {
+            Ok(()) => return Ok(()),
+            Err(unsettled) if Instant::now() >= until => return Err(unsettled),
+            Err(_) => std::thread::sleep(POLL),
+        }
+    }
+}
+
+/// One read of `table`. A snapshot without the engine's own row lists
+/// nothing it can be trusted for, however much it lists.
+pub(super) fn read(table: fn() -> Result<Vec<Entry>, TableError>) -> Result<Vec<Entry>, Unsettled> {
+    let me = getpid().as_raw_pid();
+    table()
+        .and_then(|entries| {
+            let found = entries.iter().any(|entry| entry.id.pid == me);
+            found
+                .then_some(entries)
+                .ok_or(TableError::NoSelf { pid: me })
+        })
+        .map_err(|error| Unsettled::Table {
+            error: error.to_string(),
+        })
+}
+
+/// ESRCH from a kill: nothing is left to signal.
+pub(super) fn refused(error: rustix::io::Result<()>) -> Option<Errno> {
+    error.err().filter(|errno| *errno != Errno::SRCH)
+}
+
+/// Why the signal to a group was refused.
+pub(super) enum GroupRefusal {
+    /// The kernel's refusal stands, ahead of any identity's.
+    Stands(Errno),
+    /// An EPERM that the table, which could not be read, neither proves
+    /// gone nor shows running: it yields to an identity's refusal, and
+    /// otherwise to the read's own failure.
+    Unread(Unsettled),
+}
+
+/// A refusal of the signal to `group`. ESRCH is none, and so is EPERM
+/// when a fresh read of `table` shows no member of the group running:
+/// Darwin answers a group whose members are all zombies or exiting with
+/// EPERM, having found the group and signalled nobody, so a zombie or an
+/// exiting member is not running here. Linux signals both, and lists no
+/// member exiting, so its EPERM names a member it would not signal, which
+/// the same read shows running. One code serves both. A table that cannot
+/// be read proves nothing: the EPERM is unread, and the attempt parks on
+/// what the read shows (`GroupRefusal::Unread`).
+pub(super) fn group_refused(
+    group: Pid,
+    signalled: rustix::io::Result<()>,
+    table: fn() -> Result<Vec<Entry>, TableError>,
+) -> Option<GroupRefusal> {
+    let errno = refused(signalled)?;
+    if errno != Errno::PERM {
+        return Some(GroupRefusal::Stands(errno));
+    }
+    let group = group.as_raw_pid();
+    match read(table) {
+        Err(unread) => Some(GroupRefusal::Unread(unread)),
+        Ok(entries) => entries
+            .iter()
+            .any(|entry| entry.pgid == group && !entry.zombie && !entry.exiting)
+            .then_some(GroupRefusal::Stands(errno)),
+    }
+}

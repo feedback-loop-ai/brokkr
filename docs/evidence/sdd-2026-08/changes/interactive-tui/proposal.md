@@ -146,16 +146,16 @@ field; it may not compute one.
 
 Design artifacts:
 
-- [specs/interactive-tui/spec.md](../../../specs/interactive-tui/spec.md)
+- [specs/interactive-tui/spec.md](../../features/interactive-tui/spec.md)
   — WHAT and WHY: the governing invariant, the eleven numbered rulings
   that settled the panel's disputes (six for robustness, five for
   simplicity), the behaviour of all three levels, and 20 acceptance
   criteria.
-- [specs/interactive-tui/plan.md](../../../specs/interactive-tui/plan.md)
+- [specs/interactive-tui/plan.md](../../features/interactive-tui/plan.md)
   — HOW: the module layout, the pure/generic/shell/impure partition, the
   state struct, the coverage table naming a seam for every impure line,
   the three read-only enforcement layers, and the risk register.
-- [specs/interactive-tui/tasks.md](../../../specs/interactive-tui/tasks.md)
+- [specs/interactive-tui/tasks.md](../../features/interactive-tui/tasks.md)
   — twenty-six ordered tasks in seven movements, each paired with the
   test that proves it.
 

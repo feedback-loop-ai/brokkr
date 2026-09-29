@@ -2,26 +2,24 @@ use super::*;
 use brokkr_core::fold::Cursor;
 use serde_json::json;
 
+#[path = "../../../tests/support/envelope.rs"]
+mod envelope_builder;
+use envelope_builder::EnvelopeBuilder;
+
 const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:00:05Z";
 const T2: &str = "2026-01-01T00:02:03Z";
 const T3: &str = "2026-01-01T01:05:00Z";
 
 fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "r1".to_string(),
-        seq,
-        event_id: format!("ev{seq}"),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "corr".to_string(),
-        attempt_id: None,
-        recorded_at: at.to_string(),
-        previous_hash: String::new(),
-        event_hash: String::new(),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .run("r1")
+        .correlation("corr")
+        .seq(seq)
+        .event_id(format!("ev{seq}"))
+        .at(at)
+        .previous("")
+        .build()
 }
 
 fn caused(mut event: EventEnvelope, cause: &str) -> EventEnvelope {
@@ -99,28 +97,10 @@ fn seat_journal() -> Vec<EventEnvelope> {
 
 // ------------------------------------------------------------- AC-1
 
-#[test]
-fn the_crate_carries_no_io_no_clock_and_no_terminal_concept() {
-    // Structural, not conventional: `brokkr-view`'s manifest depends on
-    // exactly brokkr-core, serde and serde_json, and these tokens are the
-    // ways a derivation quietly acquires a side effect.
-    for source in [include_str!("lib.rs"), include_str!("js.rs")] {
-        for banned in ["std::fs", "std::env", "IsTerminal", "print!", "println!"] {
-            assert!(
-                !source.contains(banned),
-                "brokkr-view must not reach for {banned}"
-            );
-        }
-    }
-    let manifest = include_str!("../Cargo.toml");
-    let deps = manifest.split("[dependencies]").nth(1).unwrap();
-    for allowed in ["brokkr-core", "serde", "serde_json"] {
-        assert!(deps.contains(allowed), "{allowed} is a dependency");
-    }
-    for forbidden in ["brokkr-store", "time", "rusqlite", "clap"] {
-        assert!(!deps.contains(forbidden), "{forbidden} must stay out");
-    }
-}
+// AC-1 (no I/O, no clock, no terminal concept) has one home:
+// crates/brokkr-cli/tests/layering/ lexes every production file of this
+// crate against a closed std allowlist and holds its manifest to a closed
+// dependency set (decision 0071 ruling 1, #336).
 
 // ------------------------------------------------------ small helpers
 
@@ -825,6 +805,7 @@ fn a_sigma_whose_members_disagree_in_kind_stays_in_dollars() {
     // mixed the units would be a number nothing in the world matches.
     assert_eq!(parent.cost_cell.text, "Σ $0.2500");
     assert!(parent.cost_aggregated);
+    assert_eq!(parent.last_attempt_cost, Some(0.25));
     assert!(!parent.cost_cell.text.contains("tok"));
     // The unpriced member's tokens are not lost — they are on its own
     // row, in their own unit, one line below the Σ.
@@ -2029,6 +2010,7 @@ fn scope_tags_are_precomputed_so_no_surface_implements_the_predicate() {
 // ----------------------------------------------------- AC-11, AC-12
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_trail_classifies_every_event_type_it_knows() {
     let events = vec![
         ev(1, EventType::RunStarted, json!({"feature": "hello"}), T0),
@@ -2788,6 +2770,52 @@ fn a_working_seat_carries_its_transcript_from_the_shared_checkpoint() {
     );
 }
 
+/// The two-attempt fixture of #376: attempt one finished at $0.25 and
+/// was retried, and attempt two finished at $0.50. The seat spent both,
+/// and the view says so — the figure `brokkr costs` reports — with the
+/// last attempt's own cost beside it rather than in its place.
+fn two_attempt_journal() -> Vec<EventEnvelope> {
+    let mut events = seat_journal();
+    events.truncate(6); // through attempt one's session-finished
+    events[5].payload["checkpoint"]["total_cost_usd"] = json!(0.25);
+    events.push(ev(
+        7,
+        EventType::EffectStarted,
+        json!({"effect_id": "eff1", "attempt_id": "att2"}),
+        T2,
+    ));
+    events.push(ev(
+        8,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "eff1", "attempt_id": "att2",
+               "checkpoint": {"step": "claude-session-finished",
+                              "total_cost_usd": 0.5}}),
+        T2,
+    ));
+    events.push(ev(
+        9,
+        EventType::EffectSucceeded,
+        json!({"effect_id": "eff1", "attempt_id": "att2",
+               "result": {"result": "intook"}}),
+        T2,
+    ));
+    events
+}
+
+#[test]
+fn a_retried_seat_spent_every_attempt_and_the_cell_says_so() {
+    let view = run_view(
+        &two_attempt_journal(),
+        Some(&state(Some("intake"), Status::Completed, None)),
+    );
+    let part = &view.participants[0];
+    assert_eq!(part.attempts, 2);
+    assert_eq!(part.cost, Some(0.75));
+    assert_eq!(part.last_attempt_cost, Some(0.5));
+    assert!(!part.cost_aggregated);
+    assert_eq!(part.cost_cell.text, "$0.7500 over 2 attempts");
+}
+
 #[test]
 fn the_transcript_shape_is_closed_and_its_absences_are_explicit() {
     for kind in ["claude-session", "codex-thread", "dsh-session", "none"] {
@@ -2845,14 +2873,14 @@ fn the_transcript_shape_is_closed_and_its_absences_are_explicit() {
 
 #[test]
 fn only_a_parked_run_admits_an_operator_command() {
-    assert_eq!(
-        operator_commands("awaiting_operator"),
-        vec!["retry".to_string(), "stop".to_string()]
-    );
-    for status in ["running", "completed", "stopped"] {
+    let parked = state(Some("verify"), Status::AwaitingOperator, None);
+    assert_eq!(operator_commands(&parked), ["retry", "stop"]);
+    let parked_before_any_phase = state(None, Status::AwaitingOperator, None);
+    assert_eq!(operator_commands(&parked_before_any_phase), ["stop"]);
+    for status in [Status::Running, Status::Completed, Status::Stopped] {
         assert!(
-            operator_commands(status).is_empty(),
-            "{status} admits no operator command"
+            operator_commands(&state(Some("verify"), status, None)).is_empty(),
+            "{status:?} admits no operator command"
         );
     }
 }
@@ -3269,10 +3297,16 @@ fn an_entry_outside_the_vocabulary_is_not_recorded() {
 /// null-bearing cell rather than a skipped key.
 #[test]
 fn the_wire_version_moves() {
-    assert_eq!(VIEW_VERSION, 10);
+    assert_eq!(VIEW_VERSION, 11);
+    // 11 (#376): `cost` is every attempt's spend, and the last attempt's
+    // own figure stands beside it on the wire.
+    let retried = serde_json::to_value(run_view(&two_attempt_journal(), None)).unwrap();
+    assert_eq!(retried["view_version"], 11);
+    assert_eq!(retried["participants"][0]["cost"], json!(0.75));
+    assert_eq!(retried["participants"][0]["last_attempt_cost"], json!(0.5));
     let view = run_view(&boxed_journal(plain_manifest(), Value::Null, None), None);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 10);
+    assert_eq!(json["view_version"], 11);
     let seat = &json["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["absent"], json!(true));

@@ -3,6 +3,8 @@
 Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
+Built: partial (#477) — resume's fresh-process branch and the remaining control-plane `append_next` sites are unfenced; #477 tracks finishing them
+
 ## Context
 
 `Store::append_next` derives an envelope's identity — `seq`,
@@ -123,3 +125,69 @@ whether every remaining control-plane `append_next` moves behind the
 fence. The identity residual (a self-asserted `$USER`) is decision
 0025's, not this one's.
 
+
+## Addendum — 2026-09-27, a retry before any phase is refused by name (#344), operator ruling
+
+#344 moved the operator verbs into one module and gave the acceptance
+rule one home, `brokkr_core::fold::acceptance_refusal`. Both doors, the
+CLI's `brokkr operator` and the bridge's fenced command, and `fold`
+itself now call it, where the engine used to keep a hand-written mirror
+of `fold`'s rule. Making it one rule exposed a state the mirror had
+wrong. A run can park before it enters any phase:
+`Engine::enter_phase` appends `run/parked` (`SELECT-NO-DEFAULT`) before
+any `phase/entered`, and `fold` admits that park. A `retry` there used
+to be journaled as `operator/accepted`, which `fold` then refused as
+out of place, so the journal stopped folding for good.
+
+Ruled 2026-09-27: such a retry is refused with the refusal word
+`no_phase_to_retry` (`Refusal::NoPhaseToRetry`). Both doors journal the
+command as `operator/commanded` and then refuse it as
+`operator/rejected` with that reason, so the journal keeps what the
+operator asked; only the acceptance is never written. A `stop` is still
+accepted in that state. The word joins the refusal vocabulary as a new,
+additive `operator/rejected` reason. `contracts/` leaves that reason an
+open string, so no frozen byte moves. Every other refusal word and
+payload is unchanged. The operator ruled the typed `OperatorCommand`,
+`Refusal` and `acceptance_refusal` into brokkr-core's public surface,
+and `CommandWord` and `FencedCommand` into brokkr-runtime's, in the
+same ruling. The fence's `Head` stays private to brokkr-runtime's
+`engine/operator.rs`.
+
+## Addendum — 2026-09-28, proposed: a peer's lock in flight settles the attempt within a bound (#394)
+
+Status: proposed; only the operator accepts this addendum.
+
+Ruling 3 says a stale fold refuses and is never retried. A peer that only
+holds the journal's write lock is a different accident:
+`StoreError::Contended` wrote nothing, so the same append made later is
+the same call. #394 found that such a lock, held past the store's one
+patience while a seat was working, ended the engine and threw the
+attempt away. The wait measured was 42 s, against a 30 s patience. The
+fix changes what the journal shows, and this addendum states the rule:
+
+1. A working seat's checkpoints that meet the lock are held in order and
+   retried each time the seat hands over another. No append waits on
+   the lock while the seat works, so the thread reading the seat's pipe
+   never stalls and the seat is never stopped. The hold is bounded at 16 MiB of serialized checkpoints
+   (`HELD_BYTES`), plus the one row that finds it empty.
+2. When the seat stops, held checkpoints get three settling patiences
+   (`SETTLING_PATIENCES`). A terminal event gets three, and if the lock
+   outlasts them the engine holds that outcome and tries it three more
+   times in the lawful end. Each marker the engine journals for a panel
+   member or a sequence step gets three of its own. Every other event
+   gets one.
+3. Evidence lost to a full hold, or stranded when the lock outlasts the
+   settlement, settles its site `effect/indeterminate` with the count
+   named. It is never read as the driver's success.
+4. A stopped attempt with no outcome held is settled at `EffectInFlight`
+   by `effect/indeterminate` naming the lock, then `run/parked` names it
+   too, so the next resume finds nothing open.
+5. Past the bound nothing is writable. The engine hands the typed
+   contention back with the attempt open, and the next `resume` settles
+   it as restarted and parks.
+
+The operator ruled on 2026-09-28 that this bound is accepted as designed.
+Its acceptance criterion "never an unsettled attempt" cannot be met while
+nothing is writable, and was ruled out of scope. A spill file and an
+attempt-wide bound are #433's; the remaining refinements are #464's. No
+contract, event type or frozen byte moves.

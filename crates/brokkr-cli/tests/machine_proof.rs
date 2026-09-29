@@ -253,6 +253,7 @@ impl Workspace {
         ws
     }
 
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     fn triage(script: Value) -> Workspace {
         let ws = Workspace {
             dir: tempfile::tempdir().unwrap(),
@@ -1532,6 +1533,7 @@ fn runs_lists_completed_run_with_status_and_phase() {
 /// written before the fence existed. Both still have to be readable
 /// without blinding the fleet, so the quarantine is still on trial here.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verbs() {
     let ws = Workspace::new(happy_script());
     let (code, _, stderr) = ws.run();
@@ -2329,6 +2331,7 @@ fn rerun_completes_under_variant_bundle_and_lists_both_runs() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compare_aligns_two_runs_and_finds_the_review_divergence() {
     let ws = Workspace::new(happy_script());
     let (code, _, stderr) = ws.run();
@@ -2924,7 +2927,7 @@ fn secrets_cli_round_trips_and_never_prints_values() {
         ("MULTI", "two\nlines\n"),
         ("SHORT", "abc\n"),
         ("PATH", "longenough\n"),
-        ("FORGE_X", "longenough\n"),
+        ("BROKKR_X", "longenough\n"),
         ("lower", "longenough\n"),
     ] {
         let (code, _, stderr) = brokkr_stdin(

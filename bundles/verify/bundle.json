@@ -49,8 +49,6 @@
         "allow": [
           "cargo",
           "git",
-          "python3",
-          "pytest",
           "ls",
           "rg",
           "gh-pr-view",

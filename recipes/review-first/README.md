@@ -13,6 +13,13 @@ the entry phase and the description, so the lint sweep reads identically.
 Use it when the branch is already written — by hand, by a stopped run, or
 by a wager arm — and what remains is judgment, proof, and shipment.
 
+Its verifier is its own copy of `fast`'s from before #427: it runs
+`cargo test --workspace` and the `bundles/self` compile only, not
+`cargo fmt`, clippy with `-D warnings` or `scripts/lint-non-rust.sh`.
+The recipe does not extend `fast`, so it did not inherit them, and
+landing, not this recipe, is the shop-work road #427 brought up to CI;
+the pull request's required checks still run them before a merge.
+
 Proposed by decision 0060: the verify entry and the forced Muse/Astra
 crew are the 0041 ruling 7 exception for the reason a wager forces its
 crew, named and asserted; landing stays the shop-work road.

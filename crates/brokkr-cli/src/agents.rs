@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 
 /// How the machine asking sees a provider. `unknown` is what compile
 /// sees and what `show` reports unless a caller probed.
-pub fn presence_word(presence: Presence) -> &'static str {
+pub(crate) fn presence_word(presence: Presence) -> &'static str {
     match presence {
         Presence::Available => "available",
         Presence::Unavailable => "unavailable",
@@ -30,7 +30,7 @@ pub fn presence_word(presence: Presence) -> &'static str {
 /// `unmapped`, and the capability check's verdict. A blocked entry is
 /// REPORTED here rather than thrown, so a reader sees the whole chain
 /// and can act on the link that is wrong.
-pub fn entry_value(entry: &ChainEntry) -> Value {
+pub(crate) fn entry_value(entry: &ChainEntry) -> Value {
     let mut value = json!({
         "model": entry.model,
         "provider": entry.provider.clone().map(Value::String).unwrap_or(Value::Null),
@@ -78,7 +78,7 @@ fn definitions(operator_root: &Path) -> Result<Definitions> {
 /// a warning line per definition that does not parse, and per capability
 /// an agent asks for that the operator has not defined: semantic lint,
 /// which parsing the request map alone is not. Nothing aborts the listing.
-pub fn list(library_root: &Path, operator_root: &Path) -> Result<()> {
+pub(crate) fn list(library_root: &Path, operator_root: &Path) -> Result<()> {
     let (library, mut problems) = Library::scan(library_root)?;
     problems.extend(definitions(operator_root)?.lint(&library));
     for problem in &problems {
@@ -100,7 +100,7 @@ pub fn list(library_root: &Path, operator_root: &Path) -> Result<()> {
 /// library asking for a capability the operator has not defined is
 /// refused as a library that does not load is: `show` prints what the
 /// compiler would resolve, and the compiler refuses that ask.
-pub fn show(
+pub(crate) fn show(
     name: &str,
     library_root: &Path,
     adapters_root: &Path,

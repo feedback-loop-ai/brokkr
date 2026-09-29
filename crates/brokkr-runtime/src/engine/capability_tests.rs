@@ -62,6 +62,7 @@ fn link(provider: &str, model: &str) -> Candidate {
         harness: Default::default(),
         resume: Default::default(),
         lowering: Lowering::Unavailable,
+        hands_notice: None,
     }
 }
 
@@ -70,6 +71,10 @@ fn link(provider: &str, model: &str) -> Candidate {
 /// outcome gets an explicit `null`, which the model adapters refuse rather
 /// than launching a harness on its own defaults.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null() {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
     // A composed model spawn: the seat's own argv, then the two tokens the
@@ -216,6 +221,10 @@ fn a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null() {
 /// the unresolved member an explicit refusing `null` — and nothing a seat
 /// input or a prior step's context says can write the controls.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_nested_dispatch_hands_its_driver_the_selected_links_own_controls() {
     let captures = tempfile::tempdir().unwrap();
     let captured = |name: &str| captures.path().join(format!("{name}.json"));
@@ -557,6 +566,10 @@ fn a_spawn_is_sealed_with_the_selected_links_own_segments_and_expected_state() {
 /// after sealing each refuse with the whole reason; so does a site whose
 /// expected state cannot be sealed.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn the_dispatch_door_admits_only_the_record_sealed_for_its_spawn() {
     let (_dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
     engine
@@ -713,6 +726,10 @@ fn the_dispatch_door_admits_only_the_record_sealed_for_its_spawn() {
 /// sealed each refuse with the whole reason; a site whose inputs were never
 /// recorded, and a spawn no composition classed, seal nothing.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed() {
     use crate::agents::{BoundaryFragments, DeclaredDialect, ServingInputs};
     let (_dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
@@ -1553,6 +1570,10 @@ fn a_resume_whose_capability_authority_moved_is_refused_by_name() {
 /// before the journal is touched. Put back, each run resumes into its own
 /// pinned context, the mapped one still naming its realm.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn a_moved_charter_refuses_the_start_and_resume_in_a_mapped_and_an_unmapped_context() {
     let dir = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(dir.path()).unwrap();
@@ -1798,6 +1819,10 @@ fn chartered(
 /// step's own, naming a neighbour's pinned charter, refuses that step before
 /// its driver starts.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings() {
     use brokkr_protocol::adapters::{render_prompt, AdapterKind};
     let captures = tempfile::tempdir().unwrap();
@@ -1827,7 +1852,7 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
         )
     };
     let told = |input: &Value, name: &str, holdings: &str| {
-        let prompt = render_prompt(input, AdapterKind::Dsh);
+        let prompt = render_prompt(input, AdapterKind::Dsh).expect("the prompt renders");
         (
             prompt.starts_with(&format!("# the {name} charter\n\n\n---\n## Task\n")),
             prompt.ends_with(&format!("on your typed result.{holdings}")),
@@ -2143,7 +2168,10 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
         .unwrap();
     }
     for (input, prompt) in &prompts {
-        assert_eq!(&render_prompt(input, AdapterKind::Dsh), prompt);
+        assert_eq!(
+            &render_prompt(input, AdapterKind::Dsh).expect("the prompt renders"),
+            prompt
+        );
     }
 
     // A role path merged over the first step's own, naming the final

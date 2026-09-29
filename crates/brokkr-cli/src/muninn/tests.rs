@@ -94,6 +94,26 @@ impl Fleet {
         );
     }
 
+    /// A run parked (`SELECT-NO-DEFAULT`) before it entered any phase:
+    /// there is no phase for a retry to return to.
+    fn parked_before_any_phase(&self, run_id: &str) {
+        let mut store = self.store();
+        store
+            .create_run(run_id, "select", "self", &json!({}))
+            .unwrap();
+        for (kind, payload) in [
+            (
+                EventType::RunStarted,
+                json!({"feature": "select", "manifest": {}}),
+            ),
+            (EventType::RunParked, json!({"reason": "SELECT-NO-DEFAULT"})),
+        ] {
+            store
+                .append_next(run_id, kind, payload, None, None)
+                .unwrap();
+        }
+    }
+
     /// A journal that genuinely does not fold: an `operator/accepted`
     /// naming a command this run never carried. No rule can read an
     /// unattached acceptance at any cursor — the case the aide must
@@ -317,6 +337,23 @@ fn the_dossier_is_derived_from_the_view_models_and_carries_its_citations() {
     assert!(!derived.admits("parked-run", "ship"));
     assert!(!derived.admits("done-run", "retry"));
     assert!(!derived.admits("no-such-run", "retry"));
+}
+
+/// The engine refuses a retry on a run parked before any phase with
+/// `no_phase_to_retry`, so the dossier offers `stop` alone beside its
+/// `phase: null` rather than suggesting a command that is refused.
+#[test]
+fn a_run_parked_before_any_phase_admits_only_stop() {
+    let fleet = Fleet::new();
+    fleet.parked_before_any_phase("phaseless-run");
+    let store = Store::open_read_only(&fleet.db()).unwrap();
+    let derived = dossier(&store, NOW).unwrap();
+    let run = &derived.value["runs"][0];
+    assert_eq!(run["status"], "awaiting_operator");
+    assert_eq!(run["phase"], Value::Null);
+    assert_eq!(run["operator_commands"], json!(["stop"]));
+    assert!(derived.admits("phaseless-run", "stop"));
+    assert!(!derived.admits("phaseless-run", "retry"));
 }
 
 /// The run the quarantine was written for is no longer quarantined:
@@ -614,8 +651,9 @@ fn an_empty_fleet_is_an_empty_dossier_not_a_failure() {
 fn a_run_the_journal_cannot_read_names_itself_rather_than_vanishing() {
     // A journal that does not FOLD is quarantined and reported: the aide
     // still reads the rest of the fleet. A journal that cannot be READ
-    // at all is a store fault, not a protocol one, and stays fatal —
-    // nothing here can say which run the unreadable bytes belonged to.
+    // at all is quarantined the same way (#377) — the store listed the
+    // run, so the row can name it — in the store's own words, cited at
+    // the position before the first event, since none could be read.
     let fleet = Fleet::new();
     let mut store = fleet.store();
     store
@@ -639,16 +677,20 @@ fn a_run_the_journal_cannot_read_names_itself_rather_than_vanishing() {
         .unwrap();
     drop(store);
     let conn = rusqlite::Connection::open(broken.db()).unwrap();
-    conn.execute(
-        "INSERT INTO events (run_id, seq, event_hash, envelope)
-         VALUES ('broken-run', 1, 'x', 'not an envelope')",
-        [],
-    )
-    .unwrap();
+    brokkr_store::test_support::plant_event(&conn, "broken-run", &1, "x", "not an envelope")
+        .unwrap();
     drop(conn);
     let reader = Store::open_read_only(&broken.db()).unwrap();
-    let error = dossier(&reader, NOW).unwrap_err().to_string();
-    assert!(error.contains("loading run 'broken-run'"), "{error}");
+    let derived = dossier(&reader, NOW).unwrap();
+    assert_eq!(derived.value["runs"][0]["run_id"], "broken-run");
+    assert_eq!(derived.value["runs"][0]["status"], "?");
+    assert_eq!(derived.value["runs"][0]["seq"], 0);
+    assert_eq!(
+        derived.value["runs"][0]["fold_error"],
+        "json: expected ident at line 1 column 2"
+    );
+    assert_eq!(derived.value["fleet"]["quarantined"], 1);
+    assert!(derived.states("broken-run", 0));
 }
 
 #[test]

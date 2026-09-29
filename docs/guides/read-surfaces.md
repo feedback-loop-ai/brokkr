@@ -3,14 +3,18 @@
 Every readout shares ONE derivation (decision 0013): `brokkr-view` turns
 a journal into view models, and each surface only renders them — so
 "what did this seat cost" has a single answer, tested once. `runs`,
-`inspect`, `seats` and `watch` each take `--json` to emit that model
+`inspect` and `seats` each take `--json` to emit that model
 verbatim — `seats --json` is `inspect --json`'s own view model, byte for
 byte, under the same `view_version`.
 
 `--run` takes a **selector**, not only the 41-character id: any unique
 run-id prefix, or `latest` for the newest run in the workspace database
-(decision 0015) — one resolver, shared by `watch`, `inspect`, `anchor`,
-`export` and `replay`.
+— one resolver, shared by every verb that takes `--run` and by
+`compare`'s two runs. Decision 0015 ruled it for the readouts; its
+proposed 2026-09-28 addendum extends it to the write paths (`resume`,
+`rerun`, `conclude`, `operator`, `bridge`) and awaits the operator's
+ruling. The [CLI reference](../reference/cli.md) marks each selector
+argument.
 
 Colour follows `NO_COLOR` and `TERM`, width follows `COLUMNS`; without a
 Unicode-width dependency, CJK and emoji columns misalign — stated rather
@@ -47,11 +51,15 @@ means the newest run in the world, and the recorded stamp decides it).
 Phase 1 wires the flag into `run` and the read surfaces the ruling names
 — `runs`, `realms`, `tui`, `watch`, `inspect`, `export`, `muninn run` —
 and, since decision 0047, `operator supersede`, whose citation may name a
-run in another hearth. The others (`resume`, `conclude`, `rerun`,
-`doctor`, `ui`, `costs`,
-`compare`, `anchor`, `bridge`) still take `--db` alone, so a run started
-in a world whose map names a journal other than `.forge/forge.db` is
-resumed by naming that journal with `--db`.
+run in another hearth. Since #374 every other verb that opens a journal
+— `resume`, `rerun`, `conclude`, `operator retry`/`stop`, `costs`,
+`replay`, `ledger`, `anchor`, `keep-refs`, `compare`, `bridge`, `ui` and
+`doctor`'s database line — opens the journal the map names too, on the
+same three rules: `--db` outranks it, and with neither the journal is
+`.forge/forge.db`. A run started in a mapped world is resumed, concluded
+or stopped with no `--db`. `ui` reads the fleet `tui` reads; because it
+serves one journal, a world whose realms name several hearths is refused
+by name until `--db` picks one.
 
 ### `brokkr realms` — the world
 
@@ -61,6 +69,9 @@ journal the world writes. Read-only, like every other readout, and
 
 ```
 $ brokkr realms
+```
+
+```text
 map      ./realms.json
 journal  ./.forge/forge.db
 realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
@@ -76,6 +87,9 @@ end of the reading; `realms` reports, it does not refuse.
 
 ```
 $ brokkr realms
+```
+
+```text
 map      ./realms.json
 journal  ./.forge/forge.db
 realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
@@ -134,7 +148,7 @@ per realm, every native capability an installed harness declares that the
 realm has not granted — so the day a harness loses a power it used without
 anyone's permission is loud, not discovered later:
 
-```
+```text
 ok       capabilities brokkr: grants nothing; every native capability is governed by the no-grant default — switched off, or the seat is refused
 warn     capabilities brokkr native codex 'web-search': NOT granted here: every seat on codex is launched with it switched off by the adapter's declared control · evidence: codex-cli 0.154.0, cold `codex exec` only … · still unmeasured: whether the OFF switch holds on a RESUMED codex session is unmeasured; …
 warn     capabilities brokkr native dsh: native inventory unmeasured: … Nothing is granted through it and no native denial is claimed
@@ -325,10 +339,17 @@ session file. `brokkr transcript` reads that local file through the same
 bounded derivation the TUI pane uses, for every kind, and writes nothing:
 no provider process is started and the journal is opened read-only. The
 browser participant page consumes the same shared presentation for every
-kind and keeps its checkpoint fallback, but its id-only body drill stays
-Claude-only: the existing `/api/session/<id>` and `/sse/session/<id>`
-routes are explicit local Claude-session lookups, so a Codex thread or DSH
-session gets the shared hint and no browser body.
+kind and keeps its checkpoint fallback. Its body drill reads by
+participant for every kind: `/api/transcript/<run>/<key>` serves the
+command's `--json` document byte for byte, less the one trailing newline the
+command prints, and `/sse/transcript/<run>/<key>` watches the same source
+grow. The watch and the presentation admit a source by its reference and
+discovery, and read no body: a source discovery admits whose bytes the
+command refuses (`unreadable`, say) is refused by the body route alone,
+while the watch opens and sends only sizes. The browser reads what the
+command reads: every valid reference of every kind drills, whatever home it
+was recorded under, and a run whose journal does not fold is refused on
+every participant route, as the command refuses it (decision 0073).
 
 ```
 $ brokkr transcript --run latest --seat review:chief

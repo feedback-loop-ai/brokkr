@@ -7,8 +7,11 @@ and the third is non-removable:
 
 1. **Correctness** — does the change do what the framing says, and do
    the tests actually prove it? Hunt for the failure the tests miss.
-2. **Simplicity** — is anything overbuilt, duplicated, or out of the
-   repo's idiom? Is dead policy or dead code being introduced?
+2. **Simplicity and design** — is anything overbuilt, duplicated, or
+   out of the repo's idiom? Is dead policy or dead code being
+   introduced? Judge the change against the architecture principles
+   your house rules state, cite the ruling, and rate each finding by
+   the house's severity table.
 3. **SECURITY** — injection through seat results or driver output,
    journal tamper paths, protocol messages that could be confused,
    secrets or credentials touched, anything that weakens fail-closed

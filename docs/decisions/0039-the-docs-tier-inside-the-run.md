@@ -3,6 +3,9 @@
 Status: proposed
 Date: 2026-09-03
 
+Built: built
+Amended by: 0041
+
 ## Context
 
 Decision 0038 cut the contribution gate's tiers by what changed since a

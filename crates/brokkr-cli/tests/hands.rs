@@ -91,7 +91,128 @@ fn hands_serve_lists_one_tool_and_runs_it_in_the_box() {
     assert!(text.ends_with("[exit code: 0]"), "{text}");
 }
 
+/// A `hands serve` whose temporary directory is `tmp`, answering: its
+/// session tree exists and its signal handler stands. Returns the server
+/// and its tree.
+fn serving(tmp: &Path) -> (std::process::Child, PathBuf) {
+    let mut server = Command::new(brokkr_bin())
+        .args(["hands", "serve", "--workdir", tmp.to_str().unwrap()])
+        .env("TMPDIR", tmp)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let ping = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
+    writeln!(server.stdin.as_mut().unwrap(), "{ping}").unwrap();
+    let mut reply = String::new();
+    std::io::BufRead::read_line(
+        &mut std::io::BufReader::new(server.stdout.as_mut().unwrap()),
+        &mut reply,
+    )
+    .unwrap();
+    assert_eq!(reply, "{\"id\":1,\"jsonrpc\":\"2.0\",\"result\":{}}\n");
+    let prefix = format!("brokkr-hands-serve-{}-", server.id());
+    let trees: Vec<PathBuf> = std::fs::read_dir(tmp)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with(&prefix)
+        })
+        .collect();
+    assert_eq!(trees.len(), 1, "{trees:?}");
+    (server, trees[0].clone())
+}
+
+/// #415, both halves: a SIGKILLed server leaves its tree, and the next
+/// engine start reaps it while a live server's tree stays; SIGTERM ends a
+/// server that removes its own tree on the way out.
 #[test]
+fn a_killed_servers_tree_is_reaped_at_the_next_start_and_a_live_ones_kept() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (mut killed, killed_tree) = serving(tmp.path());
+    let (mut live, live_tree) = serving(tmp.path());
+    killed.kill().unwrap();
+    killed.wait().unwrap();
+    assert!(killed_tree.is_dir(), "SIGKILL runs no cleanup");
+
+    let bundle = tmp.path().join("bundle");
+    std::fs::create_dir_all(&bundle).unwrap();
+    let policy = r#"{"phases":["work","review","done","stop"],"initial":"work","terminal":["done","stop"],
+        "rules":[{"id":"W","from":"work","result":"complete","next":"review","reason":"built"},
+                 {"id":"R","from":"review","result":"clean","next":"done","reason":"done"}]}"#;
+    std::fs::write(bundle.join("policy.json"), policy).unwrap();
+    std::fs::write(bundle.join("role.md"), "# seat\n").unwrap();
+    let seat = |result: &str| {
+        format!(
+            r#"{{"results":["{result}"],"role":"role.md","driver":{{"command":["/bin/false"]}}}}"#
+        )
+    };
+    let seats = format!(
+        r#"{{"work":{},"review":{}}}"#,
+        seat("complete"),
+        seat("clean")
+    );
+    let config = format!(r#"{{"name":"reap","policy":"policy.json","seats":{seats}}}"#);
+    std::fs::write(bundle.join("bundle.json"), config).unwrap();
+    let started = Command::new(brokkr_bin())
+        .args([
+            "run",
+            "--bundle",
+            bundle.to_str().unwrap(),
+            "--feature",
+            "reap",
+        ])
+        .args(["--db", tmp.path().join("j.db").to_str().unwrap()])
+        .args(["--repo", tmp.path().to_str().unwrap()])
+        .current_dir(tmp.path())
+        .env("TMPDIR", tmp.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&started.stderr);
+    let run = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("run started: "))
+        .unwrap_or_else(|| panic!("{stderr}"));
+    // The start says each tree it reaped, once, right after it names the
+    // run and before any seat speaks.
+    assert_eq!(
+        stderr.lines().take(2).collect::<Vec<_>>(),
+        [
+            format!("run started: {run}"),
+            format!(
+                "hands: reaped {}: its owner is dead and holds no lock",
+                killed_tree.display()
+            ),
+        ],
+        "{stderr}"
+    );
+    assert!(run.starts_with("reap-"), "{run}");
+    assert!(
+        !killed_tree.exists(),
+        "the start reaped the dead server's tree"
+    );
+    assert!(live_tree.is_dir(), "and kept the live one's");
+
+    let term = Command::new("kill")
+        .args(["-TERM", &live.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(term.success());
+    // `wait` closes the child's stdin first, and an EOF that beat the
+    // signal handler would end the server cleanly with 0. Hold it open,
+    // so only the signal can end it.
+    let stdin = live.stdin.take();
+    assert_eq!(live.wait().unwrap().code(), Some(143));
+    drop(stdin);
+    assert!(!live_tree.exists(), "SIGTERM removes the server's own tree");
+}
+
+#[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn hands_exec_runs_the_command_whole_and_returns_its_code() {
     if !can_create_namespace() {
         return;

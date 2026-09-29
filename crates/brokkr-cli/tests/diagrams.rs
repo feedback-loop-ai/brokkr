@@ -13,19 +13,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-fn workspace() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("crates/")
-        .parent()
-        .expect("workspace root")
-        .to_path_buf()
-}
-
-fn read(relative: &str) -> String {
-    let path = workspace().join(relative);
-    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
-}
+#[path = "support/workspace.rs"]
+mod workspace_root;
+use workspace_root::{read, workspace};
 
 /// The mermaid blocks of a Markdown page, in order, fence lines removed.
 fn mermaid_blocks(markdown: &str) -> Vec<String> {

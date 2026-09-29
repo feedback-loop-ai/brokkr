@@ -673,6 +673,7 @@ fn select_parses_every_case_and_refuses_closed_vocabulary_defects_by_case() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
     let fixture = Fixture::new();
     let dir = fixture.dir.path();
@@ -874,25 +875,6 @@ fn role_secret_command_and_confinement_boundaries_are_explicit() {
     assert_eq!(command.len(), 3);
     assert!(command[1].ends_with("tool"));
     assert_eq!(command[2], "plain");
-
-    // Decision 0019: the old token is the same token for one more
-    // release. It resolves to exactly what `{brokkr}` resolves to — the
-    // note it earns is said once by the one latch `legacy` owns, which
-    // is where that property is pinned.
-    let old = parse_command(
-        dir,
-        "work",
-        &json!({"driver":{"command":["{forge}", "./tool", "plain"]}}),
-        &[],
-    )
-    .unwrap();
-    assert_eq!(old, command);
-    // Read twice: an old token resolves the same every time, never once
-    // and then differently.
-    assert_eq!(
-        expand_command(dir, &["{forge}".to_string(), "{brokkr}".to_string()]),
-        vec![command[0].clone(), command[0].clone()]
-    );
 
     // Decision 0046 ruling 5: the field is refused by name, in every
     // shape, and a site without it is untouched.
@@ -1736,6 +1718,53 @@ fn a_wrapped_panel_drains_overlapping_member_addresses_without_overwrite() {
         );
         assert!(!bundle.sites.contains_key(&format!("verify:{member}")));
     }
+}
+
+/// Decision 0069: an inline built-in Codex verify seat's
+/// discovery notice is a site fact, so the dialect wrapper carries it to
+/// the executing coordinate with the adapter witness it was read from —
+/// and neither is left behind at, nor invented for, the wrapper's label.
+#[test]
+fn a_wrapped_inline_codex_verify_carries_its_notice_and_witness_to_the_checks_step() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let verify = json!({
+        "results": ["pass", "fail"], "role": "roles/role.md", "class": "work",
+        "driver": {"command": ["{brokkr}", "driver", "codex", "--",
+            "--model", "gpt-6-sol", "--effort", "high"]},
+        "hands": {"kind": "workspace", "network": false, "binds": []}
+    });
+    let (config, policy) = dialect_config(verify);
+    let bundle = compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)).unwrap();
+    let adapters = crate::agents::Adapters::load(&root.join("adapters")).unwrap();
+    let codex = adapters.adapter("codex").unwrap();
+    let checks = &bundle.sites["verify:checks"];
+    assert_eq!(checks.inline_hands_notice, codex.hands_notice);
+    assert_eq!(
+        checks
+            .inline_hands_notice
+            .as_ref()
+            .map(|notice| notice.to_value()),
+        Some(json!({"workspace_tool": "mcp__brokkr__workspace", "discovery_tool": "tool_search"}))
+    );
+    assert_eq!(
+        checks.pin_drivers,
+        Some(json!({"codex": codex.digest}).as_object().unwrap().clone())
+    );
+    assert_eq!(
+        bundle
+            .sites
+            .get("verify")
+            .and_then(|facts| facts.inline_hands_notice.clone()),
+        None
+    );
+    assert_eq!(
+        bundle.sites["verify:dialect-verify"].inline_hands_notice,
+        None
+    );
 }
 
 /// And every bundle this tree ships walks clean, which is the other half

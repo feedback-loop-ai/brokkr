@@ -1,0 +1,4 @@
+crates/brokkr-protocol/src/hands.rs:56:5: replace boundary_evidence_required -> bool with false
+crates/brokkr-protocol/src/hands.rs:56:5: replace boundary_evidence_required -> bool with true
+crates/brokkr-protocol/src/secret.rs:498:13: replace | with ^ in b64
+crates/brokkr-protocol/src/secret.rs:499:13: replace | with ^ in b64

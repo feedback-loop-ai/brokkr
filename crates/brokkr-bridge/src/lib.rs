@@ -6,13 +6,17 @@
 //! closed producer vocabulary; separately authorized operator commands are
 //! fenced by the exact Brokkr journal head before becoming control events.
 
+#![forbid(unsafe_code)]
+
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use brokkr_core::canonical;
 use brokkr_core::dispatch::{bundle_manifest_from_run, dispatch_from_run, DispatchEnvelopeV2};
 use brokkr_core::{EventEnvelope, EventType};
-use brokkr_runtime::{apply_fenced_operator_command, FencedCommandOutcome};
+use brokkr_runtime::{
+    apply_fenced_operator_command, CommandWord, FencedCommand, FencedCommandOutcome,
+};
 use brokkr_store::Store;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -84,6 +88,22 @@ pub struct ProducerCommand {
     pub reason: String,
 }
 
+impl ProducerCommand {
+    /// The command as the engine's fenced door takes it, its word parsed
+    /// here at the edge. A word outside the verb set stays as sent, so the
+    /// journal records it before the door refuses it.
+    fn fenced(&self) -> FencedCommand<'_> {
+        FencedCommand {
+            command_id: &self.id,
+            command: CommandWord::parse(&self.command),
+            operator: &self.actor,
+            reason: &self.reason,
+            expected_seq: self.expected_forge_sequence,
+            expected_hash: &self.expected_event_hash,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommandReceipt {
@@ -116,6 +136,11 @@ pub enum BridgeError {
     UnboundRun,
     #[error("producer transport: {0}")]
     Transport(String),
+    /// The transport would deliver to an origin other than the one the
+    /// dispatch sealed. The text is the one the HTTP transport has always
+    /// printed, so an operator reading it sees nothing new.
+    #[error("producer transport: transport origin does not match the sealed callback audience")]
+    AudienceMismatch,
     #[error("normalized event exceeds dispatch bound")]
     EventTooLarge,
     #[error("producer semantic type is outside the dispatch grant")]
@@ -127,6 +152,11 @@ pub enum BridgeError {
 }
 
 pub trait ProducerTransport {
+    /// The origin every request of this transport is sent to. The bridge
+    /// refuses to register a dispatch whose sealed callback audience is
+    /// any other origin, whatever the transport, so a transport cannot
+    /// opt out of that check by not implementing it.
+    fn origin(&self) -> &str;
     fn register(
         &mut self,
         dispatch: &DispatchEnvelopeV2,
@@ -188,17 +218,29 @@ fn data<T: for<'de> Deserialize<'de>>(value: Value) -> Result<T, BridgeError> {
         .map_err(|error| BridgeError::Transport(format!("invalid response shape: {error}")))
 }
 
+/// The one audience rule: a transport may deliver only to the origin the
+/// dispatch sealed. `Bridge::sync_once` applies it to every transport
+/// before registering; the HTTP transport applies it again for callers
+/// that register through it directly.
+fn audience_matches(origin: &str, dispatch: &DispatchEnvelopeV2) -> Result<(), BridgeError> {
+    if origin.trim_end_matches('/') == dispatch.producer.callback_audience.trim_end_matches('/') {
+        Ok(())
+    } else {
+        Err(BridgeError::AudienceMismatch)
+    }
+}
+
 impl ProducerTransport for HttpTransport {
+    fn origin(&self) -> &str {
+        &self.base_url
+    }
+
     fn register(
         &mut self,
         dispatch: &DispatchEnvelopeV2,
         run_manifest: &Value,
     ) -> Result<RegistrationState, BridgeError> {
-        if self.base_url != dispatch.producer.callback_audience.trim_end_matches('/') {
-            return Err(BridgeError::Transport(
-                "transport origin does not match the sealed callback audience".into(),
-            ));
-        }
+        audience_matches(&self.base_url, dispatch)?;
         let response = self.request(
             "POST",
             "/api/v1/delivery/forge-producers/registrations",
@@ -266,6 +308,11 @@ fn digest_string(value: Option<&Value>) -> Option<Value> {
     Some(Value::String(canonical::sha256_bytes(text.as_bytes())))
 }
 
+/// Only the fields the producer vocabulary names leave the journal.
+/// Fields the engine began recording later — `effort` and
+/// `reasoning_output_tokens` among them — are withheld until that
+/// vocabulary names them: forwarding one is a change to the consumer's
+/// contract, not a detail of this bridge.
 fn safe_checkpoint(checkpoint: &Value) -> Value {
     let mut output = Map::new();
     for key in [
@@ -562,6 +609,7 @@ impl<T: ProducerTransport> Bridge<T> {
         self.event_times.push_back(now);
     }
 
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     pub fn sync_once(
         &mut self,
         store: &mut Store,
@@ -577,6 +625,7 @@ impl<T: ProducerTransport> Bridge<T> {
         if dispatch.forge_run_id != run_id {
             return Err(BridgeError::RegistrationMismatch);
         }
+        audience_matches(self.transport.origin(), &dispatch)?;
         let registration = self.transport.register(&dispatch, &manifest)?;
         if registration.registration_id != dispatch.producer.registration_id {
             return Err(BridgeError::RegistrationMismatch);
@@ -630,16 +679,7 @@ impl<T: ProducerTransport> Bridge<T> {
                 return Err(BridgeError::RegistrationMismatch);
             }
             last_command_cursor = command.cursor;
-            let result = apply_fenced_operator_command(
-                store,
-                run_id,
-                &command.id,
-                &command.command,
-                &command.actor,
-                &command.reason,
-                command.expected_forge_sequence,
-                &command.expected_event_hash,
-            )?;
+            let result = apply_fenced_operator_command(store, run_id, &command.fenced())?;
             // A one-shot bridge invocation is still a complete round trip: send
             // the durable command/disposition evidence before acknowledging it.
             let command_start = submitted_through;

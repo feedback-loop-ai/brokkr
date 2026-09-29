@@ -1,0 +1,23 @@
+---
+source: crates/brokkr-cli/src/tui/snapshot_tests.rs
+---
+" 1 alpha   2 beta                                                               "
+"┌runs──────────────────────────────────────────────────────────────────────────┐"
+"│id                       status    phase        seq    age      feature       │"
+"│run-7                    running   design       18     6m58s    one derivation│"
+"│run-old                  running   design       18     7m03s    an older featu│"
+"│run-unfoldable           ?         -            -      —        a run whose jo│"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+"runs · realm beta                                                               "
+"↑↓/jk move · Enter open run · [ ] 1-9 realm · g/G top/bottom · / filter · r refr"

@@ -19,12 +19,13 @@
 
 use std::io::{Read, Seek, SeekFrom};
 
-/// The three native formats the readers know.
+/// The two native formats the readers know: Linux's and macOS's, the
+/// supported hosts (decision 0063). Any other magic, a PE's included, is
+/// not a native image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
     Elf,
     MachO,
-    Pe,
 }
 
 impl std::fmt::Display for Kind {
@@ -32,7 +33,6 @@ impl std::fmt::Display for Kind {
         f.write_str(match self {
             Kind::Elf => "ELF",
             Kind::MachO => "Mach-O",
-            Kind::Pe => "PE",
         })
     }
 }
@@ -43,7 +43,7 @@ pub(super) struct Native {
     pub(super) kind: Kind,
     /// The dynamic loader the image names — `PT_INTERP` or
     /// `LC_LOAD_DYLINKER` — as the bytes of its path, without the NUL.
-    /// `None` for a static image, for a loader itself and for every PE.
+    /// `None` for a static image and for a loader itself.
     pub(super) loader: Option<Vec<u8>>,
     /// Whether the image is itself a dynamic loader: an ELF loader is any
     /// executable or shared image; a Mach-O loader is `MH_DYLINKER`.
@@ -52,57 +52,42 @@ pub(super) struct Native {
 
 impl Native {
     /// Whether this image is what a `kind` image may name as its loader:
-    /// a loader of the same format. A PE names no loader, so no Windows
-    /// production path asks; the reader's own tests ask on every target.
-    #[cfg(any(unix, test))]
+    /// a loader of the same format.
     pub(super) fn is_loader_for(&self, kind: Kind) -> bool {
         self.kind == kind && self.loads
     }
 }
 
 /// The format the running target executes natively.
-pub(super) const NATIVE: Kind = if cfg!(windows) {
-    Kind::Pe
-} else if cfg!(target_vendor = "apple") {
+pub(super) const NATIVE: Kind = if cfg!(target_vendor = "apple") {
     Kind::MachO
 } else {
     Kind::Elf
 };
 
 /// This target's machine identifiers in each format's own vocabulary:
-/// ELF `e_machine`, Mach-O `cputype` and PE `Machine`. A target the table
-/// does not name matches no image, so every native image refuses by name
-/// rather than being admitted on a guess.
+/// ELF `e_machine` and Mach-O `cputype`. A target the table does not
+/// name matches no image, so every native image refuses by name rather
+/// than being admitted on a guess.
 struct Arch {
     elf: u16,
     macho: u32,
-    pe: u16,
 }
 
 const ARCH: Arch = if cfg!(target_arch = "x86_64") {
     Arch {
         elf: 62,
         macho: 0x0100_0007,
-        pe: 0x8664,
     }
 } else if cfg!(target_arch = "aarch64") {
     Arch {
         elf: 183,
         macho: 0x0100_000c,
-        pe: 0xAA64,
     }
 } else if cfg!(target_arch = "x86") {
-    Arch {
-        elf: 3,
-        macho: 7,
-        pe: 0x14c,
-    }
+    Arch { elf: 3, macho: 7 }
 } else {
-    Arch {
-        elf: 0,
-        macho: 0,
-        pe: 0,
-    }
+    Arch { elf: 0, macho: 0 }
 };
 
 /// `EI_DATA` for this target's byte order: the kernel refuses an image of
@@ -129,24 +114,6 @@ const MACHO_COMMANDS_BOUND: u32 = 1 << 20;
 
 /// A bound on a universal image's architecture count.
 const FAT_ARCH_BOUND: u32 = 64;
-
-/// A bound on a PE optional header. The two admitted layouts are 224 and
-/// 240 bytes; the field is read, never trusted for allocation beyond this.
-const PE_OPTIONAL_BOUND: u16 = 4096;
-
-/// The loader's bound on a PE section table (`ntoskrnl` refuses an
-/// image with more sections than this).
-const PE_SECTIONS_BOUND: u16 = 96;
-
-/// The PE optional-header magic this target's loader runs as a native
-/// process: PE32+ on a 64-bit target, PE32 on a 32-bit one. The other
-/// magic is another word size, which a 64-bit Windows runs under WOW64
-/// as a different runtime and a 32-bit Windows does not run at all.
-const PE_MAGIC: u16 = if cfg!(target_pointer_width = "64") {
-    0x20b
-} else {
-    0x10b
-};
 
 /// Little-endian and big-endian field readers over a checked slice.
 /// Every accessor answers `None` past the end rather than panicking, so
@@ -220,7 +187,6 @@ pub(super) fn inspect(source: &mut (impl Read + Seek), len: u64) -> Result<Nativ
             Err("an unsupported byte-swapped Mach-O image".to_string())
         }
         [0xca, 0xfe, 0xba, 0xbf] => Err("an unsupported 64-bit universal image".to_string()),
-        [b'M', b'Z', _, _] => pe(source, len),
         _ => Err("neither a #! script nor a native image".to_string()),
     }
 }
@@ -228,6 +194,7 @@ pub(super) fn inspect(source: &mut (impl Read + Seek), len: u64) -> Result<Nativ
 /// The ELF rule, as `load_elf_binary` applies it: header identity, type,
 /// machine, a bounded program-header table inside the file, every load
 /// segment's sizes consistent, and at most one well-formed `PT_INTERP`.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn elf(source: &mut (impl Read + Seek), len: u64) -> Result<Native, String> {
     let header = read_range(source, len, 0, 64, "an ELF header")?;
     let header = Bytes(&header);
@@ -498,99 +465,9 @@ fn macho_thin(source: &mut (impl Read + Seek), base: u64, end: u64) -> Result<Na
     })
 }
 
-/// The PE rule, as far as a bounded header read establishes it: the
-/// signature, this target's machine, an executable that is not a DLL, an
-/// optional header of this target's magic inside the file, a subsystem
-/// the OS runs as a process, a bounded section table inside the file
-/// whose every raw-data range lies inside the file too, and a declared
-/// header size that covers those headers and no more than the file
-/// (review 2026-09-20, R7). What the OS binary-type query adds is asked
-/// of the OS at admission, on Windows, by the caller.
-fn pe(source: &mut (impl Read + Seek), len: u64) -> Result<Native, String> {
-    let dos = read_range(source, len, 0, 64, "a DOS header")?;
-    let lfanew = u64::from(Bytes(&dos).u32_le(60).expect("64-byte header"));
-    let coff = read_range(source, len, lfanew, 24, "a PE header")?;
-    let coff = Bytes(&coff);
-    if &coff.0[..4] != b"PE\0\0" {
-        return Err("no PE signature".to_string());
-    }
-    let machine = coff.u16_le(4).expect("24-byte header");
-    let sections = coff.u16_le(6).expect("24-byte header");
-    let optional_size = coff.u16_le(20).expect("24-byte header");
-    let characteristics = coff.u16_le(22).expect("24-byte header");
-    if machine != ARCH.pe {
-        return Err(format!(
-            "PE machine {machine:#x}, which is not this target's {:#x}",
-            ARCH.pe
-        ));
-    }
-    if characteristics & 0x0002 == 0 {
-        return Err("a PE image that is not marked executable".to_string());
-    }
-    if characteristics & 0x2000 != 0 {
-        return Err("a PE DLL, not an executable".to_string());
-    }
-    if !(70..=PE_OPTIONAL_BOUND).contains(&optional_size) {
-        return Err(format!("a PE optional header of {optional_size} bytes"));
-    }
-    let optional = read_range(
-        source,
-        len,
-        lfanew + 24,
-        u64::from(optional_size),
-        "a PE optional header",
-    )?;
-    let optional = Bytes(&optional);
-    let magic = optional.u16_le(0).expect("70 bytes read");
-    if magic != 0x10b && magic != 0x20b {
-        return Err(format!("PE optional header magic {magic:#x}"));
-    }
-    if magic != PE_MAGIC {
-        return Err(format!(
-            "PE optional header magic {magic:#x}, which is not this target's {PE_MAGIC:#x}"
-        ));
-    }
-    let size_of_headers = u64::from(optional.u32_le(60).expect("70 bytes read"));
-    let subsystem = optional.u16_le(68).expect("70 bytes read");
-    if subsystem != 2 && subsystem != 3 {
-        return Err(format!(
-            "PE subsystem {subsystem}, which is neither the console nor the GUI subsystem"
-        ));
-    }
-    if sections == 0 || sections > PE_SECTIONS_BOUND {
-        return Err(format!(
-            "a PE image with {sections} sections, outside the loader's 1 to {PE_SECTIONS_BOUND}"
-        ));
-    }
-    let table_at = lfanew + 24 + u64::from(optional_size);
-    let table_len = u64::from(sections) * 40;
-    let table = read_range(source, len, table_at, table_len, "a PE section table")?;
-    let table = Bytes(&table);
-    for index in 0..usize::from(sections) {
-        let at = index * 40;
-        let raw_size = u64::from(table.u32_le(at + 16).expect("table read whole"));
-        let raw_at = u64::from(table.u32_le(at + 20).expect("table read whole"));
-        if raw_size != 0 && raw_at.checked_add(raw_size).is_none_or(|end| end > len) {
-            return Err("a PE section beyond the end of the file".to_string());
-        }
-    }
-    let headers_end = table_at + table_len;
-    if size_of_headers < headers_end || size_of_headers > len {
-        return Err(format!(
-            "a PE header size of {size_of_headers} bytes where the headers end at {headers_end} \
-             in a file of {len}"
-        ));
-    }
-    Ok(Native {
-        kind: Kind::Pe,
-        loader: None,
-        loads: false,
-    })
-}
-
 /// This target's Mach-O CPU type, for a sibling test that plants a
 /// synthetic image of another format as a candidate.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 pub(super) fn tests_cputype() -> u32 {
     ARCH.macho
 }

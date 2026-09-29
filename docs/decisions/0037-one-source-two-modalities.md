@@ -3,6 +3,8 @@
 Status: proposed
 Date: 2026-09-03
 
+Built: built
+
 ## Context
 
 On 2026-09-03 the operator read `ARCHITECTURE.md` — 2,606 words and

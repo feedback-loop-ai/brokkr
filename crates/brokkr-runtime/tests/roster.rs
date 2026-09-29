@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use brokkr_protocol::hands::BindMode;
-use brokkr_runtime::{Bundle, SeatBody, SeatClass, StepBody};
+use brokkr_runtime::{Bundle, Library, SeatBody, SeatClass, StepBody};
 use serde_json::Value;
 
 fn workspace() -> PathBuf {
@@ -284,6 +284,7 @@ fn shipped_claude_implementer_can_commit() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
     let root = workspace();
     let mut shipped = Vec::new();
@@ -564,6 +565,69 @@ fn night_shift_keeps_one_attempt_on_every_phase() {
     }
 }
 
+/// The agents a library holds for a consumer outside every shipped
+/// bundle, each with the seat that hires it. `muninn` is composed
+/// outside a bundle by `brokkr muninn` (decision 0020).
+const UNSEATED_CATALOGUE: [&str; 1] = ["muninn"];
+
+/// Every recipe directory with a `bundle.json`, and the two system
+/// bundles.
+fn shipped_bundle_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![root.join("bundles/self"), root.join("bundles/verify")];
+    for recipe in std::fs::read_dir(root.join("recipes")).unwrap().flatten() {
+        if recipe.path().join("bundle.json").is_file() {
+            dirs.push(recipe.path());
+        }
+    }
+    dirs
+}
+
+/// #355 (decision 0071 ruling 6): an agent is seated by a shipped
+/// recipe, or the catalogue above names it. The seated set is read from
+/// each compiled manifest's `agents` pins — the record of which agent
+/// every site hired — and a pin that names no agent fails the test
+/// rather than being passed over.
+#[test]
+fn every_library_agent_is_seated_by_a_shipped_bundle_or_catalogued() {
+    let root = workspace();
+    let mut seated = BTreeSet::new();
+    for dir in shipped_bundle_dirs(&root) {
+        let name = dir.display();
+        let bundle = Bundle::compile_with(&dir, &root.join("agents"), &root.join("adapters"))
+            .unwrap_or_else(|error| panic!("{name} compiles: {error}"));
+        let Some(pins) = bundle.manifest.get("agents") else {
+            continue;
+        };
+        let pins = pins
+            .as_object()
+            .unwrap_or_else(|| panic!("{name}: the agents pin is an object"));
+        for (site, pin) in pins {
+            let agent = pin
+                .get("agent")
+                .and_then(Value::as_str)
+                .unwrap_or_else(|| panic!("{name}:{site}: the pin names its agent"));
+            seated.insert(agent.to_string());
+        }
+    }
+    let library = Library::load(&root.join("agents")).expect("the shipped library loads");
+    let unseated: Vec<String> = library
+        .names()
+        .into_iter()
+        .filter(|agent| !seated.contains(agent) && !UNSEATED_CATALOGUE.contains(&agent.as_str()))
+        .collect();
+    assert_eq!(
+        unseated,
+        Vec::<String>::new(),
+        "no shipped recipe seats these agents; seat them, delete them, or catalogue them"
+    );
+    for agent in UNSEATED_CATALOGUE {
+        assert!(
+            library.agent(agent).is_some() && !seated.contains(agent),
+            "catalogued agent {agent} must exist and be seated by no bundle"
+        );
+    }
+}
+
 #[test]
 fn shipped_recipes_have_no_judges_fix_input_and_triage_would_bound_oversized() {
     let root = workspace();
@@ -798,6 +862,90 @@ fn every_shipped_adapter_declares_the_shape_its_gate_and_doctor_read() {
             shapes,
             [shape],
             "adapters/{adapter}.json declares exactly the shape its gate reads"
+        );
+    }
+}
+
+/// Recipe-local roles stand outside the portability walk above, but they
+/// are what an inline seat reads in place of a charter (issue #334). They
+/// defer to the house rules instead of restating them, and they carry the
+/// same principle text their charter does, so a recipe's seats and the
+/// library's offices cannot drift apart. The three reviewer roles that do
+/// not specialise are the reviewer charter's bytes and are held to them.
+#[test]
+fn recipe_roles_defer_to_the_house_and_carry_their_charters_principles() {
+    let root = workspace();
+    let flatten = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let implementer = std::fs::read_to_string(root.join("agents/charters/implementer.md")).unwrap();
+    let design = implementer
+        .split("\n\n")
+        .find(|paragraph| paragraph.starts_with("Design: "))
+        .expect("the implementer charter states its design paragraph");
+    let reviewer =
+        flatten(&std::fs::read_to_string(root.join("agents/charters/reviewer.md")).unwrap());
+    let principles = reviewer
+        .split_once("against the architecture principles")
+        .and_then(|(_, tail)| tail.split_once("severity table."))
+        .map(|(middle, _)| format!("against the architecture principles{middle}severity table."))
+        .expect("the reviewer charter states its principles sentence");
+    let defer = "The house rules that follow this role, when the run carries them, state the \
+                 repository's conventions, frozen surfaces, gates and architecture. Follow \
+                 them; this role does not repeat them.";
+    let restated = [
+        "Rules of the house",
+        "policy/schemas",
+        "Never push",
+        "cargo test --workspace",
+    ];
+    let (mut implementers, mut reviewers) = (0, 0);
+    for library in ["recipes", "bundles"] {
+        for recipe in std::fs::read_dir(root.join(library)).unwrap().flatten() {
+            for name in ["implementer.md", "reviewer.md"] {
+                let path = recipe.path().join("roles").join(name);
+                let text = match std::fs::read_to_string(&path) {
+                    Ok(text) => text,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => panic!("{}: {error}", path.display()),
+                };
+                for phrase in restated {
+                    assert!(
+                        !text.contains(phrase),
+                        "{} restates the house: {phrase:?}",
+                        path.display()
+                    );
+                }
+                let flat = flatten(&text);
+                if name == "implementer.md" {
+                    implementers += 1;
+                    assert!(
+                        text.contains(design),
+                        "{} lost the implementer charter's design paragraph",
+                        path.display()
+                    );
+                    assert!(
+                        flat.contains(defer),
+                        "{} does not defer to the house",
+                        path.display()
+                    );
+                } else {
+                    reviewers += 1;
+                    assert!(
+                        flat.contains(&principles),
+                        "{} does not judge against the house's principles",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+    assert!(implementers > 0 && reviewers > 0, "the walk found no roles");
+    let charter = std::fs::read(root.join("agents/charters/reviewer.md")).unwrap();
+    for recipe in ["fast", "review-first", "standby"] {
+        let role = format!("recipes/{recipe}/roles/reviewer.md");
+        assert_eq!(
+            charter,
+            std::fs::read(root.join(&role)).unwrap(),
+            "{role} is a copy of agents/charters/reviewer.md"
         );
     }
 }

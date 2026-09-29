@@ -3,10 +3,12 @@
 //! the shell runs over injected key and refresh sources.
 
 use super::*;
+use crate::tests::envelope_builder::EnvelopeBuilder;
 use brokkr_core::fold::{Cursor, RunState, Status};
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::Store;
 use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -14,35 +16,29 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-const T0: &str = "2026-01-01T00:00:00Z";
+pub(super) const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:00:05Z";
 const T2: &str = "2026-01-01T00:02:03Z";
-const NOW: &str = "2026-01-01T00:07:03Z";
+pub(super) const NOW: &str = "2026-01-01T00:07:03Z";
 
 // -------------------------------------------------------------- fixtures
 
 fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "run-7".to_string(),
-        seq,
-        event_id: format!("ev{seq}"),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "corr".to_string(),
-        attempt_id: None,
-        recorded_at: at.to_string(),
-        previous_hash: String::new(),
-        event_hash: String::new(),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .run("run-7")
+        .correlation("corr")
+        .seq(seq)
+        .event_id(format!("ev{seq}"))
+        .at(at)
+        .previous("")
+        .build()
 }
 
 fn state() -> RunState {
     state_of(Status::Running)
 }
 
-fn state_of(status: Status) -> RunState {
+pub(super) fn state_of(status: Status) -> RunState {
     RunState {
         run_id: "run-7".to_string(),
         seq: 18,
@@ -68,6 +64,7 @@ fn state_of(status: Status) -> RunState {
 /// An intake seat that concluded, then a design sequence: a forked step
 /// with two members, a one-member step, and a bare member still working.
 /// Every shape the graph draws, in one run.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn journal(seat: &str) -> Vec<EventEnvelope> {
     let mut events = vec![
         ev(
@@ -226,14 +223,14 @@ fn views_with(seat: &str) -> Views {
     }
 }
 
-fn views() -> Views {
+pub(super) fn views() -> Views {
     views_with("intake")
 }
 
 /// A readable shared result over the given turns, under a Claude
 /// reference. The reader owns every other fact; a test overrides the ones
 /// it is asking about.
-fn read_of(turns: Vec<Turn>, truncated: bool) -> TranscriptRead {
+pub(super) fn read_of(turns: Vec<Turn>, truncated: bool) -> TranscriptRead {
     TranscriptRead::readable(
         Some(brokkr_view::Transcript {
             kind: "claude-session".to_string(),
@@ -252,7 +249,7 @@ fn read_of(turns: Vec<Turn>, truncated: bool) -> TranscriptRead {
 
 /// A transcript of `count` prose turns, each naming its own index — so
 /// "the SAME turn" is askable by text, not just by position.
-fn turns_of(count: usize) -> Vec<Turn> {
+pub(super) fn turns_of(count: usize) -> Vec<Turn> {
     (0..count)
         .map(|index| Turn {
             role: format!("turn {index}"),
@@ -266,7 +263,7 @@ fn turns_of(count: usize) -> Vec<Turn> {
 }
 
 /// The RUN level for `run-7`, as `Enter` on the fleet leaves it.
-fn at_run() -> Tui {
+pub(super) fn at_run() -> Tui {
     let mut tui = Tui::new(None);
     tui.cursor[0] = Some("run-7".to_string());
     let views = views();
@@ -276,26 +273,43 @@ fn at_run() -> Tui {
 
 /// The RUN level with the seats pane focused and a seat under the
 /// cursor.
-fn at_seats(key: &str) -> Tui {
+pub(super) fn at_seats(key: &str) -> Tui {
     let mut tui = at_run();
     tui.pane = 1;
     tui.cursor[1] = Some(key.to_string());
     tui
 }
 
-fn buffer_of(tui: &Tui, views: &Views, width: u16, height: u16) -> Vec<String> {
+/// One frame drawn at a fixed size, the one drawing skeleton both test
+/// files share: its backend displays the text the snapshots hold, and its
+/// buffer keeps the styles that text drops.
+pub(super) fn drawn(tui: &Tui, views: &Views, width: u16, height: u16) -> Terminal<TestBackend> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal.draw(|frame| draw(frame, tui, views)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let mut lines = Vec::new();
-    for row in 0..buffer.area.height {
-        let mut line = String::new();
-        for column in 0..buffer.area.width {
-            line.push_str(buffer[(column, row)].symbol());
-        }
-        lines.push(line);
-    }
-    lines
+    terminal
+}
+
+/// Each row of a drawn buffer as the text it shows.
+pub(super) fn lines_of(buffer: &Buffer) -> Vec<String> {
+    let line = |row| {
+        (0..buffer.area.width)
+            .map(|column| buffer[(column, row)].symbol())
+            .collect()
+    };
+    (0..buffer.area.height).map(line).collect()
+}
+
+/// The `(column, row)` of the cell where `needle` first starts on `row`
+/// of a buffer whose rows read as `lines`: the one walk from a byte
+/// offset to a character column every styled-cell assertion shares.
+pub(super) fn cell_at(lines: &[String], row: usize, needle: &str) -> (u16, u16) {
+    let byte = lines[row].find(needle).expect("the text is on that row");
+    let column = lines[row][..byte].chars().count();
+    (u16::try_from(column).unwrap(), u16::try_from(row).unwrap())
+}
+
+fn buffer_of(tui: &Tui, views: &Views, width: u16, height: u16) -> Vec<String> {
+    lines_of(drawn(tui, views, width, height).backend().buffer())
 }
 
 fn frame_of(tui: &Tui, views: &Views, width: u16, height: u16) -> String {
@@ -1007,10 +1021,6 @@ fn a_shell_fragment_id_never_becomes_a_pasteable_command() {
         "`id`",
         "../../etc/passwd",
     ] {
-        assert!(
-            !brokkr_view::transcript::valid_claude_id(hostile),
-            "{hostile:?} must not pass the guard"
-        );
         let mut views = views();
         for part in &mut views.run.as_mut().unwrap().participants {
             part.transcript = None;
@@ -1128,14 +1138,14 @@ fn every_startup_refusal_names_both_of_the_other_readouts() {
 
 // ------------------------------------------- AC-12: the terminal lifecycle
 
-/// `set_hook`/`take_hook` and the recorders below are process-global, so
-/// every test that touches them takes this first.
+/// `set_hook`/`take_hook` and the recorders below are process-global, so every
+/// test that touches them takes this first; hook counters are per panicking thread.
 static TERMINAL: Mutex<()> = Mutex::new(());
 static SCRIPT: Mutex<Vec<Event>> = Mutex::new(Vec::new());
 static ENTERED: AtomicUsize = AtomicUsize::new(0);
 static LEFT: AtomicUsize = AtomicUsize::new(0);
-static RESTORED: AtomicUsize = AtomicUsize::new(0);
-static CHAINED: AtomicUsize = AtomicUsize::new(0);
+thread_local!(static RESTORED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
+thread_local!(static CHAINED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
 
 fn script(keys: &[Key]) {
     let mut script = SCRIPT.lock().unwrap();
@@ -1186,7 +1196,7 @@ fn fixed_size() -> std::io::Result<(u16, u16)> {
 }
 
 fn record_restore() {
-    RESTORED.fetch_add(1, Ordering::SeqCst);
+    RESTORED.set(RESTORED.get() + 1);
 }
 
 fn test_ops() -> TerminalOps {
@@ -1332,21 +1342,21 @@ fn the_panic_hook_restores_first_chains_second_and_is_put_back_after() {
     let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
     let saved = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {
-        CHAINED.fetch_add(1, Ordering::SeqCst);
+        CHAINED.set(CHAINED.get() + 1);
     }));
 
-    let restored = RESTORED.load(Ordering::SeqCst);
-    let chained = CHAINED.load(Ordering::SeqCst);
+    let restored = RESTORED.get();
+    let chained = CHAINED.get();
     install_panic_hook(record_restore);
     let panicked = std::panic::catch_unwind(|| panic!("a deliberate panic"));
     assert!(panicked.is_err());
     assert_eq!(
-        RESTORED.load(Ordering::SeqCst),
+        RESTORED.get(),
         restored + 1,
         "the terminal is restored first"
     );
     assert_eq!(
-        CHAINED.load(Ordering::SeqCst),
+        CHAINED.get(),
         chained + 1,
         "and the previous hook still ran"
     );
@@ -1355,7 +1365,7 @@ fn the_panic_hook_restores_first_chains_second_and_is_put_back_after() {
     install_panic_hook(record_restore);
     let panicked = std::panic::catch_unwind(|| panic!("again"));
     assert!(panicked.is_err());
-    assert_eq!(RESTORED.load(Ordering::SeqCst), restored + 3);
+    assert_eq!(RESTORED.get(), restored + 3);
 
     let _ = std::panic::take_hook();
     std::panic::set_hook(saved);
@@ -1523,7 +1533,7 @@ fn the_shell_watches_a_transcript_only_while_its_seat_is_working() {
 
 /// A panel with no sequence steps: one fork, no step label. The other
 /// shape the tree draws.
-fn panel_views() -> Views {
+pub(super) fn panel_views() -> Views {
     let mut events = vec![
         ev(1, EventType::RunStarted, json!({"feature": "a panel"}), T0),
         ev(2, EventType::PhaseEntered, json!({"phase": "review"}), T0),
@@ -2701,23 +2711,10 @@ fn the_selection_and_the_current_phase_differ_in_a_channel_that_is_not_colour() 
     );
 }
 
-fn buffer_and_lines(
-    tui: &Tui,
-    views: &Views,
-    width: u16,
-    height: u16,
-) -> (ratatui::buffer::Buffer, Vec<String>) {
-    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|frame| draw(frame, tui, views)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let mut lines = Vec::new();
-    for row in 0..buffer.area.height {
-        let mut line = String::new();
-        for column in 0..buffer.area.width {
-            line.push_str(buffer[(column, row)].symbol());
-        }
-        lines.push(line);
-    }
+/// One frame's buffer beside its rows as text, from the shared helpers.
+fn buffer_and_lines(tui: &Tui, views: &Views, width: u16, height: u16) -> (Buffer, Vec<String>) {
+    let buffer = drawn(tui, views, width, height).backend().buffer().clone();
+    let lines = lines_of(&buffer);
     (buffer, lines)
 }
 
@@ -2732,15 +2729,8 @@ fn baseline_of(lines: &[String]) -> usize {
         .expect("one baseline carrying every name")
 }
 
-fn modifier_at(
-    buffer: &ratatui::buffer::Buffer,
-    lines: &[String],
-    row: usize,
-    needle: &str,
-) -> Modifier {
-    let byte = lines[row].find(needle).expect("the text is on that row");
-    let column = lines[row][..byte].chars().count();
-    buffer[(u16::try_from(column).unwrap(), u16::try_from(row).unwrap())].modifier
+fn modifier_at(buffer: &Buffer, lines: &[String], row: usize, needle: &str) -> Modifier {
+    buffer[cell_at(lines, row, needle)].modifier
 }
 
 // -------------------------------------------------- AC-anim-2, AC-anim-4
@@ -3054,7 +3044,7 @@ fn enter_on_a_trail_row_opens_it_for_reading_and_esc_closes() {
 
 /// The PARTICIPANT level with the transcript pane focused, over the
 /// given transcript.
-fn at_transcript(views: &Views) -> Tui {
+pub(super) fn at_transcript(views: &Views) -> Tui {
     let mut tui = at_seats("eff-i");
     apply(&mut tui, views, Key::Enter);
     apply(&mut tui, views, Key::Enter);
@@ -3160,6 +3150,7 @@ fn enter_on_a_transcript_turn_opens_the_whole_turn_in_the_reader() {
 /// opens nothing": the pane's OWN door. What the reader shows is every
 /// turn, composed exactly as the per-turn reader composes one.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn enter_with_no_turn_selected_opens_the_whole_transcript() {
     // Two turns, the second carrying a tool block: order, the ⚙ marker
     // and the separation are all askable of the one string.
@@ -3395,7 +3386,7 @@ fn a_hostile_transcript_turn_renders_inert_in_the_reader() {
 /// The same journal, with the intake seat agent-resolved and fallen back
 /// to its second model — plus the compile-time notice the manifest
 /// already carries.
-fn adopting_views() -> Views {
+pub(super) fn adopting_views() -> Views {
     let mut events = journal("intake");
     events[0].payload = json!({
         "feature": "one derivation, three surfaces",
@@ -3520,12 +3511,9 @@ fn a_session_held_by_another_harness_never_renders_as_a_claude_command() {
 /// refusal with no hint and no door.
 #[test]
 fn a_pre_0032_journal_keeps_the_provider_guard_on_the_legacy_reference() {
-    let _home = crate::tests::HOME
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let saved_home = std::env::var_os("HOME");
+    let mut env = crate::tests::env_guard::EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    std::env::set_var("HOME", dir.path());
+    env.set("HOME", dir.path());
 
     for (provider, claude_hint) in [
         (Some("codex"), false),
@@ -3575,11 +3563,6 @@ fn a_pre_0032_journal_keeps_the_provider_guard_on_the_legacy_reference() {
                 "{provider:?}"
             );
         }
-    }
-
-    match saved_home {
-        Some(home) => std::env::set_var("HOME", home),
-        None => std::env::remove_var("HOME"),
     }
 }
 
@@ -5104,7 +5087,7 @@ fn a_hearth_with_no_journal_yet_is_empty_and_does_not_end_the_console() {
 /// The intake seat under one boundary: the run declares hands for it,
 /// the attempt's entry names `word` with `gate`, and the finishing
 /// checkpoint and result carry the model with the word beside it.
-fn boxed_views(word: &str, gate: bool) -> Views {
+pub(super) fn boxed_views(word: &str, gate: bool) -> Views {
     let mut events = journal("intake");
     events[0].payload["manifest"] = json!({"hands": {"intake": {"binds": []}}});
     events[3].payload["boundary"] = json!([{"member": null, "boundary": word, "gate": gate}]);
@@ -5249,7 +5232,7 @@ fn text_turn(role: &str, text: &str) -> Turn {
     }
 }
 
-fn claude_reference(locator: &str, home: &str) -> brokkr_view::Transcript {
+pub(super) fn claude_reference(locator: &str, home: &str) -> brokkr_view::Transcript {
     brokkr_view::Transcript {
         kind: "claude-session".to_string(),
         locator: locator.to_string(),
@@ -5257,7 +5240,7 @@ fn claude_reference(locator: &str, home: &str) -> brokkr_view::Transcript {
     }
 }
 
-fn refused_read(
+pub(super) fn refused_read(
     reference: brokkr_view::Transcript,
     reason: brokkr_view::transcript::Unavailable,
     explanation: impl Into<String>,

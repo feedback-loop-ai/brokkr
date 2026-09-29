@@ -8,6 +8,7 @@
 //! what the store holds.
 
 use super::*;
+use brokkr_store::test_support::plant_event;
 use brokkr_store::StoreError;
 use std::path::{Path, PathBuf};
 
@@ -43,12 +44,8 @@ fn replay_upto(db: &Path, name: &str, manifest: &Value, keep: usize) -> Store {
         .take(keep)
     {
         let envelope: EventEnvelope = serde_json::from_str(line).unwrap();
-        connection
-            .execute(
-                "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![name, envelope.seq as i64, envelope.event_hash, line],
-            )
-            .unwrap();
+        let seq = envelope.seq as i64;
+        plant_event(&connection, name, &seq, &envelope.event_hash, line).unwrap();
     }
     store
 }
@@ -618,9 +615,11 @@ fn a_run_the_driver_finishes_mid_conclusion_refuses_the_stop() {
         }
     })
     .unwrap_err();
-    assert!(
-        refused.to_string().contains("look with `brokkr runs`"),
-        "{refused}"
+    assert_eq!(
+        refused.to_string(),
+        "engine: conclude: run 'conclude-stopped-mid-effect-hand-built' refused the stop \
+         (after_terminal); the journal moved beneath the conclusion, so something may \
+         still be driving this run — look with `brokkr runs` before closing"
     );
     assert!(
         fold(&events(&store, name)).is_ok(),
@@ -657,9 +656,11 @@ fn a_result_landing_inside_the_fence_window_refuses_the_close() {
         }
     })
     .unwrap_err();
-    assert!(
-        refused.to_string().contains("moved beneath the conclusion"),
-        "{refused}"
+    assert_eq!(
+        refused.to_string(),
+        "engine: conclude: the journal moved beneath the conclusion of run \
+         'conclude-stopped-mid-effect-hand-built', so something may still be driving \
+         it — a conclusion is for a run believed dead; look with `brokkr runs` before closing"
     );
     assert!(
         fold(&events(&store, name)).is_ok(),

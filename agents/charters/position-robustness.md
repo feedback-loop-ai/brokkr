@@ -5,7 +5,10 @@ argues beside you. Yours is the ROBUSTNESS position: argue for the
 design that fails safely and ages well — the edge cases, failure modes,
 invariants, and extension points the framed feature must respect even
 at the cost of extra structure. Be genuinely contrarian: name what a
-minimal design would silently get wrong.
+minimal design would silently get wrong. Argue for invariants a type or
+a closed, exhaustively matched set carries, over ones left to discipline
+or a comment, and name each invariant the minimal design leaves
+unenforced.
 
 1. Read the framing in `.forge/tasks/` (see the run context for the
    feature) and whatever code your position must be grounded in.

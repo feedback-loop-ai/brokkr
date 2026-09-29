@@ -22,19 +22,9 @@ use std::process::Command;
 use sha2::{Digest, Sha256};
 
 /// This file lives at `crates/brokkr-cli/tests/`.
-fn workspace() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("crates/")
-        .parent()
-        .expect("workspace root")
-        .to_path_buf()
-}
-
-fn read(relative: &str) -> String {
-    let path = workspace().join(relative);
-    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
-}
+#[path = "support/workspace.rs"]
+mod workspace_root;
+use workspace_root::{read, workspace};
 
 fn tools_are_required() -> bool {
     std::env::var("BROKKR_PACKAGING_TOOLS").as_deref() == Ok("required")
@@ -294,7 +284,9 @@ fn the_release_workflow_puts_the_packages_through_the_attested_pipeline() {
 /// until a nightly release on 2026-09-07 reddened every pull request on
 /// bytes that had not changed (issue #235). One file names the compiler,
 /// both workflows and the script read it, and none may say a bare
-/// `nightly` again.
+/// `nightly` again. The measuring tool rides beside it: cargo-llvm-cov's
+/// default ignore regex decides which files are test harness, so its
+/// version is a second file both workflows read (issue #340).
 #[test]
 fn the_coverage_toolchain_is_pinned_in_ci_release_and_the_script() {
     let pin = read("rust-nightly-version.txt");
@@ -325,7 +317,18 @@ fn the_coverage_toolchain_is_pinned_in_ci_release_and_the_script() {
             workflow.contains("toolchain: ${{ steps.nightly.outputs.toolchain }}"),
             "{path} does not install the toolchain it read"
         );
+        assert!(
+            workflow.contains(r#"echo "cargo_llvm_cov=$(tr -d '[:space:]' < cargo-llvm-cov-version.txt)" >> "$GITHUB_OUTPUT""#),
+            "{path} does not read the measuring tool's pin"
+        );
+        assert!(
+            workflow.contains("tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}"),
+            "{path} does not install the measuring tool it read"
+        );
     }
+
+    // The measuring tool's pin is an exact release: workflow_pins.rs judges
+    // it by the one rule that says what an exact release is.
 
     let script = read("scripts/coverage-exact.sh");
     assert!(
@@ -342,18 +345,8 @@ fn the_coverage_toolchain_is_pinned_in_ci_release_and_the_script() {
 
 #[test]
 fn the_packaging_tool_is_pinned_and_both_workflows_read_one_pin() {
-    let pin = read("packaging/nfpm-version.txt");
-    let pin = pin.trim();
-    let digits = pin.strip_prefix("v2.").expect("a pinned nfpm v2 release");
-    let parts: Vec<&str> = digits.split('.').collect();
-    assert_eq!(parts.len(), 2, "{pin} is not vMAJOR.MINOR.PATCH");
-    for part in parts {
-        assert!(
-            !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()),
-            "{pin} is not vMAJOR.MINOR.PATCH"
-        );
-    }
-
+    // The pin itself is a v2 exact release; workflow_pins.rs judges it by
+    // the one rule that says what an exact release is.
     for workflow in [".github/workflows/release.yml", ".github/workflows/ci.yml"] {
         let text = read(workflow);
         assert!(
@@ -424,8 +417,8 @@ fn the_channel_steps_read_the_rendered_tree_before_the_action_moves_it() {
 
     let bump = at("bash packaging/bump-from-sums.sh");
     let tap = at("--repo \"${GITHUB_REPOSITORY_OWNER}/homebrew-tap\"");
-    let app_token = at("actions/create-github-app-token@v3");
-    let action = at("peter-evans/create-pull-request@v7");
+    let app_token = at("uses: actions/create-github-app-token@");
+    let action = at("uses: peter-evans/create-pull-request@");
 
     assert!(bump < tap, "{channels}");
     assert!(tap < app_token, "{channels}");
@@ -1093,12 +1086,17 @@ fn the_packaging_readme_names_the_secrets_and_the_out_of_scope_channels() {
             "no {secret} in packaging/README.md"
         );
     }
-    for channel in ["AUR", "winget", "snap", "flatpak"] {
+    for channel in ["AUR", "snap", "flatpak"] {
         assert!(
             readme.contains(channel),
             "no {channel} in packaging/README.md"
         );
     }
+    // winget is out of scope because Windows is not a host, not deferred.
+    assert!(
+        readme.contains("- **winget.** Windows is not a host (decision 0063)"),
+        "{readme}"
+    );
     // The accuracy law after v0.9.0 and v0.9.1: rows name the release
     // that lit them, and the bench label survives only as history.
     assert!(readme.contains("live from v0.9."), "{readme}");
@@ -1307,6 +1305,7 @@ fn the_crate_carries_the_dialect_library_it_scaffolds_byte_for_byte() {
 /// own directory: such a file is absent from the published tarball and
 /// the crate fails to verify at `cargo publish`.
 #[test]
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn no_crate_includes_a_file_from_outside_itself() {
     let crates = workspace().join("crates");
     let mut offenders = Vec::new();

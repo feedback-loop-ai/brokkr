@@ -19,7 +19,8 @@ use serde_json::{json, Map, Value};
 /// `effect/started` joined through `effect/requested.seat`, turns and
 /// cost from `effect/checkpointed` payloads. Returns the per-seat
 /// report map and the total cost.
-pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+pub(crate) fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
     #[derive(Default)]
     struct Usage {
         input: Option<u64>,
@@ -150,10 +151,9 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                         .get("num_turns")
                         .and_then(Value::as_u64)
                         .unwrap_or(0);
-                    accounting.cost += checkpoint
-                        .get("total_cost_usd")
-                        .and_then(Value::as_f64)
-                        .unwrap_or(0.0);
+                    // Every attempt's report is summed: the rule the
+                    // view states once, and reads as its `cost` (#376).
+                    accounting.cost += brokkr_view::reported_cost(checkpoint).unwrap_or(0.0);
                     if let Some(model) = checkpoint.get("model").and_then(Value::as_str) {
                         accounting.models.insert(model.to_string());
                     }
@@ -208,10 +208,7 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                             result.get("num_turns").and_then(Value::as_u64).unwrap_or(0);
                     }
                     if accounting.cost == 0.0 {
-                        accounting.cost = result
-                            .get("total_cost_usd")
-                            .and_then(Value::as_f64)
-                            .unwrap_or(0.0);
+                        accounting.cost = brokkr_view::reported_cost(result).unwrap_or(0.0);
                     }
                 }
             }
@@ -301,6 +298,19 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
         })
         .collect();
     (report, total)
+}
+
+/// `brokkr costs`: the run's per-seat report under the id `--run`
+/// resolved to — a full id, a unique prefix or `latest` (decision 0015).
+/// These bytes are LaneTally's join surface.
+pub(crate) fn costs(store: &Store, requested: &str) -> Result<Value> {
+    let run = crate::selector::resolve_run(store, requested)?;
+    let (report, total) = seat_costs(&store.load(&run)?);
+    Ok(json!({
+        "run_id": run,
+        "seats": report,
+        "total_cost_usd": total,
+    }))
 }
 
 /// One run's section of the report plus the facts the comparison needs.
@@ -478,8 +488,10 @@ fn first_divergence(a: &[String], b: &[String]) -> Value {
     Value::Null
 }
 
-pub fn compare(run_a: &str, run_b: &str, db: &Path) -> Result<()> {
-    let store = Store::open(db)?;
+pub(crate) fn compare(run_a: &str, run_b: &str, db: &Path) -> Result<()> {
+    let store = crate::open_journal(db, crate::Access::Read)?;
+    let run_a = &crate::selector::resolve_run(&store, run_a)?;
+    let run_b = &crate::selector::resolve_run(&store, run_b)?;
     let a = run_facts(&store, run_a)?;
     let b = run_facts(&store, run_b)?;
     let mut runs = Map::new();

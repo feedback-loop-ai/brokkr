@@ -35,12 +35,9 @@ fn name_grammar_vectors() {
 }
 
 #[test]
-fn denylist_covers_exact_names_and_both_harness_prefixes() {
-    // Both spellings of the harness-owned prefix: `BROKKR_` is the one
-    // that configures this release's binary, `FORGE_` the one it still
-    // answers to (decision 0019). Either would be a code-loading
-    // primitive in a seat's hands, so both are pinned here — the
-    // release that deletes the fallback must delete only the fallback.
+fn denylist_covers_exact_names_and_the_harness_prefix() {
+    // `BROKKR_` configures this release's binary: a code-loading
+    // primitive in a seat's hands, so it is pinned here.
     for name in [
         "PATH",
         "IFS",
@@ -49,8 +46,6 @@ fn denylist_covers_exact_names_and_both_harness_prefixes() {
         "BROKKR_X",
         "BROKKR_",
         "BROKKR_CODEX_BIN",
-        "FORGE_X",
-        "FORGE_",
     ] {
         assert!(denylisted(name), "{name} must be denylisted");
         assert!(validate_name(name).is_err(), "{name} must not validate");
@@ -360,12 +355,26 @@ fn store_set_refuses_every_rejected_value_class() {
         "under 8 bytes warns"
     );
     assert!(store_set(&path, "NAME", "longenough").unwrap().is_none());
-    for name in ["PATH", "FORGE_X", "lower", "9BAD"] {
+    for name in ["PATH", "BROKKR_X", "lower", "9BAD"] {
         assert!(
             store_set(&path, name, "longenough").is_err(),
             "{name} must refuse"
         );
     }
+}
+
+/// `SHORT_VALUE_WARN_BYTES` is the shortest value accepted without the
+/// warning, not the longest warned about (#419).
+#[test]
+fn a_value_exactly_at_the_warning_bound_is_accepted_quietly() {
+    assert_eq!(
+        validate_value("1234567"),
+        Ok(Some(
+            "warning: secret value is shorter than 8 bytes; short values mask aggressively"
+                .to_string()
+        ))
+    );
+    assert_eq!(validate_value("12345678"), Ok(None));
 }
 
 #[cfg(unix)]
@@ -421,4 +430,79 @@ fn store_parse_skips_comments_and_refuses_garbage() {
     let error = store_names(&path).unwrap_err();
     assert!(error.contains("line 1"), "{error}");
     assert!(!error.contains("equals"), "never the contents: {error}");
+}
+
+#[test]
+fn mask_json_masks_every_decoded_string_and_leaves_keys_and_scalars() {
+    // A value with a quote and a backslash is JSON-escaped on the wire,
+    // so only masking after parsing can find it: this is the stream-json
+    // surface decision 0012's layer 5 covers for the model harnesses.
+    let value = "p\"a\\ss-w0rd";
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = store_dir.path().join("secrets.env");
+    store_set(&store, "API_TOKEN", value).unwrap();
+    let bindings = resolve_bindings(&store, &["API_TOKEN".to_string()]).unwrap();
+    let wire = serde_json::to_string(&serde_json::json!({
+        "target": format!("/work/{value}"),
+        "nested": [{"note": format!("said {value}")}, 7, true, null],
+        "tokens": 3,
+    }))
+    .unwrap();
+    assert!(!wire.contains(value), "the wire form is escaped: {wire}");
+    let mut parsed: serde_json::Value = serde_json::from_str(&wire).unwrap();
+    mask_json(&mut parsed, &bindings);
+    assert_eq!(
+        parsed,
+        serde_json::json!({
+            "target": "/work/[secret:API_TOKEN]",
+            "nested": [{"note": "said [secret:API_TOKEN]"}, 7, true, null],
+            "tokens": 3,
+        })
+    );
+}
+
+#[test]
+fn mask_projected_masks_a_value_a_projector_reserialised() {
+    // A transcript projector renders a tool call's arguments object as
+    // serialised JSON, so a value with a quote, a backslash and a tab
+    // reaches the projected text escaped: `mask_bytes` misses it there
+    // and `mask_projected` does not, while still masking the raw value.
+    let value = "p\"a\\ss\tw0rd";
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = store_dir.path().join("secrets.env");
+    store_set(&store, "API_TOKEN", value).unwrap();
+    let bindings = resolve_bindings(&store, &["API_TOKEN".to_string()]).unwrap();
+    let arguments = serde_json::json!({"header": value}).to_string();
+    assert_eq!(arguments, "{\"header\":\"p\\\"a\\\\ss\\tw0rd\"}");
+    let projected = format!("Bash {arguments} then {value}");
+    assert_eq!(
+        String::from_utf8(mask_bytes(projected.as_bytes(), &bindings)).unwrap(),
+        format!("Bash {arguments} then [secret:API_TOKEN]")
+    );
+    assert_eq!(
+        mask_projected(&projected, &bindings),
+        "Bash {\"header\":\"[secret:API_TOKEN]\"} then [secret:API_TOKEN]"
+    );
+}
+
+#[test]
+fn mask_json_masks_object_keys_and_leaves_numbers_as_numbers() {
+    // A result file's keys are the seat's to choose, so a key that echoes
+    // a bound value is masked like any string. A count stays a count.
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = store_dir.path().join("secrets.env");
+    store_set(&store, "API_TOKEN", "key-leak-value").unwrap();
+    let bindings = resolve_bindings(&store, &["API_TOKEN".to_string()]).unwrap();
+    let mut value = serde_json::json!({
+        "key-leak-value": {"inner key-leak-value": 1},
+        "tokens": 42,
+    });
+    mask_json(&mut value, &bindings);
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "[secret:API_TOKEN]": {"inner [secret:API_TOKEN]": 1},
+            "tokens": 42,
+        })
+    );
 }

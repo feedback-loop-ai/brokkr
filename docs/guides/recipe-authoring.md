@@ -223,10 +223,8 @@ journal change outside that directory. A script at the layer root selects
 the whole layer; helpers outside the selected directory are outside this
 check, as is the interval between the walk and exec (proposed decision
 [0048](../decisions/0048-the-script-directory-is-the-spawn-pin.md)).
-`{forge}` is the same
-token under its pre-rename name; it still expands and warns once on
-stderr. The expansion is machine-local, which is why the manifest
-records driver *names*, never resolved argv.
+The expansion is machine-local, which is why the manifest records
+driver *names*, never resolved argv.
 
 Every inline claude, codex or dsh command must carry a
 non-empty `--model <concrete-model-id>` (decision 0031). Compilation
