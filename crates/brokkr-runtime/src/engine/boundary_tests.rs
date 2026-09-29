@@ -2920,17 +2920,33 @@ fn a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over() {
             assert_eq!(resume(&run), Ok(run.clone()), "{owner} {cause}: restored");
         }
     }
-    // A run whose start recorded no bindings, and one whose record names a
-    // charter this bundle does not select, planted beside it.
+    // A run whose start recorded no bindings, one whose record lacks a
+    // charter this bundle selects, and one whose record names a charter
+    // this bundle does not select, planted beside it.
     let mut extra = record.clone();
     extra.as_array_mut().unwrap().push(
         json!({"owner": "layer 'gone'", "reference": "roles/gone.md", "key": "roles/gone.md",
                "target": "roles/gone.md", "binding": "0".repeat(64)}),
     );
+    let mut partial = record.clone();
+    partial
+        .as_array_mut()
+        .unwrap()
+        .retain(|entry| entry["owner"] != "agent 'worker'");
+    assert_eq!(
+        partial.as_array().unwrap().len(),
+        1,
+        "only the layer's left"
+    );
     for (id, charters, refused) in [
         (
             "f-unrecorded",
             None,
+            refusal("agent 'worker'", "unrecorded: worker.md"),
+        ),
+        (
+            "f-partial",
+            Some(partial),
             refusal("agent 'worker'", "unrecorded: worker.md"),
         ),
         (

@@ -4124,6 +4124,28 @@ reopened 19.1. It closes again on what is observed there.
 - **Pending.** macOS; exact coverage outside the box; remote CI and the
   council.
 
+**Second review return 2026-09-29 (run `…-2183fb26`, F1, based on
+`8b1af7e7`; evidence.md, "Unit 19-fix — second review return (F1)").** The
+council found no test for a present record that lacks a binding the bundle
+selects (`bundle.rs:5697`, `None => "unrecorded"`). 19.1 stays ticked on what
+is observed there; no production file moved.
+
+- `boundary_tests.rs`
+  `a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over`
+  gains the row `f-partial`: the run's own record with agent 'worker'
+  dropped, refused exactly `agent 'worker'`, `unrecorded: worker.md`.
+  - Mutation M10 (`None => continue`) survived the 16 `boundary_tests::a_`
+    tests without the row (`16 passed`); with it, `:2968` (now `:2972`
+    after `cargo fmt`) failed `f-partial` with `bundle 'recipe'`,
+    `unselected: …`. Restored; `16 passed`.
+- No admitted lines and no fixture migrations.
+- F3 and F4 [info] are follow-ups, not changed here.
+- Gates: fmt, clippy clean; `cargo test -p brokkr-runtime --all-features
+  --locked` all ok (lib 625). Strict OpenSpec (18) and `git diff --check`
+  clean.
+- **Pending.** macOS; exact coverage outside the box; the CLI crate suite
+  (untouched, not rerun); remote CI and the council.
+
 ## 20. Unit 20 — Audit compiled refusal and serving shapes
 
 - [ ] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)

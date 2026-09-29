@@ -20881,3 +20881,60 @@ On the final tree, in this session:
 - macOS: unobserved.
 - Exact coverage outside the box: not run here.
 - Remote CI and the council.
+
+## Unit 19-fix — second review return (F1), 2026-09-29
+
+The council (run `0065-rebuild-unit-19-see-the-uni-2183fb26`, reviewed head
+`8b1af7e7`) returned F1 [medium]: `bundle.rs:5697` refuses `unrecorded` when
+a present `run/started.charters` record lacks a binding the bundle selects,
+but no test reached that arm. The planted rows were an absent record (handled
+earlier, at `:5679`) and a superset. This visit adds the missing row. No
+production file moved.
+
+### The test
+
+- `engine/boundary_tests.rs`
+  `a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over`
+  gains a third planted run, `f-partial`. Its record is the run's own record
+  with the `agent 'worker'` entry removed, which leaves only the layer's
+  entry (asserted: length 1). Its resume is refused with the exact text for
+  `agent 'worker'`, `unrecorded: worker.md`, through the loop's shared
+  assertion (`:2972` after `cargo fmt`; `:2968` before it).
+- No admitted lines outside the unit's files and no fixture migrations.
+
+### Mutation, survival, restored pass
+
+| # | Mutation (compiles) | Without the row | With the row |
+|---|---|---|---|
+| M10 | `bundle.rs:5697` `None => "unrecorded"` → `None => continue` | `cargo test -p brokkr-runtime --lib -- boundary_tests::a_`: `16 passed; 0 failed` (survives) | `boundary_tests.rs:2968` `f-partial`: `left` `bundle 'recipe'` / `unselected: a charter the run started over`, `right` `agent 'worker'` / `unrecorded: worker.md` |
+
+Restored by hand; the same 16 tests then passed.
+
+### Not changed
+
+- F3 [info]: `engine.rs:138`'s shared `CharterMoved` text offers "restore it"
+  to an unrecorded run, which the ruling says is concluded and re-fired. The
+  cause token is exact. A follow-up.
+- F4 [info]: a non-array record over a charterless bundle refuses
+  `unselected`, not `unrecorded`. It still refuses. A follow-up.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean, after `cargo fmt` rewrapped the new
+  length assertion.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: every `test result`
+  ok (lib `625 passed; 0 failed`).
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+### Pending
+
+- The CLI crate suite and `bundles/self`/`verify` compiles: not rerun; this
+  visit touched only a runtime test file.
+- macOS: unobserved.
+- Exact coverage outside the box: not run here.
+- Remote CI and the council.
