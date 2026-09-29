@@ -21477,3 +21477,122 @@ rows.
   above, but coverage was not measured here.
 - Unit 21's restriction rows, for 21.3.
 - Remote CI and the council.
+
+## Unit 20-fix, review return — 2026-09-29 (oversized)
+
+Same run, returned by the chief review at `39b9b1a8` (residual, medium).
+This visit answers R2 and R3 and corrects the R1 ledger. R1's proof needs
+a brokkr-cli test file, so this visit reports `oversized` with that split.
+20.1 is reopened.
+
+### R1 (medium): the pinned-resume regressions, not closed here
+
+- The claim in "Unit 20-fix" above, "A pinned resume recompiles through
+  the same compiler, so it meets the same refusal", held for the compile
+  but not for the line. `brokkr resume` (`brokkr-cli/src/lib.rs:2312`) maps
+  a `CompileError::Capability` through `unreproducible` (`:2062`). That
+  renders it as `run '<run>' pins a different bundle: capabilities differ:
+  the capability authority the run was started under cannot be reproduced
+  here — <compiler words>; …`, bounded again to 512 scalars. So the resume
+  diagnostic is not identical, and no test asserts it.
+- The runtime suites cannot reach that line: `compile_from_manifest` and
+  `unreproducible` are private to brokkr-cli, and brokkr-runtime does not
+  depend on it. The existing exact `pins a different bundle` rows live in
+  `crates/brokkr-cli/tests/capability_verbs.rs` (`:272`–`:354`).
+- Corrected here: the matrix doc comment
+  (`capability_launch.rs:9230`) now says that the pinned resume is not
+  proved in this suite and is owed to a brokkr-cli suite. The tasks.md note
+  is corrected, and 20.1 is unticked.
+- The split needed: **unit 20-fix-b**, one test file,
+  `crates/brokkr-cli/tests/capability_verbs.rs`, and no production file.
+  A run is started on a recipe without the typed LaneTally allow. The
+  recipe then gains it, inline, and in the other case through a LaneTally
+  office. `brokkr resume` of each run is refused with the exact
+  `pins a different bundle: capabilities differ: …` line, the journal is
+  unchanged and no seat is spawned. The proof is a baseline red and a
+  compiling mutation (for example, `unreproducible` passing the error
+  through), then a restored pass.
+
+### R2 (low): the complete cause, closed
+
+- `capabilities.rs:1909`–`1925`. The refusal is now `<site>: its typed
+  'tools.allow' refuses at compile, as harness '<h>' of provider '<p>' has
+  native controls its adapter declares unmeasured (ruling R5 of
+  2026-09-29; design D5.3): <adapter reason>`. With no adapter, it reads
+  `… has native controls no adapter declares (…)`, with no tail. The cause
+  is whole in the engine's words before any adapter data, and only the
+  adapter's reason can be cut.
+- The arithmetic, measured this session: LaneTally's shipped reason is 421
+  scalars (`jq '.native_capabilities.unmeasured | length'`), and the
+  matrix's `bundle: bundle: <site>: ` head is 82–86. So no
+  line that also names what is refused can carry that reason whole within
+  512. The fixed words were shortened until the reason's first sentence
+  ("… has not been verified.") is whole in both forms.
+- The matrix literal (`capability_launch.rs:9246`–`9267`) binds both forms.
+  Inline is cut at `Cla…` and agent-backed at `Claude'…`.
+- Baseline red: the new literal run on `39b9b1a8`'s `capabilities.rs`
+  (checked out from HEAD, then restored) FAILED at `capability_launch.rs:9250`.
+- Mutation M6: the tail dropped (`Some(_) => String::new()`). The matrix
+  FAILED at `:9250`. Restored, and it passes.
+
+### R3 (low): the compiler's provenance transfer, compiled, closed
+
+- New `capability_launch.rs:9594`,
+  `a_compiled_unmeasured_site_carries_its_typed_hands_into_its_compose`.
+  A LaneTally office `handed-tally` has workspace hands and is compiled
+  under `namespace`, on a copied adapter set. Its LaneTally file declares a
+  workspace hands fragment in place of `unsupported`. LaneTally's floor is
+  empty, so the site meets the unmeasured branch, and the protocol's
+  compose reads the typed-hands count from that plan.
+  - Fragment `--mcp-config {hands_mcp_json}`: the exact refusal `… the
+    capability plan for provider 'lanetally' types 2 arguments of the
+    engine's fragment as the box's hands, but they carry no strict MCP
+    configuration …`.
+  - Fragment `--strict-mcp-config --mcp-config {hands_mcp_json}`: the
+    exact refusal `… a final tool list with no selection mapping to write
+    it into, for provider 'lanetally' …`.
+  - Observed: no compiled unmeasured site can carry hands, because the
+    tool the hands admit makes a final list that an unmeasured plan cannot
+    write. So the proof is these exact refusals, not a whole command.
+- Fixtures that did not compile, observed while building the test: a DSH
+  fragment (`--no-web`) is refused by DSH's three-option grammar. Under
+  `harness`, the managed fragment is not typed hands, and the plan carried
+  none.
+- Baseline: passes on `39b9b1a8` production, because the transfer landed
+  there. Its binding proof is M5.
+- Mutation M5: `capabilities.rs` builds `NativePlan::Unmeasured` with
+  `provenance: Default::default()` instead of `serving.provenance.clone()`.
+  The test FAILED at `:9630` with `left: Ok(2)`: the boxed site COMPILED
+  with its hands fragment untyped. Restored, and it passes.
+
+### Admissions
+
+No standing-admission lines and no fixture migrations. The files are
+`capabilities.rs` (production) and `capability_launch.rs` (tests), plus
+this ledger and tasks.md.
+
+### Re-observed, gates and pending
+
+An earlier session of this seat wrote the edits above but left no result
+and no commit. This session re-observed every claim above on the same tree
+before committing it.
+
+- Baseline red (R2): HEAD's `capabilities.rs` checked out over the edit.
+  `every_compiled_site_shape_of_every_harness…` FAILED at
+  `capability_launch.rs:9250`. Restored.
+- M6: FAILED at `:9250`. M5: FAILED at `:9630` with `left: Ok(2)`. Each was
+  restored, and `cmp` against the saved work copy was identical.
+- `jq '.native_capabilities.unmeasured | length' adapters/lanetally.json`
+  returned 421.
+- Gates: `cargo fmt --all -- --check` clean. `cargo clippy --workspace
+  --all-targets --all-features --locked -- -D warnings` clean.
+  `cargo test -p brokkr-runtime --all-features --locked` passed, with
+  `capability_launch` at 62 tests and the lib at 625. `cargo test -p
+  brokkr-cli --all-features --locked` passed: 33 result lines, none
+  failed. `brokkr-protocol` is unchanged in this delta, so it was not
+  rerun. `compile --bundle bundles/self` compiled.
+  `openspec validate --all --strict`: 18 passed. `git diff --check` clean.
+  A grep found no other crate asserting the old refusal words.
+- Pending: R1 (unit 20-fix-b, above). Then 20.1, unit 21's restriction
+  rows for 21.3, macOS, exact coverage outside the box, remote CI and the
+  council.

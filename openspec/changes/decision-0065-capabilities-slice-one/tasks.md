@@ -4148,7 +4148,7 @@ is observed there; no production file moved.
 
 ## 20. Unit 20 — Audit compiled refusal and serving shapes
 
-- [x] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)
+- [ ] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)
 
 **Unit 20, 2026-09-29 (run `0065-rebuild-unit-20-see-the-uni-23e98946`,
 based on `4d11cc4b`; evidence.md, "Unit 20").** An audit: no production file
@@ -4261,7 +4261,8 @@ is landed verbatim as an addendum to `operator-ruling-2026-09-23.md`.
   through the helper the known branch uses, never a default.
 - **Tests.** In the matrix, the `lanetally-typed` row is now an exact
   compile refusal in both its inline and agent-backed (`tally-typed`)
-  forms. A pinned resume recompiles through the same compiler. The rest of
+  forms. A pinned resume recompiles through the same compiler (corrected
+  by the review return below: its line is the CLI's, and is unproved). The rest of
   the matrix is 113 rows. There are two new provenance tests, one in
   `capability_launch.rs` and one in `adapters/tests.rs`.
 - **Proof.** Baseline reds were observed on `27d4b5de`. Mutations M1–M4
@@ -4278,6 +4279,39 @@ is landed verbatim as an addendum to `operator-ruling-2026-09-23.md`.
   are clean.
 - **Pending.** macOS, exact coverage outside the box, remote CI and the
   council. 21.3 stays open for unit 21's restriction rows.
+
+**Unit 20-fix, review return (2026-09-29, same run, at `39b9b1a8`;
+evidence.md, "Unit 20-fix, review return"): oversized. 20.1 is reopened.**
+
+- **R1 (medium), not closed here.** The inline and agent-backed pinned
+  `brokkr resume` refusal/no-launch assertions are absent. The claim above
+  that a resume is refused "in the same words" was wrong:
+  `brokkr-cli/src/lib.rs:2312` renders the compiler's refusal through
+  `unreproducible` (`:2062`), as `run '<run>' pins a different bundle:
+  capabilities differ: …`. That line is reachable only from a brokkr-cli
+  suite (`crates/brokkr-cli/tests/capability_verbs.rs`, beside its existing
+  `pins a different bundle` rows), which is outside this unit's test files.
+  The matrix doc comment now says so. The split needed: a unit 20-fix-b
+  whose one test file is `capability_verbs.rs`, with no production file.
+  20.1 stays open until it lands.
+- **R2 (low), closed.** In `capabilities.rs`, the compile refusal now
+  states its complete cause straight after the site, in fixed words. The
+  adapter's own reason follows as the line's tail, and the 512-scalar
+  bound cuts only that. The matrix literal binds both forms, and each
+  keeps the shipped reason's first sentence whole.
+- **R3 (low), closed.** The new `capability_launch.rs` test
+  `a_compiled_unmeasured_site_carries_its_typed_hands_into_its_compose`
+  compiles a boxed LaneTally office with hands on a copied adapter and
+  asserts two exact compile refusals. The first names the carried count
+  ("types 2 arguments … as the box's hands"). Mutation M5 removes the
+  compiler's transfer, and the site then COMPILES (`Ok(2)`) with its hands
+  untyped.
+- No standing-admission lines and no fixture migrations.
+- **Gates** (re-observed in the committing session): fmt, clippy,
+  brokkr-runtime and brokkr-cli suites, `bundles/self`, strict OpenSpec
+  (18) and diff check are clean. **Pending**: unit 20-fix-b for R1, then
+  20.1, unit 21 for 21.3, macOS, external exact coverage, remote CI and
+  the council. See evidence.md.
 
 ## 21. Unit 21 — Prove compiled cold and actual-resume restrictions
 

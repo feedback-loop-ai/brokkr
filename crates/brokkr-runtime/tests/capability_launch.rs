@@ -9226,23 +9226,26 @@ fn dsh_prompt(charter: &str, phase: &str, workdir: &str) -> String {
 /// compile's (operator ruling of 2026-09-29, R5; D5.3): seated inline or
 /// through a LaneTally office, it meets LaneTally's unmeasured native
 /// plan, and the same matrix refuses whole, naming the seat, its office,
-/// the harness and the adapter's own unmeasured cause. No bundle exists, so
-/// nothing is spawned cold, and a pinned resume, which recompiles through
-/// the same compiler, is refused in the same words. Composition evidence
-/// only: what a provider honours is the controller's to measure. The
-/// restriction rows are unit 21's.
+/// the harness and the cause, then the adapter's own reason. No bundle
+/// exists, so nothing is spawned cold. A pinned `brokkr resume` of such a
+/// run is NOT proved here: it recompiles through this compiler, but the
+/// CLI renders the refusal through its own manifest-mismatch door, so its
+/// line differs and is owed to a brokkr-cli suite (review return R1 of
+/// unit 20-fix). Composition evidence only: what a provider honours is the
+/// controller's to measure. The restriction rows are unit 21's.
 #[cfg(unix)]
 #[test]
 fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside_its_charter() {
     use brokkr_runtime::bundle::CharterOwner;
     use brokkr_runtime::SeatClass::{Gate, Work};
     let operator = Operator::new();
-    // The line is the compiler's one bounded refusal (512 scalar values),
-    // so the shipped adapter's long reason is cut where the office's label
-    // leaves it.
+    // The line is the compiler's one bounded refusal (512 scalar values).
+    // The cause is whole before the adapter's own reason, and only that
+    // reason's tail is cut, where the office's label leaves it: its first
+    // sentence is whole in both forms.
     let forms = [
-        ("inline", "lanetally-typed", "WebS"),
-        ("agent", "tally-typed", "WebSearc"),
+        ("inline", "lanetally-typed", "Cla…"),
+        ("agent", "tally-typed", "Claude'…"),
     ];
     assert_eq!(
         forms.map(|(form, ..)| {
@@ -9253,12 +9256,12 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
             form,
             Err(format!(
                 "bundle: bundle: seat 'lanetally-typed' (office '{office}') in realm 'private': \
-                 its typed 'tools.allow' is refused: harness 'lanetally' of provider 'lanetally' \
-                 has unmeasured native controls, and a typed tools restriction is never lowered \
-                 onto them nor left for the launch to refuse (operator ruling of 2026-09-29, R5; \
-                 design D5.3). Its adapter declares its native capabilities unmeasured (the \
-                 LaneTally wrapper forwards argv to claude, and forwarding is not confinement: \
-                 whether Claude Code's native {cut}…"
+                 its typed 'tools.allow' refuses at compile, as harness 'lanetally' of provider \
+                 'lanetally' has native controls its adapter declares unmeasured (ruling R5 of \
+                 2026-09-29; design D5.3): the LaneTally wrapper forwards argv to claude, and \
+                 forwarding is not confinement: whether Claude Code's native WebSearch and \
+                 WebFetch controls hold through the wrapper, which owns its own per-session \
+                 settings layer, has not been verified. {cut}"
             ))
         ))
     );
@@ -9573,6 +9576,74 @@ fn an_unmeasured_plan_hands_its_driver_the_provenance_it_was_served() {
         plan(0, &[]).controls("dsh", "dsh"),
         json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
                "reason": "never probed"})
+    );
+}
+
+/// Rebuild unit 20-fix, review return R3: the carry above made by the
+/// COMPILER. A LaneTally office with workspace hands, compiled boxed on a
+/// copy of the shipped adapters whose LaneTally file declares a workspace
+/// fragment in place of its unsupported hands. (DSH's grammar places no
+/// hands fragment at all.) LaneTally's unmeasured plan carries the box's
+/// typed hands into the compose, which reads its count from the plan. A
+/// fragment without its strict MCP configuration is refused by that count.
+/// The whole transport is refused too, because the tool the hands admit
+/// makes a final tool list that an unmeasured plan has no mapping to
+/// write. So no compiled unmeasured site carries hands, and nothing is
+/// spawned.
+#[test]
+fn a_compiled_unmeasured_site_carries_its_typed_hands_into_its_compose() {
+    let operator = Operator::new();
+    one_inline_seat(&operator, &["driver"]);
+    write(
+        operator.root(),
+        "agents/handed-tally.json",
+        &json!({"description": "an office with hands", "charter": "charters/searcher.md",
+                "models": ["opus-tallied"], "efforts": {"opus-tallied": "high"},
+                "hands": {"kind": "workspace", "network": false, "binds": []}}),
+    );
+    write(
+        operator.root(),
+        "solo/bundle.json",
+        &json!({"name": "solo", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "agent": "handed-tally"},
+            "review": {"results": ["clean"], "role": "roles/role.md",
+                       "driver": {"command": ["driver"]}}}}),
+    );
+    let compiled = |fragment: &[&str]| {
+        let adapters = copied_adapters();
+        edit_adapter(adapters.path(), "lanetally", |adapter| {
+            adapter["hands"] = json!({ "workspace": fragment });
+        });
+        Bundle::compile_with_capabilities(
+            &operator.root().join("solo"),
+            &operator.root().join("agents"),
+            adapters.path(),
+            Some("private"),
+            None,
+            Boundary::Namespace,
+            &CapabilityContext::no_grants("private", operator.root()),
+        )
+        .map(|bundle| bundle.sites.len())
+        .map_err(|refusal| refusal.to_string())
+    };
+    let who = "bundle: seat 'work' (office 'handed-tally') in realm 'private'";
+    assert_eq!(
+        compiled(&["--mcp-config", "{hands_mcp_json}"]),
+        Err(format!(
+            "{who}: the capability plan for provider 'lanetally' types 2 arguments of the \
+             engine's fragment as the box's hands, but they carry no strict MCP configuration \
+             ('--strict-mcp-config'); the box's hands are delivered whole, so the launch is \
+             refused rather than composed without them (decision 0043; design D6)"
+        ))
+    );
+    assert_eq!(
+        compiled(&["--strict-mcp-config", "--mcp-config", "{hands_mcp_json}"]),
+        Err(format!(
+            "{who}: the capability plan carries a final tool list with no selection mapping to \
+             write it into, for provider 'lanetally', which its launch does not consume; a \
+             control that cannot reach the final command is refused rather than recorded and \
+             dropped (decision 0066 ruling 3)"
+        ))
     );
 }
 

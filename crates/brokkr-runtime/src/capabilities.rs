@@ -1903,15 +1903,19 @@ impl Authority {
         // plan's own cause. It is never lowered onto a plan that measures
         // nothing, nor left for the launch to refuse: compile and launch
         // agree. The plan otherwise carries the provenance it was served.
-        // The cause, which may be long adapter data, closes the sentence,
-        // so the line's bound cuts only its tail.
-        let unmeasured = |declaration: Option<String>, reason: String, cause: String| {
+        // The cause is stated whole right after the site, in the engine's
+        // own words. The adapter's reason, which may be long adapter data,
+        // follows as the line's tail, so the bound cuts only that.
+        let unmeasured = |declaration: Option<String>, reason: String, cause: &str| {
             if !serving.provenance.local.is_empty() {
+                let tail = match declaration {
+                    Some(_) => format!(": {reason}"),
+                    None => String::new(),
+                };
                 return Err(format!(
-                    "{who}: its typed 'tools.allow' is refused: harness '{}' of provider \
-                     '{provider}' has unmeasured native controls, and a typed tools restriction \
-                     is never lowered onto them nor left for the launch to refuse (operator \
-                     ruling of 2026-09-29, R5; design D5.3). {cause}",
+                    "{who}: its typed 'tools.allow' refuses at compile, as harness '{}' of \
+                     provider '{provider}' has native controls {cause} (ruling R5 of 2026-09-29; \
+                     design D5.3){tail}",
                     serving.harness
                 ));
             }
@@ -1946,14 +1950,14 @@ impl Authority {
                 return unmeasured(
                     Some(digest.to_string()),
                     reason.clone(),
-                    format!("Its adapter declares its native capabilities unmeasured ({reason})"),
+                    "its adapter declares unmeasured",
                 )
             }
             (None, None) => {
                 return unmeasured(
                     None,
                     format!("no adapter declares provider '{provider}'"),
-                    format!("No adapter declares provider '{provider}'"),
+                    "no adapter declares",
                 )
             }
         };
