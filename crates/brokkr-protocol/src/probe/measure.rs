@@ -14,9 +14,12 @@ use super::facts::{Counting, Events, Fact, Facts, Headless, Refusal, Refusals, S
 use super::observe::{Observation, Trial, SCRATCH_PREFIX};
 use super::plan::{Plan, NO_SUCH_EFFORT};
 
+mod listing;
+mod strict;
 mod tools;
 
-/// How much of a refusal's line a report keeps.
+/// How much of a refusal's line, or of a value it cannot read, a report
+/// keeps.
 const EXCERPT_CHARS: usize = 240;
 
 /// The keys a session identifier is announced under.
@@ -39,17 +42,37 @@ pub(crate) struct Observed {
     pub(crate) boxed: Trial,
 }
 
-/// A turn's events, and where they were read from.
-struct Stream {
-    source: String,
-    events: Vec<Map<String, Value>>,
-    non_json: usize,
+/// One JSON object a stream carried, and its line, counted from 1.
+struct Event {
+    line: usize,
+    fields: Map<String, Value>,
 }
 
-/// A turn as the facts see it: its events, why they could not be read,
+/// One stream a turn produced, stdout or a transcript: its events, where
+/// they were read from, and each line that was not one JSON object.
+struct Stream {
+    source: String,
+    events: Vec<Event>,
+    unparsed: Vec<(usize, String)>,
+}
+
+/// Every stream a turn produced, stdout first, and the one its events,
+/// session, usage and cost are read from.
+struct Streams {
+    all: Vec<Stream>,
+    primary: usize,
+}
+
+impl Streams {
+    fn primary(&self) -> &Stream {
+        &self.all[self.primary]
+    }
+}
+
+/// A turn as the facts see it: its streams, why they could not be read,
 /// or the CLI's refusal of the launch itself.
 enum Turn {
-    Read(Stream),
+    Read(Streams),
     Unread(String),
     Refused(String),
 }
@@ -70,9 +93,9 @@ impl<T: serde::Serialize> Fact<T> {
 
 /// A fact read from a turn: measured by `read` when the turn was read,
 /// unmeasured when it was not, unsupported when the CLI refused it.
-fn on_turn<T: serde::Serialize>(turn: &Turn, read: impl FnOnce(&Stream) -> Fact<T>) -> Fact<T> {
+fn on_turn<T: serde::Serialize>(turn: &Turn, read: impl FnOnce(&Streams) -> Fact<T>) -> Fact<T> {
     match turn {
-        Turn::Read(stream) => read(stream),
+        Turn::Read(streams) => read(streams),
         Turn::Unread(why) => Fact::unmeasured(why.clone()),
         Turn::Refused(evidence) => Fact::Unsupported {
             evidence: evidence.clone(),
@@ -120,41 +143,51 @@ pub(crate) fn version(observation: &Observation) -> Fact<String> {
 
 fn parse_lines(text: &str, source: &str) -> Stream {
     let mut events = Vec::new();
-    let mut non_json = 0;
-    for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        match serde_json::from_str::<Value>(line) {
-            Ok(Value::Object(event)) => events.push(event),
-            _ => non_json += 1,
+    let mut unparsed = Vec::new();
+    for (index, line) in text
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+    {
+        match strict::object(line) {
+            Some(fields) => events.push(Event {
+                line: index + 1,
+                fields,
+            }),
+            None => unparsed.push((index + 1, line.to_string())),
         }
     }
     Stream {
         source: source.to_string(),
         events,
-        non_json,
+        unparsed,
     }
 }
 
-/// The turn's events: stdout's, or, when stdout carried none, the first
-/// transcript the turn wrote that holds some.
+/// Every stream the turn produced, stdout's and each transcript's, each
+/// named with this run's variable parts; its own events are stdout's, or,
+/// when stdout carried none, the first transcript's that holds some.
 fn read_stream(observation: &Observation) -> Turn {
-    std::iter::once(parse_lines(&observation.stdout, "stdout"))
+    let mut all: Vec<Stream> = std::iter::once(parse_lines(&observation.stdout, "stdout"))
         .chain(
             observation
                 .transcripts
                 .iter()
                 .map(|transcript| parse_lines(&transcript.text, &transcript.path)),
         )
-        .find(|stream| !stream.events.is_empty())
-        .map_or_else(
-            || {
-                Turn::Unread(
-                    "the turn printed no JSON event and wrote no .jsonl transcript under \
-                     the scratch HOME"
-                        .to_string(),
-                )
-            },
-            Turn::Read,
-        )
+        .collect();
+    let Some(primary) = all.iter().position(|stream| !stream.events.is_empty()) else {
+        return Turn::Unread(
+            "the turn printed no JSON event and wrote no .jsonl transcript under the scratch \
+             HOME"
+                .to_string(),
+        );
+    };
+    let id = session_id(&all[primary]).map(|(_, _, id)| id);
+    for stream in &mut all {
+        stream.source = normalise(&stream.source, id.as_deref());
+    }
+    Turn::Read(Streams { all, primary })
 }
 
 /// The plain turn: read when it exited clean, otherwise nothing it shows
@@ -208,19 +241,31 @@ struct Found<'a> {
     parent: &'a Map<String, Value>,
 }
 
-/// Every key in `object` and the objects beneath it, depth first.
+/// Every key in `object` and in the objects and arrays beneath it, depth
+/// first.
 fn walk<'a>(object: &'a Map<String, Value>, pointer: &str, found: &mut Vec<Found<'a>>) {
     for (key, value) in object {
         let here = format!("{pointer}/{key}");
-        if let Value::Object(inner) = value {
-            walk(inner, &here, found);
-        }
+        beneath(value, &here, found);
         found.push(Found {
             pointer: here,
             key,
             value,
             parent: object,
         });
+    }
+}
+
+/// Every key inside `value`, an array's entries included.
+fn beneath<'a>(value: &'a Value, pointer: &str, found: &mut Vec<Found<'a>>) {
+    match value {
+        Value::Object(inner) => walk(inner, pointer, found),
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                beneath(item, &format!("{pointer}/{index}"), found);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
     }
 }
 
@@ -236,17 +281,17 @@ fn push_unique(list: &mut Vec<String>, item: String) {
     }
 }
 
-fn events(stream: &Stream, source: String) -> Fact<Events> {
+fn events(stream: &Stream) -> Fact<Events> {
     let mut types = Vec::new();
     for event in &stream.events {
-        push_unique(&mut types, event_type(event));
+        push_unique(&mut types, event_type(&event.fields));
     }
-    let evidence = format!("{} events read from {source}", stream.events.len());
+    let evidence = format!("{} events read from {}", stream.events.len(), stream.source);
     Fact::measured(
         Events {
-            source,
+            source: stream.source.clone(),
             format: "ndjson".to_string(),
-            non_json_lines: stream.non_json,
+            non_json_lines: stream.unparsed.len(),
             types,
         },
         evidence,
@@ -257,8 +302,8 @@ fn events(stream: &Stream, source: String) -> Fact<Events> {
 fn session_id(stream: &Stream) -> Option<(String, &'static str, String)> {
     stream.events.iter().find_map(|event| {
         SESSION_KEYS.iter().find_map(|key| {
-            let id = event.get(*key)?.as_str()?;
-            Some((event_type(event), *key, id.to_string()))
+            let id = event.fields.get(*key)?.as_str()?;
+            Some((event_type(&event.fields), *key, id.to_string()))
         })
     })
 }
@@ -283,7 +328,7 @@ fn usage(stream: &Stream) -> Fact<Usage> {
     let mut counters = BTreeSet::new();
     let mut messages: BTreeMap<&str, Vec<&Map<String, Value>>> = BTreeMap::new();
     let mut unnamed = Vec::new();
-    for event in &stream.events {
+    for event in stream.events.iter().map(|event| &event.fields) {
         for found in found_in(event)
             .into_iter()
             .filter(|found| found.key == "usage")
@@ -347,7 +392,7 @@ fn counting(
 
 fn cost(stream: &Stream) -> Fact<Vec<String>> {
     let mut locations = Vec::new();
-    for event in &stream.events {
+    for event in stream.events.iter().map(|event| &event.fields) {
         for found in found_in(event) {
             if COST_KEYS.contains(&found.key) && found.value.is_number() {
                 push_unique(
@@ -362,51 +407,6 @@ fn cost(stream: &Stream) -> Fact<Vec<String>> {
     }
     let evidence = format!("the turn reported its cost at {}", locations.join(", "));
     Fact::measured(locations, evidence)
-}
-
-/// Every array any event holds under `key`, each with its event's type.
-fn lists<'a>(stream: &'a Stream, key: &str) -> Vec<(String, &'a Vec<Value>)> {
-    stream
-        .events
-        .iter()
-        .flat_map(|event| {
-            found_in(event)
-                .into_iter()
-                .filter(|found| found.key == key)
-                .filter_map(|found| found.value.as_array())
-                .map(|list| (event_type(event), list))
-        })
-        .collect()
-}
-
-/// The union of every list the turn gave under `key`, its entries read
-/// by `entry`: a later listing is never dropped unread, and one entry the
-/// reader does not recognise refuses the whole reading.
-fn listed<T: serde::Serialize + PartialEq>(
-    stream: &Stream,
-    key: &str,
-    entry: impl Fn(&Value) -> Option<T>,
-) -> Fact<Vec<T>> {
-    let lists = lists(stream, key);
-    if lists.is_empty() {
-        return Fact::unmeasured(format!("no event of the turn listed its {key}"));
-    }
-    let mut union = Vec::new();
-    let mut listings = Vec::new();
-    for (event, items) in lists {
-        let Some(entries) = items.iter().map(&entry).collect::<Option<Vec<T>>>() else {
-            return Fact::unmeasured(format!(
-                "the {event} event's {key} held an entry it does not name"
-            ));
-        };
-        listings.push(format!("the {event} event listed {key}: {}", entries.len()));
-        for item in entries {
-            if !union.contains(&item) {
-                union.push(item);
-            }
-        }
-    }
-    Fact::measured(union, listings.join(", and "))
 }
 
 /// The launch that refused a deliberate mistake, or why there is no
@@ -537,11 +537,11 @@ fn stream_facts(
     turn: &Observation,
 ) -> (Fact<Events>, Fact<Session>, Fact<Vec<String>>) {
     let announced = match base {
-        Turn::Read(stream) => session_id(stream),
+        Turn::Read(streams) => session_id(streams.primary()),
         Turn::Unread(_) | Turn::Refused(_) => None,
     };
     let id = announced.as_ref().map(|(_, _, id)| id.as_str());
-    let events = on_turn(base, |stream| events(stream, normalise(&stream.source, id)));
+    let events = on_turn(base, |streams| events(streams.primary()));
     let session = on_turn(base, |_| session(announced.as_ref()));
     let transcripts = on_turn(base, |_| transcripts(turn, id));
     (events, session, transcripts)
@@ -578,8 +578,8 @@ pub(crate) fn facts(plan: &Plan, observed: &Observed, bound: &[&str]) -> Facts {
         ),
         events,
         session,
-        usage: on_turn(&base, usage),
-        cost: on_turn(&base, cost),
+        usage: on_turn(&base, |streams| usage(streams.primary())),
+        cost: on_turn(&base, |streams| cost(streams.primary())),
         refusals: Refusals {
             auth: refusal(&observed.no_credentials),
             config: refusal(&observed.bad_model),

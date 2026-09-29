@@ -15,6 +15,7 @@ use crate::secret;
 
 #[path = "../../../../tests/support/executable.rs"]
 mod executable;
+mod listings;
 
 const DATE: &str = "2026-09-29T09:00:00Z";
 const DEADLINE: Duration = Duration::from_secs(60);
@@ -28,48 +29,46 @@ enum Boxed {
     Empties,
     Keeps,
     Refuses,
-    /// Empties its tools but still starts the planted user-scope server.
-    Leaks,
-    /// Lists the planted server's tool, but not the server.
-    LeaksATool,
-    /// Lists its tools twice, the planted server's tool only the second
-    /// time.
-    LeaksAToolLater,
-    /// Lists its MCP servers twice, the planted server only the second
-    /// time.
-    LeaksAServerLater,
     /// Never finishes, and the child it forked holds its stdout, so the
     /// probe's deadline must end both.
     Hangs,
 }
+
+impl Boxed {
+    /// The fake's shell under the hands argv.
+    fn shell(self) -> &'static str {
+        match self {
+            Boxed::Empties => BOXED_CLEAN,
+            Boxed::Keeps => {
+                r#"tools='"Bash","WebFetch","mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"}'"#
+            }
+            Boxed::Refuses => r#"echo "error: unknown option '--strict-mcp-config'" >&2; exit 1"#,
+            Boxed::Hangs => "sleep 30 & wait",
+        }
+    }
+}
+
+/// A boxed turn that lists only the hands server and its tool.
+const BOXED_CLEAN: &str =
+    r#"tools='"mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"}'"#;
+
+/// A plain turn that reads the planted user-scope server and reports it
+/// failed, as a CLI does whose user scope is not isolated.
+const PLAIN_READS_THE_PLANT: &str = r#"grep -q brokkr-probe-user-scope "$HOME/.claude.json" && servers='{"name":"brokkr-probe-user-scope","status":"failed"}'"#;
 
 /// A Claude-like CLI: stream-json whose `system/init` event lists its
 /// tools and MCP servers, and whose one assistant message restates its
 /// usage on each of its two events (#402). It reads the planted
 /// user-scope server unless `--strict-mcp-config` is given.
 fn claude_like(version: &str, boxed: Boxed) -> String {
-    let under_hands = match boxed {
-        Boxed::Empties => {
-            r#"tools='"mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"}'"#
-        }
-        Boxed::Keeps => {
-            r#"tools='"Bash","WebFetch","mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"}'"#
-        }
-        Boxed::Refuses => r#"echo "error: unknown option '--strict-mcp-config'" >&2; exit 1"#,
-        Boxed::Leaks => {
-            r#"tools='"mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"},{"name":"brokkr-probe-user-scope","status":"connected"}'"#
-        }
-        Boxed::LeaksATool => {
-            r#"tools='"mcp__brokkr__workspace","mcp__brokkr-probe-user-scope__probe"'; servers='{"name":"brokkr","status":"connected"}'"#
-        }
-        Boxed::LeaksAToolLater => {
-            r#"tools='"mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"}'; later='{"type":"system","subtype":"init","tools":["mcp__brokkr-probe-user-scope__probe"]}'"#
-        }
-        Boxed::LeaksAServerLater => {
-            r#"tools='"mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"}'; later='{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr-probe-user-scope","status":"connected"}]}'"#
-        }
-        Boxed::Hangs => "sleep 30 & wait",
-    };
+    claude_with(version, PLAIN_READS_THE_PLANT, boxed.shell())
+}
+
+/// A Claude-like CLI running the shell `plain` on its plain turn and
+/// `under_hands` under the hands argv. Either may set `tools`, `servers`
+/// and `later`, an event printed after the init event, and may write a
+/// transcript beside the session's in `$dir`.
+fn claude_with(version: &str, plain: &str, under_hands: &str) -> String {
     r#"#!/bin/sh
 case " $* " in
   *" --version "*) echo "@VERSION@ (Fake Claude)"; exit 0 ;;
@@ -80,23 +79,24 @@ esac
 tools='"Bash","Read","WebSearch","WebFetch"'
 servers=''
 later=''
-case " $* " in
-  *" --strict-mcp-config "*) @UNDER_HANDS@ ;;
-  *) grep -q brokkr-probe-user-scope "$HOME/.claude.json" && servers='{"name":"brokkr-probe-user-scope","status":"failed"}' ;;
-esac
 sid=@SESSION@
 dir="$HOME/.claude/projects/$(pwd | tr -c 'A-Za-z0-9\n' '-')"
 mkdir -p "$dir"
 echo '{"type":"user"}' > "$dir/$sid.jsonl"
 echo '{}' > "$HOME/.claude/stats.json"
+case " $* " in
+  *" --strict-mcp-config "*) @UNDER_HANDS@ ;;
+  *) @PLAIN@ ;;
+esac
 printf '{"type":"system","subtype":"init","session_id":"%s","tools":[%s],"mcp_servers":[%s]}\n' "$sid" "$tools" "$servers"
 [ -z "$later" ] || printf '%s\n' "$later"
 printf '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"PROBE-OK"}],"usage":{"input_tokens":10,"cache_read_input_tokens":4,"output_tokens":2}},"session_id":"%s"}\n' "$sid"
 printf '{"type":"assistant","message":{"id":"msg_1","content":[],"usage":{"input_tokens":10,"cache_read_input_tokens":4,"output_tokens":2}},"session_id":"%s"}\n' "$sid"
-printf '{"type":"result","subtype":"success","session_id":"%s","total_cost_usd":0.0125,"usage":{"input_tokens":10,"cache_read_input_tokens":4,"output_tokens":2}}\n' "$sid"
+printf '{"type":"result","subtype":"success","is_error":false,"session_id":"%s","total_cost_usd":0.0125,"usage":{"input_tokens":10,"cache_read_input_tokens":4,"output_tokens":2}}\n' "$sid"
 "#
     .replace("@VERSION@", version)
     .replace("@UNDER_HANDS@", under_hands)
+    .replace("@PLAIN@", plain)
     .replace("@SESSION@", CLAUDE_SESSION)
 }
 
@@ -270,6 +270,9 @@ const NOT_REPEATED: &str = "no message carried the same usage on several events,
                             showed how usage counts";
 const PLAIN_LEAK: &str = "its plain turn, the launch an office outside the box uses, loaded \
                           an MCP server the probe did not give it (#467): ";
+/// Where the Claude-like plain turn was read loading the planted server.
+const PLAIN_REACH: &str = "the MCP server brokkr-probe-user-scope was listed failed by the \
+                           system/init event on line 1 of stdout at /mcp_servers/0";
 const HOLDS_NO_BOX: &str = ", and it may hold no boxed office: ";
 const NO_USER_MCP: &str = "no turn showed whether a user-scope MCP server loads: ";
 const NOT_ISOLATED: &str = "its user-scope configuration is not shown to be isolated: ";
@@ -356,7 +359,7 @@ const CLAUDE_TURN: [&str; 8] = [
 fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() {
     let world = world();
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Empties));
-    let listed_servers = "the system/init event listed mcp_servers: 1";
+    let listed_servers = "the system/init event on line 1 of stdout listed mcp_servers: 1";
     let expected = envelope(
         "claude",
         &cli,
@@ -400,25 +403,25 @@ fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() 
                 ),
                 "tools": measured(
                     json!(["Bash", "Read", "WebSearch", "WebFetch"]),
-                    "the system/init event listed tools: 4",
+                    "the system/init event on line 1 of stdout listed tools: 4",
                 ),
-                "boxed_tools": measured(json!([]), "the system/init event listed tools: 1"),
+                "boxed_tools": measured(json!([]), "the system/init event on line 1 of stdout listed tools: 1"),
                 "mcp_server": measured(json!("connected"), listed_servers),
                 "native_egress": measured(
                     json!(["WebSearch", "WebFetch"]),
-                    "the system/init event listed tools: 4",
+                    "the system/init event on line 1 of stdout listed tools: 4",
                 ),
                 "egress_off": measured(json!(true), "the hands argv removed WebSearch, WebFetch"),
                 "capabilities": measured(
                     json!(["Bash", "Read", "WebSearch", "WebFetch"]
-                        .map(|tool| switched_off(tool, "the system/init event listed tools: 1"))),
-                    "the system/init event listed tools: 4",
+                        .map(|tool| switched_off(tool, "the system/init event on line 1 of stdout listed tools: 1"))),
+                    "the system/init event on line 1 of stdout listed tools: 4",
                 ),
                 "config_isolation": measured(
                     json!(true),
                     &format!("{NO_OTHER_SERVER} reached the boxed turn: {listed_servers}"),
                 ),
-                "user_mcp_unboxed": measured(json!(true), listed_servers),
+                "user_mcp_unboxed": measured(json!(true), PLAIN_REACH),
                 "user_mcp_boxed": measured(json!(false), listed_servers),
                 "transcripts": measured(
                     json!(["~/.claude/projects/{workdir}/{session}.jsonl"]),
@@ -435,7 +438,7 @@ fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() 
                 "verdict": "boxed-only",
                 "reason": format!(
                     "its own tools switch off and the hands MCP server connects, but \
-                     {PLAIN_LEAK}{listed_servers}, so it may hold boxed offices only"
+                     {PLAIN_LEAK}{PLAIN_REACH}, so it may hold boxed offices only"
                 ),
             },
         }),
@@ -591,16 +594,16 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
                 "efforts": unmeasured(DSH_PATCH_ONLY),
                 "tools": measured(
                     json!(["bash", "read_file", "web_search"]),
-                    "the header event listed tools: 3",
+                    "the header event on line 1 of ~/.dsh/sessions/{session}.jsonl listed tools: 3",
                 ),
                 "boxed_tools": unmeasured(&no_hands),
                 "mcp_server": unmeasured(&no_hands),
-                "native_egress": measured(json!(["web_search"]), "the header event listed tools: 3"),
+                "native_egress": measured(json!(["web_search"]), "the header event on line 1 of ~/.dsh/sessions/{session}.jsonl listed tools: 3"),
                 "egress_off": unmeasured(&not_boxed),
                 "capabilities": measured(
                     json!(["bash", "read_file", "web_search"]
                         .map(|tool| capability(tool, unsupported(&no_hands)))),
-                    "the header event listed tools: 3",
+                    "the header event on line 1 of ~/.dsh/sessions/{session}.jsonl listed tools: 3",
                 ),
                 "config_isolation": unmeasured(&not_isolated),
                 "user_mcp_unboxed": unmeasured(no_user_config),
@@ -643,11 +646,11 @@ fn a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed() {
     let world = world();
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Keeps));
     let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
-    let listed_servers = "the system/init event listed mcp_servers: 1";
+    let listed_servers = "the system/init event on line 1 of stdout listed mcp_servers: 1";
     assert_eq!(
         under_hands(&report),
         json!({
-            "boxed_tools": measured(json!(["Bash", "WebFetch"]), "the system/init event listed tools: 3"),
+            "boxed_tools": measured(json!(["Bash", "WebFetch"]), "the system/init event on line 1 of stdout listed tools: 3"),
             "mcp_server": measured(json!("connected"), listed_servers),
             "egress_off": measured(json!(false), "the hands argv left WebFetch"),
             "user_mcp_boxed": measured(json!(false), listed_servers),
@@ -659,13 +662,13 @@ fn a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed() {
             "eligibility": {
                 "verdict": "refused",
                 "reason": format!(
-                    "{PLAIN_LEAK}{listed_servers}{HOLDS_NO_BOX}no off switch exists for its \
+                    "{PLAIN_LEAK}{PLAIN_REACH}{HOLDS_NO_BOX}no off switch exists for its \
                      native capabilities Bash, WebFetch, {GRANTING_REALMS}"
                 ),
             },
         })
     );
-    let listed_tools = "the system/init event listed tools: 3";
+    let listed_tools = "the system/init event on line 1 of stdout listed tools: 3";
     assert_eq!(
         report["facts"]["capabilities"],
         measured(
@@ -675,7 +678,7 @@ fn a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed() {
                 switched_off("WebSearch", listed_tools),
                 capability("WebFetch", unsupported("the hands argv left WebFetch")),
             ]),
-            "the system/init event listed tools: 4",
+            "the system/init event on line 1 of stdout listed tools: 4",
         )
     );
 }
@@ -704,97 +707,6 @@ fn a_cli_that_refuses_the_hands_argv_reads_unsupported() {
                 "reason": format!("{NOT_ISOLATED}{leaked}"),
             },
         })
-    );
-}
-
-/// What [`under_hands`] shows of a boxed turn that emptied its own tools,
-/// as `tools` evidences, and connected the hands server, as `servers`
-/// does, but was reached by another MCP server, as `reached` does.
-fn reached_inside_the_box(tools: &str, servers: &str, reached: &str) -> Value {
-    let leaked = format!("{OTHER_SERVER} reached the boxed turn: {reached}");
-    json!({
-        "boxed_tools": measured(json!([]), tools),
-        "mcp_server": measured(json!("connected"), servers),
-        "egress_off": measured(json!(true), "the hands argv removed WebSearch, WebFetch"),
-        "user_mcp_boxed": measured(json!(true), reached),
-        "config_isolation": measured(json!(false), &leaked),
-        "hands": field("hands", "supported", "supported", "agrees"),
-        "eligibility": {
-            "verdict": "refused",
-            "reason": format!("{NOT_ISOLATED}{leaked}"),
-        },
-    })
-}
-
-#[test]
-fn a_cli_that_starts_the_user_scope_server_inside_the_box_is_refused() {
-    let world = world();
-    let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Leaks));
-    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
-    let listed_servers = "the system/init event listed mcp_servers: 2";
-    assert_eq!(
-        under_hands(&report),
-        reached_inside_the_box(
-            "the system/init event listed tools: 1",
-            listed_servers,
-            listed_servers,
-        )
-    );
-}
-
-#[test]
-fn a_boxed_turn_that_lists_a_tool_of_another_mcp_server_has_reached_it_and_is_refused() {
-    let world = world();
-    let cli = world.fake("claude", &claude_like("9.9.9", Boxed::LeaksATool));
-    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
-    let listed_tools = "the system/init event listed tools: 2";
-    assert_eq!(
-        under_hands(&report),
-        reached_inside_the_box(
-            listed_tools,
-            "the system/init event listed mcp_servers: 1",
-            &format!(
-                "{listed_tools}, among them mcp__brokkr-probe-user-scope__probe of the MCP \
-                 server brokkr-probe-user-scope"
-            ),
-        )
-    );
-}
-
-#[test]
-fn a_tool_of_another_mcp_server_in_a_later_tool_listing_is_read_and_refused() {
-    let world = world();
-    let cli = world.fake("claude", &claude_like("9.9.9", Boxed::LeaksAToolLater));
-    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
-    let listed_tools =
-        "the system/init event listed tools: 1, and the system/init event listed tools: 1";
-    assert_eq!(
-        under_hands(&report),
-        reached_inside_the_box(
-            listed_tools,
-            "the system/init event listed mcp_servers: 1",
-            &format!(
-                "{listed_tools}, among them mcp__brokkr-probe-user-scope__probe of the MCP \
-                 server brokkr-probe-user-scope"
-            ),
-        )
-    );
-}
-
-#[test]
-fn the_planted_server_in_a_later_server_listing_is_read_and_refused() {
-    let world = world();
-    let cli = world.fake("claude", &claude_like("9.9.9", Boxed::LeaksAServerLater));
-    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
-    let listed_servers = "the system/init event listed mcp_servers: 1, and the system/init \
-                          event listed mcp_servers: 1";
-    assert_eq!(
-        under_hands(&report),
-        reached_inside_the_box(
-            "the system/init event listed tools: 1",
-            listed_servers,
-            listed_servers,
-        )
     );
 }
 
@@ -913,9 +825,8 @@ fn a_tool_the_probe_does_not_recognise_is_never_read_as_local() {
             &json!({
                 "verdict": "refused",
                 "reason": format!(
-                    "{PLAIN_LEAK}the system/init event listed mcp_servers: 1{HOLDS_NO_BOX}no \
-                     off switch exists for its native capabilities Search, \
-                     {GRANTING_REALMS}"
+                    "{PLAIN_LEAK}{PLAIN_REACH}{HOLDS_NO_BOX}no off switch exists for its native \
+                     capabilities Search, {GRANTING_REALMS}"
                 ),
             }),
         )
@@ -1244,18 +1155,24 @@ fn a_refusal_that_lists_no_levels_leaves_efforts_unmeasured_and_clap_s_listing_i
 fn an_unreadable_listing_or_usage_is_not_read_as_an_empty_one() {
     let stream = [
         r#"{"subtype":"init","tools":[{"id":1}],"mcp_servers":["brokkr"]}"#,
-        r#"{"type":"assistant","usage":7,"total_cost_usd":null}"#,
+        r#"{"type":"assistant","usage":-7,"total_cost_usd":null}"#,
         "not json",
     ]
     .join("\n");
     let facts = facts_of(observation(Some(0), &stream, ""));
     assert_eq!(
         facts.tools,
-        Fact::unmeasured("the (untyped)/init event's tools held an entry it does not name")
+        Fact::unmeasured(
+            "the turn's tools could not be read whole: the (untyped)/init event on line 1 of \
+             stdout holds an entry at /tools/0 the probe cannot name"
+        )
     );
     assert_eq!(
         facts.mcp_server,
-        Fact::unmeasured("the (untyped)/init event's mcp_servers held an entry it does not name")
+        Fact::unmeasured(
+            "the turn's mcp_servers could not be read whole: the (untyped)/init event on line 1 \
+             of stdout holds an entry at /mcp_servers/0 the probe cannot name"
+        )
     );
     assert_eq!(
         facts.usage,
@@ -1509,21 +1426,5 @@ fn a_capability_without_an_off_switch_needs_a_grant_whatever_egress_reads_and_un
                  not read for its native capabilities Read, {GRANTING_REALMS}"
             ),
         }
-    );
-}
-
-#[test]
-fn a_hands_server_listed_with_two_statuses_is_unmeasured() {
-    let stream = [
-        r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr","status":"connected"}]}"#,
-        r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr","status":"failed"}]}"#,
-    ]
-    .join("\n");
-    assert_eq!(
-        facts_of(observation(Some(0), &stream, "")).mcp_server,
-        Fact::unmeasured(
-            "the turn's listings gave brokkr the statuses connected, failed: the system/init \
-             event listed mcp_servers: 1, and the system/init event listed mcp_servers: 1"
-        )
     );
 }
