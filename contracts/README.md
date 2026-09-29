@@ -223,6 +223,13 @@ over a bundle that boxes nothing journals byte-identical payloads. It is a
 narrowed reading of ruling 3's "every `effect/started`", named as such: a
 field on every start would be a v2 event, and the ruling's "every" is
 carried by the seat record instead.
+The proposed #403 addendum to decision 0006 adds
+`effect-cleanup.v1.schema.json` on the same rule: an attempt whose process
+tree is not proven over parks, and its `effect/indeterminate` carries
+`received`, the outcome its driver reached, typed, beside `cleanup`, why its
+end could not be certified. A panel carries the same pair per member not
+proven over, under `unresolved_members`. `fold` never reads them; an attempt
+proven over journals byte-identical payloads.
 
 Reforging (decision 0022) adds one more file and changes none of the bytes
 above:

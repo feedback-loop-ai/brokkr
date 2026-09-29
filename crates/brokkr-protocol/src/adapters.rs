@@ -3148,7 +3148,7 @@ fn invoke_codex(
     //
     // NOT the deadline case, though it reads like one: a deadline is
     // enforced one process up, where the watchdog SIGKILLs this whole
-    // driver (`process.rs::kill_driver`), so nothing after `child.wait`
+    // driver's group (`process::tree::kill_group`), so nothing after `child.wait`
     // runs for a seat that parks. What a parked codex ran under reaches
     // the journal from the other direction — the `turn-completed`
     // checkpoint each folded turn already emitted names its model and

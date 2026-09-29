@@ -354,14 +354,14 @@ fn an_undeclared_change_claim_is_dropped() {
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dialect_change_expands_from_typed_history_and_absence_parks() {
     assert!(matches!(
-        dialect_attempt_outcome(DriverRun::SpawnFailed("gone".into())),
+        dialect_attempt_outcome(DriverRun::SpawnFailed("gone".into()), &mut Unproven::Proven),
         AttemptOutcome::Failed { error } if error == "gone"
     ));
     assert!(matches!(
         dialect_attempt_outcome(DriverRun::Ran(report(
             AttemptOutcome::Indeterminate { reason: "lost".into() },
             ""
-        ))),
+        )), &mut Unproven::Proven),
         AttemptOutcome::Indeterminate { reason } if reason == "lost"
     ));
     let step = SequenceStep {
@@ -853,6 +853,8 @@ pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
 pub(super) fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
     AttemptReport {
         outcome,
+        refused: None,
+        cleanup: Cleanup::Settled,
         session_ref: Some("session".into()),
         checkpoints: vec![json!({"step":"inner"})],
         stderr: stderr.into(),
@@ -2138,26 +2140,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
 
 fn git_commit(repo: &Path, message: &str) -> String {
     if !repo.join(".git").exists() {
-        assert!(Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(repo)
-            .status()
-            .unwrap()
-            .success());
-        for (key, value) in [("user.name", "Brokkr Test"), ("user.email", "brokkr@test")] {
-            assert!(Command::new("git")
-                .args(["config", key, value])
-                .current_dir(repo)
-                .status()
-                .unwrap()
-                .success());
-        }
-        assert!(Command::new("git")
-            .args(["config", "commit.gpgSign", "false"])
-            .current_dir(repo)
-            .status()
-            .unwrap()
-            .success());
+        crate::realms::tests::initialised(repo);
     }
     std::fs::write(repo.join(format!("{message}.txt")), message).unwrap();
     assert!(Command::new("git")
@@ -5912,10 +5895,15 @@ fn a_refused_checkpoint_becomes_the_attempts_outcome_once_its_driver_ends() {
     else {
         panic!("the driver spawned");
     };
-    let AttemptOutcome::Failed { error } = report.outcome else {
+    let AttemptOutcome::Failed { error } = report.settled_outcome() else {
         panic!("a refused checkpoint fails the attempt");
     };
     assert!(refusal_text(&error), "{error}");
+    assert!(
+        matches!(&report.outcome, AttemptOutcome::Succeeded { result }
+            if *result == json!({"result":"complete"})),
+        "the outcome received is kept beside the refusal"
+    );
     assert_eq!(
         driven
             .store

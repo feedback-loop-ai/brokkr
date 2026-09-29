@@ -33,7 +33,8 @@ use crate::bundle::{
     SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
-use brokkr_protocol::AttemptReport;
+use brokkr_protocol::{AttemptReport, Cleanup, CleanupEvidence};
+use serde::Serialize;
 
 mod checkpoints;
 use checkpoints::Checkpoints;
@@ -78,11 +79,63 @@ fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> {
         .collect()
 }
 
-fn dialect_attempt_outcome(run: DriverRun) -> AttemptOutcome {
+/// A dialect step's outcome, and into `evidence` what its terminal event
+/// carries when its tree is not proven over (#403).
+fn dialect_attempt_outcome(run: DriverRun, evidence: &mut Unproven) -> AttemptOutcome {
     match run {
         DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
-        DriverRun::Ran(report) => report.outcome,
+        DriverRun::Ran(report) => {
+            *evidence = Unproven::seat(&report);
+            report.settled_outcome()
+        }
     }
+}
+
+/// What an `effect/indeterminate` carries of an attempt not proven over
+/// (#403), the fields `contracts/effect-cleanup.v1.schema.json` publishes:
+/// nothing once proven over, so the event keeps its v1 bytes; a seat's own
+/// evidence; or a panel's, by member. The member's own marker is a closed
+/// seat record and carries none.
+#[derive(Debug, Default, Serialize)]
+#[serde(untagged)]
+enum Unproven {
+    #[default]
+    Proven,
+    Seat(CleanupEvidence),
+    Panel {
+        unresolved_members: BTreeMap<String, CleanupEvidence>,
+    },
+}
+
+impl Unproven {
+    fn seat(report: &AttemptReport) -> Self {
+        report
+            .cleanup_evidence()
+            .map_or(Unproven::Proven, Unproven::Seat)
+    }
+
+    fn panel(reports: &[(String, AttemptReport)]) -> Self {
+        let unresolved_members: BTreeMap<String, CleanupEvidence> = reports
+            .iter()
+            .filter_map(|(name, report)| Some((name.clone(), report.cleanup_evidence()?)))
+            .collect();
+        if unresolved_members.is_empty() {
+            Unproven::Proven
+        } else {
+            Unproven::Panel { unresolved_members }
+        }
+    }
+}
+
+/// An `effect/indeterminate` payload: its v1 fields, and beside them what
+/// of the attempt is not proven over.
+#[derive(Serialize)]
+struct Indeterminate<'a> {
+    effect_id: &'a str,
+    attempt_id: &'a str,
+    reason: String,
+    #[serde(flatten)]
+    unproven: Unproven,
 }
 
 #[derive(Debug, Error)]
@@ -508,11 +561,24 @@ impl Engine {
     /// whole patience — which is a fourth ending, and it is an ending,
     /// not a death. See [`Engine::lawful_end_under_contention`].
     pub fn drive(&mut self) -> Result<DriveEnd, EngineError> {
+        self.drive_racing(|_| {})
+    }
+
+    /// [`Engine::drive`] with the lawful end's window held open:
+    /// `before_lawful_end` sees each error a turn ends on, before the
+    /// lawful end is tried. Production passes a no-op; a test passes the
+    /// peer that lets go of its lock there, so a terminal event the lock
+    /// outlasted can only land by the lawful end.
+    fn drive_racing(
+        &mut self,
+        mut before_lawful_end: impl FnMut(&EngineError),
+    ) -> Result<DriveEnd, EngineError> {
         loop {
             match self.drive_once() {
                 Ok(Some(end)) => return Ok(end),
                 Ok(None) => {}
                 Err(error) => {
+                    before_lawful_end(&error);
                     if let Some(end) = self.lawful_end_under_contention(error)? {
                         return Ok(end);
                     }
@@ -1657,7 +1723,8 @@ impl Engine {
         };
         let start_failure = failed_to_start(&report);
         let stderr_tail = stderr_tail(&report.stderr);
-        match report.outcome {
+        let unproven = Unproven::seat(&report);
+        match report.settled_outcome() {
             AttemptOutcome::Succeeded { result } => {
                 let result = stamp_boundary(result, boundary);
                 self.append_succeeded(effect_id, attempt_id, result, |refusal| {
@@ -1686,10 +1753,11 @@ impl Engine {
             AttemptOutcome::Indeterminate { reason } => {
                 self.append(
                     EventType::EffectIndeterminate,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "reason": format!("{reason}; stderr tail: {stderr_tail}"),
+                    json!(Indeterminate {
+                        effect_id,
+                        attempt_id,
+                        reason: format!("{reason}; stderr tail: {stderr_tail}"),
+                        unproven,
                     }),
                     Some(attempt_id.to_string()),
                 )?;
@@ -1786,7 +1854,7 @@ impl Engine {
                 sink.offer("", checkpoint);
             },
         );
-        report.outcome = sink.settle()?.outcome("", report.outcome);
+        sink.settle()?.carry("", &mut report);
         Ok(DriverRun::Ran(report))
     }
 
@@ -1855,14 +1923,16 @@ impl Engine {
         let reports = self.run_panel(effect_id, attempt_id, &runs, deadline, "")?;
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, "")?;
         let start_failures = start_failure_sites(&reports, "");
+        let unproven = Unproven::panel(&reports);
         match panel_outcome(aggregate, reports) {
             AttemptOutcome::Indeterminate { reason } => {
                 self.append(
                     EventType::EffectIndeterminate,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "reason": reason,
+                    json!(Indeterminate {
+                        effect_id,
+                        attempt_id,
+                        reason,
+                        unproven,
                     }),
                     Some(attempt_id.to_string()),
                 )?;
@@ -2018,6 +2088,9 @@ impl Engine {
                                 outcome: AttemptOutcome::Failed {
                                     error: format!("member driver did not spawn: {e}"),
                                 },
+                                refused: None,
+                                // Nothing was spawned, so nothing is left.
+                                cleanup: Cleanup::Settled,
                                 session_ref: None,
                                 checkpoints: Vec::new(),
                                 stderr: String::new(),
@@ -2082,7 +2155,7 @@ impl Engine {
         Ok(reports
             .into_iter()
             .map(|(name, mut report)| {
-                report.outcome = settled.outcome(&format!("{tag_prefix}{name}"), report.outcome);
+                settled.carry(&format!("{tag_prefix}{name}"), &mut report);
                 (name, report)
             })
             .collect())
@@ -2103,12 +2176,13 @@ impl Engine {
                 .iter()
                 .find(|run| run.name == *name)
                 .and_then(|run| run.boundary);
-            let kind = match &report.outcome {
+            let settled = report.settled_outcome();
+            let kind = match &settled {
                 AttemptOutcome::Succeeded { .. } => "succeeded",
                 AttemptOutcome::Failed { .. } => "failed",
                 AttemptOutcome::Indeterminate { .. } => "indeterminate",
             };
-            let model = match &report.outcome {
+            let model = match &settled {
                 AttemptOutcome::Succeeded { result } => result
                     .get("model")
                     .and_then(Value::as_str)
@@ -2195,6 +2269,9 @@ impl Engine {
             // Which sites of THIS step failed to start, if the step is
             // the one that fails the attempt.
             let mut start_failures: Vec<Site> = Vec::new();
+            // What this step's terminal event carries when its tree is
+            // not proven over (#403).
+            let mut unproven = Unproven::Proven;
             // The gate span inside a sequence is THIS step: armed here,
             // compared and cleared at this step's own end below, before
             // any later step gets to move the tree lawfully (decision
@@ -2267,7 +2344,8 @@ impl Engine {
                             if failed_to_start(&report) {
                                 start_failures.push(site);
                             }
-                            match report.outcome {
+                            unproven = Unproven::seat(&report);
+                            match report.settled_outcome() {
                                 AttemptOutcome::Succeeded { result } => {
                                     AttemptOutcome::Succeeded { result }
                                 }
@@ -2312,6 +2390,7 @@ impl Engine {
                         &tag_prefix,
                     )?;
                     start_failures = start_failure_sites(&reports, &tag_prefix);
+                    unproven = Unproven::panel(&reports);
                     panel_outcome(*aggregate, reports)
                 }
                 StepBody::Dialect { execution } => {
@@ -2387,16 +2466,19 @@ impl Engine {
                         selection.get(&site),
                         input["result_path"].as_str().unwrap_or_default(),
                     );
-                    dialect_attempt_outcome(self.run_driver(
-                        effect_id,
-                        attempt_id,
-                        &driver_seat,
-                        &spawn,
-                        input,
-                        deadline,
-                        Some(&step.name),
-                        None,
-                    )?)
+                    dialect_attempt_outcome(
+                        self.run_driver(
+                            effect_id,
+                            attempt_id,
+                            &driver_seat,
+                            &spawn,
+                            input,
+                            deadline,
+                            Some(&step.name),
+                            None,
+                        )?,
+                        &mut unproven,
+                    )
                 }
             };
             if self
@@ -2428,10 +2510,11 @@ impl Engine {
                 AttemptOutcome::Indeterminate { reason } => {
                     self.append(
                         EventType::EffectIndeterminate,
-                        json!({
-                            "effect_id": effect_id,
-                            "attempt_id": attempt_id,
-                            "reason": format!("sequence step '{}': {reason}", step.name),
+                        json!(Indeterminate {
+                            effect_id,
+                            attempt_id,
+                            reason: format!("sequence step '{}': {reason}", step.name),
+                            unproven,
                         }),
                         Some(attempt_id.to_string()),
                     )?;
@@ -3241,8 +3324,11 @@ fn route_overlay_binding(
 /// this term a vendor that hangs a first turn would walk the chain down
 /// every link, each one hanging for a full deadline, and journal
 /// per-model start failures for one vendor-wide stall.
+///
+/// It reads the settled outcome (#403): an attempt whose tree is not
+/// proven over is indeterminate, and no fallback starts beside it.
 fn failed_to_start(report: &AttemptReport) -> bool {
-    matches!(report.outcome, AttemptOutcome::Failed { .. })
+    matches!(report.settled_outcome(), AttemptOutcome::Failed { .. })
         && !report.accepted
         && report.checkpoints.is_empty()
         && !report.deadline_killed
@@ -3518,7 +3604,7 @@ fn panel_outcome(aggregate: Aggregate, reports: Vec<(String, AttemptReport)>) ->
     let mut failures = Vec::new();
     let mut member_results = Vec::new();
     for (name, report) in reports {
-        match report.outcome {
+        match report.settled_outcome() {
             AttemptOutcome::Succeeded { result } => member_results.push((name, result)),
             AttemptOutcome::Failed { error } => failures.push(format!("{name}: {error}")),
             AttemptOutcome::Indeterminate { .. } => indeterminate.push(name),
@@ -3984,6 +4070,9 @@ mod agent_tests;
 
 #[cfg(test)]
 mod artifact_gate_tests;
+
+#[cfg(test)]
+mod cleanup_tests;
 
 #[cfg(test)]
 mod conclude_tests;

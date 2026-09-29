@@ -139,6 +139,13 @@ fn the_frozen_contracts_and_the_corpus_keep_their_exact_bytes() {
     );
 }
 
+/// The title a contract under `relative` publishes.
+fn titled(relative: &str) -> String {
+    let body: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();
+    body["title"].as_str().unwrap().to_owned()
+}
+
 /// The new contracts land BESIDE the frozen ones, as new numbered
 /// files — the only way a frozen contract ever changes.
 #[test]
@@ -287,11 +294,13 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/seat-record.v5.schema.json",
             "Forge seat record v5",
         ),
+        (
+            "contracts/effect-cleanup.v1.schema.json",
+            "Forge effect cleanup v1",
+        ),
     ] {
-        let body: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();
         assert!(
-            body["title"].as_str().unwrap().starts_with(title),
+            titled(relative).starts_with(title),
             "{relative} is the published extension schema"
         );
     }

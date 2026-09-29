@@ -224,6 +224,32 @@ pub brokkr_protocol::process::SpawnError::EmptyCommand
 pub brokkr_protocol::process::SpawnError::Spawn
 pub brokkr_protocol::process::SpawnError::Spawn::command: alloc::string::String
 pub brokkr_protocol::process::SpawnError::Spawn::source: core::io::error::Error
+pub brokkr_protocol::process::SpawnError::Unwatched
+pub brokkr_protocol::process::SpawnError::Unwatched::command: alloc::string::String
+pub brokkr_protocol::process::SpawnError::Unwatched::source: brokkr_protocol::process::Unsettled
+pub enum brokkr_protocol::process::Unsettled
+pub brokkr_protocol::process::Unsettled::Descendants
+pub brokkr_protocol::process::Unsettled::Descendants::pids: alloc::vec::Vec<i32>
+pub brokkr_protocol::process::Unsettled::Group
+pub brokkr_protocol::process::Unsettled::Group::group: i32
+pub brokkr_protocol::process::Unsettled::Kill
+pub brokkr_protocol::process::Unsettled::Kill::errno: i32
+pub brokkr_protocol::process::Unsettled::Kill::group: i32
+pub brokkr_protocol::process::Unsettled::Pidfd(i32)
+pub brokkr_protocol::process::Unsettled::Reap
+pub brokkr_protocol::process::Unsettled::Reap::pid: i32
+pub brokkr_protocol::process::Unsettled::Signal
+pub brokkr_protocol::process::Unsettled::Signal::error: alloc::string::String
+pub brokkr_protocol::process::Unsettled::Signal::pid: i32
+pub brokkr_protocol::process::Unsettled::Stderr
+pub brokkr_protocol::process::Unsettled::Stdout
+pub brokkr_protocol::process::Unsettled::Strays
+pub brokkr_protocol::process::Unsettled::Strays::pids: alloc::vec::Vec<i32>
+pub brokkr_protocol::process::Unsettled::Subreaper(i32)
+pub brokkr_protocol::process::Unsettled::Table
+pub brokkr_protocol::process::Unsettled::Table::error: alloc::string::String
+impl serde_core::ser::Serialize for brokkr_protocol::process::Unsettled
+pub fn brokkr_protocol::process::Unsettled::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
 pub struct brokkr_protocol::process::DriverProcess
 impl brokkr_protocol::process::DriverProcess
 pub fn brokkr_protocol::process::DriverProcess::run_attempt(self, &str, &str, &str, &str, serde_json::value::Value, impl core::ops::function::FnMut(&serde_json::value::Value)) -> brokkr_protocol::AttemptReport
@@ -302,16 +328,26 @@ pub brokkr_protocol::Body::Start::attempt_id: alloc::string::String
 pub brokkr_protocol::Body::Start::effect_id: alloc::string::String
 pub brokkr_protocol::Body::Start::input: serde_json::value::Value
 pub brokkr_protocol::Body::Start::seat: alloc::string::String
+pub enum brokkr_protocol::Cleanup
+pub brokkr_protocol::Cleanup::Settled
+pub brokkr_protocol::Cleanup::Unresolved
+pub brokkr_protocol::Cleanup::Unresolved::reason: brokkr_protocol::process::Unsettled
 pub enum brokkr_protocol::ResultStatus
 pub brokkr_protocol::ResultStatus::Failed
 pub brokkr_protocol::ResultStatus::Succeeded
 pub struct brokkr_protocol::AttemptReport
 pub brokkr_protocol::AttemptReport::accepted: bool
 pub brokkr_protocol::AttemptReport::checkpoints: alloc::vec::Vec<serde_json::value::Value>
+pub brokkr_protocol::AttemptReport::cleanup: brokkr_protocol::Cleanup
 pub brokkr_protocol::AttemptReport::deadline_killed: bool
 pub brokkr_protocol::AttemptReport::outcome: brokkr_protocol::AttemptOutcome
+pub brokkr_protocol::AttemptReport::refused: core::option::Option<brokkr_protocol::AttemptOutcome>
 pub brokkr_protocol::AttemptReport::session_ref: core::option::Option<alloc::string::String>
 pub brokkr_protocol::AttemptReport::stderr: alloc::string::String
+impl brokkr_protocol::AttemptReport
+pub fn brokkr_protocol::AttemptReport::cleanup_evidence(&self) -> core::option::Option<brokkr_protocol::CleanupEvidence>
+pub fn brokkr_protocol::AttemptReport::settled_outcome(&self) -> brokkr_protocol::AttemptOutcome
+pub struct brokkr_protocol::CleanupEvidence
 pub struct brokkr_protocol::Message
 pub brokkr_protocol::Message::body: brokkr_protocol::Body
 pub brokkr_protocol::Message::msg_id: alloc::string::String

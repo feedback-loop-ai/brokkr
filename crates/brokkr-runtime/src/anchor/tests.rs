@@ -6,14 +6,7 @@ const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 fn repo() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    for args in [
-        &["init", "-q"][..],
-        &["config", "user.email", "test@example.invalid"],
-        &["config", "user.name", "test"],
-        &["config", "commit.gpgsign", "false"],
-    ] {
-        git(dir.path(), args, None).unwrap();
-    }
+    crate::realms::tests::initialised(dir.path());
     dir
 }
 

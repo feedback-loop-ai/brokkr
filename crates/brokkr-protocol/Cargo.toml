@@ -31,6 +31,15 @@ tempfile = { workspace = true }
 # `signal-hook` lets a server remove its tree when a termination signal
 # ends it. Both are crates Cargo.lock already holds (signal-hook through
 # crossterm); no registry version moves.
+#
+# `process` is also the attempt's process group (#403): signal the group,
+# probe it, and observe the leader's exit without reaping it.
+# `signal-hook` and `libc` are the engine's stop handler (#403): SIGINT,
+# SIGTERM and SIGHUP end every live attempt before the engine exits, and
+# `libc::sigaction` reads whether a signal was inherited as ignored. Both
+# are direct edges to versions already in Cargo.lock: the lock records the
+# two edges, and no registry version moves.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", default-features = false, features = ["fs", "process"] }
-signal-hook = { version = "0.3.18", default-features = false, features = ["iterator"] }
+rustix = { version = "1.1.4", default-features = false, features = ["fs", "process", "std"] }
+signal-hook = "0.3.18"
+libc = "0.2.189"

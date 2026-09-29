@@ -193,6 +193,8 @@ fn the_fail_to_start_predicate_reads_only_structure() {
         outcome: AttemptOutcome::Failed {
             error: "model not found".into(),
         },
+        refused: None,
+        cleanup: Cleanup::Settled,
         session_ref: None,
         checkpoints,
         stderr: "provider says: unknown model".into(),
@@ -212,6 +214,14 @@ fn the_fail_to_start_predicate_reads_only_structure() {
         deadline_killed: true,
         ..failed(false, Vec::new())
     }));
+    // A tree not proven over (#403): whatever the driver said, something
+    // of it may still be running, so no fallback starts beside it.
+    assert!(!failed_to_start(&AttemptReport {
+        cleanup: Cleanup::Unresolved {
+            reason: brokkr_protocol::process::Unsettled::Stdout,
+        },
+        ..failed(false, Vec::new())
+    }));
     // Succeeded and indeterminate are never fail-to-start.
     for outcome in [
         AttemptOutcome::Succeeded { result: json!({}) },
@@ -221,6 +231,8 @@ fn the_fail_to_start_predicate_reads_only_structure() {
     ] {
         assert!(!failed_to_start(&AttemptReport {
             outcome,
+            refused: None,
+            cleanup: Cleanup::Settled,
             session_ref: None,
             checkpoints: Vec::new(),
             stderr: String::new(),
@@ -257,6 +269,8 @@ fn start_failure_sites_names_the_members_that_never_started() {
         outcome: AttemptOutcome::Failed {
             error: "boom".into(),
         },
+        refused: None,
+        cleanup: Cleanup::Settled,
         session_ref: None,
         checkpoints: Vec::new(),
         stderr: String::new(),
@@ -390,6 +404,8 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
                 outcome: AttemptOutcome::Failed {
                     error: reason.into(),
                 },
+                refused: None,
+                cleanup: Cleanup::Settled,
                 session_ref: None,
                 checkpoints: Vec::new(),
                 stderr: String::new(),

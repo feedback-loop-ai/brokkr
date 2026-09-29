@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/effect-cleanup.v1.json",
+  "title": "Forge effect cleanup v1 (an additive payload extension at event_schema 1)",
+  "description": "The optional, absent-by-default payload fields the proposed #403 addendum to decision 0006 adds to effect/indeterminate: an attempt whose process tree is not proven over parks, whatever its driver reached, and its event keeps the outcome received beside the unresolved cleanup. Legal at event_schema 1 under the amended rule in contracts/README.md: optional, absent by default, published here as a numbered extension schema, and never read by fold — the reason already carries the indeterminate outcome, and RunState gains nothing from these fields. An attempt proven over journals byte-identical payloads.",
+  "type": "object",
+  "properties": {
+    "received": {
+      "$ref": "#/definitions/received",
+      "description": "Present, with cleanup, when a single seat or a sequence's single or dialect step is not proven over: the outcome its driver reached, as it reached it. A checkpoint the journal refused changes the outcome acted on, which the reason names, never this one."
+    },
+    "cleanup": {
+      "$ref": "#/definitions/cleanup",
+      "description": "Present, with received: why the attempt's end could not be certified."
+    },
+    "unresolved_members": {
+      "type": "object",
+      "description": "Present when a panel parks because members of it are not proven over: each such member's evidence, keyed by the member's name. A member proven over is absent. Its own checkpoint marker is a closed seat record and carries none.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["received", "cleanup"],
+        "additionalProperties": false,
+        "properties": {
+          "received": { "$ref": "#/definitions/received" },
+          "cleanup": { "$ref": "#/definitions/cleanup" }
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "received": ["cleanup"],
+    "cleanup": ["received"]
+  },
+  "definitions": {
+    "received": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "result"],
+          "additionalProperties": false,
+          "properties": {
+            "status": { "const": "succeeded" },
+            "result": {}
+          }
+        },
+        {
+          "type": "object",
+          "required": ["status", "error"],
+          "additionalProperties": false,
+          "properties": {
+            "status": { "const": "failed" },
+            "error": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["status", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "status": { "const": "indeterminate" },
+            "reason": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "cleanup": {
+      "type": "object",
+      "required": ["state", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "state": { "const": "unresolved" },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "In the operator's words: a group or a descendant still running, a stray that could not be attributed, a refused kill, an unreaped leader, a missing means, a table that could not be read, or a pipe held outside the tree."
+        }
+      }
+    }
+  }
+}

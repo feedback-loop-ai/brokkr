@@ -1,7 +1,7 @@
 {
   "schema": "brokkr.binary-size/v1",
-  "note": "Bytes of target/release/brokkr as CI's release-binary job builds it (x86_64-unknown-linux-gnu, rust 1.98.0, --locked, [profile.release] as the root Cargo.toml leaves it), read from main's artifact at 6ad4a928 on 2026-09-26 (19,602,920 at 97b6653d). scripts/binary-size.sh holds each build within one per cent of this number either way. A local build embeds different source paths and is not comparable.",
+  "note": "Bytes of target/release/brokkr as CI's release-binary job builds it (x86_64-unknown-linux-gnu, rust 1.98.0, --locked, [profile.release] as the root Cargo.toml leaves it), read from PR #483's release-binary job at 0c9df16f on 2026-09-28 (20,152,912). It was 19,650,200 from main's artifact at 6ad4a928 on 2026-09-26. #403 raises it by 2.6 per cent for the attempt's process table, the orphan registry, the engine's stop handler, typed cleanup, and signal-hook and libc as direct dependencies of brokkr-protocol. scripts/binary-size.sh holds each build within one per cent of this number either way. A local build embeds different source paths and is not comparable.",
   "budgets": {
-    "bytes": 19650200
+    "bytes": 20152912
   }
 }
