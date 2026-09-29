@@ -86,7 +86,12 @@
 //! between the listing and its read is gone. A read before the spawn that
 //! fails refuses the spawn: without it, nothing tells the attempt's
 //! orphans from what ran before it. A kill the kernel refuses on a live
-//! identity leaves the cleanup unresolved.
+//! identity leaves the cleanup unresolved. So does a kill it refuses on
+//! the group, with one exception: an EPERM on the group is read against
+//! the table. Darwin refuses a group with EPERM when its only members are
+//! zombies or exiting, so a group whose fresh, whole read shows no member
+//! running is gone. An EPERM group with a member running, one whose table
+//! cannot be read whole, and any other refusal stay unresolved.
 //!
 //! macOS has no subreaper and no pidfd. There the engine reads the table
 //! synchronously at the kill, ends what it attributes, and parks on any

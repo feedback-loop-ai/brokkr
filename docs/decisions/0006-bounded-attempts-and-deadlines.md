@@ -126,9 +126,15 @@ determinate was not.
 - An end that cannot be proven is `indeterminate`, by this decision's own
   line: completion of the cleanup is not known. That covers a group or a
   recorded descendant still running, a stray that could not be attributed
-  to one attempt, a kill the kernel refused on the group or on a live
-  identity, a leader not reaped, a missing means, and a pipe something
-  outside the tree still holds. It also covers a table that cannot be
+  to one attempt, a kill the kernel refused on a live identity, a leader
+  not reaped, a missing means, and a pipe something outside the tree
+  still holds. It covers a kill the kernel refused on the group too, but
+  for one reading: an EPERM on the group is read against the table,
+  since Darwin refuses a group whose only members are zombies or exiting
+  with EPERM. A group whose fresh, whole read shows no member running is
+  gone. An EPERM group with a member running, or whose table cannot be
+  read whole, and any other refusal on the group are indeterminate. It
+  also covers a table that cannot be
   read whole: a row that cannot be read or parsed, a `ps` that exits
   nonzero, and a snapshot without the engine's own row. A row that
   vanished between the listing and its read is gone. A table that cannot
