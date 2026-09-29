@@ -1,12 +1,14 @@
 # Decision 0050 against `main`: the audit (#429)
 
-[Decision 0050](../decisions/0050-the-machine-proves-what-it-promises.md) is
-**proposed**. This audit does not change its status. It was taken against
+[Decision 0050](../decisions/0050-the-machine-proves-what-it-promises.md) was
+**proposed** when this audit was taken. The operator accepted it on
+2026-09-29 on this audit, taking every recommendation below, and the
+decision's addendum records the readings. The audit was taken against
 `main` at `e12f24f1` on 2026-09-29, under the operator's ruling of
 2026-09-28 for #429: audit first, then rule. The change that carries this
 file builds only checks that add no refusal and no transition to a table
 that loads today. Every check below that would refuse such a table is
-listed under [Awaiting the operator's ruling](#awaiting-the-operators-ruling).
+listed under [The operator's ruling](#the-operators-ruling).
 
 ## The seven rulings
 
@@ -240,7 +242,12 @@ Every unruled valuation has one shape: a `residual` verdict at
 valuations, 1.6% of the budget. No shipped table has an order or
 liveness finding.
 
-## Awaiting the operator's ruling
+## The operator's ruling
+
+On 2026-09-29 the operator accepted decision 0050 whole and took every
+recommendation below: item 2's semantic definition with absence outside
+the domain, item 5's named park before the totality refusal, and item
+9's plain verdict. The list stays as it was put to the operator.
 
 1. **Accept decision 0050**, whole or by ruling. The rest of this list
    assumes the ruling it names is accepted.

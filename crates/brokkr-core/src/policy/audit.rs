@@ -1,11 +1,12 @@
 //! Decision 0050's table checks as a diagnostic (#429): order, liveness,
 //! presence and a bounded totality sweep over a loaded machine.
 //!
-//! The audit refuses nothing. Decision 0050 is proposed, and the
-//! operator ruled on 2026-09-28 that no check adds a refusal or a
-//! transition to a table that loads today until the decision is ruled:
-//! `docs/evidence/decision-0050-audit.md` lists each refusal awaiting
-//! that ruling. `brokkr compile` prints the audit beside its manifest.
+//! The audit refuses nothing yet. The operator ruled on 2026-09-28 that
+//! no check add a refusal or a transition to a table that loads today
+//! before decision 0050 was ruled. It was accepted on 2026-09-29, and its
+//! addendum orders the refusals' enactment, each in a slice of its own:
+//! `docs/evidence/decision-0050-audit.md` lists them. `brokkr compile`
+//! prints the audit beside its manifest.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;

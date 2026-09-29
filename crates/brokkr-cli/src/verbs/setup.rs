@@ -99,7 +99,8 @@ pub(crate) fn compile(workspace: &Path, CompileArgs { bundle }: CompileArgs) -> 
 }
 
 /// The audit of a compiled table, or why it was not swept. It is
-/// reported and never refused while decision 0050 is proposed (#429).
+/// reported, and refused only once decision 0050's enactment slices
+/// enable its refusals (#429).
 fn sweep_report(machine: &Machine, budget: usize) -> String {
     match machine.audit_with(budget, is_engine_owned) {
         Ok(audit) => audit.to_string(),

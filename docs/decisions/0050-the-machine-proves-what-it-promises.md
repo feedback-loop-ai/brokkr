@@ -1,6 +1,6 @@
 # 0050 — The machine proves what it promises: presence, order and totality at load, every ending named, and the inner machines declared
 
-Status: proposed
+Status: accepted (operator ruled in chat, 2026-09-29, on the #429 audit; the readings ruled with it are in the addendum)
 Date: 2026-09-08
 
 Built: partial (#429) — the remaining compiler and machine checks
@@ -325,3 +325,42 @@ Alternatives weighed:
   whose commits carry a session's co-author line. A proof about the run
   says nothing about that class, and a recipe that enters at `verify`
   and ships is the road, ruled under its own number.
+
+## Addendum — 2026-09-29, operator ruled: the audit's readings (#429)
+
+The #429 audit (`docs/evidence/decision-0050-audit.md`) measured each
+ruling against `main` at `e12f24f1` and put nine questions to the
+operator. On 2026-09-29 the operator accepted this decision whole and
+took every recommendation the audit made. The readings below bind the
+enactment.
+
+- **Ruling 2 is semantic.** A rule is dead when it rules no present
+  valuation of its group's domain, as ruling 4's sweep enumerates it.
+  The condition-wise wording above is a sufficient case, not the
+  definition. It misses a vacuous guard (a counter floor of 0, a
+  severity ceiling of `critical`, an enumeration of the whole
+  vocabulary) and collective cover by earlier rules that partition an
+  axis, and enacting it alone would ship a refusal with a known
+  fail-open shape. An absent input is outside the domain, because
+  ruling 1 already refuses a v2 table that leaves a hard rule's input
+  unread by an advancing rule. So the refusal says that the rule fires
+  on no present valuation.
+- **Ruling 4's named park is ruled.** A `residual` verdict at severity
+  `none` parks for the operator under a named rule. That rule is added
+  to every delivery table and the witnesses its digests move are
+  re-pinned. Only then is the totality refusal enabled. A table the
+  sweep cannot finish within its budget is refused once totality is,
+  since a table that cannot be swept cannot be shown total.
+- **Ruling 5's clean property ranges over the plain `clean` verdict.**
+  A clean result that carries a specification defect is a return, not a
+  clean result. `REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED` in `recipes/triage`,
+  `recipes/gpt-flash` and `recipes/night-shift` parks by design, and
+  stays.
+- **Ruling 1's self-loop.** A rule whose next phase is its own phase
+  returns.
+- **Order of enactment.** First come the order, liveness and v2
+  presence refusals, which refuse no shipped table. Next,
+  `bundles/verify` and `recipes/preflight` move to v2, with their
+  digests and witness pins. Then the named park and the totality
+  refusal. Rulings 6 and 7 come last. Ruling 7 is built after #288
+  slice B, and its `bundle.rs` parser change after #226 and #349.
