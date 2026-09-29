@@ -4779,6 +4779,22 @@ production byte moved.
   - No other file moved, including `init_doctor.rs`.
   - 22.1 and 22.2 stay ticked on this evidence (evidence.md, "Review return
     SC1").
+- **Review return SC2/M1/L1/L2, same run.**
+  - SC2: `assess` now bounds every refusal through `bounded_line`, the sink
+    compile and launch use.
+  - M1: `final_validation` admits `exec`, which checks no final command.
+    `dsh`, `lanetally` and unknown drivers are refused with a named reason.
+  - L1: the record and launch arguments come from the engine's own
+    `SiteSpawn::seal`/`launch_arguments`.
+  - L2: retrospective baseline for the two changed holder expectations,
+    taken at 9bb7fe33's production.
+  - Proof: baseline 3 of 19 red; fix `doctor::` 72 passed; mutations N1–N7
+    each fail their intended tests; restored.
+  - One assertion changed in the unit's own test file (`two_off_…`, now
+    the bounded cause). Two tests added.
+  - No other file moved, including `init_doctor.rs`.
+  - 22.1 and 22.2 stay ticked (evidence.md, "Review return SC2, M1, L1,
+    L2").
 
 ## 23. Unit 23 — Audit launch enforcement removals
 

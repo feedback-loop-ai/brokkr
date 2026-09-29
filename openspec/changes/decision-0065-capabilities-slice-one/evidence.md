@@ -23326,3 +23326,98 @@ default carries no measured OFF).
   no `init_doctor.rs` line moved.
 - **Pending.** `cargo test --workspace`, macOS, exact coverage outside the
   box, remote CI and the council.
+
+### Review return SC2, M1, L1, L2 — bounded refusals and per-harness answers
+
+Same run, third implement visit, base 201ff97a. The chief returned two
+medium findings (SC2, M1) and two low ones (L1, L2).
+
+- **Fix, `crates/brokkr-runtime/src/capabilities.rs` only.**
+  - SC2: `Authority::assess` (`:1843`) now returns every refusal through
+    `native_controls::bounded_line`, the one sink the compiler's
+    `CompileError::Capability` and the driver's `at_launch` use. That
+    covers resolution and final-validation refusals alike, with the site
+    prefix: one line, at most 512 scalar values. The unbounded body moved
+    to a private `assessed`.
+  - M1: `final_validation` (`:2282`) answers each harness as its launch
+    serves it. `exec` joins the opaque driver: its launch consumes no
+    native control and runs no final check, so the composition `resolve`
+    admitted is all it judges. `codex` and `claude` are unchanged. `dsh`
+    and `lanetally` launches do run `check_final`, but doctor cannot build
+    their command: every dsh command carries a staged overlay and a
+    prompt, and no reading of lanetally's final command is exported from
+    brokkr-protocol. Each is refused with that reason named. An unknown
+    driver name, which launch refuses before composing, is refused with
+    its own reason.
+  - L1: the launch record and `launch_arguments` are now the engine's own.
+    A `SiteSpawn` of the adapter's template segment is sealed by
+    `SiteSpawn::seal` and projected by `SiteSpawn::launch_record` /
+    `launch_arguments`. The template-agreement and local-sandbox checks a
+    dispatch makes therefore run here too. `engine.rs` is unchanged; its
+    fields are public in the crate.
+- **Tests, `crates/brokkr-cli/src/doctor/capability_tests.rs`.**
+  - Changed assertion, `two_off_controls_…` (`:1266`). The duplicate
+    `--disallowedTools` resolution refusal is now cut at 512, "…because a
+    control nobody can read is…". That is the same cut the compiler's
+    line of the same test already asserts for office `researcher`. It
+    binds the resolution-refusal bound in the native path and the holder
+    path.
+  - New: `a_final_validation_refusal_is_bounded_as_a_compile_refusal_is`
+    (`:1704`). The codex default-OFF plan runs in a realm and a grant
+    office each named at 64 bytes. The restriction line and the holder
+    line carry launch's final-check refusal cut at "(operator ruling 2 of
+    202…", asserted to be exactly 512 scalars. The unheld plan, under the
+    shorter `adapter-plan` office, is whole.
+  - New: `each_harness_is_answered_as_its_launch_serves_it` (`:1633`). One
+    default-OFF inventory is installed under the `exec`, `dsh`,
+    `lanetally` and `nosuch` drivers. `exec` is admitted with its OFF.
+    Each of the other three is refused with its literal reason.
+- **Observed (logs in `.forge/u22r2-*.log`).**
+  - Baseline at 201ff97a production with this visit's tests: `cargo test
+    -p brokkr-cli --lib doctor::capability_tests` 16 passed, 3 failed:
+    `two_off_…`, `each_harness_…` and `a_final_validation_…`
+    (`u22r2-baseline.log`).
+  - L2, a retrospective baseline taken in this session, not at the time
+    of the SC1 fix: 9bb7fe33's `capabilities.rs` against this test file.
+    6 failed, including the two changed holder expectations,
+    `an_uncomposable_off_…` `:558` and `an_admitted_plan_…` `:1499`. Both
+    left sides read "is admitted with it ON" where launch refuses
+    (`u22r2-l2-retro-baseline.log`).
+  - Fix: `doctor::` 72 passed, 0 failed (`u22r2-fix.log`).
+  - Mutations, each compiling, each restored from the saved patch, with
+    `doctor::capability_tests` re-run after each:
+
+    | # | Mutation | Failed (test:line) |
+    | --- | --- | --- |
+    | N1 | `assess` returns the cause unbounded | 2: two_off_… :1377, a_final_validation_… :1729 |
+    | N2 | `exec` dropped from the admitted arm (falls to the catch-all) | 1: each_harness_… :1660 |
+    | N3 | `dsh` arm returns `Ok(())` | 1: each_harness_… :1660 |
+    | N4 | `lanetally` arm returns `Ok(())` | 1: each_harness_… :1660 |
+    | N5 | catch-all returns `Ok(())` | 1: each_harness_… :1660 |
+    | N6 | the spawn's segment is the harness arguments, not the template (the old construction) | 2: the_shipped_realm_… :1095, an_admitted_plan_… :1499, refused by `seal`'s "dispatch refused: the permission template this spawn emits…" |
+    | N7 | `launch_arguments` emptied | 2: the_shipped_realm_… :1095, an_admitted_plan_… :1499 |
+
+  - Restored: `doctor::capability_tests` 19 passed; `doctor::` 72 passed.
+- **Gates.**
+  - `cargo fmt --all -- --check`: clean, after one `cargo fmt` wrap in the
+    new test.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: clean.
+  - `cargo test -p brokkr-cli --all-features --locked`: 33 result lines,
+    all ok. The lib passed 488; `init_doctor` passed 15.
+  - `cargo test -p brokkr-runtime --all-features --locked`: every result
+    line ok (lib 627, `capability_launch` 68).
+  - `compile --bundle bundles/self` and `bundles/verify`: both compile.
+  - `openspec validate --all --strict`: 18 passed.
+  - `git diff --check`: clean.
+- **Admissions.** No fixture migrations, no standing-admission lines, and
+  no `init_doctor.rs` line moved.
+- **Follow-up, not fixed here.** Doctor still cannot check a `dsh` or
+  `lanetally` plan with a known inventory. Doing so would need a
+  lanetally reading beside `claude_command` in brokkr-protocol's
+  `adapters.rs`, which is outside this unit. A plan `seal` refuses is
+  unreachable from doctor's inputs, because the template is the
+  adapter's own. N6 shows the check runs.
+- **Pending.** `cargo test --workspace`, macOS, exact coverage outside the
+  box (the new arms are each reached by the new test), remote CI and the
+  council.

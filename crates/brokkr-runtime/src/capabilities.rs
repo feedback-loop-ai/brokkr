@@ -1835,7 +1835,23 @@ impl Authority {
     /// ([`final_validation`]), so a complete command that fails the final
     /// check refuses here with launch's own cause. What it returns is that
     /// admission or that refusal, never an answer for one capability alone.
+    ///
+    /// A refusal leaves through the protocol's one refusal sink
+    /// ([`launch::bounded_line`]), as a compile's and a launch's do: one
+    /// line of at most 512 scalar values, whichever step refused (design
+    /// D6; review return SC2 of rebuild unit 22).
     pub fn assess(
+        &self,
+        adapter: &crate::agents::Adapter,
+        office: &str,
+        asks: Requests,
+    ) -> Result<Outcome, String> {
+        self.assessed(adapter, office, asks)
+            .map_err(|cause| launch::bounded_line(&cause))
+    }
+
+    /// [`Authority::assess`] before its refusal is bounded.
+    fn assessed(
         &self,
         adapter: &crate::agents::Adapter,
         office: &str,
@@ -2244,44 +2260,77 @@ const ADAPTER_WORKDIR: &str = "/";
 /// facts (the adapter's template and nothing authored, no local
 /// declaration, no hands) and empty serving inputs (no pins, no dialect
 /// fragment) — so the driver composes, builds and checks it with
-/// [`launch::check_final`], and its refusal is launch's own. Nothing is
-/// spawned: a cold launch offers no session, so no version is probed.
+/// [`launch::check_final`], and its refusal is launch's own. The record
+/// and the launch arguments are the engine's own: a spawn of the adapter's
+/// template, sealed and projected by [`SiteSpawn::seal`] and
+/// [`SiteSpawn::launch_arguments`] (review return L1), so the template
+/// agreement and the local sandbox check a dispatch makes are made here.
+/// Nothing is spawned: a cold launch offers no session, so no version is
+/// probed.
 ///
-/// A driver the engine does not dispatch is opaque: launch has no final
-/// command to check there, and the plan rides as data. A built-in harness
-/// with no adapter-level cold command refuses, so its plan is never
-/// reported as admitted unchecked.
+/// Each harness is answered as its launch serves it (review return M1). A
+/// driver the engine does not dispatch is opaque, and `exec` consumes no
+/// native control and checks no final command: the composition
+/// [`Authority::resolve`] admitted is all their launch judges, and the plan
+/// rides as data. DSH and LaneTally launches do check a final command,
+/// which doctor cannot build here, so their plan is refused rather than
+/// reported as admitted unchecked; so is a driver name no built-in driver
+/// answers to, which launch refuses before anything is composed.
+///
+/// [`SiteSpawn::seal`]: crate::engine::SiteSpawn::seal
+/// [`SiteSpawn::launch_arguments`]: crate::engine::SiteSpawn::launch_arguments
 fn final_validation(adapter: &crate::agents::Adapter, outcome: &Outcome) -> Result<(), String> {
     use launch::{
-        AllowIntent, Application, Expected, HandsIntent, LaunchRecord, LocalExpectation, Origin,
-        SandboxIntent, SealedServing, SERVING_INPUTS,
+        AllowIntent, Application, Expected, HandsIntent, LocalExpectation, Origin, SandboxIntent,
+        SealedServing, SERVING_INPUTS,
     };
     let harness = harness_of(&adapter.driver);
-    let extras = launch::harness_arguments(&adapter.driver).to_vec();
-    let record = LaunchRecord {
-        segments: vec![Segment::new(Origin::Template, &extras)],
-        expected: Expected {
-            identity: outcome.identity(),
-            native: outcome.native.expected(),
-            local: LocalExpectation {
-                allow: AllowIntent::Unspecified,
-                sandbox: SandboxIntent::Unspecified,
-                application: Application::Unrestricted,
-            },
-            hands: HandsIntent::None,
-            template: crate::agents::declared_template(&adapter.driver),
-        },
+    let unbuilt = |why: &str| {
+        Err(format!(
+            "no adapter-level cold command of harness '{harness}' is checked here, because \
+             {why}, so its plan is not reported as admitted (design D8)"
+        ))
     };
+    match harness {
+        OPAQUE_HARNESS | "exec" => return Ok(()),
+        "codex" | "claude" => {}
+        "dsh" => return unbuilt("every dsh command carries a staged overlay and a prompt"),
+        "lanetally" => return unbuilt("no reading of its launch's final command is exported"),
+        _ => return unbuilt("no built-in driver of that name is launched"),
+    }
+    let segments = vec![Segment::new(Origin::Template, &adapter.driver)];
+    let mut spawn = crate::engine::SiteSpawn {
+        argv: adapter.driver.clone(),
+        env: brokkr_protocol::process::SpawnEnv::Inherit,
+        rewalk: None,
+        refusal: None,
+        segments,
+        record: None,
+        serving: None,
+        class: None,
+        charter: None,
+    };
+    spawn.seal(Expected {
+        identity: outcome.identity(),
+        native: outcome.native.expected(),
+        local: LocalExpectation {
+            allow: AllowIntent::Unspecified,
+            sandbox: SandboxIntent::Unspecified,
+            application: Application::Unrestricted,
+        },
+        hands: HandsIntent::None,
+        template: crate::agents::declared_template(&adapter.driver),
+    })?;
+    let extras = launch::harness_arguments(&adapter.driver).to_vec();
     let input = json!({
         "workdir": ADAPTER_WORKDIR,
         "seat": ADAPTER_SEAT,
         "native_controls": outcome.controls(),
-        "launch_record": record.value(),
+        "launch_record": spawn.launch_record(),
         SERVING_INPUTS: SealedServing::default().value(),
-        "launch_arguments": {"authored": extras, "managed": []},
+        "launch_arguments": spawn.launch_arguments(),
     });
-    let served = match harness {
-        OPAQUE_HARNESS => return Ok(()),
+    match harness {
         "codex" => brokkr_protocol::adapters::codex_command(
             harness,
             &extras,
@@ -2289,13 +2338,9 @@ fn final_validation(adapter: &crate::agents::Adapter, outcome: &Outcome) -> Resu
             None,
             &input,
         ),
-        "claude" => brokkr_protocol::adapters::claude_command(harness, &extras, None, &input),
-        _ => Err(format!(
-            "no adapter-level cold command of harness '{harness}' is built, so its plan cannot \
-             be handed to launch's final validation and is not reported as admitted (design D8)"
-        )),
-    };
-    served.map(drop)
+        _ => brokkr_protocol::adapters::claude_command(harness, &extras, None, &input),
+    }
+    .map(drop)
 }
 
 #[cfg(test)]

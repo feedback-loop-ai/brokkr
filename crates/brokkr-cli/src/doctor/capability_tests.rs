@@ -1261,14 +1261,15 @@ fn seats() -> [(&'static str, Value); 3] {
 /// whole, from literals of its own.
 #[test]
 fn two_off_controls_that_compose_alone_are_refused_together_under_every_grant_shape() {
+    // Doctor's refusal leaves through the same sink as the compiler's
+    // (review return SC2): one line, cut at 512 scalar values.
     let duplicate = "cannot be composed: the 'claude' command grammar cannot place argument 3 \
                      ('--disallowedTools'): it repeats option '--disallowedTools', which the \
                      grammar admits once; a CLI that resolves a duplicate last-wins would \
                      resolve it against the control the engine composed. A harness brokkr \
                      launches is parsed against a model of its options, and a token that \
                      grammar cannot place is refused rather than passed through, because a \
-                     control nobody can read is a control nobody can rule on (decision 0066 \
-                     ruling 6)";
+                     control nobody can read is…";
     let plan = refused(
         "private",
         "claude",
@@ -1618,5 +1619,134 @@ fn a_plan_whose_final_command_carries_no_off_is_refused_as_launch_refuses_it() {
             "drops it (provider 'codex' cannot express restriction 'allow.hosts'; native \
              capability remains OFF)"
         )]
+    );
+}
+
+/// Review return M1 of run `0065-rebuild-unit-22-see-the-uni-79c858d5`:
+/// each harness is answered as its launch serves it. The same plan — one
+/// power, OFF by the harness default — is admitted under `exec`, which
+/// consumes no native control and checks no final command, and is refused,
+/// with the step doctor cannot take named, under DSH and LaneTally, whose
+/// launches check a final command doctor cannot build, and under a driver
+/// name no built-in driver answers to.
+#[test]
+fn each_harness_is_answered_as_its_launch_serves_it() {
+    let dir = workspace_with(Some(json!([realm("private", None)])));
+    let mut availability = installed(&[]);
+    for harness in ["exec", "dsh", "lanetally", "nosuch"] {
+        let mut declared = adapter(
+            harness,
+            Some(native(json!({"default": "measured off by default"}))),
+        );
+        declared["driver"] = json!(["{brokkr}", "driver", harness, "--"]);
+        write(dir.path(), &format!("adapters/{harness}.json"), &declared);
+        availability.record(harness, Presence::Available);
+    }
+    let unchecked = |harness: &str, why: &str| {
+        format!(
+            "{}: no adapter-level cold command of harness '{harness}' is checked here, because \
+             {why}, so its plan is not reported as admitted (design D8)",
+            hypothetical("private", "adapter-plan")
+        )
+    };
+    let search = |provider: &str, off: &str| {
+        format!(
+            "warn     capabilities private native {provider} 'web-search': NOT granted here: \
+             {off} · {EVIDENCE}"
+        )
+    };
+    let (healthy, lines) = lines(dir.path(), &availability);
+    assert!(healthy);
+    assert_eq!(
+        lines,
+        [
+            "ok       capabilities private: grants nothing; every native capability is \
+             governed by the no-grant default — switched off, or the seat is refused"
+                .to_string(),
+            refused(
+                "private",
+                "dsh",
+                &unchecked(
+                    "dsh",
+                    "every dsh command carries a staged overlay and a prompt"
+                ),
+            ),
+            search("dsh", NO_OFF),
+            admitted("private", "exec"),
+            search("exec", OFF),
+            refused(
+                "private",
+                "lanetally",
+                &unchecked(
+                    "lanetally",
+                    "no reading of its launch's final command is exported",
+                ),
+            ),
+            search("lanetally", NO_OFF),
+            refused(
+                "private",
+                "nosuch",
+                &unchecked("nosuch", "no built-in driver of that name is launched"),
+            ),
+            search("nosuch", NO_OFF),
+        ]
+    );
+}
+
+/// Review return SC2 of run `0065-rebuild-unit-22-see-the-uni-79c858d5`:
+/// a refusal of launch's final validation leaves doctor through the same
+/// sink as a resolution refusal (the duplicate deny list above), one line
+/// of at most 512 scalar values. The codex plan whose OFF is the harness
+/// default, assessed for an office and in a realm each named at the
+/// 64-byte bound, is cut there; the seat that holds nothing, under the
+/// shorter office, is not.
+#[test]
+fn a_final_validation_refusal_is_bounded_as_a_compile_refusal_is() {
+    let office = "an-office-named-at-the-sixty-four-byte-bound-a-site-keeps-in-ful";
+    let name = "a-realm-named-at-the-sixty-four-byte-bound-a-site-keeps-it-whole";
+    assert_eq!((office.len(), name.len()), (64, 64));
+    let mut codex = adapter(
+        "codex",
+        Some(native(json!({"default": "measured off by default"}))),
+    );
+    codex["driver"] = json!(["{brokkr}", "driver", "codex", "--"]);
+    let dir = workspace_with(Some(json!([realm(
+        name,
+        Some(json!({"web-search": {
+            "dialect": "codex-native-search", "offices": [office],
+            "allow": {"hosts": ["yaml.org"]}}}))
+    )])));
+    write(dir.path(), "adapters/codex.json", &codex);
+    let final_check = "refusing to invoke the agent CLI: the final command of harness 'codex' \
+                       carries no measured OFF for native capability 'web-search', which its \
+                       plan denies; a complete command is parsed back before its spawn and must \
+                       express exactly the capability state its sealed plan records, so it is \
+                       refused rather than spawned (operator ruling 2 of 202";
+    let whole = format!(
+        "{}: {final_check}6-09-23; design D6)",
+        hypothetical(name, "adapter-plan")
+    );
+    let cut = format!("{}: {final_check}…", hypothetical(name, office));
+    assert_eq!(cut.chars().count(), 512);
+    let (_, lines) = lines(dir.path(), &installed(&["codex"]));
+    assert_eq!(
+        lines,
+        [
+            format!(
+                "ok       capabilities {name} 'web-search': dialect 'codex-native-search' \
+                 (provider-native, provider 'codex') · tools [web_search] · offices [{office}] \
+                 only · restrictions {{\"allow\":{{\"hosts\":[\"yaml.org\"]}}}} · restriction \
+                 'allow.hosts' is not usable authority: a seat that requires the capability is \
+                 refused, the adapter-level plan of a seat of office '{office}' that wants it is \
+                 refused, and no denial is claimed ({cut}), and it never runs unrestricted"
+            ),
+            refused(name, "codex", &whole),
+            format!(
+                "warn     capabilities {name} native codex 'web-search': granted to offices \
+                 [{office}] only through dialect 'codex-native-search'; the adapter-level plan of \
+                 a seat of office '{office}' that wants it is refused ({cut}); for a seat that \
+                 does not hold it, {NO_OFF} · {EVIDENCE}"
+            ),
+        ]
     );
 }
