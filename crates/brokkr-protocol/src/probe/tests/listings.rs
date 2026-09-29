@@ -319,16 +319,104 @@ fn disagreeing_and_clean() -> Vec<Row> {
     ]
 }
 
+/// Line `line` of `source`, which strict.rs could not parse.
+fn unparsed(line: usize, source: &str) -> String {
+    format!("line {line} of {source} is not one JSON object naming each key once")
+}
+
+/// A boxed turn whose streams leave both its listings unread as `why`
+/// says, after a plain turn that loaded the planted server: refused.
+fn unread_row(shape: &'static str, boxed: String, why: &str) -> Row {
+    let (tools, servers) = (unread("tools", why), unread("mcp_servers", why));
+    Row {
+        shape,
+        plain: PLAIN_READS_THE_PLANT,
+        boxed,
+        expected: expect(
+            unmeasured(&tools),
+            unmeasured(&servers),
+            leaked_plain(),
+            unread_in_the_box(&no_reach_but(&format!("{tools}, and {servers}"))),
+        ),
+    }
+}
+
+/// The session transcript both turns write, and its path in evidence.
+const SESSION_FILE: &str = "\"$dir/$sid.jsonl\"";
+const SESSION: &str = "~/.claude/projects/{workdir}/{session}.jsonl";
+/// The transcript a boxed turn writes beside the session's.
+const BOXED_FILE: &str = "~/.claude/projects/{workdir}/boxed.jsonl";
+
+/// `o` as a JSON escape, which a key spells without the key's letters.
+const ESCAPED_O: &str = concat!("\\", "u006f");
+
+/// The planted server's init event.
+const PLANTED_INIT: &str = r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr-probe-user-scope","status":"connected"}]}"#;
+
+/// A boxed turn whose `event` lands in the session file the plain turn
+/// wrote, which `redirect` appends to or rewrites, and is read at `at`.
+fn in_the_session_file(shape: &'static str, redirect: &str, at: &str) -> Row {
+    Row {
+        shape,
+        plain: PLAIN_READS_THE_PLANT,
+        boxed: boxed(&format!(
+            "printf '%s\\n' '{PLANTED_INIT}' {redirect} {SESSION_FILE}"
+        )),
+        expected: expect(
+            tools_emptied(&listed(INIT, "tools", 1)),
+            connected(&format!(
+                "{}, and {}",
+                listed(INIT, "mcp_servers", 1),
+                listed(at, "mcp_servers", 1)
+            )),
+            leaked_plain(),
+            reached_in_the_box(&format!("{PLANTED_SERVER} {at} at /mcp_servers/0")),
+        ),
+    }
+}
+
+/// The chief's shapes on e5e196ab: a boxed turn writing to the session
+/// file the plain turn wrote, and lines strict.rs refuses that do not
+/// spell a listing's key.
+fn found_by_the_chief_on_e5e196ab() -> Vec<Row> {
+    let rewrote = format!("the system/init event on line 1 of {SESSION}, which the turn rewrote,");
+    let no_event = format!("{BOXED_FILE} holds no JSON event");
+    vec![
+        in_the_session_file(
+            "a boxed turn appending to the plain turn's transcript",
+            ">>",
+            &format!("the system/init event on line 3 of {SESSION}"),
+        ),
+        in_the_session_file(
+            "one session file the fake rewrites on each launch",
+            ">",
+            &rewrote,
+        ),
+        unread_row(
+            "a line refused for a key it repeats spelled with escapes",
+            later(&format!(
+                r#"{{"type":"system","subtype":"init","t{ESCAPED_O}ols":["mcp__brokkr-probe-user-scope__probe"],"to{ESCAPED_O}ls":[]}}"#
+            )),
+            &unparsed(2, "stdout"),
+        ),
+        unread_row(
+            "a line quoted as a Python dict",
+            boxed(
+                r#"later="{'type':'system','subtype':'init','tools':['mcp__brokkr-probe-user-scope__probe']}""#,
+            ),
+            &unparsed(2, "stdout"),
+        ),
+        unread_row(
+            "a transcript that parses to no event",
+            boxed(&written("boxed.jsonl", " ")),
+            &no_event,
+        ),
+    ]
+}
+
 /// The lines and streams no review named that the invariant implies.
 fn implied_lines_and_streams() -> Vec<Row> {
-    let twice = unread(
-        "tools",
-        "line 2 of stdout names tools but is not one JSON object naming each key once",
-    );
-    let cut = unread(
-        "mcp_servers",
-        "line 2 of stdout names mcp_servers but is not one JSON object naming each key once",
-    );
+    let empty = format!("; empty: {BOXED_FILE}");
     let (a, b) = (
         format!("{TRANSCRIPT}/a.jsonl"),
         format!("{TRANSCRIPT}/b.jsonl"),
@@ -344,30 +432,35 @@ fn implied_lines_and_streams() -> Vec<Row> {
          ~/.claude/projects/{{workdir}}/{{session}}.jsonl at /mcp_servers/0"
     );
     vec![
-        Row {
-            shape: "a key given twice in one event",
-            plain: PLAIN_READS_THE_PLANT,
-            boxed: later(
+        unread_row(
+            "a key given twice in one event",
+            later(
                 r#"{"type":"system","subtype":"init","tools":["mcp__brokkr-probe-user-scope__probe"],"tools":[]}"#,
             ),
-            expected: expect(
-                unmeasured(&twice),
-                connected(&listed(INIT, "mcp_servers", 1)),
-                leaked_plain(),
-                unread_in_the_box(&no_reach_but(&twice)),
-            ),
-        },
-        Row {
-            shape: "a listing line cut short",
-            plain: PLAIN_READS_THE_PLANT,
-            boxed: later(
+            &unparsed(2, "stdout"),
+        ),
+        unread_row(
+            "a listing line cut short",
+            later(
                 r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr-probe-user-scope""#,
             ),
+            &unparsed(2, "stdout"),
+        ),
+        Row {
+            shape: "an empty transcript of the boxed turn",
+            plain: PLAIN_CLEAN,
+            boxed: boxed(": > \"$dir/boxed.jsonl\""),
             expected: expect(
-                tools_emptied(&listed(INIT, "tools", 1)),
-                unmeasured(&cut),
-                leaked_plain(),
-                unread_in_the_box(&no_reach_but(&cut)),
+                tools_emptied(&format!("{}{empty}", listed(INIT, "tools", 1))),
+                connected(&format!("{}{empty}", listed(INIT, "mcp_servers", 1))),
+                measured(json!(false), &listed(INIT, "mcp_servers", 0)),
+                kept_out_of_the_box(
+                    &format!("{}{empty}", listed(INIT, "mcp_servers", 1)),
+                    json!({
+                        "verdict": "boxed",
+                        "reason": "its own tools switch off and the hands MCP server connects",
+                    }),
+                ),
             ),
         },
         Row {
@@ -491,6 +584,7 @@ fn every_listing_a_turn_gives_is_read_whole_and_a_reach_read_anywhere_refuses() 
         disagreeing_and_clean(),
         implied_values(),
         implied_lines_and_streams(),
+        found_by_the_chief_on_e5e196ab(),
     ];
     for (index, row) in rows.into_iter().flatten().enumerate() {
         let cli = world.fake(
