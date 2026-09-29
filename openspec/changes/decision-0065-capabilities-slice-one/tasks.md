@@ -3972,7 +3972,7 @@ defect). Production: `bundle.rs` only. Tests: `engine/boundary_tests.rs`.
 
 ## 19. Unit 19 — Enforce charter integrity at start and pinned resume
 
-- [x] 19.1 Unit 19 proves owner-bound start/resume checks for changed/excluded/retargeted/missing/restored charters. Verify retained map-edit/identity/unmapped-root behavior. Requirements: [Library charter pins are enforced at consumption][MPL], [Active instructions and policy cannot escape bundle identity][MPI], [Realm context is resolved before capability authorization][RG5]. Reopened/remaining: operator ruling 3. (previous 6.4)
+- [ ] 19.1 Unit 19 proves owner-bound start/resume checks for changed/excluded/retargeted/missing/restored charters. Verify retained map-edit/identity/unmapped-root behavior. Requirements: [Library charter pins are enforced at consumption][MPL], [Active instructions and policy cannot escape bundle identity][MPI], [Realm context is resolved before capability authorization][RG5]. Reopened/remaining: operator ruling 3. (previous 6.4)
 
 Unit 19 (2026-09-29, run `0065-rebuild-unit-19-see-the-uni-6f959130`, based
 on `58a268e6`; evidence.md, "Unit 19"). Production: `engine.rs`,
@@ -4006,6 +4006,36 @@ below.**
   are unchanged. Strict OpenSpec (18) and `git diff --check` are clean.
 - **Pending.** macOS; exact coverage outside the box; remote CI and the
   council.
+
+**Reopened 2026-09-29 by the council (run `…-6f959130`, review at
+`c66be187`, F1 medium and F2 low). The return visit is OVERSIZED; nothing
+in production moved.** F1: the `resume` verb recompiles before
+`Engine::resume`. A charter relinked to an equal-byte twin inside its owner,
+or replaced by a new file of equal bytes, compiles to the pinned manifest,
+and the recompile binds it again. The run's own binding survives nowhere, so
+the resume passes. F2: `capability_verbs.rs` built its fixture under the raw
+`TempDir` path. The return visit built and proved a fix, saved as
+`.forge/unit-19-fix/unit-19-f1-oversized.patch` (sha256 `f9cbac78…`; it
+applies to `c66be187`). Evidence.md, "Unit 19 — review return", has the
+details. It does these things:
+
+- Each start door records the bindings it checked in `run/started` as a
+  `charters` list: owner, reference, key, target and a binding digest.
+- `resume` holds the recompiled bundle's bindings to that record.
+- A run that recorded no bindings refuses (`unrecorded`).
+- It fixes F2.
+
+Two test files outside the unit need non-admissible changes:
+
+- `brokkr-cli/tests/witness_journal.rs`: the golden `run/started` key list
+  gains `charters`.
+- `brokkr-cli/src/tests.rs`: `resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three`
+  resumes the frozen old-engine journal
+  `fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson`, which
+  records no bindings, and is refused `unrecorded`.
+
+The second needs an operator ruling first: do runs with no recorded bindings
+refuse (no grandfathering), or keep the intact-only check?
 
 ## 20. Unit 20 — Audit compiled refusal and serving shapes
 

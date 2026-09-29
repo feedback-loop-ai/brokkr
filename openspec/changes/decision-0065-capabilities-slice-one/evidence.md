@@ -20500,3 +20500,132 @@ On the final tree, in this session:
   here.
 - Remote CI.
 - The council.
+
+## Unit 19 — review return, 2026-09-29: OVERSIZED
+
+Run `0065-rebuild-unit-19-see-the-uni-6f959130`. This visit answers the
+review of `c66be187` (result `residual`, medium). No production file moved,
+and 19.1 is unticked again.
+
+### The findings
+
+- **F1 (medium).** `brokkr resume` compiles the bundle again before
+  `Engine::resume` (`brokkr-cli/src/lib.rs`, the `Cmd::Resume` arm).
+  `charters_intact` then checks the recompile's own pins. Two changes compile
+  to the manifest the run pinned: relinking a charter to an equal-byte twin
+  already inside its owner, and replacing it with a new file of equal bytes.
+  The recompile binds either one afresh, so the resume passes. The run's
+  original binding is kept nowhere: not in the manifest, and not in the
+  journal. Design D7 requires refusing an equal-byte retarget at a
+  pinned-context resume.
+- **F2 (low).** `capability_verbs.rs`'s `Workspace` built its fixtures under
+  the raw `TempDir` path, and only the expected diagnostic was
+  canonicalised.
+
+### The fix built and proved here, not landed
+
+Saved as `.forge/unit-19-fix/unit-19-f1-oversized.patch` (sha256
+`f9cbac788d8315af13c7d7d9a41fb4f770280ff6db1950d7acbf227d8b797b36`).
+`git apply --check` against `c66be187` passes. It touches four files, all
+inside the unit.
+
+- **`bundle.rs`.**
+  - `charters_intact` now returns the record of the bindings it checked:
+    owner, reference, key, target, and `binding_digest`. The digest is a
+    SHA-256 over a length-prefixed encoding of the pin's whole `Binding`
+    (key, target key, `(dev, ino)`, every step and link text) and its
+    `OwnerIdentity`.
+  - The new `charters_as_started(bundle, record)` matches each current
+    binding to a recorded one by owner and reference. It refuses
+    `unrecorded`, `retargeted` (the target key differs) or `replaced` (the
+    digest differs), naming the recorded key. Last, it compares the whole
+    record and refuses `unselected` if the run recorded a charter that this
+    bundle no longer selects.
+- **`engine.rs`.**
+  - `start_in_world` and `start_with_dispatch` write the record into
+    `run/started` as `charters`.
+  - `resume` loads the journal and calls `charters_as_started` in place of
+    `charters_intact`.
+  - The run manifest, its version and every contract are unchanged.
+- **`engine/boundary_tests.rs`.** A new test,
+  `a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over`,
+  covers both owners (layer `recipe`, agent `worker`).
+  - It asserts the record's exact owner, reference, key and target, and
+    that each digest is 64 hex characters.
+  - For each of `retargeted` (symlink to the in-owner twin) and `replaced`
+    (equal bytes, new inode), it proves three things. The recompile's
+    manifest equals the started bundle's, and it binds exactly the expected
+    targets. The resume over the recompile refuses with the exact
+    `CharterMoved` text, and nothing is written. The restored hard link
+    resumes the run.
+  - Two planted runs, one with no record and one with an extra recorded
+    entry, refuse `unrecorded: worker.md` and `unselected`.
+- **`brokkr-cli/tests/capability_verbs.rs`.**
+  - F2: `Workspace` keeps the canonical root and builds every fixture under
+    it.
+  - The mapped/unmapped test gains a pre-existing `roles/twin.md` and two
+    rows before the old three. Through the real `resume` verb they refuse
+    `retargeted: roles/work.md` and `replaced: roles/work.md` with exit 1,
+    and append nothing.
+
+Observed in this session, with the patch applied:
+
+- The new runtime test passed, and so did all 17 runtime lib tests matching
+  `charter`.
+- `capability_verbs`: 6 passed.
+- `cargo clippy -p brokkr-runtime -p brokkr-cli --all-targets
+  --all-features --locked -- -D warnings`: clean.
+
+Baseline reds, with the resume check put back to `c66be187`'s
+`charters_intact` and the new tests in place (`.forge/u19r/base-*.out`):
+
+- The runtime test failed at `boundary_tests.rs:2912`, "layer 'recipe'
+  retargeted: resume": left `Ok("f-87e9790d")`, right the `retargeted`
+  refusal.
+- The CLI test failed at `capability_verbs.rs:485`: left `Some(0)`, right
+  `Some(1)`. The resume went on to an anchor gap.
+
+Both were restored before the patch was saved. The per-branch mutations
+(`unrecorded`, `replaced`, `unselected`, the start doors' record) were not
+run in this visit and are owed with the landing.
+
+### Why it stops: two test files outside the unit
+
+`cargo test -p brokkr-runtime -p brokkr-cli --all-features --locked
+--no-fail-fast` with the patch applied (`.forge/u19r/suite1.out`) failed
+exactly two tests, both outside the unit's files. Neither is a line the
+compiler forces or a driver-swapping fixture needs:
+
+1. `brokkr-cli/tests/witness_journal.rs:243`,
+   `a_non_adopting_run_journals_exactly_the_events_it_always_did`: "a
+   non-adopting run's journal shape moved". `run/started` now carries
+   `["charters", "feature", "manifest"]`. Changing the golden list changes
+   an assertion. Any place in the journal that keeps the start's binding
+   moves this golden list.
+2. `brokkr-cli/src/tests.rs:2695`,
+   `resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three`:
+   "a charter of layer 'fast' moved since the compile (unrecorded:
+   roles/implementer.md)". The test resumes a copy of the frozen old-engine
+   journal `fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson`,
+   whose `run/started` records no bindings. The patch refuses such runs
+   (fail closed). The test's premise is that such a run is lawfully
+   resumable.
+
+Keeping the binding in the manifest instead would contradict D7 ("No new
+identity inventory or manifest version is needed"). It would also move
+frozen run-manifest contracts. So the fix must be recorded in the journal.
+
+### Owed before the landing
+
+- **An operator ruling on runs that predate the record.** Option (a):
+  refuse them, with no grandfathering. `src/tests.rs`'s resume fixture is
+  then re-planted with a record, or asserts the refusal. Option (b): check
+  them only by `charters_intact`, an explicit residual for old runs only.
+- **An admission for the two files above.**
+
+### Pending
+
+- macOS.
+- Exact coverage outside the box.
+- Remote CI.
+- The council.
