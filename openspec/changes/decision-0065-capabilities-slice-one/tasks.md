@@ -4148,7 +4148,51 @@ is observed there; no production file moved.
 
 ## 20. Unit 20 — Audit compiled refusal and serving shapes
 
-- [ ] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)
+- [x] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)
+
+**Unit 20, 2026-09-29 (run `0065-rebuild-unit-20-see-the-uni-23e98946`,
+based on `4d11cc4b`; evidence.md, "Unit 20").** An audit: no production file
+moved, and only `crates/brokkr-runtime/tests/capability_launch.rs` changed.
+The protocol suite (`adapters/tests.rs`) and the engine suite
+(`engine/capability_tests.rs`) were audited and are unchanged, because
+neither compiles a bundle. Before this visit, none of the three suites
+asserted a compiled site's selected charter, and DSH had no compiled row.
+
+- **Authored refusals.** New
+  `an_authored_capability_option_refuses_every_site_shape_of_every_harness`
+  covers Claude, LaneTally, Codex and DSH. Each harness is planted at a work
+  seat, a panel member, a sequence step, a select case and default, and an
+  inherited seat; Claude and Codex also at a gate. That is 26 exact
+  compile refusals naming site, office, canonical option and harness, and
+  4 clean compiles. No driver runs.
+  - LaneTally and DSH cannot hold a gate (decision 0021 ruling 2).
+  - DSH's `--profile` is refused by its closed grammar (decision 0066
+    ruling 6).
+- **Serving positives.** New
+  `every_compiled_site_shape_is_served_its_whole_command_beside_its_selected_charter`
+  has 18 Claude/Codex rows over every inline and agent-backed site shape,
+  primary and fallback. Each row asserts the site's charter pin, the whole
+  cold command and the whole command served when a work site is offered
+  its session: an actual `exec resume` for the inline Codex work seat, and
+  declined-and-cold elsewhere. Gates are never offered one.
+- **LaneTally and DSH positives.** New
+  `every_compiled_wrapper_and_dsh_site_is_spawned_by_its_own_driver_beside_its_charter`
+  serves 6 LaneTally/DSH rows through the real driver: typed, template,
+  DSH, and the DSH route-overlay positive.
+- **Hands positives.** The two existing whole-command tests
+  (`a_boxed_inline_seats_hands_…` and `an_eligible_rejoin_of_a_compiled_codex_seat_…`)
+  now also assert their sites' charter pins.
+- **Mutations.** MC1, MC2, MS2–MS5, MR1 and MR2 each fail their rows and
+  are restored. MS3, MS5 and MR2 are seen by no other compiled test.
+- **Follow-up F-LT.** An inline LaneTally typed allow on the shipped
+  adapter compiles, and its launch is then refused by the final check.
+  This is fail-closed, and it was not changed here.
+- No standing-admission lines and no fixture migrations.
+- **Gates.** fmt and clippy are clean. `cargo test -p brokkr-runtime
+  --all-features --locked` is all ok (lib 625, `capability_launch` 62).
+  Strict OpenSpec (18) and `git diff --check` are clean.
+- **Pending.** macOS; the protocol and CLI suites and `bundles/self`/`verify`
+  (not rerun); exact coverage outside the box; remote CI and the council.
 
 ## 21. Unit 21 — Prove compiled cold and actual-resume restrictions
 
@@ -4159,6 +4203,23 @@ addendum of 2026-09-25 (design.md D11). The task, unticked, is under "Deferred
 to the restriction-transport slice" below.
 
 - [ ] 21.3 Units 20–21 map every supported launch shape to real compiled full literal/refusal assertions and selected charter facts. Verify holdings-only/is_ok do not close rows; close only after unit 21 proves the managed Read/empty and CQ1 restriction rows too (narrowed by the addendum of 2026-09-25; the held nonempty rows are deferred below). Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.5)
+
+  **Advanced by unit 20 (2026-09-29).** evidence.md, "Unit 20 — the
+  compiled refusal and serving-shape matrix", maps every supported
+  non-restriction row to a compiled whole-command or full-refusal assertion
+  and the site's charter pin. The rows cover:
+
+  - Claude, Codex, LaneTally and DSH;
+  - inline and agent-backed forms;
+  - work seat, gate, panel member, sequence step, select case and default,
+    and inherited sites;
+  - primary and fallback candidates;
+  - cold launches, and the offered session: either an eligible rejoin, or
+    declined and served cold.
+
+  One row is a known gap. The boxed inline Codex panel member's charter pin
+  is covered only by the same-shape unboxed member row. Still open for
+  unit 21: the managed Read/empty and CQ1 restriction rows.
 
 ## 22. Unit 22 — Submit whole plans to doctor
 

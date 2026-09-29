@@ -979,6 +979,46 @@ fn a_boxed_inline_seats_hands_are_emitted_and_typed_as_an_agent_backed_seats_are
     assert_eq!(typed, json!(expanded.len()));
     assert_eq!(launched, Ok(checked_codex(&expanded)));
     assert_eq!((hands, typed, launched), served("chain", 1));
+    // Rebuild unit 20: beside its hands, each boxed site is told the
+    // charter the compile selected for it — the inline seat its layer's
+    // role, the fallback its office's library charter.
+    use brokkr_runtime::bundle::CharterOwner;
+    let told = |label: &str| {
+        let pin = bundle.sites[label].charter.as_ref().unwrap();
+        (
+            pin.owner.clone(),
+            pin.reference.clone(),
+            pin.path.clone(),
+            pin.digest.clone(),
+        )
+    };
+    let (recipe, library) = (
+        operator.root().join("bundle"),
+        operator.root().join("agents"),
+    );
+    assert_eq!(
+        [told("boxed"), told("chain")],
+        [
+            (
+                CharterOwner::Layer {
+                    dir: recipe.clone(),
+                    key: "roles/role.md".into(),
+                },
+                "roles/role.md".to_string(),
+                recipe.join("roles/role.md"),
+                brokkr_core::canonical::sha256_bytes(b"# role\n"),
+            ),
+            (
+                CharterOwner::Library {
+                    agent: "fallback".into(),
+                    root: library.clone(),
+                },
+                "charters/searcher.md".to_string(),
+                library.join("charters/searcher.md"),
+                brokkr_core::canonical::sha256_bytes(b"# searcher\n"),
+            ),
+        ]
+    );
 }
 
 /// The cold command the final check passes for a boxed Codex site on
@@ -4508,6 +4548,47 @@ fn an_eligible_rejoin_of_a_compiled_codex_seat_carries_the_control_either_way_ro
             assert_eq!(argv, expected, "{case} {label}: the whole resumed argv");
             assert_eq!(off_pairs(&argv), usize::from(denied), "{case} {label}");
         }
+        // Rebuild unit 20: each rejoined site is told the charter the
+        // compile selected for it — the inline seat its layer's role, the
+        // agent-backed seat its library's charter.
+        use brokkr_runtime::bundle::CharterOwner;
+        let told = |label: &str| {
+            let pin = bundle.sites[label].charter.as_ref().unwrap();
+            (
+                pin.owner.clone(),
+                pin.reference.clone(),
+                pin.path.clone(),
+                pin.digest.clone(),
+            )
+        };
+        let (recipe, library) = (
+            operator.root().join("bundle"),
+            operator.root().join("agents"),
+        );
+        assert_eq!(
+            [told("inline"), told("agent")],
+            [
+                (
+                    CharterOwner::Layer {
+                        dir: recipe.clone(),
+                        key: "roles/role.md".into(),
+                    },
+                    "roles/role.md".to_string(),
+                    recipe.join("roles/role.md"),
+                    brokkr_core::canonical::sha256_bytes(b"# role\n"),
+                ),
+                (
+                    CharterOwner::Library {
+                        agent: "searcher".into(),
+                        root: library.clone(),
+                    },
+                    "charters/searcher.md".to_string(),
+                    library.join("charters/searcher.md"),
+                    brokkr_core::canonical::sha256_bytes(b"# searcher\n"),
+                ),
+            ],
+            "{case}"
+        );
     }
 }
 
@@ -8505,4 +8586,1172 @@ fn launched_as(parts: &[&[&str]]) -> String {
             .flatten()
             .collect::<Vec<_>>()
     )
+}
+
+// ------------------------------------------------- rebuild unit 20
+
+/// The authored command of the inline site `tag` inside `body`, labelled
+/// as the engine labels its sites: a single seat's (no tag), a panel
+/// member's, a sequence step's or a member of a panel step, and a select
+/// case's or the default's.
+fn body_command(body: &SeatBody, tag: &str) -> Option<Vec<String>> {
+    use brokkr_runtime::bundle::StepBody;
+    let (name, rest) = tag.split_once(':').unwrap_or((tag, ""));
+    match body {
+        SeatBody::Single { command, .. } if tag.is_empty() => Some(command.clone()),
+        SeatBody::Panel { members, .. } => members
+            .iter()
+            .find(|member| member.name == tag)
+            .map(|member| member.command.clone()),
+        SeatBody::Sequence { steps } => match &steps.iter().find(|step| step.name == name)?.body {
+            StepBody::Single { command, .. } if rest.is_empty() => Some(command.clone()),
+            StepBody::Panel { members, .. } => members
+                .iter()
+                .find(|member| member.name == rest)
+                .map(|member| member.command.clone()),
+            _ => None,
+        },
+        SeatBody::Select { cases, default, .. } => match name {
+            "default" => body_command(default.as_deref()?, rest),
+            case => body_command(cases.get(case)?, rest),
+        },
+        _ => None,
+    }
+}
+
+/// Rebuild unit 20: one compiled site and candidate of `class`, composed,
+/// sealed and verified exactly as dispatch composes, seals and verifies it
+/// — the selected link's argv or the inline site's authored command, the
+/// site's own facts, the result door dispatch selects for its class — and
+/// handed to its provider's own driver launch, offered a session where
+/// `offer` names the harness binary and the session. An offer carries the
+/// confinement markers `mark_hands` writes for an unboxed site and the
+/// resume assessment the bundle COMPILED for it (the shipped adapter's).
+/// The final command the driver would spawn, or its whole refusal.
+fn served_as(
+    bundle: &Bundle,
+    label: &str,
+    candidate: usize,
+    class: brokkr_runtime::SeatClass,
+    offer: Option<(&Path, &str)>,
+) -> Result<Vec<String>, String> {
+    let facts = &bundle.sites[label];
+    let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
+    let link = facts.chain.get(candidate);
+    let (extra, mut input) = dispatched(bundle, label, candidate, class, "/w")?;
+    let (bin, session) = match offer {
+        Some((bin, session)) => {
+            let assessment = match link {
+                Some(link) => link.resume.value(),
+                None => facts.inline_resume.clone().unwrap_or(Value::Null),
+            };
+            // The markers `mark_hands` writes for a resolved no-hands site.
+            assert!(
+                matches!(facts.hands, brokkr_runtime::bundle::HandsState::NoHands),
+                "{label} is offered only as a no-hands site"
+            );
+            input["boundary"] = json!("not applicable");
+            input["hands"] = json!("none");
+            input["resume_context"] = json!({"assessment": assessment});
+            (bin.to_str().unwrap().to_string(), Some(session))
+        }
+        None => (outcome.provider.clone(), None),
+    };
+    match outcome.provider.as_str() {
+        "codex" => brokkr_protocol::adapters::codex_command(&bin, &extra, "/w", session, &input),
+        "claude" => brokkr_protocol::adapters::claude_command(&bin, &extra, session, &input),
+        other => panic!("{label}[{candidate}] is served by {other}, which is not read here"),
+    }
+}
+
+/// [`served_as`]'s dispatch half: the site's spawn composed in `workdir`,
+/// sealed and verified at the door as dispatch does it, and what the driver
+/// is handed — the extras after the driver's `--` and the input, with the
+/// record, the serving inputs, the plan, the result path and door, and the
+/// provenance of the arguments.
+fn dispatched(
+    bundle: &Bundle,
+    label: &str,
+    candidate: usize,
+    class: brokkr_runtime::SeatClass,
+    workdir: &str,
+) -> Result<(Vec<String>, Value), String> {
+    use brokkr_protocol::native_controls::SERVING_INPUTS;
+    use brokkr_runtime::engine::{expected_state, result_door, verify_record, LAUNCH_RECORD};
+    let facts = &bundle.sites[label];
+    let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
+    let link = facts.chain.get(candidate);
+    let (seat, tag) = label.split_once(':').unwrap_or((label, ""));
+    let argv = match link {
+        Some(link) => link.argv.clone(),
+        None => body_command(&bundle.seats[seat].body, tag)
+            .unwrap_or_else(|| panic!("{label} is no inline site")),
+    };
+    let result_path = format!("{workdir}/result.json");
+    // As `compose_at` builds it: a site without hands stands under no
+    // built boundary of its own.
+    assert_eq!(bundle.hands.get(label), None, "{label} has no hands");
+    let mut spawn = brokkr_runtime::engine::compose_site_at(
+        Some(facts),
+        brokkr_runtime::engine::BuiltBoundary::Open,
+        class,
+        argv,
+        bundle.hands.get(label),
+        link,
+        Path::new(workdir),
+        &[],
+        &result_path,
+        None,
+    );
+    assert_eq!(spawn.refusal, None, "{label}[{candidate}]");
+    expected_state(outcome, link, Some(facts)).and_then(|expected| spawn.seal(expected))?;
+    let serving = seal_serving(bundle, &mut spawn, facts, link);
+    let gate = class == brokkr_runtime::SeatClass::Gate;
+    let door = result_door(bundle.boundary, gate, Some(facts), link).word();
+    let mut input = json!({LAUNCH_RECORD: spawn.launch_record(), SERVING_INPUTS: serving,
+                           "seat": label, "native_controls": outcome.controls(),
+                           "result_path": result_path});
+    if door == "last-message" {
+        input["result_delivery"] = json!(door);
+    }
+    verify_record(&spawn, &input)?;
+    input["workdir"] = json!(workdir);
+    input["launch_arguments"] = spawn.launch_arguments();
+    let extra = spawn.argv[spawn.argv.iter().position(|part| part == "--").unwrap() + 1..].to_vec();
+    Ok((extra, input))
+}
+
+/// The variable that turns [`driver_serving_child`] into the built-in
+/// driver it names, carrying `{"kind": …, "extra": […]}` as JSON.
+const SERVE_DRIVER: &str = "BROKKR_TEST_SERVE_DRIVER";
+
+/// Not a test of its own: the driver half of [`driver_spawned`], run only
+/// when that helper re-enters this binary with [`SERVE_DRIVER`] set. It
+/// serves the driver protocol on this process's stdin and stdout, as
+/// `brokkr driver <kind> -- <extras>` does, then exits before the test
+/// harness can report on it.
+#[test]
+fn driver_serving_child() {
+    use brokkr_protocol::adapters::AdapterKind;
+    let Ok(served) = std::env::var(SERVE_DRIVER) else {
+        return;
+    };
+    let served: Value = serde_json::from_str(&served).unwrap();
+    let kind = match served["kind"].as_str().unwrap() {
+        "lanetally" => AdapterKind::Lanetally,
+        "dsh" => AdapterKind::Dsh,
+        other => panic!("no serving child for {other}"),
+    };
+    let extra: Vec<String> = serde_json::from_value(served["extra"].clone()).unwrap();
+    brokkr_protocol::adapters::serve(kind, extra).unwrap();
+    std::process::exit(0);
+}
+
+/// Rebuild unit 20: one compiled LaneTally or DSH site served by its REAL
+/// driver — this binary re-entered as [`driver_serving_child`], handed the
+/// extras and input [`dispatched`] seals, with the charter text the door
+/// reads — and a recording stand-in for the harness binary. What the
+/// harness was spawned with, one argument per NUL-separated field, or the
+/// driver's result error where it spawned nothing; beside it, the input the
+/// driver was handed.
+#[cfg(unix)]
+fn driver_spawned(
+    bundle: &Bundle,
+    label: &str,
+    candidate: usize,
+    root: &Path,
+    route: Option<&str>,
+) -> (Result<Vec<String>, String>, Value) {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let provider = &bundle.sites[label].capabilities.as_ref().unwrap().outcomes[candidate].provider;
+    // A seat's `--patch` route overlay resolves against the run's working
+    // directory, which is here the compiled layer that holds it.
+    let workdir = match route {
+        Some(_) => bundle.dir.clone(),
+        None => root.join("work"),
+    };
+    std::fs::create_dir_all(&workdir).unwrap();
+    let (extra, mut input) = dispatched(
+        bundle,
+        label,
+        candidate,
+        brokkr_runtime::SeatClass::Work,
+        workdir.to_str().unwrap(),
+    )
+    .unwrap_or_else(|refusal| panic!("{label}[{candidate}] unsealed: {refusal}"));
+    let charter = bundle.sites[label]
+        .charter
+        .as_ref()
+        .expect("a chartered site");
+    input["feature"] = json!("serving");
+    input["phase"] = json!(label);
+    input["role_path"] = json!(charter.path);
+    input["role_text"] = json!(std::fs::read_to_string(&charter.path).unwrap());
+    input["allowed_results"] = json!(["complete"]);
+    input["context"] = json!({});
+    // The binding dispatch writes for a `--patch` that resolves inside the
+    // compiled layer (`route_overlay_binding`): the value as authored and
+    // the digest the compiled manifest records for that file, beside the
+    // resume assessment the bundle compiled for the site.
+    if let Some(value) = route {
+        input["resume_context"] = json!({
+            "assessment": bundle.sites[label].inline_resume.clone().unwrap(),
+            "route_overlay": {"value": value, "digest": bundle.manifest["files"][value]},
+        });
+    }
+    let recorded = root.join(format!("{provider}-argv"));
+    let _ = std::fs::remove_file(&recorded);
+    let staged = root.join(format!("{provider}.staged"));
+    std::fs::write(
+        &staged,
+        [
+            "#!/bin/sh\n",
+            "case \"$1\" in --version) printf '2.1.266 (Claude Code)\\n'; exit 0;; esac\n",
+            "printf '%s\\0' \"$0\" \"$@\" > '",
+            recorded.to_str().unwrap(),
+            "'\n",
+            // A DSH launch's staged overlay, kept as it was when spawned.
+            "if [ \"$1\" = --profile ]; then cat \"$4\" > '",
+            root.join(format!("{provider}-overlay")).to_str().unwrap(),
+            "'; fi\n",
+        ]
+        .concat(),
+    )
+    .unwrap();
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let harness = root.join(format!("{provider}-harness"));
+    std::fs::rename(&staged, &harness).unwrap();
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let variable = match provider.as_str() {
+        "lanetally" => "BROKKR_LANETALLY_BIN",
+        _ => "BROKKR_DSH_BIN",
+    };
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "driver_serving_child",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(
+            SERVE_DRIVER,
+            json!({"kind": provider, "extra": extra}).to_string(),
+        )
+        .env(variable, &harness)
+        .env_remove("FORGE_LANETALLY_BIN")
+        .env_remove("FORGE_DSH_BIN")
+        .env("HOME", &home)
+        .env("DSH_HOME", &home)
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for message in [
+        json!({"proto": "forge-driver/v1", "msg_id": "m1", "type": "hello",
+               "engine_version": "test"}),
+        json!({"proto": "forge-driver/v1", "msg_id": "m2", "type": "start",
+               "effect_id": "fx", "attempt_id": "a1", "seat": label, "input": input}),
+        json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
+    ] {
+        writeln!(stdin, "{message}").unwrap();
+    }
+    drop(stdin);
+    let out = child.wait_with_output().unwrap();
+    let said = String::from_utf8_lossy(&out.stdout).into_owned();
+    let spawned = match std::fs::read(&recorded) {
+        Ok(bytes) => Ok(bytes
+            .split(|byte| *byte == 0)
+            .filter(|field| !field.is_empty())
+            .map(|field| String::from_utf8_lossy(field).into_owned())
+            .collect()),
+        Err(_) => Err(said
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .find(|message| message["type"] == "result")
+            .and_then(|result| result["error"].as_str().map(String::from))
+            .unwrap_or_else(|| format!("no result error: {said}"))),
+    };
+    (spawned, input)
+}
+
+/// Rebuild unit 20's recipe, `matrix`, extending `base`: every executable
+/// site shape, Claude and Codex, inline and agent-backed, compiled on the
+/// shipped adapters under `harness` in a realm that grants nothing. Each
+/// site's charter is its own file, `# <name>\n`, so a site bound to a
+/// neighbour's charter fails by name. Three offices, none with hands:
+/// `pair` (Codex, falling back to Claude), `pair-claude` (Claude, falling
+/// back to Codex) and `lone` (Claude alone).
+fn every_shape(operator: &Operator) -> Bundle {
+    let root = operator.root();
+    let claude = [
+        "{brokkr}",
+        "driver",
+        "claude",
+        "--",
+        "--model",
+        "claude-opus-5-5",
+        "--effort",
+        "high",
+    ];
+    let both = json!({"astra": "high", "opus": "high"});
+    for (office, models, efforts) in [
+        ("pair", json!(["astra", "opus"]), both.clone()),
+        ("pair-claude", json!(["opus", "astra"]), both),
+        ("lone", json!(["opus"]), json!({"opus": "high"})),
+    ] {
+        std::fs::write(
+            root.join(format!("agents/charters/{office}.md")),
+            format!("# {office}\n"),
+        )
+        .unwrap();
+        write(
+            root,
+            &format!("agents/{office}.json"),
+            &json!({"description": "an office", "charter": format!("charters/{office}.md"),
+                    "models": models, "efforts": efforts}),
+        );
+    }
+    for (layer, roles) in [
+        ("base", &["inherited"][..]),
+        (
+            "matrix",
+            &[
+                "claude",
+                "claude-gate",
+                "codex",
+                "codex-gate",
+                "member",
+                "draft",
+                "default",
+            ][..],
+        ),
+    ] {
+        std::fs::create_dir_all(root.join(layer).join("roles")).unwrap();
+        for role in roles {
+            std::fs::write(
+                root.join(layer).join(format!("roles/{role}.md")),
+                format!("# {role}\n"),
+            )
+            .unwrap();
+        }
+    }
+    let phases = [
+        ("claude", "complete"),
+        ("review", "clean"),
+        ("codex", "complete"),
+        ("codex-gate", "clean"),
+        ("judges", "pass"),
+        ("steps", "complete"),
+        ("pick", "complete"),
+        ("agent", "complete"),
+        ("agent-claude", "complete"),
+        ("inherited", "complete"),
+        ("inherited-agent", "complete"),
+    ];
+    let mut rules: Vec<Value> = phases
+        .iter()
+        .enumerate()
+        .map(|(at, (phase, result))| {
+            let next = phases.get(at + 1).map_or("done", |(next, _)| next);
+            json!({"id": format!("R{at}"), "from": phase, "result": result, "next": next,
+                   "reason": "r"})
+        })
+        .collect();
+    rules.push(
+        json!({"id": "F", "from": "judges", "result": "fail", "next": "steps",
+                      "reason": "r"}),
+    );
+    let mut names: Vec<&str> = phases.iter().map(|(phase, _)| *phase).collect();
+    names.push("done");
+    write(
+        root,
+        "base/policy.json",
+        &json!({"phases": names, "initial": "claude", "terminal": ["done"], "rules": rules}),
+    );
+    write(
+        root,
+        "base/bundle.json",
+        &json!({"name": "base", "policy": "policy.json", "seats": {
+            "inherited": {"results": ["complete"], "role": "roles/inherited.md",
+                          "driver": {"command": claude}},
+            "inherited-agent": {"results": ["complete"], "agent": "lone"}}}),
+    );
+    write(
+        root,
+        "matrix/bundle.json",
+        &json!({"name": "matrix", "extends": "base", "seats": {
+            "claude": {"results": ["complete"], "role": "roles/claude.md",
+                       "tools": {"allow": ["cargo"]}, "driver": {"command": claude}},
+            "review": {"results": ["clean"], "class": "gate", "role": "roles/claude-gate.md",
+                            "driver": {"command": claude}},
+            "codex": {"results": ["complete"], "role": "roles/codex.md",
+                      "tools": {"sandbox": "workspace-write"},
+                      "driver": {"command": CODEX_SEAT}},
+            "codex-gate": {"results": ["clean"], "class": "gate", "role": "roles/codex-gate.md",
+                           "tools": {"sandbox": "read-only"}, "driver": {"command": CODEX_SEAT}},
+            "judges": {"results": ["pass", "fail"], "aggregate": "unanimous-pass", "panel": {
+                "claude": {"role": "roles/member.md", "driver": {"command": claude}},
+                "office": {"agent": "pair-claude"}}},
+            "steps": {"results": ["complete"], "sequence": [
+                {"name": "draft", "results": ["complete"], "role": "roles/draft.md",
+                 "driver": {"command": CODEX_SEAT}},
+                {"name": "final", "agent": "pair"}]},
+            "pick": {"results": ["complete"], "select": {"on": "strategy",
+                "cases": {"engine": {"agent": "lone"}},
+                "default": {"role": "roles/default.md", "driver": {"command": claude}}}},
+            "agent": {"results": ["complete"], "agent": "pair"},
+            "agent-claude": {"results": ["complete"], "agent": "pair-claude"}}}),
+    );
+    Bundle::compile_with_capabilities(
+        &root.join("matrix"),
+        &root.join("agents"),
+        &workspace().join("adapters"),
+        Some("private"),
+        None,
+        Boundary::Harness,
+        &CapabilityContext::no_grants("private", root),
+    )
+    .unwrap_or_else(|refusal| panic!("the matrix compiles: {refusal}"))
+}
+
+/// Rebuild unit 20 (tasks 20.1 and 21.3): EVERY COMPILED SITE SHAPE IS
+/// SERVED ITS WHOLE COMMAND BESIDE ITS SELECTED CHARTER. One production
+/// compile seats Claude and Codex at every executable site shape — a single
+/// work seat and a gate, inline and agent-backed; a panel member, a
+/// sequence step and a select case and default, each inline and
+/// agent-backed; an agent's primary and its selected fallback, either way
+/// round; and an inline and an agent-backed seat the recipe inherits from
+/// its base — in a realm that grants nothing, so every Claude command
+/// carries its native denial and every Codex command its measured OFF.
+///
+/// For each site this asserts, as independent literals: the charter the
+/// compile selected for it (the declaring layer and the key its walk pins,
+/// or the library and the agent; the reference as written, the path the
+/// seat is told and the digest of the text written); the whole cold command
+/// its provider's driver composes from the sealed spawn; and the whole
+/// command the same driver composes when the site is offered a session
+/// under the assessment the bundle compiled. Only the shipped Codex
+/// work-site rejoin is supported, so a Codex work site is an actual `exec
+/// resume` and every other offer — a gate's, and every Claude site's, whose
+/// shipped shape is unmeasured — is declined and served its cold command.
+///
+/// Composition evidence only: what a provider then honours is the
+/// controller's to measure. The restriction rows are unit 21's.
+#[cfg(unix)]
+#[test]
+fn every_compiled_site_shape_is_served_its_whole_command_beside_its_selected_charter() {
+    use brokkr_runtime::bundle::CharterOwner;
+    use brokkr_runtime::SeatClass::{Gate, Work};
+    let operator = Operator::new();
+    let bundle = every_shape(&operator);
+    let codex = codex_reporting(operator.root(), "0.154.0");
+    let claude = claude_reporting(operator.root(), "2.1.266");
+    let session = "019c4b7e-0000-7000-8000-000000000002";
+    let root = operator.root();
+    let library = root.join("agents");
+    let (base, matrix) = (root.join("base"), root.join("matrix"));
+
+    // The charter each site is told: its owner, the reference as written,
+    // the path and the digest of the text this test wrote.
+    let layer = |dir: &Path, role: &str| {
+        let reference = format!("roles/{role}.md");
+        (
+            CharterOwner::Layer {
+                dir: dir.to_path_buf(),
+                key: reference.clone(),
+            },
+            reference.clone(),
+            dir.join(&reference),
+            brokkr_core::canonical::sha256_bytes(format!("# {role}\n").as_bytes()),
+        )
+    };
+    let office = |agent: &str| {
+        let reference = format!("charters/{agent}.md");
+        (
+            CharterOwner::Library {
+                agent: agent.to_string(),
+                root: library.clone(),
+            },
+            reference.clone(),
+            library.join(&reference),
+            brokkr_core::canonical::sha256_bytes(format!("# {agent}\n").as_bytes()),
+        )
+    };
+
+    // The whole commands, written out: the driver's lead, the pins the
+    // recipe or the adapter wrote, the engine's own segments, the denial.
+    let words = |program: &Path, parts: &[&[&str]]| -> Vec<String> {
+        std::iter::once(program.to_str().unwrap())
+            .chain(parts.iter().flat_map(|part| part.iter().copied()))
+            .map(String::from)
+            .collect()
+    };
+    let lead = ["-p", "--output-format", "stream-json", "--verbose"];
+    let claude_pins = ["--model", "claude-opus-5-5", "--effort", "high"];
+    let denial = ["--disallowedTools", "WebFetch,WebSearch"];
+    let template = ["--permission-mode", "acceptEdits"];
+    let lowered = ["--allowedTools", "Bash(cargo:*)"];
+    let codex_lead = ["exec", "--json", "-C", "/w"];
+    let codex_pins = [
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt-6-astra",
+    ];
+    let work_class = ["--sandbox", "workspace-write"];
+    let gate_class = [
+        "--sandbox",
+        "read-only",
+        "--output-last-message",
+        "/w/result.json",
+    ];
+    let resumed = ["exec", "resume", "--json"];
+    let rejoined_class = ["-c", "sandbox_mode=\"workspace-write\""];
+    let at = [THREAD, "-"];
+    let inline_claude = |program: &Path| words(program, &[&lead, &claude_pins, &denial]);
+    let agent_claude = |program: &Path| words(program, &[&lead, &template, &claude_pins, &denial]);
+    let codex_cold =
+        |program: &Path, class: &[&str]| words(program, &[&codex_lead, &codex_pins, class, &OFF]);
+    let codex_rejoin = words(&codex, &[&resumed, &rejoined_class, &codex_pins, &OFF, &at]);
+    let (claude_cold, codex_cold_bin) = (Path::new("claude"), Path::new("codex"));
+
+    type Charter = (CharterOwner, String, PathBuf, String);
+    // (site, candidate, class, charter, cold command, the command served
+    // when a work site is offered its session; a gate is offered none,
+    // because every shipped assessment names only the work class)
+    type Row<'a> = (
+        &'a str,
+        usize,
+        brokkr_runtime::SeatClass,
+        Charter,
+        Vec<String>,
+        Option<Vec<String>>,
+    );
+    let rows: Vec<Row> = vec![
+        (
+            "claude",
+            0,
+            Work,
+            layer(&matrix, "claude"),
+            words(
+                claude_cold,
+                &[&lead, &claude_pins, &template, &lowered, &denial],
+            ),
+            Some(words(
+                &claude,
+                &[&lead, &claude_pins, &template, &lowered, &denial],
+            )),
+        ),
+        (
+            "review",
+            0,
+            Gate,
+            layer(&matrix, "claude-gate"),
+            inline_claude(claude_cold),
+            None,
+        ),
+        (
+            "codex",
+            0,
+            Work,
+            layer(&matrix, "codex"),
+            codex_cold(codex_cold_bin, &work_class),
+            Some(codex_rejoin.clone()),
+        ),
+        (
+            "codex-gate",
+            0,
+            Gate,
+            layer(&matrix, "codex-gate"),
+            codex_cold(codex_cold_bin, &gate_class),
+            None,
+        ),
+        (
+            "judges:claude",
+            0,
+            Work,
+            layer(&matrix, "member"),
+            inline_claude(claude_cold),
+            Some(inline_claude(&claude)),
+        ),
+        (
+            "judges:office",
+            0,
+            Work,
+            office("pair-claude"),
+            agent_claude(claude_cold),
+            Some(agent_claude(&claude)),
+        ),
+        (
+            "judges:office",
+            1,
+            Work,
+            office("pair-claude"),
+            codex_cold(codex_cold_bin, &[]),
+            Some(codex_cold(&codex, &[])),
+        ),
+        (
+            "steps:draft",
+            0,
+            Work,
+            layer(&matrix, "draft"),
+            codex_cold(codex_cold_bin, &[]),
+            Some(codex_cold(&codex, &[])),
+        ),
+        (
+            "steps:final",
+            0,
+            Work,
+            office("pair"),
+            codex_cold(codex_cold_bin, &[]),
+            Some(codex_cold(&codex, &[])),
+        ),
+        (
+            "steps:final",
+            1,
+            Work,
+            office("pair"),
+            agent_claude(claude_cold),
+            Some(agent_claude(&claude)),
+        ),
+        (
+            "pick:engine",
+            0,
+            Work,
+            office("lone"),
+            agent_claude(claude_cold),
+            Some(agent_claude(&claude)),
+        ),
+        (
+            "pick:default",
+            0,
+            Work,
+            layer(&matrix, "default"),
+            inline_claude(claude_cold),
+            Some(inline_claude(&claude)),
+        ),
+        (
+            "agent",
+            0,
+            Work,
+            office("pair"),
+            codex_cold(codex_cold_bin, &[]),
+            Some(codex_cold(&codex, &[])),
+        ),
+        (
+            "agent",
+            1,
+            Work,
+            office("pair"),
+            agent_claude(claude_cold),
+            Some(agent_claude(&claude)),
+        ),
+        (
+            "agent-claude",
+            0,
+            Work,
+            office("pair-claude"),
+            agent_claude(claude_cold),
+            Some(agent_claude(&claude)),
+        ),
+        (
+            "agent-claude",
+            1,
+            Work,
+            office("pair-claude"),
+            codex_cold(codex_cold_bin, &[]),
+            Some(codex_cold(&codex, &[])),
+        ),
+        (
+            "inherited",
+            0,
+            Work,
+            layer(&base, "inherited"),
+            inline_claude(claude_cold),
+            Some(inline_claude(&claude)),
+        ),
+        (
+            "inherited-agent",
+            0,
+            Work,
+            office("lone"),
+            agent_claude(claude_cold),
+            Some(agent_claude(&claude)),
+        ),
+    ];
+    assert_eq!(rows.len(), 18);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, candidate, class, charter, cold, offered)| {
+            let pin = bundle.sites[label].charter.as_ref();
+            let provider =
+                &bundle.sites[label].capabilities.as_ref().unwrap().outcomes[candidate].provider;
+            let offer = match provider.as_str() {
+                "codex" => (codex.as_path(), THREAD),
+                _ => (claude.as_path(), session),
+            };
+            let observed = (
+                pin.map(|pin| {
+                    (
+                        pin.owner.clone(),
+                        pin.reference.clone(),
+                        pin.path.clone(),
+                        pin.digest.clone(),
+                    )
+                }),
+                served_as(&bundle, label, candidate, class, None),
+                (class == Work).then(|| served_as(&bundle, label, candidate, class, Some(offer))),
+            );
+            let expected = (Some(charter), Ok(cold), offered.map(Ok));
+            (observed != expected).then(|| {
+                format!("row {label}[{candidate}]:\n  left:  {observed:?}\n  right: {expected:?}")
+            })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Rebuild unit 20 (tasks 20.1 and 21.3): THE WRAPPER AND DSH SITES ARE
+/// SPAWNED BY THEIR OWN DRIVERS BESIDE THEIR SELECTED CHARTERS. One
+/// production compile on the shipped adapters, in a realm that grants
+/// nothing, seats LaneTally and DSH inline and agent-backed. Both adapters
+/// declare their native inventory unmeasured, so no denial is claimed and
+/// none is composed. Each site is served by the real driver — this binary
+/// re-entered as `brokkr driver <kind>` over the driver protocol — handed
+/// the extras and input dispatch seals, and what the recording harness was
+/// spawned with is asserted whole, beside the charter the compile selected
+/// for the site. A DSH command's staged route overlay is a fresh temporary
+/// file, so only its token is named by shape; its prompt is the charter the
+/// door read, rendered with the task.
+///
+/// An inline LaneTally site whose typed `tools.allow` lowers compiles, and
+/// its driver's final check then refuses the launch whole: the lowered
+/// list is not admitted under the wrapper's unmeasured plan. That is the
+/// behaviour observed on this head, fail-closed; it is a follow-up, not
+/// changed here (evidence.md, "Unit 20"). A shipped LaneTally or DSH
+/// session is never resumed: both shipped resume shapes are unmeasured.
+#[cfg(unix)]
+#[test]
+fn every_compiled_wrapper_and_dsh_site_is_spawned_by_its_own_driver_beside_its_charter() {
+    use brokkr_runtime::bundle::CharterOwner;
+    let operator = Operator::new();
+    let root = operator.root();
+    let library = root.join("agents");
+    let recipe = root.join("wrappers");
+    for (office, model) in [("tally", "opus-tallied"), ("flash", "flash")] {
+        std::fs::write(
+            library.join(format!("charters/{office}.md")),
+            format!("# {office}\n"),
+        )
+        .unwrap();
+        write(
+            root,
+            &format!("agents/{office}.json"),
+            &json!({"description": "an office", "charter": format!("charters/{office}.md"),
+                    "models": [model], "efforts": {model: "high"}}),
+        );
+    }
+    std::fs::create_dir_all(recipe.join("roles")).unwrap();
+    for role in ["lanetally", "typed", "dsh", "route"] {
+        std::fs::write(
+            recipe.join(format!("roles/{role}.md")),
+            format!("# {role}\n"),
+        )
+        .unwrap();
+    }
+    // The shipped route-only overlay, as a file of this layer.
+    let route =
+        std::fs::read(workspace().join("recipes/research-dsh/drivers/research-web.yml")).unwrap();
+    std::fs::create_dir_all(recipe.join("drivers")).unwrap();
+    std::fs::write(recipe.join("drivers/route.yml"), &route).unwrap();
+    let seats = ["lanetally", "typed", "tally", "dsh", "flash", "route"];
+    let mut rules: Vec<Value> = seats
+        .iter()
+        .enumerate()
+        .map(|(at, phase)| {
+            let next = seats.get(at + 1).copied().unwrap_or("review");
+            json!({"id": format!("R{at}"), "from": phase, "result": "complete", "next": next,
+                   "reason": "r"})
+        })
+        .collect();
+    rules.push(
+        json!({"id": "E", "from": "review", "result": "clean", "next": "done",
+                      "reason": "r"}),
+    );
+    let mut phases = seats.to_vec();
+    phases.extend(["review", "done"]);
+    write(
+        root,
+        "wrappers/policy.json",
+        &json!({"phases": phases, "initial": "lanetally", "terminal": ["done"], "rules": rules}),
+    );
+    let lanetally = [
+        "{brokkr}",
+        "driver",
+        "lanetally",
+        "--",
+        "--model",
+        "claude-opus-5-5",
+        "--effort",
+        "high",
+    ];
+    let dsh = [
+        "{brokkr}",
+        "driver",
+        "dsh",
+        "--",
+        "--model",
+        "deepseek-v4-flash",
+        "--effort",
+        "high",
+    ];
+    write(
+        root,
+        "wrappers/bundle.json",
+        &json!({"name": "wrappers", "policy": "policy.json", "seats": {
+            "lanetally": {"results": ["complete"], "role": "roles/lanetally.md",
+                          "driver": {"command": lanetally}},
+            "typed": {"results": ["complete"], "role": "roles/typed.md",
+                      "tools": {"allow": ["cargo"]}, "driver": {"command": lanetally}},
+            "tally": {"results": ["complete"], "agent": "tally"},
+            "dsh": {"results": ["complete"], "role": "roles/dsh.md",
+                    "driver": {"command": dsh}},
+            "flash": {"results": ["complete"], "agent": "flash"},
+            "route": {"results": ["complete"], "role": "roles/route.md",
+                      "driver": {"command": ["{brokkr}", "driver", "dsh", "--", "--model",
+                          "dashscope/qwen3.8-max", "--effort", "xhigh", "--patch",
+                          "drivers/route.yml"]}},
+            "review": {"results": ["clean"], "role": "roles/lanetally.md",
+                       "driver": {"command": ["driver"]}}}}),
+    );
+    let bundle = Bundle::compile_with_capabilities(
+        &recipe,
+        &library,
+        &workspace().join("adapters"),
+        Some("private"),
+        None,
+        Boundary::Harness,
+        &CapabilityContext::no_grants("private", root),
+    )
+    .unwrap_or_else(|refusal| panic!("the wrappers compile: {refusal}"));
+
+    let layer = |role: &str| {
+        let reference = format!("roles/{role}.md");
+        (
+            CharterOwner::Layer {
+                dir: recipe.clone(),
+                key: reference.clone(),
+            },
+            reference.clone(),
+            recipe.join(&reference),
+            brokkr_core::canonical::sha256_bytes(format!("# {role}\n").as_bytes()),
+        )
+    };
+    let office = |agent: &str| {
+        let reference = format!("charters/{agent}.md");
+        (
+            CharterOwner::Library {
+                agent: agent.to_string(),
+                root: library.clone(),
+            },
+            reference.clone(),
+            library.join(&reference),
+            brokkr_core::canonical::sha256_bytes(format!("# {agent}\n").as_bytes()),
+        )
+    };
+    let words = |provider: &str, parts: &[&str]| -> Vec<String> {
+        std::iter::once(
+            root.join(format!("{provider}-harness"))
+                .to_str()
+                .unwrap()
+                .to_string(),
+        )
+        .chain(parts.iter().map(|part| part.to_string()))
+        .collect()
+    };
+    let lead = ["-p", "--output-format", "stream-json", "--verbose"];
+    let pins = ["--model", "claude-opus-5-5", "--effort", "high"];
+    let overlay = std::env::temp_dir().join("brokkr-dsh-seat-");
+    let overlay = overlay.to_str().unwrap();
+    // DSH: the staged overlay's token by shape, and the prompt checked
+    // whole against the charter the driver was handed, rendered.
+    let as_dsh = |spawned: Vec<String>, input: &Value| -> Vec<String> {
+        spawned
+            .into_iter()
+            .enumerate()
+            .map(|(at, part)| match at {
+                4 if part.starts_with(overlay) && part.ends_with(".yml") => "<overlay>".into(),
+                5 if part
+                    == brokkr_protocol::adapters::render_prompt(
+                        input,
+                        brokkr_protocol::adapters::AdapterKind::Dsh,
+                    )
+                    && part.starts_with(input["role_text"].as_str().unwrap()) =>
+                {
+                    format!("<prompt: {}>", input["role_text"])
+                }
+                _ => part,
+            })
+            .collect()
+    };
+    let dsh_spawned = |role: &str| {
+        words(
+            "dsh",
+            &[
+                "--profile",
+                "headless",
+                "--patch",
+                "<overlay>",
+                &format!("<prompt: {:?}>", format!("# {role}\n")),
+            ],
+        )
+    };
+    type Charter = (CharterOwner, String, PathBuf, String);
+    type Row<'a> = (&'a str, Charter, Result<Vec<String>, String>);
+    let rows: Vec<Row> = vec![
+        (
+            "lanetally",
+            layer("lanetally"),
+            Ok(words("lanetally", &[&lead[..], &pins[..]].concat())),
+        ),
+        (
+            "typed",
+            layer("typed"),
+            Err(
+                "refusing to invoke the agent CLI: the adapter template's '--allowedTools' \
+                 allow list names tool 'Bash' for provider 'lanetally', which no realm holding \
+                 admits, the site's typed hands do not carry and its typed 'tools.allow' did \
+                 not lower; an allowance is admitted by the typed contribution that made it, \
+                 never by its spelling or by the list it stands in (design D6)"
+                    .to_string(),
+            ),
+        ),
+        (
+            "tally",
+            office("tally"),
+            Ok(words(
+                "lanetally",
+                &[&lead[..], &["--permission-mode", "acceptEdits"], &pins[..]].concat(),
+            )),
+        ),
+        ("dsh", layer("dsh"), Ok(dsh_spawned("dsh"))),
+        ("flash", office("flash"), Ok(dsh_spawned("flash"))),
+        ("route", layer("route"), Ok(dsh_spawned("route"))),
+    ];
+    assert_eq!(rows.len(), 6);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, charter, expected)| {
+            let pin = bundle.sites[label].charter.as_ref().map(|pin| {
+                (
+                    pin.owner.clone(),
+                    pin.reference.clone(),
+                    pin.path.clone(),
+                    pin.digest.clone(),
+                )
+            });
+            let routed = (label == "route").then_some("drivers/route.yml");
+            let (spawned, input) = driver_spawned(&bundle, label, 0, root, routed);
+            let spawned = spawned.map(|argv| match label {
+                "dsh" | "flash" | "route" => as_dsh(argv, &input),
+                _ => argv,
+            });
+            // The route overlay the DSH harness was handed: the layer's
+            // file, byte for byte, and no route where none was authored.
+            let staged = root.join("dsh-overlay");
+            let overlay = std::fs::read(&staged)
+                .ok()
+                .map(|staged| staged.starts_with(&route));
+            let _ = std::fs::remove_file(&staged);
+            let observed = (pin, spawned, overlay);
+            let expected = (
+                Some(charter),
+                expected,
+                matches!(label, "dsh" | "flash" | "route").then_some(routed.is_some()),
+            );
+            (observed != expected)
+                .then(|| format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Rebuild unit 20 (task 20.1; operator ruling 1 of 2026-09-23): AN
+/// AUTHORED CAPABILITY-BEARING OPTION IS REFUSED AT EVERY SITE SHAPE OF
+/// EVERY HARNESS. One recipe, `authored`, extending `authored-base`, seats
+/// one harness inline at every site shape a recipe writes a command for: a
+/// work seat, a gate, a panel member, a sequence step, a select case and
+/// its default, and a seat inherited from the base. Each compile plants one
+/// capability-bearing option at ONE site and the production compile
+/// refuses it whole, naming that site, its office, the canonical option and
+/// the harness, never the value; no driver or provider runs. With no site
+/// poisoned the same recipe compiles, so each refusal is the planted
+/// option's. An agent-backed site has no recipe-authored command: its
+/// argv is the adapter's data, judged at load (unit 11).
+#[test]
+fn an_authored_capability_option_refuses_every_site_shape_of_every_harness() {
+    let operator = Operator::new();
+    let root = operator.root();
+    let sites = [
+        "work",
+        "review",
+        "judges:member",
+        "steps:draft",
+        "pick:engine",
+        "pick:default",
+        "inherited",
+    ];
+    for layer in ["authored", "authored-base"] {
+        std::fs::create_dir_all(root.join(layer).join("roles")).unwrap();
+        std::fs::write(root.join(layer).join("roles/role.md"), "# role\n").unwrap();
+    }
+    write(
+        root,
+        "authored-base/policy.json",
+        &json!({"phases": ["work", "review", "judges", "steps", "pick", "inherited", "done"],
+            "initial": "work", "terminal": ["done"], "rules": [
+                {"id": "A", "from": "work", "result": "complete", "next": "review", "reason": "r"},
+                {"id": "B", "from": "review", "result": "clean", "next": "judges", "reason": "r"},
+                {"id": "C", "from": "judges", "result": "pass", "next": "steps", "reason": "r"},
+                {"id": "D", "from": "judges", "result": "fail", "next": "steps", "reason": "r"},
+                {"id": "E", "from": "steps", "result": "complete", "next": "pick", "reason": "r"},
+                {"id": "F", "from": "pick", "result": "complete", "next": "inherited",
+                 "reason": "r"},
+                {"id": "G", "from": "inherited", "result": "complete", "next": "done",
+                 "reason": "r"}]}),
+    );
+    let compile = |harness: &str, model: &str, poisoned: Option<(&str, &[&str])>| {
+        let command = |site: &str| {
+            // Neither DSH nor the LaneTally wrapper holds the trusted tier,
+            // so no recipe seats either as a gate (decision 0021 ruling
+            // 2): beside them the gate is Claude's.
+            let (harness, model) = match (harness, site) {
+                ("dsh" | "lanetally", "review") => ("claude", "claude-opus-5-5"),
+                seated => (seated.0, model),
+            };
+            let mut command = vec!["{brokkr}", "driver", harness, "--", "--model", model];
+            command.extend(["--effort", "high"]);
+            if let Some((at, extra)) = poisoned.filter(|(at, _)| *at == site) {
+                assert_eq!(at, site);
+                command.extend(extra);
+            }
+            json!({"command": command})
+        };
+        let inline = |site: &str| json!({"role": "roles/role.md", "driver": command(site)});
+        write(
+            root,
+            "authored-base/bundle.json",
+            &json!({"name": "authored-base", "policy": "policy.json", "seats": {
+                "inherited": {"results": ["complete"], "role": "roles/role.md",
+                              "driver": command("inherited")}}}),
+        );
+        let mut draft = inline("steps:draft");
+        draft["name"] = json!("draft");
+        draft["results"] = json!(["complete"]);
+        let mut last = inline("steps:last");
+        last["name"] = json!("last");
+        write(
+            root,
+            "authored/bundle.json",
+            &json!({"name": "authored", "extends": "authored-base", "seats": {
+                "work": {"results": ["complete"], "role": "roles/role.md",
+                         "driver": command("work")},
+                "review": {"results": ["clean"], "class": "gate", "role": "roles/role.md",
+                           "driver": command("review")},
+                "judges": {"results": ["pass", "fail"], "aggregate": "unanimous-pass",
+                           "panel": {"member": inline("judges:member"),
+                                     "peer": inline("judges:peer")}},
+                "steps": {"results": ["complete"], "sequence": [draft, last]},
+                "pick": {"results": ["complete"], "select": {"on": "strategy",
+                    "cases": {"engine": inline("pick:engine")},
+                    "default": inline("pick:default")}}}}),
+        );
+        Bundle::compile_with_capabilities(
+            &root.join("authored"),
+            &root.join("agents"),
+            &workspace().join("adapters"),
+            Some("private"),
+            None,
+            Boundary::Harness,
+            &CapabilityContext::no_grants("private", root),
+        )
+        .map(|bundle| format!("compiled {} sites", bundle.sites.len()))
+        .map_err(|refusal| refusal.to_string())
+    };
+    // DSH's closed grammar models no `--profile` at all, so the planted
+    // profile is refused as a token it cannot place (decision 0066 ruling
+    // 6), before any catalogue is read: the arbitrary-profile refusal of
+    // the realm-capability-grants delta.
+    let refused = |site: &str, option: &str, harness: &str| {
+        if harness == "dsh" {
+            return Err(format!(
+                "bundle: bundle: seat '{site}' (office '{site}') in realm 'private': its \
+                 arguments do not parse: the 'dsh' command grammar cannot place argument 5 \
+                 ('{option}'): it names no option. A harness brokkr launches is parsed against a \
+                 model of its options, and a token that grammar cannot place is refused rather \
+                 than passed through, because a control nobody can read is a control nobody can \
+                 rule on (decision 0066 ruling 6) (composed: authored -> authored-base)"
+            ));
+        }
+        Err(format!(
+            "bundle: bundle: seat '{site}' (office '{site}') in realm 'private': its arguments \
+             carry '{option}' (argument 5), a capability-bearing option of harness '{harness}'. \
+             A recipe authors no capability-bearing option, whatever its value, polarity or \
+             grant: tools come from typed declarations and the realm's grant, composed by the \
+             engine alone (operator ruling 1 of 2026-09-23) (composed: authored -> \
+             authored-base)"
+        ))
+    };
+    let harnesses: [(&str, &str, &[&str], &str); 4] = [
+        (
+            "claude",
+            "claude-opus-5-5",
+            &["--allowedTools", "Read"],
+            "--allowedTools",
+        ),
+        (
+            "lanetally",
+            "claude-opus-5-5",
+            &["--mcp-config=m.json"],
+            "--mcp-config",
+        ),
+        (
+            "codex",
+            "gpt-6-astra",
+            &["-c", "mcp_servers.x.command=\"y\""],
+            "--config",
+        ),
+        (
+            "dsh",
+            "deepseek-v4-flash",
+            &["--profile", "web"],
+            "--profile",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (harness, model, extra, option) in harnesses {
+        let clean = compile(harness, model, None);
+        if clean != Ok("compiled 9 sites".to_string()) {
+            failures.push(format!("{harness} unpoisoned: {clean:?}"));
+        }
+        let untrusted = matches!(harness, "dsh" | "lanetally");
+        for site in sites
+            .into_iter()
+            .filter(|site| !(untrusted && *site == "review"))
+        {
+            let observed = compile(harness, model, Some((site, extra)));
+            let expected = refused(site, option, harness);
+            if observed != expected {
+                failures.push(format!(
+                    "{harness} at {site}:\n  left:  {observed:?}\n  right: {expected:?}"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

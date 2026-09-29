@@ -20938,3 +20938,221 @@ On the final tree, in this session:
 - macOS: unobserved.
 - Exact coverage outside the box: not run here.
 - Remote CI and the council.
+
+## Unit 20 — the compiled refusal and serving-shape matrix, 2026-09-29
+
+Run `0065-rebuild-unit-20-see-the-uni-23e98946`, based on `4d11cc4b`. This
+unit is an audit. No production file moved, and only
+`crates/brokkr-runtime/tests/capability_launch.rs` changed.
+`crates/brokkr-protocol/src/adapters/tests.rs` and
+`crates/brokkr-runtime/src/engine/capability_tests.rs` were audited and left
+unchanged, for these reasons:
+
+- The protocol suite builds every driver input by hand, because that crate
+  cannot compile a bundle. Its rows are driver-level evidence only.
+- The engine suite dispatches over a hand-made `Bundle` with a planted
+  `CharterPin`, through `sh -c` fixture drivers. It proves the dispatch door
+  and the charter text handed over, but no compiled command.
+
+The compiled rows therefore live in `capability_launch.rs`. That file
+already held the fixture recipes, and it can reach both
+`Bundle::compile_with_capabilities` and the shipped drivers.
+
+### Audit, before this visit
+
+Three read-only inventories of the three named suites were taken this
+session. They found:
+
+- **Charter facts.** No test in any of the three suites asserted a compiled
+  site's selected charter (owner, reference, path, digest).
+  `engine/capability_tests.rs:1801` asserts `role_text` and the prompt's
+  `starts_with`/`ends_with` over hand-planted pins.
+- **Claude.** No compiled whole command at a gate, a panel member, a
+  sequence step, a select case or default, an inherited seat, or a fallback
+  candidate.
+- **Codex.** Sequence, select and inherited sites had only `off_pairs`
+  counts, at `an_office_is_inherited_subset_…`.
+- **LaneTally.** No compiled agent-backed row.
+- **DSH.** No compiled row at all: controls only, at
+  `a_known_native_power_…` and `every_site_of_every_shipped_bundle_…`.
+- **Authored refusal.** No compiled authored refusal at a panel member, a
+  select site or an inherited site. For DSH there was none at any site.
+- **Route overlay.** No compiled DSH route-overlay positive.
+
+### Tests (`capability_launch.rs`)
+
+New helpers:
+
+- `body_command` (:8597) finds an inline site's authored command under
+  every body.
+- `served_as` (:8631) and `dispatched` (:8672) compose, seal and verify a
+  site as dispatch does. They use `compose_site_at` under
+  `BuiltBoundary::Open` for a no-hands site, as `compose_at` does. They add
+  the class, `result_door`'s door, the `mark_hands` markers of a no-hands
+  site and the compiled resume assessment. The result goes to
+  `codex_command` or `claude_command`.
+- `driver_spawned` (:8758) serves a LaneTally or DSH site through the real
+  driver: this binary is re-entered as `driver_serving_child` (:8734),
+  `serve(kind, extras)`, over the driver protocol. A recording harness
+  captures the argv, NUL-separated, and the staged DSH overlay. A `--patch`
+  route is handed the binding `route_overlay_binding` computes: the
+  authored value plus the compiled manifest's digest for that file. The run
+  works from the compiled layer directory.
+- `every_shape` (:8889) is the `matrix` recipe, extending `base`.
+
+The digests in every charter expectation are computed by
+`brokkr_core::canonical::sha256_bytes` over the literal text each test
+wrote. No test reads `.forge/`, and every root is canonicalised.
+
+1. `every_compiled_site_shape_is_served_its_whole_command_beside_its_selected_charter`
+   (:9047). This is one production compile under `harness`, in a realm that
+   grants nothing. There are 18 rows. Each asserts, as independent
+   literals, the site's `CharterPin` (owner, reference, path, digest), its
+   whole cold command, and, for a work site, the whole command served when
+   the site is offered its session.
+2. `every_compiled_wrapper_and_dsh_site_is_spawned_by_its_own_driver_beside_its_charter`
+   (:9340). There are 6 rows. Each asserts the pin, the whole spawned argv
+   with the DSH staged-overlay token matched by shape, and the prompt
+   compared whole with `render_prompt` of the input the driver was handed,
+   opening with the charter text. For DSH rows it also asserts whether the
+   staged overlay begins with the layer's route file.
+3. `an_authored_capability_option_refuses_every_site_shape_of_every_harness`
+   (:9597). There are 26 refusal rows and 4 clean compiles.
+4. Charter facts were added to two existing whole-command tests:
+   - `a_boxed_inline_seats_hands_…` (:982): the boxed inline seat's layer
+     pin and the Codex fallback's library pin (`fallback`,
+     `charters/searcher.md`).
+   - `an_eligible_rejoin_of_a_compiled_codex_seat_…` (:4551): the inline
+     seat's layer pin and the agent's library pin (`searcher`).
+
+### The matrix (supported rows, non-restriction)
+
+Key: **W** = whole command literal; **R** = full refusal text;
+**C** = charter pin (owner, reference, path, digest).
+
+| Harness | Form | Site | Cold | Offered session | Test / row |
+|---|---|---|---|---|---|
+| Claude | inline | work, typed allow | W: template + `Bash(cargo:*)` + denial; C | declined (shipped `boxed-workspace` unmeasured), cold W | T1 `claude` |
+| Claude | inline | gate | W; C | never offered (`eligible_offer` refuses a gate, `engine/resume.rs:443`) | T1 `review` |
+| Claude | inline | panel member | W; C | declined, cold W | T1 `judges:claude` |
+| Claude | inline | select default | W; C | declined, cold W | T1 `pick:default` |
+| Claude | inline | inherited | W; C (base layer) | declined, cold W | T1 `inherited` |
+| Claude | agent | panel member, primary | W: template + denial; C | declined, cold W | T1 `judges:office[0]` |
+| Claude | agent | sequence step, fallback | W; C | declined, cold W | T1 `steps:final[1]` |
+| Claude | agent | select case | W; C | declined, cold W | T1 `pick:engine` |
+| Claude | agent | single, primary / fallback | W; C | declined, cold W | T1 `agent-claude[0]`, `agent[1]` |
+| Claude | agent | inherited | W; C | declined, cold W | T1 `inherited-agent` |
+| Codex | inline | work, `workspace-write` | W: class + OFF; C | **W `exec resume`**, class and effort re-imposed, OFF | T1 `codex` |
+| Codex | inline | gate, `read-only` | W: class + `--output-last-message` + OFF; C | never offered | T1 `codex-gate` |
+| Codex | inline | sequence step (no class; D5.3 refuses a class there) | W; C | declined (`sandbox-unavailable`), cold W | T1 `steps:draft` |
+| Codex | agent, no hands | panel fallback, sequence primary, single primary/fallback | W, no class; C | declined, cold W | T1 `judges:office[1]`, `steps:final[0]`, `agent[0]`, `agent-claude[1]` |
+| Codex | agent, hands under `harness` | single | — | **W `exec resume`**, denied/held; C | `an_eligible_rejoin_…` |
+| Codex | inline / agent fallback, boxed hands | single | W (checked); C | — | `a_boxed_inline_seats_hands_…` |
+| Codex | inline, boxed hands | panel member | W (checked) | — | `a_compiled_inline_codex_panel_member_…`. C is not asserted there; the same-shape unboxed member's C is in T1 `judges:claude` |
+| LaneTally | inline | work | W, no denial (inventory unmeasured); C | not supported (`wrapper-work-site` unmeasured) | T2 `lanetally` |
+| LaneTally | inline | work, typed allow | **R at the final check** (see follow-up); C | — | T2 `typed` |
+| LaneTally | agent | single | W: template; C | not supported | T2 `tally` |
+| DSH | inline / agent | single | W `--profile headless --patch <overlay> <prompt>`; C | not supported (`headless-work` unmeasured) | T2 `dsh`, `flash` |
+| DSH | inline | route overlay `--patch` | W; overlay begins with the layer's route file; C | not supported | T2 `route` |
+
+Authored refusal, compiled, exact reason naming site, office, option and
+harness, with no driver run (T3). The harness/option pairs are:
+
+- Claude `--allowedTools Read`;
+- LaneTally `--mcp-config=m.json`;
+- Codex `-c mcp_servers.x.command="y"`;
+- DSH `--profile web`.
+
+Each pair is planted at `work`, `judges:member`, `steps:draft`,
+`pick:engine`, `pick:default` and `inherited` (from the base layer). Claude
+and Codex are also planted at the gate `review`. LaneTally and DSH cannot
+hold a gate under decision 0021 ruling 2: observed, the compile refuses
+`seat 'review' is gate class but seats driver 'lanetally'` (and the same
+for `'dsh'`). So their gate is Claude's and has no row.
+
+DSH's closed grammar models no `--profile`. The refusal is therefore
+`its arguments do not parse: … cannot place argument 5 ('--profile')`
+(decision 0066 ruling 6), not the catalogue sentence.
+
+The existing compiled refusal rows are retained:
+
+- grant states: `an_authored_capability_option_refuses_the_compile_under_every_grant_state`;
+- servers at agent, chain and sequence sites: `an_authored_capability_server_refuses_…`;
+- inline typed allow beside an option: `an_inline_typed_allow_beside_an_authored_capability_option_…`;
+- agent links on legacy adapter data: `an_agent_backed_link_on_legacy_adapter_data_refuses_too`.
+
+An agent-backed site has no recipe-authored command, because its argv is
+adapter data, judged at load (unit 11).
+
+**Restriction rows** (managed Read/empty, CQ1) are unit 21's. 21.3 stays
+open.
+
+### Baseline
+
+Production is unchanged at `4d11cc4b`. The new tests pass on it, so no
+baseline red is intended. Each binds by the mutations below. The T2
+`typed` row records the refusal observed on this head.
+
+### Mutations (each compiles; restored from a saved copy)
+
+| # | Mutation | Failed (and nothing else new) |
+|---|---|---|
+| MC1 | `bundle.rs:2818` library owner `root: source.library.join("mutated")` | T1: the 10 library rows. T2: `tally`, `flash`. `an_eligible_rejoin_…` at the new charter assertion. `a_boxed_inline_seats_hands_…` at the new assertion (rerun). Also the pre-existing `an_empty_harness_fragment_…`. |
+| MC2 | `bundle.rs:7082` layer key `format!("{}.moved", …)` | T1: the 8 inline rows. T2: `lanetally`, `typed`, `dsh`. `an_eligible_rejoin_…` and `a_boxed_inline_seats_hands_…` at the new charter assertions. |
+| MS2 | `adapters.rs` `codex_rejoin` omits `-c sandbox_mode=…` | T1 `codex[0]`, where the offer is refused whole ("not the driver's own lead …, rebuild unit 5d-fix-c2"). Also the pre-existing `an_eligible_rejoin_…` and `a_compiled_rejoin_…`. |
+| MS3 | `adapters.rs` `dsh_command` appends `--verbose` | T2 `dsh` and `flash` **only**: no other compiled test saw it. |
+| MS4 | `adapters.rs` `serving_command` rebuilds a `lanetally` command from `extra[1..]` | T2 `lanetally` and `tally`, and the pre-existing `an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_…`. |
+| MS5 | `route_overlay.rs` `claim` returns `Ok(None)` for any `--patch` | T2 `route` only: the overlay no longer begins with the route (`Some(false)`). |
+| MR1 | `capabilities.rs:1784` `authored_refusal` only where `!who.seat.contains(':')` | T3 at the 12 nested Claude, LaneTally and Codex rows. Codex nested sites then compiled (`Ok("compiled 9 sites")`), and Claude ones fell to a later, different refusal. Also the pre-existing `an_authored_capability_server_…`. |
+| MR2 | `native_controls.rs` `parse_origin` treats `dsh` as opaque | T3 at the 6 DSH rows (each `Ok("compiled 9 sites")`), and nothing else. |
+
+After each mutation the file was restored with `cp` from
+`.forge/unit-20/*.orig` (or `git checkout` for `native_controls.rs`).
+`cmp` against the saved copies and `git status --short` then listed only
+the test file.
+
+### Standing-admission lines and fixture migrations
+
+None. Only a named file changed.
+
+### Follow-ups (observed, not changed here)
+
+- **F-LT, compile/launch disagreement.** On the shipped adapters, an inline
+  LaneTally seat with a typed `tools.allow` compiles. Its driver's final
+  check then refuses the launch: `the adapter template's '--allowedTools'
+  allow list names tool 'Bash' for provider 'lanetally', … did not lower`.
+  With Claude's native declarations copied into the LaneTally adapter, the
+  same shape launches (`an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_…`).
+  This is fail-closed, and no shipped recipe seats LaneTally. It is a
+  follow-up for the operator: either the compile should refuse it, or the
+  launch should admit it.
+- **No-hands Codex links.** An agent-backed Codex link without hands carries
+  no sandbox class. Its offered rejoin is therefore declined
+  (`sandbox-unavailable`) and served cold. This is observed behaviour and
+  is recorded in the matrix.
+- **Narrower evidence remains narrower.** The protocol suite's
+  `an_authored_config_still_turns_a_rejoin_cold_…` (token, bool and "no
+  `resume`" only) and the engine suite's prompt `starts_with`/`ends_with`
+  close no row. They were not changed here.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean. The first run failed on `type_complexity` at the T2
+  rows vector; a `Row` type alias fixed it.
+- `cargo test -p brokkr-runtime --all-features --locked`: every `test
+  result` ok (lib `625 passed`, `capability_launch` `62 passed`).
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+### Pending
+
+- The protocol and CLI crate suites were not rerun. Their files did not
+  change; protocol production was mutated and restored byte-identical.
+- `bundles/self`/`verify` compiles: not rerun.
+- macOS: unobserved. `driver_spawned` needs `unix` and `/bin/sh`, and
+  its tests are `#[cfg(unix)]`.
+- Exact coverage outside the box, remote CI and the council.
