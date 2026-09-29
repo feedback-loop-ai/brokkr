@@ -1,5 +1,8 @@
 /target/
 /.forge/
 
+# A pending insta snapshot: read it, then commit the `.snap` it becomes.
+*.snap.new
+
 # The diagram renderer the non-Rust lints job installs from its lockfile.
 /.github/lint/node_modules/
