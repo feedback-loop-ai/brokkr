@@ -151,6 +151,17 @@ pub(crate) fn stopped_mid_flight_store(db: &std::path::Path, run_id: &str) {
 /// `resume` can be aimed at it under its bundle. The fixture file itself
 /// is never opened for writing and never edited.
 pub(crate) fn stopped_mid_flight_run(db: &std::path::Path, run_id: &str, manifest: &Value) {
+    stopped_mid_flight_copy(db, run_id, manifest, None);
+}
+
+/// The same copy, its `run/started` recording `charters` as a start now
+/// records the bindings it checked (rebuild unit 19), when given.
+fn stopped_mid_flight_copy(
+    db: &std::path::Path,
+    run_id: &str,
+    manifest: &Value,
+    charters: Option<&Value>,
+) {
     let ndjson = std::fs::read_to_string(
         workspace().join("fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson"),
     )
@@ -164,8 +175,12 @@ pub(crate) fn stopped_mid_flight_run(db: &std::path::Path, run_id: &str, manifes
         .create_run(run_id, "tui graph: the selection box", "test", manifest)
         .unwrap();
     for event in &events {
+        let mut payload = event.payload.clone();
+        if let (EventType::RunStarted, Some(charters)) = (event.event_type, charters) {
+            payload["charters"] = charters.clone();
+        }
         store
-            .append_next(run_id, event.event_type, event.payload.clone(), None, None)
+            .append_next(run_id, event.event_type, payload, None, None)
             .unwrap();
     }
 }
@@ -2663,6 +2678,11 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
 /// database is touched and the fixture is never edited — and the run it
 /// leaves behind reads `stopped`, with the process exiting 3 (hard
 /// stop), not 0.
+///
+/// The fixture's own start recorded no charter bindings, so a resume of
+/// it verbatim is refused `unrecorded` (rebuild unit 19;
+/// operator ruling 2026-09-29, no grandfathering). The conclusion is proved
+/// on the same copy with the bindings a start records today.
 #[test]
 fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() {
     let dir = tempfile::tempdir().unwrap();
@@ -2677,22 +2697,32 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
         &workspace().join("adapters"),
     )
     .unwrap();
-    stopped_mid_flight_run(&db, "stopped-mid-flight", &bundle.manifest);
-
-    assert_eq!(
+    let resume = |run: &str| {
         run_in(
             &workspace(),
             cli(Cmd::Resume(ResumeArgs {
-                bundle: Some(bundle_path),
+                bundle: Some(bundle_path.clone()),
                 recipe: None,
                 recipes_dir: workspace().join("recipes"),
-                run: "stopped-mid-flight".into(),
+                run: run.into(),
                 db: db.clone(),
                 repo: None,
                 secrets_file: None,
-            }))
+            })),
         )
-        .unwrap(),
+    };
+    stopped_mid_flight_run(&db, "unrecorded", &bundle.manifest);
+    assert_eq!(
+        resume("unrecorded").unwrap_err().to_string(),
+        "a charter of layer 'fast' moved since the compile (unrecorded: roles/implementer.md); \
+         a run is started or resumed only over the charters the bundle's identity names, so \
+         restore it, or recompile and start a new run (decision 0066 ruling 5)"
+    );
+
+    let charters = brokkr_runtime::bundle::charters_intact(&bundle).unwrap();
+    stopped_mid_flight_copy(&db, "stopped-mid-flight", &bundle.manifest, Some(&charters));
+    assert_eq!(
+        resume("stopped-mid-flight").unwrap(),
         ExitCode::from(3),
         "a stopped run reporting success would be a lie to the shell",
     );

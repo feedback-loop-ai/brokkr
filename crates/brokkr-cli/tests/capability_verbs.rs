@@ -48,7 +48,10 @@ const DEFINITION: &str = "capabilities/web-search.json";
 const DIALECT: &str = "dialects/tools/codex-native-search.json";
 
 struct Workspace {
-    dir: tempfile::TempDir,
+    /// Held so the directory lives as long as the workspace.
+    _dir: tempfile::TempDir,
+    /// The directory's canonical path, which every fixture is built under.
+    root: PathBuf,
 }
 
 impl Workspace {
@@ -56,8 +59,10 @@ impl Workspace {
     /// `web-search`, the shipped exec adapter, and an operated repository
     /// `repo/` beside them. No map and no operator data yet.
     fn new() -> Workspace {
+        let dir = tempfile::tempdir().unwrap();
         let ws = Workspace {
-            dir: tempfile::tempdir().unwrap(),
+            root: dir.path().canonicalize().unwrap(),
+            _dir: dir,
         };
         let bundle = ws.path().join("bundle");
         std::fs::create_dir_all(bundle.join("scripts")).unwrap();
@@ -98,7 +103,7 @@ impl Workspace {
     }
 
     fn path(&self) -> &Path {
-        self.dir.path()
+        &self.root
     }
 
     /// The shipped definition and Codex dialect, verbatim, under `root`.
@@ -386,12 +391,14 @@ fn a_resume_reads_no_active_input_the_run_did_not_pin() {
 
 /// Rebuild unit 19 (design D7; task 19.1): through the verbs, a run pinned
 /// in a mapped world and one pinned in none each resume only over the
-/// charter its manifest names. Changed, relinked to an equal-byte copy
+/// charter its manifest names. Relinked to an equal-byte twin inside its
+/// layer, replaced by equal bytes, changed, relinked to an equal-byte copy
 /// outside the recipe, or removed, the charter refuses the resume by its
 /// exact cause, and nothing is appended. The file the run started over,
-/// put back, resumes it. The verb recompiles first, so these are the
-/// compile's and the manifest's refusals; the engine's own door, over a
-/// bundle nothing recompiled, is proved in `brokkr-runtime`'s engine tests.
+/// put back, resumes it. The verb recompiles first: the first two compile
+/// to the pinned manifest and are refused by the binding the run recorded
+/// at its start (review return F1); the rest are the compile's and the
+/// manifest's refusals.
 #[test]
 fn a_resume_over_a_retargeted_or_missing_charter_is_refused_mapped_or_not() {
     for mapped in [true, false] {
@@ -404,6 +411,8 @@ fn a_resume_over_a_retargeted_or_missing_charter_is_refused_mapped_or_not() {
             false => ws.operator_data("repo"),
         }
         let roles = ws.path().join("bundle/roles");
+        // An equal-byte twin inside the layer, there before the run starts.
+        std::fs::write(roles.join("twin.md"), "# work\n").unwrap();
         let (code, stderr) = ws.verb("run", None);
         assert_eq!(code, Some(0), "{stderr}");
         let run = run_id(&stderr);
@@ -417,14 +426,33 @@ fn a_resume_over_a_retargeted_or_missing_charter_is_refused_mapped_or_not() {
         std::fs::write(ws.path().join("outside.md"), "# work\n").unwrap();
         let declared = format!(
             "bundle: {}: seat 'review' names role 'roles/work.md', which",
-            ws.path()
-                .join("bundle")
-                .canonicalize()
-                .unwrap()
-                .join("bundle.json")
-                .display()
+            ws.path().join("bundle/bundle.json").display()
         );
-        let rows: [(&dyn Fn(), String); 3] = [
+        // Relinked to the twin, or replaced by a new file of equal bytes, the
+        // charter compiles to the manifest the run pinned: only the binding
+        // the run recorded at its start refuses the recompiled bundle.
+        let moved = |cause: &str| {
+            format!(
+                "a charter of layer 'asking' moved since the compile ({cause}: roles/work.md); a \
+                 run is started or resumed only over the charters the bundle's identity names, so \
+                 restore it, or recompile and start a new run (decision 0066 ruling 5)"
+            )
+        };
+        let rows: [(&dyn Fn(), String); 5] = [
+            (
+                &|| {
+                    std::fs::remove_file(&charter).unwrap();
+                    std::os::unix::fs::symlink("twin.md", &charter).unwrap();
+                },
+                moved("retargeted"),
+            ),
+            (
+                &|| {
+                    std::fs::remove_file(&charter).unwrap();
+                    std::fs::write(&charter, "# work\n").unwrap();
+                },
+                moved("replaced"),
+            ),
             (
                 &|| {
                     std::fs::remove_file(&charter).unwrap();

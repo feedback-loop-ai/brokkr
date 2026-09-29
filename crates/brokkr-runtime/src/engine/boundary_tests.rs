@@ -2768,6 +2768,195 @@ fn a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume() {
     );
 }
 
+/// Rebuild unit 19, review return (F1): A RESUME IS HELD TO THE BINDINGS
+/// ITS RUN STARTED OVER, NOT TO A RECOMPILE'S. The resume verb compiles the
+/// bundle again, and a recompile binds each charter afresh: relinked to an
+/// equal-byte twin already inside its owner, or replaced by a new file of
+/// equal bytes, a charter compiles to the very manifest the run pinned. The
+/// run's `run/started` event records each binding, and a resume over the
+/// recompiled bundle refuses by the owner and the cause, and writes nothing;
+/// the file the run started over, put back, resumes it. A run with no record
+/// (started before one was kept) and a record naming a charter the bundle no
+/// longer selects refuse too.
+#[cfg(unix)]
+#[test]
+fn a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let realm = root.join("realm");
+    two_owners(&realm, "charters/worker.md");
+    let owners = [
+        (
+            "layer 'recipe'",
+            realm.join("recipe/roles/review.md"),
+            "roles/review.md",
+            "roles/twin.md",
+        ),
+        (
+            "agent 'worker'",
+            realm.join("agents/charters/worker.md"),
+            "worker.md",
+            "charters/twin.md",
+        ),
+    ];
+    // Each twin is there, with its charter's bytes, before the compile.
+    for (_, charter, _, _) in &owners {
+        std::fs::copy(charter, charter.with_file_name("twin.md")).unwrap();
+    }
+    let recompile = || {
+        Bundle::compile_with_realm(
+            &realm.join("recipe"),
+            &realm.join("agents"),
+            &realm.join("adapters"),
+            None,
+            None,
+            brokkr_core::realms::Boundary::Namespace,
+        )
+        .expect("the recipe compiles")
+    };
+    let bundle = recompile();
+    let work = root.join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let run = Engine::start(store_at(&root), bundle.clone(), "f", Some(work.clone()))
+        .expect("the compiled charters start a run")
+        .run_id;
+    let record = store_at(&root).load(&run).unwrap()[0].payload["charters"].clone();
+    let recorded: Vec<(&str, &str, &str, &str, bool)> = record
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            let binding = entry["binding"].as_str().unwrap();
+            (
+                entry["owner"].as_str().unwrap(),
+                entry["reference"].as_str().unwrap(),
+                entry["key"].as_str().unwrap(),
+                entry["target"].as_str().unwrap(),
+                binding.len() == 64 && binding.bytes().all(|b| b.is_ascii_hexdigit()),
+            )
+        })
+        .collect();
+    assert_eq!(
+        recorded,
+        [
+            (
+                "agent 'worker'",
+                "charters/worker.md",
+                "worker.md",
+                "charters/worker.md",
+                true
+            ),
+            (
+                "layer 'recipe'",
+                "roles/review.md",
+                "roles/review.md",
+                "roles/review.md",
+                true
+            ),
+        ]
+    );
+    let resume = |run: &str| {
+        Engine::resume(store_at(&root), recompile(), run, Some(work.clone()))
+            .map(|engine| engine.run_id)
+            .map_err(|error| error.to_string())
+    };
+    assert_eq!(resume(&run), Ok(run.clone()));
+    let written = || {
+        let store = store_at(&root);
+        let events = store.load(&run).unwrap();
+        let ids: Vec<String> = events.into_iter().map(|event| event.event_id).collect();
+        (store.list_runs().unwrap().len(), ids)
+    };
+    let before = written();
+    let refusal = |owner: &str, cause: &str| {
+        Err(format!(
+            "a charter of {owner} moved since the compile ({cause}); a run is started or resumed \
+             only over the charters the bundle's identity names, so restore it, or recompile and \
+             start a new run (decision 0066 ruling 5)"
+        ))
+    };
+    for (owner, charter, key, twin) in &owners {
+        let original = root.join(format!("{key}.original").replace('/', "-"));
+        std::fs::hard_link(charter, &original).unwrap();
+        let text = std::fs::read(charter).unwrap();
+        let rows: [(&str, &dyn Fn()); 2] = [
+            ("retargeted", &|| {
+                std::fs::remove_file(charter).unwrap();
+                std::os::unix::fs::symlink("twin.md", charter).unwrap();
+            }),
+            ("replaced", &|| {
+                std::fs::remove_file(charter).unwrap();
+                std::fs::write(charter, &text).unwrap();
+            }),
+        ];
+        for (cause, act) in rows {
+            act();
+            let moved = recompile();
+            assert_eq!(
+                moved.manifest, bundle.manifest,
+                "{owner} {cause}: the recompile moves no identity"
+            );
+            let bound: std::collections::BTreeSet<&str> = moved
+                .charters
+                .values()
+                .flatten()
+                .map(|pin| pin.binding.keys()[1])
+                .collect();
+            let mut targets =
+                std::collections::BTreeSet::from(["roles/review.md", "charters/worker.md"]);
+            if cause == "retargeted" {
+                targets.retain(|target| !target.ends_with(*key));
+                targets.insert(twin);
+            }
+            assert_eq!(bound, targets, "{owner} {cause}: what the recompile bound");
+            assert_eq!(
+                resume(&run),
+                refusal(owner, &format!("{cause}: {key}")),
+                "{owner} {cause}: resume"
+            );
+            assert_eq!(written(), before, "{owner} {cause}: nothing is written");
+            std::fs::remove_file(charter).unwrap();
+            std::fs::hard_link(&original, charter).unwrap();
+            assert_eq!(resume(&run), Ok(run.clone()), "{owner} {cause}: restored");
+        }
+    }
+    // A run whose start recorded no bindings, and one whose record names a
+    // charter this bundle does not select, planted beside it.
+    let mut extra = record.clone();
+    extra.as_array_mut().unwrap().push(
+        json!({"owner": "layer 'gone'", "reference": "roles/gone.md", "key": "roles/gone.md",
+               "target": "roles/gone.md", "binding": "0".repeat(64)}),
+    );
+    for (id, charters, refused) in [
+        (
+            "f-unrecorded",
+            None,
+            refusal("agent 'worker'", "unrecorded: worker.md"),
+        ),
+        (
+            "f-unselected",
+            Some(extra),
+            refusal(
+                "bundle 'recipe'",
+                "unselected: a charter the run started over",
+            ),
+        ),
+    ] {
+        let mut store = store_at(&root);
+        let mut payload = json!({"feature": "f", "manifest": bundle.manifest});
+        if let Some(charters) = charters {
+            payload["charters"] = charters;
+        }
+        store
+            .create_run(id, "f", &bundle.name, &bundle.manifest)
+            .unwrap();
+        store
+            .append_next(id, EventType::RunStarted, payload, None, None)
+            .unwrap();
+        assert_eq!(resume(id), refused, "{id}");
+    }
+}
+
 /// The probe is asked once per engine process and remembered: a second
 /// dispatch of the same engine spawns no second probe.
 #[test]

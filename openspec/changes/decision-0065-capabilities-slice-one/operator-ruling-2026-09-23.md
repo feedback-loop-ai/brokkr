@@ -203,3 +203,9 @@ Rebuild unit 14a3 builds both: (A) in `crates/brokkr-protocol/src/native_control
 OPERATOR RULINGS, 2026-09-27 (on 14b's third visit, run 0065-rebuild-unit-14-see-the-uni-d32a2322):
 (1) An UNSELECTED inventory entry neither grants nor denies a capability the seat holds through its selected entry. This mirrors 12-fix's ruling that authority follows the selected holding only. check_final's denial pass counts denials only from the selected entries' semantics. An unselected entry's OFF for a held capability is not a denial (capability_launch.rs:6457).
 (2) Under the `harness` boundary there is no Brokkr box. "The engine's workspace hands" are the adapter's own hands.harness.work or hands.harness.gate fragment (decision 0046 ruling 4). The composition seals THAT fragment, not hands.workspace, when the boundary is harness. check_final's R1 admits exactly that fragment under harness, and nowhere else (capability_launch.rs:6751).
+
+## Addendum, 2026-09-29: runs without recorded charter bindings; unit 19 admission
+
+OPERATOR RULING 2026-09-29 (unit 19).
+1. NO GRANDFATHERING FOR UNRECORDED RUNS. A run whose run/started records no charter bindings (every run started before this change) is refused at pinned resume with the exact cause `unrecorded`. There is no intact-only or digest-only fallback. Such runs are concluded and re-fired.
+2. ADMISSION FOR TWO TEST FILES, for unit 19 only: (a) crates/brokkr-cli/tests/witness_journal.rs may add `charters` to the pinned run/started key list; (b) crates/brokkr-cli/src/tests.rs may change the resume of the frozen fixture fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson to assert the exact `unrecorded` refusal, and may re-prove the TUI graph resume on a fresh journal the test builds with recorded bindings. The frozen fixture file itself does not move. Each changed assertion is bound by a baseline red, a compiling mutation and a restored pass.

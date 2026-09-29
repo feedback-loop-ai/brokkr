@@ -32,9 +32,9 @@ use uuid::Uuid;
 #[allow(unused_imports)]
 use crate::agents::{Candidate, HarnessHands, Lowering, ResultDoor};
 use crate::bundle::{
-    charters_intact, dialect_results, layer_drift, site_charter_text, Aggregate, Bundle,
-    CharterPin, ExecutableBody, HandsState, PanelMember, Seat, SeatBody, SeatClass, SequenceStep,
-    SiteFacts, StepBody, ENGINE_VERSION, REALM_FACTS,
+    charters_as_started, charters_intact, dialect_results, layer_drift, site_charter_text,
+    Aggregate, Bundle, CharterPin, ExecutableBody, HandsState, PanelMember, Seat, SeatBody,
+    SeatClass, SequenceStep, SiteFacts, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -198,9 +198,14 @@ fn refuse_unbuilt(bundle: &Bundle) -> Result<(), EngineError> {
 
 /// Rebuild unit 19 (design D7): the start and resume doors' charter check.
 /// Every binding the compile selected, library and layer alike, is read
-/// again through its owner; a recompile is not what makes it pass.
-fn refuse_moved_charter(bundle: &Bundle) -> Result<(), EngineError> {
-    charters_intact(bundle).map_err(|(owner, key)| EngineError::CharterMoved { owner, key })
+/// again through its owner; a recompile is not what makes it pass. `Ok` is
+/// the bindings checked, which a start records in its `run/started` event.
+fn refuse_moved_charter(bundle: &Bundle) -> Result<Value, EngineError> {
+    charters_intact(bundle).map_err(charter_moved)
+}
+
+fn charter_moved((owner, key): (String, String)) -> EngineError {
+    EngineError::CharterMoved { owner, key }
 }
 
 impl EngineError {
@@ -432,8 +437,10 @@ impl Engine {
             return Err(EngineError::CapabilityInputMoved { input, problem });
         }
         // And every charter the bundle bound, where its owner stands now
-        // (rebuild unit 19): no run is journaled over one that moved.
-        refuse_moved_charter(&bundle)?;
+        // (rebuild unit 19): no run is journaled over one that moved. The
+        // bindings checked are recorded with the run, so its resume, over a
+        // bundle compiled again, is held to them (review return F1).
+        let charters = refuse_moved_charter(&bundle)?;
         // Pinned for the same operated repository the fence judged, so a
         // run started from a mapped workspace with no `--repo` still
         // names its realm — and resumes under the word it was started
@@ -446,7 +453,7 @@ impl Engine {
         store.append_next(
             &run_id,
             EventType::RunStarted,
-            json!({"feature": feature, "manifest": manifest}),
+            json!({"feature": feature, "manifest": manifest, "charters": charters}),
             None,
             None,
         )?;
@@ -479,13 +486,13 @@ impl Engine {
         refuse_unbuilt(&bundle)?;
         dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
         verify_dispatch_bundle_bounds(&dispatch, &bundle)?;
-        refuse_moved_charter(&bundle)?;
+        let charters = refuse_moved_charter(&bundle)?;
         let manifest = build_run_manifest_v2(&bundle.manifest, dispatch)?;
         store.create_run(&run_id, feature, &bundle.name, &manifest)?;
         store.append_next(
             &run_id,
             EventType::RunStarted,
-            json!({"feature": feature, "manifest": manifest}),
+            json!({"feature": feature, "manifest": manifest, "charters": charters}),
             None,
             None,
         )?;
@@ -534,9 +541,16 @@ impl Engine {
         }
         // An equal manifest is the pinned identity, not the pinned bytes:
         // each charter it names is read again through its owner, whether the
-        // run pinned a world or none (rebuild unit 19).
-        refuse_moved_charter(&bundle)?;
+        // run pinned a world or none (rebuild unit 19), and must be the
+        // binding the run STARTED over: the bundle here may be compiled
+        // again, and a recompile binds an equal-byte retarget afresh without
+        // moving the manifest (review return F1).
         let events = store.load(run_id)?;
+        let started = events
+            .first()
+            .filter(|event| event.event_type == EventType::RunStarted)
+            .and_then(|event| event.payload.get("charters"));
+        charters_as_started(&bundle, started).map_err(charter_moved)?;
         let feature = fold(&events)?.feature.unwrap_or("unknown".to_string());
         Ok(Engine {
             store,

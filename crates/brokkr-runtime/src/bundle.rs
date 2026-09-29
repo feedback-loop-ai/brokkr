@@ -5650,12 +5650,120 @@ pub fn site_charter_text(
 /// compile. `Err` is the first binding's complaint, in the two pieces a
 /// refusal is written from. Nothing read here is kept: every dispatch still
 /// reads its own site's charter at the door.
-pub fn charters_intact(bundle: &Bundle) -> Result<(), (String, String)> {
-    bundle
-        .charters
-        .values()
-        .flatten()
-        .try_for_each(|pin| pinned_charter(bundle, pin).map(drop))
+///
+/// Its review return (F1): `Ok` is what a run records at its start, one
+/// entry per binding — its owner, key, target and [`binding_digest`] — so
+/// that a resume, whose bundle is compiled again, is held to the bindings
+/// the run STARTED over ([`charters_as_started`]), not the recompile's.
+pub fn charters_intact(bundle: &Bundle) -> Result<Value, (String, String)> {
+    bound_charters(bundle).map(|bound| charter_record(&bound))
+}
+
+/// Rebuild unit 19, review return (F1): a pinned resume over the bindings
+/// its run started over. A recompile reads each charter afresh, so an
+/// equal-byte retarget inside the owner, or a file replaced by equal bytes,
+/// compiles to the very manifest the run pinned and binds anew; checked
+/// against `started` — the run's own record, from [`charters_intact`] at its
+/// start — each binding must be the one the run began with. A binding the
+/// run did not record (a run started before its record existed) refuses:
+/// nothing vouches for it.
+pub fn charters_as_started(
+    bundle: &Bundle,
+    started: Option<&Value>,
+) -> Result<(), (String, String)> {
+    let now = bound_charters(bundle)?;
+    let started = started.cloned().unwrap_or_else(|| json!([]));
+    for (owner, reference, key, target, binding) in &now {
+        // Matched by owner and reference as written: a library's key is its
+        // charter's file name, which a retarget moves.
+        let was =
+            started.as_array().into_iter().flatten().find(|was| {
+                was["owner"] == owner.as_str() && was["reference"] == reference.as_str()
+            });
+        let cause = match was {
+            None => "unrecorded",
+            Some(was) if was["target"] != target.as_str() => "retargeted",
+            Some(was) if was["binding"] != binding.as_str() => "replaced",
+            Some(_) => continue,
+        };
+        let key = was.and_then(|was| was["key"].as_str()).unwrap_or(key);
+        return Err((owner.clone(), format!("{cause}: {key}")));
+    }
+    // Every binding matched one the run recorded; a recorded binding this
+    // bundle no longer selects is the one thing left to differ.
+    match started == charter_record(&now) {
+        true => Ok(()),
+        false => Err((
+            format!("bundle '{}'", bundle.name),
+            "unselected: a charter the run started over".to_string(),
+        )),
+    }
+}
+
+/// One binding as a run records it: owner, reference, key, target, binding
+/// digest.
+type BoundCharter = (String, String, String, String, String);
+
+/// Every charter the bundle bound, each checked through [`pinned_charter`],
+/// as a run records it.
+fn bound_charters(bundle: &Bundle) -> Result<BTreeSet<BoundCharter>, (String, String)> {
+    let mut bound = BTreeSet::new();
+    for pin in bundle.charters.values().flatten() {
+        pinned_charter(bundle, pin)?;
+        let (owner, key) = owned(bundle, pin)?;
+        let (reference, target) = (pin.reference.clone(), pin.binding.target_key.clone());
+        bound.insert((owner, reference, key, target, binding_digest(pin)));
+    }
+    Ok(bound)
+}
+
+fn charter_record(bound: &BTreeSet<BoundCharter>) -> Value {
+    bound
+        .iter()
+        .map(|(owner, reference, key, target, binding)| {
+            json!({"owner": owner, "reference": reference, "key": key, "target": target,
+                   "binding": binding})
+        })
+        .collect()
+}
+
+/// The digest of a pin's whole binding and the owner directory its read
+/// reached: every key, step, link text and `(dev, ino)` [`pinned_charter`]
+/// compares, each part length-prefixed so no two bindings encode alike.
+fn binding_digest(pin: &CharterPin) -> String {
+    let Binding {
+        key,
+        target_key,
+        id,
+        steps,
+    } = &pin.binding;
+    let identity = |(dev, ino): (u64, u64)| [dev.to_be_bytes(), ino.to_be_bytes()].concat();
+    let mut bytes = Vec::new();
+    let mut put = |part: &[u8]| {
+        bytes.extend_from_slice(&(part.len() as u64).to_be_bytes());
+        bytes.extend_from_slice(part);
+    };
+    put(key.as_bytes());
+    put(target_key.as_bytes());
+    put(&identity(*id));
+    for step in steps {
+        match step {
+            Step::Entry(name, id) => {
+                put(b"entry");
+                put(name.as_encoded_bytes());
+                put(&identity(*id));
+            }
+            Step::Link(name, text) => {
+                put(b"link");
+                put(name.as_encoded_bytes());
+                put(text.as_encoded_bytes());
+            }
+        }
+    }
+    for directory in &pin.directory.0 {
+        put(&identity(*directory));
+    }
+    sha256_bytes(&bytes)
 }
 
 /// The owner and key a pin's refusals name. A pin whose layer is not one of

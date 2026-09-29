@@ -3972,7 +3972,7 @@ defect). Production: `bundle.rs` only. Tests: `engine/boundary_tests.rs`.
 
 ## 19. Unit 19 — Enforce charter integrity at start and pinned resume
 
-- [ ] 19.1 Unit 19 proves owner-bound start/resume checks for changed/excluded/retargeted/missing/restored charters. Verify retained map-edit/identity/unmapped-root behavior. Requirements: [Library charter pins are enforced at consumption][MPL], [Active instructions and policy cannot escape bundle identity][MPI], [Realm context is resolved before capability authorization][RG5]. Reopened/remaining: operator ruling 3. (previous 6.4)
+- [x] 19.1 Unit 19 proves owner-bound start/resume checks for changed/excluded/retargeted/missing/restored charters. Verify retained map-edit/identity/unmapped-root behavior. Requirements: [Library charter pins are enforced at consumption][MPL], [Active instructions and policy cannot escape bundle identity][MPI], [Realm context is resolved before capability authorization][RG5]. Reopened/remaining: operator ruling 3. (previous 6.4)
 
 Unit 19 (2026-09-29, run `0065-rebuild-unit-19-see-the-uni-6f959130`, based
 on `58a268e6`; evidence.md, "Unit 19"). Production: `engine.rs`,
@@ -4042,6 +4042,50 @@ addendum on unit 19 exists in `operator-ruling-2026-09-23.md`. The saved
 patch still applies to `9bed6803`, its hash is unchanged, and both blocking
 tests are unchanged. Evidence.md, "Unit 19 — re-fire", has the checks.
 Nothing was rebuilt.
+
+**Landed 2026-09-29 as unit 19-fix (run `…-2183fb26`, based on `184ed2f6`;
+evidence.md, "Unit 19-fix"). 19.1 closes on what is observed there.** The
+operator's ruling of 2026-09-29 is appended verbatim to
+`operator-ruling-2026-09-23.md` ("runs without recorded charter bindings;
+unit 19 admission"). It rules no grandfathering: an unrecorded run is refused
+`unrecorded`. It also admits the two test files.
+
+- The saved patch's sha256 is unchanged (`f9cbac78…`), and
+  `git apply --check` passed on `184ed2f6`. It was applied verbatim, with no
+  re-derivation.
+- Admitted lines:
+  - `witness_journal.rs:38-40`: `charters` added to the golden `run/started`
+    key list.
+  - `src/tests.rs`: the frozen-fixture resume now asserts the exact
+    `unrecorded: roles/implementer.md` refusal (`:2714-2720`). The operator
+    stop's conclusion is re-proved on a copy that records its bindings
+    (`:2722-2729`), through a private helper `stopped_mid_flight_copy`
+    (`:157-187`). The fixture file is only read.
+- No standing-admission lines. No fixture migrations.
+- Baseline reds:
+  - With production at `184ed2f6`: witness `:245`, verbs `:485` and
+    boundary `:2826` fail.
+  - With the patch in and the old test text: witness `:243` and tests.rs
+    `:2695` fail.
+- Mutations, each caught and then restored:
+  - M1 and M1k (start door records nothing, or drops the key).
+  - M1d (dispatch start).
+  - M2 (resume door: intact-only).
+  - M3 (`unrecorded` grandfathered).
+  - M4 (no `retargeted` arm).
+  - M5 (digest ignores identity, so an equal-byte replacement passes).
+  - M6 (a recorded run finds no binding).
+- Gates: fmt and clippy clean. The runtime suite passed (25 results, all ok,
+  lib 624) and so did the CLI suite (33 results, all ok, lib 482).
+  `bundles/self` (`45dc1c7e…`) and `verify` (`f7cbd4bb…`) are unchanged.
+  Strict OpenSpec and `git diff --check` are clean.
+- Follow-up for the operator: a run with no record, over a bundle that binds
+  no charter, still resumes. The check is per binding, as the saved patch
+  wrote it. Refusing that case too fails two tests in `engine/tests.rs`,
+  which is outside this unit.
+- **Pending.** macOS; exact coverage outside the box; the workspace-wide
+  `cargo test` (only the two touched crates were run); remote CI and the
+  council.
 
 ## 20. Unit 20 — Audit compiled refusal and serving shapes
 

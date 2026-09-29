@@ -20661,3 +20661,143 @@ the landing:
 - An admission for `witness_journal.rs` and `src/tests.rs`.
 
 Then the saved patch lands with its owed per-branch mutations.
+
+## Unit 19-fix — landing the saved repair, 2026-09-29
+
+Run `0065-rebuild-unit-19-see-the-uni-2183fb26`, based on `184ed2f6`. It
+lands the saved repair of unit 19's review return (F1, F2) under the
+operator's ruling of 2026-09-29, which this visit appended verbatim to
+`operator-ruling-2026-09-23.md` as "2026-09-29: runs without recorded charter
+bindings; unit 19 admission". It closes 19.1.
+
+### The patch
+
+- `sha256sum .forge/unit-19-fix/unit-19-f1-oversized.patch`:
+  `f9cbac788d8315af13c7d7d9a41fb4f770280ff6db1950d7acbf227d8b797b36`, which
+  is unchanged. `git apply --check` passed against `184ed2f6`, so it was
+  applied verbatim, with no re-derivation. It touches `bundle.rs`,
+  `engine.rs`, `engine/boundary_tests.rs` and `capability_verbs.rs`, all of
+  them the unit's own files.
+- After every mutation below, `git apply -R --check --include=
+  'crates/brokkr-runtime/*'` of the saved patch passed on the restored tree.
+  So the production that lands is the saved patch byte for byte.
+
+What it does is described under "Unit 19 — review return" above. Each start
+door records a `charters` list in `run/started`, and `Engine::resume` holds
+the recompiled bundle's bindings to that list (`charters_as_started`). A
+binding the run did not record is refused `unrecorded`. A recorded binding
+whose target moved is refused `retargeted`, and one whose binding digest moved
+is refused `replaced`. A recorded binding the bundle no longer selects is
+refused `unselected`. F2: `capability_verbs.rs` builds under the
+canonicalised temporary root.
+
+### The admitted test-file changes (ruling of 2026-09-29, point 2)
+
+- (a) `crates/brokkr-cli/tests/witness_journal.rs:38-40`: the golden
+  `run/started` key list becomes `["charters", "feature", "manifest"]`, with
+  a two-line comment naming the ruling.
+- (b) `crates/brokkr-cli/src/tests.rs`:
+  `resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three`
+  (`:2687`). A verbatim copy of the frozen fixture, run `unrecorded`, is now
+  refused, and the test asserts the exact line (`:2714-2720`): "a charter of
+  layer 'fast' moved since the compile (unrecorded: roles/implementer.md); a
+  run is started or resumed only over the charters the bundle's identity
+  names, so restore it, or recompile and start a new run (decision 0066
+  ruling 5)". The TUI graph resume is re-proved on a second copy,
+  `stopped-mid-flight`. Its `run/started` records the bindings a start
+  records today, taken from `brokkr_runtime::bundle::charters_intact` over
+  the same bundle (`:2722-2729`). That copy's existing assertions are
+  unchanged: exit 3, tail seq 106 `run/stopped`, the OPERATOR-STOP reason,
+  and the fold. A private helper, `stopped_mid_flight_copy` (`:157-187`),
+  plants the record. `stopped_mid_flight_run` delegates to it with `None`,
+  so its two other callers (`:147`, `:3341`) are unchanged. The fixture file
+  `fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson` is
+  only read. `git diff --stat -- fixtures/ contracts/ policy/ reference/
+  extensions/` is empty.
+- No standing-admission lines, and no fixture migrations.
+
+### Baseline reds
+
+- The patch applied, with both admitted files still at `184ed2f6`:
+  - `witness_journal.rs:243` fails: the left side carries `("run/started",
+    ["charters", "feature", "manifest"])`.
+  - `src/tests.rs:2695` fails on `unwrap()`: "a charter of layer 'fast'
+    moved since the compile (unrecorded: roles/implementer.md)…".
+- Production reverted to `184ed2f6` (`git show HEAD:` of both files), with
+  the tests at this visit's text:
+  - `witness_journal.rs:245` fails: the left side is `("run/started",
+    ["feature", "manifest"])`.
+  - `capability_verbs.rs:485` fails, `Some(0)` against `Some(1)`: the first
+    new row (retargeted to the twin) resumes.
+  - `boundary_tests.rs:2826` fails on `unwrap()` of `None`: no record.
+  - `src/tests.rs` does not compile against `184ed2f6`, where
+    `charters_intact` returns `()`. Its baseline is M2 below, which puts back
+    `184ed2f6`'s resume check (`refuse_moved_charter`, the intact-only read).
+    It now runs after the journal load instead of before it. That load
+    writes nothing.
+
+### Mutations
+
+Each mutation compiled, failed the named assertion, and was restored from the
+patched copy in `.forge/unit-19-fix/orig/`. The restored tree passed.
+
+| # | Mutation | Failed |
+|---|---|---|
+| M1 | Start door (`start_in_world`) records `charters: null` | `boundary_tests.rs:2826` (`None` unwrap); `capability_verbs.rs:490` (`unrecorded` for `retargeted`) |
+| M1k | Start door drops the `charters` key | `witness_journal.rs:245` |
+| M1d | Dispatch start door (`start_with_dispatch`) records `null` | `engine/tests.rs:1560` `bound_start_resume_and_manifest_differences_are_explicit` (`CharterMoved { owner: "bundle 'test'", key: "unselected: …" }`) |
+| M2 | Resume door: `charters_as_started` replaced by `refuse_moved_charter` (recompile-intact only) | `boundary_tests.rs:2912` (`Ok` for `retargeted: roles/review.md`); `capability_verbs.rs:485`; `src/tests.rs:2716` (`unwrap_err` on `Ok(ExitCode 3)`) |
+| M3 | `unrecorded` grandfathered: no record falls back to `charters_intact` | `boundary_tests.rs:2956` (`Ok("f-unrecorded")`); `src/tests.rs:2716` |
+| M4 | The `retargeted` arm removed (target not compared) | `boundary_tests.rs:2912` and `capability_verbs.rs:490` (`replaced` for `retargeted`) |
+| M5 | `binding_digest` drops every `(dev, ino)`: an equal-byte replacement reads as the recorded binding | `boundary_tests.rs:2912` (`Ok` for `replaced`); `capability_verbs.rs:485` |
+| M6 | Record lookup matches owner against reference: a recorded run finds none of its bindings | `src/tests.rs:2725` (the recorded copy is refused `unrecorded: roles/implementer.md`) |
+
+M2, M4 and M5 bind the owed case: an equal-byte retarget, or an equal-byte
+replacement, refused at the pinned resume even though the recompile rebinds
+it to the pinned manifest. `boundary_tests.rs` asserts that the recompile's
+manifest equals the pinned one and that the recompile bound the twin, before
+it asserts the refusal.
+
+Restored passes: `a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over`,
+`a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume`,
+`a_resume_over_a_retargeted_or_missing_charter_is_refused_mapped_or_not`,
+`a_non_adopting_run_journals_exactly_the_events_it_always_did` and
+`resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three`.
+
+### Reading of point 1, and a residual for the operator
+
+The refusal is per binding, as the saved patch writes it. A bundle that binds
+no charter has nothing that can be `unrecorded`, so a run with no record over
+such a bundle still resumes. The probe below shows this. Refusing it too,
+with `if started.is_none()`, fails
+`engine::tests::an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it`
+and `engine::tests::resume_carries_no_world_where_the_run_had_none_and_refuses_a_broken_pin`.
+Both plant a charterless run with no record. They are in `engine/tests.rs`,
+which is outside this unit. (The probe also moves the exact owner in this
+unit's two tests.) The probe was reverted. So every unrecorded run whose
+bundle binds at least one charter is refused `unrecorded`, and the
+charterless case is left for the operator as a follow-up.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 results, all
+  ok (lib 624).
+- `cargo test -p brokkr-cli --all-features --locked`: 33 results, all ok,
+  and 0 `FAILED`/`panicked` lines (lib 482).
+- `compile --bundle bundles/self`: `45dc1c7e…`, unchanged.
+  `bundles/verify`: `f7cbd4bb…`, unchanged.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+### Pending
+
+- macOS: unobserved.
+- Exact coverage outside the box: not run here.
+- Remote CI and the council.
+- The workspace-wide `cargo test`: not run. Only the two touched crates'
+  suites were run.
