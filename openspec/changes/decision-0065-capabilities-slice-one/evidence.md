@@ -22455,3 +22455,319 @@ open until 21-fix-b.
 - **Pending.** macOS, exact coverage outside the box
   (`scripts/coverage-exact.sh`), remote CI, the council, and unit
   21-fix-b.
+
+## Unit 21-fix-b — 2026-09-29 (the restriction matrix; 21.1 and 21.3 close)
+
+Run `0065-rebuild-unit-21-see-the-uni-ff7c4b7b`, based on `434231de`
+(21-fix-a and its review return). Tests only, under the operator's ruling
+of 2026-09-29, item 4. One file changed:
+`crates/brokkr-runtime/tests/capability_launch.rs`.
+`crates/brokkr-protocol/src/adapters/tests.rs` is unchanged; its unit 21
+test is re-run under M1 and M2 below. No production byte moved. Every
+mutation below was restored with `git checkout --`, and `git status
+--short` then listed only the test file.
+
+Every fixture compiles through `Bundle::compile_with_capabilities` in the
+canonicalised `Operator` root: a real v6 realm map, the shipped or copied
+`capabilities/`, `dialects/tools/` and adapters. No Controls are
+hand-built, no `.forge/` file is read, and no provider is installed (the
+`claude`/`codex` binaries are version-reporting shims). Every command is
+an independent ordered literal.
+
+### Helpers (no assertion of their own)
+
+- `compile_every_shape_on`: unit 20's matrix compiled against a stated
+  adapters root and realm context, with `asks` written on every inline
+  site and office where given. `compile_every_shape` now calls it with the
+  shipped adapters, no grants and no asks, so unit 20's matrix is
+  unchanged (its test passes in the suite run below).
+- `claude_rejoined_at`: `claude_rejoined` for any candidate. The old
+  function delegates at candidate 0.
+- `hosts_grant`: the `codex-search-hosts` dialect and its restricted
+  grant, lifted unchanged out of the CQ1 test so both CQ1 tests share them.
+- `one_shape`: one seat `x` of a given shape (single, gate, panel,
+  sequence, select, or inherited from `shape-base`), every site seated
+  alike, beside the protected plain `review` gate.
+- `matrix_charter`: the charter unit 20's matrix wrote for an inline site
+  or an office.
+
+### The rows (R2)
+
+**`a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape`**
+(`capability_launch.rs:11048`; 21.1, 21.3).
+
+- Unit 20's matrix is compiled twice on a copy of the shipped adapters.
+  The only change is Claude's web-search OFF: `["--tools", "Read"]`, then
+  `["--tools="]`. The realm grants nothing.
+- The rows are every compiled Claude candidate, asserted equal to the
+  bundle's set: 28 per spelling. Nine sites each for:
+  - the inline Claude carrier: work seat, the gate `review`, panel member
+    and peer, sequence step and next, select case and default, and the
+    seat inherited from `base`;
+  - the office `pair-claude` (Claude primary);
+  - the office `pair` (the selected Claude FALLBACK, candidate 1).
+  The 28th is `claude-typed`.
+- Each row is one JSON object:
+  - the charter pin: owner, reference, path, digest;
+  - the manifest candidate record, declaration digest out. Nothing is
+    held, both powers are OFF with the exact `the realm does not grant it
+    to this seat` reason, and there are no notices;
+  - `prompt()`;
+  - the whole plan `controls()`: the OFF argv as declared, and the deny
+    selection `[WebFetch]`;
+  - whole commands:
+    - cold;
+    - at a work site, an ACTUAL eligible rejoin (`claude_rejoined_at`,
+      ending `--resume <session>`);
+    - at a work site, the offer declined under the compiled (unmeasured)
+      assessment, served cold on the shim.
+- Every served command ends `--tools "" --disallowedTools WebFetch`. An
+  office row carries `--permission-mode acceptEdits` before the pins.
+- The three gates are offered no session.
+- `claude-typed` (typed `tools.allow: [cargo]`): its plan's `local` is
+  `["Bash(cargo:*)"]`. Cold, rejoined and declined are each the driver's
+  whole refusal: `… explicit '--tools' restriction for provider 'claude'
+  (naming Read|naming no tool) does not name tool 'Bash', which the local
+  permissions of the site's typed 'tools.allow' admit; … (design D6)`.
+  This is I1 as unit 12-fix-c landed it.
+- Boxed (`namespace`): 18 rows per spelling, 36 in all. Six shapes
+  (`one_shape`), each seated three ways:
+  - inline with hands;
+  - through the office `boxed-claude` (opus, hands);
+  - through `boxed-pair` (astra then opus, hands), where the Claude link
+    is the fallback.
+
+  Each refuses the compile whole: `bundle: bundle: seat '<x|x:member|x:step|x:engine>'
+  (office '<office>') in realm 'private': the capability plan's explicit
+  '--tools' restriction for provider 'claude' (<naming>) does not name tool
+  'mcp__brokkr__workspace', which the site's typed hands admit; … (design
+  D6) (composed: shape -> shape-base)`. Beside each, the same shape on the
+  SHIPPED adapters compiles and holds that site: the positive control.
+
+**`a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_shape`**
+(`:11287`; 21.3; RG4 CQ1; D11).
+
+- Setup: unit 20's matrix on the SHIPPED adapters. The realm grants
+  `web-search` through `codex-search-hosts`, restricted to `a.example`
+  (`hosts_grant`). Every inline site and every office asks for it.
+- **requires** refuses the whole matrix at the first site it resolves:
+  `bundle: bundle: seat 'boxed' (office 'boxed') in realm 'private':
+  requires capability 'web-search' through dialect 'codex-search-hosts',
+  but provider 'codex' cannot express restriction 'allow.hosts'; the
+  capability cannot be held under this grant (composed: matrix -> base)`.
+- **wants**:
+  - the grant is pinned exactly as written;
+  - the rows are every compiled Codex candidate, asserted equal to the
+    bundle's set: 36. Nine sites each for the inline Codex carrier (its
+    work seat under the typed `workspace-write`, and its gate under the
+    typed `read-only`), `pair` (Codex primary), `pair-claude` (the selected
+    Codex FALLBACK), and `boxed` (hands, served under `harness` with the
+    harness's own sandbox).
+- Each wants row asserts:
+  - the charter;
+  - the manifest candidate record: nothing held; `not_held` is `provider
+    'codex' cannot express restriction 'allow.hosts'; native capability
+    remains OFF`; and one notice, `seat '<label>' (office '<office>') in
+    realm 'private': dropped wanted capability 'web-search' through
+    dialect 'codex-search-hosts' because …`;
+  - `prompt()`;
+  - that neither record nor prompt contains `a.example`;
+  - whole commands, each with the OFF `-c web_search="disabled"`:
+    - cold;
+    - at a work site, the offered session under the COMPILED
+      assessment. The typed work seat and the eight `boxed` work sites
+      get an ACTUAL `exec resume … <thread> -`; every other work site is
+      declined and served cold on the shim.
+
+**`a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_resume`**
+(`:10550`, extended; 21.3).
+
+- **requires, over the declared transport** (the copied Codex adapter
+  declaring `["--image", "{restrictions_json}"]`) refuses inline and
+  through the office `searcher`: `… requires capability 'web-search'
+  through dialect 'codex-search-hosts', but provider 'codex' cannot express
+  restriction 'allow.hosts' through its declared transport, which carries
+  only the empty restriction until a provider restriction transport is
+  measured (operator ruling of 2026-09-25); the capability cannot be held
+  under this grant`. The shipped-adapter requires pair is kept, in the
+  same loop.
+- **unused, over the declared transport**: the inline seat asks nothing,
+  and the agent seat subtracts its office's want. Each has:
+  - the grant pinned as written;
+  - no holding and no notice;
+  - the reason `granted, but this seat does not request it` (inline) or
+    `this seat subtracted it from its office's asks` (agent);
+  - the OFF served cold and on an actual `exec resume`.
+
+### R2's paths, mapped
+
+| Path | Managed Read/empty (Claude) | CQ1 (Codex) |
+|---|---|---|
+| gate | `review`, `pair-claude-gate`, `pair-gate`[1]: cold whole | `codex-gate` (typed `read-only`), `pair-gate`, `pair-claude-gate`[1], `boxed-gate`: cold whole |
+| panel member / peer | `*-panel:member`, `*-panel:peer` | same |
+| sequence step / next | `*-steps:step`, `*-steps:next` | same |
+| select case / default | `*-pick:engine`, `*-pick:default` | same |
+| inherited | `claude-base`, `pair-claude-base`, `pair-base`[1] | `codex-base`, `pair-base`, `pair-claude-base`[1], `boxed-base` |
+| fallback | every `pair*` site, candidate 1 | every `pair-claude*` site, candidate 1 |
+| boxed | 36 compile refusals (six shapes × three seatings × two spellings), each beside a compiling shipped control | the `boxed` office at all nine sites (hands under `harness`), rejoined at work sites; requires refuses at `boxed` first |
+| requires / unused over a declared transport | not applicable (no Claude restriction transport) | inline and office rows above |
+
+Stated, not proved here:
+
+- **21.2 stays deferred (D11).** No row holds a nonempty restriction. The
+  held rows are only the empty restriction over a transport, as before.
+- **The panel-member rejoin positive stays deferred** (addendum of
+  2026-09-26). Inline Codex panel members, and every other nested inline
+  Codex site, are declined and served cold here. They are not rejoined.
+  Claude's rejoin rows use the synthesized supported assessment that
+  unit 21 documented (`claude_rejoined`). They prove composition and
+  session shape, not shipped or live Claude eligibility.
+- **Requires across the matrix.** A requires refusal is whole-bundle, so
+  the matrix shows its first site only (`boxed`). Per-site requires rows
+  are the inline and office rows, on the shipped adapters and over the
+  transport.
+- **No restriction row exists for these paths, by design:**
+  - Under `harness`, a Claude site with hands is refused by decision
+    0046 (inline: `declares hands under the harness boundary`; office:
+    `declares no hands.harness.work fragment`), before any restriction.
+    This was observed in a scratch probe (`.forge/u21fb-probe3.log`) and is
+    not committed.
+  - LaneTally and DSH carry no managed limit (their inventories are
+    unmeasured, and a LaneTally typed allow refuses at compile, R5).
+    Under CQ1 they, and Claude, drop the want because they `cannot carry
+    a binding to provider 'codex'`. That is not a restriction outcome.
+    It was observed in the scratch probe `.forge/u21fb-probe2.log`, and
+    the new test does not assert it.
+
+### M1, M2 and M4 re-run: now refused by the final check
+
+Each mutation was applied alone to `crates/brokkr-protocol/src/adapters.rs`
+(the shared serving builder), then compiled. It was run with `cargo test
+--locked -p brokkr-runtime --test capability_launch -- a_managed_read
+a_restricted_grant`, and for M1 and M2 also `cargo test --locked -p
+brokkr-protocol --lib a_compiled_managed_read_limit`. Then it was
+restored.
+
+- **M1: cold `--tools ""` lost.** `claude_serving` drains the `--tools`
+  pair when not rejoining.
+  - 3 runtime tests FAILED, 61 rows. Each Claude matrix row served a
+    limit: 27 per spelling, on `cold`, and on `declined` at work sites.
+    Also unit 21's six limit rows and the joined prompt value. Every
+    `rejoined` stayed intact.
+  - Each failing value is the final check's REFUSAL: `refusing to invoke
+    the agent CLI: the final command of harness 'claude' leaves tool
+    'WebSearch' available, which its plan denies as native capability
+    'web-search'; a complete command is parsed back before its spawn and
+    must express exactly the capability state its sealed plan records, so
+    it is refused rather than spawned (operator ruling 2 of 2026-09-23;
+    design D6)`.
+  - The protocol test failed on its three limit rows, `cold`, with the
+    same refusal.
+  - `claude-typed` did not move, because its D6 refusal comes first. The
+    deny-list rows did not move either.
+- **M2: rejoin `--tools ""` lost.** The same drain, only when rejoining.
+  - 55 rows failed, each only on `rejoined`, with the same refusal. They
+    are the 24 work-site rows per spelling, unit 21's six, and the joined
+    prompt value.
+  - The protocol test failed on its three `rejoined` rows. Every cold and
+    declined value was intact.
+- **M4: the agent-backed Codex rejoin OFF lost.** `codex_rejoin` extends
+  `managed…take(0)`.
+  - 17 rows failed, on `offered`/`rejoined` only.
+  - The 12 agent-backed rejoins are refused by delivery: the eight
+    `boxed` work sites of the CQ1 matrix, and the four agent rows of the
+    CQ1 test (wants, unused, and each over the transport). The refusal is
+    `… the final command of harness 'codex' leaves native capability
+    'web-search' on, which its plan denies by its measured OFF; … (operator
+    ruling 2 of 2026-09-23; design D6)`.
+  - The five inline rejoins (`codex` and the four inline CQ1 rows) are
+    refused by the inline launch's attribution check, as in unit 21's
+    first visit.
+- **Baseline: the same removals under the pre-21-fix-a check.**
+  `native_controls.rs` was replaced by `87c522b5`'s bytes, each diff
+  above was applied, the same runtime tests were run, then both files
+  were restored.
+  - B1 (M1): 61 rows failed with every `cold` SERVED (0 `cold` Err). For
+    example, `pair[1]` served `claude -p … --effort high --disallowedTools
+    WebFetch`.
+  - B2 (M2): 55 rows failed with every `rejoined` SERVED (0 Err). For
+    example, `pair[1]` rejoined `… --disallowedTools WebFetch --resume
+    019c4b7e-…-000000000221`.
+  - B4 (M4): 17 rows failed. The 12 agent-backed rejoins were SERVED
+    without the OFF, for example `boxed[0]`: `codex exec resume --json -c
+    sandbox_mode="workspace-write" … --model gpt-6-astra <thread> -`. No
+    `leaves native capability` refusal appeared. The five inline rejoins
+    were refused by the attribution check.
+
+  This is F21-1 observed. Every value these rows receive changes from
+  served to refused across `87c522b5` → `434231de`'s `native_controls.rs`.
+  The protocol-suite baseline under the old check was not run.
+
+### The other removals (each new row bound)
+
+- **M3: Codex cold OFF lost** (`codex_cold` extends `managed…take(0)`).
+  - 2 tests failed, 44 rows. All 36 CQ1 matrix rows, and the 8 served
+    CQ1 rows other than the empty restriction.
+  - Each `cold` is the delivery refusal. All 32 work rows' `offered`
+    values are refused as well: 31 with the delivery refusal, and the
+    inline `codex` rejoin with the inline attribution refusal. The 23
+    declined ones are served cold. The eight `boxed` rejoins (for example
+    `boxed[0]`) are agent-backed, and why a lost cold OFF reaches them was
+    not traced here.
+- **M10a: the hands conflict removed.** `native_controls.rs` `admit`
+  returns `Ok` for `Admission::Typed(Typed::Hands)`.
+  - All 36 boxed rows compiled (`[Ok(true), Ok(true)]`) instead of
+    refusing. Unit 21's boxed row compiled too (`Ok(5)`).
+- **M10b: the local-permission conflict removed.** The same for
+  `Typed::Local`.
+  - Only `claude-typed` failed, both spellings. It was SERVED a widened
+    `--tools Bash … --allowedTools Bash(cargo:*)`.
+- **M11: the CQ1 restriction refusal removed.** `capabilities.rs` reads
+  `if false && !grant.restrictions.is_empty()`.
+  - The matrix requires refused elsewhere, at a Claude site on the
+    binding reason. All 36 matrix wants rows failed. All four requires
+    rows (shipped and transport) compiled (`Ok(5)`). The wants rows of the
+    CQ1 test failed.
+- **M12: the transport deferral dropped.** The `Transport::Argv` arm
+  reads as unsupported.
+  - Only the two requires-over-transport rows and the two
+    wants-over-transport rows failed.
+- The unused-over-transport rows are bound by M3 and M4 (their OFF), and
+  by 21-fix-a's R3 mutations of the reason.
+- **Baseline red of the new rows.** None is observable on this base: the
+  rows prove behaviour 21-fix-a and earlier units built, and this unit
+  moves no production. So they passed on their first run
+  (`.forge/u21fb-t1-first.log`, `.forge/u21fb-t2-first.log`). The intended
+  reds are the isolated compiling removals above. The builder-loss reds
+  under the old check (B1, B2, B4) are the baseline for R1's re-run.
+- **Restored.** `git status --short` listed only
+  `capability_launch.rs`. The saved test copy matched it (`cmp`), and the
+  suite runs below are on that tree.
+
+### Observation (not fixed)
+
+- A typed `tools.allow` under a managed limit refuses at the driver
+  (`claude-typed`), while the typed hands refuse at compile (boxed). Both
+  are whole D6 refusals, and the launch refusal is I1 as unit 12-fix-c
+  landed it. Nothing is served either way.
+
+### Admissions and gates
+
+- No standing-admission lines and no fixture migrations. No frozen file,
+  `policy/`, `fixtures/`, `reference/`, `extensions/` or `contracts/` byte
+  moved. The removed test lines are the CQ1 test's dialect setup (now
+  `hosts_grant`) and its requires pair (now in the transport loop, with
+  the same expectations). No assertion was dropped.
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, 0 warnings.
+- `cargo test --locked -p brokkr-runtime --all-features`: 25 result lines,
+  all ok. The lib has 627 and `capability_launch` 67 (65 + 2).
+- `cargo test --locked -p brokkr-protocol --all-features`: 546, 99 (2
+  ignored) and 1 passed, 0 failed.
+- `compile --bundle bundles/self` and `bundles/verify`: both compile.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed.
+- `git diff --check`: clean.
+- **Pending.** macOS, exact coverage outside the box
+  (`scripts/coverage-exact.sh`), remote CI and the council.

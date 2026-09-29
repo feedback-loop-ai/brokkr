@@ -4352,13 +4352,13 @@ changed; no production file moved.
 
 ## 21. Unit 21 — Prove compiled cold and actual-resume restrictions
 
-- [ ] 21.1 Unit 21 proves managed Read/empty restrictions in compiled cold/eligible-resume Claude/LaneTally shapes. Verify authored lists refuse, prompt integrity and independent inventory. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Prompt values cannot absorb a composed control][NCP], [Subtractive tool lists never grant a capability][RGS]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.4)
+- [x] 21.1 Unit 21 proves managed Read/empty restrictions in compiled cold/eligible-resume Claude/LaneTally shapes. Verify authored lists refuse, prompt integrity and independent inventory. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Prompt values cannot absorb a composed control][NCP], [Subtractive tool lists never grant a capability][RGS]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.4)
 
 21.2 is **deferred** to the restriction-transport slice by the operator's
 addendum of 2026-09-25 (design.md D11). The task, unticked, is under "Deferred
 to the restriction-transport slice" below.
 
-- [ ] 21.3 Units 20–21 map every supported launch shape to real compiled full literal/refusal assertions and selected charter facts. Verify holdings-only/is_ok do not close rows; close only after unit 21 proves the managed Read/empty and CQ1 restriction rows too (narrowed by the addendum of 2026-09-25; the held nonempty rows are deferred below). Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.5)
+- [x] 21.3 Units 20–21 map every supported launch shape to real compiled full literal/refusal assertions and selected charter facts. Verify holdings-only/is_ok do not close rows; close only after unit 21 proves the managed Read/empty and CQ1 restriction rows too (narrowed by the addendum of 2026-09-25; the held nonempty rows are deferred below). Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.5)
 
   **Advanced by unit 20 (2026-09-29).** evidence.md, "Unit 20 — the
   compiled refusal and serving-shape matrix", maps every supported
@@ -4400,6 +4400,11 @@ to the restriction-transport slice" below.
   refusal, not the gate, panel, sequence, selected/inherited, boxed and
   fallback restriction paths, nor CQ1's requires and unused rows over a
   declared transport (R2).
+
+  **Closed by unit 21-fix-b (2026-09-29).** Those paths now have their
+  rows, mapped in evidence.md, "Unit 21-fix-b", "R2's paths, mapped".
+  Each is a whole command or a whole refusal beside the site's charter
+  pin, with its removal evidence.
 
 **Unit 21, 2026-09-29 (run `0065-rebuild-unit-21-see-the-uni-2f15a7aa`,
 based on `08a11221`; evidence.md, "Unit 21"): 21.1 and 21.3 close.** No
@@ -4557,6 +4562,74 @@ The earlier "R1 and R3 repaired" claim held only for denials.
   unchanged.
 - **Pending:** macOS, exact coverage outside the box, remote CI, the
   council and 21-fix-b.
+
+**Unit 21-fix-b, 2026-09-29 (run `0065-rebuild-unit-21-see-the-uni-ff7c4b7b`,
+based on `434231de`; evidence.md, "Unit 21-fix-b"): 21.1 and 21.3 close.**
+Tests only. `capability_launch.rs` changed; `adapters/tests.rs` did not.
+No production byte moved.
+
+- **Managed Read/empty at every Claude site shape (R2).**
+  `a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape`
+  compiles unit 20's matrix under the `--tools Read` and `--tools=` OFFs.
+  Its rows are all 28 Claude candidates per spelling:
+  - inline, the office primary and the office FALLBACK;
+  - at the work seat, the gate, the panel member and peer, the sequence
+    step and next, the select case and default, and the inherited seat;
+  - `claude-typed`.
+
+  Each row asserts the charter, the manifest record, the prompt, the whole
+  plan, and whole cold, actual-rejoin and declined commands. Every served
+  command carries `--tools "" --disallowedTools WebFetch`. `claude-typed`
+  is the whole D6 refusal. Boxed, six shapes, each seated inline, through
+  an office and through a fallback office, refuse the compile whole (36
+  rows), and each has a compiling shipped control.
+- **CQ1 at every Codex site shape (R2).**
+  `a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_shape`.
+  - requires refuses the matrix whole.
+  - wants drops at all 36 Codex candidates: inline, primary, FALLBACK and
+    the boxed office, at every shape. Each has its exact notice, the OFF
+    cold, and the offered session (actual `exec resume` or declined).
+    The grant is pinned as written, and no host leaks.
+- **CQ1 over a declared transport (R2).** The CQ1 test gains requires
+  (inline and office), which refuses naming the deferral, and unused,
+  which stays pinned and inactive with the OFF cold and resumed.
+- **M1, M2 and M4 re-run.** Each builder loss in `adapters.rs` is now
+  REFUSED by the final check:
+  - M1 and M2 (Claude `--tools ""` lost cold and on rejoin):
+    `leaves tool 'WebSearch' available …`.
+  - M4 (Codex rejoin OFF lost): `leaves native capability 'web-search'
+    on …`, for all 12 agent-backed rejoins.
+
+  The baseline under `87c522b5`'s `native_controls.rs`: the same removals
+  were SERVED (61, 55 and 12 rows).
+- **Other removals caught, then restored:**
+  - M3, the Codex cold OFF;
+  - M10a and M10b, the hands and local-permission conflicts;
+  - M11, the CQ1 restriction refusal;
+  - M12, the transport deferral.
+
+  No baseline red is observable for the new rows, because they prove
+  landed behaviour; the reason is recorded.
+- **Deferred, stated:**
+  - 21.2 (D11): no nonempty restriction is held;
+  - the panel-member rejoin positive: nested inline Codex sites are
+    declined and served cold;
+  - Claude rejoins use unit 21's synthesized supported assessment;
+  - a requires refusal names only the matrix's first site;
+  - under `harness`, boxed Claude is refused by decision 0046, and
+    LaneTally and DSH carry no restriction path.
+- No standing-admission lines and no fixture migrations. The CQ1 test's
+  dialect setup moved into `hosts_grant`, and its requires pair moved into
+  the transport loop with the same expectations.
+- **Gates** (final tree). All clean or passing:
+  - `fmt` and `clippy`;
+  - `-p brokkr-runtime` (25 ok; `capability_launch` 67) and
+    `-p brokkr-protocol` (546, 99, 1);
+  - both bundles;
+  - `openspec validate --all --strict --no-interactive` (18 passed);
+  - `git diff --check`.
+- **Pending:** macOS, exact coverage outside the box, remote CI and the
+  council.
 
 ## 22. Unit 22 — Submit whole plans to doctor
 

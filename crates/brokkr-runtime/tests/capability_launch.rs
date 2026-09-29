@@ -8978,6 +8978,26 @@ fn every_shape(operator: &Operator) -> Bundle {
 /// office `tally-typed` (`Some("agent")`), a LaneTally agent whose own
 /// `tools.allow` is `[cargo]`. The compile's own words either way.
 fn compile_every_shape(operator: &Operator, tally: Option<&str>) -> Result<Bundle, String> {
+    let context = CapabilityContext::no_grants("private", operator.root());
+    compile_every_shape_on(
+        operator,
+        tally,
+        &workspace().join("adapters"),
+        &context,
+        None,
+    )
+}
+
+/// [`compile_every_shape`] against a stated adapters root and realm
+/// context, with `asks` written on every inline site and every office
+/// where it is given (rebuild unit 21-fix-b).
+fn compile_every_shape_on(
+    operator: &Operator,
+    tally: Option<&str>,
+    adapters: &Path,
+    context: &CapabilityContext,
+    asks: Option<&Value>,
+) -> Result<Bundle, String> {
     let root = operator.root();
     let command = |harness: &str| -> Value {
         let model = match harness {
@@ -9008,6 +9028,9 @@ fn compile_every_shape(operator: &Operator, tally: Option<&str>) -> Result<Bundl
         if office == "boxed" {
             agent["hands"] = json!({"kind": "workspace", "network": false, "binds": []});
         }
+        if let Some(asks) = asks {
+            agent["capabilities"] = asks.clone();
+        }
         write(root, &format!("agents/{office}.json"), &agent);
     }
     // One carrier seated at one site: its own charter file for an inline
@@ -9018,7 +9041,11 @@ fn compile_every_shape(operator: &Operator, tally: Option<&str>) -> Result<Bundl
                 let role = format!("roles/{}.md", label.replace(':', "-"));
                 std::fs::create_dir_all(root.join(layer).join("roles")).unwrap();
                 std::fs::write(root.join(layer).join(&role), format!("# {label}\n")).unwrap();
-                json!({"role": role, "driver": {"command": command(carrier)}})
+                let mut site = json!({"role": role, "driver": {"command": command(carrier)}});
+                if let Some(asks) = asks {
+                    site["capabilities"] = asks.clone();
+                }
+                site
             }
             _ => json!({"agent": carrier}),
         }
@@ -9173,11 +9200,11 @@ fn compile_every_shape(operator: &Operator, tally: Option<&str>) -> Result<Bundl
     Bundle::compile_with_capabilities(
         &root.join("matrix"),
         &root.join("agents"),
-        &workspace().join("adapters"),
+        adapters,
         Some("private"),
         None,
         Boundary::Harness,
-        &CapabilityContext::no_grants("private", root),
+        context,
     )
     .map_err(|refusal| refusal.to_string())
 }
@@ -9238,7 +9265,11 @@ fn dsh_prompt(charter: &str, phase: &str, workdir: &str) -> String {
 /// and
 /// [`a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_inventory_apart`],
 /// and CQ1's in
-/// [`a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_resume`].
+/// [`a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_resume`];
+/// this matrix's own site shapes carry them in
+/// [`a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape`]
+/// and
+/// [`a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_shape`].
 #[cfg(unix)]
 #[test]
 fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside_its_charter() {
@@ -9914,7 +9945,21 @@ fn claude_rejoined(
     bin: &Path,
     session: &str,
 ) -> Result<Vec<String>, String> {
-    let (extra, mut input) = dispatched(bundle, label, 0, brokkr_runtime::SeatClass::Work, "/w")?;
+    claude_rejoined_at(bundle, label, 0, bin, session)
+}
+
+/// [`claude_rejoined`] for the site's candidate `candidate`, a primary or
+/// a selected fallback (rebuild unit 21-fix-b).
+#[cfg(unix)]
+fn claude_rejoined_at(
+    bundle: &Bundle,
+    label: &str,
+    candidate: usize,
+    bin: &Path,
+    session: &str,
+) -> Result<Vec<String>, String> {
+    let work = brokkr_runtime::SeatClass::Work;
+    let (extra, mut input) = dispatched(bundle, label, candidate, work, "/w")?;
     input["resume_context"] = json!({"assessment": {"boxed-workspace": {
         "status": "supported",
         "identity": {"version": "2.1.266", "applies_to": "2.1.266"},
@@ -10457,6 +10502,27 @@ fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_invent
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// Rebuild unit 21: the dialect `codex-search-hosts` — the shipped Codex
+/// search dialect with a schema-valid `allow.hosts` restriction — written
+/// into the operator's configuration, and the v6 grant of `web-search`
+/// through it restricted to `a.example`: the grant as written, and the
+/// realm context that carries it.
+fn hosts_grant(operator: &Operator) -> (Value, CapabilityContext) {
+    let root = operator.root();
+    let mut hosts: Value = serde_json::from_slice(
+        &std::fs::read(root.join("dialects/tools/codex-native-search.json")).unwrap(),
+    )
+    .unwrap();
+    hosts["name"] = json!("codex-search-hosts");
+    hosts["restrictions"] = json!({"type": "object", "additionalProperties": false,
+        "properties": {"allow": {"type": "object", "additionalProperties": false,
+            "properties": {"hosts": {"type": "array", "items": {"type": "string"}}}}}});
+    write(root, "dialects/tools/codex-search-hosts.json", &hosts);
+    let grant = json!({"dialect": "codex-search-hosts", "allow": {"hosts": ["a.example"]}});
+    let context = operator.context(json!({"web-search": grant}));
+    (grant, context)
+}
+
 /// Rebuild unit 21 (task 21.3's CQ1 rows; RG4 CQ1; NCC "H3 a nonempty
 /// restriction is never delivered in slice one"; design D11), through a
 /// real v6 realm grant, a schema-valid dialect that declares an
@@ -10473,35 +10539,19 @@ fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_invent
 /// and ACTUAL eligible rejoin (`exec resume`, the offered thread, under
 /// the assessment the bundle compiled from the shipped adapter) is a whole
 /// literal beside the site's charter. Where the adapter declares a
-/// restriction transport, the same restricted want drops naming the
-/// deferral, and an unrestricted grant is held with the empty restriction
-/// and no transport argument.
+/// restriction transport, the same restricted requires refuses and the want
+/// drops, each naming the deferral, an unused grant stays pinned and
+/// inactive as above, and an unrestricted grant is held with the empty
+/// restriction and no transport argument (rebuild unit 21-fix-b, R2). Every
+/// other site shape is
+/// [`a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_shape`]'s.
 #[cfg(unix)]
 #[test]
 fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_resume() {
     use brokkr_runtime::bundle::CharterOwner;
     let operator = Operator::new();
     let shim = codex_reporting(operator.root(), "0.154.0");
-    let mut hosts: Value = serde_json::from_slice(
-        &std::fs::read(
-            operator
-                .root()
-                .join("dialects/tools/codex-native-search.json"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    hosts["name"] = json!("codex-search-hosts");
-    hosts["restrictions"] = json!({"type": "object", "additionalProperties": false,
-        "properties": {"allow": {"type": "object", "additionalProperties": false,
-            "properties": {"hosts": {"type": "array", "items": {"type": "string"}}}}}});
-    write(
-        operator.root(),
-        "dialects/tools/codex-search-hosts.json",
-        &hosts,
-    );
-    let grant = json!({"dialect": "codex-search-hosts", "allow": {"hosts": ["a.example"]}});
-    let restricted = operator.context(json!({"web-search": grant}));
+    let (grant, restricted) = hosts_grant(&operator);
     let unrestricted = operator.context(json!({"web-search": {"dialect": "codex-search-hosts"}}));
     let shipped = workspace().join("adapters");
     let transported = copied_adapters();
@@ -10526,27 +10576,46 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
              capability cannot be held under this grant"
         )
     };
-    let inline_requires = operator
-        .compile(
-            &restricted,
-            Boundary::Harness,
-            Some(json!({"web-search": "requires"})),
-            None,
+    // Over a declared transport, requires refuses naming the deferral
+    // (rebuild unit 21-fix-b, R2).
+    let requires_deferred = |seat: &str, office: &str| {
+        format!(
+            "bundle: seat '{seat}' (office '{office}') in realm 'private': requires capability \
+             'web-search' through dialect 'codex-search-hosts', but {inexpressible} through its \
+             declared transport, which carries only the empty restriction until a provider \
+             restriction transport is measured (operator ruling of 2026-09-25); the capability \
+             cannot be held under this grant"
         )
-        .map(|bundle| bundle.sites.len());
-    office_asks("requires");
-    let office_requires = operator
-        .compile(&restricted, Boundary::Harness, None, None)
-        .map(|bundle| bundle.sites.len());
-    office_asks("wants");
-    for (observed, expected) in [
-        (inline_requires, requires("inline", "inline")),
-        (office_requires, requires("agent", "searcher")),
-    ] {
-        if observed != Err(expected.clone()) {
-            failures.push(format!(
-                "requires:\n  left:  {observed:?}\n  right: {expected:?}"
-            ));
+    };
+    for (adapters, transport) in [(shipped.as_path(), false), (transported.path(), true)] {
+        let inline_requires = operator
+            .compile_against(
+                adapters,
+                &restricted,
+                Boundary::Harness,
+                Some(json!({"web-search": "requires"})),
+                None,
+            )
+            .map(|bundle| bundle.sites.len());
+        office_asks("requires");
+        let office_requires = operator
+            .compile_against(adapters, &restricted, Boundary::Harness, None, None)
+            .map(|bundle| bundle.sites.len());
+        office_asks("wants");
+        let expected = match transport {
+            false => [requires("inline", "inline"), requires("agent", "searcher")],
+            true => [
+                requires_deferred("inline", "inline"),
+                requires_deferred("agent", "searcher"),
+            ],
+        };
+        for (observed, expected) in [inline_requires, office_requires].into_iter().zip(expected) {
+            if observed != Err(expected.clone()) {
+                failures.push(format!(
+                    "requires, transport {transport}:\n  left:  {observed:?}\n  right: \
+                     {expected:?}"
+                ));
+            }
         }
     }
 
@@ -10678,6 +10747,14 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
             grant: grant.clone(),
         },
         Served {
+            case: "unused, over a declared transport",
+            adapters: transported.path(),
+            context: &restricted,
+            asks: None,
+            seat: Some(json!({})),
+            grant: grant.clone(),
+        },
+        Served {
             case: "the empty restriction, over a declared transport",
             adapters: transported.path(),
             context: &unrestricted,
@@ -10708,7 +10785,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
             let (record, _) = undigested(&site.manifest());
             let (asks, subtracted_names, holding, not_held, notices, on, off) =
                 match (row.case, label) {
-                    ("unused", "inline") => (
+                    ("unused" | "unused, over a declared transport", "inline") => (
                         json!({}),
                         json!([]),
                         json!({}),
@@ -10717,7 +10794,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
                         json!([]),
                         true,
                     ),
-                    ("unused", _) => (
+                    ("unused" | "unused, over a declared transport", _) => (
                         json!({}),
                         json!(["web-search"]),
                         json!({}),
@@ -10785,6 +10862,590 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
                     row.case
                 ));
             }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Rebuild unit 21-fix-b: one seat `x` of `shape` — a single work seat, a
+/// gate, a panel (`member` and `peer`), a sequence (`step` then `next`), a
+/// select (case `engine` and the default) or a single work seat the recipe
+/// inherits from its base — every site of it seated with `site`, compiled
+/// under `boundary` against `adapters` in a realm that grants nothing.
+fn one_shape(
+    operator: &Operator,
+    adapters: &Path,
+    boundary: Boundary,
+    shape: &str,
+    site: &Value,
+) -> Result<Bundle, String> {
+    let root = operator.root();
+    // The first step names its results; the last receives the seat's.
+    let step = |name: &str| {
+        let mut step = site.clone();
+        step["name"] = json!(name);
+        if name == "step" {
+            step["results"] = json!(["complete"]);
+        }
+        step
+    };
+    let (results, mut body) = match shape {
+        "gate" => {
+            let mut body = site.clone();
+            body["class"] = json!("gate");
+            (json!(["clean"]), body)
+        }
+        "panel" => (
+            json!(["pass", "fail"]),
+            json!({"aggregate": "unanimous-pass", "panel": {"member": site, "peer": site}}),
+        ),
+        "sequence" => (
+            json!(["complete"]),
+            json!({"sequence": [step("step"), step("next")]}),
+        ),
+        "select" => (
+            json!(["complete"]),
+            json!({"select": {"on": "strategy", "cases": {"engine": site}, "default": site}}),
+        ),
+        _ => (json!(["complete"]), site.clone()),
+    };
+    body["results"] = results.clone();
+    let mut rules: Vec<Value> = results
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(at, result)| {
+            json!({"id": format!("S{at}"), "from": "x", "result": result, "next": "review",
+                   "reason": "r"})
+        })
+        .collect();
+    rules.push(
+        json!({"id": "R", "from": "review", "result": "clean", "next": "done",
+                      "reason": "r"}),
+    );
+    // The protected review gate every layered policy keeps, on a plain
+    // custom driver that composes nothing.
+    let review = json!({"results": ["clean"], "role": "roles/x.md",
+                        "driver": {"command": ["driver"]}});
+    for layer in ["shape", "shape-base"] {
+        std::fs::create_dir_all(root.join(layer).join("roles")).unwrap();
+        std::fs::write(root.join(layer).join("roles/x.md"), "# x\n").unwrap();
+    }
+    write(
+        root,
+        "shape-base/policy.json",
+        &json!({"phases": ["x", "review", "done"], "initial": "x", "terminal": ["done"],
+                "rules": rules}),
+    );
+    let (base, top) = match shape {
+        "inherited" => (json!({"x": body, "review": review}), json!({})),
+        _ => (json!({"review": review}), json!({"x": body})),
+    };
+    write(
+        root,
+        "shape-base/bundle.json",
+        &json!({"name": "shape-base", "policy": "policy.json", "seats": base}),
+    );
+    write(
+        root,
+        "shape/bundle.json",
+        &json!({"name": "shape", "extends": "shape-base", "seats": top}),
+    );
+    Bundle::compile_with_capabilities(
+        &root.join("shape"),
+        &root.join("agents"),
+        adapters,
+        Some("private"),
+        None,
+        boundary,
+        &CapabilityContext::no_grants("private", root),
+    )
+    .map_err(|refusal| refusal.to_string())
+}
+
+/// The charter a site of rebuild unit 20's matrix is told, as it wrote it:
+/// an inline site's own file of `layer` (`# <label>\n`), or its office's
+/// (`# <office>\n`). The owner, the reference as written, the path and
+/// the digest.
+fn matrix_charter(
+    root: &Path,
+    seated: Result<(&str, &str), &str>,
+) -> (
+    brokkr_runtime::bundle::CharterOwner,
+    String,
+    PathBuf,
+    String,
+) {
+    use brokkr_runtime::bundle::CharterOwner;
+    match seated {
+        Ok((layer, label)) => {
+            let dir = root.join(layer);
+            let reference = format!("roles/{}.md", label.replace(':', "-"));
+            (
+                CharterOwner::Layer {
+                    dir: dir.clone(),
+                    key: reference.clone(),
+                },
+                reference.clone(),
+                dir.join(&reference),
+                brokkr_core::canonical::sha256_bytes(format!("# {label}\n").as_bytes()),
+            )
+        }
+        Err(agent) => {
+            let library = root.join("agents");
+            let reference = format!("charters/{agent}.md");
+            (
+                CharterOwner::Library {
+                    agent: agent.to_string(),
+                    root: library.clone(),
+                },
+                reference.clone(),
+                library.join(&reference),
+                brokkr_core::canonical::sha256_bytes(format!("# {agent}\n").as_bytes()),
+            )
+        }
+    }
+}
+
+/// Rebuild unit 21-fix-b (tasks 21.1 and 21.3; unit 21's review return R2;
+/// NCT "Second H4"; NCC; NC6; MPL): THE MANAGED READ/EMPTY LIMIT AT EVERY
+/// COMPILED CLAUDE SITE SHAPE. Rebuild unit 20's matrix
+/// ([`compile_every_shape_on`]) is compiled through real realm, dialect and
+/// candidate resolution on a copy of the shipped adapters whose only change
+/// is Claude's web-search OFF — the split `--tools Read`, or the joined
+/// explicit empty `--tools=` — in a realm that grants nothing. The rows
+/// are every compiled Claude candidate, no more and no fewer: the inline
+/// Claude work seat, the protected gate `review`, a panel member and its
+/// peer, a sequence step and the next, a select case and the default, and
+/// the seat the recipe inherits from `base`; at each of those shapes the
+/// office `pair-claude`'s Claude primary and the office `pair`'s selected
+/// Claude FALLBACK; and the typed `claude-typed`.
+///
+/// Each row asserts, beside the site's selected charter, its manifest
+/// candidate record (nothing held, both powers OFF with their exact
+/// reasons, no notice), its prompt, its whole plan, and whole commands:
+/// cold, and at a work site the ACTUAL eligible rejoin
+/// ([`claude_rejoined_at`]) and the offer declined under the compiled
+/// (unmeasured) assessment, served cold. Every served command carries
+/// `--tools "" --disallowedTools WebFetch`. `claude-typed`'s lowered
+/// `Bash(cargo:*)` is outside the empty limit, so each of its commands is
+/// the driver's whole D6 refusal (I1; rebuild unit 12-fix-c). A gate is
+/// offered no session.
+///
+/// Boxed (`namespace`), a site's typed hands put `mcp__brokkr__workspace`
+/// outside the limit. Every shape ([`one_shape`]) seated inline with hands,
+/// through a Claude office with hands, or through an office whose Claude
+/// link is the fallback, refuses the compile whole, naming the site and
+/// its office; on the shipped adapters the same shapes compile. Under
+/// `harness` a Claude site with hands is refused by decision 0046 before
+/// any restriction applies, so it is no restriction row.
+///
+/// Composition evidence only: whether Claude honours the list live is
+/// unmeasured and owed to the controller.
+#[cfg(unix)]
+#[test]
+fn a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape() {
+    use brokkr_runtime::SeatClass::Work;
+    let operator = Operator::new();
+    let root = operator.root();
+    let claude = claude_reporting(root, "2.1.266");
+    let shim = claude.to_str().unwrap();
+    let session = "019c4b7e-0000-7000-8000-000000000221";
+    let context = CapabilityContext::no_grants("private", root);
+    let hands = json!({"kind": "workspace", "network": false, "binds": []});
+    for (office, models) in [
+        ("boxed-claude", &["opus"][..]),
+        ("boxed-pair", &["astra", "opus"]),
+    ] {
+        std::fs::write(
+            root.join(format!("agents/charters/{office}.md")),
+            format!("# {office}\n"),
+        )
+        .unwrap();
+        let efforts: serde_json::Map<String, Value> = models
+            .iter()
+            .map(|model| (model.to_string(), json!("high")))
+            .collect();
+        write(
+            root,
+            &format!("agents/{office}.json"),
+            &json!({"description": "an office", "charter": format!("charters/{office}.md"),
+                    "models": models, "efforts": efforts, "hands": hands}),
+        );
+    }
+    let words = |parts: &[&[&str]]| -> Vec<String> {
+        parts
+            .iter()
+            .flat_map(|part| part.iter().map(|word| word.to_string()))
+            .collect()
+    };
+    let lead = ["-p", "--output-format", "stream-json", "--verbose"];
+    let pins = ["--model", "claude-opus-5-5", "--effort", "high"];
+    let template = ["--permission-mode", "acceptEdits"];
+    let limited = ["--tools", "", "--disallowedTools", "WebFetch"];
+    let switched_off = "provider 'claude' has it natively, the realm does not grant it to this \
+                        seat, and it is switched off";
+    let not_held = json!({"web-fetch": switched_off, "web-search": switched_off});
+
+    // (site, candidate, class, where its charter is, through an office)
+    type Row<'a> = (
+        String,
+        usize,
+        brokkr_runtime::SeatClass,
+        Result<(&'a str, String), &'a str>,
+    );
+    let mut rows: Vec<Row> = Vec::new();
+    for (carrier, candidate) in [("claude", 0), ("pair-claude", 0), ("pair", 1)] {
+        for (label, class, inherited) in carrier_sites(carrier, true) {
+            let layer = if inherited { "base" } else { "matrix" };
+            let seated = match carrier {
+                "claude" => Ok((layer, label.clone())),
+                office => Err(office),
+            };
+            rows.push((label, candidate, class, seated));
+        }
+    }
+    rows.push((
+        "claude-typed".into(),
+        0,
+        Work,
+        Ok(("matrix", "claude-typed".into())),
+    ));
+    assert_eq!(rows.len(), 28);
+
+    let mut failures = Vec::new();
+    for (case, off, naming) in [
+        ("split Read", json!(["--tools", "Read"]), "naming Read"),
+        (
+            "joined explicit empty",
+            json!(["--tools="]),
+            "naming no tool",
+        ),
+    ] {
+        let adapters = claude_search_off(Some(&off));
+        let bundle = compile_every_shape_on(&operator, None, adapters.path(), &context, None)
+            .unwrap_or_else(|refusal| panic!("{case}: the matrix compiles: {refusal}"));
+        // The rows are every compiled Claude candidate, and nothing else.
+        let compiled: std::collections::BTreeSet<(String, usize)> = bundle
+            .sites
+            .iter()
+            .flat_map(|(label, facts)| {
+                let outcomes = &facts.capabilities.as_ref().unwrap().outcomes;
+                (0..outcomes.len())
+                    .filter(|at| outcomes[*at].provider == "claude")
+                    .map(move |at| (label.clone(), at))
+            })
+            .collect();
+        let written: std::collections::BTreeSet<(String, usize)> = rows
+            .iter()
+            .map(|(label, candidate, ..)| (label.clone(), *candidate))
+            .collect();
+        assert_eq!(written, compiled, "{case}");
+        let typed = format!(
+            "refusing to invoke the agent CLI: the capability plan's explicit '--tools' \
+             restriction for provider 'claude' ({naming}) does not name tool 'Bash', which the \
+             local permissions of the site's typed 'tools.allow' admit; an explicit tool list \
+             is a hard limit that nothing widens, so the conflict is refused whole rather than \
+             unioned (design D6)"
+        );
+        for (label, candidate, class, seated) in &rows {
+            let (label, candidate, class) = (label.as_str(), *candidate, *class);
+            let office = seated.is_err();
+            let site = bundle.sites[label].capabilities.as_ref().unwrap();
+            let outcome = &site.outcomes[candidate];
+            let served = |program: &str, resumed: bool| -> Result<Vec<String>, String> {
+                if label == "claude-typed" {
+                    return Err(typed.clone());
+                }
+                let mut argv = match office {
+                    true => words(&[&[program], &lead, &template, &pins, &limited]),
+                    false => words(&[&[program], &lead, &pins, &limited]),
+                };
+                if resumed {
+                    argv.extend(words(&[&["--resume", session]]));
+                }
+                Ok(argv)
+            };
+            let mut record = json!({"held": {}, "not_held": not_held, "notices": [],
+                "native": {"inventory": "known", "off": ["web-fetch", "web-search"], "on": []},
+                "provider": "claude"});
+            if office {
+                record["model"] = json!("opus");
+            }
+            let local = match label {
+                "claude-typed" => json!(["Bash(cargo:*)"]),
+                _ => json!([]),
+            };
+            let seated = match seated {
+                Ok((layer, label)) => Ok((*layer, label.as_str())),
+                Err(office) => Err(*office),
+            };
+            let offered = class == Work;
+            let observed = json!({
+                "charter": format!("{:?}", charter_of(&bundle, label)),
+                "record": undigested(&site.manifest()).0["candidates"][candidate],
+                "prompt": outcome.prompt(),
+                "plan": outcome.controls(),
+                "cold": format!("{:?}", served_as(&bundle, label, candidate, class, None)),
+                "rejoined": offered.then(|| format!("{:?}",
+                    claude_rejoined_at(&bundle, label, candidate, &claude, session))),
+                "declined": offered.then(|| format!("{:?}",
+                    served_as(&bundle, label, candidate, class, Some((&claude, session))))),
+            });
+            let expected = json!({
+                "charter": format!("{:?}", matrix_charter(root, seated)),
+                "record": record,
+                "prompt": {"held": {}, "not_held": not_held},
+                "plan": {"admits": {}, "argv": off, "guards": claude_guards(), "hands": 0,
+                         "harness": "claude", "inventory": "known", "local": local,
+                         "off": ["web-fetch", "web-search"], "on": [], "provider": "claude",
+                         "selection": {"allow": [], "deny": ["WebFetch"], "include": [],
+                             "flags": {"allow": {"flag": "--allowedTools", "separator": ","},
+                                       "deny": {"flag": "--disallowedTools", "separator": ","},
+                                       "include": {"flag": "--tools", "separator": ","}}}},
+                "cold": format!("{:?}", served("claude", false)),
+                "rejoined": offered.then(|| format!("{:?}", served(shim, true))),
+                "declined": offered.then(|| format!("{:?}", served(shim, false))),
+            });
+            if observed != expected {
+                failures.push(format!(
+                    "{case}, {label}[{candidate}]:\n  left:  {observed:#}\n  right: {expected:#}"
+                ));
+            }
+        }
+
+        // Boxed: every shape, inline with hands, through a Claude office
+        // with hands, and through one whose Claude link is the fallback.
+        let inline = json!({"role": "roles/x.md", "hands": hands, "driver": {"command": [
+            "{brokkr}", "driver", "claude", "--", "--model", "claude-opus-5-5", "--effort",
+            "high"]}});
+        for (shape, label) in [
+            ("single", "x"),
+            ("gate", "x"),
+            ("panel", "x:member"),
+            ("sequence", "x:step"),
+            ("select", "x:engine"),
+            ("inherited", "x"),
+        ] {
+            for (site, office) in [
+                (&inline, label),
+                (&json!({"agent": "boxed-claude"}), "boxed-claude"),
+                (&json!({"agent": "boxed-pair"}), "boxed-pair"),
+            ] {
+                let refused = format!(
+                    "bundle: bundle: seat '{label}' (office '{office}') in realm 'private': the \
+                     capability plan's explicit '--tools' restriction for provider 'claude' \
+                     ({naming}) does not name tool 'mcp__brokkr__workspace', which the site's \
+                     typed hands admit; an explicit tool list is a hard limit that nothing \
+                     widens, so the conflict is refused whole rather than unioned (design D6) \
+                     (composed: shape -> shape-base)"
+                );
+                let shipped = workspace().join("adapters");
+                let observed = [adapters.path(), shipped.as_path()].map(|adapters| {
+                    one_shape(&operator, adapters, Boundary::Namespace, shape, site)
+                        .map(|bundle| bundle.sites.contains_key(label))
+                });
+                if observed != [Err(refused.clone()), Ok(true)] {
+                    failures.push(format!(
+                        "{case}, boxed {shape} through {office}:\n  left:  {observed:?}\n  \
+                         right: {:?}",
+                        [Err::<bool, _>(refused), Ok(true)]
+                    ));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Rebuild unit 21-fix-b (task 21.3's CQ1 rows; unit 21's review return
+/// R2; RG4 CQ1; NCC; NC6; MPL; design D11): CQ1 AT EVERY COMPILED CODEX
+/// SITE SHAPE. Rebuild unit 20's matrix ([`compile_every_shape_on`]) is
+/// compiled on the shipped adapters in a realm granting `web-search`
+/// through `codex-search-hosts` restricted to `a.example`
+/// ([`hosts_grant`]), with every inline site and every office asking for
+/// it. The rows are every compiled Codex candidate, no more and no fewer:
+/// the inline Codex work seat (its typed `workspace-write`), its gate
+/// (typed `read-only`), a panel member and its peer, a sequence step and
+/// the next, a select case and the default, and the seat inherited from
+/// `base`; at each of those shapes the office `pair`'s Codex primary, the
+/// office `pair-claude`'s selected Codex FALLBACK, and the office `boxed`,
+/// whose hands `harness` serves with the harness's own sandbox.
+///
+/// Wants drops at every one: each row asserts, beside the site's selected
+/// charter, its manifest candidate record (nothing held, the want's exact
+/// not-held reason and its one notice naming the site and office), its
+/// prompt, and whole commands that carry the measured OFF: cold, and at a
+/// work site the offered session under the assessment the bundle compiled
+/// — an ACTUAL `exec resume` for the typed work seat and the boxed office,
+/// declined and served cold for every other shape. The grant is pinned as
+/// written and no site's record carries its host. Requires refuses the same
+/// matrix whole, at the first site it resolves.
+#[cfg(unix)]
+#[test]
+fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_shape() {
+    use brokkr_runtime::SeatClass::{Gate, Work};
+    let operator = Operator::new();
+    let root = operator.root();
+    let codex = codex_reporting(root, "0.154.0");
+    let shim = codex.to_str().unwrap();
+    let (grant, restricted) = hosts_grant(&operator);
+    let shipped = workspace().join("adapters");
+    let mut failures = Vec::new();
+
+    let requires = compile_every_shape_on(
+        &operator,
+        None,
+        &shipped,
+        &restricted,
+        Some(&json!({"web-search": "requires"})),
+    )
+    .map(|bundle| bundle.sites.len());
+    let refused = "bundle: bundle: seat 'boxed' (office 'boxed') in realm 'private': requires \
+                   capability 'web-search' through dialect 'codex-search-hosts', but provider \
+                   'codex' cannot express restriction 'allow.hosts'; the capability cannot be \
+                   held under this grant (composed: matrix -> base)";
+    if requires != Err(refused.to_string()) {
+        failures.push(format!(
+            "requires:\n  left:  {requires:?}\n  right: {refused:?}"
+        ));
+    }
+
+    let bundle = compile_every_shape_on(
+        &operator,
+        None,
+        &shipped,
+        &restricted,
+        Some(&json!({"web-search": "wants"})),
+    )
+    .unwrap_or_else(|refusal| panic!("the wanting matrix compiles: {refusal}"));
+    let pinned = &bundle.manifest["capabilities"]["grants"]["web-search"];
+    if *pinned != grant {
+        failures.push(format!(
+            "the pinned grant:\n  left:  {pinned}\n  right: {grant}"
+        ));
+    }
+
+    // (site, candidate, class, where its charter is, the office)
+    type Row<'a> = (
+        String,
+        usize,
+        brokkr_runtime::SeatClass,
+        Result<(&'a str, String), &'a str>,
+    );
+    let mut rows: Vec<Row> = Vec::new();
+    for (carrier, candidate) in [("codex", 0), ("pair", 0), ("pair-claude", 1), ("boxed", 0)] {
+        for (label, class, inherited) in carrier_sites(carrier, true) {
+            let layer = if inherited { "base" } else { "matrix" };
+            let seated = match carrier {
+                "codex" => Ok((layer, label.clone())),
+                office => Err(office),
+            };
+            rows.push((label, candidate, class, seated));
+        }
+    }
+    assert_eq!(rows.len(), 36);
+    let compiled: std::collections::BTreeSet<(String, usize)> = bundle
+        .sites
+        .iter()
+        .flat_map(|(label, facts)| {
+            let outcomes = &facts.capabilities.as_ref().unwrap().outcomes;
+            (0..outcomes.len())
+                .filter(|at| outcomes[*at].provider == "codex")
+                .map(move |at| (label.clone(), at))
+        })
+        .collect();
+    let written: std::collections::BTreeSet<(String, usize)> = rows
+        .iter()
+        .map(|(label, candidate, ..)| (label.clone(), *candidate))
+        .collect();
+    assert_eq!(written, compiled);
+
+    let words = |program: &str, parts: &[&[&str]]| -> Vec<String> {
+        std::iter::once(program)
+            .chain(parts.iter().flat_map(|part| part.iter().copied()))
+            .map(String::from)
+            .collect()
+    };
+    let lead = ["exec", "--json", "-C", "/w"];
+    let pins = [
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt-6-astra",
+    ];
+    let work_class = ["--sandbox", "workspace-write"];
+    let gate_class = [
+        "--sandbox",
+        "read-only",
+        "--output-last-message",
+        "/w/result.json",
+    ];
+    let resumed = [
+        "exec",
+        "resume",
+        "--json",
+        "-c",
+        "sandbox_mode=\"workspace-write\"",
+    ];
+    let at = [THREAD, "-"];
+    let dropped = "provider 'codex' cannot express restriction 'allow.hosts'; native capability \
+                   remains OFF";
+    for (label, candidate, class, seated) in &rows {
+        let (label, candidate, class) = (label.as_str(), *candidate, *class);
+        let site = bundle.sites[label].capabilities.as_ref().unwrap();
+        let outcome = &site.outcomes[candidate];
+        let (office, boxed) = match seated {
+            Ok(_) => (label, false),
+            Err(office) => (*office, *office == "boxed"),
+        };
+        let cold = |program: &str| match (label, class) {
+            ("codex", _) => words(program, &[&lead, &pins, &work_class, &OFF]),
+            ("codex-gate" | "boxed-gate", _) => words(program, &[&lead, &pins, &gate_class, &OFF]),
+            (_, Work) if boxed => words(program, &[&lead, &pins, &work_class, &OFF]),
+            _ => words(program, &[&lead, &pins, &OFF]),
+        };
+        let offered = match class {
+            Gate => None,
+            Work if label == "codex" || boxed => Some(words(shim, &[&resumed, &pins, &OFF, &at])),
+            Work => Some(cold(shim)),
+        };
+        let mut record = json!({"held": {}, "not_held": {"web-search": dropped},
+            "notices": [format!(
+                "seat '{label}' (office '{office}') in realm 'private': dropped wanted capability \
+                 'web-search' through dialect 'codex-search-hosts' because {dropped}")],
+            "native": {"inventory": "known", "off": ["web-search"], "on": []},
+            "provider": "codex"});
+        if seated.is_err() {
+            record["model"] = json!("astra");
+        }
+        let seated = match seated {
+            Ok((layer, label)) => Ok((*layer, label.as_str())),
+            Err(office) => Err(*office),
+        };
+        let record_of = undigested(&site.manifest()).0;
+        let observed = json!({
+            "charter": format!("{:?}", charter_of(&bundle, label)),
+            "record": record_of["candidates"][candidate],
+            "prompt": outcome.prompt(),
+            "host": format!("{record_of}{}", outcome.prompt()).contains("a.example"),
+            "cold": format!("{:?}", served_as(&bundle, label, candidate, class, None)),
+            "offered": (class == Work).then(|| format!("{:?}",
+                served_as(&bundle, label, candidate, class, Some((&codex, THREAD))))),
+        });
+        let expected = json!({
+            "charter": format!("{:?}", matrix_charter(root, seated)),
+            "record": record,
+            "prompt": {"held": {}, "not_held": {"web-search": dropped}},
+            "host": false,
+            "cold": format!("{:?}", Ok::<_, String>(cold("codex"))),
+            "offered": offered.map(|argv| format!("{:?}", Ok::<_, String>(argv))),
+        });
+        if observed != expected {
+            failures.push(format!(
+                "{label}[{candidate}]:\n  left:  {observed:#}\n  right: {expected:#}"
+            ));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
