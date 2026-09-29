@@ -13,7 +13,7 @@ use std::fmt;
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-use super::{vocabulary, Condition, Machine, Outcome, Rule, SEVERITY_ORDER};
+use super::{conditions_met, vocabulary, Condition, Machine, Outcome, Rule, SEVERITY_ORDER};
 
 /// The valuations one audit may sweep across a whole table. The largest
 /// shipped table sweeps 1,072 (decision 0050), so the budget leaves room
@@ -40,6 +40,11 @@ pub enum Finding {
     /// Ruling 2: `rule` can never fire, because `behind` precedes it in
     /// its group and matches wherever it matches.
     Shadowed { rule: String, behind: String },
+    /// Ruling 2: `rule` can never fire, because the earlier rules `by`
+    /// together match wherever it matches, and no one of them alone does.
+    Covered { rule: String, by: Vec<String> },
+    /// Ruling 2: `rule`'s guard holds on no valuation of its inputs.
+    Unsatisfiable { rule: String },
     /// Ruling 3: no transition edge reaches `phase` from `initial`.
     Unreachable { phase: String },
     /// Ruling 3: `phase` reaches no terminal phase and no parking rule.
@@ -93,6 +98,18 @@ impl Group<'_> {
             .values()
             .fold(1, |product, values| product.saturating_mul(values.len()))
     }
+
+    /// The valuation at `index` of the sweep, the first axis turning
+    /// fastest.
+    fn valuation(&self, index: usize) -> Vec<(String, Setting)> {
+        let mut rest = index;
+        let mut valuation = Vec::with_capacity(self.axes.len());
+        for (name, values) in &self.axes {
+            valuation.push((name.to_string(), values[rest % values.len()]));
+            rest /= values.len();
+        }
+        valuation
+    }
 }
 
 impl Machine {
@@ -118,14 +135,14 @@ impl Machine {
                 });
             }
         }
-        let mut findings: Vec<Finding> = groups.iter().flat_map(shadows).collect();
+        let (dead, unruled): (Vec<Vec<Finding>>, Vec<Vec<Finding>>) =
+            groups.iter().map(|group| self.sweep(group)).unzip();
+        let mut findings: Vec<Finding> = dead.into_iter().flatten().collect();
         findings.extend(self.liveness());
         for group in &groups {
             findings.extend(self.unread(group, &engine_owned));
         }
-        for group in &groups {
-            findings.extend(self.unruled(group));
-        }
+        findings.extend(unruled.into_iter().flatten());
         Ok(Audit {
             groups: groups.len(),
             valuations: total,
@@ -245,57 +262,76 @@ impl Machine {
             .any(|phase| phase != STOP && self.terminal.iter().any(|t| t == phase))
     }
 
-    /// Ruling 4: every valuation of the group's axes, evaluated by the
-    /// real evaluator; a valuation it cannot rule is a finding.
-    fn unruled(&self, group: &Group<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
+    /// Rulings 2 and 4 from one sweep: every valuation of the group's
+    /// axes, evaluated by the real evaluator. A valuation it cannot rule
+    /// is unruled, and a rule that rules no valuation is dead. The axes
+    /// sample every threshold at and around it, so every region of every
+    /// guard form is walked and both answers are exact: a vacuous guard,
+    /// or earlier arms that together cover a later one, are found as
+    /// surely as a single stronger guard. Returns `(dead, unruled)`.
+    fn sweep(&self, group: &Group<'_>) -> (Vec<Finding>, Vec<Finding>) {
+        let mut holds: Vec<Vec<bool>> = vec![Vec::new(); group.rules.len()];
+        let mut winners: Vec<Option<usize>> = Vec::new();
+        let mut unruled = Vec::new();
         for index in 0..group.size() {
-            let mut rest = index;
-            let mut valuation = Vec::with_capacity(group.axes.len());
-            for (name, values) in &group.axes {
-                valuation.push((name.to_string(), values[rest % values.len()]));
-                rest /= values.len();
-            }
+            let valuation = group.valuation(index);
             let inputs: Map<String, Value> = valuation
                 .iter()
                 .map(|(name, setting)| (name.clone(), setting.value()))
                 .collect();
-            if let Outcome::NoRule { .. } = self.evaluate(group.phase, group.result, &inputs) {
-                findings.push(Finding::Unruled {
-                    phase: group.phase.to_string(),
-                    result: group.result.to_string(),
-                    valuation,
-                });
+            for (rule, holds) in group.rules.iter().zip(&mut holds) {
+                holds.push(conditions_met(&rule.when, &inputs) == Ok(true));
             }
-        }
-        findings
-    }
-}
-
-/// Ruling 2: each rule preceded in its group by a rule whose guard
-/// subsumes its own.
-fn shadows(group: &Group<'_>) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for (index, later) in group.rules.iter().enumerate() {
-        if let Some(earlier) = group.rules[..index]
-            .iter()
-            .find(|earlier| subsumes(&earlier.when, &later.when))
-        {
-            findings.push(Finding::Shadowed {
-                rule: later.id.clone(),
-                behind: earlier.id.clone(),
+            winners.push(match self.evaluate(group.phase, group.result, &inputs) {
+                Outcome::Ruling { rule_id, .. } | Outcome::Park { rule_id, .. } => {
+                    group.rules.iter().position(|rule| rule.id == rule_id)
+                }
+                Outcome::NoRule { .. } => {
+                    unruled.push(Finding::Unruled {
+                        phase: group.phase.to_string(),
+                        result: group.result.to_string(),
+                        valuation,
+                    });
+                    None
+                }
             });
         }
+        let dead = (0..group.rules.len())
+            .filter(|&rule| !winners.contains(&Some(rule)))
+            .map(|rule| dead(group, rule, &holds, &winners))
+            .collect();
+        (dead, unruled)
     }
-    findings
 }
 
-/// Whether guard `earlier` holds wherever guard `later` holds: each of
-/// its conditions is implied by a condition of `later`.
-fn subsumes(earlier: &[Condition], later: &[Condition]) -> bool {
-    earlier
+/// Ruling 2: why the group's rule at `rule`, which rules no swept
+/// valuation, is dead. Its guard holds nowhere; or the first earlier
+/// rule that holds wherever it holds shadows it; or the earlier rules
+/// that won where it holds cover it together.
+fn dead(group: &Group<'_>, rule: usize, holds: &[Vec<bool>], winners: &[Option<usize>]) -> Finding {
+    let id = group.rules[rule].id.clone();
+    let at: Vec<usize> = (0..winners.len())
+        .filter(|&valuation| holds[rule][valuation])
+        .collect();
+    if at.is_empty() {
+        return Finding::Unsatisfiable { rule: id };
+    }
+    if let Some(earlier) =
+        (0..rule).find(|&earlier| at.iter().all(|&valuation| holds[earlier][valuation]))
+    {
+        return Finding::Shadowed {
+            rule: id,
+            behind: group.rules[earlier].id.clone(),
+        };
+    }
+    let by: BTreeSet<usize> = at
         .iter()
-        .all(|condition| later.iter().any(|stronger| stronger.implies(condition)))
+        .filter_map(|&valuation| winners[valuation])
+        .collect();
+    Finding::Covered {
+        rule: id,
+        by: by.into_iter().map(|w| group.rules[w].id.clone()).collect(),
+    }
 }
 
 /// The domain of every input a group reads: both flags, the counter at
@@ -341,45 +377,6 @@ impl Condition {
             | Condition::EnumIn { name, .. } => name,
         }
     }
-
-    /// Whether every input satisfying `self` satisfies `other`.
-    fn implies(&self, other: &Condition) -> bool {
-        use Condition::{CounterGte, EnumIn, Flag, SeverityAbove, SeverityAtMost};
-        let same = self.name() == other.name();
-        match (self, other) {
-            (CounterGte { threshold: a, .. }, CounterGte { threshold: b, .. }) => same && a >= b,
-            (
-                SeverityAbove {
-                    threshold_rank: a, ..
-                },
-                SeverityAbove {
-                    threshold_rank: b, ..
-                },
-            ) => same && a >= b,
-            (
-                SeverityAtMost {
-                    threshold_rank: a, ..
-                },
-                SeverityAtMost {
-                    threshold_rank: b, ..
-                },
-            ) => same && a <= b,
-            (Flag { expected: a, .. }, Flag { expected: b, .. }) => same && a == b,
-            (EnumIn { allowed: a, .. }, EnumIn { allowed: b, .. }) => {
-                same && a.iter().all(|word| b.contains(word))
-            }
-            // Two condition forms never imply each other: a floor bounds
-            // no ceiling, and a flag or a word no count.
-            (
-                CounterGte { .. }
-                | SeverityAbove { .. }
-                | SeverityAtMost { .. }
-                | Flag { .. }
-                | EnumIn { .. },
-                _,
-            ) => false,
-        }
-    }
 }
 
 impl Setting {
@@ -409,6 +406,14 @@ impl fmt::Display for Finding {
                 "{rule} is dead behind {behind}: its guard holds wherever {rule}'s \
                  does, and first match wins"
             ),
+            Finding::Covered { rule, by } => format!(
+                "{rule} is dead behind {}: together their guards hold wherever \
+                 {rule}'s does, and first match wins",
+                by.join(", ")
+            ),
+            Finding::Unsatisfiable { rule } => {
+                format!("{rule} is dead: its guard holds on no valuation of its inputs")
+            }
             Finding::Unreachable { phase } => {
                 format!("phase '{phase}' is unreachable from the initial phase")
             }

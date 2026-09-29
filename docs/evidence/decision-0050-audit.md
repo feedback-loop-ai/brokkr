@@ -13,7 +13,7 @@ listed under [Awaiting the operator's ruling](#awaiting-the-operators-ruling).
 | Ruling | Status | Where it is built | Gap |
 |---|---|---|---|
 | 1. Presence | partial: reported, not refused | `Machine::audit_with`, `Finding::Unread` | no refusal in `Machine::from_table`; `bundles/verify` and `recipes/preflight` are still v1 |
-| 2. Order | partial: the unconditional shadow is refused, the conditional one is reported | `Machine::from_table`; `Machine::audit_with`, `Finding::Shadowed` | no refusal of a conditional shadow at load or compile |
+| 2. Order | partial: the unconditional shadow is refused, every other dead rule is reported | `Machine::from_table`; `Machine::audit_with`, `Finding::Shadowed`, `Finding::Covered` and `Finding::Unsatisfiable` | no refusal of a dead rule at load or compile; the decision's condition-wise wording misses vacuous guards and collective cover |
 | 3. Liveness | partial: reported, not refused | `Machine::audit_with`, `Finding::Unreachable` and `Finding::DeadEnd` | no refusal |
 | 4. Totality | partial: swept, bounded and reported by `brokkr compile` | `Machine::audit_with`, `Finding::Unruled`, `AuditError::Budget` | no refusal; no shipped table names its closed valuations |
 | 5. Stated properties | partial: all three properties hold on every shipped table under test | `crates/brokkr-runtime/tests/table_lints.rs` | the sequence leg waits on ruling 7; no `table_properties.rs` |
@@ -56,12 +56,32 @@ listed under [Awaiting the operator's ruling](#awaiting-the-operators-ruling).
   refuses a rule preceded in its group by an unconditional rule
   (`ruled_unconditionally`). `crates/brokkr-core/tests/policy_lint.rs`
   covers it in `loader_rejects_structural_defects`.
-- **Built, as a diagnostic.** `shadows` and `Condition::implies` in
-  `audit.rs` report each rule preceded by a rule whose guard subsumes its
-  own. That covers a lower or equal counter floor, a lower severity floor,
-  a higher severity ceiling, an equal flag and a superset enumeration.
-  Each finding names both rules.
+- **Built, as a diagnostic.** `Machine::sweep` and `dead` in `audit.rs`
+  read deadness from the totality sweep: a rule that rules no swept
+  valuation of its group is dead. The sweep samples every threshold at and
+  around it, so this is exact for the five guard forms. Each dead rule is
+  reported one of three ways. `Finding::Shadowed` names the first earlier
+  rule that holds wherever it holds. `Finding::Covered` names the earlier
+  rules that together hold wherever it holds, when no one of them does.
+  `Finding::Unsatisfiable` is a guard that holds on no valuation.
+- **Found in review, and fixed.** The first cut compared guards condition
+  by condition (`Condition::implies`), as decision 0050 words ruling 2,
+  and held that two condition forms never imply each other. So a vacuous
+  guard of another form ahead of a hard rule left the hard rule dead and
+  unreported. Examples are `max_residual_severity_at_most: critical` ahead
+  of a hard `max_residual_severity_above: medium`, `visits_work_gte: 0`,
+  and a `strategy_in` over the whole vocabulary. So did earlier arms that
+  together partition an axis, such as `skip_verify: true` and
+  `skip_verify: false`. Presence was satisfied because the permissive arm
+  read the input, and totality because it ruled everything. The audit
+  reported nothing. No shipped table had the shape: the semantic sweep
+  finds no dead rule in any of the 19 tables
+  (`every_shipped_table_is_ordered_and_live`).
 - **Tests.** In `audit/tests.rs`,
+  `a_rule_is_dead_where_it_rules_no_swept_valuation` covers the three
+  vacuous guards, the partitioned axis and two unsatisfiable guards, each
+  with its valid order where one exists, and pins the report text of
+  `Covered` and `Unsatisfiable`.
   `a_guard_is_shadowed_only_by_an_earlier_guard_it_implies` has 17 pairs,
   both directions of each form, across inputs and across forms.
   `a_shadowed_rule_names_the_first_rule_that_subsumes_it` pins the
@@ -80,8 +100,11 @@ listed under [Awaiting the operator's ruling](#awaiting-the-operators-ruling).
   `bundles/self` with the two rules exchanged exits 0 and prints
   `REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM is dead behind
   REVIEW-REFORGE-EXHAUSTED-MEDIUM`.
-- **Gap.** Neither the loader nor the compiler refuses a conditional
-  shadow.
+- **Gap.** Neither the loader nor the compiler refuses a dead rule.
+  Decision 0050's own definition of subsumption ("each of the earlier
+  guard's conditions is implied by a condition of the later one") is
+  incomplete in the same way the first cut was. It misses vacuous guards
+  and collective cover. See item 2 of the list below.
 
 ### Ruling 3: liveness
 
@@ -97,7 +120,7 @@ listed under [Awaiting the operator's ruling](#awaiting-the-operators-ruling).
 
 ### Ruling 4: totality, and every ending named
 
-- **Built, as a diagnostic.** `Machine::unruled` in `audit.rs` enumerates
+- **Built, as a diagnostic.** `Machine::sweep` in `audit.rs` enumerates
   each group's axes and evaluates every valuation with the real
   `Machine::evaluate`. The axes are both flags; a counter at zero and at
   one below, at and one above each threshold; the six severities; and the
@@ -128,8 +151,10 @@ listed under [Awaiting the operator's ruling](#awaiting-the-operators-ruling).
   in `table_lints.rs` walks every bundle and every composed recipe. It
   checks that `clean` rules to a phase from which a non-stop terminal is
   reachable. It checks that a low non-security residual on a first visit
-  does not stop. This change adds the third property: every
-  `security-hold` rule in every table rules a hard stop. Before, only the
+  does not stop. This change adds the third property: `security-hold`
+  rules a hard stop at every swept valuation of its group, in every table.
+  No valuation of the group is unruled, and every rule of the group is a
+  hard stop. Before, only the
   heritage table was checked (`table_wide_lint_matches_python_suite` in
   `crates/brokkr-core/tests/differential.rs`).
 - **Gap.** The ruling names a new `crates/brokkr-core/tests/table_properties.rs`.
@@ -207,12 +232,18 @@ liveness finding.
 
 1. **Accept decision 0050**, whole or by ruling. The rest of this list
    assumes the ruling it names is accepted.
-2. **Order (ruling 2): refuse a conditional shadow in
-   `Machine::from_table`.** The rule is `Finding::Shadowed`, raised as a
-   `PolicyError` naming both rules. Today it refuses no shipped table. It
-   would refuse the exchanged `bundles/self` and any overlay that
-   prepends a subsuming rule. *Recommendation: enable.* Nothing shipped
-   moves.
+2. **Order (ruling 2): refuse a dead rule in `Machine::from_table`.**
+   The rule is any of `Finding::Shadowed`, `Finding::Covered` or
+   `Finding::Unsatisfiable`, raised as a `PolicyError` that names the dead
+   rule and the rules it sits behind. Today it refuses no shipped table.
+   It would refuse the exchanged `bundles/self`, any overlay that
+   prepends a subsuming rule, and a vacuous or partitioning arm ahead of
+   a hard rule. The decision words ruling 2 condition by condition, and
+   that wording misses the last shape. *Recommendation: enable on the
+   semantic definition (a rule that rules no valuation of its group's
+   domain is dead), and amend the decision's wording to match.* Enabling
+   the condition-wise wording alone would ship a refusal with a known
+   fail-open shape. Nothing shipped moves either way.
 3. **Liveness (ruling 3): refuse an unreachable phase or a dead end in
    `Machine::from_table`.** Today it refuses no shipped table.
    *Recommendation: enable.*

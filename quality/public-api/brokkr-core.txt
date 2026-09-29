@@ -259,6 +259,9 @@ pub brokkr_core::policy::audit::AuditError::Budget::phase: alloc::string::String
 pub brokkr_core::policy::audit::AuditError::Budget::result: alloc::string::String
 pub brokkr_core::policy::audit::AuditError::Budget::valuations: usize
 pub enum brokkr_core::policy::audit::Finding
+pub brokkr_core::policy::audit::Finding::Covered
+pub brokkr_core::policy::audit::Finding::Covered::by: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::policy::audit::Finding::Covered::rule: alloc::string::String
 pub brokkr_core::policy::audit::Finding::DeadEnd
 pub brokkr_core::policy::audit::Finding::DeadEnd::phase: alloc::string::String
 pub brokkr_core::policy::audit::Finding::Shadowed
@@ -273,6 +276,8 @@ pub brokkr_core::policy::audit::Finding::Unruled
 pub brokkr_core::policy::audit::Finding::Unruled::phase: alloc::string::String
 pub brokkr_core::policy::audit::Finding::Unruled::result: alloc::string::String
 pub brokkr_core::policy::audit::Finding::Unruled::valuation: alloc::vec::Vec<(alloc::string::String, brokkr_core::policy::audit::Setting)>
+pub brokkr_core::policy::audit::Finding::Unsatisfiable
+pub brokkr_core::policy::audit::Finding::Unsatisfiable::rule: alloc::string::String
 impl core::fmt::Display for brokkr_core::policy::audit::Finding
 pub fn brokkr_core::policy::audit::Finding::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::policy::audit::Setting

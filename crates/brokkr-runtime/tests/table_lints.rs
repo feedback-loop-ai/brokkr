@@ -6,8 +6,9 @@
 //! `Machine::audit_with`, which sweeps with the real `Machine::evaluate`
 //! and which `brokkr compile` reports (#429):
 //!
-//! 1. **order** — no rule is dead behind an earlier rule whose guard
-//!    subsumes it (the swap in the decision's context);
+//! 1. **order** — no rule is dead: every rule rules some swept valuation,
+//!    so none sits behind earlier rules that match wherever it does (the
+//!    swap in the decision's context);
 //! 2. **liveness** — every phase reachable from `initial`, every phase
 //!    ends at a terminal or a parking rule (decision 0004's unported
 //!    lints);
@@ -157,7 +158,7 @@ type Unruled = (String, String, Vec<(String, Setting)>);
 
 #[derive(Debug, Default)]
 struct Findings {
-    /// `<later> is dead behind <earlier>`.
+    /// `<later> is dead behind <earlier, ...>`, or `<rule> is dead`.
     order: Vec<String>,
     unreachable: Vec<String>,
     dead_end: Vec<String>,
@@ -184,6 +185,10 @@ fn sweep(t: &Table) -> Findings {
             Finding::Shadowed { rule, behind } => findings
                 .order
                 .push(format!("{rule} is dead behind {behind}")),
+            Finding::Covered { rule, by } => findings
+                .order
+                .push(format!("{rule} is dead behind {}", by.join(", "))),
+            Finding::Unsatisfiable { rule } => findings.order.push(format!("{rule} is dead")),
             Finding::Unreachable { phase } => findings.unreachable.push(phase),
             Finding::DeadEnd { phase } => findings.dead_end.push(phase),
             Finding::Unread { rule, inputs } => findings.presence.push(format!(
@@ -321,7 +326,15 @@ fn the_unruled_valuations_are_pinned_per_table() {
 fn the_stated_properties_hold_on_every_shipped_table() {
     for t in shipped_tables() {
         // Ruling 5: `security-hold` rules a hard stop from every phase
-        // that admits it, in every table.
+        // that admits it, in every table: at every swept valuation of its
+        // group some rule rules it, and every rule that can is a hard stop.
+        let findings = sweep(&t);
+        let held: Vec<&Unruled> = findings
+            .unruled
+            .iter()
+            .filter(|(_, result, _)| result == "security-hold")
+            .collect();
+        assert_eq!(held, Vec::<&Unruled>::new(), "{}", t.label);
         for rule in t
             .machine
             .rules

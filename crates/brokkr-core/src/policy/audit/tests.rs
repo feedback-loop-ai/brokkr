@@ -1,6 +1,6 @@
 use super::*;
 use crate::policy::tests::shipped_table;
-use crate::policy::{BOOLEAN_INPUTS, VISIT_PREFIX};
+use crate::policy::{BOOLEAN_INPUTS, STRATEGIES, VISIT_PREFIX};
 use serde_json::json;
 
 /// The engine-owned inputs `bundles/self` reads, as the runtime names
@@ -226,6 +226,95 @@ fn a_shadowed_rule_names_the_first_rule_that_subsumes_it() {
             "THIRD is dead behind FIRST: its guard holds wherever THIRD's does, \
              and first match wins",
         ]
+    );
+}
+
+/// Deadness is read from the sweep, not from the guards' forms: a
+/// vacuous guard of another form, or earlier arms that partition an axis,
+/// leave a hard rule dead as surely as one stronger guard (#429's return).
+#[test]
+fn a_rule_is_dead_where_it_rules_no_swept_valuation() {
+    let deny = || {
+        json!({"id": "DENY", "from": "review", "result": "residual", "next": "stop",
+               "severity": "hard", "reason": "r",
+               "when": {"max_residual_severity_above": "medium"}})
+    };
+    // Presence also names an arm that skips the severity; its own test
+    // pins that, so this one reads the rest.
+    let findings = |arms: Value| -> Vec<Finding> {
+        let mut findings = audit(&table(arms)).findings;
+        findings.retain(|finding| !matches!(finding, Finding::Unread { .. }));
+        findings
+    };
+    let permit = |when: Value| residual("PERMIT", when, "done");
+    for vacuous in [
+        json!({"max_residual_severity_at_most": "critical"}),
+        json!({"visits_work_gte": 0}),
+        json!({"strategy_in": STRATEGIES}),
+    ] {
+        let dead = findings(json!([permit(vacuous.clone()), deny()]));
+        assert_eq!(
+            dead,
+            [Finding::Shadowed {
+                rule: "DENY".into(),
+                behind: "PERMIT".into(),
+            }],
+            "{vacuous}"
+        );
+        // The valid order: the hard floor first, and nothing is dead.
+        assert_eq!(
+            findings(json!([deny(), permit(vacuous.clone())])),
+            [],
+            "{vacuous}"
+        );
+    }
+    // Two flag arms partition an axis ahead of the hard rule.
+    let [yes, no] = [true, false].map(|flag| {
+        residual(
+            &format!("SHIP-{flag}"),
+            json!({"skip_verify": flag}),
+            "done",
+        )
+    });
+    let covered = findings(json!([yes.clone(), no.clone(), deny()]));
+    assert_eq!(
+        covered,
+        [Finding::Covered {
+            rule: "DENY".into(),
+            by: vec!["SHIP-true".into(), "SHIP-false".into()],
+        }]
+    );
+    assert_eq!(
+        covered[0].to_string(),
+        "DENY is dead behind SHIP-true, SHIP-false: together their guards hold \
+         wherever DENY's does, and first match wins"
+    );
+    assert_eq!(findings(json!([deny(), yes, no])), []);
+    // A guard no valuation satisfies is dead in any order, and names no
+    // rule it is behind.
+    let never = |id: &str| {
+        residual(
+            id,
+            json!({"max_residual_severity_above": "critical"}),
+            "done",
+        )
+    };
+    let fallback = residual("FALLBACK", json!({}), "stop");
+    let unsatisfiable = findings(json!([never("NEVER"), never("AGAIN"), fallback]));
+    assert_eq!(
+        unsatisfiable,
+        [
+            Finding::Unsatisfiable {
+                rule: "NEVER".into()
+            },
+            Finding::Unsatisfiable {
+                rule: "AGAIN".into()
+            },
+        ]
+    );
+    assert_eq!(
+        unsatisfiable[0].to_string(),
+        "NEVER is dead: its guard holds on no valuation of its inputs"
     );
 }
 
