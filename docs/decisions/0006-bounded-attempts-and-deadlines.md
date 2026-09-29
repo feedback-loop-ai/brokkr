@@ -133,7 +133,11 @@ determinate was not.
   since Darwin refuses a group whose only members are zombies or exiting
   with EPERM. A group whose fresh, whole read shows no member running is
   gone. An EPERM group with a member running, or whose table cannot be
-  read whole, and any other refusal on the group are indeterminate. It
+  read whole, and any other refusal on the group are indeterminate. The
+  cleanup names the group's refusal first, except for an EPERM whose
+  table cannot be read whole: that one names what the read shows, a
+  refusal on a live identity if there was one and otherwise the read's
+  own failure. It
   also covers a table that cannot be
   read whole: a row that cannot be read or parsed, a `ps` that exits
   nonzero, and a snapshot without the engine's own row. A row that

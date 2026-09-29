@@ -26,7 +26,7 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
 use signal_hook::iterator::Signals;
 
 use super::table::{self, Entry, Identity, TableError};
-use super::tree::{self, Bounds, Host, Unsettled};
+use super::tree::{self, Bounds, GroupRefusal, Host, Unsettled};
 
 /// How often every live attempt's tree is read and recorded.
 const TRACK: Duration = Duration::from_millis(100);
@@ -284,19 +284,23 @@ impl Live {
     /// SIGKILL the group while its leader is unreaped, and every identity
     /// recorded or doubted. The first refusal, once every kill was tried.
     /// A group refusal is read against the table (`tree::group_refused`),
-    /// under the lock every caller holds.
+    /// under the lock every caller holds, and one it could not be read
+    /// against yields to an identity's refusal.
     fn kill(&self, host: Host) -> Result<(), Unsettled> {
         let group = self.group.as_raw_pid();
         let refused = self
             .open
             .then(|| tree::group_refused(self.group, (host.kill_group)(self.group), host.table))
-            .flatten()
-            .map(|errno| Unsettled::Kill {
+            .flatten();
+        let identities = signal(self.recorded.iter().chain(&self.doubted), host.kill);
+        match refused {
+            None => identities,
+            Some(GroupRefusal::Stands(errno)) => Err(Unsettled::Kill {
                 group,
                 errno: errno.raw_os_error(),
-            });
-        let identities = signal(self.recorded.iter().chain(&self.doubted), host.kill);
-        refused.map_or(Ok(()), Err).and(identities)
+            }),
+            Some(GroupRefusal::Unread(unread)) => identities.and(Err(unread)),
+        }
     }
 
     /// Record every descendant of the leader, and of what is already

@@ -90,8 +90,11 @@
 //! the group, with one exception: an EPERM on the group is read against
 //! the table. Darwin refuses a group with EPERM when its only members are
 //! zombies or exiting, so a group whose fresh, whole read shows no member
-//! running is gone. An EPERM group with a member running, one whose table
-//! cannot be read whole, and any other refusal stay unresolved.
+//! running is gone. An EPERM group with a member running and any other
+//! refusal stay unresolved, reported ahead of an identity's refusal. One
+//! whose table cannot be read whole stays unresolved too, and the cleanup
+//! reports what the read shows: an identity's refusal first, otherwise
+//! the read's own failure.
 //!
 //! macOS has no subreaper and no pidfd. There the engine reads the table
 //! synchronously at the kill, ends what it attributes, and parks on any
@@ -289,6 +292,16 @@ pub(super) fn refused(error: rustix::io::Result<()>) -> Option<Errno> {
     error.err().filter(|errno| *errno != Errno::SRCH)
 }
 
+/// Why the signal to a group was refused.
+pub(super) enum GroupRefusal {
+    /// The kernel's refusal stands, ahead of any identity's.
+    Stands(Errno),
+    /// An EPERM that the table, which could not be read, neither proves
+    /// gone nor shows running: it yields to an identity's refusal, and
+    /// otherwise to the read's own failure.
+    Unread(Unsettled),
+}
+
 /// A refusal of the signal to `group`. ESRCH is none, and so is EPERM
 /// when a fresh read of `table` shows no member of the group running:
 /// Darwin answers a group whose members are all zombies or exiting with
@@ -296,19 +309,23 @@ pub(super) fn refused(error: rustix::io::Result<()>) -> Option<Errno> {
 /// exiting member is not running here. Linux signals both, and lists no
 /// member exiting, so its EPERM names a member it would not signal, which
 /// the same read shows running. One code serves both. A table that cannot
-/// be read proves nothing, and the refusal stands.
+/// be read proves nothing: the EPERM is unread, and the attempt parks on
+/// what the read shows (`GroupRefusal::Unread`).
 pub(super) fn group_refused(
     group: Pid,
     signalled: rustix::io::Result<()>,
     table: fn() -> Result<Vec<Entry>, TableError>,
-) -> Option<Errno> {
-    let gone = || {
-        let group = group.as_raw_pid();
-        read(table).is_ok_and(|entries| {
-            !entries
-                .iter()
-                .any(|entry| entry.pgid == group && !entry.zombie && !entry.exiting)
-        })
-    };
-    refused(signalled).filter(|errno| *errno != Errno::PERM || !gone())
+) -> Option<GroupRefusal> {
+    let errno = refused(signalled)?;
+    if errno != Errno::PERM {
+        return Some(GroupRefusal::Stands(errno));
+    }
+    let group = group.as_raw_pid();
+    match read(table) {
+        Err(unread) => Some(GroupRefusal::Unread(unread)),
+        Ok(entries) => entries
+            .iter()
+            .any(|entry| entry.pgid == group && !entry.zombie && !entry.exiting)
+            .then_some(GroupRefusal::Stands(errno)),
+    }
 }

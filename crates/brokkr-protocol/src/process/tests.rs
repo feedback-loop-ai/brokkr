@@ -1413,6 +1413,8 @@ fn a_deadline_kill_ends_a_descendant_that_left_the_group_and_its_pipes() {
 /// #403: a running driver is its own tree's subreaper, so an orphan of the
 /// tree goes to the driver, where the tracker records it, and not to the
 /// engine, where another attempt could be taken for its source.
+/// Linux only: macOS has no subreaper, so the orphan goes to launchd.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_running_driver_adopts_its_trees_orphans() {
     let seats = Seats::new();
@@ -1458,6 +1460,9 @@ fn a_running_driver_adopts_its_trees_orphans() {
 /// it to the attempt whose leader is gone, and ends it before the report
 /// returns, which certifies the end only because it is gone. The engine
 /// is a child process, so that no other test's attempt is live beside it.
+/// Linux only: on macOS this is the residual the operator's ruling of
+/// 2026-09-28 accepted, an orphan reparented to launchd unseen.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_job_orphaned_before_the_tracker_saw_it_is_ended_before_the_report() {
     orphaned("job");
