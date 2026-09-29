@@ -23140,3 +23140,20 @@ passes.
 Both are in the proposed patch. Then apply both patches, re-take the
 baseline reds and the mutations, record them, and land. No production file
 is added.
+
+### Second visit, 2026-09-29: the stop repeats
+
+Triage re-ruled the unit `chore` and re-fired implement under the same run.
+No addendum was added in between: the last heading of
+`operator-ruling-2026-09-23.md` is "Addendum, 2026-09-29: unit 21's
+residual is split as 21-fix-a and 21-fix-b", and no heading or addendum
+names `init_doctor.rs` or admits anything for unit 22.
+
+At head 2b954413, `git apply --check` passed for both saved patches. Their
+sha256 digests are still `43497a92…` and `90975dfc…`.
+`init_doctor.rs:445` still pins "seat on claude is launched with it switched
+off by the adapter's declared", the wording the fix removes.
+
+This visit did not rebuild or re-run the suites. It reports `blocked` so the
+run stops instead of looping back through triage. The admission above is
+still the ruling it needs.

@@ -4728,6 +4728,11 @@ production byte moved.
 - **No admitted lines.** No fixture migrations and no standing-admission
   lines. No frozen file moved.
 - **Where it is recorded.** evidence.md, "Unit 22 … OVERSIZED".
+- **Second visit, same run: BLOCKED.** Triage re-ruled the unit `chore`,
+  but no addendum admits `init_doctor.rs`. Both patches still apply at
+  2b954413, and their digests are unchanged. The visit did not rebuild. It
+  reports `blocked` so the run stops instead of looping. See evidence.md,
+  "Second visit".
 
 ## 23. Unit 23 — Audit launch enforcement removals
 
