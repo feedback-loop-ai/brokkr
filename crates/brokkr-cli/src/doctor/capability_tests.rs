@@ -485,7 +485,10 @@ fn a_matching_grant_never_promises_a_denial_the_launch_does_not_deliver() {
 /// selection mapping to fold it into ([`uncomposable_codex`]), so the whole
 /// plan of a seat that does not hold it is refused with the composer's own
 /// cause — under a scoped grant, an empty-office grant, an unused grant,
-/// and no grant at all — and no line promises it switched off.
+/// and no grant at all — and no line promises it switched off. The scoped
+/// holder's plan composes, and launch's final validation refuses it: its
+/// fetch OFF is the harness default, which the final command does not
+/// carry (review return SC1 of rebuild unit 22).
 #[test]
 fn an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives() {
     let cause = format!(
@@ -494,6 +497,14 @@ fn an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives() {
          control that cannot reach the final command is refused rather than recorded and \
          dropped (decision 0066 ruling 3)",
         hypothetical("private", "adapter-plan")
+    );
+    let unchecked = format!(
+        "{}: refusing to invoke the agent CLI: the final command of harness 'claude' leaves \
+         tool 'web_fetch' available, which its plan denies as native capability 'web-fetch'; a \
+         complete command is parsed back before its spawn and must express exactly the \
+         capability state its sealed plan records, so it is refused rather than spawned \
+         (operator ruling 2 of 2026-09-23; design D6)",
+        hypothetical("private", "researcher")
     );
     let fetch = format!(
         "warn     capabilities private native codex 'web-fetch': NOT granted here: {NO_OFF} · \
@@ -504,7 +515,7 @@ fn an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives() {
             Some(json!({"dialect": "codex-native-search", "offices": ["researcher"]})),
             Some((
                 "offices [researcher] only",
-                "of office 'researcher' that wants it is admitted with it ON",
+                "of office 'researcher' that wants it is refused (UNCHECKED)",
             )),
         ),
         (
@@ -535,7 +546,9 @@ fn an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives() {
                 "warn     capabilities private native codex 'web-search': granted to {scope} \
                  through dialect 'codex-native-search'; the adapter-level plan of a seat \
                  {}; for a seat that does not hold it, {NO_OFF} · {EVIDENCE}",
-                wanting.replace("CAUSE", &cause)
+                wanting
+                    .replace("CAUSE", &cause)
+                    .replace("UNCHECKED", &unchecked)
             ),
             None => format!(
                 "warn     capabilities private native codex 'web-search': NOT granted here: \
@@ -1427,22 +1440,26 @@ fn a_held_tool_another_power_denies_refuses_its_holder_in_doctor_and_compile() {
 /// researcher holds fetch, and every line is `ok` at its stated scope,
 /// with every compile admitted. The adapter's template is part of the plan
 /// submitted: the same harness with a template that allows `WebFetch`
-/// refuses the seat that holds nothing, exactly as its compile does, while
-/// the holder, whose holding admits the tool, is still admitted.
+/// refuses the seat that holds nothing, exactly as its compile does. The
+/// holder, whose holding admits the tool, compiles, and its plan composes,
+/// but launch's final validation refuses the template's authored control
+/// of the power (review return SC1 of rebuild unit 22), and doctor reports
+/// launch's cause.
 #[test]
 fn an_admitted_plan_is_reported_at_its_scope_and_the_template_is_submitted_with_it() {
     let grant = || Some(json!({"dialect": "claude-fetch", "offices": ["researcher"]}));
     let granted = "ok       capabilities private 'web-fetch': dialect 'claude-fetch' \
                    (provider-native, provider 'claude') · tools [WebFetch] · offices \
                    [researcher] only · restrictions none";
-    let fetch = |level: &str, off: &str| {
+    let fetch = |level: &str, wanting: &str, off: &str| {
         format!(
             "{level}     capabilities private native claude 'web-fetch': granted to offices \
              [researcher] only through dialect 'claude-fetch'; the adapter-level plan of a seat \
-             of office 'researcher' that wants it is admitted with it ON; for a seat that does \
-             not hold it, {off} · {EVIDENCE}"
+             of office 'researcher' that wants it {wanting}; for a seat that does not hold it, \
+             {off} · {EVIDENCE}"
         )
     };
+    let on = "is admitted with it ON";
     let search = |off: &str| {
         format!(
             "warn     capabilities private native claude 'web-search': NOT granted here: {off} · \
@@ -1458,7 +1475,7 @@ fn an_admitted_plan_is_reported_at_its_scope_and_the_template_is_submitted_with_
         [
             granted.to_string(),
             admitted("private", "claude"),
-            fetch("ok  ", OFF),
+            fetch("ok  ", on, OFF),
             search(OFF),
         ]
     );
@@ -1487,7 +1504,18 @@ fn an_admitted_plan_is_reported_at_its_scope_and_the_template_is_submitted_with_
                 "claude",
                 &format!("{}: {template}", hypothetical("private", "adapter-plan")),
             ),
-            fetch("warn", NO_OFF),
+            fetch(
+                "warn",
+                &format!(
+                    "is refused ({}: refusing to invoke the agent CLI: the arguments of seat \
+                     'adapter-plan' carry '--allowedTools WebFetch', which controls native \
+                     capability 'web-fetch'. Only the realm grants a capability (decision 0065 \
+                     ruling 3), and the engine composes the one control the grant resolves to; \
+                     an authored control is refused rather than ordered against it)",
+                    hypothetical("private", "researcher")
+                ),
+                NO_OFF
+            ),
             search(NO_OFF),
         ]
     );
@@ -1498,5 +1526,97 @@ fn an_admitted_plan_is_reported_at_its_scope_and_the_template_is_submitted_with_
         Err(format!(
             "bundle: seat 'work' (office 'researcher') in realm 'private': {template}"
         ))
+    );
+}
+
+/// Review return SC1 of run `0065-rebuild-unit-22-see-the-uni-79c858d5`:
+/// a plan is admitted only where launch's final validation admits the
+/// complete command it serves (design D8). Under the codex driver, an OFF
+/// declared as the harness default composes, but the cold command carries
+/// no measured OFF for the power its plan denies, so launch refuses it —
+/// and so do both doctor paths, the seat that holds nothing and the seat
+/// whose restricted want drops, with launch's own cause. The measured OFF
+/// argv restored, the same plans are admitted.
+#[test]
+fn a_plan_whose_final_command_carries_no_off_is_refused_as_launch_refuses_it() {
+    let codex = |off: Value| {
+        let mut codex = adapter("codex", Some(native(off)));
+        codex["driver"] = json!(["{brokkr}", "driver", "codex", "--"]);
+        codex
+    };
+    let restricted = json!([realm(
+        "private",
+        Some(json!({"web-search": {
+            "dialect": "codex-native-search", "allow": {"hosts": ["yaml.org"]}}}))
+    )]);
+    let grant = |consequence: &str| {
+        format!(
+            "ok       capabilities private 'web-search': dialect 'codex-native-search' \
+             (provider-native, provider 'codex') · tools [web_search] · all requesting offices · \
+             restrictions {{\"allow\":{{\"hosts\":[\"yaml.org\"]}}}} · restriction 'allow.hosts' \
+             is not usable authority: a seat that requires the capability is refused, the \
+             adapter-level plan of a seat of office 'adapter-plan' that wants it {consequence}, \
+             and it never runs unrestricted"
+        )
+    };
+    let final_check = format!(
+        "{}: refusing to invoke the agent CLI: the final command of harness 'codex' carries no \
+         measured OFF for native capability 'web-search', which its plan denies; a complete \
+         command is parsed back before its spawn and must express exactly the capability state \
+         its sealed plan records, so it is refused rather than spawned (operator ruling 2 of \
+         2026-09-23; design D6)",
+        hypothetical("private", "adapter-plan")
+    );
+    let unmeasured = codex(json!({"default": "measured off by default"}));
+    let dir = workspace_with(Some(json!([realm("private", None)])));
+    write(dir.path(), "adapters/codex.json", &unmeasured);
+    let (healthy, lines) = lines(dir.path(), &installed(&["codex"]));
+    assert!(healthy);
+    assert_eq!(
+        lines,
+        [
+            "ok       capabilities private: grants nothing; every native capability is \
+             governed by the no-grant default — switched off, or the seat is refused"
+                .to_string(),
+            refused("private", "codex", &final_check),
+            format!(
+                "warn     capabilities private native codex 'web-search': NOT granted here: \
+                 {NO_OFF} · {EVIDENCE}"
+            ),
+        ]
+    );
+    let dir = workspace_with(Some(restricted.clone()));
+    write(dir.path(), "adapters/codex.json", &unmeasured);
+    let (_, lines) = self::lines(dir.path(), &installed(&[]));
+    assert_eq!(
+        lines,
+        [grant(&format!(
+            "is refused, and no denial is claimed ({final_check})"
+        ))]
+    );
+
+    let measured = codex(json!({"argv": ["-c", "web_search=\"disabled\""]}));
+    let dir = workspace_with(Some(json!([realm("private", None)])));
+    write(dir.path(), "adapters/codex.json", &measured);
+    let (_, lines) = self::lines(dir.path(), &installed(&["codex"]));
+    assert_eq!(
+        lines[1..],
+        [
+            admitted("private", "codex"),
+            format!(
+                "warn     capabilities private native codex 'web-search': NOT granted here: \
+                 {OFF} · {EVIDENCE}"
+            ),
+        ]
+    );
+    let dir = workspace_with(Some(restricted));
+    write(dir.path(), "adapters/codex.json", &measured);
+    let (_, lines) = self::lines(dir.path(), &installed(&[]));
+    assert_eq!(
+        lines,
+        [grant(
+            "drops it (provider 'codex' cannot express restriction 'allow.hosts'; native \
+             capability remains OFF)"
+        )]
     );
 }

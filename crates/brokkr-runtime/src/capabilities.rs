@@ -1831,8 +1831,10 @@ impl Authority {
     /// and the whole plan goes through [`Authority::resolve`]: every known
     /// power ON or OFF together, the realm's grants and restrictions, and
     /// the admission by the composer the launch's final check recomposes
-    /// with. What it returns is that admission or that refusal, never an
-    /// answer for one capability alone.
+    /// with. An admitted plan is then served as launch serves it
+    /// ([`final_validation`]), so a complete command that fails the final
+    /// check refuses here with launch's own cause. What it returns is that
+    /// admission or that refusal, never an answer for one capability alone.
     pub fn assess(
         &self,
         adapter: &crate::agents::Adapter,
@@ -1845,7 +1847,7 @@ impl Authority {
             asks,
             subtracted: Vec::new(),
         };
-        self.resolve(
+        let outcome = self.resolve(
             &site,
             &Serving {
                 provider: &adapter.provider,
@@ -1858,7 +1860,10 @@ impl Authority {
                 provenance: &launch::Provenance::default(),
                 written: &[],
             },
-        )
+        )?;
+        final_validation(adapter, &outcome)
+            .map_err(|cause| format!("{}: {cause}", self.who(&site)))?;
+        Ok(outcome)
     }
 
     /// Independently of every ask (design D4 step 4): each native power
@@ -2226,6 +2231,71 @@ fn admit(serving: &Serving<'_>, plan: &NativePlan) -> Result<(), launch::Failure
         &decoded,
     )
     .map(drop)
+}
+
+/// The workdir an adapter-level plan's cold command names: a hypothesis
+/// has none of its own, and nothing is spawned in it.
+const ADAPTER_WORKDIR: &str = "/";
+
+/// Design D8 and review return SC1 of rebuild unit 22: the complete cold
+/// command an admitted adapter-level plan ([`Authority::assess`]) serves,
+/// handed to the built-in driver's own launch exactly as the engine hands a
+/// sealed launch over — the plan, a launch record sealed from its typed
+/// facts (the adapter's template and nothing authored, no local
+/// declaration, no hands) and empty serving inputs (no pins, no dialect
+/// fragment) — so the driver composes, builds and checks it with
+/// [`launch::check_final`], and its refusal is launch's own. Nothing is
+/// spawned: a cold launch offers no session, so no version is probed.
+///
+/// A driver the engine does not dispatch is opaque: launch has no final
+/// command to check there, and the plan rides as data. A built-in harness
+/// with no adapter-level cold command refuses, so its plan is never
+/// reported as admitted unchecked.
+fn final_validation(adapter: &crate::agents::Adapter, outcome: &Outcome) -> Result<(), String> {
+    use launch::{
+        AllowIntent, Application, Expected, HandsIntent, LaunchRecord, LocalExpectation, Origin,
+        SandboxIntent, SealedServing, SERVING_INPUTS,
+    };
+    let harness = harness_of(&adapter.driver);
+    let extras = launch::harness_arguments(&adapter.driver).to_vec();
+    let record = LaunchRecord {
+        segments: vec![Segment::new(Origin::Template, &extras)],
+        expected: Expected {
+            identity: outcome.identity(),
+            native: outcome.native.expected(),
+            local: LocalExpectation {
+                allow: AllowIntent::Unspecified,
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Unrestricted,
+            },
+            hands: HandsIntent::None,
+            template: crate::agents::declared_template(&adapter.driver),
+        },
+    };
+    let input = json!({
+        "workdir": ADAPTER_WORKDIR,
+        "seat": ADAPTER_SEAT,
+        "native_controls": outcome.controls(),
+        "launch_record": record.value(),
+        SERVING_INPUTS: SealedServing::default().value(),
+        "launch_arguments": {"authored": extras, "managed": []},
+    });
+    let served = match harness {
+        OPAQUE_HARNESS => return Ok(()),
+        "codex" => brokkr_protocol::adapters::codex_command(
+            harness,
+            &extras,
+            ADAPTER_WORKDIR,
+            None,
+            &input,
+        ),
+        "claude" => brokkr_protocol::adapters::claude_command(harness, &extras, None, &input),
+        _ => Err(format!(
+            "no adapter-level cold command of harness '{harness}' is built, so its plan cannot \
+             be handed to launch's final validation and is not reported as admitted (design D8)"
+        )),
+    };
+    served.map(drop)
 }
 
 #[cfg(test)]

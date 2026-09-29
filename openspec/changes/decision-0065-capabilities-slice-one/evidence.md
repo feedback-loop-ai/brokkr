@@ -23248,3 +23248,81 @@ Run `0065-rebuild-unit-22-see-the-uni-79c858d5`. Base is 361520c3.
 - **Pending.** `cargo test --workspace` (not run: the workspace run can
   hang in brokkr-cli), macOS, exact coverage outside the box, remote CI
   and the council.
+
+### Review return SC1 — the adapter-level plan meets launch's final validation
+
+Same run, second implement visit, base 9bb7fe33. The review's HIGH SC1:
+`Authority::assess` resolved and composed the plan but never ran launch's
+final validation, so doctor reported an admitted, switched-off plan whose
+cold command `check_final` refuses (the Codex OFF declared as the harness
+default carries no measured OFF).
+
+- **Fix, `crates/brokkr-runtime/src/capabilities.rs` only.** `assess` now
+  hands an admitted plan to `final_validation`. That builds the input the
+  engine hands a sealed launch: the plan, a `LaunchRecord` sealed from
+  typed facts (the adapter's template as the one `template` segment,
+  `declared_template` as its expectation, no local declaration, no
+  hands), empty `SealedServing`, and `launch_arguments`. It then calls the
+  built-in driver's own `codex_command` / `claude_command`. Those compose,
+  build the cold command and run `check_final` through `served`, so the
+  cause is launch's own, prefixed by the adapter-level seat. The cold path
+  offers no session, so no version probe runs and nothing is spawned. An
+  opaque driver (`<custom>`) has no final command at launch and is
+  unchanged. Any other built-in harness with a known inventory refuses
+  with a named cause rather than being reported admitted unchecked.
+  `doctor.rs` is unchanged: both of its paths already report `assess`'s
+  refusal.
+- **Tests, `crates/brokkr-cli/src/doctor/capability_tests.rs`.**
+  - New: `a_plan_whose_final_command_carries_no_off_is_refused_as_launch_refuses_it`
+    (`:1541`). It uses a Codex adapter under the codex driver. With the OFF
+    declared as the harness default, both the unheld plan line and the
+    restricted-want line are refused with launch's literal cause ("the
+    final command of harness 'codex' carries no measured OFF for native
+    capability 'web-search', which its plan denies; …"). With the measured
+    `-c web_search="disabled"` restored, both are admitted/dropped-OFF.
+  - Changed assertion, `an_uncomposable_off_…` (`:501`, `:518`, `:551`).
+    The scoped holder of `uncomposable_codex` (claude driver, fetch OFF by
+    harness default) was "admitted with it ON". Launch refuses it: "the
+    final command of harness 'claude' leaves tool 'web_fetch' available,
+    which its plan denies as native capability 'web-fetch'".
+  - Changed assertion, `an_admitted_plan_…` (`:1462`, `:1510`). With the
+    template `--allowedTools WebFetch`, the holder was "admitted with it
+    ON". Launch refuses the template's authored control: "the arguments of
+    seat 'adapter-plan' carry '--allowedTools WebFetch', which controls
+    native capability 'web-fetch'…". The compile half of the same test
+    still admits the holder (`compile(holding) == Ok(())`, unchanged).
+    That compile/launch difference is pre-existing and is named as a
+    follow-up, not fixed here.
+- **Observed (logs in `.forge/unit-22-fix/`).**
+  - Baseline at 9bb7fe33 with the new test only: `cargo test -p
+    brokkr-cli --lib doctor::capability_tests` 16 passed, 1 failed (the
+    new test at `:1543`). Doctor said "is admitted, each of them switched
+    off by the composed command" (`baseline.txt`).
+  - Fix: `doctor::` 70 passed, 0 failed.
+  - Mutations, each compiling and each restored by `Edit`, with
+    `doctor::` re-run after each:
+
+    | # | Mutation | Failed (test:line) |
+    | --- | --- | --- |
+    | F1 | `served.map(drop).or(Ok(()))` (no final validation) | 3: a_plan_whose_final… :1575, an_uncomposable_off :558, an_admitted_plan :1498 |
+    | F2 | codex arm `Ok(Vec::new())` | 1: a_plan_whose_final… :1575 |
+    | F3 | claude arm `Ok(Vec::new())` | 2: an_uncomposable_off :558, an_admitted_plan :1498 |
+    | F4 | the `who` prefix dropped from the cause | 3: the same three as F1 |
+
+  - Restored: `doctor::` 70 passed.
+- **Gates.**
+  - `cargo fmt --all -- --check`: clean.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: clean.
+  - `cargo test -p brokkr-cli`: 33 result lines, all ok. The lib passed
+    486 and `init_doctor` passed 15, so the shipped claude and codex
+    adapter-level plans pass launch's final validation unchanged.
+  - `cargo test -p brokkr-runtime`: every result line ok (lib 627,
+    `capability_launch` 68).
+  - `compile --bundle bundles/self` and `bundles/verify`: both compile.
+  - `openspec validate --all --strict`: 18 passed.
+  - `git diff --check`: clean.
+- **Admissions.** No fixture migrations, no standing-admission lines, and
+  no `init_doctor.rs` line moved.
+- **Pending.** `cargo test --workspace`, macOS, exact coverage outside the
+  box, remote CI and the council.

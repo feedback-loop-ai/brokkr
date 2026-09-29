@@ -4765,6 +4765,20 @@ production byte moved.
   lines.
 - **Ticked.** 22.1 and 22.2 are ticked on the evidence observed above.
 - **Pending.** macOS, exact coverage, remote CI and the council.
+- **Review return SC1, same run.** The council found that `assess` never
+  ran launch's final validation. Now `capabilities.rs` hands an admitted
+  adapter-level plan to the built-in driver's own
+  `codex_command`/`claude_command`, sealed as a launch, so `check_final`
+  judges its cold command. Both doctor paths therefore report launch's
+  refusal.
+  - Proof: baseline 1 of 17 red; fix `doctor::` 70 passed; mutations F1–F4
+    each fail their intended tests; restored 70 passed.
+  - Two assertions in the unit's own test file changed from "admitted with
+    it ON" to launch's refusal (`an_uncomposable_off_…`,
+    `an_admitted_plan_…` template case).
+  - No other file moved, including `init_doctor.rs`.
+  - 22.1 and 22.2 stay ticked on this evidence (evidence.md, "Review return
+    SC1").
 
 ## 23. Unit 23 — Audit launch enforcement removals
 
