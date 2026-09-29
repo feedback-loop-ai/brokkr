@@ -4497,6 +4497,40 @@ re-fired after triage"): blocked.** Triage re-ruled the oversized return
 stand at `b1a32708`. No test or production byte moved. 21.1 and 21.3 stay
 open until 21-fix-a is commissioned and 21-fix-b lands.
 
+**Unit 21-fix-a, 2026-09-29 (run `0065-rebuild-unit-21-see-the-uni-014db2ff`,
+based on `87c522b5`; evidence.md, "Unit 21-fix-a"): R1 and R3 repaired.**
+The operator's ruling is landed as the addendum "unit 21's residual is split
+as 21-fix-a and 21-fix-b". 21.1 and 21.3 stay open until 21-fix-b.
+
+- **R1** (`native_controls.rs`). `check_final` judges `delivered` on the
+  state of the parsed final argv, before any rebuild, never on the
+  recomposition. `delivered` now also requires a Codex command to carry the
+  measured OFF of each denied capability. Regression:
+  `a_restriction_the_serving_builder_drops_is_refused_by_the_final_check`,
+  Claude and Codex, cold and rejoined. Four owning assertions that pinned
+  a departure for a dropped restriction now pin the delivery refusal. The
+  metamorphic properties present a refused launch's composition and
+  expect the delivery refusal for a mutation that drops a denial.
+- **R3** (`capabilities.rs`). A known native power no ask reached is told
+  `granted, but this seat does not request it` where the realm's grant
+  reaches the seat's office, and `the realm does not grant it to this seat`
+  otherwise. Regression:
+  `an_unrequested_grant_and_an_ungranted_power_are_told_apart`, inline and
+  agent-backed, manifest and prompt. Corrected granted-but-unrequested
+  pins: `engine/capability_tests.rs:1860` (owning) and
+  `capability_launch.rs:10644`, the one the ruling admits.
+- **Proof.** Baseline reds observed on `87c522b5`'s production files. Two
+  compiling mutations each for R1 and R3 were caught, and each file was
+  restored.
+- No standing-admission lines and no fixture migrations. Follow-up: a
+  sandbox class, hands or boundary lost inside the builder is still judged
+  only by the departure.
+- **Gates** (final tree). All clean: `fmt`, `clippy`, the protocol,
+  runtime and cli suites (61 ok), the other crates (16 ok), both bundles,
+  `openspec validate` (18 passed) and `git diff --check`.
+- **Pending:** macOS, exact coverage outside the box, remote CI, the
+  council and 21-fix-b.
+
 ## 22. Unit 22 — Submit whole plans to doctor
 
 - [ ] 22.1 Unit 22 submits whole plans in both doctor paths. Verify interacting OFF/final-state conflicts and explicit adapter-only scope. Requirements: [Doctor reports grants for every realm][CD1], [Installed native capabilities absent from grants are explicit][CD2], [Restrictions are validated, carried and pinned without engine interpretation][RG4]. Reopened/remaining: operator ruling 2–4. (previous 8.3)

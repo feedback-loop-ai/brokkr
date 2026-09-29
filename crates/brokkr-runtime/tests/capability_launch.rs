@@ -10639,8 +10639,10 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
              'web-search' through dialect 'codex-search-hosts' because {but}"
         )
     };
-    let unasked = "provider 'codex' has it natively, the realm does not grant it to this seat, \
-                   and it is switched off";
+    // The realm grants web-search; the inline seat asks nothing (operator
+    // ruling of 2026-09-29, rebuild unit 21-fix-a, R3).
+    let unasked = "provider 'codex' has it natively, granted, but this seat does not request \
+                   it, and it is switched off";
     let subtracted = "this seat subtracted it from its office's asks";
     struct Served<'a> {
         case: &'a str,

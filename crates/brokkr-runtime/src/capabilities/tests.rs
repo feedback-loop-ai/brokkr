@@ -1513,6 +1513,66 @@ fn cq1_an_inexpressible_restriction_idles_an_unused_grant() {
     );
 }
 
+/// Operator ruling of 2026-09-29, rebuild unit 21-fix-a (R3): a seat that
+/// asks nothing is told why it does not hold a known native power by its
+/// own cause. Where the realm grants the power to the seat's office, the
+/// reason is "granted, but this seat does not request it"; where it does
+/// not, "the realm does not grant it to this seat". Inline and agent-backed
+/// sites alike; the manifest and the prompt carry the same value.
+#[test]
+fn an_unrequested_grant_and_an_ungranted_power_are_told_apart() {
+    let root = cq1_root();
+    let scoped = authority(
+        root.path(),
+        json!({"web-search": {"dialect": "search-native", "offices": ["researcher"]}}),
+    );
+    let native = switchable();
+    let nothing = parse_requests("agent 'researcher'", &json!({})).unwrap();
+    let reason = |cause: &str| {
+        format!("provider 'test-native' has it natively, {cause}, and it is switched off")
+    };
+    let granted = reason("granted, but this seat does not request it");
+    let ungranted = reason("the realm does not grant it to this seat");
+    for (form, site, expected) in [
+        (
+            "inline, granted",
+            SiteAsks::of("researcher", None, Some(&json!({}))).unwrap(),
+            &granted,
+        ),
+        (
+            "agent-backed, granted",
+            SiteAsks::of("research", Some(("researcher", &nothing)), None).unwrap(),
+            &granted,
+        ),
+        (
+            "inline, ungranted",
+            SiteAsks::of("implement", None, None).unwrap(),
+            &ungranted,
+        ),
+        (
+            "agent-backed, ungranted",
+            SiteAsks::of("implement", Some(("implementer", &nothing)), None).unwrap(),
+            &ungranted,
+        ),
+    ] {
+        let idle = scoped.resolve(&site, &serving(&native)).unwrap();
+        let not_held = json!({"web-search": expected});
+        assert_eq!(
+            (
+                idle.manifest()["not_held"].clone(),
+                idle.prompt(),
+                argv_of(&idle)
+            ),
+            (
+                not_held.clone(),
+                json!({"held": {}, "not_held": not_held}),
+                vec!["--search-off".to_string()]
+            ),
+            "{form}"
+        );
+    }
+}
+
 /// Rebuild unit 11 under the operator's DEFER ruling of 2026-09-25 (design
 /// D11): a declared restriction transport carries only the empty
 /// restriction in slice one. A nonempty one reaches CQ1's outcomes alone,

@@ -1944,7 +1944,10 @@ fn unchecked<'a>(harness: &'a str, problem: Vec<Piece<'a>>) -> Refusal {
 ///    provider, and the whole `command` — its program first, after every
 ///    engine prefix, wrapper option, expansion, session argument and
 ///    prompt — parses under the harness's grammar
-///    ([`grammar::Grammar::parse_final`]) into its [`State`].
+///    ([`grammar::Grammar::parse_final`]) into its [`State`]. What the
+///    plan denies is judged delivered on that state alone ([`delivered`]),
+///    never on the recomposition or the rebuild below (operator ruling of
+///    2026-09-29, rebuild unit 21-fix-a).
 /// 2. The sealed inputs are the plan's ([`sealed_inputs`]), and from them
 ///    and the engine's serving choices alone the engine's contributions are
 ///    rebuilt: the recipe's words and the adapter's pins, proved to carry no
@@ -1996,7 +1999,7 @@ pub fn check_final(
     let parsed = table
         .parse_final(argv)
         .map_err(|problem| refuse(vec![Piece::Words("cannot be read whole "), unread(problem)]))?;
-    read_state(&parsed.command).map_err(|cause| {
+    let state = read_state(&parsed.command).map_err(|cause| {
         refuse(vec![
             Piece::Words("cannot be read: it "),
             Piece::Grammar(cause),
@@ -2014,13 +2017,17 @@ pub fn check_final(
                 unread(problem),
             ])
         })?;
-    let recomposed = read_state(&recomposed).map_err(|cause| {
+    read_state(&recomposed).map_err(|cause| {
         refuse(vec![
             Piece::Words("recomposes from its sealed inputs a command that cannot be read: it "),
             Piece::Grammar(cause),
         ])
     })?;
-    delivered(harness, controls, &recomposed)?;
+    // Delivery is judged on the command handed over, before any rebuild
+    // (operator ruling of 2026-09-29, rebuild unit 21-fix-a): a restriction
+    // the serving builder lost is lost from its rebuild too, so no
+    // comparison with that builder can find it.
+    delivered(harness, controls, &state)?;
     let rebuilt =
         crate::adapters::serving_command(harness, &serving, &composed).map_err(|cause| {
             refuse(vec![
@@ -2570,22 +2577,39 @@ fn denies(pattern: &str, tool: &str) -> bool {
                     .is_some_and(|rest| rest.starts_with("__"))))
 }
 
-/// Whether the recomposed Claude or LaneTally command delivers what its
-/// plan denies (decision 0066 ruling 1; NCR): each tool of a denied
-/// capability, and each tool a holding's capability names but its holding
-/// does not admit, is unavailable in it — outside its include list or
-/// denied outright. The plan's selection is the adapter's delivery of its
-/// denials, and the composer folds it as given; a selection that leaves a
-/// denied tool available refuses here. A capability the plan holds is not
-/// denied by an unselected entry's OFF for it (operator ruling (1) of
+/// Whether the final command, by the state parsed from its own argv,
+/// delivers what its plan denies (decision 0066 ruling 1; NCR; operator
+/// ruling of 2026-09-29, rebuild unit 21-fix-a). A Codex command carries
+/// the measured OFF of each capability its plan denies. In a Claude or
+/// LaneTally command each tool of a denied capability, and each tool a
+/// holding's capability names but its holding does not admit, is
+/// unavailable — outside its include list or denied outright. The plan's
+/// selection is the adapter's delivery of its denials, and the composer
+/// folds it as given; a command that leaves a denied tool available
+/// refuses here, whichever builder lost it. A capability the plan holds is
+/// not denied by an unselected entry's OFF for it (operator ruling (1) of
 /// 2026-09-27).
-fn delivered(harness: &str, controls: &Controls, recomposed: &State) -> Result<(), Refusal> {
+fn delivered(harness: &str, controls: &Controls, state: &State) -> Result<(), Refusal> {
+    let refuse = |problem: Vec<Piece<'_>>| Err(unchecked(harness, problem));
+    if harness == "codex" {
+        if let Some(capability) = controls
+            .denied
+            .iter()
+            .find(|capability| !state.off().any(|off| off == capability.as_str()))
+        {
+            return refuse(vec![
+                Piece::Words("leaves "),
+                Piece::Capability(capability),
+                Piece::Words(" on, which its plan denies by its measured OFF"),
+            ]);
+        }
+        return Ok(());
+    }
     if !matches!(harness, "claude" | "lanetally") {
         return Ok(());
     }
-    let refuse = |problem: Vec<Piece<'_>>| Err(unchecked(harness, problem));
-    let include = recomposed.lists(ListKind::Include).last();
-    let deny: Vec<&String> = recomposed.lists(ListKind::Deny).flatten().collect();
+    let include = state.lists(ListKind::Include).last();
+    let deny: Vec<&String> = state.lists(ListKind::Deny).flatten().collect();
     let available = |tool: &str| {
         include.is_none_or(|include| include.iter().any(|named| named == tool))
             && !deny.iter().any(|pattern| denies(pattern, tool))

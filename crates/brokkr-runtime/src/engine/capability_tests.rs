@@ -1855,8 +1855,10 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
     assert_eq!(single["role_text"], "# the single charter\n");
     let held = "Beyond your hands you hold: `web-search` (tools: web_search).";
     let none = "Beyond your hands you hold NO capability in this realm.";
-    let off = "You do NOT hold `web-search`: provider 'codex' has it natively, the realm does not \
-               grant it to this seat, and it is switched off.";
+    // The realm grants web-search; these Codex seats do not request it
+    // (operator ruling of 2026-09-29, rebuild unit 21-fix-a, R3).
+    let off = "You do NOT hold `web-search`: provider 'codex' has it natively, granted, but this \
+               seat does not request it, and it is switched off.";
     let (opens, closes, prompt) = told(&single, "single", &said(held));
     assert!(opens && closes, "{prompt}");
     prompts.push((single, prompt));

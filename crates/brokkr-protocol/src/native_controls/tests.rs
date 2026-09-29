@@ -8616,11 +8616,12 @@ fn the_sealed_inputs_are_checked_independently_of_the_command() {
         Err(both("claude", "WebSearch"))
     );
     // A plan that leaves what it denies available, or names no tool for a
-    // denial, refuses (NCR).
+    // denial, refuses (NCR): the command it composes is judged as handed
+    // (rebuild unit 21-fix-a).
     let mut undenying = local.clone();
     undenying.controls.selection.deny = Vec::new();
     assert_eq!(
-        undenying.cold(local_cold.clone()),
+        undenying.cold(undenying.served(&CLAUDE_LEAD)),
         refused(
             "leaves tool 'WebFetch' available, which its plan denies as native capability \
              'web-fetch'"
@@ -8817,7 +8818,12 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
         rejoin
     );
     let refused = |problem: &str| Err(final_refusal("codex", problem));
-    assert_eq!(check(&sealed, &cold[..13], None), Err(departs("codex", 13)));
+    assert_eq!(
+        check(&sealed, &cold[..13], None),
+        refused(
+            "leaves native capability 'web-search' on, which its plan denies by its measured OFF"
+        )
+    );
     let mut fenced = cold.clone();
     fenced.insert(13, "--".into());
     assert_eq!(
@@ -9174,6 +9180,143 @@ fn an_unselected_entrys_off_for_a_held_capability_is_no_denial() {
              'web-fetch'"
         ))
     );
+}
+
+/// Operator ruling of 2026-09-29, rebuild unit 21-fix-a (R1): the final
+/// check judges delivery on the state of the command it is handed, so a
+/// restriction the serving builder dropped is refused and never served.
+/// Each launch is served whole cold and rejoined; then each command is
+/// handed over as a builder that lost its restriction would write it —
+/// Claude's managed empty include list from a plan that holds nothing
+/// under a `--tools Read` OFF (unit 21's M1 and M2), and Codex's measured
+/// web-search OFF (unit 21's M4) — and refuses with the delivery it lacks,
+/// not a departure from a rebuild that lost it alike.
+#[test]
+fn a_restriction_the_serving_builder_drops_is_refused_by_the_final_check() {
+    let session = "019c4b7e-0000-7000-8000-000000000021";
+    let base = claude_final();
+    let denied = argv(&["web-fetch", "web-search"]);
+    let limited = Sealed {
+        controls: Controls {
+            held: Vec::new(),
+            denied: denied.clone(),
+            admits: admits(&[]),
+            argv: argv(&["--tools", "Read"]),
+            selection: Selection {
+                include: Vec::new(),
+                allow: Vec::new(),
+                deny: argv(&["WebFetch"]),
+                flags: claude_flags(),
+            },
+            provenance: typed(0, &[]),
+            ..base.controls
+        },
+        expected: Expected {
+            native: NativeExpectation::Known {
+                held: Vec::new(),
+                denied,
+            },
+            hands: HandsIntent::None,
+            ..base.expected
+        },
+        transport: None,
+        ..base
+    };
+    let cold = argv(&[
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--permission-mode",
+        "acceptEdits",
+        "--tools",
+        "",
+        "--disallowedTools",
+        "WebFetch",
+    ]);
+    let rejoined = [cold.clone(), argv(&["--resume", session])].concat();
+    let resumed = Serving {
+        session: Some(session),
+        ..Serving::default()
+    };
+    assert_eq!(limited.served(&CLAUDE_LEAD), cold);
+    assert_eq!(
+        limited.cold(cold.clone()).map(Checked::into_argv),
+        Ok(cold.clone())
+    );
+    assert_eq!(
+        limited
+            .check(rejoined.clone(), resumed)
+            .map(Checked::into_argv),
+        Ok(rejoined.clone())
+    );
+    let search = Err(final_refusal(
+        "claude",
+        "leaves tool 'WebSearch' available, which its plan denies as native capability \
+         'web-search'",
+    ));
+    let unlimited = |command: &[String]| [&command[..7], &command[9..]].concat();
+    assert_eq!(limited.cold(unlimited(&cold)), search);
+    assert_eq!(limited.check(unlimited(&rejoined), resumed), search);
+
+    let codex = codex_final(false, true);
+    let codex_cold = argv(&[
+        "codex",
+        "exec",
+        "--json",
+        "-C",
+        "/w",
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt",
+        "--image",
+        "resume",
+        "--sandbox",
+        "read-only",
+        "-c",
+        "web_search=\"disabled\"",
+    ]);
+    let codex_rejoin = argv(&[
+        "codex",
+        "exec",
+        "resume",
+        "--json",
+        "-c",
+        "sandbox_mode=\"read-only\"",
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt",
+        "--image",
+        "resume",
+        "-c",
+        "web_search=\"disabled\"",
+        CODEX_THREAD,
+        "-",
+    ]);
+    let thread = Serving {
+        session: Some(CODEX_THREAD),
+        ..Serving::default()
+    };
+    assert_eq!(
+        codex.cold(codex_cold.clone()).map(Checked::into_argv),
+        Ok(codex_cold.clone())
+    );
+    assert_eq!(
+        codex
+            .check(codex_rejoin.clone(), thread)
+            .map(Checked::into_argv),
+        Ok(codex_rejoin.clone())
+    );
+    let on = Err(final_refusal(
+        "codex",
+        "leaves native capability 'web-search' on, which its plan denies by its measured OFF",
+    ));
+    assert_eq!(codex.cold(codex_cold[..13].to_vec()), on);
+    let unswitched = [&codex_rejoin[..12], &codex_rejoin[14..]].concat();
+    assert_eq!(codex.check(unswitched, thread), on);
 }
 
 /// [`codex_hands`]'s plan under the `harness` boundary, as an agent's
@@ -9986,7 +10129,9 @@ fn the_plan_native_contribution_is_read_whole_and_carried() {
         claude(&["--resume", "session-1"]),
         refused("was planned with native controls that select a session")
     );
-    // A native list the plan composed, dropped from the command, departs.
+    // A native list the plan composed, dropped from the command with the
+    // denial it folds into, leaves the denied tool available (rebuild unit
+    // 21-fix-a).
     let mut listing = local.clone();
     listing.controls.argv = argv(&["--disallowedTools", "Read"]);
     let served = listing.served(&CLAUDE_LEAD);
@@ -9996,7 +10141,10 @@ fn the_plan_native_contribution_is_read_whole_and_carried() {
     );
     assert_eq!(
         listing.cold(served[..9].to_vec()),
-        Err(departs("claude", 9))
+        refused(
+            "leaves tool 'WebFetch' available, which its plan denies as native capability \
+             'web-fetch'"
+        )
     );
 }
 
@@ -10113,8 +10261,9 @@ fn every_sealed_include_limit_binds_the_final_command_empty_or_not() {
 /// selection and its native lists admit and deny, and the subset each
 /// holding admits, reach the recomposed command. A plan narrowing web search
 /// to `WebSearch` checks where its selection denies the excluded `WebPeek`
-/// and refuses where it leaves `WebPeek` available; a selection denial or
-/// admission, and a native list's name, dropped from the command depart.
+/// and refuses where it leaves `WebPeek` available, as does a command that
+/// drops that denial (rebuild unit 21-fix-a); a selection admission and a
+/// native list's name dropped from the command depart.
 #[test]
 fn the_plan_selection_and_each_holding_subset_reach_the_final_command() {
     let refused = |problem: &str| Err(final_refusal("claude", problem));
@@ -10131,16 +10280,14 @@ fn the_plan_selection_and_each_holding_subset_reach_the_final_command() {
     );
     let mut dropped = command.clone();
     dropped[10] = "WebFetch".into();
-    assert_eq!(narrowed.cold(dropped), Err(departs("claude", 10)));
+    let unadmitted_peek = refused(
+        "leaves tool 'WebPeek' available, which its plan's holding of native capability \
+         'web-search' does not admit",
+    );
+    assert_eq!(narrowed.cold(dropped), unadmitted_peek);
     let mut undenied = narrowed.clone();
     undenied.controls.selection.deny = argv(&["WebFetch"]);
-    assert_eq!(
-        undenied.cold(served(&undenied)),
-        refused(
-            "leaves tool 'WebPeek' available, which its plan's holding of native capability \
-             'web-search' does not admit"
-        )
-    );
+    assert_eq!(undenied.cold(served(&undenied)), unadmitted_peek);
     // The selection's admission dropped from the command.
     let mut unadmitted = served(&local);
     unadmitted[8] = "Bash(git log:*)".into();
@@ -10638,13 +10785,29 @@ impl Generated {
         self.sealed.check(command, self.serving)
     }
 
-    /// A readable command a refused launch is presented with: its lead.
+    /// A readable command a refused launch is presented with: its lead,
+    /// followed by what its sealed inputs compose where the composer admits
+    /// them and the result reads, since delivery is judged on the command
+    /// handed over (rebuild unit 21-fix-a). The refusal expected stays the
+    /// model's.
     fn presented(&self) -> Vec<String> {
         match self.sealed.harness {
-            "codex" => argv(&CODEX_LEAD),
+            "codex" => self.served(&CODEX_LEAD),
             "dsh" => argv(&["dsh", "--profile", "headless", "--patch", DSH_OVERLAY, "p"]),
-            _ => argv(&CLAUDE_LEAD),
+            _ => self.served(&CLAUDE_LEAD),
         }
+    }
+
+    fn served(&self, lead: &[&str]) -> Vec<String> {
+        let harness = self.sealed.harness;
+        let readable = |command: &Vec<String>| {
+            grammar::parse_final(harness, &command[1..]).is_some_and(|parsed| parsed.is_ok())
+        };
+        match self.sealed.composed() {
+            Ok(_) => Some(self.sealed.served(lead)).filter(readable),
+            Err(_) => None,
+        }
+        .unwrap_or_else(|| argv(lead))
     }
 }
 
@@ -12026,9 +12189,95 @@ fn unestablished_assignment(harness: &str, at: usize, table: &str) -> Refusal {
     )
 }
 
+/// The refusal a readable mutation earns before any departure where it
+/// no longer delivers what its plan denies (rebuild unit 21-fix-a), read
+/// from the mutated command alone: Codex's one measured OFF, and each
+/// Claude or LaneTally tool outside the last include list and denied by no
+/// bare name or server prefix.
+fn undelivered(state: &Generated, command: &[String]) -> Option<Refusal> {
+    let harness = state.sealed.harness;
+    let controls = &state.sealed.controls;
+    let leaves = |problem: String| Some(final_refusal(harness, &problem));
+    if harness == "codex" {
+        let off = command.iter().any(|part| part == "web_search=\"disabled\"");
+        return match off || controls.denied.is_empty() {
+            true => None,
+            false => leaves(
+                "leaves native capability 'web-search' on, which its plan denies by its \
+                 measured OFF"
+                    .into(),
+            ),
+        };
+    }
+    let parsed = grammar::parse_final(harness, &command[1..])?.ok()?;
+    let lists = |kind: ListKind| -> Vec<Vec<&str>> {
+        parsed
+            .command
+            .nodes
+            .iter()
+            .filter(|node| node.list() == Some(kind))
+            .map(|node| {
+                node.values
+                    .iter()
+                    .flat_map(|value| value.split(','))
+                    .filter(|pattern| !pattern.is_empty())
+                    .collect()
+            })
+            .collect()
+    };
+    let include = lists(ListKind::Include).pop();
+    let deny: Vec<&str> = lists(ListKind::Deny).concat();
+    let available = |tool: &str| {
+        include.as_ref().is_none_or(|names| names.contains(&tool))
+            && !deny.iter().any(|pattern| {
+                !pattern.contains('(')
+                    && (*pattern == tool
+                        || (pattern.starts_with("mcp__")
+                            && tool
+                                .strip_prefix(pattern)
+                                .is_some_and(|rest| rest.starts_with("__"))))
+            })
+    };
+    let guarded = |capability: &str| -> Vec<&String> {
+        controls
+            .guards
+            .iter()
+            .filter(|guard| guard.capability == capability)
+            .flat_map(|guard| &guard.tools)
+            .collect()
+    };
+    let admitted: Vec<&String> = controls.admits.values().flatten().collect();
+    for capability in &controls.held {
+        if let Some(tool) = guarded(capability)
+            .into_iter()
+            .find(|tool| !admitted.contains(tool) && available(tool))
+        {
+            return leaves(format!(
+                "leaves tool '{tool}' available, which its plan's holding of native capability \
+                 '{capability}' does not admit"
+            ));
+        }
+    }
+    controls
+        .denied
+        .iter()
+        .filter(|capability| !controls.held.contains(capability))
+        .find_map(|capability| {
+            let tool = guarded(capability)
+                .into_iter()
+                .find(|tool| available(tool))?;
+            leaves(format!(
+                "leaves tool '{tool}' available, which its plan denies as native capability \
+                 '{capability}'"
+            ))
+        })
+}
+
 /// Every single mutation of one checked command, each beside the refusal
 /// written out for it (rebuild units 13-fix, 13-fix-b and 13-fix-c, R4 and
-/// R5). The executable is replaced. Every option — capability-bearing or
+/// R5), or, where it drops what its plan denies, the delivery refusal
+/// [`undelivered`] writes out (rebuild unit 21-fix-a). The executable is
+/// replaced. Every option — capability-bearing or
 /// not, nothing dropped as inert — is dropped and altered; a list of several
 /// is shrunk by one pattern and reordered; a list written `--flag value` is
 /// respelled `--flag=value`; every two consecutive options are swapped; a
@@ -12040,7 +12289,10 @@ fn unestablished_assignment(harness: &str, at: usize, table: &str) -> Refusal {
 fn mutations(state: &Generated, expected: &[String]) -> Vec<(String, Vec<String>, Refusal)> {
     let harness = state.sealed.harness;
     let refuse = |problem: &str| final_refusal(harness, problem);
-    let departing = |command: &[String]| departs(harness, first_departure(command, expected));
+    let departing = |command: &[String]| {
+        undelivered(state, command)
+            .unwrap_or_else(|| departs(harness, first_departure(command, expected)))
+    };
     let mut out = Vec::new();
     let mut executable = expected.to_vec();
     executable[0] = "/usr/bin/other".into();

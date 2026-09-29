@@ -22135,3 +22135,165 @@ operator addendum was added in between.
   triage. It needs an operator addendum commissioning 21-fix-a (R1 in
   `native_controls.rs` and R3 in `capabilities.rs`, with a ruled wording
   for the unused grant), then 21-fix-b.
+
+## Unit 21-fix-a — 2026-09-29 (production repair of unit 21: R1 and R3)
+
+Run `0065-rebuild-unit-21-see-the-uni-014db2ff`, based on `87c522b5`. The
+operator's ruling of 2026-09-29 is landed verbatim as the addendum "unit
+21's residual is split as 21-fix-a and 21-fix-b" in
+`operator-ruling-2026-09-23.md`. Production files: `native_controls.rs`
+(R1) and `capabilities.rs` (R3), two of the ceiling of three. 21.1 and 21.3
+stay open until 21-fix-b.
+
+### R1: delivery is judged on the final command
+
+- **Before.** `check_final` read the final command's state and dropped it,
+  judged `delivered` on the recomposition, and compared the command with a
+  rebuild by the same `adapters::serving_command`. A restriction the builder
+  lost was lost from both sides alike (F21-1).
+- **Now** (`native_controls.rs:2030`). `check_final` keeps the state of the
+  parsed final argv and judges `delivered` on it, after the composer's own
+  refusals and before any rebuild. The recomposition is still parsed and
+  read, so its two refusals stand, but its state judges nothing. The
+  departure comparison is unchanged and comes after delivery.
+- **`delivered` also covers Codex** (`:2592`). It was a no-op for Codex, so
+  M4's lost OFF could not be caught on any state. A Codex final command
+  must now carry the measured OFF of each capability its plan denies, or it
+  refuses: `leaves native capability 'web-search' on, which its plan denies
+  by its measured OFF`. The Claude/LaneTally rule is unchanged, read from
+  the final state.
+- **Regression.** `native_controls/tests.rs`
+  `a_restriction_the_serving_builder_drops_is_refused_by_the_final_check`
+  (`:9195`). A Claude plan holding nothing under a `--tools Read` OFF is
+  served `--tools "" --disallowedTools WebFetch`, whole, cold and with
+  `--resume <session>`, and a Codex denying plan is served its OFF cold and
+  on `exec resume`. Each command is then handed over as a builder that lost
+  its restriction would write it (unit 21's M1, M2 and M4). Each refuses
+  with the exact delivery reason: `leaves tool 'WebSearch' available, which
+  its plan denies as native capability 'web-search'`, or the Codex line
+  above.
+- **Existing assertions moved by the change** (all in
+  `native_controls/tests.rs`, the owning suite). Each removed a restriction
+  from the handed command and pinned the departure; each now pins the
+  delivery refusal:
+  - `a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan`: the
+    dropped OFF (`:8824`);
+  - `the_plan_native_contribution_is_read_whole_and_carried`: a dropped
+    native deny list (`:10143`);
+  - `the_plan_selection_and_each_holding_subset_reach_the_final_command`: a
+    dropped selection denial of `WebPeek` (`:10283`);
+  - `the_sealed_inputs_are_checked_independently_of_the_command`: the
+    undenying plan is now handed its own served command (`:8624`), since a
+    plan's failure to deliver is judged on the command it composes. Its
+    reason is unchanged.
+  - The metamorphic properties. `Generated::presented` (`:10793`) hands a
+    refused launch its lead plus its composition where the composer admits
+    it and the result reads, else the lead alone. `undelivered` (`:12197`)
+    writes out the delivery refusal for a readable mutation that drops a
+    denial. Every other mutation keeps its written refusal. The tallies
+    (962 Claude, 962 LaneTally, 108 Codex, 4 DSH states; 15243, 15649, 557
+    and 16 mutations) are unchanged.
+  - Limitation: `undelivered` restates the delivery rule in the test. It is
+    not independent of the production rule; the hand-written literals in
+    the regression above are.
+- **Baseline red** (`87c522b5`'s `native_controls.rs` over the new tests,
+  before formatting): 5 failed, 79 passed. The regression failed at its
+  first removal (`:9258` then) with `departs at argument 7`, where the
+  delivery refusal was expected. The four moved assertions and the mutation
+  property failed alike, on `departs`.
+- **Mutation 1, the recomposition restored.** `delivered` judged on the
+  recomposition's state again, the rest of the fix in place. It compiled
+  (an unused-variable warning). 5 failed: the regression (`:9258` then), and
+  the same four and the mutation property.
+- **Mutation 2, the Codex OFF judgement removed.** `.take(0)` before its
+  `find`. 3 failed: the regression at its Codex cold removal (`:9315`), the
+  Codex cold/rejoin test (`:8821` then), and the mutation property.
+- **Restored.** The fixed file was copied back after each; 84 of 84
+  `native_controls` tests passed before formatting.
+
+### R3: an unrequested grant has its own reason
+
+- **Before.** `native_plan` told every known native power no ask reached
+  `the realm does not grant it to this seat`, even where the realm grants
+  it.
+- **Now** (`capabilities.rs:1443`, `:2136`). A private `Unasked` value has
+  two causes. `Granted` is chosen where the realm's grant for the power
+  reaches the seat's office; its reason is `granted, but this seat does not
+  request it`. `Ungranted` covers everything else and keeps `the realm does
+  not grant it to this seat`. Both sit in the one sentence `provider '<p>'
+  has it natively, <reason>, and it is switched off`, which the manifest's
+  `not_held` and the prompt both carry.
+- **Assumption.** "Grants" is read as the grant existing and reaching the
+  seat's office (`Grant::reaches`), the same test the resolver applies
+  before anything else. A grant scoped to other offices is "does not grant
+  it to this seat". A grant bound to another provider still counts as
+  granted: the seat asked nothing, which is the cause.
+- **Regression.** `capabilities/tests.rs`
+  `an_unrequested_grant_and_an_ungranted_power_are_told_apart` (`:1523`).
+  `web-search` is granted to office `researcher` only. The manifest's
+  `not_held`, the whole prompt value and the OFF argv are asserted for four
+  sites that ask nothing: inline and agent-backed in office `researcher`
+  (granted), and inline and agent-backed in another office (ungranted).
+- **Pins corrected, granted but unrequested:**
+  - `engine/capability_tests.rs:1860`, in
+    `every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings`.
+    Codex seats that ask only `library-docs`, in a realm granting
+    `web-search`. This is a capability owning test: its unheld-reason pin
+    was named for correction by the review return.
+  - `capability_launch.rs:10644`, the inline `unused` CQ1 row. This is the
+    assertion the ruling admits for R3 (was `:10642`).
+- **Pins left, genuinely ungranted.** `capability_launch.rs:10059`
+  (`no_grants` context), `capabilities/tests.rs:1150` (grant scoped to
+  another office). `engine/capability_tests.rs:135` and the protocol
+  fixtures (`adapters/tests.rs:16650`, `native_controls/tests.rs:772`) pin
+  hand-built plan inputs that `capabilities.rs` does not produce. They
+  were not changed and still pass.
+- **Baseline red** (`87c522b5`'s `capabilities.rs`). The regression failed
+  on `inline, granted` (`capabilities/tests.rs:1560`). The dispatch test
+  failed at `engine/capability_tests.rs:2046`. The CQ1 test failed on
+  `unused, inline` (`capability_launch.rs:10790`).
+- **Mutation 1, one generic text.** `Granted`'s reason reverts to the
+  ungranted one. The same three failed at the same places.
+- **Mutation 2, the office scope ignored.** Any grant is `Granted`. The
+  regression failed on `inline, ungranted`, and the existing
+  `a_held_capability_is_switched_on_and_is_fully_attributable`
+  (`capabilities/tests.rs:1148`) failed on its scoped grant.
+- **Restored.** The fixed file was copied back after each.
+
+### Not done here, and follow-ups
+
+- R2's restriction rows, and M1/M2/M4 re-run against the real builder as
+  final-check refusals, are 21-fix-b's. This unit's regression hands the
+  lost-restriction commands to the check directly; it does not mutate
+  `adapters.rs`.
+- Follow-up: `delivered` judges denials. Tool availability for Claude and
+  LaneTally, and measured OFFs for Codex. A Codex sandbox class, the box's
+  hands or a boundary fragment lost inside the serving builder is still
+  judged only by the departure comparison against that builder. DSH
+  carries no denial to judge. Neither was widened here; the ruling names
+  delivery.
+- No standing-admission lines and no fixture migrations. No frozen file,
+  `policy/`, `fixtures/`, `reference/`, `extensions/` or `contracts/` byte
+  moved.
+
+### Gates (this visit, final tree)
+
+- `cargo fmt --all -- --check`: clean. `cargo fmt --all` had rewrapped
+  two new test lines first.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, no warning.
+- `cargo test --locked -p brokkr-protocol -p brokkr-runtime -p brokkr-cli
+  --all-features`: 61 result lines, all ok, none failed. brokkr-protocol
+  has 546, 99 (2 ignored) and 1. The brokkr-runtime lib has 626, and
+  `capability_launch` has 65.
+- `cargo test --locked --workspace --all-features` over the remaining
+  crates (`--exclude` of those three): 16 result lines, all ok.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `… bundles/verify`: both compile. Their realm grants nothing, so every
+  unheld reason there is the ungranted one.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed.
+- `git diff --check`: clean.
+- **Pending.** macOS, exact coverage outside the box
+  (`scripts/coverage-exact.sh`), remote CI, the council, and unit
+  21-fix-b.

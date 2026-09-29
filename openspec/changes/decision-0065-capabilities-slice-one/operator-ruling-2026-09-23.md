@@ -217,3 +217,11 @@ A typed tools restriction (tools.allow / tools.deny) on a harness whose native c
 ## Addendum, 2026-09-29: the R1 pinned-resume proof is unit 20-fix-b
 
 Unit 20-fix-b is commissioned with ONE test file, `crates/brokkr-cli/tests/capability_verbs.rs`, and NO production file. It proves that a pinned `brokkr resume` refuses the typed LaneTally allow, inline and agent-backed, with the exact rendered cause (the line brokkr-cli's `unreproducible` renders). Cold compilation does not stand in for resume coverage.
+
+## Addendum, 2026-09-29: unit 21's residual is split as 21-fix-a and 21-fix-b
+
+OPERATOR RULING 2026-09-29 (unit 21).
+1. 21-FIX-A (production) is commissioned with `crates/brokkr-protocol/src/native_controls.rs` (R1) and `crates/brokkr-runtime/src/capabilities.rs` (R3), plus their owning tests.
+2. R1: the final launch check judges delivery on the state parsed from the FINAL command it was handed (read_state of the parsed final argv), never on a recomposition and never by comparing against the same builder that produced the command. A restriction removed inside the serving builder must be refused by the final check.
+3. R3 WORDING: a capability the realm grants but no site of the seat requests is reported, in prompt and manifest, with the exact reason "granted, but this seat does not request it". A capability the realm does not grant keeps "the realm does not grant it to this seat". The two causes are distinct values, never one generic text.
+4. 21-FIX-B (tests only) follows 21-fix-a: R2's restriction rows and M1/M2/M4 re-run as final-check refusals, in unit 21's suites.

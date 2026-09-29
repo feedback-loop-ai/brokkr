@@ -1435,6 +1435,26 @@ struct Cause {
     but: String,
 }
 
+/// Why a known native power that no ask of the seat reached is not held
+/// (operator ruling of 2026-09-29, rebuild unit 21-fix-a, R3): the realm
+/// grants it to the seat's office and nothing requests it, or the realm
+/// does not grant it. Two causes, never one generic text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unasked {
+    Granted,
+    Ungranted,
+}
+
+impl Unasked {
+    /// The exact reason the prompt and the manifest give.
+    fn reason(self) -> &'static str {
+        match self {
+            Unasked::Granted => "granted, but this seat does not request it",
+            Unasked::Ungranted => "the realm does not grant it to this seat",
+        }
+    }
+}
+
 /// The dotted paths of a restriction object's leaves: `allow.hosts`.
 pub fn restriction_names(prefix: &str, restrictions: &Map<String, Value>) -> Vec<String> {
     let mut names = Vec::new();
@@ -2112,9 +2132,13 @@ impl Authority {
                 Some(_) => on.push(key.clone()),
                 None => {
                     off.push(key.clone());
+                    let unasked = match self.context.grants.get(&native.capability) {
+                        Some(grant) if grant.reaches(who.office) => Unasked::Granted,
+                        _ => Unasked::Ungranted,
+                    };
                     not_held.entry(native.capability.clone()).or_insert(format!(
-                        "provider '{provider}' has it natively, the realm does not grant it to \
-                         this seat, and it is switched off"
+                        "provider '{provider}' has it natively, {}, and it is switched off",
+                        unasked.reason()
                     ));
                 }
             }
