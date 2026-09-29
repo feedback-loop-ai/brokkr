@@ -380,7 +380,10 @@ fn in_the_session_file(shape: &'static str, redirect: &str, at: &str) -> Row {
 /// spell a listing's key.
 fn found_by_the_chief_on_e5e196ab() -> Vec<Row> {
     let rewrote = format!("the system/init event on line 1 of {SESSION}, which the turn rewrote,");
-    let no_event = format!("{BOXED_FILE} holds no JSON event");
+    let no_event = format!(
+        "{}; {BOXED_FILE} holds no JSON event",
+        unparsed(1, BOXED_FILE)
+    );
     vec![
         in_the_session_file(
             "a boxed turn appending to the plain turn's transcript",
@@ -410,6 +413,23 @@ fn found_by_the_chief_on_e5e196ab() -> Vec<Row> {
             "a transcript that parses to no event",
             boxed(&written("boxed.jsonl", " ")),
             &no_event,
+        ),
+    ]
+}
+
+/// The chief's shapes on e1b354f1: a line of whitespace alone, which no
+/// reader parses, printed between two events or appended to a transcript.
+fn found_by_the_chief_on_e1b354f1() -> Vec<Row> {
+    vec![
+        unread_row(
+            "a whitespace line between two events on stdout",
+            later(" "),
+            &unparsed(2, "stdout"),
+        ),
+        unread_row(
+            "a whitespace line appended to a transcript",
+            boxed(&format!("printf '%s\\n' ' ' >> {SESSION_FILE}")),
+            &unparsed(3, SESSION),
         ),
     ]
 }
@@ -585,6 +605,7 @@ fn every_listing_a_turn_gives_is_read_whole_and_a_reach_read_anywhere_refuses() 
         implied_values(),
         implied_lines_and_streams(),
         found_by_the_chief_on_e5e196ab(),
+        found_by_the_chief_on_e1b354f1(),
     ];
     for (index, row) in rows.into_iter().flatten().enumerate() {
         let cli = world.fake(

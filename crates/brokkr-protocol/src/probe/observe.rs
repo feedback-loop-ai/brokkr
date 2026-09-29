@@ -313,7 +313,7 @@ fn wait(launched: Launched, deadline: Duration) -> Result<Option<i32>, ProbeErro
 /// Every `.jsonl` file under `root` and its bytes. One that cannot be
 /// read refuses the probe rather than read as nothing written.
 fn transcripts_under(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, ProbeError> {
-    files_under(root)
+    files_under(root)?
         .into_iter()
         .filter(|path| path.extension() == Some(OsStr::new("jsonl")))
         .map(|path| {
@@ -326,18 +326,22 @@ fn transcripts_under(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, ProbeErr
         .collect()
 }
 
-/// Every file under `root`, symlinks not followed.
-fn files_under(root: &Path) -> BTreeSet<PathBuf> {
+/// Every file under `root`, symlinks not followed. A directory that
+/// cannot be listed refuses the probe, since a transcript in it would
+/// otherwise read as nothing written.
+fn files_under(root: &Path) -> Result<BTreeSet<PathBuf>, ProbeError> {
+    const UNLISTED: &str = "could not list a directory under the scratch HOME";
     let mut found = BTreeSet::new();
     let mut pending = vec![root.to_path_buf()];
     while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
-            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+        for entry in io(fs::read_dir(&dir), UNLISTED)? {
+            let entry = io(entry, UNLISTED)?;
+            if io(entry.file_type(), UNLISTED)?.is_dir() {
                 pending.push(entry.path());
             } else {
                 found.insert(entry.path());
             }
         }
     }
-    found
+    Ok(found)
 }
