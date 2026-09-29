@@ -519,7 +519,8 @@ enum Program {
     },
     /// A `cargo run` that names the crate and carries, at this index
     /// before `--`, a word outside [`RUN_OPTIONS`] and the package, which
-    /// may change what runs.
+    /// may change what runs, or one given a second time, which cargo
+    /// refuses.
     Unread { word: usize },
     /// Any other command, a `cargo run` in any other form and every other
     /// cargo subcommand among them.
@@ -569,27 +570,35 @@ fn crate_word(options: &[String], index: usize) -> Option<usize> {
 
 /// The words of a `cargo run`'s options, before `--`, that name the
 /// crate, or the index of the first word that is neither the package nor
-/// one of [`RUN_OPTIONS`].
+/// one of [`RUN_OPTIONS`], or that repeats one: cargo refuses an argument
+/// given twice, `-q` and `--quiet` being one, before any `brokkr` runs.
 fn run_options(options: &[String]) -> Result<Vec<usize>, usize> {
     let mut words = Vec::new();
+    let mut given = Vec::new();
     let mut index = 1;
     while let Some(word) = options.get(index) {
-        if let Some(named) = crate_word(options, index) {
-            words.push(named);
-            index = named + 1;
-        } else if RUN_OPTIONS.contains(&word.as_str()) {
-            index += 1;
-        } else {
+        let (argument, next) = match crate_word(options, index) {
+            Some(named) => {
+                words.push(named);
+                ("--package", named + 1)
+            }
+            None if word == "-q" => ("--quiet", index + 1),
+            None if RUN_OPTIONS.contains(&word.as_str()) => (word.as_str(), index + 1),
+            None => return Err(index),
+        };
+        if given.contains(&argument) {
             return Err(index);
         }
+        given.push(argument);
+        index = next;
     }
     Ok(words)
 }
 
 /// What a `cargo` at `at` runs. Its subcommand is the word straight
 /// after it; `cargo run`, or its alias `cargo r`, whose options before
-/// `--` are the package and [`RUN_OPTIONS`] alone, is read as `brokkr`,
-/// one that names the crate beside any other option is
+/// `--` are the package and [`RUN_OPTIONS`] alone, each given once, is
+/// read as `brokkr`, one that names the crate beside any other option is
 /// [`Program::Unread`], and every other subcommand, or one this reader
 /// cannot place, behind an option or a `+toolchain`, is
 /// [`Program::Other`], which may not name the crate at all.
@@ -1461,9 +1470,10 @@ fn the_fence_reader_refuses_a_path_to_brokkr_or_its_crate_it_did_not_parse() {
 }
 
 /// `cargo run`, or its alias `cargo r`, is read as `brokkr` only when
-/// every option before `--` is the package or one of [`RUN_OPTIONS`]; any
-/// other word there is refused by name. Any other subcommand may not name
-/// the crate at all, as its package, its manifest or its path.
+/// every option before `--` is the package or one of [`RUN_OPTIONS`], each
+/// given once; any other word there, or a second one, is refused by name.
+/// Any other subcommand may not name the crate at all, as its package, its
+/// manifest or its path.
 #[test]
 fn the_fence_reader_reads_cargo_run_only_beside_options_that_keep_its_binary() {
     let wacth = "error: unrecognized subcommand 'wacth'";
@@ -1472,7 +1482,7 @@ fn the_fence_reader_reads_cargo_run_only_beside_options_that_keep_its_binary() {
                cargo r --locked -p brokkr-cli -- wacth\n\
                cargo r -pbrokkr-cli -- wacth\n\
                cargo run -pbrokkr-cli -- wacth\n\
-               cargo run -q --release --offline --frozen --quiet --package brokkr-cli -- runs\n\
+               cargo run -q --release --offline --frozen --locked --package brokkr-cli -- runs\n\
                cargo r --manifest-path crates/brokkr-cli/Cargo.toml -- wacth\n\
                cargo run -p brokkr-cli --bin helper -- runs\n\
                cargo run -p brokkr-cli --example x -- runs\n\
@@ -1483,6 +1493,9 @@ fn the_fence_reader_reads_cargo_run_only_beside_options_that_keep_its_binary() {
                cargo build --path crates/brokkr-cli\n\
                cargo install --locked --path crates/brokkr-cli\n\
                cargo test --manifest-path crates/brokkr-cli/Cargo.toml\n\
+               cargo run -p brokkr-cli --package=brokkr-cli -- runs\n\
+               cargo r -q --quiet -p brokkr-cli -- runs\n\
+               cargo run --release -p brokkr-cli --release -- runs\n\
                ```\n";
     let line = |number: usize, text: &str, word: &str| {
         format!("doc.md:{number}: `{text}`: {}", unparsed(word))
@@ -1531,6 +1544,17 @@ fn the_fence_reader_reads_cargo_run_only_beside_options_that_keep_its_binary() {
                 16,
                 "cargo test --manifest-path crates/brokkr-cli/Cargo.toml",
                 "crates/brokkr-cli/Cargo.toml"
+            ),
+            line(
+                17,
+                "cargo run -p brokkr-cli --package=brokkr-cli -- runs",
+                "--package=brokkr-cli"
+            ),
+            line(18, "cargo r -q --quiet -p brokkr-cli -- runs", "--quiet"),
+            line(
+                19,
+                "cargo run --release -p brokkr-cli --release -- runs",
+                "--release"
             ),
         ]
     );
