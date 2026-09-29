@@ -2,7 +2,8 @@
 //! which reach the network, what switches each off, and which MCP servers
 //! reached the turn beside the hands server (#467). Pure, like `measure`.
 
-use super::{listed, on_turn, Stream, Turn};
+use super::listing::Listing;
+use super::{on_turn, Streams, Turn};
 use crate::hands::SERVER_NAME;
 use crate::probe::facts::{Capability, Fact};
 use crate::probe::plan::{Plan, Step, UserConfig, USER_SCOPE_SERVER};
@@ -63,13 +64,15 @@ fn tool_server(tool: &str) -> Option<&str> {
 
 /// The CLI's own tools: every listed tool that names no MCP server. A
 /// tool naming one is read by [`user_mcp`], never dropped unread.
-pub(super) fn native_tools(stream: &Stream) -> Fact<Vec<String>> {
-    listed(stream, "tools", tool_name).map(|tools| {
-        tools
-            .into_iter()
-            .filter(|tool| tool_server(tool).is_none())
-            .collect()
-    })
+pub(super) fn native_tools(streams: &Streams) -> Fact<Vec<String>> {
+    Listing::read(streams, "tools", tool_name)
+        .fact()
+        .map(|tools| {
+            tools
+                .into_iter()
+                .filter(|tool| tool_server(tool).is_none())
+                .collect()
+        })
 }
 
 /// What the probe knows a tool's name to be.
@@ -179,14 +182,16 @@ fn off_switch(tool: &str, boxed_tools: &Fact<Vec<String>>, plan: &Plan) -> Fact<
 
 /// The hands server's status, unmeasured when the turn's listings gave it
 /// more than one.
-pub(super) fn mcp_server(stream: &Stream) -> Fact<String> {
-    let statuses = listed(stream, "mcp_servers", server_entry).map(|servers| {
-        servers
-            .into_iter()
-            .filter(|(name, _)| name == SERVER_NAME)
-            .map(|(_, status)| status)
-            .collect::<Vec<_>>()
-    });
+pub(super) fn mcp_server(streams: &Streams) -> Fact<String> {
+    let statuses = Listing::read(streams, "mcp_servers", server_entry)
+        .fact()
+        .map(|servers| {
+            servers
+                .into_iter()
+                .filter(|(name, _)| name == SERVER_NAME)
+                .map(|(_, status)| status)
+                .collect::<Vec<_>>()
+        });
     match statuses {
         Fact::Measured { value, evidence } if value.len() > 1 => Fact::unmeasured(format!(
             "the turn's listings gave {SERVER_NAME} the statuses {}: {evidence}",
@@ -201,36 +206,67 @@ pub(super) fn mcp_server(stream: &Stream) -> Fact<String> {
     }
 }
 
-/// Whether an MCP server other than the hands server reached a turn: a
-/// listed tool that names one is a reach even where no server listing
-/// names it (#467). With no such tool, the turn's server listing says,
-/// and a user-scope configuration the probe could not plant leaves the
-/// question open.
+/// Whether an MCP server other than the hands server reached a turn
+/// (#467), read from both listings by [`Listing`]'s invariant: a reach
+/// read anywhere is a reach, whatever else went unread. With none read,
+/// any value either listing left unread, or a user-scope configuration
+/// the probe could not plant, leaves the question open, and only then
+/// does the server listing, read whole, say no.
 pub(super) fn user_mcp(turn: &Turn, config: &UserConfig) -> Fact<bool> {
-    on_turn(turn, |stream| match (foreign_tool(stream), config) {
-        (Some(reached), _) => reached,
-        (None, UserConfig::Unknown(why)) => Fact::unmeasured(*why),
-        (None, UserConfig::Planted { .. }) => listed(stream, "mcp_servers", server_entry)
-            .map(|servers| servers.iter().any(|(name, _)| name != SERVER_NAME)),
+    on_turn(turn, |streams| {
+        let tools = Listing::read(streams, "tools", tool_name);
+        let servers = Listing::read(streams, "mcp_servers", server_entry);
+        match reach(&tools, &servers) {
+            Some(reached) => Fact::measured(true, reached),
+            None => no_reach(&tools, servers, config),
+        }
     })
 }
 
-/// The first listed tool of an MCP server other than the hands server,
-/// read as that server having reached the turn.
-fn foreign_tool(stream: &Stream) -> Option<Fact<bool>> {
-    let tools = listed(stream, "tools", tool_name);
-    let (tool, server) = tools.value()?.iter().find_map(|tool| {
-        tool_server(tool)
-            .filter(|server| *server != SERVER_NAME)
-            .map(|server| (tool, server))
-    })?;
-    Some(Fact::measured(
-        true,
-        format!(
-            "{}, among them {tool} of the MCP server {server}",
-            tools.account()
-        ),
-    ))
+/// Where an MCP server other than the hands server was read reaching the
+/// turn: a listed tool that names one, even where no server listing does,
+/// else a listed server.
+fn reach(tools: &Listing<String>, servers: &Listing<(String, String)>) -> Option<String> {
+    let tool = tools.entries().iter().find_map(|entry| {
+        let server = tool_server(&entry.value).filter(|server| *server != SERVER_NAME)?;
+        Some(format!(
+            "{} of the MCP server {server} was listed by {}",
+            entry.value, entry.at
+        ))
+    });
+    tool.or_else(|| {
+        let entry = servers
+            .entries()
+            .iter()
+            .find(|entry| entry.value.0 != SERVER_NAME)?;
+        Some(format!(
+            "the MCP server {} was listed {} by {}",
+            entry.value.0, entry.value.1, entry.at
+        ))
+    })
+}
+
+/// No reach was read: measured `false` only when both listings were read
+/// whole and the planted server's listing was given.
+fn no_reach(
+    tools: &Listing<String>,
+    servers: Listing<(String, String)>,
+    config: &UserConfig,
+) -> Fact<bool> {
+    let unread: Vec<String> = [tools.unread(), servers.unread()]
+        .into_iter()
+        .flatten()
+        .collect();
+    if !unread.is_empty() {
+        return Fact::unmeasured(format!(
+            "no MCP server other than {SERVER_NAME} was read reaching the turn, but {}",
+            unread.join(", and ")
+        ));
+    }
+    match config {
+        UserConfig::Unknown(why) => Fact::unmeasured(*why),
+        UserConfig::Planted { .. } => servers.fact().map(|_| false),
+    }
 }
 
 /// Whether the operator's user-scope configuration is kept out of a turn
