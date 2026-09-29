@@ -1494,6 +1494,11 @@ fn a_grandchild_cannot_join_the_engines_group_to_outlive_the_report() {
 /// as gone: the kill that could not confirm it is carried, and the
 /// attempt parks rather than settles while it runs. The engine is a child
 /// process, so its tracker and its kill read this table alone.
+/// Linux only: macOS's `ps` is played through `as_ps`, and the grandchild,
+/// a job whose shell exits at once, is recorded only because the driver
+/// adopts it as subreaper. On macOS it goes to launchd unrecorded, the
+/// residual the operator's ruling of 2026-09-28 accepted.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_recorded_descendant_whose_row_loses_its_stamp_parks_the_attempt() {
     let seats = Seats::new();
