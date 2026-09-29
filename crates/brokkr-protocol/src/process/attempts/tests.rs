@@ -520,4 +520,19 @@ fn a_group_refused_with_eperm_is_gone_only_when_the_table_shows_it_gone() {
             std::io::Error::from(Errno::PERM)
         )
     );
+    // Only EPERM is read against the table: any other refusal stands,
+    // even where the table would show the group gone.
+    let invalid = Host {
+        kill_group: |_| Err(Errno::INVAL),
+        kill: spared,
+        table: zombies,
+        ..Host::REAL
+    };
+    assert_eq!(
+        live.kill(invalid),
+        Err(Unsettled::Kill {
+            group: GROUP,
+            errno: Errno::INVAL.raw_os_error(),
+        })
+    );
 }
