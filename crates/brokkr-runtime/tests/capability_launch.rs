@@ -4098,6 +4098,7 @@ fn an_inline_codex_launch_requires_its_native_plan_and_proves_each_sealed_denial
     unmeasured.capabilities.as_mut().unwrap().outcomes[0].native = NativePlan::Unmeasured {
         declaration: None,
         reason: "unmeasured".to_string(),
+        provenance: Default::default(),
     };
     let sentinel = format!("x\n{}", "s".repeat(4096));
     let long_seat = format!("work\n{}", "w".repeat(100));
@@ -8954,12 +8955,11 @@ fn carrier_sites(carrier: &str, gate: bool) -> Vec<(String, brokkr_runtime::Seat
 /// `harness` in a realm that grants nothing. Each of the [`CARRIERS`] is
 /// seated at a single work seat, at a gate where it may hold one, at a
 /// panel member, a sequence step, a select case and the default, and at a
-/// work seat `base` declares ([`carrier_sites`]). Beside them, three
-/// single seats with a typed or routed declaration: `claude-typed` and
-/// `lanetally-typed` (a typed `tools.allow`) and `dsh-route` (a `--patch`
-/// route overlay of this layer). The single inline Codex work seat and
-/// gate declare their typed sandbox classes; a nested inline site
-/// declares none (D5.3).
+/// work seat `base` declares ([`carrier_sites`]). Beside them, two single
+/// seats with a typed or routed declaration: `claude-typed` (a typed
+/// `tools.allow`) and `dsh-route` (a `--patch` route overlay of this
+/// layer). The single inline Codex work seat and gate declare their typed
+/// sandbox classes; a nested inline site declares none (D5.3).
 ///
 /// Each inline site's charter is its own file of its layer, `# <label>\n`,
 /// and each office's is `# <office>\n`, so a site bound to a neighbour's
@@ -8969,6 +8969,15 @@ fn carrier_sites(carrier: &str, gate: bool) -> Vec<(String, brokkr_runtime::Seat
 /// with workspace hands, which `harness` serves with the harness's own
 /// sandbox).
 fn every_shape(operator: &Operator) -> Bundle {
+    compile_every_shape(operator, None)
+        .unwrap_or_else(|refusal| panic!("the matrix compiles: {refusal}"))
+}
+
+/// [`every_shape`], with a typed LaneTally allow seated beside it as the
+/// work seat `lanetally-typed`: inline (`Some("inline")`), or through the
+/// office `tally-typed` (`Some("agent")`), a LaneTally agent whose own
+/// `tools.allow` is `[cargo]`. The compile's own words either way.
+fn compile_every_shape(operator: &Operator, tally: Option<&str>) -> Result<Bundle, String> {
     let root = operator.root();
     let command = |harness: &str| -> Value {
         let model = match harness {
@@ -9069,12 +9078,37 @@ fn every_shape(operator: &Operator) -> Bundle {
             };
         }
     }
-    for (label, harness) in [("claude-typed", "claude"), ("lanetally-typed", "lanetally")] {
-        let mut body = seated("matrix", harness, label);
+    let mut typed = seated("matrix", "claude", "claude-typed");
+    typed["results"] = json!(["complete"]);
+    typed["tools"] = json!({"allow": ["cargo"]});
+    matrix.insert("claude-typed".to_string(), typed);
+    phases.push(("claude-typed".to_string(), "complete"));
+    if let Some(form) = tally {
+        let mut body = match form {
+            "inline" => {
+                let mut body = seated("matrix", "lanetally", "lanetally-typed");
+                body["tools"] = json!({"allow": ["cargo"]});
+                body
+            }
+            _ => {
+                std::fs::write(
+                    root.join("agents/charters/tally-typed.md"),
+                    "# tally-typed\n",
+                )
+                .unwrap();
+                write(
+                    root,
+                    "agents/tally-typed.json",
+                    &json!({"description": "an office", "charter": "charters/tally-typed.md",
+                            "models": ["opus-tallied"], "efforts": {"opus-tallied": "high"},
+                            "tools": {"allow": ["cargo"]}}),
+                );
+                json!({"agent": "tally-typed"})
+            }
+        };
         body["results"] = json!(["complete"]);
-        body["tools"] = json!({"allow": ["cargo"]});
-        matrix.insert(label.to_string(), body);
-        phases.push((label.to_string(), "complete"));
+        matrix.insert("lanetally-typed".to_string(), body);
+        phases.push(("lanetally-typed".to_string(), "complete"));
     }
     // The shipped route-only overlay, as a file of this layer.
     std::fs::create_dir_all(root.join("matrix/drivers")).unwrap();
@@ -9145,7 +9179,7 @@ fn every_shape(operator: &Operator) -> Bundle {
         Boundary::Harness,
         &CapabilityContext::no_grants("private", root),
     )
-    .unwrap_or_else(|refusal| panic!("the matrix compiles: {refusal}"))
+    .map_err(|refusal| refusal.to_string())
 }
 
 /// The whole prompt the DSH driver renders for a site of [`every_shape`]
@@ -9188,18 +9222,46 @@ fn dsh_prompt(charter: &str, phase: &str, workdir: &str) -> String {
 /// and DSH shape, whose shipped resume is unmeasured — is declined and
 /// served its cold command. A gate is offered no session.
 ///
-/// The typed LaneTally allow is the one full refusal: it compiles, and
-/// its driver's final check refuses the launch, because an unmeasured
-/// plan carries no provenance for the lowered list (follow-up F-LT,
-/// evidence.md "Unit 20, review return"). Composition evidence only: what
-/// a provider honours is the controller's to measure. The restriction
-/// rows are unit 21's.
+/// The typed LaneTally allow is the one full refusal, and it is the
+/// compile's (operator ruling of 2026-09-29, R5; D5.3): seated inline or
+/// through a LaneTally office, it meets LaneTally's unmeasured native
+/// plan, and the same matrix refuses whole, naming the seat, its office,
+/// the harness and the adapter's own unmeasured cause. No bundle exists, so
+/// nothing is spawned cold, and a pinned resume, which recompiles through
+/// the same compiler, is refused in the same words. Composition evidence
+/// only: what a provider honours is the controller's to measure. The
+/// restriction rows are unit 21's.
 #[cfg(unix)]
 #[test]
 fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside_its_charter() {
     use brokkr_runtime::bundle::CharterOwner;
     use brokkr_runtime::SeatClass::{Gate, Work};
     let operator = Operator::new();
+    // The line is the compiler's one bounded refusal (512 scalar values),
+    // so the shipped adapter's long reason is cut where the office's label
+    // leaves it.
+    let forms = [
+        ("inline", "lanetally-typed", "WebS"),
+        ("agent", "tally-typed", "WebSearc"),
+    ];
+    assert_eq!(
+        forms.map(|(form, ..)| {
+            let compiled = compile_every_shape(&operator, Some(form));
+            (form, compiled.map(|bundle| bundle.sites.len()))
+        }),
+        forms.map(|(form, office, cut)| (
+            form,
+            Err(format!(
+                "bundle: bundle: seat 'lanetally-typed' (office '{office}') in realm 'private': \
+                 its typed 'tools.allow' is refused: harness 'lanetally' of provider 'lanetally' \
+                 has unmeasured native controls, and a typed tools restriction is never lowered \
+                 onto them nor left for the launch to refuse (operator ruling of 2026-09-29, R5; \
+                 design D5.3). Its adapter declares its native capabilities unmeasured (the \
+                 LaneTally wrapper forwards argv to claude, and forwarding is not confinement: \
+                 whether Claude Code's native {cut}…"
+            ))
+        ))
+    );
     let bundle = every_shape(&operator);
     let codex = codex_reporting(operator.root(), "0.154.0");
     let claude = claude_reporting(operator.root(), "2.1.266");
@@ -9335,7 +9397,6 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
         }
     }
     seated.push(("claude-typed".into(), "claude", Work, false));
-    seated.push(("lanetally-typed".into(), "lanetally", Work, false));
     seated.push(("dsh-route".into(), "dsh", Work, false));
     for (label, carrier, class, inherited) in &seated {
         let class = *class;
@@ -9357,21 +9418,10 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
         };
         for (candidate, provider) in providers.iter().enumerate() {
             let cold_on = |program: &str| cold(carrier, label, provider, program, told);
-            let served = match label.as_str() {
-                "lanetally-typed" => Err(
-                    "refusing to invoke the agent CLI: the adapter template's '--allowedTools' \
-                     allow list names tool 'Bash' for provider 'lanetally', which no realm \
-                     holding admits, the site's typed hands do not carry and its typed \
-                     'tools.allow' did not lower; an allowance is admitted by the typed \
-                     contribution that made it, never by its spelling or by the list it stands \
-                     in (design D6)"
-                        .to_string(),
-                ),
-                _ => Ok(cold_on(match *provider {
-                    "claude" => "claude",
-                    _ => "codex",
-                })),
-            };
+            let served: Result<Vec<String>, String> = Ok(cold_on(match *provider {
+                "claude" => "claude",
+                _ => "codex",
+            }));
             // A Codex work site under its typed class, or with hands under
             // `harness`, is rejoined; every other work site is declined and
             // served cold on the binary it was offered on.
@@ -9395,7 +9445,7 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
             ));
         }
     }
-    assert_eq!(rows.len(), 114);
+    assert_eq!(rows.len(), 113);
     // The rows are every compiled site and candidate, and nothing else.
     let compiled: std::collections::BTreeSet<(String, usize)> = bundle
         .sites
@@ -9483,6 +9533,47 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
         })
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Rebuild unit 20-fix (operator ruling of 2026-09-29, R5): an unmeasured
+/// plan hands the driver the provenance it was served — here two hands
+/// arguments and one local limit, a shape the compiler itself never seals
+/// (a lowered allow refuses there) — and the driver reads back exactly
+/// that, never a default. A plan that types nothing writes no member, as
+/// before.
+#[test]
+fn an_unmeasured_plan_hands_its_driver_the_provenance_it_was_served() {
+    use brokkr_protocol::native_controls::{managed, Provenance};
+    use brokkr_runtime::capabilities::NativePlan;
+    let plan = |hands: usize, local: &[&str]| NativePlan::Unmeasured {
+        declaration: None,
+        reason: "never probed".to_string(),
+        provenance: Provenance {
+            hands,
+            local: local.iter().map(|limit| limit.to_string()).collect(),
+        },
+    };
+    let controls = plan(2, &["Bash(ls:*)"]).controls("dsh", "dsh");
+    assert_eq!(
+        controls,
+        json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
+               "reason": "never probed", "hands": 2, "local": ["Bash(ls:*)"]})
+    );
+    let read = managed(&json!({ "native_controls": controls }))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        read.provenance,
+        Provenance {
+            hands: 2,
+            local: vec!["Bash(ls:*)".to_string()],
+        }
+    );
+    assert_eq!(
+        plan(0, &[]).controls("dsh", "dsh"),
+        json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
+               "reason": "never probed"})
+    );
 }
 
 /// Rebuild unit 20 (task 20.1; operator ruling 1 of 2026-09-23): AN

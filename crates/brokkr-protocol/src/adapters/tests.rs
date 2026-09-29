@@ -17758,3 +17758,51 @@ fn an_engine_launch_renders_only_the_verified_buffer_and_never_rereads_its_chart
         ]
     );
 }
+
+/// Rebuild unit 20-fix (operator ruling of 2026-09-29, R5): an unmeasured
+/// plan is decoded with the provenance it carries, as a known plan is, and
+/// never with a default one: its hands count and its local limits reach the
+/// driver as written, and a provenance member in the wrong shape refuses
+/// the plan instead of being dropped. Absent, the plan types nothing.
+#[test]
+fn an_unmeasured_plan_is_decoded_with_the_provenance_it_carries() {
+    use crate::native_controls::{managed, Inventory, Provenance};
+    let plan = |extra: Value| {
+        let mut plan = json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
+                              "reason": "never probed"});
+        plan.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        managed(&json!({ "native_controls": plan })).map(|controls| {
+            let controls = controls.expect("a plan");
+            (controls.inventory, controls.provenance)
+        })
+    };
+    let unmeasured = Inventory::Unmeasured("never probed".to_string());
+    assert_eq!(
+        plan(json!({"hands": 2, "local": ["Bash(ls:*)"]})),
+        Ok((
+            unmeasured.clone(),
+            Provenance {
+                hands: 2,
+                local: vec!["Bash(ls:*)".to_string()],
+            }
+        ))
+    );
+    assert_eq!(plan(json!({})), Ok((unmeasured, Provenance::NONE.clone())));
+    let refused = |problem: &str| {
+        Err(format!(
+            "refusing to invoke the agent CLI: the engine's capability plan for this site cannot \
+             be read ({problem}). A plan is never repaired into an empty one: a harness launched \
+             on a guess is launched on its own defaults (decision 0066 ruling 2)"
+        ))
+    };
+    assert_eq!(
+        plan(json!({"hands": "two"})),
+        refused("'hands' is not a count of arguments")
+    );
+    assert_eq!(
+        plan(json!({"local": [1]})),
+        refused("'local' is not an array of strings")
+    );
+}

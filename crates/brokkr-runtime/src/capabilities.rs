@@ -1232,6 +1232,10 @@ pub enum NativePlan {
     Unmeasured {
         declaration: Option<String>,
         reason: String,
+        /// What the engine typed of the site's argv, carried to the driver
+        /// as a known plan carries it (operator ruling of 2026-09-29, R5).
+        /// Never a lowered allow: that refuses at compile.
+        provenance: launch::Provenance,
     },
 }
 
@@ -1254,10 +1258,23 @@ impl NativePlan {
     pub fn controls(&self, provider: &str, harness: &str) -> Value {
         match self {
             NativePlan::Known { controls, .. } => controls.clone(),
-            NativePlan::Unmeasured { reason, .. } => json!({
-                "inventory": "unmeasured", "provider": provider, "harness": harness,
-                "reason": reason,
-            }),
+            NativePlan::Unmeasured {
+                reason, provenance, ..
+            } => {
+                let mut controls = json!({
+                    "inventory": "unmeasured", "provider": provider, "harness": harness,
+                    "reason": reason,
+                });
+                // A member is written where it types something; absent, the
+                // driver reads it as typing nothing, as a known plan's.
+                if provenance.hands > 0 {
+                    controls["hands"] = json!(provenance.hands);
+                }
+                if !provenance.local.is_empty() {
+                    controls["local"] = json!(provenance.local);
+                }
+                controls
+            }
         }
     }
 }
@@ -1314,6 +1331,7 @@ impl Outcome {
             NativePlan::Unmeasured {
                 declaration,
                 reason,
+                ..
             } => {
                 let mut native = json!({"inventory": "unmeasured", "reason": reason});
                 if let Some(declaration) = declaration {
@@ -1880,6 +1898,29 @@ impl Authority {
                  1)"
             )
         };
+        // Operator ruling of 2026-09-29 (R5; design D5.3): a typed tools
+        // restriction meeting an unmeasured plan refuses here, with that
+        // plan's own cause. It is never lowered onto a plan that measures
+        // nothing, nor left for the launch to refuse: compile and launch
+        // agree. The plan otherwise carries the provenance it was served.
+        // The cause, which may be long adapter data, closes the sentence,
+        // so the line's bound cuts only its tail.
+        let unmeasured = |declaration: Option<String>, reason: String, cause: String| {
+            if !serving.provenance.local.is_empty() {
+                return Err(format!(
+                    "{who}: its typed 'tools.allow' is refused: harness '{}' of provider \
+                     '{provider}' has unmeasured native controls, and a typed tools restriction \
+                     is never lowered onto them nor left for the launch to refuse (operator \
+                     ruling of 2026-09-29, R5; design D5.3). {cause}",
+                    serving.harness
+                ));
+            }
+            Ok(NativePlan::Unmeasured {
+                declaration,
+                reason,
+                provenance: serving.provenance.clone(),
+            })
+        };
         let (known, selection, declaration) = match (serving.native, floor.first()) {
             (Some((NativeInventory::Known { known, selection }, digest)), _) => {
                 (known, selection, digest)
@@ -1902,16 +1943,18 @@ impl Authority {
                 ))
             }
             (Some((NativeInventory::Unmeasured(reason), digest)), None) => {
-                return Ok(NativePlan::Unmeasured {
-                    declaration: Some(digest.to_string()),
-                    reason: reason.clone(),
-                })
+                return unmeasured(
+                    Some(digest.to_string()),
+                    reason.clone(),
+                    format!("Its adapter declares its native capabilities unmeasured ({reason})"),
+                )
             }
             (None, None) => {
-                return Ok(NativePlan::Unmeasured {
-                    declaration: None,
-                    reason: format!("no adapter declares provider '{provider}'"),
-                })
+                return unmeasured(
+                    None,
+                    format!("no adapter declares provider '{provider}'"),
+                    format!("No adapter declares provider '{provider}'"),
+                )
             }
         };
         if let Some(capability) = floor

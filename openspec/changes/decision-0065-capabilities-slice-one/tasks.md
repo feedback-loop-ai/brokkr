@@ -4148,7 +4148,7 @@ is observed there; no production file moved.
 
 ## 20. Unit 20 — Audit compiled refusal and serving shapes
 
-- [ ] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)
+- [x] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)
 
 **Unit 20, 2026-09-29 (run `0065-rebuild-unit-20-see-the-uni-23e98946`,
 based on `4d11cc4b`; evidence.md, "Unit 20").** An audit: no production file
@@ -4248,6 +4248,37 @@ only `capability_launch.rs` changed; no production file moved.
 operator chooses delivery or a compile refusal, and a production unit over
 `capabilities.rs` and `native_controls.rs` lands. Nothing else changed.
 
+**Unit 20-fix, 2026-09-29 (run `0065-rebuild-unit-20-see-the-uni-7c8035c7`,
+based on `27d4b5de`; evidence.md, "Unit 20-fix"): 20.1 closes.** The
+operator ruled R5 on 2026-09-29: the compile refuses the shape. The ruling
+is landed verbatim as an addendum to `operator-ruling-2026-09-23.md`.
+
+- **Production.** `capabilities.rs` refuses a lowered typed `tools.allow`
+  on an unmeasured plan at compile. The refusal names the site, harness,
+  provider and the plan's own unmeasured cause. Otherwise the unmeasured
+  plan carries and writes the provenance it was served. In
+  `native_controls.rs`, `decode` reads an unmeasured plan's provenance
+  through the helper the known branch uses, never a default.
+- **Tests.** In the matrix, the `lanetally-typed` row is now an exact
+  compile refusal in both its inline and agent-backed (`tally-typed`)
+  forms. A pinned resume recompiles through the same compiler. The rest of
+  the matrix is 113 rows. There are two new provenance tests, one in
+  `capability_launch.rs` and one in `adapters/tests.rs`.
+- **Proof.** Baseline reds were observed on `27d4b5de`. Mutations M1–M4
+  each fail and are restored.
+- **Standing-admission line.** `bundle/agent_tests.rs:551`: the `invented`
+  fixture adapter declares `"native_capabilities": {"known": {}}`. This
+  change reaches that fixture driver's typed allow. The line adds or
+  removes no assertion.
+- **Compiler-forced line.** `capability_launch.rs:4101` names the new
+  field.
+- No fixture migrations.
+- **Gates.** fmt, clippy, the protocol, runtime and CLI suites,
+  `bundles/self` and `verify`, strict OpenSpec (18) and `git diff --check`
+  are clean.
+- **Pending.** macOS, exact coverage outside the box, remote CI and the
+  council. 21.3 stays open for unit 21's restriction rows.
+
 ## 21. Unit 21 — Prove compiled cold and actual-resume restrictions
 
 - [ ] 21.1 Unit 21 proves managed Read/empty restrictions in compiled cold/eligible-resume Claude/LaneTally shapes. Verify authored lists refuse, prompt integrity and independent inventory. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Prompt values cannot absorb a composed control][NCP], [Subtractive tool lists never grant a capability][RGS]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.4)
@@ -4283,6 +4314,11 @@ to the restriction-transport slice" below.
   21's restriction rows, 21.3 also waits on the R5 production unit. The
   typed LaneTally row is a full refusal where the settled design expects
   either a delivered launch or a compile refusal.
+
+  **Advanced by unit 20-fix (2026-09-29).** The R5 production unit has
+  landed. The typed LaneTally row is now the compile refusal the operator
+  ruled, in both its inline and agent-backed forms. 21.3 now waits only on
+  unit 21's restriction rows.
 
 ## 22. Unit 22 — Submit whole plans to doctor
 

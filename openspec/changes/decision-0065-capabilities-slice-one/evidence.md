@@ -21327,3 +21327,153 @@ unit 19 admission".
   `blocked` stops) instead of `oversized`, which returned to triage.
 - No test, production file or fixture changed. No standing-admission
   lines.
+
+## Unit 20-fix — R5, a typed restriction on an unmeasured plan refuses at compile (2026-09-29)
+
+Run `0065-rebuild-unit-20-see-the-uni-7c8035c7`, based on `27d4b5de`. The
+operator ruled R5 on 2026-09-29: the compile refuses the shape (D5.3). The
+ruling is landed verbatim as the last addendum of
+`operator-ruling-2026-09-23.md`.
+
+### Production (two files, ceiling three)
+
+- `crates/brokkr-runtime/src/capabilities.rs`. `native_plan`'s two
+  unmeasured branches (declared unmeasured; no adapter at all) now go
+  through one closure (`:1908`). A candidate whose typed `tools.allow` was
+  lowered (`serving.provenance.local` non-empty) is refused there, naming
+  the site, the harness, the provider and the plan's own unmeasured cause.
+  Otherwise `NativePlan::Unmeasured` is built with a new `provenance` field,
+  the provenance it was served. `NativePlan::controls` writes that
+  provenance's `hands` and `local` into the unmeasured plan where they type
+  something (`:1270`, `:1273`). A plan that types nothing is written
+  byte-for-byte as before, so no pinned manifest or plan literal moves. The
+  run-manifest record of an unmeasured plan is unchanged (`..` in the
+  `manifest` match).
+- `crates/brokkr-protocol/src/native_controls.rs`. `decode` reads an
+  unmeasured plan's provenance through the new shared `provenance` helper
+  (`:219`, `:307`), which the known branch also uses (`:300`). It no longer
+  decodes `unmeasured` with default provenance. A malformed `hands` or
+  `local` on an unmeasured plan is now refused, where before it was
+  silently dropped.
+- A lowered allow is only ever non-empty. `agents::lower_allow` refuses an
+  explicitly empty allow before any plan is built. The trigger therefore
+  sees every typed restriction the engine lowers. The typed `tools.deny`
+  the ruling names has no typed declaration in slice one, so no input can
+  reach it yet.
+- The refusal's fixed words come before the adapter's cause. The compiler's
+  one refusal sink bounds the whole line to 512 scalar values, and
+  LaneTally's shipped reason is about 480 characters long. So the cut
+  falls inside the adapter's own words, never in the rule or its ruling
+  pointer.
+
+### Tests (unit 20's suites)
+
+- `capability_launch.rs`,
+  `every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside_its_charter`.
+  The `lanetally-typed` row is now a compile refusal, not a launch
+  refusal. `every_shape` becomes `compile_every_shape(operator, tally)`,
+  which seats the typed LaneTally allow inline (`Some("inline")`), or
+  through a new LaneTally office `tally-typed` whose own `tools.allow` is
+  `[cargo]` (`Some("agent")`). The test asserts both forms' exact compile
+  refusals in one literal (`:9243`). The rest of the matrix compiles
+  without the refused seat: 113 rows, not 114 (`:9448`). Each row still
+  asserts that it is every compiled site and candidate, no more and no
+  fewer. Cold and resume: no bundle exists, so nothing is spawned cold.
+  A pinned resume recompiles through the same
+  `Bundle::compile_with_capabilities` (`brokkr-cli/src/lib.rs:2041`), so it
+  meets the same refusal. No CLI resume test was added, because that suite
+  is outside this unit's files.
+- `capability_launch.rs`, new
+  `an_unmeasured_plan_hands_its_driver_the_provenance_it_was_served`
+  (`:9545`). An unmeasured plan with two hands arguments and one local
+  limit writes both members, and `managed` reads exactly that back. A plan
+  that types nothing writes neither member.
+- `adapters/tests.rs`, new
+  `an_unmeasured_plan_is_decoded_with_the_provenance_it_carries` (`:17768`).
+  The decoder reads `hands`/`local` off an unmeasured plan, reads absent
+  members as typing nothing, and refuses `"hands": "two"` and `"local":
+  [1]` with the exact plan refusal.
+- `capability_launch.rs:4101`. The one `NativePlan::Unmeasured` literal
+  names the new field (`provenance: Default::default()`). The compiler
+  forces this line; it adds or removes no assertion.
+- `engine/capability_tests.rs` was audited and is unchanged. Its unmeasured
+  plan literals (`:149`, `:315`) type nothing and still pass byte-for-byte.
+
+### Standing-admission lines (operator ruling 2026-09-25)
+
+- `crates/brokkr-runtime/src/bundle/agent_tests.rs:551`, in
+  `a_brand_new_provider_and_model_arrive_as_data`: the fixture adapter
+  `invented` gains `"native_capabilities": {"known": {}}`. Why it was
+  forced: that fixture swaps in its own driver (`invented-cli`) with no
+  native assessment, which reads as unmeasured (`ABSENT_ASSESSMENT`), and
+  its agent declares `tools.allow: [cargo]`. This change reaches it. The
+  compile now refuses it with `… harness '<custom>' of provider 'invented'
+  has unmeasured native controls … (the adapter declares no
+  native_capabilities assessment)`. This was observed at `agent_tests.rs:563`
+  in this session's first runtime suite run, before the line was added. The
+  log was overwritten by the rerun. The line declares the
+  fixture provider's inventory measured and empty. It adds no assertion,
+  removes none, and the test still proves that a new provider composes
+  `invented-cli run -m invented/new-1 --effort medium --tools
+  cargo-everything` from data alone.
+- No fixture migrations.
+
+### Baseline reds (tests first, on `27d4b5de` production)
+
+- Matrix: `left: [("inline", Ok(80)), ("agent", Err("bundle: bundle: seat
+  'lanetally-typed' (office 'tally-typed') in realm 'private': the adapter
+  template's '--allowedTools' allow list names tool 'Bash' … did not lower
+  …"))]`. The inline form compiled. The agent form was refused, but by the
+  template-allowance check, with the wrong cause.
+- Decode: `left: Ok((Unmeasured("never probed"), Provenance { hands: 0,
+  local: [] }))`, `right: … Provenance { hands: 2, local: ["Bash(ls:*)"]
+  }`.
+- Emission: the new runtime test cannot compile on `27d4b5de`, because
+  `NativePlan::Unmeasured` has no `provenance` there. That compile failure
+  is its baseline red; the mutations below are its binding proof.
+
+### Mutations (each compiles; restored by edit, `grep -c "if false"` = 0 after)
+
+| # | Mutation | Failed |
+|---|---|---|
+| M1 | `capabilities.rs` refusal guard `if false && …` (the lowering onto the unmeasured plan restored) | Matrix at `:9244`: `left: [("inline", Ok(80)), ("agent", Ok(80))]`. With provenance carried, the agent form no longer trips the template check either. |
+| M2 | `native_controls.rs` unmeasured decode drops `provenance: provenance(plan)?` (default provenance restored) | `an_unmeasured_plan_is_decoded_…` (`hands: 0, local: []`), and `an_unmeasured_plan_hands_…` at the read-back (`Provenance { hands: 0, local: [] }`). |
+| M3 | `capabilities.rs` `if false && provenance.hands > 0` | `an_unmeasured_plan_hands_…`: the plan object lacks `"hands": 2`. |
+| M4 | `capabilities.rs` `if false && !provenance.local.is_empty()` | `an_unmeasured_plan_hands_…`: the plan object lacks `"local": ["Bash(ls:*)"]`. |
+
+Logs: `.forge/unit-20-fix/m1.log` to `m4.log` (not committed).
+
+### 20.1
+
+Unit 20's three suites were re-run on the final tree, all ok. The matrix
+has 113 rows, each asserting the site's charter pin, its whole cold
+command, and at a work site the whole command served when a session is
+offered. The typed LaneTally allow is a compile full-refusal row in both
+forms. The authored-refusal test covers 26 refusals and 4 clean compiles.
+No row rests on holdings or `is_ok`. R5 was the only gap the review return
+left open. **20.1 is ticked.** 21.3 stays open for unit 21's restriction
+rows.
+
+### Gates (this session, final tree)
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test --no-fail-fast -p brokkr-protocol -p brokkr-runtime
+  --all-features --locked`: every `test result` line ok (protocol lib 544;
+  runtime lib 625; `capability_launch` 61), in
+  `.forge/unit-20-fix/restored.log`.
+- `cargo test --no-fail-fast -p brokkr-cli --all-features --locked`: every
+  `test result` line ok (lib 482), in `.forge/unit-20-fix/cli.log`.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `bundles/verify`: both compile.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+### Pending
+
+- macOS: unobserved.
+- Exact coverage outside the box. The new lines are exercised by the tests
+  above, but coverage was not measured here.
+- Unit 21's restriction rows, for 21.3.
+- Remote CI and the council.

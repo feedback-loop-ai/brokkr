@@ -548,6 +548,7 @@ fn a_brand_new_provider_and_model_arrive_as_data() {
                 "names": {"cargo": "cargo-everything"},
             },
             "mcp": "unsupported",
+            "native_capabilities": {"known": {}},
         }),
     );
     fixture.write(

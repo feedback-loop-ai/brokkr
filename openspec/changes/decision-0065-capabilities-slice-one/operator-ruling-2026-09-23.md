@@ -209,3 +209,7 @@ OPERATOR RULINGS, 2026-09-27 (on 14b's third visit, run 0065-rebuild-unit-14-see
 OPERATOR RULING 2026-09-29 (unit 19).
 1. NO GRANDFATHERING FOR UNRECORDED RUNS. A run whose run/started records no charter bindings (every run started before this change) is refused at pinned resume with the exact cause `unrecorded`. There is no intact-only or digest-only fallback. Such runs are concluded and re-fired.
 2. ADMISSION FOR TWO TEST FILES, for unit 19 only: (a) crates/brokkr-cli/tests/witness_journal.rs may add `charters` to the pinned run/started key list; (b) crates/brokkr-cli/src/tests.rs may change the resume of the frozen fixture fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson to assert the exact `unrecorded` refusal, and may re-prove the TUI graph resume on a fresh journal the test builds with recorded bindings. The frozen fixture file itself does not move. Each changed assertion is bound by a baseline red, a compiling mutation and a restored pass.
+
+## Addendum, 2026-09-29: a typed restriction on an unmeasured plan refuses at compile (R5)
+
+A typed tools restriction (tools.allow / tools.deny) on a harness whose native controls are unmeasured (LaneTally today) REFUSES AT COMPILE with its exact unmeasured cause, per D5.3. It is never lowered onto an unmeasured plan and never left for the launch check to refuse: compile and launch agree. When that harness's controls are measured, a later unit may admit it.

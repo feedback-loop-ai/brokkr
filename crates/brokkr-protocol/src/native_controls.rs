@@ -208,11 +208,15 @@ fn decode(plan: &Value) -> Result<Controls, String> {
     }
     match text(plan.get("inventory"), "inventory")?.as_str() {
         "known" => {}
+        // An unmeasured plan composes nothing, but what the engine typed
+        // of the site's argv is carried all the same, never defaulted
+        // (operator ruling of 2026-09-29, R5).
         "unmeasured" => {
             return Ok(Controls {
                 provider: text(plan.get("provider"), "provider")?,
                 harness: text(plan.get("harness"), "harness")?,
                 inventory: Inventory::Unmeasured(text(plan.get("reason"), "reason")?),
+                provenance: provenance(plan)?,
                 ..Controls::default()
             })
         }
@@ -283,16 +287,6 @@ fn decode(plan: &Value) -> Result<Controls, String> {
             );
         }
     }
-    // Absent, the plan types nothing (see [`Provenance`]); present in the
-    // wrong shape, it is refused like everything else.
-    let hands = match plan.get("hands") {
-        None => 0,
-        Some(count) => count
-            .as_u64()
-            .and_then(|count| usize::try_from(count).ok())
-            .ok_or("'hands' is not a count of arguments")?,
-    };
-    let local = strings(plan.get("local"), "local")?.unwrap_or_default();
     Ok(Controls {
         provider: text(plan.get("provider"), "provider")?,
         harness: text(plan.get("harness"), "harness")?,
@@ -303,8 +297,23 @@ fn decode(plan: &Value) -> Result<Controls, String> {
         argv: required(plan, "argv", "argv")?,
         selection,
         guards,
-        provenance: Provenance { hands, local },
+        provenance: provenance(plan)?,
     })
+}
+
+/// The provenance a plan of either inventory carries. Absent, the plan
+/// types nothing (see [`Provenance`]); present in the wrong shape, it is
+/// refused like everything else.
+fn provenance(plan: &Value) -> Result<Provenance, String> {
+    let hands = match plan.get("hands") {
+        None => 0,
+        Some(count) => count
+            .as_u64()
+            .and_then(|count| usize::try_from(count).ok())
+            .ok_or("'hands' is not a count of arguments")?,
+    };
+    let local = strings(plan.get("local"), "local")?.unwrap_or_default();
+    Ok(Provenance { hands, local })
 }
 
 /// Read the engine's plan out of a driver input. `Ok(None)` is a driver
