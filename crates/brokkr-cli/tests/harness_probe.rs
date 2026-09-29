@@ -49,13 +49,17 @@ fn host() -> Host {
 
 impl Host {
     fn probe(&self, adapters: &Path, extra: &[&str]) -> Output {
-        self.launch(&self.cli, adapters, extra)
+        self.launch(Some(&self.cli), adapters, extra)
     }
 
-    fn launch(&self, cli: &Path, adapters: &Path, extra: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_brokkr"))
-            .args(["probe", "harness", "--cli"])
-            .arg(cli)
+    /// `brokkr probe harness`, given `--cli` when `cli` names one.
+    fn launch(&self, cli: Option<&Path>, adapters: &Path, extra: &[&str]) -> Output {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+        command.args(["probe", "harness"]);
+        if let Some(cli) = cli {
+            command.arg("--cli").arg(cli);
+        }
+        command
             .arg("--secrets-file")
             .arg(&self.store)
             .arg("--adapters-dir")
@@ -194,8 +198,9 @@ fn without_out_the_report_is_printed_and_a_turn_with_no_credential_is_refused() 
     );
 }
 
-/// An adapters directory holding the shipped claude adapter with its
-/// resume identity unknown, and a custom adapter no built-in driver runs.
+/// An adapters directory holding the shipped claude adapter with the fake
+/// as its binary and its resume identity unknown, and a custom adapter no
+/// built-in driver runs.
 fn custom_adapters(host: &Host) -> PathBuf {
     let dir = host.path("adapters");
     std::fs::create_dir(&dir).unwrap();
@@ -203,6 +208,7 @@ fn custom_adapters(host: &Host) -> PathBuf {
         serde_json::from_str(&std::fs::read_to_string(repo_adapters().join(name)).unwrap()).unwrap()
     };
     let mut claude = read("claude.json");
+    claude["binary"] = json!(host.cli);
     claude["resume"]["boxed-workspace"]["identity"] = json!({"unknown": "never measured"});
     let mut custom = read("exec.json");
     custom["provider"] = json!("custom");
@@ -213,16 +219,23 @@ fn custom_adapters(host: &Host) -> PathBuf {
     dir
 }
 
-#[test]
-fn a_resume_shape_of_unknown_identity_is_named_as_a_difference() {
-    let host = host();
-    let adapters = custom_adapters(&host);
-    let output = host.probe(
+/// The report of the custom claude adapter, probed with `--cli` when
+/// `cli` names one.
+fn custom_claude_report(host: &Host, cli: Option<&Path>) -> Value {
+    let adapters = custom_adapters(host);
+    let output = host.launch(
+        cli,
         &adapters,
         &["--adapter", "claude", "--credential", "FAKE_TOKEN"],
     );
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
-    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+fn a_resume_shape_of_unknown_identity_is_named_as_a_difference() {
+    let host = host();
+    let report = custom_claude_report(&host, Some(&host.cli));
     assert_eq!(
         json!([report["adapter_fields"][2]]),
         rows(&[[
@@ -231,6 +244,22 @@ fn a_resume_shape_of_unknown_identity_is_named_as_a_difference() {
             "1.0.0 (Fake)",
             "differs",
         ]])
+    );
+}
+
+#[test]
+fn without_cli_the_verb_launches_the_adapter_s_own_binary() {
+    let host = host();
+    assert_eq!(
+        custom_claude_report(&host, None)["cli"],
+        json!({
+            "command": host.cli,
+            "version": {
+                "status": "measured",
+                "value": "1.0.0 (Fake)",
+                "evidence": "the first line `--version` printed",
+            },
+        })
     );
 }
 
@@ -284,7 +313,7 @@ fn what_the_verb_cannot_probe_is_refused_by_name() {
         ),
     ];
     for (cli, args, refusal) in cases {
-        let output = host.launch(cli, &adapters, &args);
+        let output = host.launch(Some(cli), &adapters, &args);
         assert_eq!(
             (output.status.code(), stderr(&output)),
             (Some(1), format!("error: {refusal}\n")),
