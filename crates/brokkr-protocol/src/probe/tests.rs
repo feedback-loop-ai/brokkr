@@ -30,6 +30,8 @@ enum Boxed {
     Refuses,
     /// Empties its tools but still starts the planted user-scope server.
     Leaks,
+    /// Never finishes, so the probe's deadline kills it.
+    Hangs,
 }
 
 /// A Claude-like CLI: stream-json whose `system/init` event lists its
@@ -48,6 +50,7 @@ fn claude_like(version: &str, boxed: Boxed) -> String {
         Boxed::Leaks => {
             r#"tools='"mcp__brokkr__workspace"'; servers='{"name":"brokkr","status":"connected"},{"name":"brokkr-probe-user-scope","status":"connected"}'"#
         }
+        Boxed::Hangs => "exec sleep 30",
     };
     r#"#!/bin/sh
 case " $* " in
@@ -243,8 +246,10 @@ const DSH_UNLIKE_DRIVER: &str = "the prompt is the last argument, stdin is close
                                  --patch overlay is given, where the adapter's driver writes \
                                  the prompt to stdin and always composes a --patch profile \
                                  overlay";
-const NO_MESSAGE_ID: &str = "no usage-bearing event named its message, so nothing showed \
-                             whether one message's usage repeats";
+const NOT_REPEATED: &str = "no message carried the same usage on several events, so nothing \
+                            showed how usage counts";
+const PLAIN_LEAK: &str = "; but its plain turn, the launch an office outside the box uses, \
+                          loaded the planted user-scope MCP server (#467): ";
 const NO_USER_MCP: &str = "no turn showed whether a user-scope MCP server loads: ";
 const NOT_ISOLATED: &str = "its user-scope configuration is not shown to be isolated: ";
 const PLANTED: &str = "the planted user-scope server brokkr-probe-user-scope";
@@ -333,7 +338,8 @@ fn a_claude_like_cli_is_boxed_and_its_repeated_usage_is_named() {
                     &["cache_read_input_tokens", "input_tokens", "output_tokens"],
                     measured(
                         json!("repeated-per-message"),
-                        "message msg_1 carried its usage on 2 events; count each message once",
+                        "message msg_1 carried the same usage on 2 events; count each message \
+                         once; the usage at result/success /usage named no message",
                     ),
                 ),
                 "cost": measured(
@@ -381,7 +387,10 @@ fn a_claude_like_cli_is_boxed_and_its_repeated_usage_is_named() {
             ],
             "eligibility": {
                 "verdict": "boxed",
-                "reason": "its own tools switch off and the hands MCP server connects",
+                "reason": format!(
+                    "its own tools switch off and the hands MCP server connects{PLAIN_LEAK}\
+                     {listed_servers}"
+                ),
             },
         }),
     );
@@ -427,7 +436,9 @@ fn a_codex_like_cli_whose_stream_lists_no_mcp_servers_is_refused_for_want_of_iso
                         "output_tokens",
                         "reasoning_output_tokens",
                     ],
-                    unmeasured(NO_MESSAGE_ID),
+                    unmeasured(&format!(
+                        "{NOT_REPEATED}; the usage at turn.completed /usage named no message"
+                    )),
                 ),
                 "cost": unmeasured("no event carried total_cost_usd or cost_usd"),
                 "refusals": {
@@ -516,7 +527,9 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
                 "usage": usage(
                     &["message /usage"],
                     &["completion_tokens", "prompt_tokens"],
-                    unmeasured(NO_MESSAGE_ID),
+                    unmeasured(&format!(
+                        "{NOT_REPEATED}; the usage at message /usage named no message"
+                    )),
                 ),
                 "cost": measured(
                     json!(["message /cost_usd"]),
@@ -593,7 +606,10 @@ fn a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed() {
             "hands": field("hands", "supported", "unsupported", "differs"),
             "eligibility": {
                 "verdict": "tool-less-only",
-                "reason": "its native egress has no measured off switch: the hands argv left WebFetch",
+                "reason": format!(
+                    "its native egress has no measured off switch: the hands argv left \
+                     WebFetch{PLAIN_LEAK}{listed_servers}"
+                ),
             },
         })
     );
@@ -651,6 +667,58 @@ fn a_cli_that_starts_the_user_scope_server_inside_the_box_is_refused() {
 }
 
 #[test]
+fn a_boxed_launch_killed_at_its_deadline_is_unread_not_refused() {
+    let world = world();
+    let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Hangs));
+    let report = probe_with(
+        AdapterKind::Claude,
+        &cli,
+        &claude_declared(),
+        &world.bindings,
+        Duration::from_secs(2),
+    );
+    let report = serde_json::to_value(report.unwrap()).unwrap();
+    let unfinished =
+        "the boxed turn did not finish: no exit code (a signal, or the probe's deadline): \
+         (no output)";
+    let leaked = format!(
+        "{PLANTED} reached the plain turn, and no boxed turn showed it kept out: {unfinished}"
+    );
+    assert_eq!(
+        under_hands(&report),
+        json!({
+            "boxed_tools": unmeasured(unfinished),
+            "mcp_server": unmeasured(unfinished),
+            "egress_off": unmeasured(&format!("the boxed turn was not read: {unfinished}")),
+            "user_mcp_boxed": unmeasured(unfinished),
+            "config_isolation": measured(json!(false), &leaked),
+            "hands": field("hands", "supported", "unmeasured", "not-compared"),
+            "eligibility": {
+                "verdict": "refused",
+                "reason": format!("{NOT_ISOLATED}{leaked}"),
+            },
+        })
+    );
+}
+
+#[test]
+fn a_message_seen_on_one_event_does_not_measure_how_usage_counts() {
+    let world = world();
+    let single = claude_like("9.9.9", Boxed::Empties).replace(
+        r#"printf '{"type":"assistant","message":{"id":"msg_1","content":[],"#,
+        r#"true '"#,
+    );
+    let cli = world.fake("claude", &single);
+    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
+    assert_eq!(
+        report["facts"]["usage"]["value"]["counting"],
+        unmeasured(&format!(
+            "{NOT_REPEATED}; the usage at result/success /usage named no message"
+        ))
+    );
+}
+
+#[test]
 fn a_tool_the_probe_does_not_recognise_is_never_read_as_local() {
     let world = world();
     let plain =
@@ -674,7 +742,10 @@ fn a_tool_the_probe_does_not_recognise_is_never_read_as_local() {
             &unmeasured(&off_unread),
             &json!({
                 "verdict": "tool-less-only",
-                "reason": format!("its native egress has no measured off switch: {off_unread}"),
+                "reason": format!(
+                    "its native egress has no measured off switch: {off_unread}{PLAIN_LEAK}the \
+                     system/init event listed mcp_servers: 1"
+                ),
             }),
         )
     );
@@ -978,6 +1049,14 @@ fn a_refusal_that_lists_no_levels_leaves_efforts_unmeasured_and_clap_s_listing_i
         facts.efforts.value(),
         Some(&strings(&["low", "high", "max"]))
     );
+    let facts = facts_of(observation(None, "", clap));
+    assert_eq!(
+        facts.efforts,
+        Fact::unmeasured(
+            "no refusal was read: no exit code (a signal, or the probe's deadline): error: \
+             invalid value 'x' for '--effort <EFFORT>'"
+        )
+    );
 }
 
 #[test]
@@ -1119,4 +1198,14 @@ fn a_hands_server_that_does_not_connect_is_not_boxed_and_removable_egress_is_unb
         &Fact::measured("2.1.266 (Claude Code)".to_string(), "printed"),
     );
     assert_eq!(rows[2].agreement, super::facts::Agreement::Agrees);
+    let mut leaking = facts;
+    leaking.user_mcp_unboxed = Fact::measured(true, "the init event listed mcp_servers: 1");
+    assert_eq!(
+        judge::eligibility(&leaking).reason,
+        format!(
+            "it is not shown to stand behind the box (emptied; the init event listed \
+             mcp_servers: 1), and the plain turn listed no native egress tool{PLAIN_LEAK}the \
+             init event listed mcp_servers: 1"
+        )
+    );
 }

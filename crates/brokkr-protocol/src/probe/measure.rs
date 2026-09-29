@@ -204,10 +204,15 @@ fn read_base(observation: &Observation) -> Turn {
 }
 
 /// The turn under the adapter's hands argv: a non-zero exit is the CLI
-/// refusing that argv, which is itself the measurement.
+/// refusing that argv, which is itself the measurement. A launch that
+/// ended with no exit code, by a signal or the deadline, refused nothing.
 fn read_boxed(trial: &Trial) -> Turn {
     match trial {
         Trial::Untried(why) => Turn::Unread(why.clone()),
+        Trial::Observed(observation) if observation.exit.is_none() => Turn::Unread(format!(
+            "the boxed turn did not finish: {}",
+            exit_and_excerpt(observation)
+        )),
         Trial::Observed(observation) if observation.exit != Some(0) => Turn::Refused(format!(
             "the CLI refused the adapter's hands argv: {}",
             exit_and_excerpt(observation)
@@ -309,7 +314,8 @@ fn session(announced: Option<&(String, &'static str, String)>) -> Fact<Session> 
 fn usage(stream: &Stream) -> Fact<Usage> {
     let mut locations = Vec::new();
     let mut counters = BTreeSet::new();
-    let mut messages: BTreeMap<String, usize> = BTreeMap::new();
+    let mut messages: BTreeMap<&str, Vec<&Map<String, Value>>> = BTreeMap::new();
+    let mut unnamed = Vec::new();
     for event in &stream.events {
         for found in found_in(event)
             .into_iter()
@@ -318,14 +324,13 @@ fn usage(stream: &Stream) -> Fact<Usage> {
             let Value::Object(counts) = found.value else {
                 continue;
             };
-            push_unique(
-                &mut locations,
-                format!("{} {}", event_type(event), found.pointer),
-            );
+            let location = format!("{} {}", event_type(event), found.pointer);
             counters.extend(counts.keys().cloned());
-            if let Some(id) = found.parent.get("id").and_then(Value::as_str) {
-                *messages.entry(id.to_string()).or_default() += 1;
+            match found.parent.get("id").and_then(Value::as_str) {
+                Some(id) => messages.entry(id).or_default().push(counts),
+                None => push_unique(&mut unnamed, location.clone()),
             }
+            push_unique(&mut locations, location);
         }
     }
     if locations.is_empty() {
@@ -336,30 +341,40 @@ fn usage(stream: &Stream) -> Fact<Usage> {
         Usage {
             locations,
             counters: counters.into_iter().collect(),
-            counting: counting(&messages),
+            counting: counting(&messages, &unnamed),
         },
         evidence,
     )
 }
 
-/// How usage counts, from the number of usage-bearing events that named
-/// each message: unmeasured when none named one.
-fn counting(messages: &BTreeMap<String, usize>) -> Fact<Counting> {
-    if messages.is_empty() {
-        return Fact::unmeasured(
-            "no usage-bearing event named its message, so nothing showed whether one \
-             message's usage repeats",
-        );
-    }
-    match messages.iter().find(|(_, events)| **events > 1) {
-        Some((id, events)) => Fact::measured(
+/// How usage counts: repeated per message when one message carried the
+/// same usage on several events. A message seen on one event, or usage
+/// that names no message, reads the same under either counting, so
+/// anything else is unmeasured, and the unnamed usage is listed.
+fn counting(
+    messages: &BTreeMap<&str, Vec<&Map<String, Value>>>,
+    unnamed: &[String],
+) -> Fact<Counting> {
+    let outside = if unnamed.is_empty() {
+        String::new()
+    } else {
+        format!("; the usage at {} named no message", unnamed.join(", "))
+    };
+    let repeated = messages
+        .iter()
+        .find(|(_, usages)| usages.len() > 1 && usages.windows(2).all(|pair| pair[0] == pair[1]));
+    match repeated {
+        Some((id, usages)) => Fact::measured(
             Counting::RepeatedPerMessage,
-            format!("message {id} carried its usage on {events} events; count each message once"),
+            format!(
+                "message {id} carried the same usage on {} events; count each message once{outside}",
+                usages.len()
+            ),
         ),
-        None => Fact::measured(
-            Counting::PerEvent,
-            "no two usage-bearing events named the same message",
-        ),
+        None => Fact::unmeasured(format!(
+            "no message carried the same usage on several events, so nothing showed how usage \
+             counts{outside}"
+        )),
     }
 }
 
@@ -587,26 +602,36 @@ fn egress_off(native_egress: &Fact<Vec<String>>, boxed_tools: &Fact<Vec<String>>
     }
 }
 
-/// How one deliberate mistake was refused. A launch that ended with no
-/// exit code, by a signal or the probe's deadline, refused nothing.
-fn refusal(trial: &Trial) -> Fact<Refusal> {
+/// The launch that refused a deliberate mistake, or why there is no
+/// refusal to read: `accepted` when it exited 0. A launch that ended with
+/// no exit code, by a signal or the probe's deadline, refused nothing.
+fn refused<T: serde::Serialize>(trial: &Trial, accepted: String) -> Result<&Observation, Fact<T>> {
     let observation = match trial {
-        Trial::Untried(why) => return Fact::unmeasured(why.clone()),
+        Trial::Untried(why) => return Err(Fact::unmeasured(why.clone())),
         Trial::Observed(observation) => observation,
     };
     match observation.exit {
-        Some(0) => Fact::unmeasured("the CLI exited 0, so there was no refusal to read"),
-        None => Fact::unmeasured(format!(
+        Some(0) => Err(Fact::unmeasured(accepted)),
+        None => Err(Fact::unmeasured(format!(
             "no refusal was read: {}",
             exit_and_excerpt(observation)
-        )),
-        Some(_) => Fact::measured(
+        ))),
+        Some(_) => Ok(observation),
+    }
+}
+
+/// How one deliberate mistake was refused.
+fn refusal(trial: &Trial) -> Fact<Refusal> {
+    let accepted = "the CLI exited 0, so there was no refusal to read".to_string();
+    match refused(trial, accepted) {
+        Ok(observation) => Fact::measured(
             Refusal {
                 exit: observation.exit,
                 excerpt: excerpt(observation),
             },
             exit_and_excerpt(observation),
         ),
+        Err(fact) => fact,
     }
 }
 
@@ -631,16 +656,14 @@ fn accepted_levels(text: &str) -> Option<Vec<String>> {
 }
 
 fn efforts(trial: &Trial) -> Fact<Vec<String>> {
-    let observation = match trial {
-        Trial::Untried(why) => return Fact::unmeasured(why.clone()),
-        Trial::Observed(observation) => observation,
+    let accepted = format!(
+        "the CLI accepted the unknown effort '{NO_SUCH_EFFORT}' and exited 0, so no refusal \
+         lists its levels"
+    );
+    let observation = match refused(trial, accepted) {
+        Ok(observation) => observation,
+        Err(fact) => return fact,
     };
-    if observation.exit == Some(0) {
-        return Fact::unmeasured(format!(
-            "the CLI accepted the unknown effort '{NO_SUCH_EFFORT}' and exited 0, so no \
-             refusal lists its levels"
-        ));
-    }
     let text = format!("{}\n{}", observation.stderr, observation.stdout);
     match accepted_levels(&text) {
         Some(levels) => Fact::measured(levels, exit_and_excerpt(observation)),

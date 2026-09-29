@@ -100,13 +100,13 @@ pub(crate) struct Session {
     pub(crate) key: String,
 }
 
-/// Whether a usage count stands for its event or repeats its message's
-/// (#402: one message's usage, restated on each of its stream events,
-/// counted once per event, doubles the total).
+/// How a usage count is counted (#402: one message's usage, restated on
+/// each of its stream events, counted once per event, doubles the total).
+/// A stream shows only the repetition; nothing a turn prints tells a
+/// per-event count from a message seen once, so that stays unmeasured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum Counting {
-    PerEvent,
     RepeatedPerMessage,
 }
 
@@ -117,8 +117,8 @@ pub(crate) struct Usage {
     /// `<event type> <JSON pointer>` for each place a usage object sat.
     pub(crate) locations: Vec<String>,
     pub(crate) counters: Vec<String>,
-    /// Unmeasured when no usage-bearing event names its message, since
-    /// then nothing shows whether one message's usage repeats.
+    /// Unmeasured unless one message carried the same usage on several
+    /// events; usage that names no message is listed in its account.
     pub(crate) counting: Fact<Counting>,
 }
 
