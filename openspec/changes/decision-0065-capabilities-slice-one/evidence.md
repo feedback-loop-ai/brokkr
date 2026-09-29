@@ -21628,3 +21628,101 @@ restriction on an unmeasured plan refuses at compile (R5)".
 - Pending: R1 (the ruling, then its unit), then 20.1. Also pending: unit
   21's restriction rows for 21.3, macOS, exact coverage outside the box,
   remote CI and the council.
+
+## Unit 20-fix-b — 2026-09-29 (R1 closed; 20.1 closes)
+
+Run `0065-rebuild-unit-20-see-the-uni-b5f878e5`, based on `b69b31a9`. The
+operator's R1 ruling of 2026-09-29 commissioned this unit with one test
+file, `crates/brokkr-cli/tests/capability_verbs.rs`, and no production
+file. The ruling is landed verbatim as the addendum "2026-09-29: the R1
+pinned-resume proof is unit 20-fix-b".
+
+### The rows
+
+- New `capability_verbs.rs:327`,
+  `a_pinned_resume_refuses_a_typed_lanetally_allow_on_its_unmeasured_plan`.
+  It has two rows: `inline`, a work seat `{brokkr} driver lanetally -- --model
+  claude-opus-5-5 --effort high` with `tools.allow: [cargo]`, and `agent`,
+  the office `tally-typed` (`opus-tallied`) whose own `tools.allow` is
+  `[cargo]`. Both sit in realm `app` of a v6 map that grants nothing.
+- **The run is real and admitted.** Since R5, no compile admits a typed
+  LaneTally allow on the shipped adapter. The only admitting shape is a
+  LaneTally adapter whose native controls are declared measured, which the
+  R5 addendum says a later unit may admit. So each row starts `brokkr run`
+  with the workspace's `adapters/lanetally.json` carrying Claude's
+  `native_capabilities`, which is the same re-plant as
+  `capability_launch.rs:2891`. The run's first phase, `park`, is an `exec`
+  seat running `false`, so the run parks and no LaneTally binary is needed.
+  Asserted: the run exits `Some(2)`, and the pin's
+  `sites.work.candidates[0].native.inventory` is `known`.
+- **The resume is refused.** The shipped `adapters/lanetally.json` is copied
+  back, which declares the controls unmeasured again. Then `brokkr resume
+  --run <run>`. Asserted as one tuple per row, both rows in one
+  `assert_eq!` at `:429`: the exit code is `Some(1)`; the WHOLE stderr is
+  exactly `error: run '<run>' pins a different bundle: capabilities
+  differ: the capability authority the run was started under cannot be
+  reproduced here — seat 'work' (office '<office>') in realm 'app': its
+  typed 'tools.allow' refuses at compile, as harness 'lanetally' of
+  provider 'lanetally' has native controls its adapter declares unmeasured
+  (ruling R5 of 2026-09-29; design D5.3): the LaneTally wrapper forwards
+  argv to claude, and forwarding is not confinement: whether Claude Code's
+  native WebSearch<cut>\n`; and the journal's events equal those loaded
+  before the resume. The `<cut>` is where the 512-scalar bound leaves the
+  adapter's reason: ` and We…` inline and `…` for `tally-typed`. Because
+  the journal is unchanged, no seat was spawned.
+- The earlier split sketch (a recipe that gains the allow after the start)
+  was not used. The ruling asks for a journal started under a bundle that
+  admitted it, and the measured-declaration start is that shape.
+
+### Baseline, mutations, restored
+
+- **Baseline.** On `b69b31a9` production the rows pass. They cannot be red
+  there: the refusal they prove is R5's, which landed at `39b9b1a8`, and
+  `b69b31a9` is a docs-only commit over it. This unit moves no production.
+  M1 below re-creates the pre-R5 refusal path.
+- **M1** (`capabilities.rs:1910`, the R5 guard in `native_plan`'s
+  `unmeasured`): `if !serving.provenance.local.is_empty()` becomes `if false
+  && …`. The rows FAILED at `capability_verbs.rs:429`. Both rows got
+  `Some(1)`, but with a different line, `… capabilities differ: the run's
+  pinned sites no longer match what the bundle compiles to here — …`. An
+  `is_err` check or a `pins a different bundle` substring check would have
+  passed. Restored with `git checkout -- crates/brokkr-runtime/src/capabilities.rs`.
+- **M2** (`brokkr-cli/src/lib.rs:2064`, `unreproducible`): the
+  `CompileError::Capability(reason)` arm gains `if false`, so the error
+  passes through untouched. The rows FAILED at `:429`. Both got
+  `error: bundle: seat 'work' (office '<office>') … <R5 cause> …`. So the R5
+  cause alone, as a substring, would have passed without the mismatch
+  door. Restored with `git checkout -- crates/brokkr-cli/src/lib.rs`.
+- **Restored pass.** `cargo test --locked -p brokkr-cli --test
+  capability_verbs`: 7 passed, 0 failed.
+
+### 20.1, re-observed
+
+Unit 20's matrix suites, re-run this session on this tree:
+- `cargo test --locked -p brokkr-runtime --test capability_launch`: 62
+  passed.
+- `cargo test --locked -p brokkr-runtime --lib engine::capability_tests`:
+  13 passed.
+- `cargo test --locked -p brokkr-protocol`: 544, 99 (2 ignored) and 1
+  passed, 0 failed.
+
+With R1's rows in place, each compiled harness/form/site row names a whole
+command or a whole refusal. That includes the typed LaneTally allow: at
+compile (the matrix) and at pinned resume (here). 20.1 is ticked. 21.3
+stays open for unit 21's restriction rows.
+
+### Admissions and gates
+
+- No standing-admission lines and no fixture migrations. The files are
+  `capability_verbs.rs` (tests), the ruling addendum, this ledger and
+  tasks.md.
+- The matrix doc comment at `capability_launch.rs:9230` still says the
+  pinned resume is "NOT proved here", which remains true of that suite. It
+  is not edited, because that file is outside this unit.
+- Gates: `cargo fmt --all -- --check` clean. `cargo clippy --workspace
+  --all-targets --all-features --locked -- -D warnings` clean.
+  `cargo test --all-features --locked -p brokkr-cli`: 33 result lines,
+  all ok, none failed. `openspec validate --all --strict`: 18 passed, 0
+  failed. `git diff --check` clean.
+- Pending: unit 21's restriction rows for 21.3, macOS, exact coverage
+  outside the box, remote CI and the council.

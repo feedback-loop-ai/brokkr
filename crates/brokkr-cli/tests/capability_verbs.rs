@@ -315,6 +315,120 @@ fn a_resume_that_cannot_reproduce_its_pinned_inputs_is_a_capability_mismatch() {
     assert_eq!(code, Some(0), "{stderr}");
 }
 
+/// Operator ruling R5 of 2026-09-29 at the resume door (unit 20-fix-b): a
+/// typed LaneTally `tools.allow`, inline and through a LaneTally office,
+/// on a run started while LaneTally's native controls were declared
+/// measured — the only shape any compile ever admitted it in — is refused
+/// by a pinned `brokkr resume` once the adapter declares them unmeasured
+/// again. The compile's R5 cause leaves whole through the manifest-mismatch
+/// door with capabilities named; the journal is not touched. Cold
+/// compilation does not stand in for this: the line is the CLI's own.
+#[test]
+fn a_pinned_resume_refuses_a_typed_lanetally_allow_on_its_unmeasured_plan() {
+    let shipped = workspace_root().join("adapters/lanetally.json");
+    let claude: Value = serde_json::from_slice(
+        &std::fs::read(workspace_root().join("adapters/claude.json")).unwrap(),
+    )
+    .unwrap();
+    let mut measured: Value = serde_json::from_slice(&std::fs::read(&shipped).unwrap()).unwrap();
+    measured["native_capabilities"] = claude["native_capabilities"].clone();
+    // The line is the protocol's one bounded refusal (512 scalar values):
+    // the cause is whole, and the adapter's reason is cut where the
+    // office's label leaves it.
+    let (mut rows, mut expected) = (Vec::new(), Vec::new());
+    for (form, office, cut) in [
+        ("inline", "work", " and We…"),
+        ("agent", "tally-typed", "…"),
+    ] {
+        let ws = Workspace::new();
+        ws.map(json!({}));
+        let bundle = ws.path().join("bundle");
+        let mut work = match form {
+            "inline" => json!({
+                "role": "roles/work.md",
+                "driver": {"command": ["{brokkr}", "driver", "lanetally", "--", "--model",
+                                       "claude-opus-5-5", "--effort", "high"]},
+                "tools": {"allow": ["cargo"]},
+            }),
+            _ => {
+                std::fs::create_dir_all(ws.path().join("agents/charters")).unwrap();
+                std::fs::write(
+                    ws.path().join("agents/charters/tally-typed.md"),
+                    "# tally-typed\n",
+                )
+                .unwrap();
+                std::fs::write(
+                    ws.path().join("agents/tally-typed.json"),
+                    json!({"description": "an office", "charter": "charters/tally-typed.md",
+                           "models": ["opus-tallied"], "efforts": {"opus-tallied": "high"},
+                           "tools": {"allow": ["cargo"]}})
+                    .to_string(),
+                )
+                .unwrap();
+                json!({"agent": "tally-typed"})
+            }
+        };
+        work["results"] = json!(["complete"]);
+        // The run parks at its first phase, an `exec` seat whose script
+        // refuses, so no LaneTally binary is ever needed.
+        let park = json!({"role": "roles/work.md", "results": ["complete"],
+                          "driver": {"command": ["{brokkr}", "driver", "exec", "--", "false"]}});
+        std::fs::write(
+            bundle.join("policy.json"),
+            json!({"schema": "forge.phase-machine/v1",
+                   "phases": ["park", "work", "review", "done"],
+                   "initial": "park", "terminal": ["done"], "rules": [
+                       {"id": "PARK", "from": "park", "result": "complete", "next": "work",
+                        "reason": "r"},
+                       {"id": "WORK", "from": "work", "result": "complete", "next": "review",
+                        "reason": "r"},
+                       {"id": "REVIEW", "from": "review", "result": "clean", "next": "done",
+                        "reason": "r"}]})
+            .to_string(),
+        )
+        .unwrap();
+        let mut body: Value =
+            serde_json::from_slice(&std::fs::read(bundle.join("bundle.json")).unwrap()).unwrap();
+        body["seats"]["park"] = park;
+        body["seats"]["work"] = work;
+        std::fs::write(bundle.join("bundle.json"), body.to_string()).unwrap();
+        let adapter = ws.path().join("adapters/lanetally.json");
+        std::fs::write(&adapter, measured.to_string()).unwrap();
+        let (code, stderr) = ws.verb("run", None);
+        assert_eq!(code, Some(2), "{form}: the run parks at `park`: {stderr}");
+        let run = run_id(&stderr);
+        // Admitted and pinned: the bundle carrying the typed allow compiled
+        // and started, on the plan the measured declaration made known.
+        assert_eq!(
+            ws.pinned(&run)["sites"]["work"]["candidates"][0]["native"]["inventory"],
+            "known",
+            "{form}"
+        );
+        let before = ws.events(&run);
+
+        std::fs::copy(&shipped, &adapter).unwrap();
+        let (code, stderr) = ws.verb("resume", Some(&run));
+        // A refused resume appends nothing.
+        rows.push((form, code, stderr, ws.events(&run) == before));
+        expected.push((
+            form,
+            Some(1),
+            format!(
+                "error: run '{run}' pins a different bundle: capabilities differ: the \
+                 capability authority the run was started under cannot be reproduced here \
+                 — seat 'work' (office '{office}') in realm 'app': its typed 'tools.allow' \
+                 refuses at compile, as harness 'lanetally' of provider 'lanetally' has \
+                 native controls its adapter declares unmeasured (ruling R5 of 2026-09-29; \
+                 design D5.3): the LaneTally wrapper forwards argv to claude, and \
+                 forwarding is not confinement: whether Claude Code's native \
+                 WebSearch{cut}\n"
+            ),
+            true,
+        ));
+    }
+    assert_eq!(rows, expected);
+}
+
 /// Decision 0066 ruling 5 at the resume door (finding H4): a run's charter
 /// is the bytes its manifest pinned. Changed where the file walk pins it,
 /// the resume compiles to a different bundle and says which file moved.

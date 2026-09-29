@@ -4148,7 +4148,7 @@ is observed there; no production file moved.
 
 ## 20. Unit 20 — Audit compiled refusal and serving shapes
 
-- [ ] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)
+- [x] 20.1 Unit 20 proves all-harness/form/site authored refusals via real compilation. Verify complete causes/no provider work and typed/hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.3)
 
 **Unit 20, 2026-09-29 (run `0065-rebuild-unit-20-see-the-uni-23e98946`,
 based on `4d11cc4b`; evidence.md, "Unit 20").** An audit: no production file
@@ -4319,6 +4319,36 @@ re-ruled chore, but no addendum grants `capability_verbs.rs`. R1's pinned
 `brokkr resume` rows can be proved only there. The matrix and protocol
 suites were re-run and pass. Nothing else changed. 20.1 stays open until
 the operator admits that file or commissions unit 20-fix-b.
+
+**Unit 20-fix-b (2026-09-29, run `0065-rebuild-unit-20-see-the-uni-b5f878e5`,
+based on `b69b31a9`; evidence.md, "Unit 20-fix-b"): R1 closes, and 20.1
+closes.** The operator's R1 ruling is landed verbatim as an addendum to
+`operator-ruling-2026-09-23.md`. Only `crates/brokkr-cli/tests/capability_verbs.rs`
+changed; no production file moved.
+
+- **R1.** New `a_pinned_resume_refuses_a_typed_lanetally_allow_on_its_unmeasured_plan`
+  (`capability_verbs.rs:327`). Each row, inline and through a LaneTally
+  office `tally-typed`, starts a real run through `brokkr run` while
+  LaneTally's native controls are declared measured, which is the only
+  shape any compile admits the typed allow in. The run parks (exit 2), and
+  its pin reads `inventory: known`. With the shipped unmeasured adapter
+  restored, a pinned `brokkr resume` exits 1. Its whole stderr is the exact
+  `unreproducible` line: `error: run '<run>' pins a different bundle:
+  capabilities differ: … — <the R5 cause>…`, bounded to 512 scalars. The
+  journal is unchanged.
+- **Baseline.** The rows pass on `b69b31a9` production. They cannot be red
+  there, because the refusal they prove landed with R5 at `39b9b1a8`, and
+  this unit changes no production. M1 is the pre-R5 path.
+- **Mutations.** M1 turns off the R5 guard in `capabilities.rs`. Both rows
+  then fail at `:429` with a different mismatch line (`the run's pinned
+  sites no longer match …`), with the same exit code 1. M2 makes
+  `unreproducible` pass the Capability error through (`lib.rs`). Both rows
+  then fail at `:429`: the R5 cause is present, but it sits behind
+  `error: bundle: `, not the mismatch door. Each was restored, and the rows
+  pass.
+- 20.1 is ticked. 21.3 stays open for unit 21's restriction rows.
+- No standing-admission lines and no fixture migrations.
+- **Gates** and **pending**: see evidence.md.
 
 ## 21. Unit 21 — Prove compiled cold and actual-resume restrictions
 

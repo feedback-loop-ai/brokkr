@@ -213,3 +213,7 @@ OPERATOR RULING 2026-09-29 (unit 19).
 ## Addendum, 2026-09-29: a typed restriction on an unmeasured plan refuses at compile (R5)
 
 A typed tools restriction (tools.allow / tools.deny) on a harness whose native controls are unmeasured (LaneTally today) REFUSES AT COMPILE with its exact unmeasured cause, per D5.3. It is never lowered onto an unmeasured plan and never left for the launch check to refuse: compile and launch agree. When that harness's controls are measured, a later unit may admit it.
+
+## Addendum, 2026-09-29: the R1 pinned-resume proof is unit 20-fix-b
+
+Unit 20-fix-b is commissioned with ONE test file, `crates/brokkr-cli/tests/capability_verbs.rs`, and NO production file. It proves that a pinned `brokkr resume` refuses the typed LaneTally allow, inline and agent-backed, with the exact rendered cause (the line brokkr-cli's `unreproducible` renders). Cold compilation does not stand in for resume coverage.
