@@ -15878,8 +15878,9 @@ fn an_explicitly_restrictive_managed_tool_list_reaches_the_final_command() {
 fn a_compiled_managed_read_limit_is_served_whole_cold_and_on_an_eligible_resume() {
     const CLAUDE_VERSION: &str = "2.1.266";
     let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
     let bin = executable(
-        dir.path(),
+        &root,
         "claude",
         &format!(
             "#!/bin/sh\n{}exit 1\n",

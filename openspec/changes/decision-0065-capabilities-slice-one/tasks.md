@@ -4352,13 +4352,13 @@ changed; no production file moved.
 
 ## 21. Unit 21 — Prove compiled cold and actual-resume restrictions
 
-- [x] 21.1 Unit 21 proves managed Read/empty restrictions in compiled cold/eligible-resume Claude/LaneTally shapes. Verify authored lists refuse, prompt integrity and independent inventory. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Prompt values cannot absorb a composed control][NCP], [Subtractive tool lists never grant a capability][RGS]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.4)
+- [ ] 21.1 Unit 21 proves managed Read/empty restrictions in compiled cold/eligible-resume Claude/LaneTally shapes. Verify authored lists refuse, prompt integrity and independent inventory. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Prompt values cannot absorb a composed control][NCP], [Subtractive tool lists never grant a capability][RGS]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.4)
 
 21.2 is **deferred** to the restriction-transport slice by the operator's
 addendum of 2026-09-25 (design.md D11). The task, unticked, is under "Deferred
 to the restriction-transport slice" below.
 
-- [x] 21.3 Units 20–21 map every supported launch shape to real compiled full literal/refusal assertions and selected charter facts. Verify holdings-only/is_ok do not close rows; close only after unit 21 proves the managed Read/empty and CQ1 restriction rows too (narrowed by the addendum of 2026-09-25; the held nonempty rows are deferred below). Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.5)
+- [ ] 21.3 Units 20–21 map every supported launch shape to real compiled full literal/refusal assertions and selected charter facts. Verify holdings-only/is_ok do not close rows; close only after unit 21 proves the managed Read/empty and CQ1 restriction rows too (narrowed by the addendum of 2026-09-25; the held nonempty rows are deferred below). Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.5)
 
   **Advanced by unit 20 (2026-09-29).** evidence.md, "Unit 20 — the
   compiled refusal and serving-shape matrix", maps every supported
@@ -4394,6 +4394,12 @@ to the restriction-transport slice" below.
   **Closed by unit 21 (2026-09-29).** The managed Read/empty and CQ1
   restriction rows are mapped below, each to a whole-command or
   whole-refusal assertion beside the site's charter pin.
+
+  **Reopened by unit 21's review return (2026-09-29).** The claim above
+  was wrong: the rows cover ordinary unboxed work seats and one boxed
+  refusal, not the gate, panel, sequence, selected/inherited, boxed and
+  fallback restriction paths, nor CQ1's requires and unused rows over a
+  declared transport (R2).
 
 **Unit 21, 2026-09-29 (run `0065-rebuild-unit-21-see-the-uni-2f15a7aa`,
 based on `08a11221`; evidence.md, "Unit 21"): 21.1 and 21.3 close.** No
@@ -4459,6 +4465,27 @@ independent ordered literal.
   - `bundles/self` and `bundles/verify` compile;
   - `openspec validate --all --strict --no-interactive` (18 passed);
   - `git diff --check`.
+
+**Unit 21, review return (2026-09-29; evidence.md, "Unit 21, review
+return"): 21.1 and 21.3 are reopened. The unit is oversized.** The chief's
+review of `08a11221..5fbc22bd` found four defects. Two of them need
+production files, and this unit has none.
+
+- **R1 (high).** 21.1 and 21.3 closed although F21-1 was recorded. Under
+  that follow-up, a removal inside the shared serving builder is served,
+  because `check_final` (`native_controls.rs`) never judges delivery on the
+  final command's own parsed state. This needs a production repair.
+- **R2 (medium).** The restriction matrix is incomplete. The missing rows
+  are named in 21.3's reopening note above.
+- **R3 (low).** The inline unused-grant row pins an inaccurate reason. That
+  reason comes from `capabilities.rs`'s `native_plan`, so correcting it is
+  production work.
+- **R4 (low).** Fixed here. The adapter suite's shim root is now
+  canonicalised.
+
+The split is unit 21-fix-a (production, R1 and R3), then unit 21-fix-b
+(tests, R2 and R3's corrected expectation, with removals re-run). No
+standing-admission lines and no fixture migrations.
 
   **Pending:** macOS, exact coverage outside the box, remote CI and the
   council.

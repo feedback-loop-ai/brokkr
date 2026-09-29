@@ -21736,8 +21736,10 @@ their helpers, plus the unit 20 matrix doc comment now names them) and
 `crates/brokkr-protocol/src/adapters/tests.rs` (one new test). 21.2 stays
 deferred (D11).
 
-Every fixture compiles through `Bundle::compile_with_capabilities` in a
-canonicalised temporary root. It uses a real v6 realm map, the shipped or
+Every runtime fixture compiles through `Bundle::compile_with_capabilities`
+in a canonicalised temporary root. (Corrected by the review return below,
+R4: the adapter suite's shim root was NOT canonicalised in this visit.) It
+uses a real v6 realm map, the shipped or
 copied `capabilities/` and `dialects/tools/`, and the shipped or copied
 adapters. No `.forge/` file is read and no provider is installed: the
 `claude`/`codex` binaries are version-reporting shims, and LaneTally is a
@@ -21968,3 +21970,137 @@ eligible resume (`rejoining == Some(session)`, command ending `--resume
   failed.
 - Pending: macOS, exact coverage outside the box
   (`scripts/coverage-exact.sh`), remote CI and the council.
+
+## Unit 21, review return — 2026-09-29 (oversized; 21.1 and 21.3 reopened)
+
+The chief reviewed `08a11221..5fbc22bd` in the same run
+(`0065-rebuild-unit-21-see-the-uni-2f15a7aa`) and ruled it residual: high
+maximum severity, a security residual, and `spec_defect` false. This visit
+is based on `5fbc22bd`. It answers the four defects, R1 to R4. R5 is a note
+about the review's own panel and needs no work here.
+
+Two of the four need production files, and unit 21 has a production budget
+of zero. Its task entries 21.1 and 21.3 are therefore unticked again, and
+the unit reports `oversized`.
+
+### R1: the closure stood on a known violation of ruling 2
+
+- **What the review found.** The first visit closed 21.1 and 21.3 while
+  recording F21-1: under M1, M2 and M4, a removal inside the shared builder
+  was served rather than refused.
+- **Confirmed this visit, by reading the source.**
+  - `check_final` (`native_controls.rs:1999-2004`) calls `read_state` on
+    the final command's `parsed.command`, and then drops the result.
+  - `delivered` (`:2023`) is judged on the state recomposed from the
+    sealed inputs.
+  - The final comparison (`:2024-2044`) runs against
+    `adapters::serving_command`, which is the same builder the launch used.
+- **Why it is not fixed here.** The repair belongs in
+  `crates/brokkr-protocol/src/native_controls.rs`: judge `delivered` on the
+  final command's own parsed state. It also needs an owning regression in
+  `native_controls/tests.rs`. Neither file is this unit's.
+- **Consequence.** 21.1 and 21.3 cannot close until that repair lands. M1,
+  M2 and M4 must then be re-run, and each must be REFUSED by the final
+  check, not just caught by the literals.
+
+### R2: the restriction matrix is incomplete
+
+The review is right. The first visit's rows (`capability_launch.rs:9999`
+and `:10481`) cover:
+
+- ordinary unboxed Claude work seats, inline and agent-backed, plus one
+  boxed refusal;
+- ordinary unboxed Codex work seats, inline and agent-backed.
+
+Unit 20's 114-row matrix excludes restrictions. So none of these paths has
+a restriction row with a whole command or refusal, its charter pin and its
+removal evidence:
+
+- the gate, panel member, sequence step, selected case/default and
+  inherited paths;
+- the boxed and fallback paths;
+- CQ1's `requires` and `unused` rows over a declared transport. Only
+  `wants` was proved there.
+
+D11, and the deferred positive for a rejoining panel member, still apply.
+This is test work within unit 21's files. It is left to the follow-up test
+unit rather than built now, because its removal proofs would have to be
+re-run once R1's repair changes what the final check refuses.
+
+### R3: the unused grant's reason is inaccurate
+
+- **The pinned expectation.** `capability_launch.rs:10642` expects `the
+  realm does not grant it to this seat` for an inline seat that asks
+  nothing. The same test pins the realm's grant as present, so the real
+  cause is that no request was made.
+- **Where the text comes from.** It is the one generic unheld reason in
+  `native_plan`, at `crates/brokkr-runtime/src/capabilities.rs:2115-2118`.
+  That reason is used for every unheld known capability.
+- **What the fix needs.**
+  - A production change to `capabilities.rs`, so the reason tells an
+    unused grant apart from an absent one.
+  - The corrected expectations in `capability_launch.rs`, and in the
+    existing unheld-reason pins at `capabilities/tests.rs:1150` and
+    `engine/capability_tests.rs:135`, where they meet the same case.
+  - A wording. The spec deltas do not fix one: `capability-manifest-and-
+    prompts` and `native-capability-controls` say only that an unused
+    grant stays inactive and pinned.
+- **Status.** The current expectation is not completed behaviour. It
+  stays as it is only until that split lands.
+
+### R4: the adapter suite's shim root was not canonical (fixed)
+
+- **Before.**
+  `a_compiled_managed_read_limit_is_served_whole_cold_and_on_an_eligible_resume`
+  (`adapters/tests.rs:15878`) passed `tempfile::tempdir().path()` straight
+  to `executable`, which only joins paths.
+- **Now.** It derives the shim from `dir.path().canonicalize()`, as the
+  suite's other shim fixtures do (e.g. `:1971`, `:10840`).
+- **The false claim.** The first visit's evidence said every fixture
+  root was canonicalised. That sentence ("Unit 21", the paragraph after
+  the file list) now names this exception.
+- **Binding.** No assertion changed. On Linux, `/tmp` already has a single
+  spelling, so no baseline red can be observed there. The macOS run, where
+  the root reads `/var`, is pending.
+- **Observed.** `cargo test --locked -p brokkr-protocol --all-features
+  --lib a_compiled_managed_read_limit_is_served_whole`: 1 passed.
+
+### The split the unit needs
+
+- **21-fix-a (production).** Two production files:
+  - `native_controls.rs`, for R1: `delivered` judged on the final command's
+    parsed state.
+  - `capabilities.rs`, for R3: an accurate reason for an unused grant, in
+    a wording the operator rules.
+
+  Their owning regressions go in `native_controls/tests.rs` and
+  `capabilities/tests.rs`.
+- **21-fix-b (tests only).** In `capability_launch.rs` and
+  `adapters/tests.rs`:
+  - R2's restriction rows;
+  - R3's corrected expectation;
+  - M1, M2 and M4 re-run, with the final check now refusing each.
+
+  21.1 and 21.3 close at 21-fix-b.
+
+Only an operator addendum can grant 21-fix-a's production files. The
+bounded return to triage cannot.
+
+### Admissions and gates (this visit)
+
+- No standing-admission lines and no fixture migrations. No production or
+  frozen byte moved.
+- `cargo fmt --all -- --check`: clean.
+- `git diff --check`: clean.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, no warning.
+- `cargo test --locked -p brokkr-protocol --all-features`: 545, 99 (2
+  ignored) and 1 passed, 0 failed.
+- **Not re-run.**
+  - The brokkr-runtime suite and the workspace suites: no runtime byte
+    moved this visit. They were last observed by the first visit.
+  - The two bundle compiles.
+- **Pending.** macOS, exact coverage outside the box, remote CI, and
+  units 21-fix-a and 21-fix-b.
