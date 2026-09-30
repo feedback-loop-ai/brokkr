@@ -23619,7 +23619,9 @@ byte is committed. Only this file and `tasks.md` move.
 - **Re-run on this head.** One representative removal per category was
   re-run, plus each gap. Each mutation was one compiling edit to one
   production file, with its diff saved as `.forge/u23-<id>.diff`, which is
-  not committed. It was run against:
+  not committed. (Correction, CH23-4: A1's diff and every run log were not
+  kept; the return below re-ran A1 and keeps each diff and log.) It was run
+  against:
   - `cargo test --locked -p brokkr-protocol --lib -- native_controls::
     adapters::tests` (312 tests at baseline);
   - `cargo test --locked -p brokkr-runtime --test capability_launch` (68
@@ -23678,7 +23680,9 @@ byte is committed. Only this file and `tasks.md` move.
   So C1 alone is equivalent while `codex_cold` is sound: its output is the
   command the check rebuilds. Once that builder is defective, the
   replacement's check is the only barrier, and the suite binds it there.
-  No test can kill C1 alone, so none is added.
+  Superseded by the return (CH23-2): a sealed template respelled from the
+  handed argv separates the two checks, and the test added there kills C1
+  alone.
 - **C4 = unit 15 M6.** The Codex rejoin is served unchecked when rejoining.
   It is **now killed**: R 1, at `capability_launch.rs:5129`, row "codex
   inline, the recipe's words counterfeited as the engine's". The refusal
@@ -23722,3 +23726,172 @@ byte is committed. Only this file and `tasks.md` move.
 - The gates are recorded in `tasks.md`'s unit 23 note.
 - **Pending.** macOS, exact coverage outside the box
   (`scripts/coverage-exact.sh`), remote CI and the council.
+
+## Unit 23 — the review's return (2026-09-30)
+
+Same run, second implement visit, on `0ac242af`. It answers the chief's
+CH23-1 to CH23-4. CH23-5 names text in the review's own notes and needs no
+edit here.
+
+Each mutation below was one compiling edit to one production file. Each
+was restored with `git checkout --`, and `git status --short` then showed
+no production file. The diff and the whole log of each are kept, not
+committed, as `.forge/u23r/<id>.diff` and `.forge/u23r/<id>-<suite>.log`.
+
+The baselines on `0ac242af` all passed:
+
+| Suite | Passed |
+|---|---|
+| `cargo test --locked -p brokkr-runtime --lib -- engine::capability_tests` | 13 |
+| `--test capability_launch` | 68 |
+| `--test budgets` | 4 |
+| `cargo test --locked -p brokkr-protocol --lib -- native_controls:: adapters::tests` | 312 |
+
+The logs are `base-*.log`.
+
+### CH23-1: the SiteMarks handoff, re-proved on the merged head
+
+Since the merge, every spawn writes the capability handoff twice. Both
+writes go through `SiteMarks::capabilities` (`engine/marks.rs:42`–`52`):
+
+- `SiteMarks::site` (`marks.rs:27`), reached at `engine.rs:1421`, `:2260`
+  and `:2563`;
+- `mark_capabilities` (`engine.rs:1577`), which runs right after each of
+  those, and alone at `:2734`.
+
+Runs were `engine::` (256 tests) and `capability_launch`, plus `budgets`
+where the prompt moves.
+
+| # | Removal | Failed | A failing assertion observed |
+|---|---|---|---|
+| SM1 | `marks.rs` `site` no longer calls `capabilities` | **none**: engine 13/13, whole runtime lib 688/688, launch 68/68, budgets 4/4 | — (see below) |
+| SM5 | the `engine.rs:1577` call removed | engine 1 | `capability_tests.rs:114`: `managed(&input)` returned `Ok(None)`, where the expected value is the "engine computed no capability authority … never launched on its own defaults" refusal. With no explicit `null`, the driver would read a by-hand launch. |
+| SM1+SM5 | both writes removed | engine 19, launch 0 | `capability_tests.rs:114`; `:322` (a nested dispatch handed `Null`); `notice_tests.rs:490`; `resume_tests.rs:3083` |
+| SM2 | `marks.rs`: the serving candidate ignores the link, so the primary always serves | engine 5, budgets 1 | `capability_tests.rs:152`: the DSH fallback was handed codex's plan `{"argv": ["-c", "web_search=\"disabled\""], …}`, where the expected value is `{"inventory": "unmeasured", "provider": "dsh", …}`. The same fault at `:322`, and in `every_seat_prompt_stays_within_its_committed_byte_budget`. |
+| SM3 | `marks.rs` writes `native_controls` as `null` | engine 4 | `capability_tests.rs:130`: `Null` where `["-c", "web_search=\"disabled\""]` is expected; also `:322` |
+| SM4 | `marks.rs` writes the prompt as `null` | engine 17, budgets 0 | `capability_tests.rs:138` (the `not_held` text); `notice_tests.rs:490` and 14 other notice rows |
+| SM6 | `engine.rs` `mark_capabilities`: the record's outcome ignores the link | engine 3 | `capability_tests.rs:540`: the fallback's record was `Null`, where the dsh/flash record is expected. `:376`: the nested dispatch's record named codex/astra, where dsh/flash is expected. Also `:832`. |
+| ME1 | unit 14a2's seal, re-run: the serving inputs are not written | engine 26, launch 1 | `capability_tests.rs:773` (14a2's own row, then at `:750`); `capability_launch.rs:8124` |
+
+**SM1 survives, and the survival is equivalent in the engine.** Each
+`site` call is followed by `mark_capabilities`, which writes the same two
+fields from the same link:
+
+- SM5 shows that the second write, alone, is bound;
+- SM1+SM5 shows that the pair is bound end to end.
+
+The only other reader of `site`'s write is `tests/budgets.rs`. It holds
+each prompt at or under its budget, so a prompt shrunk by the missing text
+still passes. SM4 also left budgets green. `budgets.rs` is outside this
+unit's files, so this is named as a follow-up, not bound here.
+
+**The omitted seal records, accounted.** Unit 14a2 recorded MH1–MH3,
+ME1–ME10 and MS1–MS5 (`:14486`–`:14503`). ME1 is re-run above. The
+merge's only hunk in this area is `mark_capabilities`' write:
+`git diff -U0 1c71ce5c^1 HEAD -- crates/brokkr-runtime/src/engine.rs` has
+no hunk between head lines 3787 and 4403. So the seal's door
+(`verify_record`, `verify_serving` and `serving_inputs`, `engine.rs:4014`–`4100`)
+is unchanged by the merge. The other rows stand as 14a2 recorded them, and
+their owning test passes on this head (the engine baseline). They were not
+re-run in this visit.
+
+### CH23-2: C1 now has an isolated binding
+
+The new test is
+`adapters/tests.rs::a_rejected_rejoins_replacement_is_served_only_as_its_own_check_returns_it`
+(`:15194`). It uses the shared `codex_shim`, `Seal`, `sealed_pair` and
+`checked_refusal`, and adds no new shim.
+
+- **The fixture.** The sealed Codex template declares `-s read-only`,
+  while the handed argv and its Template segment read `--sandbox
+  read-only`. The check rebuilds from the typed template and never reads
+  the recorded argv (`check_final`, step 2).
+- **Why only the replacement departs.** A rejoin re-expresses either
+  spelling as `sandbox_mode="read-only"`, so the rejoin passes its own
+  check: the test's last assertion serves it `Ok(rejoin)`. The cold
+  replacement keeps `--sandbox` and departs at argument 5.
+
+Results:
+
+- **Restored.** `codex_launch_and_cold` returns the exact `departs at
+  argument 5 …` refusal. The test passes (`C1-final-restored.log`).
+- **C1** (`.forge/u23r/C1.diff`, the same edit as the first visit's
+  `u23-C1.diff`) fails it alone at `adapters/tests.rs:15222`, with left
+  `None` and right that refusal (`C1-final-mutated.log`). In the whole
+  protocol run, P was 1: that test, with 312 passed (`C1-protocol.log`).
+- **The first form.** It drove `invoke` whole. Restored, it refused with
+  the same text; under C1 it returned no error (`C1-probe-*.log`). It was
+  reduced to the direct seam call, as the 15-fix-b test calls it.
+
+### CH23-3: always-OFF, mapped and re-run
+
+- **The historical rows.** Two rows at `44430402` remove the same thing,
+  "`native_plan`: ON replaced by unconditional OFF":
+  - M10 (`44430402:…/evidence.md:105`);
+  - R-ON (`:560`).
+
+  There, `a_codex_seat_that_holds_search_is_launched_without_the_off_pair`
+  failed on a SPAWNED OFF pair (1 where 0).
+- **Where the removal lives now.** The source is unchanged in kind: the
+  `native_plan` disposition, `capabilities.rs:2096`–`2099`.
+- **O2, re-run** (`.forge/u23r/O2.diff`). The disposition is always
+  `native.off`, and the holding's selection arm is never taken. It failed
+  R 13 and L 7 (L here is `agents:: capabilities:: engine::capability_tests`):
+  - **held, cold:** `capability_launch.rs:229` (`a_codex_seat_that_holds_search_…`),
+    `inline[0] refused: … the final command of harness 'codex' switches OFF
+    native capability 'web-search', which its plan holds …`;
+  - **actual eligible resume:**
+    - `capability_launch.rs:608` (`an_eligible_rejoin_of_a_compiled_codex_seat_…`),
+      refused the same way;
+    - `:5129`, row "codex inline, held": the same `Err`, where the expected
+      value is the served `Ok([… "exec", "resume", …, "-"])`;
+    - `:10997`, row "the empty restriction, over a declared transport,
+      inline": `cold` and the ACTUAL `rejoined` are each that `Err`;
+  - **lib:** `capabilities/tests.rs:1132`, with left `["--search-off"]` and
+    right `["--search-on"]`.
+- **The mapping.** At `44430402`, always-OFF was spawned and was caught by
+  counting pairs. On this head, the sealed expectation still holds the
+  power, so the final check refuses the command before any spawn. Either
+  way it fails, and it never passes as grant support.
+- **Restored.** `capability_launch` passed 68. The runtime lib `engine::
+  agents:: capabilities::` passed 372.
+
+### CH23-4: the artifacts
+
+- The first visit's run logs, and A1's diff, were not kept. The Method
+  bullet above is corrected.
+- **A1, re-run** (`.forge/u23r/A1.diff`): `authored_refusal` returns
+  `Ok(())` first. It failed P 4 and R 7, as first recorded:
+  - `capability_launch.rs:7200`: the compile's ruling-1 refusal naming
+    `'--disallowedTools' (argument 5)` became `compiled, and the driver
+    said: … the recipe's words or its adapter's pins carrying … a
+    capability-bearing effect …`;
+  - `native_controls/tests.rs:1341`, `:1030`, `:2997` and `:3664`.
+- The other first-visit rows rest on their saved diffs, which the chief
+  applied cleanly, without logs.
+
+### Admissions and gates
+
+- **What this visit changes:** one test in `adapters/tests.rs`, a named
+  file of this unit, and its measured pin in `quality/file-lines.txt`
+  (`18951` → `19002`, `wc -l`). There are no standing-admission lines, no
+  fixture migrations and no production edits. No frozen surface moved.
+- **Gates:**
+  - `cargo fmt --all -- --check` passed;
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings` passed (`clippy.log`);
+  - `cargo test --locked -p brokkr-protocol`: the first run failed only
+    `hands::tests::the_network_prefix_is_eight_tokens_and_the_probe_asks_the_dispatchs_path`
+    (`hands/tests.rs:1240`, a planted `unshare` probe). It passed alone,
+    and the whole suite then passed 625 (`final-protocol-2.log`);
+  - the runtime runs above passed, and so did `budgets` (4);
+  - `compile --bundle bundles/self` and `bundles/verify` succeeded;
+  - `openspec validate --all --strict --no-interactive`: 19 passed, 0
+    failed;
+  - `git diff --check` was clean.
+- **Pending:**
+  - `jscpd` and `quality/ratchet.sh` (the seat refused to run them);
+  - macOS;
+  - exact coverage outside the box;
+  - remote CI and the council.
+- **Deferred, unchanged:** the held nonempty restriction removal (D11).

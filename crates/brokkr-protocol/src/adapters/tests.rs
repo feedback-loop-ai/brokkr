@@ -15183,6 +15183,57 @@ fn a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied() {
     }
 }
 
+/// Rebuild unit 23 (CH23-2): the cold replacement is served only as its OWN
+/// final check returns it. The sealed template spells the class `-s
+/// read-only` where the handed argv spells `--sandbox read-only`: a rejoin
+/// re-expresses either as `sandbox_mode`, so the rejoin's check passes, and
+/// only the replacement's check sees its `--sandbox` depart from the rebuild.
+/// The launch, which composes both before either spawns, is refused.
+#[cfg(unix)]
+#[test]
+fn a_rejected_rejoins_replacement_is_served_only_as_its_own_check_returns_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let shim = codex_shim(&root, "codex", &root.join("argv"));
+    let (bin, workdir) = (shim.to_str().unwrap(), root.to_str().unwrap());
+    let extra = vec!["--sandbox".to_string(), "read-only".into()];
+    let mut seal = Seal::codex_template(0, &["--sandbox", "read-only"]);
+    seal.template = crate::native_controls::TemplateExpectation::Declared(vec![
+        "-s".into(),
+        "read-only".into(),
+    ]);
+    let input = sealed_pair(
+        engine_input(
+            enabled_input(CODEX_SHAPE, CODEX_VERSION, &root),
+            codex_denied(),
+            &extra,
+            0,
+        ),
+        &extra,
+        seal,
+    );
+    let refused = codex_launch_and_cold(bin, &extra, workdir, Some(THREAD), &input).err();
+    let departs = checked_refusal(
+        "codex",
+        "departs at argument 5 from the complete command its sealed inputs and the engine's \
+         serving choices rebuild: missing, extra, reordered and respelled arguments are refused \
+         alike",
+    );
+    assert_eq!(refused, Some(departs));
+    // The rejoin alone is served: what refused is the replacement's check.
+    let (rejoin, _) = codex_rejoin(bin, &extra, &CODEX_OFF.map(String::from), THREAD).unwrap();
+    let chosen = crate::native_controls::Serving {
+        program: bin,
+        workdir,
+        session: Some(THREAD),
+        ..Default::default()
+    };
+    assert_eq!(
+        served("codex", rejoin.clone(), &extra, &input, chosen),
+        Ok(rejoin)
+    );
+}
+
 /// Rebuild unit 15-fix-b (SC15-R2-1): the engine's plan handed with NEITHER
 /// sealed input is refused whole before anything is spawned, and each
 /// command a launch can serve is refused on its own: an eligible Codex

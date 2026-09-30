@@ -178,7 +178,7 @@
   2458 crates/brokkr-protocol/src/adapters/composite/tests/native_matrix.rs
    302 crates/brokkr-protocol/src/adapters/notice_tests.rs
    623 crates/brokkr-protocol/src/adapters/route_overlay/tests.rs
- 18951 crates/brokkr-protocol/src/adapters/tests.rs
+ 19002 crates/brokkr-protocol/src/adapters/tests.rs
   3127 crates/brokkr-protocol/src/dsh_sandbox/tests.rs
    153 crates/brokkr-protocol/src/fake/tests.rs
    303 crates/brokkr-protocol/src/hands/session/tests.rs

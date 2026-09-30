@@ -4889,6 +4889,49 @@ production byte moved.
 - **Pending.** macOS, exact coverage outside the box, remote CI and the
   council.
 
+**Unit 23 return note, 2026-09-30 (same run, head `0ac242af`): the chief's
+CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
+
+- **CH23-1, the SiteMarks handoff.** It is re-proved on the merged head.
+  Each removal failed at its own row:
+
+  | Removal | Fails at `capability_tests.rs` |
+  |---|---|
+  | SM2, the candidate selection | `:152` and `:322` |
+  | SM3, the controls | `:130` |
+  | SM4, the prompt | `:138` |
+  | SM5, the `engine.rs:1577` call | `:114` |
+  | SM6, the record's candidate | `:540` and `:376` |
+  | 14a2's ME1, re-run | `:773`, and `capability_launch.rs:8124` |
+
+  SM1 (`site`'s own write) survives everywhere. It is equivalent: the
+  same write follows it at every spawn, and SM1+SM5 together fail 19
+  engine tests. `budgets.rs` cannot see it, which is a follow-up outside
+  this unit's files. 14a2's other seal rows sit in code the merge did not
+  touch, and are accounted there.
+- **CH23-2, C1.** It is now bound alone, by the new
+  `adapters/tests.rs::a_rejected_rejoins_replacement_is_served_only_as_its_own_check_returns_it`.
+  Under C1 it fails at `:15222` with `None`. Restored, it refuses exactly
+  `departs at argument 5 …`, and the rejoin is still served.
+- **CH23-3, always-OFF.** It is mapped to 44430402's M10 and R-ON, and
+  re-run as O2. Held cold fails at `capability_launch.rs:229`. The actual
+  eligible resume fails at `:608`, at `:5129` ("codex inline, held") and at
+  `:10997` (`cold` and `rejoined`). Each is refused as `switches OFF … which
+  its plan holds`.
+- **CH23-4, the artifacts.** The artifact claim is corrected. A1 was
+  re-run with its diff and logs kept: P 4, R 7, at `:7200` and `:1341` as
+  first recorded.
+- **Admissions.** One new test in a named file, and its measured
+  `quality/file-lines.txt` line (18951 → 19002). No standing-admission
+  lines, no fixture migrations and no production edit.
+- **Gates.** fmt, clippy, the protocol suite, the runtime runs, budgets,
+  the self and verify compiles, openspec (19/0) and `git diff --check` all
+  pass. The protocol suite passed 625 on its second run. Its first run
+  failed only the planted-`unshare` hands probe, which passed alone.
+- **Pending.** jscpd and `ratchet.sh`, which the seat refused to run;
+  macOS; exact coverage; remote CI; and the council. D11's deferral is
+  unchanged.
+
 ## 24. Unit 24 — Audit identity enforcement removals
 
 - [ ] 24.1 Unit 24 independently removes containment/regular-policy pin/owner-target/read-binding/verified-buffer enforcement. Verify exact failures including equal-byte retargets, restore/pass. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–4 / R10. (previous 9.3)
