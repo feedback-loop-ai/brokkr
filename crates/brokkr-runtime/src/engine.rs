@@ -300,7 +300,7 @@ pub struct Engine {
     held_outcome: Option<checkpoints::HeldOutcome>,
 }
 
-fn verify_dispatch_bundle_bounds(
+pub(crate) fn verify_dispatch_bundle_bounds(
     dispatch: &DispatchEnvelopeV2,
     bundle: &Bundle,
 ) -> Result<(), DispatchError> {
@@ -4096,4 +4096,4 @@ mod resume_tests;
 mod secret_threading_tests;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

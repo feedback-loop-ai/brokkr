@@ -4071,56 +4071,18 @@ fn write_bundle_with(bundle_dir: &std::path::Path, hands: Value) {
     .unwrap();
 }
 
+/// Its compile half is the runtime's `launch::tests` test of the same
+/// name, beside the private compile it proves (#350); what a run and a
+/// resume make of it through the CLI stays here.
 #[test]
 fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let root = workspace();
-    assert!(compile_from_manifest(
-        &root,
-        &root.join("recipes/triage"),
-        &json!({"bundle_name":"unadopted"}),
-    )
-    .is_ok());
-
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("dialects")).unwrap();
-    std::fs::copy(
-        root.join("dialects/openspec.json"),
-        dir.path().join("dialects/openspec.json"),
-    )
-    .unwrap();
-    std::fs::create_dir(dir.path().join("dialects/openspec")).unwrap();
-    for name in [
-        "specify", "return", "design", "tasks", "clarify", "analyze", "archive",
-    ] {
-        std::fs::copy(
-            root.join(format!("dialects/openspec/{name}.md")),
-            dir.path().join(format!("dialects/openspec/{name}.md")),
-        )
-        .unwrap();
-    }
-    let map = json!({
+    let no_dialect = json!({
         "schema":"forge.realms/v3",
-        "realms":[{"name":"pinned","path":root,"default_branch":"main","dialect":"openspec"}],
+        "realms":[{"name":"pinned","path":root,"default_branch":"main"}],
         "journal":"forge.db"
     });
-    std::fs::write(dir.path().join("realms.json"), map.to_string()).unwrap();
-    let world = World::load(&dir.path().join("realms.json")).unwrap();
-    let manifest = world
-        .pinned(&json!({"bundle_name":"triage"}), Some(&root))
-        .unwrap();
-    let bundle = compile_from_manifest(&root, &root.join("recipes/triage"), &manifest).unwrap();
-    assert_eq!(bundle.manifest["bundle_name"], "triage");
-    assert!(compile_from_manifest(&root, &dir.path().join("missing-bundle"), &manifest).is_err());
-
-    let mut broken = manifest;
-    broken["realms"]["sha256"] = json!("0".repeat(64));
-    assert!(compile_from_manifest(&root, &root.join("recipes/triage"), &broken).is_err());
-
-    let mut no_dialect = map;
-    no_dialect["realms"][0]
-        .as_object_mut()
-        .unwrap()
-        .remove("dialect");
     let no_dialect_path = dir.path().join("no-dialect.json");
     std::fs::write(&no_dialect_path, no_dialect.to_string()).unwrap();
     let refusal = run_in(

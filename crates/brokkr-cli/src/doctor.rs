@@ -692,12 +692,9 @@ pub(crate) fn doctor(
         ambient_variable,
         boundary,
         bundle.map(|dir| {
-            super::compile_in_realm(
-                &workspace,
-                dir,
-                world.as_ref().ok().and_then(Option::as_ref),
-                &workspace,
-            )
+            let world = world.as_ref().ok().and_then(Option::as_ref);
+            brokkr_runtime::launch::compile_for(&workspace, dir, world, &workspace)
+                .map_err(Into::into)
         }),
         dsh_provider_line,
     );
