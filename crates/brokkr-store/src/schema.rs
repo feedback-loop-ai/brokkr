@@ -5,6 +5,7 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::queue::{migrate_queue, queue_intact};
 use crate::{patiently, Store, StoreError, BUSY_TIMEOUT};
 
 pub const DATABASE_SCHEMA: u32 = 1;
@@ -162,7 +163,7 @@ impl Store {
 /// A journal that records a schema: supported, and whole.
 fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     schema_supported(found)?;
-    // Two additive repairs, each a READ in the steady state — the
+    // Three additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
     // transaction only when something is actually missing, so racing
     // openers serialise on the lock instead of colliding on the DDL.
@@ -174,6 +175,15 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     if sidecar_columns_missing(conn)? {
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         migrate_sidecar_columns(&tx)?;
+        tx.commit()?;
+    }
+    // Third: a journal from before the queue (decision 0068), or one that
+    // lost a queue guard, gets the queue's tables and guards, on the same
+    // terms. `DATABASE_SCHEMA` does not move for it, for the reason it
+    // did not move for the sidecar columns.
+    if !queue_intact(conn)? {
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        migrate_queue(&tx)?;
         tx.commit()?;
     }
     if guards_intact(conn)? {
@@ -191,6 +201,7 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute_batch(MIGRATION_V1)?;
     migrate_sidecar_columns(&tx)?;
+    migrate_queue(&tx)?;
     tx.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
         [&DATABASE_SCHEMA.to_string()],

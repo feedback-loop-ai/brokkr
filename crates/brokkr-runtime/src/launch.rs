@@ -39,6 +39,10 @@ use crate::engine::verify_dispatch_bundle_bounds;
 use crate::realms::{World, WorldError};
 use crate::{Bundle, Engine, EngineError};
 
+mod queued;
+
+pub use queued::{Encoding, HeldWorld, MapSource, QueuedLaunch};
+
 /// What every launch is asked with.
 #[derive(Debug, Clone)]
 pub struct LaunchRequest {
@@ -61,9 +65,18 @@ pub struct LaunchRequest {
     pub host_path: OsString,
 }
 
+impl LaunchRequest {
+    /// The repository a new run's bundle compiles for and its world is
+    /// pinned for: the one named, else the workspace.
+    fn operated(&self) -> &Path {
+        self.repo.as_deref().unwrap_or(&self.workspace)
+    }
+}
+
 /// Where the bundle a launch compiles comes from. It is resolved inside
 /// the launch, at the point each entry point always resolved it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum BundleSource {
     /// A bundle directory, as named.
     Dir(PathBuf),
@@ -158,6 +171,12 @@ pub enum LaunchError {
     },
     #[error("parsing forge-dispatch/v2")]
     ParseDispatch(#[source] serde_json::Error),
+    /// A launch that cannot be written as a queue entry (decision 0068).
+    #[error("writing a queued launch")]
+    EncodeQueued(#[source] serde_json::Error),
+    /// A queue entry's payload this brokkr cannot read as a launch.
+    #[error("reading a queued launch")]
+    DecodeQueued(#[source] serde_json::Error),
     #[error(transparent)]
     Dispatch(#[from] DispatchError),
     #[error("loading source run '{run}'")]
@@ -203,9 +222,7 @@ pub fn start(
     // Refused in the same breath as a missing or malformed map, before a
     // recipe is resolved, a bundle compiled, an envelope read or a
     // journal created.
-    if matches!(run.map, RunMap::Named(_)) && run.dispatch.is_some() {
-        return Err(LaunchError::RealmsWithDispatch);
-    }
+    refuse_realms_with_dispatch(&run)?;
     let bundle = admit_new(&request, run.map.world())?;
     let envelope = match &run.dispatch {
         Some(path) => Some(read_dispatch(path, run.map.world(), &bundle, notice)?),
@@ -261,14 +278,22 @@ pub fn rerun(
     Ok(engine)
 }
 
+/// A named map beside a Looper dispatch: refused by `start`, and by a
+/// queued launch before it is written, so no entry holds one.
+fn refuse_realms_with_dispatch(run: &NewRun) -> Result<(), LaunchError> {
+    match matches!(run.map, RunMap::Named(_)) && run.dispatch.is_some() {
+        true => Err(LaunchError::RealmsWithDispatch),
+        false => Ok(()),
+    }
+}
+
 /// What a new run is admitted on: the crossings its world stands on, its
 /// bundle compiled in the operated repository's realm, and a host that
 /// can build the boundary that realm declares.
 fn admit_new(request: &LaunchRequest, world: Option<&World>) -> Result<Bundle, LaunchError> {
     fence_crossings(world, &request.workspace)?;
     let dir = request.bundle.resolve()?;
-    let repo = request.repo.as_deref().unwrap_or(&request.workspace);
-    let bundle = compile_for(&request.workspace, &dir, world, repo)?;
+    let bundle = compile_for(&request.workspace, &dir, world, request.operated())?;
     refuse_unboxable(&bundle, &request.host_path)?;
     Ok(bundle)
 }
