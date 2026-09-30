@@ -2051,6 +2051,16 @@ impl Bundle {
                         };
                     (prior_body, moved)
                 };
+            // The validator's address is claimed against the WHOLE census,
+            // before any source is drained (operator ruling of 2026-09-30,
+            // unit 26c): its facts are written before the wrapped body's
+            // move, so a member named for it would take them along.
+            claim_address(
+                &census,
+                "verify",
+                "verify:dialect-verify",
+                "the injected dialect validator",
+            )?;
             // Drain every source reservation before claiming any
             // destination: a member `x` beside `checks:x` has the second
             // member's source as its destination, which stays legal.
@@ -2066,12 +2076,6 @@ impl Bundle {
                     &crate::engine::resume::describe(owner),
                 )?;
             }
-            claim_address(
-                &remaining,
-                "verify",
-                "verify:dialect-verify",
-                "the injected dialect validator",
-            )?;
             let dialect_site = "verify:dialect-verify";
             let synthetic = dialect_gate_site(dialect_site, boundary)?;
             let verify_raw = &resolved.seats["verify"];
@@ -2124,15 +2128,8 @@ impl Bundle {
             // other visited executable it records that as a CHECKED
             // unspecified value rather than an unvisited one (design
             // D5.2; review return F3).
-            record_inline_tools(
-                law.dir,
-                dialect_site,
-                &synthetic,
-                false,
-                &command_parts(&synthetic),
-                agents.as_ref().map(|context| &context.adapters),
-                &mut sites,
-            )?;
+            let unspecified = crate::agents::LocalTools::unspecified();
+            record_judged_tools(law.dir, dialect_site, unspecified, None, None, &mut sites);
             relocate_verify_facts(&mut sites, &moved);
             let prior = SequenceStep {
                 name: "checks".into(),
@@ -2938,40 +2935,41 @@ fn refuse_permission_pins(
 ) -> Result<(), CompileError> {
     use brokkr_protocol::native_controls::{permission_control, pin_fault};
     let provider = &candidate.provider;
-    if let Some(adapter) = adapters.adapter(provider) {
-        for (field, flag) in [
+    // A resolved candidate was composed from its provider's adapter, whose
+    // driver template opens the composition (operator ruling of 2026-09-30,
+    // unit 26c): the pins judged are the ones that adapter and that
+    // composition carry.
+    let pins = adapters.adapter(provider).into_iter().flat_map(|adapter| {
+        [
             ("model_flag", &adapter.model_flag),
             ("effort_flag", &adapter.effort_flag),
-        ] {
-            if let Some(control) = flag.as_deref().and_then(permission_control) {
-                return Err(CompileError::Invalid(format!(
-                    "seat '{what}': the '{provider}' adapter declares its {field} as the \
-                     permission control '{control}'; a model or effort pin names a model or an \
-                     effort and never carries a permission mode, so the declaration is refused \
-                     rather than composed (operator ruling 1 of 2026-09-23; rebuild unit \
-                     5c-fix-b)"
-                )));
-            }
+        ]
+    });
+    for (field, flag) in pins {
+        if let Some(control) = flag.as_deref().and_then(permission_control) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}': the '{provider}' adapter declares its {field} as the \
+                 permission control '{control}'; a model or effort pin names a model or an \
+                 effort and never carries a permission mode, so the declaration is refused \
+                 rather than composed (operator ruling 1 of 2026-09-23; rebuild unit \
+                 5c-fix-b)"
+            )));
         }
     }
-    let crate::agents::Lowering::Composed(composition) = &candidate.lowering else {
-        return Ok(());
-    };
-    let Some((driver, later)) = composition.segments.split_first() else {
-        return Ok(());
-    };
-    for (at, pin) in later.iter().enumerate() {
+    let segments = crate::engine::composed(candidate)
+        .map_or(&[][..], |composition| composition.segments.as_slice());
+    for (at, pin) in segments.iter().enumerate().skip(1) {
         if pin.origin != brokkr_protocol::native_controls::Origin::Template {
             continue;
         }
-        if let Some(fault) = pin_fault(&driver.argv, &pin.argv) {
+        if let Some(fault) = pin_fault(&segments[0].argv, &pin.argv) {
             return Err(CompileError::Invalid(format!(
                 "seat '{what}': the '{provider}' adapter's composition carries a template \
                  contribution (segment {}) behind its driver template that {fault}; only a model \
                  or effort pin may follow the driver template, and its tokens are not echoed \
                  because they can carry a value (operator ruling 1 of 2026-09-23; rebuild unit \
                  5c-fix-b)",
-                at + 2
+                at + 1
             )));
         }
     }
@@ -3157,6 +3155,22 @@ fn record_inline_tools(
         }
         None => None,
     };
+    record_judged_tools(dir, what, local, lowered, sandboxed, sites);
+    Ok(())
+}
+
+/// Record a site's judged local declaration and what it lowered to: the
+/// half of [`record_inline_tools`] that refuses nothing. The generated
+/// dialect validator declares no `tools`, so it records the unspecified
+/// declaration here directly (operator ruling of 2026-09-30, unit 26c).
+fn record_judged_tools(
+    dir: &Path,
+    what: &str,
+    local: crate::agents::LocalTools,
+    lowered: Option<InlineAllow>,
+    sandboxed: Option<InlineClass>,
+    sites: &mut BTreeMap<String, SiteFacts>,
+) {
     let facts = site_facts(sites, what);
     facts.local = Some(local);
     // Expanded as an agent's composition is, segment by segment, so the
@@ -3201,7 +3215,6 @@ fn record_inline_tools(
         ..sandboxed
     });
     facts.inline_template = template.map(expanded);
-    Ok(())
 }
 
 /// Rebuild unit 5d (operator ruling of 2026-09-25, "narrow"; design D5.3):
@@ -3800,12 +3813,15 @@ fn admit_local_sandbox(
     };
     // Rebuild unit 5d: an inline Codex seat's class was judged and lowered
     // where it was recorded (`lower_inline_sandbox`), onto the engine's own
-    // control; the standing refusals above have had their say.
-    if candidates.is_empty()
-        && sites
-            .get(what)
-            .is_some_and(|facts| facts.inline_sandbox.is_some())
-    {
+    // control; the standing refusals above have had their say. No inline
+    // site records a class any other way: `record_inline_tools` lowers it
+    // or refuses the site (operator ruling of 2026-09-30, unit 26c), so no
+    // guard on the lowering stands here, where the exact-coverage gate would
+    // count it unreachable. The removal control is
+    // `an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_field`,
+    // and a class recorded without its lowering still refuses at dispatch
+    // (`the_dispatch_door_admits_only_the_record_sealed_for_its_spawn`).
+    if candidates.is_empty() {
         return Ok(());
     }
     let class = requested.name();
@@ -5403,13 +5419,13 @@ fn owner_directory(root: &Path) -> Result<(std::fs::File, OwnerIdentity), InputF
     };
     at_stage(ReadStage::Owning, root);
     let mut reached = PathBuf::from("/");
-    let mut handle = directory(&reached).map_err(|error| unreached(&reached, error))?;
+    let mut handle = directory(&reached).map_err(unreached_at(&reached))?;
     let mut ancestry = vec![identity(&handle)?];
     for name in root.strip_prefix("/").unwrap_or(root) {
         reached.push(name);
         handle = directory_at(&handle, name).map_err(|error| match link_at(&handle, name) {
             Ok(_) => Place::of(FaultKind::Replaced, OWNER_REPLACED),
-            Err(_) => unreached(&reached, error),
+            Err(_) => unreached_at(&reached)(error),
         })?;
         ancestry.push(identity(&handle)?);
     }
@@ -5436,6 +5452,12 @@ fn unreached(path: &Path, error: std::io::Error) -> InputFault {
         }),
         missing => missing,
     }
+}
+
+/// [`unreached`] at `path`, for `/` and for every directory below it alike
+/// (unit 26c).
+fn unreached_at(path: &Path) -> impl Fn(std::io::Error) -> InputFault + '_ {
+    move |error| unreached(path, error)
 }
 
 /// What to do about an owner's directory the compile cannot reach.

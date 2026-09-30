@@ -415,6 +415,36 @@ fn an_unrelated_value_is_never_read_as_a_control() {
     }
 }
 
+/// Unit 26c: the opaque judgment is asked directly and refuses nothing. It
+/// reads the arguments behind a driver prefix alone, by name, a joined
+/// value aside; the launch guard's answer for an unmodelled harness is its.
+#[test]
+fn an_opaque_command_is_judged_by_name_behind_its_driver_prefix_alone() {
+    let guards = [codex_guard()];
+    let found = Some(("--search".to_string(), "web-search".to_string()));
+    for (authored, conflict) in [
+        (argv(&["run", "--search"]), found.clone()),
+        (
+            argv(&["/bin/brokkr", "driver", "mine", "--", "--search=live"]),
+            found,
+        ),
+        // The prefix is the engine's dispatch, never the recipe's words.
+        (argv(&["--search", "driver", "--search", "run"]), None),
+        (argv(&["run", "--model", "m"]), None),
+    ] {
+        assert_eq!(
+            opaque_conflict(&authored, &guards),
+            conflict,
+            "{authored:?}"
+        );
+        assert_eq!(
+            authored_conflict("<custom>", &authored, &guards),
+            Ok(conflict),
+            "{authored:?}"
+        );
+    }
+}
+
 /// Second council H2: a tool list is judged on EVERY value, not on the
 /// first. The lists are variadic, so `--allowedTools Read WebFetch` admits
 /// two tools and the second is the one the guard finds.
@@ -3883,6 +3913,7 @@ fn a_selection_mapping_is_refused_by_its_bounded_option() {
         mapped(&reproduction),
         said("an option whose spelling is not plain")
     );
+    assert_eq!(mapped("-"), said("an option whose spelling is not plain"));
 }
 
 /// Rebuild unit 12-fix-e, the chief's SC-D2 (design D6): an unmeasured
@@ -3918,6 +3949,10 @@ fn an_unready_or_unanswered_plan_is_refused_in_bounded_identities() {
     );
     assert_eq!(
         unmeasured(&format!("see {PRIVATE}\n{}", "r".repeat(800))),
+        unready("declares the provider's inventory unmeasured (a reason that is not plain)")
+    );
+    assert_eq!(
+        unmeasured(""),
         unready("declares the provider's inventory unmeasured (a reason that is not plain)")
     );
     assert_eq!(
@@ -7473,6 +7508,15 @@ fn typed_hands_carry_their_whole_transport_through_the_composer() {
             "{what}"
         );
     }
+    // A harness with no hands transport is owed none (rebuild unit 26b).
+    let dsh = argv(&["--model", "flash"]);
+    assert_eq!(
+        compose_for_provider("dsh", &[], &dsh, &in_box(2, &ready("dsh", &[], &[]))),
+        Ok(Composed {
+            extra: dsh,
+            managed: Vec::new()
+        })
+    );
     // The bytes of a hands fragment the plan does not type as hands are a
     // managed boundary: no allowance and no hands base is written for them.
     let untyped = Controls {
@@ -9042,6 +9086,11 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
         refused(
             "is sealed with a typed sandbox class its adapter's local fragment does not express"
         )
+    );
+    other_class.sandbox = argv(&["--sandbox"]);
+    assert_eq!(
+        check(&other_class, &cold, None),
+        refused("is sealed with a local sandbox fragment that cannot be read")
     );
     let mut handed = sealed.clone();
     handed.expected.hands = HandsIntent::Required;
@@ -12980,6 +13029,11 @@ fn sealed_serving_inputs_refuse_each_tampered_member_with_its_full_cause() {
             cause("serving.dialect.permissions.flag", missing),
         ),
         (
+            "permissions flag not a string",
+            edit("/dialect/permissions/flag", Some(json!([sentinel]))),
+            cause("serving.dialect.permissions.flag", "is not a string"),
+        ),
+        (
             "permissions separator not a string",
             edit("/dialect/permissions/separator", Some(json!([sentinel]))),
             cause("serving.dialect.permissions.separator", "is not a string"),
@@ -13074,7 +13128,7 @@ fn sealed_serving_inputs_refuse_each_tampered_member_with_its_full_cause() {
             cause("serving.pins[3]", "is not a string"),
         ),
     ];
-    assert_eq!(rows.len(), 27);
+    assert_eq!(rows.len(), 28);
     // Every row reaches its own exact assertion; no cause carries the
     // sentinel it was handed.
     let failures: Vec<String> =

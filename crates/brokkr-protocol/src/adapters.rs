@@ -3316,24 +3316,32 @@ fn served(
 /// served: a choice the harness's shape has no place for, or the token a
 /// rejoin is declined by.
 ///
+/// The harness is its [`ServingShape`], so a harness no driver builds a
+/// command for has no value to ask with (operator ruling of 2026-09-30,
+/// unit 26c). A claude command is built from the whole composition, its
+/// managed part behind its extras as [`check_final`] reads it: the claude
+/// composition leaves that part empty, and one that did not would depart
+/// from the command the driver spawned.
+///
 /// [`check_final`]: crate::native_controls::check_final
 pub(crate) fn serving_command(
-    harness: &str,
+    shape: ServingShape,
     serving: &crate::native_controls::Serving<'_>,
     composed: &crate::native_controls::Composed,
 ) -> Result<Vec<String>, &'static str> {
     let program = serving.program;
     let dsh_only = serving.overlay.is_some() || serving.stream || serving.prompt.is_some();
-    match harness {
-        "claude" | "lanetally" | "codex" if dsh_only => Err(
+    match shape {
+        ServingShape::Claude | ServingShape::Codex if dsh_only => Err(
             "a staged overlay, a stream shape or a prompt argument, which only a dsh command \
              carries, while this harness reads its prompt on stdin",
         ),
-        "claude" | "lanetally" if !composed.managed.is_empty() => {
-            Err("managed arguments, which a claude command never carries after its composition")
-        }
-        "claude" | "lanetally" => Ok(claude_serving(program, &composed.extra, serving.session)),
-        "codex" => match serving.session {
+        ServingShape::Claude => Ok(claude_serving(
+            program,
+            &[composed.extra.as_slice(), &composed.managed].concat(),
+            serving.session,
+        )),
+        ServingShape::Codex => match serving.session {
             None => Ok(codex_cold(
                 program,
                 &composed.extra,
@@ -3348,7 +3356,7 @@ pub(crate) fn serving_command(
                     _ => "a rejoin its driver declines, an argument a rejoin cannot carry",
                 }),
         },
-        "dsh" => {
+        ServingShape::Dsh => {
             let (Some(overlay), Some(prompt)) = (serving.overlay, serving.prompt) else {
                 return Err("no staged overlay or no prompt, which every dsh command carries");
             };
@@ -3359,7 +3367,28 @@ pub(crate) fn serving_command(
             command.push(prompt.to_string());
             Ok(command)
         }
-        _ => Err("a harness with no built-in serving shape"),
+    }
+}
+
+/// The serving command shapes the built-in drivers spawn, one per builder
+/// [`serving_command`] calls. LaneTally wraps Claude's harness and is served
+/// Claude's shape. `exec` and an opaque driver have none, as they have no
+/// modelled grammar ([`crate::native_controls::grammar::grammar`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ServingShape {
+    Claude,
+    Codex,
+    Dsh,
+}
+
+impl ServingShape {
+    pub(crate) fn of(harness: &str) -> Option<ServingShape> {
+        match harness {
+            "claude" | "lanetally" => Some(ServingShape::Claude),
+            "codex" => Some(ServingShape::Codex),
+            "dsh" => Some(ServingShape::Dsh),
+            _ => None,
+        }
     }
 }
 

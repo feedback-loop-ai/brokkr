@@ -2040,22 +2040,7 @@ fn an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_fin
             Some("sandbox-unavailable"),
         ),
     ] {
-        let argv = root.join(format!("argv-{case}"));
-        let shim = codex_shim(&root, &format!("codex-{case}"), &argv);
-        let mut emitted = Vec::new();
-        with_codex_bin(&mut env, &shim, || {
-            invoke(
-                AdapterKind::Codex,
-                &extra,
-                "prompt",
-                &enabled_input(CODEX_SHAPE, CODEX_VERSION, &root),
-                Some(THREAD),
-                &[],
-                &mut |event| emitted.push(event.clone()),
-            )
-            .unwrap()
-        });
-        let seen = recorded(&argv);
+        let (seen, emitted) = offered(&mut env, &root, case, &extra);
         assert_eq!(seen, expected, "{case}: the whole argv");
         let launch = launch_rows(&emitted);
         assert_eq!(launch.len(), 1, "{case}: {emitted:?}");
@@ -2084,6 +2069,76 @@ fn an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_fin
             );
         }
     }
+}
+
+/// Rebuild unit 26b: an argv the codex grammar cannot place whole, for an
+/// option it does not model, is read by spelling as it always was: its
+/// `--sandbox=CLASS` or `-s CLASS` is the class the rejoin re-imposes, and an
+/// admitted bare flag and a joined `--model=` travel with it.
+#[cfg(unix)]
+#[test]
+fn an_argv_the_grammar_cannot_place_rejoins_by_its_spelled_class_and_flags() {
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let head = s(&[
+        "exec",
+        "resume",
+        "--json",
+        "-c",
+        "sandbox_mode=\"read-only\"",
+    ]);
+    for (case, extra, travels) in [
+        (
+            "joined",
+            s(&["--sandbox=read-only", "--ephemeral", "--model=sol"]),
+            s(&["--ephemeral", "--model=sol"]),
+        ),
+        (
+            "short",
+            s(&["-s", "read-only", "--strict-config", "-m", "sol"]),
+            s(&["--strict-config", "-m", "sol"]),
+        ),
+    ] {
+        assert_eq!(
+            placed("codex", &extra).map(|command| command.nodes.len()),
+            None
+        );
+        let (seen, emitted) = offered(&mut env, &root, case, &extra);
+        let expected = [head.clone(), travels, s(&[THREAD, "-"])].concat();
+        assert_eq!(seen, expected, "{case}: the whole argv");
+        let launch = launch_rows(&emitted);
+        assert_eq!(launch[0]["launch"], "resumed", "{case}: {}", launch[0]);
+    }
+}
+
+/// One codex launch of `extra`, offered [`THREAD`] under the enabled shape
+/// through a recording shim under `root`: the argv the harness received and
+/// the rows the launch emitted.
+#[cfg(unix)]
+fn offered(
+    env: &mut EnvGuard,
+    root: &std::path::Path,
+    case: &str,
+    extra: &[String],
+) -> (Vec<String>, Vec<Value>) {
+    let argv = root.join(format!("argv-{case}"));
+    let shim = codex_shim(root, &format!("codex-{case}"), &argv);
+    let mut emitted = Vec::new();
+    with_codex_bin(env, &shim, || {
+        invoke(
+            AdapterKind::Codex,
+            extra,
+            "prompt",
+            &enabled_input(CODEX_SHAPE, CODEX_VERSION, root),
+            Some(THREAD),
+            &[],
+            &mut |event| emitted.push(event.clone()),
+        )
+        .unwrap()
+    });
+    (recorded(&argv), emitted)
 }
 
 /// Rebuild unit 13 (13.2): where the seat's argv parses, the Claude
@@ -3936,6 +3991,12 @@ fn a_claude_resume_is_the_cold_argv_plus_exactly_one_owned_selector() {
         (
             "an explicitly nonpersistent shape has no root to rejoin",
             [extra.clone(), s(&["--no-session-persistence"])].concat(),
+            session,
+            "nonpersistent-session",
+        ),
+        (
+            "an argv the grammar cannot place is read for the switch by spelling",
+            [extra.clone(), s(&["--no-session-persistence", "--debug"])].concat(),
             session,
             "nonpersistent-session",
         ),
@@ -18999,4 +19060,37 @@ fn a_dsh_transcript_tool_quoting_a_long_bound_value_leaks_no_prefix() {
     );
     let tools: Vec<&Value> = emitted.iter().filter_map(|row| row.get("tool")).collect();
     assert_eq!(tools, vec!["probe-[secret:API_TOKEN]"], "{emitted:?}");
+}
+
+/// Operator ruling of 2026-09-30 (unit 26c): a serving command is asked for
+/// by the shape its driver builds, which every modelled grammar has and no
+/// other harness does, and a claude command is built from the whole
+/// composition, its managed part behind its extras.
+#[test]
+fn a_serving_command_is_built_in_its_harness_shape_from_the_whole_composition() {
+    use crate::native_controls::{grammar, Composed, Serving};
+    use ServingShape::{Claude, Codex, Dsh};
+    assert_eq!(
+        grammar::TABLES.map(|table| (table.harness, ServingShape::of(table.harness))),
+        [
+            ("codex", Some(Codex)),
+            ("claude", Some(Claude)),
+            ("lanetally", Some(Claude)),
+            ("dsh", Some(Dsh)),
+        ]
+    );
+    assert_eq!(["exec", "<custom>"].map(ServingShape::of), [None, None]);
+    let serving = Serving {
+        program: "claude",
+        ..Default::default()
+    };
+    let whole = ["--model", "opus", "--disallowedTools", "WebSearch"].map(String::from);
+    let composed = Composed {
+        extra: whole[..2].to_vec(),
+        managed: whole[2..].to_vec(),
+    };
+    assert_eq!(
+        serving_command(Claude, &serving, &composed),
+        Ok(claude_serving("claude", &whole, None))
+    );
 }

@@ -6438,6 +6438,8 @@ fn every_selected_site_binds_its_charter_owner_reference_target_and_digest() {
     let fixture = AgentFixture::new();
     std::os::unix::fs::symlink("work.md", fixture.library().join("charters/linked.md")).unwrap();
     std::os::unix::fs::symlink("work.md", fixture.bundle().join("roles/linked.md")).unwrap();
+    // A contained link whose text climbs to its parent (rebuild unit 26b).
+    std::os::unix::fs::symlink("../roles/work.md", fixture.bundle().join("roles/up.md")).unwrap();
     let mut adapter = claude();
     adapter["models"]["sonnet"] = json!("claude-sonnet-5");
     fixture.write("adapters/claude.json", adapter);
@@ -6532,6 +6534,14 @@ fn every_selected_site_binds_its_charter_owner_reference_target_and_digest() {
                     at_layer(&leaf, "roles/linked.md", "roles/work.md"),
                 ),
             ],
+        ),
+        (
+            with(
+                &plain,
+                json!({"results": ["complete"], "role": "roles/up.md"}),
+            ),
+            policy(),
+            vec![("work", at_layer(&leaf, "roles/up.md", "roles/work.md"))],
         ),
     ];
     let mut rows: Vec<Row<String>> = Vec::new();

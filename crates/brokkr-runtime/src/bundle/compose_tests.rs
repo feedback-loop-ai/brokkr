@@ -1895,6 +1895,22 @@ fn a_missing_or_unresolvable_input_names_its_source_kind_and_reference() {
             "{reference} inherited"
         );
     }
+    // A short reference with a byte that is not printable, or a quote, is
+    // named by its lead alone (rebuild unit 26b).
+    for (reference, named) in [
+        (
+            "roles/ab\nsent.md",
+            "'roles/ab…' (16 bytes, not echoed in full)",
+        ),
+        (
+            "roles/it's.md",
+            "'roles/it…' (13 bytes, not echoed in full)",
+        ),
+    ] {
+        let (base, _) = active_inputs(&library, reference, "policy.json");
+        let expected = format!("{file}: seat 'work' names role {named}, which does not exist");
+        assert_eq!(said(&base), format!("bundle: {expected}"), "{reference}");
+    }
     for (reference, clause) in [
         ("absent.json", "which does not exist"),
         (

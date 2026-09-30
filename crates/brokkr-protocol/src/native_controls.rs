@@ -367,8 +367,7 @@ pub fn authored_conflict(
     authored: &[String],
     guards: &[Guard],
 ) -> Result<Option<(String, String)>, Refusal> {
-    let authored = harness_arguments(authored);
-    let Some(command) = parse_origin(harness, authored, true)? else {
+    let Some(command) = parse_origin(harness, harness_arguments(authored), true)? else {
         return Ok(opaque_conflict(authored, guards));
     };
     if let Some(conflict) = typed_conflict(&command, guards) {
@@ -457,7 +456,12 @@ pub fn authored_refusal(harness: &str, authored: &[String]) -> Result<(), Refusa
 /// because for a command nobody can parse the safe reading is the one
 /// that refuses. An opaque driver is not a way to relabel a recognized
 /// harness and escape the grammar (design D6a).
-fn opaque_conflict(authored: &[String], guards: &[Guard]) -> Option<(String, String)> {
+///
+/// It has no grammar to fail in, so it refuses nothing: the compile asks
+/// it directly for a harness it knows to be opaque, and takes no refusal
+/// it would have to convert (operator ruling of 2026-09-30, unit 26c).
+pub fn opaque_conflict(authored: &[String], guards: &[Guard]) -> Option<(String, String)> {
+    let authored = harness_arguments(authored);
     for guard in guards {
         for part in authored {
             let name = part.split_once('=').map_or(part.as_str(), |(name, _)| name);
@@ -1991,7 +1995,10 @@ pub fn check_final(
     serving: Serving<'_>,
 ) -> Result<Checked, Refusal> {
     let refuse = |problem: Vec<Piece<'_>>| unchecked(harness, problem);
-    let Some(table) = grammar::grammar(harness) else {
+    // A modelled harness has both its grammar and the shape its driver
+    // serves; one without either is read by neither (unit 26c).
+    let shape = crate::adapters::ServingShape::of(harness);
+    let (Some(table), Some(shape)) = (grammar::grammar(harness), shape) else {
         return Err(refuse(vec![Piece::Words(
             "has no modelled grammar, so no capability state can be read from it",
         )]));
@@ -2041,7 +2048,7 @@ pub fn check_final(
     delivered(harness, controls, &state)?;
     carried(harness, &composition, &state)?;
     let rebuilt =
-        crate::adapters::serving_command(harness, &serving, &composed).map_err(|cause| {
+        crate::adapters::serving_command(shape, &serving, &composed).map_err(|cause| {
             refuse(vec![
                 Piece::Words(
                     "rebuilds no serving command from its sealed inputs and the engine's serving \
@@ -3537,11 +3544,19 @@ fn plain_option(flag: &str) -> bool {
 /// What an authored argument was named by — an option and the key, tool or
 /// feature it reaches: ASCII letters, digits, spaces, `-`, `_`, `.`, `*`
 /// and `=`, never a path.
+///
+/// No emptiness guard stands here, as the exact-coverage gate would count
+/// it unreachable: every text a launch renders opens with the spelling or
+/// canonical name of a placed option ([`typed_conflict`],
+/// [`authored_server_conflict`]), which the grammar never leaves empty.
+/// The removal controls, which pin each producer's text by value, are
+/// `every_authored_spelling_of_a_native_control_is_found_by_name`,
+/// `a_tool_list_that_admits_a_native_tool_is_an_authored_control` and
+/// `an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes`.
 fn plain_written(written: &str) -> bool {
-    !written.is_empty()
-        && written
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || " -_.*=".contains(c))
+    written
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || " -_.*=".contains(c))
 }
 
 /// An adapter's reason in words: ASCII letters, digits, spaces and

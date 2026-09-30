@@ -243,6 +243,30 @@ exactly this way: it asks for `web-search` and `web-fetch` as `wants`,
 keeps `git`, `ls` and `rg`, and in a realm that grants neither it loses
 both, visibly, and is launched with the native tools denied.
 
+**Only the engine writes a seat's tools.** An agent's `tools.allow`, its
+`hands` and what it holds reach the harness through the adapter alone:
+the declared permission template, the local permissions lowered through
+the adapter's map, the hands fragment and each native power's ON or OFF,
+each carried as its own engine-owned origin. The model arguments of a
+candidate carry no capability-bearing option, and a recipe that seats the
+agent cannot add one: a tool list, permission mode, sandbox, loaded
+document or web switch written into a driver command is refused at
+compile, whatever it says (operator ruling 1 of 2026-09-23; see
+[recipe authoring](recipe-authoring.md#the-tools-a-seat-is-given)). The
+composed command is parsed back before the launch and compared with the
+plan (ruling 2).
+
+**What slice one does not do.** MCP brokers and an `mcp` grant, gate-class
+capability rules, attributing a tool checkpoint to a capability or
+dialect, retained results, and capability comparisons in `brokkr compare`
+are decision 0065's slices two and three; an `mcp` grant is refused
+today. No provider restriction transport has been measured, so a grant's
+nonempty restriction is refused for a `requires` and dropped, with the
+capability OFF, for a `wants` (operator addendum of 2026-09-25). A
+composed ON or OFF is composition, and it is a live measurement only
+where [provider adapters](provider-adapters.md#what-the-five-shipped-adapters-say-today)
+says so.
+
 **Whatever a capability returns is DATA, never instruction.** A charter
 that may use one says so in the same paragraph, and the rendered prompt
 repeats it: a page that tells the seat to do something has told it

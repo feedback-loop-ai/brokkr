@@ -5146,11 +5146,253 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
 
 ## 26. Unit 26 — Update guides, measured pins and scope audit
 
-- [ ] 26.1 Unit 26 corrects guides to refusal/typed migration/containment/whole-plan doctor. Verify no outward-link or merging advice remains; retain live/later-slice limits. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Authored provider configuration cannot supply capability authority][RGR], [Installed native capabilities absent from grants are explicit][CD2], [Slice-one records do not claim later-slice behavior][MP6]. Reopened/remaining: operator ruling 1–4. (previous 10.1)
+- [x] 26.1 Unit 26 corrects guides to refusal/typed migration/containment/whole-plan doctor. Verify no outward-link or merging advice remains; retain live/later-slice limits. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Authored provider configuration cannot supply capability authority][RGR], [Installed native capabilities absent from grants are explicit][CD2], [Slice-one records do not claim later-slice behavior][MP6]. Reopened/remaining: operator ruling 1–4. (previous 10.1)
 
-- [ ] 26.2 Unit 26 compiles self/verify/all witnesses and measures bytes/pins with reasons. Verify witness/compose/library tests; retain historical measurements. Requirement: [Digest pins are measured and their history remains truthful][MP5]. Reopened/remaining: operator ruling 1–4. (previous 10.2)
+- [x] 26.2 Unit 26 compiles self/verify/all witnesses and measures bytes/pins with reasons. Verify witness/compose/library tests; retain historical measurements. Requirement: [Digest pins are measured and their history remains truthful][MP5]. Reopened/remaining: operator ruling 1–4. (previous 10.2)
 
-- [ ] 26.3 Unit 26 audits frozen bytes/empty grants/hands/MCP/later-slice scope. Verify inventory, compiler-pin agreement and additive contracts only. Requirements: [Realms v6 adds grants without changing frozen versions][RG1], [Legacy concrete permissions cannot grandfather a capability][SC7], [Reserved hands preserves the existing workspace authority][TD6], [Slice-one records do not claim later-slice behavior][MP6]. Reopened/remaining: operator ruling 1–4. (previous 10.3)
+- [x] 26.3 Unit 26 audits frozen bytes/empty grants/hands/MCP/later-slice scope. Verify inventory, compiler-pin agreement and additive contracts only. Requirements: [Realms v6 adds grants without changing frozen versions][RG1], [Legacy concrete permissions cannot grandfather a capability][SC7], [Reserved hands preserves the existing workspace authority][TD6], [Slice-one records do not claim later-slice behavior][MP6]. Reopened/remaining: operator ruling 1–4. (previous 10.3)
+
+**Unit 26, 2026-09-30 (run `0065-rebuild-unit-26-see-the-uni-340609da`, based on `8418eb96`)** (evidence.md, "Unit 26").
+
+- **26.1, ticked.**
+  - `recipe-authoring.md` lost its outward-link advice ("a link pointing
+    anywhere"). In its place: canonical containment, contained links
+    pinned, regular files only, and a bound read.
+  - Its seat example no longer authors `--permission-mode`; it declares
+    `tools.allow`. A new subsection covers the refusal of authored
+    capability-bearing options and the typed `tools.allow` and
+    `tools.sandbox` limits.
+  - `provider-adapters.md` lost its merging advice ("folded into a
+    seat's own `--tools`", "a deny list … always survives"). In its
+    place: engine-owned lists only, the quoted compile refusal, the
+    launch's parse-back (ruling 2), the whole-plan doctor (ruling 4) and
+    the empty-restriction limit (D11).
+  - `agent-library.md` gains the engine's ownership of tools and the
+    slice-two/three limits.
+- **26.2, ticked.**
+  - `witness_digests` passes 6/6 unblessed. All 36 pins equal this
+    head's compiles, and no witness input moved since `1c71ce5c`.
+  - The compose pins read the same table, and `compose_tests.rs` needed
+    no edit.
+  - The per-witness reasons against main are recorded in evidence.md and
+    the commit, where main's #358 puts them.
+  - One stale failure text (v9 → v11) was corrected. It was bound by a
+    v10-schema mutation (failed at `:335`) and then restored (6/6).
+- **26.3, ticked.**
+  - The frozen trees are additive only (3 `A` and the README appended).
+  - The shipped `realms.json` is v3 and grants nothing.
+  - There is no `hands` or `mcp` dialect, no non-empty `mcp` list and no
+    legacy web tool in any allow list.
+  - Every shipped bundle compiles.
+  - The compiler pins agree (`rust-nightly-version.txt` is read by
+    `ci.yml`, `release.yml` and `coverage-exact.sh`). The only
+    dependency line is ruling 1's `rustix` edge.
+- **Admissions.** No production byte, no standing-admission line and no
+  fixture migration. No `quality/` ledger moved.
+- **Follow-ups, outside the unit's files.**
+  - `docs/guides/adopting-a-node-repo.md:226` still says "the
+    `--allowedTools` list in each seat's driver".
+  - `compose_tests.rs:1004-1009` still normalises Windows separators.
+  - `docs/guides/driver-authoring.md:216` still calls `--sandbox` the
+    seat's flag (added by the review return).
+- **Gates.**
+  - fmt: clean.
+  - Workspace clippy with `-D warnings`: clean.
+  - `brokkr-runtime`: 27 result lines ok, 870 passed.
+  - The guide-reading suites in `brokkr-cli` and `brokkr-protocol`: ok.
+  - self and verify compile.
+  - `openspec validate --all --strict`: 19 passed.
+  - `git diff --check`: clean.
+- **Pending.** Exact coverage outside the box, jscpd and `ratchet.sh`,
+  macOS, remote CI and the council.
+- **Review return, 2026-09-30** (evidence.md, "Unit 26", "Review
+  return"). 26.1 stays ticked on the corrected guide.
+  - SC26-1: `recipe-authoring.md`'s launch-proof sentence claimed too
+    much. It now bounds the promise to the modelled controls and the
+    static composition. It says that an `unmeasured` harness (dsh,
+    lanetally, exec) is seated with no local restriction and a typed
+    `tools.allow` on it refuses, and it links the live-measurement
+    table.
+  - SC26-2: consequence 7 documents the exact `unrecorded` refusal of a
+    pinned resume, with no digest-only fallback. The recovery is
+    conclude and re-fire.
+  - CH26-1: the four suite counts were misattributed. The corrected
+    counts are `house_prose` 2, `rename_guard` 6, `contributing` 8 and
+    `packaging` 23.
+  - C26-1 and C26-2 are kept as scoped follow-ups outside the unit's
+    files.
+  - fmt, clippy, the guide-reading suites, `witness_digests` (6/6),
+    OpenSpec (19) and `git diff --check`: all clean. No production,
+    test or pin byte moved.
+
+## 26b. Unit 26b — Close exact coverage before the final gates
+
+- [ ] 26b.1 Unit 26b (operator ruling of 2026-09-30, inserted between 26 and 27) closes every uncovered line and branch arm the operator's exact gate found on `2098df8c` in the five 0065 production files. Each is closed through its owning suite and the real path, with exact assertions, each bound by a compiling mutation, and with no production edit. Arms no admitted input reaches stop for the operator's ruling. Requirements: [Refusal proofs assert the full reason][SC8], [Digest pins are measured and their history remains truthful][MP5].
+
+**Unit 26b, 2026-09-30 (run `0065-rebuild-unit-26b-see-the-un-4eac6ffb`, based on `8f8e696e`)** (evidence.md, "Unit 26b").
+
+- **26b.1, open: blocked on a ruling.**
+  - Closed, each bound by a mutation and then restored:
+    - adapters 2707–2709, 2789–2790, 2801, 3698;
+    - native_controls 1432, 2393–2396, 3414, 3533, 3550;
+    - bundle 1984–1985, 3095, 4782–4784, 4963–4964, 6194, 6420;
+    - engine 3659–3660.
+  - The seat diagnostic on the final tree, whole workspace, with the gate's
+    filters: lines 42746/42754, branches 6643/6652, functions 4507/4509.
+    The baseline was 42731/42754, 6631/6652 and 4506/4509.
+  - What remains is all in the five files, and none of it is reachable
+    by an admitted input:
+    - adapters 3332–3333 and 3362;
+    - native_controls 3541;
+    - capabilities 1941;
+    - bundle 2135, 2941, 2956–2961;
+    - engine 4090, 4107, 4292 and 4297;
+    - the closures at bundle 5406 and capabilities 2026.
+  - bundle 3805 is reached only through a verify-wrapper address
+    alias. A scratch compile confirmed it: a member named `dialect-verify`
+    compiles, and the validator's own site loses its facts. It is left
+    for a ruling rather than pinned.
+  - Tests for capabilities 1941 and native_controls 3541 that built
+    impossible states were written and then withdrawn.
+- **Admissions.** No production byte, no fixture migration and no
+  standing-admission line.
+  - One helper (`offered`) was extracted in `adapters/tests.rs` to avoid a
+    new clone.
+  - One expected text became a closure in `bundle/tests.rs`.
+  - One pinned row count moved 27 → 28 for the row added.
+  - None of these changes an assertion.
+- **Ledgers.** `file-lines.txt` has seven rows grown. In
+  `too-many-lines.txt` six functions grew and one shrank. The named
+  suites were already over their ceilings, so the pull request needs a
+  `Ruling:` line.
+- **Gates.**
+  - fmt: clean.
+  - Workspace clippy: no warning.
+  - `brokkr-protocol`: 626 passed. One untouched `hands::tests` probe
+    test flaked once and passed on re-run.
+  - `brokkr-runtime`: 870 passed.
+  - self and verify compile.
+  - `openspec validate --all --strict --no-interactive`: 19 passed.
+  - `git diff --check`: clean.
+- **Pending.** The exact gate outside the box, the rulings, jscpd and
+  `ratchet.sh`, macOS, remote CI and the council.
+
+## 26c. Unit 26c — Remove the unreachable arms and refuse the validator's name
+
+- [x] 26c.1 Unit 26c (operator ruling of 2026-09-30, the last addendum of `operator-ruling-2026-09-23.md`) removes each arm unit 26b proved unreachable by restructuring the code, never by an exclusion, with behaviour for every reachable input unchanged, and fixes the dialect-verify defect: a site whose address equals the injected validator's refuses at compile with an exact reason, and the validator's facts are never lost. Production edits stay inside `adapters.rs`, `native_controls.rs`, `bundle.rs`, `capabilities.rs` and `engine.rs`. Requirements: [Refusal proofs assert the full reason][SC8], [Digest pins are measured and their history remains truthful][MP5]. Closed on the operator's ruling of 2026-09-30 (addendum: unit 26c's two narrowings are accepted as proven).
+
+**Unit 26c, 2026-09-30 (run `0065-rebuild-unit-26c-see-the-un-b18b678d`, based on `2da88e8b`)** (evidence.md, "Unit 26c").
+
+- **26c.1, closed on the seat diagnostic; the exact gate is pending.**
+  - The seat diagnostic on the final tree, whole workspace, with the
+    gate's filters: lines 42768/42768, branches 6634/6634, functions
+    4516/4516. Unit 26b's were 42746/42754, 6643/6652 and 4507/4509.
+  - Removed, with the before and after of each in evidence.md:
+    - adapters 3332–3333 and 3362: `serving_command` takes a
+      `ServingShape` and has no wildcard; a claude command is built from
+      the whole composition;
+    - native_controls 3541: the emptiness conjunct of `plain_written`;
+    - capabilities 1941: the R5 refusal's tail is always the reason;
+    - bundle 2135: the validator records through `record_judged_tools`,
+      which refuses nothing;
+    - bundle 2941 and 2956–2961: the pins and segments are iterated;
+    - engine 4090: one `composed(link)` for the expected state, the
+      serving inputs and the pin check;
+    - engine 4107: a classless spawn always refuses (a contract change,
+      bound by a new case);
+    - engine 4292 and 4297: the lowered class is matched by pattern;
+    - bundle 3805: an inline site returns on its empty chain;
+    - the closures at bundle 5406 and capabilities 2026: one shared
+      conversion each.
+  - The defect: the validator's address is claimed against the whole
+    census. A wrapped panel member named `dialect-verify` is refused with
+    the full `claim_address` reason. Baseline red is 26b's
+    `alias-probe.log`, reproduced by mutation M1.
+  - Six mutations, each failing its named test and restored (M1–M6 in
+    evidence.md).
+  - Not done here, and named for the council: `agents::Candidate` can
+    still hold the states items 6–8 no longer branch on, because its
+    type lives in `agents.rs`, outside the admission.
+- **Admissions.** Production: the five files only. No fixture migration
+  and no standing-admission line.
+  - One new test in `adapters/tests.rs`, one new case in
+    `engine/capability_tests.rs`, and the regression folded into an
+    existing test in `bundle/tests.rs`.
+- **Ledgers.** `file-lines.txt` has eight rows grown, the five
+  production files among them. In `too-many-lines.txt` three production
+  functions shrank and one test function grew. The pull request needs a
+  `Ruling:` line.
+- **Gates.**
+  - fmt: clean.
+  - Workspace clippy: no warning.
+  - `brokkr-protocol`: 627 passed.
+  - `brokkr-runtime`: 870 passed.
+  - self and verify compile.
+  - `openspec validate --all --strict --no-interactive`: 19 passed.
+  - `git diff --check`: clean.
+- **Pending.** The exact gate outside the box, jscpd and `ratchet.sh`,
+  macOS, remote CI and the council. 26b.1 stays open until the exact
+  gate is observed.
+
+**Unit 26c, review return, 2026-09-30 (same run, second implement visit, based on `08345c77`)** (evidence.md, "Unit 26c, review return").
+
+- **26c.1 is reopened: oversized.** The first visit's completion claim
+  was wrong. Two of the chief's findings need a production file outside
+  the five admitted, and neither file was touched:
+  - `crates/brokkr-runtime/src/agents.rs` (SC26C-1): a resolved
+    `Candidate` carries a `Lowering` and a provider name, so
+    `refuse_permission_pins` cannot be handed an adapter and a
+    `Composition` by type from inside `bundle.rs`;
+  - `crates/brokkr-protocol/src/native_controls/grammar.rs` (L2): one
+    source for the harness vocabulary means a grammar table carries its
+    serving shape.
+- **Closed inside the admission.**
+  - SC26C-2: the validator-name regression matches
+    `CompileError::Invalid` with its whole payload (M7).
+  - SC26C-3, L1(a), L1(c): each omitted guard's comment names its
+    removal-control test, and each invariant is broken by a compiling
+    mutation that fails that test (M8a, M8b, M9, M10). The states stay
+    representable; they are held by proof.
+  - L3, capabilities: the compile calls the now-public
+    `opaque_conflict`, which returns an `Option`, so it converts no
+    refusal. `at_compile` is removed (M11, M12).
+- **Not narrowed, and stated.** L3, bundle: opening `/` returns
+  `io::Result`, which no type narrows; `unreached_at` stays shared.
+  `authored_conflict`'s opaque arm is now reached by the new unit test
+  and by no production caller.
+- **Admissions.** Production: `native_controls.rs`, `bundle.rs` and
+  `capabilities.rs` only. One new test in `native_controls/tests.rs`; one
+  changed assertion in `bundle/tests.rs`. No fixture migration and no
+  standing-admission line.
+- **Seat diagnostic, final tree:** lines 42761/42761, branches 6634/6634,
+  functions 4515/4515. The exact gate is pending.
+- **Ledgers.** `file-lines.txt`: four rows moved, `native_controls.rs`
+  and `bundle.rs` grown by comments. `too-many-lines.txt`: `native_plan`
+  261 → 256; the rest by line only. The `Ruling:` line is still needed.
+- **Gates.** fmt clean; workspace clippy no warning; `brokkr-protocol`
+  628 passed; `brokkr-runtime` 27 result lines ok; the suppressions and
+  ratchets tests pass; self and verify compile; `openspec validate --all
+  --strict --no-interactive` 19 passed; `git diff --check` clean.
+- **Pending.** The ruling on the two files, the exact gate, jscpd and
+  `ratchet.sh` with the public-API baseline (one new `pub fn`), macOS,
+  remote CI and the council.
+
+**Unit 26c, third implement visit, 2026-09-30 (same run, based on `62424f3d`)** (evidence.md, "Unit 26c, third visit").
+
+- **26c.1 stays open: blocked on the operator's ruling.** The oversized
+  return went to triage, which ruled `chore` again over the same five
+  files. No addendum after the unit 26c one exists in
+  `operator-ruling-2026-09-23.md`, so neither `agents.rs` nor
+  `native_controls/grammar.rs` is admitted, and the two residuals stand
+  as the second visit left them.
+- No file other than this note and its evidence section moved. No
+  fixture migration and no standing-admission line.
+- **Observed this visit.** The tree was clean at `62424f3d`; fmt clean;
+  the validator-name regression and the `opaque_conflict` contract test
+  each pass alone. The full suites, clippy, the compiles and the seat
+  diagnostic were not re-run, as no code moved; their results are the
+  second visit's.
+- **Pending.** Everything the second visit lists, unchanged.
 
 ## 27. Unit 27 — Validate and commit the rebuilt candidate
 

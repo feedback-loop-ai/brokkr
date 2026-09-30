@@ -1934,16 +1934,18 @@ impl Authority {
         // The cause is stated whole right after the site, in the engine's
         // own words. The adapter's reason, which may be long adapter data,
         // follows as the line's tail, so the bound cuts only that.
+        // The tail is written whatever declared it (unit 26c): an undeclared
+        // provider types no local allow, as a list lowers only through its
+        // provider's loaded adapter, so no arm for it stands here, where the
+        // exact-coverage gate would count it unreachable. The removal
+        // control is the bundle suite's
+        // `an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_refuses`.
         let unmeasured = |declaration: Option<String>, reason: String, cause: &str| {
             if !serving.provenance.local.is_empty() {
-                let tail = match declaration {
-                    Some(_) => format!(": {reason}"),
-                    None => String::new(),
-                };
                 return Err(format!(
                     "{who}: its typed 'tools.allow' refuses at compile, as harness '{}' of \
                      provider '{provider}' has native controls {cause} (ruling R5 of 2026-09-29; \
-                     design D5.3){tail}",
+                     design D5.3): {reason}",
                     serving.harness
                 ));
             }
@@ -2015,15 +2017,12 @@ impl Authority {
         // A command nothing parses — an opaque custom driver — is judged
         // CONSERVATIVELY by name for a guarded control (design D6a). A
         // harness brokkr drives was judged by origin in `resolve`, and its
-        // values are never read for admission (rebuild unit 12).
+        // values are never read for admission (rebuild unit 12). The opaque
+        // judgment places nothing in a grammar, so it has no refusal of its
+        // own to convert (unit 26c).
         let opaque = brokkr_protocol::native_controls::grammar::grammar(serving.harness).is_none();
         if let Some((written, capability)) = match opaque {
-            true => brokkr_protocol::native_controls::authored_conflict(
-                serving.harness,
-                serving.authored,
-                &guards,
-            )
-            .map_err(|refusal| refusal.at_compile(&who))?,
+            true => brokkr_protocol::native_controls::opaque_conflict(serving.authored, &guards),
             false => None,
         } {
             return Err(format!(

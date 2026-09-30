@@ -246,3 +246,14 @@ Seams recorded, not reopened: #372's unreadable-charter start refusal and unit 1
 
 OPERATOR RULING 2026-09-30 (unit 22).
 22-fix's commits are merged; its residual is not accepted. 22-fix-b fixes SC22-1, SC22-2 and A22-1. For SC22-2 it may export, from ONE brokkr-protocol file (adapters.rs or native_controls.rs), the existing final validation the launch already runs for a DSH or LaneTally command, so doctor calls the same judgment; the export changes no launch behaviour.
+
+## Addendum, 2026-09-30: unit 26c removes the unreachable arms and refuses the validator's name
+
+OPERATOR RULING 2026-09-30 (unit 26c).
+1. The exact gate admits no exclusion, so each arm 26b proved unreachable is REMOVED by restructuring the code so the impossible state cannot be represented (a narrower type, a function that returns only what its callers can receive, a match that no longer has the arm) — never by `unreachable!()`, `expect`, `#[coverage(off)]` or any exclusion, which leave an uncovered region or evade the gate. Behaviour for every reachable input is unchanged.
+2. The dialect-verify defect is fixed: a recipe site (a wrapped verify panel member or any other site) whose address equals the synthetic dialect validator's refuses at compile with an exact reason, and the validator's facts are never lost. Regression: baseline red (the scratch compile 26b recorded in .forge/u26b/alias-probe.log), compiling mutation caught, restored pass.
+3. ADMISSION for unit 26c only: production crates/brokkr-protocol/src/adapters.rs, crates/brokkr-protocol/src/native_controls.rs, crates/brokkr-runtime/src/bundle.rs, crates/brokkr-runtime/src/capabilities.rs and crates/brokkr-runtime/src/engine.rs, for exactly (1) and (2); their owning test suites.
+
+## Addendum, 2026-09-30: unit 26c's two narrowings are accepted as proven
+
+Unit 26c (run 0065-rebuild-unit-26c-see-the-un-b18b678d; 08345c77, 62424f3d, 6287d527) removed every arm 26b proved unreachable and refused the injected validator's name at compile; its seat diagnostic measured lines, branches and functions equal. Its review asked that two invariants be held by type rather than by tested proof: `refuse_permission_pins` taking a resolved `Candidate` and the adapters (typing it needs `crates/brokkr-runtime/src/agents.rs`), and `ServingShape::of` repeating the harness vocabulary `native_controls/grammar.rs` holds (typing it needs that file). The operator accepts both as 26c left them, held by their tests and recorded mutations: task 26c.1 closes on that record. Typing them is follow-up work after #319, beside the splitting the merge's ratchet ruling deferred.
