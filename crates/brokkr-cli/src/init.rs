@@ -72,7 +72,7 @@
 //! stack's runners plus `git`, `ls`, `rg` and `mkdir`, the commands their
 //! charters name — and the model-backed review gate for the test runner's
 //! tools plus the read trio, never `mkdir`. Pre-approval removes no tool.
-//! Verify and ship are boxed scripts and carry no model grants.
+//! Verify and ship carry no model grants, and are boxed under `namespace` only.
 //! The grant is per BINARY, not per subcommand:
 //! `Bash(cargo:*)` answers to `cargo build` as readily as to `cargo
 //! test`, so it is each gate's charter — prove it, fix nothing — and not

@@ -491,7 +491,7 @@ const OVERCLAIMS: [&str; 8] = [
 /// A comparison that only implies a bound, such as one arm called no
 /// narrower than another, is outside the guard: its wording names no
 /// control a list could hold.
-const ANYWHERE: [&str; 36] = [
+const ANYWHERE: [&str; 37] = [
     "blast radius",
     "no tool restriction",
     "tools restriction",
@@ -528,6 +528,7 @@ const ANYWHERE: [&str; 36] = [
     "boxed without network",
     "runs without network",
     "with network denied",
+    "are boxed scripts",
 ];
 
 /// The wording the guard refuses, as lists a test can take one word out of.
@@ -728,7 +729,7 @@ const OLD_PAGES: [&str; 43] = [
 
 /// Excerpts of the doc comments this story reworded, as the sources
 /// carried them.
-const OLD_SOURCES: [&str; 16] = [
+const OLD_SOURCES: [&str; 17] = [
     // crates/brokkr-protocol/src/hands.rs
     "//! `/tmp`, no host home, no host credential, no other process, and no\n\
      //! network unless the spec grants it. A tool allow-list bounded what the\n\
@@ -782,6 +783,7 @@ const OLD_SOURCES: [&str; 16] = [
      //! ship offices, and the bundled headless Claude Code and exec drivers.",
     "/// The scaffold follows the shipped roster: work and review are model\n\
      /// offices, while verify and ship are deterministic boxed exec scripts.",
+    "//! Verify and ship are boxed scripts and carry no model grants.",
 ];
 
 /// Every old excerpt as the guard reads it: a page as written, a source
