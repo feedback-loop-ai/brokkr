@@ -268,8 +268,17 @@ Tools come from typed data instead, composed by the engine alone:
 
 What reaches the harness is then proved at the launch: the final command
 is parsed back and its capability state compared with the plan, or the
-launch refuses (operator ruling 2). A power no typed declaration or
-grant expresses is not available to the seat.
+launch refuses (operator ruling 2). What that proves is bounded by what
+the adapter models: a power no typed declaration or grant expresses is
+never composed into the command, and a native power the adapter knows
+is switched off unless held. It is not a measurement of what the
+provider can reach on its own. A harness whose adapter declares its
+native capabilities `unmeasured` (dsh, lanetally and exec today) is
+seated with no local restriction composed: the seat is told nothing is
+claimed about its native reach, and a typed `tools.allow` on it refuses
+at compile (ruling R5 of 2026-09-29). What each shipped adapter has
+measured live, and what it has not, is in
+[provider-adapters.md](provider-adapters.md#what-the-five-shipped-adapters-say-today).
 
 **Engine-owned inputs are never seat-declarable.** `strategy`,
 `drift_detected`, `dirty_worktrees`, `reviewed_heads`, `realm_facts`,
@@ -618,6 +627,19 @@ Three consequences worth internalising:
    its library record's `charter_digest`, wherever the library lives, so
    editing `agents/charters/<name>.md` after a compile refuses the
    dispatch until you recompile — it does not quietly reach the seat.
+7. **A resume answers to the charters the run started over.** A run's
+   `run/started` records every charter binding it began with, and a
+   pinned resume checks each binding against that record, not against a
+   recompile. A run whose `run/started` records no bindings — every run
+   started before decision 0065's slice one — is refused with the cause
+   `unrecorded`, even when its bytes are intact and even when its bundle
+   binds no charter at all: `a charter of bundle '<name>' moved since
+   the compile (unrecorded: the run started with no charter record)`;
+   a bundle that binds charters names the first one's owner and key
+   instead, `a charter of <owner> moved since the compile (unrecorded:
+   <key>)` (operator ruling of 2026-09-29, point 1). There is no digest-only
+   fallback. Close such a run with
+   `brokkr conclude --run <id> --reason "…"` and fire it again.
 
 ## The policy table
 

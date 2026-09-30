@@ -5193,6 +5193,8 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
   - `docs/guides/adopting-a-node-repo.md:226` still says "the
     `--allowedTools` list in each seat's driver".
   - `compose_tests.rs:1004-1009` still normalises Windows separators.
+  - `docs/guides/driver-authoring.md:216` still calls `--sandbox` the
+    seat's flag (added by the review return).
 - **Gates.**
   - fmt: clean.
   - Workspace clippy with `-D warnings`: clean.
@@ -5203,6 +5205,25 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
   - `git diff --check`: clean.
 - **Pending.** Exact coverage outside the box, jscpd and `ratchet.sh`,
   macOS, remote CI and the council.
+- **Review return, 2026-09-30** (evidence.md, "Unit 26", "Review
+  return"). 26.1 stays ticked on the corrected guide.
+  - SC26-1: `recipe-authoring.md`'s launch-proof sentence claimed too
+    much. It now bounds the promise to the modelled controls and the
+    static composition. It says that an `unmeasured` harness (dsh,
+    lanetally, exec) is seated with no local restriction and a typed
+    `tools.allow` on it refuses, and it links the live-measurement
+    table.
+  - SC26-2: consequence 7 documents the exact `unrecorded` refusal of a
+    pinned resume, with no digest-only fallback. The recovery is
+    conclude and re-fire.
+  - CH26-1: the four suite counts were misattributed. The corrected
+    counts are `house_prose` 2, `rename_guard` 6, `contributing` 8 and
+    `packaging` 23.
+  - C26-1 and C26-2 are kept as scoped follow-ups outside the unit's
+    files.
+  - fmt, clippy, the guide-reading suites, `witness_digests` (6/6),
+    OpenSpec (19) and `git diff --check`: all clean. No production,
+    test or pin byte moved.
 
 ## 27. Unit 27 — Validate and commit the rebuilt candidate
 

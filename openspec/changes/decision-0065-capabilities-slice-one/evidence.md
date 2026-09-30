@@ -24754,8 +24754,10 @@ supersede with the behaviour the branch implements.
   - the engine-owned template;
   - one stale line outside this unit's files (see "Not done here").
 - **Suites that read the guides.** All passed:
-  - `brokkr-cli --test house_prose` (8), `rename_guard` (2),
-    `contributing` (23) and `packaging` (6);
+  - `brokkr-cli --test house_prose` (2), `rename_guard` (6),
+    `contributing` (8) and `packaging` (23). The first visit recorded
+    these four counts against the wrong suites (8, 2, 23, 6); the review
+    return below reran them and corrected the attribution;
   - `brokkr-runtime --test crucible_review_sequence` (6) and
     `library_data` (14);
   - `brokkr-cli --lib -- doctor:: cli_reference` (93);
@@ -24888,6 +24890,9 @@ supersede with the behaviour the branch implements.
 - `compose_tests.rs:1004-1009` (`named`) still normalises Windows
   separators. That predates this unit and is outside its scope
   (decision 0063); it is a follow-up.
+- `docs/guides/driver-authoring.md:216` still calls `--sandbox <class>`
+  "its seat's" flag, where the engine now composes it from the typed
+  `tools.sandbox` (added by the review return below).
 
 ### Gates, on this visit's tree
 
@@ -24905,3 +24910,70 @@ supersede with the behaviour the branch implements.
   `quality/ratchet.sh`, macOS, remote CI and the council. No `quality/`
   ledger moved: no Rust file's line count changed, and the one edited
   line in `witness_digests.rs` is inside an existing test.
+
+### Review return (run `0065-rebuild-unit-26-see-the-uni-340609da`, reviewed head `d5e645c0`)
+
+The council returned residual/medium on four findings. This visit edits
+only `recipe-authoring.md`, this file and `tasks.md`. It changes no
+production, test or pin byte, and uses no admitted line and no fixture
+migration.
+
+- **SC26-1 (medium): the launch-proof promise overclaimed.** The first
+  visit wrote "A power no typed declaration or grant expresses is not
+  available to the seat". That holds only for the controls the adapter
+  models. `native_plan` (`capabilities.rs:1937-1955`) admits an
+  `Unmeasured` plan with no local restriction. `prompt`
+  (`capabilities.rs:1321-1325`) tells the seat that nothing is claimed
+  about its native reach. So 26.1's first record ("Limits kept") and
+  26.3's MP6 line ("No text edited here claims … a live measurement
+  beyond the adapters table") were not true of that sentence.
+  `recipe-authoring.md` now says:
+  - the launch proof is bounded by what the adapter models;
+  - an unexpressed power is never composed, and a known native power is
+    OFF unless held;
+  - this is not a measurement of native reach;
+  - an `unmeasured` harness (dsh, lanetally, exec) is seated with no
+    local restriction, is told so, and refuses a typed `tools.allow` at
+    compile (R5);
+  - a link points to provider-adapters.md's table for what each adapter
+    has measured live.
+- **SC26-2 (low): pinned resume of an unrecorded run.** Consequence 7 in
+  `recipe-authoring.md`'s identity list now covers this. A run whose
+  `run/started` records no charter bindings is refused `unrecorded`,
+  intact bytes or not, and even when its bundle binds none. The guide
+  quotes both forms:
+  - `bundle '<name>'` with "the run started with no charter record";
+  - the first bound charter's owner and key.
+
+  These come from `charters_as_started` (`bundle.rs:5611-5621`), rendered
+  by `EngineError::CharterMoved` (`engine.rs:214-219`). The guide states
+  there is no digest-only fallback, and gives the recovery:
+  `brokkr conclude --run <id> --reason "…"`, then fire again. The flags
+  are checked against `ConcludeArgs` (`cli_args.rs:265-274`). The
+  authority is operator addendum 2026-09-29, point 1.
+  `a_run_that_recorded_no_bindings_is_refused_even_by_a_bundle_that_binds_none`
+  passed on this head (61/61 in the filtered `--lib` run with
+  `bundle::compose`).
+- **CH26-1 (low): the suite counts.** A rerun gave `house_prose` 2,
+  `rename_guard` 6, `contributing` 8, `packaging` 23 and `mutants_gate`
+  17. The counts under 26.1 now follow that rerun.
+- **C26-1 (low) and C26-2 (info): kept as follow-ups.**
+  `adopting-a-node-repo.md:226` (`--allowedTools` in a driver) and
+  `driver-authoring.md:216` (`--sandbox` as the seat's flag) are outside
+  the unit's three named guides. They are recorded under "Not done
+  here", with the reason for leaving them. They are a scoped follow-up.
+  This visit does not claim that every guide is migrated.
+- **Gates, on this visit's tree:**
+  - `cargo fmt --all -- --check`: clean.
+  - Workspace clippy with `-D warnings`: finished, no warning.
+  - The guide-reading suites all passed:
+    - `brokkr-cli`: `--test house_prose`, `rename_guard`,
+      `contributing`, `packaging` and `mutants_gate`, with the counts
+      above, and `--lib -- doctor:: cli_reference` (93);
+    - `brokkr-runtime`: `--test crucible_review_sequence` (6),
+      `library_data` (14) and `witness_digests` (6, unblessed);
+    - `brokkr-protocol --lib -- composite` (127).
+  - `openspec validate --all --strict --no-interactive`: 19 passed.
+  - `git diff --check`: clean.
+- **Pending.** Unchanged: exact coverage outside the box, jscpd and
+  `ratchet.sh`, macOS, remote CI and the council.
