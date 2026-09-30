@@ -35,7 +35,7 @@ It is two things at once, and both matter:
       "tools": { "sandbox": "workspace-write" },
       "driver": {
         "command": ["{brokkr}", "driver", "codex", "--",
-                    "--model", "gpt-6-sol", "--effort", "medium"]
+                    "--model", "gpt-6.1-sol", "--effort", "low"]
       }
     }
   }

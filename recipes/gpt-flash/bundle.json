@@ -1,6 +1,6 @@
 {
   "name": "gpt-flash",
-  "description": "GPT Sol plans, DeepSeek Flash 4.1 implements, and Astra rules final review.",
+  "description": "GPT Sol plans, DeepSeek Flash 4.1 implements, and Sol rules final review with Astra as its last fallback.",
   "extends": "triage",
   "override": {
     "bundle": [

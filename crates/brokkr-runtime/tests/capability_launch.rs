@@ -6034,7 +6034,7 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
     let list = "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),\
                 Bash(gh run view:*)";
     let claude_pins = ["--model", "claude-fable-5-1", "--effort", "high"];
-    let codex_pins = ["--model", "gpt-6-astra", "--effort", "xhigh"];
+    let codex_pins = ["--model", "gpt-6.1-sol", "--effort", "high"];
     let codex = |segment: &[&str], class: &str, door: &str| {
         let mut last = vec![
             "codex",
@@ -6043,15 +6043,15 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
             "-C",
             "/w",
             "-c",
-            "model_reasoning_effort=\"xhigh\"",
+            "model_reasoning_effort=\"high\"",
             "--model",
-            "gpt-6-astra",
+            "gpt-6.1-sol",
         ];
         last.extend(segment);
         last.extend(OFF);
         json!({
             "authored command": ["driver", "codex", "--",
-                                 "--model", "gpt-6-astra", "--effort", "xhigh"],
+                                 "--model", "gpt-6.1-sol", "--effort", "high"],
             "held": [0],
             "sealed": "Ok(())",
             "segments": [{"origin": "authored", "argv": codex_pins},
@@ -6153,7 +6153,7 @@ fn the_shipped_wager_harness_seats_its_typed_sandbox_narrowed_as_the_engines_own
         "final": launched.map_err(|refusal| format!("refused: {refusal}")),
         "door": door,
     });
-    let pins = ["--model", "gpt-6-sol", "--effort", "medium"];
+    let pins = ["--model", "gpt-6.1-sol", "--effort", "low"];
     let segment = ["--sandbox", "workspace-write"];
     let mut last = vec![
         "codex",
@@ -6162,15 +6162,15 @@ fn the_shipped_wager_harness_seats_its_typed_sandbox_narrowed_as_the_engines_own
         "-C",
         "/w",
         "-c",
-        "model_reasoning_effort=\"medium\"",
+        "model_reasoning_effort=\"low\"",
         "--model",
-        "gpt-6-sol",
+        "gpt-6.1-sol",
     ];
     last.extend(segment);
     last.extend(OFF);
     let expected = json!({
         "authored command": ["driver", "codex", "--",
-                             "--model", "gpt-6-sol", "--effort", "medium"],
+                             "--model", "gpt-6.1-sol", "--effort", "low"],
         "held": [0],
         "sealed": "Ok(())",
         "segments": [{"origin": "authored", "argv": pins},

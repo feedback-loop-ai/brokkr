@@ -3,7 +3,8 @@
 //! whose digest is the witness table's pin (`witnesses.json`, #358).
 //! Ruling 2 moved tools and model choices into one office definition.
 //! Decision 0045 moves the self bundle's review site across the vendor
-//! line: the last judge before ship is hired on codex's `astra`.
+//! line: the last judge before ship is hired on codex's `sol`, Astra's
+//! seat since the operator's roster ruling of 2026-09-30.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -101,7 +102,7 @@ type Roster = [(&'static str, &'static str, &'static str)];
 const PANEL_REVIEW: &Roster = &[
     ("intake", "claude-sonnet-5-5", "intake.md"),
     ("implement", "claude-opus-5-5", "implementer.md"),
-    ("review:correctness", "gpt-6-sol", "review-correctness.md"),
+    ("review:correctness", "gpt-6.1-sol", "review-correctness.md"),
     ("review:security", "claude-fable-5-1", "review-security.md"),
 ];
 
@@ -129,14 +130,14 @@ const TRIAGE: &Roster = &[
     ),
     (
         "design:positions:robustness",
-        "gpt-6-sol",
+        "gpt-6.1-sol",
         "position-robustness.md",
     ),
 ];
 const SELF: &Roster = &[
     ("intake", "claude-sonnet-5-5", "intake.md"),
     ("implement", "claude-opus-5-5", "implementer.md"),
-    ("review", "gpt-6-astra", "reviewer.md"),
+    ("review", "gpt-6.1-sol", "reviewer.md"),
 ];
 
 fn expected_argv(site: &str, model: &str) -> Vec<String> {
@@ -161,6 +162,13 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
         "review" => "xhigh",
         site if site.ends_with(":security") || site.ends_with(":chief") => "xhigh",
         _ => "high",
+    };
+    // Sol's scale sits one step down, capped at `high` (decision 0045's
+    // addendum of 2026-09-30).
+    let effort = match (model, effort) {
+        ("gpt-6.1-sol", "max" | "xhigh") => "high",
+        ("gpt-6.1-sol", "high") => "medium",
+        _ => effort,
     };
     argv.extend(["--model", model, "--effort", effort]);
     if site == "review"

@@ -78,10 +78,12 @@ fn show_prints_the_definition_and_its_per_entry_resolution() {
     assert_eq!(resolution["chain"][0]["provider"], "claude");
     assert_eq!(resolution["chain"][0]["presence"], "unknown");
     // Decision 0045: the first step down every claude-first chain crosses
-    // the vendor line, so the chief's second link resolves on codex.
+    // the vendor line, so the chief's second link resolves on codex; its
+    // last is astra (decision 0045's addendum of 2026-09-30).
     assert_eq!(resolution["chain"][1]["provider"], "codex");
-    assert_eq!(resolution["chain"][1]["model"], "astra");
-    assert_eq!(resolution["chain"].as_array().unwrap().len(), 3);
+    assert_eq!(resolution["chain"][1]["model"], "sol");
+    assert_eq!(resolution["chain"][3]["model"], "astra");
+    assert_eq!(resolution["chain"].as_array().unwrap().len(), 4);
 }
 
 /// An unknown name errors naming the known set, so the next command is

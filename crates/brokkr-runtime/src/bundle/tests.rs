@@ -1812,7 +1812,7 @@ fn a_wrapped_inline_codex_verify_carries_its_notice_and_witness_to_the_checks_st
     let verify = json!({
         "results": ["pass", "fail"], "role": "roles/role.md", "class": "work",
         "driver": {"command": ["{brokkr}", "driver", "codex", "--",
-            "--model", "gpt-6-sol", "--effort", "high"]},
+            "--model", "gpt-6.1-sol", "--effort", "medium"]},
         "hands": {"kind": "workspace", "network": false, "binds": []}
     });
     let (config, policy) = dialect_config(verify);

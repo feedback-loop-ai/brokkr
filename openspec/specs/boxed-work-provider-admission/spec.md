@@ -80,7 +80,7 @@ slice SHALL preserve the existing open and other-boundary behavior.
 #### Scenario: The shipped Fable fallback keeps the whole chain honest
 - **GIVEN** a minimal work seat using the shipped engine smith and adapters, avoiding unrelated earlier bundle refusals
 - **WHEN** it compiles under harness with the current Claude declaration lacking `hands.harness.work`
-- **THEN** it refuses on link 2, provider `claude`, naming `hands.harness.work` and the existing writable-sandbox reason even though the Astra/Codex link can compile alone
+- **THEN** it refuses on link 2, provider `claude`, naming `hands.harness.work` and the existing writable-sandbox reason even though the Sol/Codex link can compile alone
 - **AND** no guessed Claude fragment, fallback omission or combined launch is introduced to make it pass
 
 ### Requirement: The shipped engine smith's namespace launch is tested as composed
@@ -93,8 +93,8 @@ server policy rather than compare a helper to itself. The proof SHALL be runnabl
 network or nested namespace and SHALL canonicalize temporary workdirs.
 
 #### Scenario: The complete Codex namespace launch exposes exactly the declared hands route
-- **WHEN** the shipped engine smith's Astra candidate is composed for a canonical temporary workdir and its own result path under namespace
-- **THEN** the model and effort are Astra's concrete Codex model and high, and the launch registers `mcp_servers.brokkr` with the engine executable and `hands serve` arguments
+- **WHEN** the shipped engine smith's Sol candidate is composed for a canonical temporary workdir and its own result path under namespace
+- **THEN** the model and effort are Sol's concrete Codex model and medium, and the launch registers `mcp_servers.brokkr` with the engine executable and `hands serve` arguments
 - **AND** the decoded server arguments carry the canonical workdir and the complete declared hands spec, including network false, both toolchain binds and both Cargo masks
 - **AND** the native sandbox is exactly `--sandbox read-only` from `hands.workspace`, and the shipped MCP approval configuration remains present
 - **AND** no `workspace-write`, harness work fragment, per-tool list flag or unexpanded hands placeholder appears anywhere in that launch
@@ -131,3 +131,4 @@ No production rule SHALL be weakened to improve coverage or admit the roster.
 ## Provenance
 
 - `2026-09-21-307-astra-engine-smith` — folded 2026-09-21
+- `2026-09-30-sol-6-1-roster` — folded 2026-09-30

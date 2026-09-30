@@ -1,6 +1,6 @@
 {
   "schema": "brokkr.prompt-budgets/v1",
-  "note": "Bytes of the prompt each model site is handed, rendered by the driver's render_prompt over the input the engine composes through its own SiteMarks (office text, the self realm's house rules, the dialect prose each seat and panel member reads, and the hands, door and notice marks), the largest over every link that may serve the site; the run context and paths stand at fixed placeholders. Measured 2026-09-29 by scripts/measure-budgets.sh from crates/brokkr-runtime/tests/budgets.rs, which holds every site at or under its budget and refuses a site with no budget or a budget with no site. Raise a budget only in the pull request that grows the prompt, and say why.",
+  "note": "Bytes of the prompt each model site is handed, rendered by the driver's render_prompt over the input the engine composes through its own SiteMarks (office text, the self realm's house rules, the dialect prose each seat and panel member reads, and the hands, door and notice marks), the largest over every link that may serve the site; the run context and paths stand at fixed placeholders. Measured 2026-09-30 by scripts/measure-budgets.sh from crates/brokkr-runtime/tests/budgets.rs, which holds every site at or under its budget and refuses a site with no budget or a budget with no site. Raise a budget only in the pull request that grows the prompt, and say why.",
   "budgets": {
     "bundles/self/implement": 14187,
     "bundles/self/intake": 12672,

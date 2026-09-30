@@ -142,13 +142,21 @@ fn a_codex_only_host_gets_a_codex_scaffold_that_compiles() {
     let map = json_at(&bundle.join("realms.json"));
     assert_eq!(map["schema"], "forge.realms/v4");
     assert_eq!(map["realms"][0]["boundary"], "harness");
-    for (agent, models) in [
-        ("intake", ["sol", "terra"]),
-        ("implementer", ["sol", "terra"]),
-        ("reviewer", ["astra", "sol"]),
+    // Astra holds no scaffold chain, and sol hires one step below the
+    // scaffold's `high` (decision 0045's 2026-09-30 addendum).
+    let sol_terra = serde_json::json!({"sol": "medium", "terra": "high"});
+    for (agent, models, efforts) in [
+        ("intake", &["sol", "terra"][..], &sol_terra),
+        ("implementer", &["sol", "terra"][..], &sol_terra),
+        (
+            "reviewer",
+            &["sol"][..],
+            &serde_json::json!({"sol": "medium"}),
+        ),
     ] {
         let definition = json_at(&bundle.join(format!("agents/{agent}.json")));
         assert_eq!(definition["models"], serde_json::json!(models), "{agent}");
+        assert_eq!(&definition["efforts"], efforts, "{agent}");
         assert_eq!(definition["hands"]["kind"], "workspace", "{agent}");
         assert!(definition.get("tools").is_none(), "{agent}: {definition}");
     }

@@ -10,6 +10,8 @@
 //! `gpt-flash-*` offices: each reuses a library charter, names exactly one
 //! model, and carries no fallback chain, which is why the resolution test
 //! below exempts those offices by name from the standard chain assertion.
+//! Its review chief is the exception since 2026-09-30: every chief falls
+//! back to astra last (decision 0045's addendum).
 //!
 //! The adapter data is proved by properties rather than retyped (#358):
 //! a model added to an adapter is checked by what it must satisfy, so the
@@ -269,8 +271,18 @@ fn every_shipped_agent_resolves_at_compile_time() {
         // single model, and the `recipes/gpt-flash` forced crew is seated as
         // scoped offices that deliberately pin one model each so no fallback
         // can silently reach another vendor or an older Flash. Every other
-        // model-backed office keeps a real chain (0041 ruling 2).
-        if name == "muninn" || SCOPED_OFFICES.contains(&name) {
+        // model-backed office keeps a real chain (0041 ruling 2). The one
+        // scoped exception is the chief's: decision 0045's addendum of
+        // 2026-09-30 gives every chief astra, codex's own, as its last
+        // fallback, so no fallback leaves the vendor.
+        if name == "gpt-flash-review-chief" {
+            let chain: Vec<&str> = resolution
+                .candidates
+                .iter()
+                .map(|candidate| candidate.model.as_str())
+                .collect();
+            assert_eq!(chain, ["sol", "astra"], "{name} falls back to astra alone");
+        } else if name == "muninn" || SCOPED_OFFICES.contains(&name) {
             assert_eq!(
                 resolution.candidates.len(),
                 1,

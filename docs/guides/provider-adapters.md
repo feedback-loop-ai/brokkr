@@ -13,7 +13,7 @@ machine, and refuses to guess about the rest:
 ```
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
-ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
+ok       codex: codex-cli 0.159.0 · serves astra, luna, sol, terra
 ok       dsh: 0.1.5-rc.2 · serves flash, glm, … · composite a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1 plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on PATH); container built by slice (iii) (docker found)
@@ -472,8 +472,11 @@ compiles when the agent declares `hands` and the provider declares
 `hands.workspace`; a provider whose `hands` is absent or unsupported
 refuses it, and a declared `hands.harness.work` does not stand in. The
 engine smith, `implementer-engine`, is the shipped case (issue #307,
-operator rulings of 2026-09-20 and 2026-09-21): it hires `astra` then
-`fable`, both `high`, with no network, `~/.cargo` as an overlay with
+operator rulings of 2026-09-20 and 2026-09-21): it hires `sol` at
+`medium` then `fable` at `high` — the seat `astra` held at `high` until
+the roster ruling of 2026-09-30 (decision
+[0045](../decisions/0045-astra-is-a-judge.md)'s addendum) moved it to Sol
+6.1 one step down Sol's shifted scale — with no network, `~/.cargo` as an overlay with
 `credentials.toml` and `credentials` masked, and `~/.rustup` read-only.
 It carries no `tools` member, because hands would leave one dead on
 claude as well as on codex.
@@ -510,7 +513,7 @@ because claude declares no `hands.harness.work`. The two paths are never
 combined in one launch.
 
 All of this is compile and composition evidence. A boxed seat has no
-network, so no seat can run a live astra smith; the first one — cargo
+network, so no seat can run a live codex smith; the first one — cargo
 and git through the box on codex, a real commit, verify passing — is the
 controller's measurement after the change lands, and is pending.
 

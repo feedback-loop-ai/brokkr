@@ -2,11 +2,11 @@
   "description": "Engine-class implementer: builds core, store, contract, and policy work selected by triage.",
   "charter": "charters/implementer.md",
   "models": [
-    "astra",
+    "sol",
     "fable"
   ],
   "efforts": {
-    "astra": "high",
+    "sol": "medium",
     "fable": "high"
   },
   "hands": {

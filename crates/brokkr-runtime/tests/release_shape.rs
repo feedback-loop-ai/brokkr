@@ -120,10 +120,12 @@ fn release_manager_uses_the_operators_medium_effort_chain_in_the_box() {
         &std::fs::read(workspace().join("agents/release-manager.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(agent["models"], serde_json::json!(["opus", "astra"]));
+    // Sol's `low` is the step below the other models' `medium` (decision
+    // 0045's addendum of 2026-09-30).
+    assert_eq!(agent["models"], serde_json::json!(["opus", "sol"]));
     assert_eq!(
         agent["efforts"],
-        serde_json::json!({"opus": "medium", "astra": "medium"})
+        serde_json::json!({"opus": "medium", "sol": "low"})
     );
     assert!(agent.get("tools").is_none());
     assert!(agent.get("bindings").is_none());
@@ -143,7 +145,11 @@ fn release_manager_uses_the_operators_medium_effort_chain_in_the_box() {
         panic!("release preparation is one office")
     };
     assert_eq!(candidates.len(), 2);
-    for candidate in candidates {
-        assert!(candidate.argv.iter().any(|arg| arg == "medium"));
+    for (candidate, effort) in candidates.iter().zip(["medium", "low"]) {
+        assert!(
+            candidate.argv.iter().any(|arg| arg == effort),
+            "{effort}: {:?}",
+            candidate.argv
+        );
     }
 }
