@@ -234,6 +234,38 @@ fn probe(kind: AdapterKind, cli: &Path, declared: &Declared, world: &World) -> V
     serde_json::to_value(report).unwrap()
 }
 
+/// Set in the child that plays one test in an engine of its own.
+const OWN_ENGINE: &str = "BROKKR_PROBE_TEST_OWN_ENGINE";
+
+/// Is this the child playing `test`, a path under `probe::tests`, in an
+/// engine of its own? If not, play it there and wait: this test binary
+/// re-executed on `test` alone, as #403's orphaning engines are. A probe's
+/// launches are the engine's attempts, and every test in one process
+/// shares its engine: an orphan another test hands it (a hands box's
+/// `bwrap`, whose namespace init outlives the `bwrap` that started it)
+/// reads, to two launches that ended at once, as a stray either could
+/// have left, and refuses both. The child's own output is shown when it
+/// fails, and exactly one test must have passed there.
+fn in_its_own_engine(test: &str) -> bool {
+    if std::env::var_os(OWN_ENGINE).is_some() {
+        return true;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", &format!("probe::tests::{test}")])
+        .env(OWN_ENGINE, "1")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let shown = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let passed = shown.contains("test result: ok. 1 passed;");
+    assert_eq!((output.status.code(), passed), (Some(0), true), "{shown}");
+    false
+}
+
 fn measured(value: Value, evidence: &str) -> Value {
     json!({"status": "measured", "value": value, "evidence": evidence})
 }
@@ -358,6 +390,11 @@ const CLAUDE_TURN: [&str; 8] = [
 
 #[test]
 fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() {
+    if !in_its_own_engine(
+        "a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named",
+    ) {
+        return;
+    }
     let world = world();
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Empties));
     let listed_servers = "the system/init event on line 1 of stdout listed mcp_servers: 1";
@@ -452,6 +489,11 @@ fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() 
 
 #[test]
 fn a_codex_like_cli_whose_stream_lists_no_mcp_servers_is_refused_for_want_of_isolation() {
+    if !in_its_own_engine(
+        "a_codex_like_cli_whose_stream_lists_no_mcp_servers_is_refused_for_want_of_isolation",
+    ) {
+        return;
+    }
     let world = world();
     let cli = world.fake("codex", CODEX_LIKE);
     let no_tools = "no event of the turn listed its tools";
@@ -546,6 +588,11 @@ fn a_codex_like_cli_whose_stream_lists_no_mcp_servers_is_refused_for_want_of_iso
 
 #[test]
 fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation() {
+    if !in_its_own_engine(
+        "a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation",
+    ) {
+        return;
+    }
     let world = world();
     let cli = world.fake("dsh", DSH_LIKE);
     let no_hands = format!(
@@ -646,6 +693,9 @@ fn under_hands(report: &Value) -> Value {
 
 #[test]
 fn a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed() {
+    if !in_its_own_engine("a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed") {
+        return;
+    }
     let world = world();
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Keeps));
     let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
@@ -688,6 +738,9 @@ fn a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed() {
 
 #[test]
 fn a_cli_that_refuses_the_hands_argv_reads_unsupported() {
+    if !in_its_own_engine("a_cli_that_refuses_the_hands_argv_reads_unsupported") {
+        return;
+    }
     let world = world();
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Refuses));
     let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
@@ -730,6 +783,11 @@ fn within_20s<T: Send>(probe: impl FnOnce() -> T + Send) -> T {
 
 #[test]
 fn a_cli_that_exits_leaving_a_child_on_its_stdout_is_read_without_waiting_for_the_child() {
+    if !in_its_own_engine(
+        "a_cli_that_exits_leaving_a_child_on_its_stdout_is_read_without_waiting_for_the_child",
+    ) {
+        return;
+    }
     let world = world();
     let cli = world.fake("dsh", "#!/bin/sh\nsleep 30 &\necho 'dsh 0.9.9'\n");
     let report = within_20s(|| {
@@ -749,6 +807,11 @@ fn a_cli_that_exits_leaving_a_child_on_its_stdout_is_read_without_waiting_for_th
 
 #[test]
 fn a_boxed_launch_killed_at_its_deadline_is_unread_not_refused_and_takes_its_children() {
+    if !in_its_own_engine(
+        "a_boxed_launch_killed_at_its_deadline_is_unread_not_refused_and_takes_its_children",
+    ) {
+        return;
+    }
     let world = world();
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Hangs));
     // The forked `sleep 30` holds the boxed turn's stdout: a deadline that
@@ -788,6 +851,9 @@ fn a_boxed_launch_killed_at_its_deadline_is_unread_not_refused_and_takes_its_chi
 
 #[test]
 fn a_message_seen_on_one_event_does_not_measure_how_usage_counts() {
+    if !in_its_own_engine("a_message_seen_on_one_event_does_not_measure_how_usage_counts") {
+        return;
+    }
     let world = world();
     let single = claude_like("9.9.9", Boxed::Empties).replace(
         r#"printf '{"type":"assistant","message":{"id":"msg_1","content":[],"#,
@@ -805,6 +871,9 @@ fn a_message_seen_on_one_event_does_not_measure_how_usage_counts() {
 
 #[test]
 fn a_tool_the_probe_does_not_recognise_is_never_read_as_local() {
+    if !in_its_own_engine("a_tool_the_probe_does_not_recognise_is_never_read_as_local") {
+        return;
+    }
     let world = world();
     let plain =
         claude_like("9.9.9", Boxed::Keeps).replace(r#""WebSearch","WebFetch""#, r#""Search""#);
@@ -846,6 +915,11 @@ fn a_tool_the_probe_does_not_recognise_is_never_read_as_local() {
 
 #[test]
 fn a_turn_without_its_credential_refuses_the_harness_and_measures_nothing_else() {
+    if !in_its_own_engine(
+        "a_turn_without_its_credential_refuses_the_harness_and_measures_nothing_else",
+    ) {
+        return;
+    }
     let world = world();
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Empties));
     let report = probe_with(AdapterKind::Claude, &cli, &claude_declared(), &[], DEADLINE).unwrap();
@@ -884,6 +958,11 @@ fn a_turn_without_its_credential_refuses_the_harness_and_measures_nothing_else()
 
 #[test]
 fn a_launch_past_its_deadline_is_killed_reports_no_exit_code_and_measures_no_refusal() {
+    if !in_its_own_engine(
+        "a_launch_past_its_deadline_is_killed_reports_no_exit_code_and_measures_no_refusal",
+    ) {
+        return;
+    }
     let world = world();
     let cli = world.fake("sleeper", "#!/bin/sh\nexec sleep 30\n");
     let deadline = Duration::from_millis(200);
@@ -917,6 +996,9 @@ fn a_launch_past_its_deadline_is_killed_reports_no_exit_code_and_measures_no_ref
 
 #[test]
 fn a_credential_that_is_not_utf8_is_refused_through_the_one_injector() {
+    if !in_its_own_engine("a_credential_that_is_not_utf8_is_refused_through_the_one_injector") {
+        return;
+    }
     use std::os::unix::fs::PermissionsExt;
     let world = world();
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Empties));
@@ -960,6 +1042,11 @@ fn a_cli_that_cannot_be_launched_is_refused_with_the_io_error() {
 
 #[test]
 fn a_directory_under_the_scratch_home_that_cannot_be_listed_refuses_the_probe() {
+    if !in_its_own_engine(
+        "a_directory_under_the_scratch_home_that_cannot_be_listed_refuses_the_probe",
+    ) {
+        return;
+    }
     use std::os::unix::fs::PermissionsExt;
     let world = world();
     let cli = world.fake(
@@ -1014,6 +1101,11 @@ fn an_adapter_that_is_not_a_harness_is_refused_before_anything_runs() {
 
 #[test]
 fn a_rerun_on_a_new_cli_version_reports_its_drift_against_the_previous_report() {
+    if !in_its_own_engine(
+        "a_rerun_on_a_new_cli_version_reports_its_drift_against_the_previous_report",
+    ) {
+        return;
+    }
     let world = world();
     let old = world.fake("claude-old", &claude_like("9.9.9", Boxed::Empties));
     let new = world.fake("claude-new", &claude_like("10.0.0", Boxed::Refuses));
@@ -1334,6 +1426,11 @@ fn a_user_scope_configuration_that_cannot_be_planted_refuses_the_probe() {
 
 #[test]
 fn a_transcript_under_the_scratch_home_that_cannot_be_read_refuses_the_probe() {
+    if !in_its_own_engine(
+        "a_transcript_under_the_scratch_home_that_cannot_be_read_refuses_the_probe",
+    ) {
+        return;
+    }
     let world = world();
     let cli = world.fake(
         "claude-dangling",
