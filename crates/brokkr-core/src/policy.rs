@@ -523,9 +523,30 @@ fn parse_rule(
     })
 }
 
+/// A severity condition's threshold rank, once its axis is a declared
+/// severity input: `_above` and `_at_most` read it alike.
+fn severity_threshold(
+    rule_id: &str,
+    key: &str,
+    name: &str,
+    expected: &Value,
+) -> Result<usize, PolicyError> {
+    if !SEVERITY_INPUTS.contains(&name) {
+        return Err(PolicyError::Malformed(format!(
+            "rule {rule_id}: unknown severity axis '{name}' in condition '{key}'; \
+             known: {SEVERITY_INPUTS:?}"
+        )));
+    }
+    expected.as_str().and_then(severity_rank).ok_or_else(|| {
+        PolicyError::Malformed(format!(
+            "rule {rule_id}: condition '{key}' threshold {expected} not in \
+                 {SEVERITY_ORDER:?}"
+        ))
+    })
+}
+
 /// Load-time half of the closed vocabulary: every condition names a
 /// declared input and carries a threshold of the right type.
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parse_condition(
     rule_id: &str,
     key: &str,
@@ -592,36 +613,14 @@ fn parse_condition(
         });
     }
     if let Some(name) = key.strip_suffix("_above") {
-        if !SEVERITY_INPUTS.contains(&name) {
-            return Err(PolicyError::Malformed(format!(
-                "rule {rule_id}: unknown severity axis '{name}' in condition '{key}'; \
-                 known: {SEVERITY_INPUTS:?}"
-            )));
-        }
-        let threshold_rank = expected.as_str().and_then(severity_rank).ok_or_else(|| {
-            PolicyError::Malformed(format!(
-                "rule {rule_id}: condition '{key}' threshold {expected} not in \
-                     {SEVERITY_ORDER:?}"
-            ))
-        })?;
+        let threshold_rank = severity_threshold(rule_id, key, name, expected)?;
         return Ok(Condition::SeverityAbove {
             name: name.to_string(),
             threshold_rank,
         });
     }
     if let Some(name) = key.strip_suffix("_at_most") {
-        if !SEVERITY_INPUTS.contains(&name) {
-            return Err(PolicyError::Malformed(format!(
-                "rule {rule_id}: unknown severity axis '{name}' in condition '{key}'; \
-                 known: {SEVERITY_INPUTS:?}"
-            )));
-        }
-        let threshold_rank = expected.as_str().and_then(severity_rank).ok_or_else(|| {
-            PolicyError::Malformed(format!(
-                "rule {rule_id}: condition '{key}' threshold {expected} not in \
-                     {SEVERITY_ORDER:?}"
-            ))
-        })?;
+        let threshold_rank = severity_threshold(rule_id, key, name, expected)?;
         return Ok(Condition::SeverityAtMost {
             name: name.to_string(),
             threshold_rank,

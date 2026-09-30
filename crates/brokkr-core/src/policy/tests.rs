@@ -122,19 +122,14 @@ fn loader_refuses_unreachable_phase_and_required_field_defects() {
         .malformed()
         .contains("missing 'reason'"));
 
-    let mut value = table(rule());
-    value["rules"][0]["next"] = json!("elsewhere");
-    assert!(Machine::from_table(&value)
-        .unwrap_err()
-        .malformed()
-        .contains("unknown phase"));
-
-    let mut value = table(rule());
-    value["rules"][0]["from"] = json!("elsewhere");
-    assert!(Machine::from_table(&value)
-        .unwrap_err()
-        .malformed()
-        .contains("unknown phase"));
+    for end in ["next", "from"] {
+        let mut value = table(rule());
+        value["rules"][0][end] = json!("elsewhere");
+        assert!(Machine::from_table(&value)
+            .unwrap_err()
+            .malformed()
+            .contains("unknown phase"));
+    }
 
     let mut value = table(rule());
     value["rules"][0]["severity"] = json!(2);
