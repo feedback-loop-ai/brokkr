@@ -1219,14 +1219,10 @@ fn compile(dir: &Path, work: Value) -> Result<(), String> {
                        "driver": {"command": ["driver"]}}}}),
     );
     let world = brokkr_runtime::realms::World::inspect(dir, None).unwrap();
-    crate::compile_in_realm(
-        dir,
-        &dir.join("bundle"),
-        world.as_ref(),
-        &dir.join("private"),
-    )
-    .map(drop)
-    .map_err(|error| error.to_string())
+    let private = dir.join("private");
+    brokkr_runtime::launch::compile_for(dir, &dir.join("bundle"), world.as_ref(), &private)
+        .map(drop)
+        .map_err(|error| error.to_string())
 }
 
 /// The three seats every compile half submits: an inline Claude seat that

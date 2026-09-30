@@ -643,7 +643,7 @@ pub(crate) fn staging_name() -> String {
 }
 
 #[cfg(unix)]
-fn executable(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
+pub(crate) fn executable(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);

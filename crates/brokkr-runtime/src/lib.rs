@@ -6,11 +6,13 @@
 
 pub mod agents;
 pub mod anchor;
+pub mod boundary;
 pub mod bundle;
 pub mod capabilities;
 pub mod dialect;
 pub mod engine;
 pub mod keep_refs;
+pub mod launch;
 pub mod realms;
 
 pub use agents::{

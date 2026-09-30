@@ -54,6 +54,39 @@ fn is_comment(line: &str) -> bool {
     line.trim_start().starts_with("//")
 }
 
+/// The console's root and every production module it declares, which
+/// #288 split it into. A declaration in any form but `mod name;` is
+/// refused rather than passed unread, and a module is a test module only
+/// when `#[cfg(test)]` is the line above its declaration — the evidence
+/// `tui/source_tests.rs` reads too — whatever its name.
+fn tui_sources() -> Vec<(String, String)> {
+    let root = "crates/brokkr-cli/src/tui.rs".to_string();
+    let text = source(&root);
+    let mut sources = Vec::new();
+    let mut previous = "";
+    for line in text.lines() {
+        let test_only = std::mem::replace(&mut previous, line) == "#[cfg(test)]";
+        if is_comment(line) {
+            continue;
+        }
+        let Some(declared) = line.split_once("mod ").map(|(_, rest)| rest) else {
+            continue;
+        };
+        let name = line
+            .strip_prefix("mod ")
+            .and_then(|rest| rest.strip_suffix(';'))
+            .unwrap_or_else(|| {
+                panic!("tui.rs declares `{declared}` in a form the pin does not read")
+            });
+        if !test_only {
+            let path = format!("crates/brokkr-cli/src/tui/{name}.rs");
+            sources.push((path.clone(), source(&path)));
+        }
+    }
+    sources.push((root, text));
+    sources
+}
+
 /// The pair helper is the only place a Rust readout reads a served
 /// model cell: `served.model`, or a carrier's `.model.text`, anywhere
 /// else is a surface that could show the model without the boundary.
@@ -62,17 +95,17 @@ fn no_rust_readout_reads_the_model_cell_outside_the_pair_helper() {
     let render = source("crates/brokkr-cli/src/render.rs");
     let text_face = body_lines(&render, "pub(crate) fn served_text(");
     let json_face = body_lines(&render, "pub(crate) fn served_json(");
-    for (name, text) in [
-        ("crates/brokkr-cli/src/render.rs", render.as_str()),
+    let readouts = [
         (
-            "crates/brokkr-cli/src/tui.rs",
-            &source("crates/brokkr-cli/src/tui.rs"),
+            "crates/brokkr-cli/src/render.rs".to_string(),
+            render.clone(),
         ),
         (
-            "crates/brokkr-cli/src/compare.rs",
-            &source("crates/brokkr-cli/src/compare.rs"),
+            "crates/brokkr-cli/src/compare.rs".to_string(),
+            source("crates/brokkr-cli/src/compare.rs"),
         ),
-    ] {
+    ];
+    for (name, text) in readouts.into_iter().chain(tui_sources()) {
         for (index, line) in text.lines().enumerate() {
             if is_comment(line) {
                 continue;

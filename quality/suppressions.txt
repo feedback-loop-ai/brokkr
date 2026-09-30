@@ -2,10 +2,10 @@
 # Regenerate: BROKKR_REGENERATE_SUPPRESSIONS=1 cargo test -p brokkr-cli --test suppressions
 # production
     1 expect clippy::disallowed_types
-   18 expect clippy::excessive_nesting
+   17 expect clippy::excessive_nesting
     3 expect clippy::struct_excessive_bools
    30 expect clippy::too_many_arguments
-   50 expect clippy::too_many_lines
+   47 expect clippy::too_many_lines
     1 expect dead_code
 # test
     3 expect clippy::disallowed_macros
@@ -14,6 +14,6 @@
     1 expect clippy::permissions_set_readonly_false
     3 expect clippy::struct_excessive_bools
     4 expect clippy::too_many_arguments
-  259 expect clippy::too_many_lines
+  258 expect clippy::too_many_lines
     1 expect clippy::type_complexity
     1 expect dead_code

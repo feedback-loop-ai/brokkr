@@ -533,8 +533,9 @@ $ brokkr compile --bundle recipes/night-shift
 }
 ```
 
-`brokkr recipes show <name>` prints the same object from the same code,
-so the two surfaces cannot drift. `brokkr recipes list` prints the first
+`brokkr recipes show <name>` prints the same object from the same
+compile, in the workspace's realm as a run's is, so the two surfaces
+cannot drift. `brokkr recipes list` prints the first
 twelve hex characters per recipe.
 
 Three consequences worth internalising:

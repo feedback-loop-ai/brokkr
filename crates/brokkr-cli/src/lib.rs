@@ -735,7 +735,8 @@ pub enum HandsCommand {
     },
 }
 
-use boundary::refuse_unboxable;
+#[cfg(test)]
+use brokkr_runtime::boundary::refuse_unboxable;
 
 /// The payload the LONG-STANDING adapters (claude, lanetally, codex,
 /// exec) receive: everything the operator's command line carried past
@@ -783,11 +784,11 @@ fn driver_payload(kind: brokkr_protocol::adapters::AdapterKind, args: Vec<String
 /// Did this error come from a peer holding the journal's lock?
 ///
 /// Asked of the whole chain and answered by the store's own typed
-/// predicate — never by matching error text. It asks all three shapes: a
-/// `StoreError` straight out of a store call, and one an `EngineError` or
-/// an `ImportError` carries, asked separately because their store variants
-/// are `transparent`, which puts the store error's own source in the chain
-/// and the store error itself nowhere in it.
+/// predicate — never by matching error text. It asks all four shapes: a
+/// `StoreError` straight out of a store call, and one an `EngineError`, an
+/// `ImportError` or a `LaunchError` carries, asked separately because
+/// their store variants are `transparent`, which puts the store error's
+/// own source in the chain and the store error itself nowhere in it.
 ///
 /// A contention that reached here wrote nothing, so there is no
 /// half-done work to describe.
@@ -799,10 +800,16 @@ fn contention(error: &anyhow::Error) -> Option<&brokkr_store::StoreError> {
                 _ => None,
             }
         });
-        store.filter(|store| store.is_contention()).or_else(|| {
-            link.downcast_ref::<brokkr_runtime::EngineError>()
-                .and_then(brokkr_runtime::EngineError::contention)
-        })
+        store
+            .filter(|store| store.is_contention())
+            .or_else(|| {
+                link.downcast_ref::<brokkr_runtime::EngineError>()
+                    .and_then(brokkr_runtime::EngineError::contention)
+            })
+            .or_else(|| {
+                link.downcast_ref::<brokkr_runtime::launch::LaunchError>()
+                    .and_then(brokkr_runtime::launch::LaunchError::contention)
+            })
     })
 }
 
@@ -1863,148 +1870,6 @@ pub(crate) fn compile_in(workspace: &std::path::Path, dir: &std::path::Path) -> 
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
     )?)
-}
-
-fn compile_in_realm(
-    workspace: &std::path::Path,
-    dir: &std::path::Path,
-    world: Option<&World>,
-    repo: &std::path::Path,
-) -> Result<Bundle> {
-    let realm = world.and_then(|world| world.realm_for(repo));
-    let realm_name = realm
-        .map(|realm| realm.name.as_str())
-        .unwrap_or("<unmapped>");
-    let dialect = match (world, realm) {
-        (Some(world), Some(realm)) => world.dialect_for_realm(realm)?,
-        _ => None,
-    };
-    // The realm's boundary, or `namespace` for a repository no map
-    // names (decision 0046 ruling 1): the one word the run stands under.
-    let boundary = realm.map_or(brokkr_core::realms::Boundary::Namespace, |realm| {
-        realm.boundary()
-    });
-    Ok(Bundle::compile_with_capabilities(
-        dir,
-        &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
-        &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
-        Some(realm_name),
-        dialect,
-        boundary,
-        &capability_context(workspace, world, realm, repo),
-    )?)
-}
-
-/// The capability context one compile authorises against (decision 0065;
-/// design D2): the OPERATED realm's grants — never a neighbouring realm's,
-/// never the recipe's home — and the directory the operator's abstract
-/// definitions and tool dialects live in. With a map that is the map
-/// file's own directory, by the rule every other map-relative name
-/// follows; without one it is the operated repository — what `--repo`
-/// names, else the workspace — and the context grants nothing. A
-/// repository the map does not name grants nothing either.
-fn capability_context(
-    workspace: &std::path::Path,
-    world: Option<&World>,
-    realm: Option<&brokkr_core::realms::Realm>,
-    repo: &std::path::Path,
-) -> brokkr_runtime::capabilities::CapabilityContext {
-    let root = world
-        .and_then(|world| workspace.join(&world.source).parent().map(PathBuf::from))
-        .unwrap_or_else(|| repo.to_path_buf());
-    brokkr_runtime::capabilities::CapabilityContext {
-        realm: realm.map_or(
-            brokkr_runtime::capabilities::UNMAPPED.to_string(),
-            |realm| realm.name.clone(),
-        ),
-        grants: realm.map(|realm| realm.grants.clone()).unwrap_or_default(),
-        root,
-    }
-}
-
-/// Resume compiles against the dialect embedded in the run, never against
-/// whatever the workspace's map or library happens to contain today.
-fn compile_from_manifest(
-    workspace: &std::path::Path,
-    dir: &std::path::Path,
-    manifest: &Value,
-    repo: &std::path::Path,
-) -> Result<Bundle> {
-    let Some(world) = World::from_manifest(manifest)? else {
-        // A run that pinned no world stood in no realm and held no grant.
-        // Its definitions are re-read where they were read when it
-        // started: under the operated repository, never the recipe's home
-        // and never a map that has appeared in the workspace since.
-        return Ok(Bundle::compile_unmapped(
-            dir,
-            &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
-            &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
-            brokkr_core::realms::Boundary::Namespace,
-            repo,
-        )?);
-    };
-    let realm_name = manifest
-        .pointer("/realms/realm")
-        .and_then(Value::as_str)
-        .unwrap_or("<unmapped>");
-    let realm = world
-        .map
-        .realms
-        .iter()
-        .find(|realm| realm.name == realm_name);
-    let dialect = realm
-        .map(|realm| world.dialect_for_realm(realm))
-        .transpose()?
-        .flatten();
-    // The boundary the run was started under, read from the pinned
-    // world and never from the workspace's map as it stands today
-    // (decision 0046 ruling 1): a resume stands where the run stood.
-    let boundary = realm.map_or(brokkr_core::realms::Boundary::Namespace, |realm| {
-        realm.boundary()
-    });
-    // And the grants the run was started under, from the same pinned map
-    // (decision 0065 ruling 8): a grant added to the workspace's map since
-    // is not borrowed. The definitions and dialects are re-read from the
-    // pinned source's directory and must reproduce the pinned digests, or
-    // the manifest comparison refuses the resume with capabilities named.
-    Ok(Bundle::compile_with_capabilities(
-        dir,
-        &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
-        &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
-        Some(realm_name),
-        dialect,
-        boundary,
-        &capability_context(workspace, Some(&world), realm, repo),
-    )?)
-}
-
-/// A resume whose pinned capability authority cannot be REPRODUCED here —
-/// a definition or a tool dialect that is gone, or no longer what the
-/// grant needs — is the run pinning a different bundle, and is refused
-/// through that door with capabilities named (decision 0065 ruling 8;
-/// design D7), not as a compile failure that reads like a broken recipe.
-/// Every other failure passes through untouched. The reason is the
-/// compiler's raw words, so the whole line the engine renders — its `run
-/// '{run}' pins a different bundle: ` and this detail — is made through the
-/// protocol's one refusal sink: one line, at most 512 scalar values
-/// (rebuild unit 12-fix-f; design D6). The run id is the engine's own.
-fn unreproducible(run: &str, error: anyhow::Error) -> anyhow::Error {
-    match error.downcast_ref::<brokkr_runtime::bundle::CompileError>() {
-        Some(brokkr_runtime::bundle::CompileError::Capability(reason)) => {
-            let head = format!("run '{run}' pins a different bundle: ");
-            let line = brokkr_protocol::native_controls::bounded_line(&format!(
-                "{head}capabilities differ: the capability authority the run was started under \
-                 cannot be reproduced here — {reason}; a grant, an abstract definition or a \
-                 tool dialect was removed or edited since the run started"
-            ));
-            brokkr_runtime::engine::EngineError::ManifestMismatch {
-                run_id: run.to_string(),
-                detail: line.chars().skip(head.chars().count()).collect(),
-            }
-            .into()
-        }
-        _ => error,
-    }
 }
 
 /// Dispatch one parsed command to its verb's handler (decision 0071

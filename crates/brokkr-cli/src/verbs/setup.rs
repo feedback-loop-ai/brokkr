@@ -6,12 +6,15 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
+use brokkr_core::policy::audit::SWEEP_BUDGET;
+use brokkr_core::policy::Machine;
+use brokkr_runtime::bundle::is_engine_owned;
+use brokkr_runtime::launch::{self, BundleSource};
 use brokkr_runtime::realms::World;
 
 use crate::cli_args::{CompileArgs, DoctorArgs, DriverArgs, FakeDriverArgs, InitArgs};
 use crate::{agents, doctor, init, muninn, recipes};
-use crate::{capability_context, compile_in, compile_in_realm, compiled_view};
-use crate::{driver_payload, now_rfc3339};
+use crate::{compiled_view, driver_payload, now_rfc3339};
 use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCmd};
 
 /// `brokkr init`: scaffold a reviewable bundle for the workspace.
@@ -83,15 +86,34 @@ pub(crate) fn doctor(
     })
 }
 
-/// `brokkr compile`: validate a bundle and print its pinned manifest.
+/// `brokkr compile`: validate a bundle and print its pinned manifest,
+/// and decision 0050's sweep of its table on stderr.
 pub(crate) fn compile(workspace: &Path, CompileArgs { bundle }: CompileArgs) -> Result<ExitCode> {
+    print_compiled(workspace, &bundle)
+}
+
+/// What `compile` and `recipes show` both print: the bundle compiled on
+/// the one path a run starts on, in the workspace's realm
+/// ([`launch::compile_for`]), so the two cannot drift apart (#350).
+fn print_compiled(workspace: &Path, dir: &Path) -> Result<ExitCode> {
     let world = World::discover(workspace, None)?;
-    let bundle = compile_in_realm(workspace, &bundle, world.as_ref(), workspace)?;
+    let bundle = launch::compile_for(workspace, dir, world.as_ref(), workspace)?;
     println!(
         "{}",
         serde_json::to_string_pretty(&compiled_view(&bundle, world.as_ref()))?
     );
+    eprint!("{}", sweep_report(&bundle.machine, SWEEP_BUDGET));
     Ok(Exit::Completed.into())
+}
+
+/// The audit of a compiled table, or why it was not swept. It is
+/// reported, and refused only once decision 0050's enactment slices
+/// enable its refusals (#429).
+fn sweep_report(machine: &Machine, budget: usize) -> String {
+    match machine.audit_with(budget, is_engine_owned) {
+        Ok(audit) => audit.to_string(),
+        Err(error) => format!("{error}\n"),
+    }
 }
 
 /// `brokkr recipes`: list, add or show a recipe.
@@ -100,11 +122,11 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
         RecipesCmd::List { dir } => recipes::list(workspace, &dir)?,
         RecipesCmd::Add { source, name, dir } => recipes::add(workspace, &source, &name, &dir)?,
         RecipesCmd::Show { name, dir } => {
-            let bundle = compile_in(workspace, &recipes::resolve(None, Some(name), &dir)?)?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&compiled_view(&bundle, None))?
-            );
+            let recipe = BundleSource::Recipe {
+                name,
+                recipes_dir: dir,
+            };
+            return print_compiled(workspace, &recipe.resolve()?);
         }
     }
     Ok(Exit::Completed.into())
@@ -116,7 +138,7 @@ pub(crate) fn agents(workspace: &Path, command: AgentsCmd) -> Result<ExitCode> {
     // (decision 0065; design D2): beside the active map, else in
     // the workspace — wherever `--agents-dir` points the library.
     let world = World::discover(workspace, None)?;
-    let operator_root = capability_context(workspace, world.as_ref(), None, workspace).root;
+    let operator_root = launch::capability_context(workspace, world.as_ref(), None, workspace).root;
     match command {
         AgentsCmd::List { agents_dir } => agents::list(&agents_dir, &operator_root)?,
         AgentsCmd::Show {
@@ -217,3 +239,6 @@ pub(crate) fn fake_driver(
     brokkr_protocol::fake::run_fake_driver(&script, &state, model.as_deref(), effort.as_deref())?;
     Ok(Exit::Completed.into())
 }
+
+#[cfg(test)]
+mod tests;

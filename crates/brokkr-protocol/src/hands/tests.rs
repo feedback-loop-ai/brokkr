@@ -1215,13 +1215,14 @@ fn the_network_prefix_is_eight_tokens_and_the_probe_asks_the_dispatchs_path() {
     ));
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        // Staged and renamed in by the adapters' helper (#255): a shim
+        // written at the path it is exec'd from is Text file busy while a
+        // child forked by a parallel test still holds its writer, and the
+        // probe would answer no for that reason alone.
         let plant = |name: &str, script: &str| {
             let bin = dir.path().join(name);
             std::fs::create_dir_all(&bin).unwrap();
-            let unshare = bin.join("unshare");
-            std::fs::write(&unshare, script).unwrap();
-            std::fs::set_permissions(&unshare, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::adapters::tests::executable(&bin, "unshare", script);
             bin
         };
         let failing = plant("failing", "#!/bin/sh\nexit 1\n");

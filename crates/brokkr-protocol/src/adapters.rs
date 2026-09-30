@@ -7233,7 +7233,7 @@ pub fn serve(kind: AdapterKind, extra: Vec<String>) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 mod notice_tests;

@@ -21,28 +21,6 @@ pub(crate) mod envelope_builder;
 use dispatch_fixture::dispatch_envelope;
 use env_guard::EnvGuard;
 
-/// Rebuild unit 12-fix-f, the council's A-E1 (design D6): a resume whose
-/// capability authority cannot be reproduced re-wraps the compiler's raw
-/// reason, so the whole line the engine renders is made through the one
-/// refusal sink — one line, its newline escaped, cut to 512 scalar values.
-#[test]
-fn an_unreproducible_resume_leaves_through_the_one_refusal_sink() {
-    let reason = format!("realm 'a\nb': {}", "x".repeat(600));
-    let line = unreproducible(
-        "run-1",
-        brokkr_runtime::bundle::CompileError::Capability(reason).into(),
-    )
-    .to_string();
-    let head = "run 'run-1' pins a different bundle: capabilities differ: the capability \
-                authority the run was started under cannot be reproduced here — realm \
-                'a\\nb': ";
-    assert_eq!(
-        line,
-        format!("{head}{}…", "x".repeat(511 - head.chars().count()))
-    );
-    assert_eq!(line.chars().count(), 512);
-}
-
 #[test]
 fn the_command_tree_builds_on_a_small_stack() {
     use clap::CommandFactory;
@@ -4158,39 +4136,18 @@ fn write_bundle_with(bundle_dir: &std::path::Path, hands: Value) {
     .unwrap();
 }
 
+/// Its compile half is the runtime's `launch::tests` test of the same
+/// name, beside the private compile it proves (#350); what a run and a
+/// resume make of it through the CLI stays here.
 #[test]
 fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let root = workspace();
-    assert!(compile_from_manifest(
-        &root,
-        &root.join("recipes/triage"),
-        &json!({"bundle_name":"unadopted"}),
-        &root,
-    )
-    .is_ok());
-
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("dialects")).unwrap();
-    std::fs::copy(
-        root.join("dialects/openspec.json"),
-        dir.path().join("dialects/openspec.json"),
-    )
-    .unwrap();
-    std::fs::create_dir(dir.path().join("dialects/openspec")).unwrap();
-    for name in [
-        "specify", "return", "design", "tasks", "clarify", "analyze", "archive",
-    ] {
-        std::fs::copy(
-            root.join(format!("dialects/openspec/{name}.md")),
-            dir.path().join(format!("dialects/openspec/{name}.md")),
-        )
-        .unwrap();
-    }
-    // The pinned world is where the operator's abstract definitions are
+    // The map's directory is where the operator's abstract definitions are
     // read from, and a compile that loads the shipped library resolves the
-    // asks of EVERY loaded agent (decision 0066 ruling 8) — the researcher's
-    // two wants included, though triage seats it nowhere. A map directory
-    // without them refuses the compile, so this world carries them.
+    // asks of EVERY loaded agent (decision 0066 ruling 8). A map directory
+    // without them refuses the compile on capabilities, so this one carries
+    // them and the refusal below is the dialect's.
     std::fs::create_dir(dir.path().join("capabilities")).unwrap();
     for entry in std::fs::read_dir(root.join("capabilities")).unwrap() {
         let entry = entry.unwrap();
@@ -4200,32 +4157,11 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
         )
         .unwrap();
     }
-    let map = json!({
+    let no_dialect = json!({
         "schema":"forge.realms/v3",
-        "realms":[{"name":"pinned","path":root,"default_branch":"main","dialect":"openspec"}],
+        "realms":[{"name":"pinned","path":root,"default_branch":"main"}],
         "journal":"forge.db"
     });
-    std::fs::write(dir.path().join("realms.json"), map.to_string()).unwrap();
-    let world = World::load(&dir.path().join("realms.json")).unwrap();
-    let manifest = world
-        .pinned(&json!({"bundle_name":"triage"}), Some(&root))
-        .unwrap();
-    let bundle =
-        compile_from_manifest(&root, &root.join("recipes/triage"), &manifest, &root).unwrap();
-    assert_eq!(bundle.manifest["bundle_name"], "triage");
-    assert!(
-        compile_from_manifest(&root, &dir.path().join("missing-bundle"), &manifest, &root).is_err()
-    );
-
-    let mut broken = manifest;
-    broken["realms"]["sha256"] = json!("0".repeat(64));
-    assert!(compile_from_manifest(&root, &root.join("recipes/triage"), &broken, &root).is_err());
-
-    let mut no_dialect = map;
-    no_dialect["realms"][0]
-        .as_object_mut()
-        .unwrap()
-        .remove("dialect");
     let no_dialect_path = dir.path().join("no-dialect.json");
     std::fs::write(&no_dialect_path, no_dialect.to_string()).unwrap();
     let refusal = run_in(
