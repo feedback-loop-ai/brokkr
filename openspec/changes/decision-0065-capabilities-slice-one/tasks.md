@@ -4934,7 +4934,68 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
 
 ## 24. Unit 24 — Audit identity enforcement removals
 
-- [ ] 24.1 Unit 24 independently removes containment/regular-policy pin/owner-target/read-binding/verified-buffer enforcement. Verify exact failures including equal-byte retargets, restore/pass. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–4 / R10. (previous 9.3)
+- [x] 24.1 Unit 24 independently removes containment/regular-policy pin/owner-target/read-binding/verified-buffer enforcement. Verify exact failures including equal-byte retargets, restore/pass. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–4 / R10. (previous 9.3)
+
+**Unit 24 note, 2026-09-30 (runs `0065-rebuild-unit-24-see-the-uni-60b56783` and, committing it, `0065-rebuild-unit-24-see-the-uni-576fe9d6`; head `2098df8c`): audited on the merged head** (evidence.md, "Unit 24"). The first visit's session ended before it committed. The second visit:
+
+- verified its saved patch's sha256 (`4133861…cccfc`);
+- applied the patch unchanged;
+- re-ran all 38 removals on the final tree in the foreground, each failing
+  as recorded and each restored;
+- re-ran every gate below.
+
+- **Records.** Units 16–19 recorded isolated removals in every category.
+  All 23 unit commits are reachable from the merged head.
+- **Re-run on this head.** 38 removals, each a compiling production edit
+  restored with `git checkout --`, each failing its intended exact
+  assertion:
+  - containment: C1 role alone, C2 policy alone, C3 the contained-link
+    control, C4 excluded inputs;
+  - regular file and blocking: K1, and K2 (without `NONBLOCK` the FIFO row
+    blocks: timeout exit 124, no orphan);
+  - the merge's rustix calls: K3 no-follow, L1/L2 the handle-bound
+    listing, L3 the link text at the owner;
+  - owner and target: O1–O4 at the door, O5–O7 each door alone, O8–O12
+    the start's record and no grandfathering;
+  - policy pins: P1 overridden ancestor, P2 leaf, P3 changed buffer, P4
+    the table alone;
+  - read binding and the verified buffer: R1, R2, R2′, R3, R4, V1–V3;
+  - identity controls: U1 the consulted definition, U2 the unconsulted
+    control, U3 unused grants, U4 unpinned.
+- **Gap found and closed (test only).** O2 (the file, not the keys) and O3
+  (owner identity) failed only at dispatch, and no start or resume row
+  reached them. `engine/boundary_tests.rs` gains two things:
+  - a `replaced` row (equal bytes at the charter's own path) at the start,
+    the dispatch-bound start and the engine's own resume;
+  - an ancestor-replaced row at the same three doors.
+
+  O2 and O3 turn both red. O5–O7 each move only their own door's element.
+  Restored, both pass. To fit the file's ledger, the doors are asserted
+  through one shared `doors` helper, and the duplicated
+  `refusal`/`written` closures became `charter_moved`/`written_in` (ruling
+  5). Every expected string is unchanged.
+- **Measured pins.**
+  - `quality/file-lines.txt`: 4642 → 4636.
+  - `quality/too-many-lines.txt`: three counts shrank, and the start/resume
+    test left the list.
+  - Its `#[expect(clippy::too_many_lines)]` became unfulfilled and was
+    removed; `quality/suppressions.txt` test `too_many_lines` 260 → 259.
+  - No production byte and no frozen surface moved. No standing-admission
+    lines and no fixture migrations.
+- **Not bound, stated.** The rustix listing's end-of-stream error has no
+  plantable row. 16-fix MI and 16-fix-b M14 are pending macOS.
+- **Gates, observed by the second visit on the final tree.**
+  - `cargo fmt --all -- --check`: clean.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: clean, 0 warning or error lines.
+  - `cargo test -p <crate> --all-features --locked`, run crate by crate for
+    all eight members: 95 `test result` lines, all ok. The first visit's
+    `--workspace --all-features` run also gave 95.
+  - `compile --bundle bundles/self` and `bundles/verify`: both compiled.
+  - `openspec validate --all --strict`: 19 passed, 0 failed.
+  - `git diff --check`: clean.
+- **Pending.** jscpd and `quality/ratchet.sh` (not run in the seat),
+  macOS, exact coverage outside the box, remote CI and the council.
 
 ## 25. Unit 25 — Audit proof history and portability
 

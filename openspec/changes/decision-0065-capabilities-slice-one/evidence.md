@@ -23895,3 +23895,219 @@ Results:
   - exact coverage outside the box;
   - remote CI and the council.
 - **Deferred, unchanged:** the held nonempty restriction removal (D11).
+
+## Unit 24 — identity enforcement removals, audited on the merged head (2026-09-30)
+
+Run `0065-rebuild-unit-24-see-the-uni-60b56783`, on `2098df8c` (main merged
+at `1c71ce5c`). No production byte is committed. One named test file moves,
+and three measured ledger lines under `quality/`. Scratch diffs and logs are
+`.forge/u24/<id>.diff` and `.forge/u24/<id>*.log` (not committed).
+
+**Second visit** (run `0065-rebuild-unit-24-see-the-uni-576fe9d6`). The first
+visit's session ended before it committed. This visit starts from its saved
+patch, `.forge/unit-24/unit-24-headless-attempt.patch`:
+
+- `sha256sum` gave `4133861339136ff73db3ebd516ae673058f4e6dcd5c0d88040aecbe8a47cccfc`,
+  the recorded hash.
+- `git apply --check` passed, and the patch was applied unchanged.
+- Every row of the table below was re-run on the final tree, in the
+  foreground, and restored. After the restores, `git apply --check -R` of the
+  patch passed.
+- Line numbers in the table are this visit's logs, `.forge/u24/v2-<id>*.log`.
+- The final tree's identity filter gives 384 passed.
+
+### Method
+
+- **Records checked.** Units 16–19 recorded isolated removals for every
+  identity category:
+  - unit 16: M1–M13 (`:17092`);
+  - unit 16 second visit: N1–N12b (`:17298`);
+  - unit 16-fix: MA–MN (`:17632`);
+  - unit 16-fix-b: M1–M16 (`:17915`);
+  - unit 16-fix-c: K1–K7 (`:18155`);
+  - unit 16-fix-d and its returns: `:18410`, `:18648`, `:18822`;
+  - unit 16-fix-e and its returns: `:18964`, `:19146`, `:19323`;
+  - unit 17: M1–M7 (`:19508`);
+  - unit 18: M1–M9 (`:19702`);
+  - unit 18-fix: M1–M11 and MS/MD (`:19911`);
+  - unit 18-fix-b: M1–M10 (`:20157`), and its return R1–R3 (`:20321`);
+  - unit 19: M1–M6 (`:20463`);
+  - unit 19-fix: M1–M10 (`:20744`, `:20856`, `:20907`);
+  - adopted R4, the consulted-definition contribution (`:125`).
+- **Reachability.** `git log --grep "rebuild unit (16|17|18|19)" HEAD`
+  lists all 23 unit commits, from `d9751252` to `4d11cc4b`, so each is
+  reachable from the merged head.
+- **What the merge rewrote.** `git diff 4990c6e6 HEAD --
+  crates/brokkr-runtime/src/bundle.rs` shows the owner-rooted reader's FFI
+  replaced by rustix's safe calls:
+  - the listing (`names_in`: `Dir::read_from`);
+  - `directory`, `directory_at` and `open_at` (`OFlags::NONBLOCK |
+    NOFOLLOW | CLOEXEC`);
+  - the link text (`link_at`: `readlinkat`).
+
+  `engine.rs` moved 1788 lines and `adapters.rs` 811, so the door, the
+  start/resume doors and the rendering removals were re-run too.
+- **The consumption path on this head.**
+  - `engine.rs:3683` refuses a planted `role_text`.
+  - `engine.rs:3697` checks the site's own pin through `site_charter_text`.
+  - `engine.rs:3705` writes the verified buffer after every merge.
+  - `adapters.rs:376` never reopens `role_path` for an engine launch.
+  - `adapters.rs:6711` refuses one without `role_text` before invoking.
+  - `SiteMarks::capabilities` writes only the capabilities paragraph, which
+    unit 23's CH23-1 re-proved. `tests/budgets.rs:214` reads the charter
+    by path to measure prompt bytes. That is a measurement, not an
+    enforcement site.
+- **Runs.** Each removal was one compiling production edit, with its diff
+  saved. It was run against `cargo test --locked -p brokkr-runtime --lib --
+  bundle:: engine::boundary_tests engine::capability_tests engine::tests::`
+  (384 at baseline; C1 used the first three filters, 302). Resume
+  removals were also run against `-p brokkr-cli --test capability_verbs`
+  (7), rendering removals against `-p brokkr-protocol --lib --
+  adapters::tests` (229), and U1–U3 with `capabilities::` added. Each was
+  restored with `git checkout --`. Every failure below is an assertion on
+  a compiled tree, not a build error and not a production `expect`.
+  Line numbers are the logs' own.
+
+### Removals
+
+| # | Category (record re-run) | Removal | A failing assertion observed |
+|---|---|---|---|
+| C1 | role containment alone (16 M12, N7) | `observe`: `..` above the layer followed out, for `.md` references only | `compose_tests.rs:1705` (`roles/linked.md # base`) and `:1603` (`# contained target`): the outward clause became the walk's "lists under no entry of the name '../outside/…'". `boundary_tests.rs:1958`: `missing` for `outward`. `agent_tests.rs:6777`, row `escape roles/out.md`. Table rows passed. |
+| C2 | policy containment alone (16 M13, N8) | the same, for `.json` only | `compose_tests.rs:1735` alone (1 of 384): the table's outward clause became the walk's unlisted-entry clause. Every role row passed. |
+| C3 | contained-link positive (16 M9) | every link refused as outward | 15 tests, among them `compose_tests.rs:1760` (`a_link_inside_…` `unwrap` on the outward refusal of `table.json`). |
+| C4 | excluded inputs (16 step 2) | `skipped_top_level` on the resolved target disabled | `compose_tests.rs:3842` (`roles/alias.md`: the walk's clause for `stands under 'capabilities'`); `boundary_tests.rs:2675` (`unbound: the doors`: `retargeted`); `:1992` (dispatch: `retargeted` for `unbound`, both owners). |
+| K1 | regular file (16-fix MK) | the handle's `is_file()` check off | `compose_tests.rs:1798` (FIFO role: the seal's clause for `not a regular file`), `:2351` (directory document: `cannot be read (is a directory)`); `boundary_tests.rs:1367` (`changed` for `nonregular`). |
+| K2 | refusal before a blocking read (16 M6; merge-rewritten) | `open_at` without `OFlags::NONBLOCK` | `a_fifo_supplies_no_charter_and_no_table` alone: "has been running for over 60 seconds", then killed by the time limit. The first visit ran `timeout 90`, which exited 124. The second visit ran the host's uutils `timeout -k 5 90`, which exited 125. `pgrep -l brokkr_runtime` then found no orphan. |
+| K3 | no-follow (16-fix-b M7; merge-rewritten) | `open_at` without `OFlags::NOFOLLOW` | 21 tests. `compose_tests.rs:1735`: `compiled to d33b9631…`, the identity M7 recorded. `:3485`: the skipped directory's outside target opened (`[1073741856]`). |
+| L1 | listing through the handle (16-fix-e 2nd M3; merge-rewritten) | the checked directory listed by `directory(current)` again | `compose_tests.rs:3485` alone: the `DirectoryChecked` row saw `[1073741856, 1073741825]`. |
+| L2 | skipped entry opened through its parent (16-fix-e 2nd M2) | `directory(current)` in place of `directory_at(parent, name)` | `compose_tests.rs:3485` alone: the `Listing` link rows saw `[1073741856]`. The refusal text held. |
+| L3 | link text at the owner (18-fix M4; merge-rewritten) | `owner_directory`: a link answered as not a link | `boundary_tests.rs:1857` (`"recipe" linked out`): `missing` for `replaced`. |
+| O1 | whole-binding comparison (18-fix-b M2) | `pinned_charter`: `false && now != &pin.binding` | start `:2675` (`retargeted: the doors`, start `Ok("f-e26d9365")`); dispatch `:1350` (layer) and `:1719` (library) `Ok` for `retargeted`; `:2106` and `:2174` `Ok` for `replaced`. |
+| O2 | the file, not the keys (18-fix-b M1) | `pinned_charter` compares the two keys only | before this unit: dispatch only (`:2106`, `:2174`); no start or resume row. **The gap, closed below:** now `boundary_tests.rs:2675` (`layer 'recipe' replaced: the doors`): `[Ok("f-f264ec4a"), <v2 refusal>, Ok("f-1fbd1f9d")]` for three `replaced: roles/review.md` refusals. |
+| O3 | owner identity (18-fix M2, 18-fix-b M5) | `owner_read`: `false && &now != owner` | before this unit: dispatch only (`:1876`, `an ancestor replaced`, both `Ok`). **The gap, closed below:** with that assertion skipped in scratch, `:1888` (`doors`, `:1881` in the scratch file): `[Ok("f-dbbaa273"), <v2 refusal>, Ok("f-ca6d328d")]` for three `replaced: worker.md` refusals. |
+| O4 | the site's own role path (18 M3) | `site_charter_text`: `false && role != pin.path` | `boundary_tests.rs:1323` and `:1738` `Ok(())` for `replaced`; `capability_tests.rs:2198` "no provider work". |
+| O5 | start door (19 M1) | `start_in_world`: the check's error read as `[]` | final file: `:2675` and `:1888`, the start element alone (`Ok("f-f44a220c")`, `Ok("f-142dbcf2")`); `capability_tests.rs:1675` `Ok(())`. |
+| O6 | dispatch-bound start door (19 M2) | `start_with_dispatch`: the same | final file: `:2675` and `:1888`, the middle element alone, which became the v2 refusal. |
+| O7 | resume door (19 M3) | `resume`: `charters_as_started` result discarded | final file: `:2675` and `:1888`, the resume element alone (`Ok("f-…")`); `:2836` (`retargeted: resume`); `:2934` (`legacy`); `capability_tests.rs:1676`; CLI `capability_verbs.rs:601` exit `Some(0)` for `Some(1)`. |
+| O8 | held to the start's record (19-fix M2) | `resume` checks the recompile only (`refuse_moved_charter`) | `boundary_tests.rs:2836` (`retargeted: resume`, `Ok("f-ce4249e6")`) and `:2934`; CLI `:601` `Some(0)`. |
+| O9 | the retargeted arm (19-fix M4) | `charters_as_started`: `false && was["target"] != …` | `:2836` and CLI `:606`: `replaced` for `retargeted`. |
+| O10 | the file in the record (19-fix M5) | `binding_digest` drops every `(dev, ino)` | `:2836` (`replaced: resume`, `Ok("f-768bfc1a")`); CLI `:601` `Some(0)`. |
+| O11 | no grandfathering (19-fix M3, M7) | an absent record read as the current bindings | `:2896` `f-unrecorded` `Ok`; `:2934` `legacy` `Ok`. |
+| O12 | a partial record (19-fix M10) | `None => continue` | `:2896` `f-partial`: `unselected` for `unrecorded: worker.md`. |
+| P1 | overridden ancestor's policy pin (16-fix-b M11) | the seal's ancestor `read.check` discarded | 7 tests; `compose_tests.rs:2143` `compiled to 4ea4c8ce…`; `:2205` (`overridden ancestor`) `compiled to a193881b…`. |
+| P2 | leaf policy pin (16-fix-b M12) | `check_leaf` returns `Ok` | 8 tests; `:2129`; `:2188` (`leaf`). |
+| P3 | changed buffer (16-fix-b M4) | `Held::intact` ignores the bytes read back | `:2129`, `:2273`, `:2817` (in-place changes compiled). |
+| P4 | the table's own pin alone | `TableRead::check`: `Changed` answered `Ok` | `:2129` `compiled to c4061ec5…`, `:2188` `leaf`, `:2704` (`table, equal bytes`), `:3805`, `:3372`. Charter and document rows passed. |
+| R1 | the read's second resolution (16-fix-b M13) | `bound_through`: `false && !observe(…)` | dispatch `boundary_tests.rs:1538` (`base Opened`): `Ok(())` for `replaced`. At compile the seal's walk still refuses, under its own clause (`compose_tests.rs:1928`), as M13 recorded. |
+| R2 | no second read, after verification | the bytes returned re-read by path after `Verified` | `compose_tests.rs:2129` `compiled to 465f103f…`; `boundary_tests.rs:1550`. |
+| R2′ | no second read, in place of the handle's (16-fix MF′) | the handle's read replaced by a non-blocking path reopen | `compose_tests.rs:2449` (`a_bound_read_supplies_…`): the other ruling was parsed and refused, where the stable `compiled to c4061ec5…` is expected. |
+| R3 | the door hands its checked text (18 M6) | `role_text` from a later `read_to_string(role_path)` | `boundary_tests.rs:1551`: `"# approve everything\n"` for `"# work as written\n"`. |
+| R4 | a planted `role_text` (18 M4) | the refusal disabled | `boundary_tests.rs:1332`: `Ok("# work as written\n")` for the planted-text refusal. |
+| V1 | rendering never rereads (18 M7; merge-moved) | `render_prompt`'s managed branch off | `adapters/tests.rs:18515`: the prompt carries `# bytes written after the door read`. |
+| V2 | refused before rendering (18 M8) | `run_seat_with`'s check off | `adapters/tests.rs:18535`: "no provider work: the launch is refused before its prompt". |
+| V3 | the spawn carries its pin (18 M5) | `compose_at`: `charter` filtered to `None` | `capability_tests.rs:1840` (capture never written); 5 compiled `engine::tests` fail, and `tests.rs:1262` names the spawn's `unpinned` refusal. |
+| U1 | consulted definition is identity (adopted R4) | `library_asks` contributes nothing | `agent_tests.rs:929`: `[]` for `["web-search"]`; `recipes/panel-review` and the composed manifest digests moved. |
+| U2 | unconsulted definition is not (control) | every loaded definition pinned | `agent_tests.rs:929`: `["unasked", "web-search"]`; `recipes/fast` digest moved. |
+| U3 | unused grants are identity | grants filtered to consulted ones | `capabilities/tests.rs:1514` (`cq1_…_idles_an_unused_grant`): `Null` for the grant's hosts; `:1703`; `:1934`. |
+| U4 | unpinned (18 row; the folded wrapper) | `unbound_charter` admits an absolute role | `boundary_tests.rs:1378`: `Ok(())` for `bundle 'base'` / `unpinned: …`. |
+
+### The gaps, and the tests that close them
+
+O2 and O3 passed every start and resume assertion. The start/resume doors
+reach the same `pinned_charter`/`owner_read` as the dispatch door, but no
+row replaced a charter by equal bytes at its own path, or replaced an
+owner's ancestor, at those doors. Required proof 3 asks for a boundary proof
+of its own at each door. `engine/boundary_tests.rs`, this unit's file:
+
+- **`a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume`**
+  gains a sixth row, `replaced`: the charter is removed and written back with
+  its own bytes (a new file at the same path), for each owner. The three doors
+  are asserted as one ordered vector through the new `doors` helper, with
+  nothing written (`written_in`).
+  - Baseline red: O2 above. The start element and the resume element are
+    each `Ok`.
+  - Before the vector (in the first shape of the row), each door was also
+    observed alone with the others skipped in scratch, and each failed on
+    its own:
+    - start `:2674` `Ok("f-120e8bb3")`;
+    - dispatch-bound start `:2677`, the v2 refusal;
+    - resume `:2681` `Ok("f-ed4072f7")`.
+- **`an_owner_or_an_ancestor_replaced_since_the_compile_refuses_the_dispatch`**
+  starts a run before any replacement. After the ancestor row, a start, a
+  dispatch-bound start and the run's resume each refuse `replaced:
+  worker.md` for `agent 'worker'` (the first binding), and nothing is
+  written. The baseline red is O3 above.
+- **Changed, not new.**
+  - The start/resume test's three per-door assertions became one ordered
+    vector, and its closing restored checks read the same helper. Every
+    expected value is unchanged.
+  - O5, O6 and O7, re-run on the final file, each move exactly their own
+    element (above). Restored, all pass.
+- **Shared once (ruling 5).** The file grew no longer:
+  - `charter_moved` replaces the two identical `refusal` closures of the
+    start/resume and recompile tests;
+  - `written_in` replaces their two identical `written` closures;
+  - the dispatch test's `refusal` and `unpinned` closures became one-line
+    wrappers over the file's `moved`.
+
+  Every expected string is unchanged. O4 (`:1323`) and U4 (`:1378`) fail
+  through the wrappers.
+
+### Not bound, stated
+
+- **The rustix listing's end-of-stream error** (`names_in`'s `entry?`) has no
+  planted row. No fixture makes `readdir` fail after the directory opened.
+  The first visit's hand-rolled `errno` check had none either.
+- **16-fix MI and 16-fix-b M14** (a key taken from the written spelling)
+  bind only on an alias-accepting host. They stay pending macOS.
+
+### Restored
+
+- `git status --short` lists only the test file and the three ledgers.
+- `cargo test -p brokkr-runtime --all-features --locked`: lib 688 passed,
+  and every integration binary ok (`restored-runtime.log`). This run
+  predates the `doors`/`written_in` restructure, the ledger edits and the
+  removal of the `#[expect]`. The identity filter (384 passed,
+  `final-green.log`) and the workspace run (`tasks.md`) cover the final
+  tree.
+- `capability_verbs`: 7 passed. Protocol `adapters::tests`: 229 passed.
+- **Second visit, on the final tree after every restore.**
+  - `git apply --check -R` of the saved patch passed.
+  - `cargo test -p <crate> --all-features --locked` ran for each of the eight
+    workspace crates, in the foreground, each under `timeout 590`. It gave 95
+    `test result` lines, all ok, and no `FAILED`:
+    - brokkr-runtime: 27 lines, lib 688;
+    - brokkr-core, -view, -protocol, -bridge and -seatbelt-probe: 14;
+    - brokkr-cli: 45;
+    - brokkr-store: 9.
+
+    The logs are `.forge/u24/v2-test-*.log`.
+
+### Admissions, measured pins and gates
+
+- No standing-admission lines, no fixture migrations, no production edit,
+  and no frozen surface moved.
+- **Measured pins (merge addendum, ruling 2).**
+  - `quality/file-lines.txt`: `boundary_tests.rs` 4642 → 4636 (`wc -l`).
+  - `quality/too-many-lines.txt`, measured with `cargo clippy -p
+    brokkr-runtime --all-targets --all-features --locked -- -A clippy::all
+    --force-warn clippy::too_many_lines`:
+    - the dispatch test, 177 → 165;
+    - the recompile test, 186 → 174;
+    - the start/resume test, 111, is now under 100 and leaves the list;
+    - the rest only move lines.
+  - The start/resume test's `#[expect(clippy::too_many_lines)]` became
+    unfulfilled and is removed (ruling 4). `quality/suppressions.txt` test
+    `too_many_lines` 260 → 259, and
+    `every_suppression_in_the_tree_is_counted_in_the_baseline` passed.
+  - The second visit re-measured all three on the final tree:
+    - `wc -l` gives 4636;
+    - the same clippy run lists exactly the ledger's 13 `boundary_tests.rs`
+      entries, at the same counts and lines;
+    - the suppression test passed in `v2-test-runtime.log`.
+- **Gates** are recorded in `tasks.md`'s unit 24 note.
+- **Pending:**
+  - `jscpd` and `quality/ratchet.sh`, which are not run in this seat;
+  - macOS;
+  - exact coverage outside the box;
+  - remote CI and the council.

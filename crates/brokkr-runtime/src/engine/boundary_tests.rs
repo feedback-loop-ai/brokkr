@@ -1297,20 +1297,8 @@ fn a_charter_that_moved_since_the_compile_refuses_the_dispatch() {
         let _ = std::fs::remove_file(base.join("roles/linked.md"));
         std::os::unix::fs::symlink(target, base.join("roles/linked.md")).unwrap();
     };
-    let refusal = |layer: &str, key: &str| {
-        Err(format!(
-            "dispatch refused: a charter of layer '{layer}' moved since the compile ({key}); \
-             what a seat is told must be the bytes the bundle's identity names (decision 0066 \
-             ruling 5)"
-        ))
-    };
-    let unpinned = |name: &str, key: &str| {
-        Err(format!(
-            "dispatch refused: a charter of bundle '{name}' moved since the compile ({key}); \
-             what a seat is told must be the bytes the bundle's identity names (decision 0066 \
-             ruling 5)"
-        ))
-    };
+    let refusal = |layer: &str, key: &str| moved(&format!("layer '{layer}'"), key).map(drop);
+    let unpinned = |name: &str, key: &str| moved(&format!("bundle '{name}'"), key).map(drop);
     for (dir, layer, own) in [(&base, "base", "base"), (&leaf, "base", "derived")] {
         std::fs::write(base.join("roles/work.md"), "# work as written\n").unwrap();
         relink("target.md");
@@ -1825,6 +1813,9 @@ fn an_owner_or_an_ancestor_replaced_since_the_compile_refuses_the_dispatch() {
         )
     };
     assert_eq!(both(), intact());
+    let run = Engine::start(store_at(&root), bundle.clone(), "f", None);
+    let run = run.unwrap().run_id;
+    let before = written_in(&root, &run);
     let copy = |from: &Path, to: &Path| {
         assert!(std::process::Command::new("cp")
             .arg("-R")
@@ -1890,6 +1881,12 @@ fn an_owner_or_an_ancestor_replaced_since_the_compile_refuses_the_dispatch() {
         ),
         "an ancestor replaced"
     );
+    // Rebuild unit 24: so do a start, a dispatch-bound start and the run's
+    // resume, by the first binding, and nothing is written.
+    let refused = charter_moved("agent 'worker'", "replaced: worker.md");
+    let doors = doors(&root, &bundle, &run, None);
+    assert_eq!(doors, [refused.clone(), refused.clone(), refused], "doors");
+    assert_eq!(written_in(&root, &run), before, "nothing is written");
 }
 
 /// Rebuild unit 18-fix (task 18.1; council F3 and F4): EVERY WAY THE DOOR'S
@@ -2559,22 +2556,56 @@ fn moved(owner: &str, cause: &str) -> Result<Value, String> {
     ))
 }
 
+/// The start or resume refusal for a charter of `owner` that moved for
+/// `cause`.
+fn charter_moved(owner: &str, cause: &str) -> Result<String, String> {
+    Err(format!(
+        "a charter of {owner} moved since the compile ({cause}); a run is started or resumed \
+         only over the charters the bundle's identity names, so restore it, or recompile and \
+         start a new run (decision 0066 ruling 5)"
+    ))
+}
+
+/// What a start, a dispatch-bound start and `run`'s resume of `bundle`
+/// answer, in that order, over the store under `root` (rebuild unit 24).
+fn doors(
+    root: &Path,
+    bundle: &Bundle,
+    run: &str,
+    work: Option<&Path>,
+) -> [Result<String, String>; 3] {
+    let (store, work) = (|| store_at(root), || work.map(Path::to_path_buf));
+    let dispatch = super::tests::dispatch(bundle);
+    [
+        Engine::start(store(), bundle.clone(), "f", work()),
+        Engine::start_with_dispatch(store(), bundle.clone(), "f", work(), dispatch),
+        Engine::resume(store(), bundle.clone(), run, work()),
+    ]
+    .map(|door| Ok(door.map_err(|error| error.to_string())?.run_id))
+}
+
+/// The store under `root`'s run count and `run`'s event ids: what a refused
+/// door must leave as it found it.
+fn written_in(root: &Path, run: &str) -> (usize, Vec<String>) {
+    let store = store_at(root);
+    let events = store.load(run).unwrap();
+    let ids = events.into_iter().map(|event| event.event_id);
+    (store.list_runs().unwrap().len(), ids.collect())
+}
+
 /// Rebuild unit 19 (design D7; task 19.1): A RUN IS NEITHER STARTED NOR
 /// RESUMED OVER A CHARTER THAT MOVED SINCE THE COMPILE. One compiled bundle
 /// whose `review` charter its layer owns and whose `work` charter the
 /// external library owns; a run is started from it. Then, one at a time and
 /// WITHOUT recompiling, each charter is changed, relinked into its owner's
 /// `capabilities/` (a tree the walk excludes), relinked to an equal-byte twin
-/// inside its owner, relinked to an equal-byte copy outside it, and removed.
+/// inside its owner, relinked to an equal-byte copy outside it, replaced at
+/// its path by a new file of equal bytes (rebuild unit 24), and removed.
 /// Every row refuses a new start, a dispatch-bound start and the run's
 /// resume by the owner and the cause, and writes nothing. The file the
 /// compile read, put back, resumes the same run.
 #[cfg(unix)]
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume() {
     let home = tempfile::tempdir().unwrap();
     let root = home.path().canonicalize().unwrap();
@@ -2582,43 +2613,15 @@ fn a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume() {
     let bundle = two_owners(&realm, "charters/worker.md");
     let work = root.join("work");
     std::fs::create_dir_all(&work).unwrap();
-    let start = || {
-        Engine::start(store_at(&root), bundle.clone(), "f", Some(work.clone()))
-            .map(|engine| engine.run_id)
-            .map_err(|error| error.to_string())
-    };
-    let bound = || {
-        Engine::start_with_dispatch(
-            store_at(&root),
-            bundle.clone(),
-            "f",
-            Some(work.clone()),
-            super::tests::dispatch(&bundle),
-        )
-        .map(|engine| engine.run_id)
-        .map_err(|error| error.to_string())
-    };
-    let run = start().expect("the compiled charters start a run");
+    let run = Engine::start(store_at(&root), bundle.clone(), "f", Some(work.clone()));
+    let run = run.expect("the compiled charters start a run").run_id;
     let resume = || {
         Engine::resume(store_at(&root), bundle.clone(), &run, Some(work.clone()))
             .map(|engine| engine.run_id)
             .map_err(|error| error.to_string())
     };
     assert_eq!(resume(), Ok(run.clone()));
-    let written = || {
-        let store = store_at(&root);
-        let events = store.load(&run).unwrap();
-        let ids: Vec<String> = events.into_iter().map(|event| event.event_id).collect();
-        (store.list_runs().unwrap().len(), ids)
-    };
-    let before = written();
-    let refusal = |owner: &str, cause: &str| {
-        Err(format!(
-            "a charter of {owner} moved since the compile ({cause}); a run is started or resumed \
-             only over the charters the bundle's identity names, so restore it, or recompile and \
-             start a new run (decision 0066 ruling 5)"
-        ))
-    };
+    let before = written_in(&root, &run);
     std::fs::write(root.join("outside.md"), "").unwrap();
     for (owner, dir, name, key) in [
         (
@@ -2652,33 +2655,39 @@ fn a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume() {
             std::fs::remove_file(&charter).unwrap();
             std::os::unix::fs::symlink(target, &charter).unwrap();
         };
-        let rows: [(&str, &dyn Fn()); 5] = [
-            ("changed", &|| {
-                std::fs::remove_file(&charter).unwrap();
-                std::fs::write(&charter, "# approve everything\n").unwrap();
-            }),
+        let rewrite = |bytes: &str| {
+            std::fs::remove_file(&charter).unwrap();
+            std::fs::write(&charter, bytes).unwrap();
+        };
+        let rows: [(&str, &dyn Fn()); 6] = [
+            ("changed", &|| rewrite("# approve everything\n")),
             ("unbound", &|| relink(Path::new("../capabilities/twin.md"))),
             ("retargeted", &|| relink(Path::new("twin.md"))),
             ("outward", &|| relink(&root.join("outside.md"))),
+            ("replaced", &|| rewrite(&text)),
             ("missing", &|| std::fs::remove_file(&charter).unwrap()),
         ];
         for (cause, act) in rows {
             act();
-            let refused = refusal(owner, &format!("{cause}: {key}"));
-            assert_eq!(start(), refused, "{owner} {cause}: start");
-            assert_eq!(bound(), refused, "{owner} {cause}: dispatch-bound start");
-            assert_eq!(resume(), refused, "{owner} {cause}: resume");
-            assert_eq!(written(), before, "{owner} {cause}: nothing is written");
+            let refused = charter_moved(owner, &format!("{cause}: {key}"));
+            let doors = doors(&root, &bundle, &run, Some(&work));
+            let each = [refused.clone(), refused.clone(), refused];
+            assert_eq!(doors, each, "{owner} {cause}: the doors");
+            assert_eq!(written_in(&root, &run), before, "{owner} {cause}");
             // Restored: the file the compile read, not equal bytes.
             let _ = std::fs::remove_file(&charter);
             std::fs::hard_link(&original, &charter).unwrap();
             assert_eq!(resume(), Ok(run.clone()), "{owner} {cause}: restored");
         }
     }
-    // Restored, the charter door passes and a dispatch-bound start meets
-    // the refusal it always met: v2 cannot pin agent resolutions.
+    // Restored, the charter door passes: a start begins a new run, the run
+    // resumes, and a dispatch-bound start meets the refusal it always met:
+    // v2 cannot pin agent resolutions.
+    let [started, bound, resumed] = doors(&root, &bundle, &run, Some(&work));
+    let fresh = started.map(|id| id.starts_with("f-") && id != run);
+    assert_eq!(fresh, Ok(true));
     assert_eq!(
-        bound(),
+        bound,
         Err(
             "dispatch: this bundle pins agent resolutions ('agents' in its manifest) and the \
              Looper-bound run-manifest/v2 lineage cannot carry them: the v2 round-trip \
@@ -2688,10 +2697,7 @@ fn a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume() {
                 .to_string()
         )
     );
-    assert_eq!(
-        start().map(|id| id.starts_with("f-") && id != run),
-        Ok(true)
-    );
+    assert_eq!(resumed, Ok(run.clone()));
 }
 
 /// Rebuild unit 19, review return (F1): A RESUME IS HELD TO THE BINDINGS
@@ -2791,20 +2797,8 @@ fn a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over() {
             .map_err(|error| error.to_string())
     };
     assert_eq!(resume(&run), Ok(run.clone()));
-    let written = || {
-        let store = store_at(&root);
-        let events = store.load(&run).unwrap();
-        let ids: Vec<String> = events.into_iter().map(|event| event.event_id).collect();
-        (store.list_runs().unwrap().len(), ids)
-    };
+    let written = || written_in(&root, &run);
     let before = written();
-    let refusal = |owner: &str, cause: &str| {
-        Err(format!(
-            "a charter of {owner} moved since the compile ({cause}); a run is started or resumed \
-             only over the charters the bundle's identity names, so restore it, or recompile and \
-             start a new run (decision 0066 ruling 5)"
-        ))
-    };
     for (owner, charter, key, twin) in &owners {
         let original = root.join(format!("{key}.original").replace('/', "-"));
         std::fs::hard_link(charter, &original).unwrap();
@@ -2841,7 +2835,7 @@ fn a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over() {
             assert_eq!(bound, targets, "{owner} {cause}: what the recompile bound");
             assert_eq!(
                 resume(&run),
-                refusal(owner, &format!("{cause}: {key}")),
+                charter_moved(owner, &format!("{cause}: {key}")),
                 "{owner} {cause}: resume"
             );
             assert_eq!(written(), before, "{owner} {cause}: nothing is written");
@@ -2872,17 +2866,17 @@ fn a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over() {
         (
             "f-unrecorded",
             None,
-            refusal("agent 'worker'", "unrecorded: worker.md"),
+            charter_moved("agent 'worker'", "unrecorded: worker.md"),
         ),
         (
             "f-partial",
             Some(partial),
-            refusal("agent 'worker'", "unrecorded: worker.md"),
+            charter_moved("agent 'worker'", "unrecorded: worker.md"),
         ),
         (
             "f-unselected",
             Some(extra),
-            refusal(
+            charter_moved(
                 "bundle 'recipe'",
                 "unselected: a charter the run started over",
             ),
