@@ -25996,3 +25996,32 @@ quotation.
 in the tasks.md note. fmt, clippy and the crate suites were not re-run,
 because no crate byte moved; the first visit's results above still hold
 for these crates.
+
+## Unit 27b, third visit — no ruling since the oversized report, so the run stops (2026-10-01)
+
+Triage re-ruled `chore` after the review return's `oversized` report
+(`3c2bb484`). The ruling file gained no addendum in between: its last
+heading is still "2026-09-30: unit 27b resolves each compile root once, and
+the socket refusal is judged per host" (`grep -n '^## '`). A return to
+triage cannot grant scope, so this visit re-verified the blockers on
+`3c2bb484` and moved no crate byte. `git diff 4d7aae75 3c2bb484 -- crates`
+printed nothing.
+
+`grep -n canonicalize` still finds the post-entry resolutions R1 names:
+`bundle/compose.rs:239` and `:350`, `agents/load.rs:436`, `:579` and `:705`,
+and `capabilities.rs:317` and `:321`. It also finds the entry's own
+resolution at `bundle.rs:1429`. `Adapters::load` is still called at both
+`bundle.rs:1078` and `:1602`. The validator's `Some("exec")` outcome is at
+`bundle.rs:6212` (R3), and `SiteCapabilities::serving` is at
+`capabilities.rs:1360`. The addendum quoting the old spellings is at
+`operator-ruling-2026-09-23.md:267` (R4). The split and the three rulings
+owed are as the review return records them above:
+
+- 27b-fix-a/27b-fix-b, or a ruling that `read_document`'s per-document
+  containment is not a second root resolver (R1);
+- the exact shape of the validator's driver input, given the exec outcome
+  (R3);
+- how the verbatim quotation of the old names meets the spelling gate (R4).
+
+This visit reports `blocked`, not `oversized`, so the run stops for the
+operator. Another `oversized` report would loop through triage again.

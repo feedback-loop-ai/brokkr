@@ -5586,6 +5586,18 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
   clean. No crate byte moved, so fmt, clippy and the suites were not
   re-run.
 
+**Unit 27b, third visit, 2026-10-01 (same run, re-fired by triage on `3c2bb484`)** (evidence.md, "Unit 27b, third visit"). Triage re-ruled `chore` with no operator addendum in between: the ruling file's last addendum is still the unit 27b ruling of 2026-09-30. This visit moves no crate byte and reports `blocked` to stop the loop.
+
+- **27b.1, 27b.3 and 27b.4 stay open.** `grep -n` on `3c2bb484` shows the
+  same blockers the review return recorded: the resolutions at
+  `compose.rs:239`, `agents/load.rs:436`, `:579`, `:705` and
+  `capabilities.rs:317`, `:321`; two `Adapters::load` calls
+  (`bundle.rs:1078`, `:1602`); the validator's exec outcome
+  (`bundle.rs:6212`); and the quoted old names at
+  `operator-ruling-2026-09-23.md:267`. `git diff 4d7aae75 3c2bb484 --
+  crates` is empty.
+- **27b.2 stays open for macOS** (remote CI).
+
 ## 28. Later council judgment and final archive
 
 - [ ] 28.1 **Do not archive or fold in this commission.** The operator holds this final task open for council re-judgment; completed local repairs/gates do not clear the security hold. If subsequently authorized after that judgment, the dialect's final operation is `openspec archive decision-0065-capabilities-slice-one --yes`, folding the six deltas into living truth with append-only provenance, followed by archived strict validation and a commit. That later work is outside this repair visit, so leave this box unchecked. Requirements: [Slice-one records do not claim later-slice behavior][MP6]; [Digest pins are measured and their history remains truthful][MP5]; operator no-archive ruling and dialect archive operation. (previous 12.1)
