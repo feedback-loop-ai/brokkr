@@ -7,7 +7,7 @@
     50 crates/brokkr-cli/src/budget_frame.rs
    550 crates/brokkr-cli/src/cli_args.rs
    519 crates/brokkr-cli/src/compare.rs
-  1561 crates/brokkr-cli/src/doctor.rs
+  1570 crates/brokkr-cli/src/doctor.rs
    109 crates/brokkr-cli/src/exit.rs
    138 crates/brokkr-cli/src/fleet.rs
     59 crates/brokkr-cli/src/hands.rs
@@ -36,7 +36,7 @@
     27 crates/brokkr-core/src/lib.rs
    641 crates/brokkr-core/src/policy.rs
    902 crates/brokkr-core/src/realms.rs
-  7144 crates/brokkr-protocol/src/adapters.rs
+  7239 crates/brokkr-protocol/src/adapters.rs
   4666 crates/brokkr-protocol/src/adapters/composite.rs
    476 crates/brokkr-protocol/src/adapters/composite/image.rs
    607 crates/brokkr-protocol/src/adapters/route_overlay.rs
@@ -61,7 +61,7 @@
    285 crates/brokkr-runtime/src/anchor.rs
   7793 crates/brokkr-runtime/src/bundle.rs
   1258 crates/brokkr-runtime/src/bundle/compose.rs
-  2359 crates/brokkr-runtime/src/capabilities.rs
+  2370 crates/brokkr-runtime/src/capabilities.rs
    645 crates/brokkr-runtime/src/dialect.rs
   5310 crates/brokkr-runtime/src/engine.rs
    313 crates/brokkr-runtime/src/engine/checkpoints.rs
@@ -93,7 +93,7 @@
    339 crates/brokkr-cli/src/boundary/tests.rs
   1631 crates/brokkr-cli/src/cli_reference_tests.rs
    422 crates/brokkr-cli/src/compare/tests.rs
-  1756 crates/brokkr-cli/src/doctor/capability_tests.rs
+  1920 crates/brokkr-cli/src/doctor/capability_tests.rs
   3162 crates/brokkr-cli/src/doctor/tests.rs
     64 crates/brokkr-cli/src/exit/tests.rs
     32 crates/brokkr-cli/src/hands/tests.rs
@@ -178,7 +178,7 @@
   2458 crates/brokkr-protocol/src/adapters/composite/tests/native_matrix.rs
    302 crates/brokkr-protocol/src/adapters/notice_tests.rs
    623 crates/brokkr-protocol/src/adapters/route_overlay/tests.rs
- 18829 crates/brokkr-protocol/src/adapters/tests.rs
+ 18951 crates/brokkr-protocol/src/adapters/tests.rs
   3127 crates/brokkr-protocol/src/dsh_sandbox/tests.rs
    153 crates/brokkr-protocol/src/fake/tests.rs
    303 crates/brokkr-protocol/src/hands/session/tests.rs

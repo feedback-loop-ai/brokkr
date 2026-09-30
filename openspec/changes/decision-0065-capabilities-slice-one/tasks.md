@@ -4694,9 +4694,9 @@ production byte moved.
 
 ## 22. Unit 22 — Submit whole plans to doctor
 
-- [x] 22.1 Unit 22 submits whole plans in both doctor paths. Verify interacting OFF/final-state conflicts and explicit adapter-only scope. Requirements: [Doctor reports grants for every realm][CD1], [Installed native capabilities absent from grants are explicit][CD2], [Restrictions are validated, carried and pinned without engine interpretation][RG4]. Reopened/remaining: operator ruling 2–4. (previous 8.3)
+- [x] 22.1 Unit 22 submits whole plans in both doctor paths. Verify interacting OFF/final-state conflicts and explicit adapter-only scope. Requirements: [Doctor reports grants for every realm][CD1], [Installed native capabilities absent from grants are explicit][CD2], [Restrictions are validated, carried and pinned without engine interpretation][RG4]. Reopened/remaining: operator ruling 2–4. (previous 8.3) Ticked on unit 22-fix-b's evidence: every adapter-level plan doctor reports, DSH and LaneTally included, is admitted or refused by its launch's own final validation, and every plan refusal leaves through the one bounded sink.
 
-- [x] 22.2 Unit 22 independently asserts full doctor/compile outcomes for all grant shapes. Remove whole-plan assessment, observe intended failure, restore/pass; no model invocation. Requirements: [Installed native capabilities absent from grants are explicit][CD2], [Unknown inventories and live-control gaps remain unmeasured][CD3], [Known native powers require a valid delivered denial or refusal][NCR]. Reopened/remaining: operator ruling 2–4. (previous 8.4)
+- [x] 22.2 Unit 22 independently asserts full doctor/compile outcomes for all grant shapes. Remove whole-plan assessment, observe intended failure, restore/pass; no model invocation. Requirements: [Installed native capabilities absent from grants are explicit][CD2], [Unknown inventories and live-control gaps remain unmeasured][CD3], [Known native powers require a valid delivered denial or refusal][NCR]. Reopened/remaining: operator ruling 2–4. (previous 8.4) Ticked on unit 22-fix-b's evidence: the DSH and LaneTally outcomes are asserted admitted and refused as their launches judge them, not by a doctor-only substitute.
 
 **Unit 22 note, 2026-09-29 (run `0065-rebuild-unit-22-see-the-uni-e59d1b7e`): OVERSIZED, record only.**
 
@@ -4795,6 +4795,48 @@ production byte moved.
   - No other file moved, including `init_doctor.rs`.
   - 22.1 and 22.2 stay ticked (evidence.md, "Review return SC2, M1, L1,
     L2").
+
+**Unit 22-fix-b note, 2026-09-30 (run `0065-rebuild-unit-22-see-the-uni-603832dd`): finishing repair.**
+
+- **Ruling.** The operator's ruling of 2026-09-30 is recorded as the
+  addendum "2026-09-30: unit 22's residual is finishing unit 22-fix-b" in
+  `operator-ruling-2026-09-23.md`.
+- **Correction.** The 22-fix note above says `dsh` and `lanetally` plans
+  were "refused with a named reason". That was a doctor-only substitute,
+  not their launches' refusal (SC22-2). This visit replaces it; 22.1 and
+  22.2 are now ticked on this visit's evidence, not on that substitute.
+- **SC22-1.** Both `Authority::load` failures in doctor (a plan's, and
+  the grant's own failing line) now leave through `bounded_line`, the sink
+  every other plan refusal uses: 512 scalar values, control characters
+  escaped.
+- **SC22-2.** `adapters.rs` exports `lanetally_command` (the launch's
+  `claude_launch` under the wrapper's shape) and `dsh_cold_command` (the
+  launch's argv judgment, `dsh_argv`, extracted from `dsh_launch_with`
+  unchanged, then the one `dsh_command` builder through the same `served`
+  final check `dsh_served` uses). `final_validation` calls them. The
+  doctor-only refusals are gone.
+- **A22-1.** Native capability details (office, scope, drop reason,
+  evidence) go through `Safe`.
+- **Proof.**
+  - Baseline at HEAD production with this visit's tests: 4 of 22 red in
+    `doctor::capability_tests`. The protocol tests do not compile against
+    HEAD's `adapters.rs` (E0425: no `dsh_cold_command`,
+    `lanetally_command`).
+  - Fix: 22 of 22, `doctor::` 76, and both protocol tests pass.
+  - Mutations M1–M8 each fail their intended tests; the restored tree is
+    byte-identical to the saved patch.
+- **Admissions.** No fixture migrations and no standing-admission lines.
+  `crates/brokkr-protocol/src/adapters/tests.rs` gains two tests, as the
+  ruling admits for the export's owning tests. `quality/file-lines.txt`
+  and `quality/too-many-lines.txt` are re-measured for the moved files.
+- **Assumption.** "Every doctor refusal" is read as the plan refusals and
+  both `Authority::load` failures. The `Definitions::load` line is left
+  as it was.
+- **Ticked.** 22.1 and 22.2, on the evidence in evidence.md, "Unit
+  22-fix-b".
+- **Pending.** macOS, exact coverage outside the box, `cargo test
+  --workspace`, the jscpd and file ratchets (not runnable in this seat),
+  remote CI and the council.
 
 ## 23. Unit 23 — Audit launch enforcement removals
 

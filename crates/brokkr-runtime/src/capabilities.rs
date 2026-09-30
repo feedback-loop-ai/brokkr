@@ -2265,6 +2265,12 @@ fn admit(serving: &Serving<'_>, plan: &NativePlan) -> Result<(), launch::Failure
 /// has none of its own, and nothing is spawned in it.
 const ADAPTER_WORKDIR: &str = "/";
 
+/// The overlay and prompt an adapter-level DSH command names: every DSH
+/// command carries both, and the final check reads each only as the
+/// argument it is, so neither is staged or written.
+const ADAPTER_OVERLAY: &str = "/adapter-plan/overlay.json";
+const ADAPTER_PROMPT: &str = "adapter-plan";
+
 /// Design D8 and review return SC1 of rebuild unit 22: the complete cold
 /// command an admitted adapter-level plan ([`Authority::assess`]) serves,
 /// handed to the built-in driver's own launch exactly as the engine hands a
@@ -2284,31 +2290,33 @@ const ADAPTER_WORKDIR: &str = "/";
 /// driver the engine does not dispatch is opaque, and `exec` consumes no
 /// native control and checks no final command: the composition
 /// [`Authority::resolve`] admitted is all their launch judges, and the plan
-/// rides as data. DSH and LaneTally launches do check a final command,
-/// which doctor cannot build here, so their plan is refused rather than
-/// reported as admitted unchecked; so is a driver name no built-in driver
-/// answers to, which launch refuses before anything is composed.
+/// rides as data. DSH and LaneTally commands are judged by the readings
+/// their launches' own final validation exports (operator ruling of
+/// 2026-09-30, unit 22-fix-b): a DSH command names an overlay and a prompt
+/// it never stages. A driver name no built-in driver answers to, which
+/// launch refuses before anything is composed, is refused here too.
 ///
 /// [`SiteSpawn::seal`]: crate::engine::SiteSpawn::seal
 /// [`SiteSpawn::launch_arguments`]: crate::engine::SiteSpawn::launch_arguments
 fn final_validation(adapter: &crate::agents::Adapter, outcome: &Outcome) -> Result<(), String> {
+    use brokkr_protocol::adapters::{
+        claude_command, codex_command, dsh_cold_command, lanetally_command,
+    };
     use launch::{
         AllowIntent, Application, Expected, HandsIntent, LocalExpectation, Origin, SandboxIntent,
         SealedServing, SERVING_INPUTS,
     };
     let harness = harness_of(&adapter.driver);
-    let unbuilt = |why: &str| {
-        Err(format!(
-            "no adapter-level cold command of harness '{harness}' is checked here, because \
-             {why}, so its plan is not reported as admitted (design D8)"
-        ))
-    };
     match harness {
         OPAQUE_HARNESS | "exec" => return Ok(()),
-        "codex" | "claude" => {}
-        "dsh" => return unbuilt("every dsh command carries a staged overlay and a prompt"),
-        "lanetally" => return unbuilt("no reading of its launch's final command is exported"),
-        _ => return unbuilt("no built-in driver of that name is launched"),
+        "codex" | "claude" | "dsh" | "lanetally" => {}
+        _ => {
+            return Err(format!(
+                "no adapter-level cold command of harness '{harness}' is checked here, because \
+                 no built-in driver of that name is launched, so its plan is not reported as \
+                 admitted (design D8)"
+            ))
+        }
     }
     let segments = vec![Segment::new(Origin::Template, &adapter.driver)];
     let mut spawn = crate::engine::SiteSpawn {
@@ -2343,14 +2351,17 @@ fn final_validation(adapter: &crate::agents::Adapter, outcome: &Outcome) -> Resu
         "launch_arguments": spawn.launch_arguments(),
     });
     match harness {
-        "codex" => brokkr_protocol::adapters::codex_command(
+        "codex" => codex_command(harness, &extras, ADAPTER_WORKDIR, None, &input),
+        "dsh" => dsh_cold_command(
             harness,
             &extras,
             ADAPTER_WORKDIR,
-            None,
+            ADAPTER_OVERLAY,
+            ADAPTER_PROMPT,
             &input,
         ),
-        _ => brokkr_protocol::adapters::claude_command(harness, &extras, None, &input),
+        "lanetally" => lanetally_command(harness, &extras, None, &input),
+        _ => claude_command(harness, &extras, None, &input),
     }
     .map(drop)
 }

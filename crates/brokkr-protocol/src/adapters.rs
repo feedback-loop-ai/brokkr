@@ -3389,6 +3389,18 @@ pub fn claude_command(
     claude_launch(bin, extra, session, input, CLAUDE_SHAPE, None).map(|plan| plan.command)
 }
 
+/// The same reading of a LaneTally launch: claude's, composed and checked
+/// under the wrapper's own name and shape, as the launch runs it
+/// (operator ruling of 2026-09-30, unit 22-fix-b).
+pub fn lanetally_command(
+    bin: &str,
+    extra: &[String],
+    session: Option<&str>,
+    input: &Value,
+) -> Result<Vec<String>, String> {
+    claude_launch(bin, extra, session, input, claude_shape(true), None).map(|plan| plan.command)
+}
+
 /// Every claude flag that selects, copies or relocates a conversation.
 /// The first list takes a value, the second stands alone; both are read
 /// from the installed CLI's own help (2.1.266).
@@ -4405,21 +4417,18 @@ fn dsh_launch_resolving(
     })
 }
 
-/// `dsh_launch` over an injected composite producer, so every drift and
-/// mismatch case is a plain test over synthetic homes.
-#[expect(
-    clippy::excessive_nesting,
-    clippy::too_many_lines,
-    reason = "baseline 2026-09, #288"
-)]
-fn dsh_launch_with(
-    bin: &str,
-    extra: &[String],
-    workdir: &str,
-    session: Option<&str>,
-    input: &Value,
-    composite: impl FnOnce() -> Result<DshComposite, String>,
-) -> Result<DshLaunch, String> {
+/// What a DSH launch reads from the seat's argv once it is judged: the
+/// engine's own model, effort and single route overlay, and nothing else.
+struct DshArgv {
+    model: Option<String>,
+    effort: Option<String>,
+    route: Option<String>,
+}
+
+/// The seat's argv as every DSH launch judges it, before any route is
+/// claimed, version probed or overlay staged ([`dsh_launch_with`]), and as
+/// doctor's reading of a DSH command judges it ([`dsh_cold_command`]).
+fn dsh_argv(extra: &[String], input: &Value) -> Result<DshArgv, String> {
     // Decision 0065 ruling 4, as on the codex and claude paths and FIRST
     // here: a site the engine computed no authority for is refused before
     // the seat's argv is read, a route claimed, a version probed or an
@@ -4473,6 +4482,33 @@ fn dsh_launch_with(
                 .to_string(),
         );
     }
+    Ok(DshArgv {
+        model,
+        effort,
+        route: route_arg,
+    })
+}
+
+/// `dsh_launch` over an injected composite producer, so every drift and
+/// mismatch case is a plain test over synthetic homes.
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09, #288"
+)]
+fn dsh_launch_with(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+    composite: impl FnOnce() -> Result<DshComposite, String>,
+) -> Result<DshLaunch, String> {
+    let DshArgv {
+        model,
+        effort,
+        route: route_arg,
+    } = dsh_argv(extra, input)?;
     let route = route_overlay::claim(input, workdir, model.as_deref(), route_arg.as_deref())?;
     let transcript = Transcript::resolve(TranscriptKind::DshSession)?;
     let home = transcript.home().to_path_buf();
@@ -4723,19 +4759,78 @@ fn dsh_served(
     workdir: &str,
     input: &Value,
 ) -> Result<Vec<String>, String> {
-    let mut command = launch.command.clone();
-    command.push(prompt.to_string());
     let overlay = launch.overlay.path().to_string_lossy();
-    let chosen = crate::native_controls::Serving {
-        program: bin,
-        workdir,
-        session: launch.rejoining.as_deref(),
-        overlay: Some(&overlay),
+    DshServing {
+        command: launch.command.clone(),
+        overlay: &overlay,
         stream: launch.stream_json,
-        prompt: Some(prompt),
-        ..Default::default()
-    };
-    served("dsh", command, handed, input, chosen)
+        session: launch.rejoining.as_deref(),
+    }
+    .served(bin, handed, prompt, workdir, input)
+}
+
+/// A DSH command up to its prompt and the engine's serving choices for
+/// it: the staged overlay it names, whether its stream reading
+/// qualified, and the session it rejoins (`None` cold).
+struct DshServing<'a> {
+    command: Vec<String>,
+    overlay: &'a str,
+    stream: bool,
+    session: Option<&'a str>,
+}
+
+impl DshServing<'_> {
+    /// The command ended by `prompt`, as data, and served only as the final
+    /// check returns it ([`served`]).
+    fn served(
+        self,
+        bin: &str,
+        handed: &[String],
+        prompt: &str,
+        workdir: &str,
+        input: &Value,
+    ) -> Result<Vec<String>, String> {
+        let mut command = self.command;
+        command.push(prompt.to_string());
+        let chosen = crate::native_controls::Serving {
+            program: bin,
+            workdir,
+            session: self.session,
+            overlay: Some(self.overlay),
+            stream: self.stream,
+            prompt: Some(prompt),
+            ..Default::default()
+        };
+        served("dsh", command, handed, input, chosen)
+    }
+}
+
+/// The same reading of a cold DSH launch as [`codex_command`] and
+/// [`claude_command`] give of theirs (operator ruling of 2026-09-30, unit
+/// 22-fix-b): the seat's argv judged as every DSH launch judges it
+/// ([`dsh_argv`]), then the one serving command [`dsh_command`] builds,
+/// unqualified and rejoining nothing, ended by `prompt` and handed to the
+/// same final check a DSH launch serves its command through
+/// ([`dsh_served`]). The overlay is named, never staged: the check reads it
+/// only as the argument it is. No route is claimed, no version probed and
+/// nothing spawned, so its admission or refusal is the final validation's
+/// alone.
+pub fn dsh_cold_command(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    overlay: &str,
+    prompt: &str,
+    input: &Value,
+) -> Result<Vec<String>, String> {
+    dsh_argv(extra, input)?;
+    DshServing {
+        command: dsh_command(bin, overlay, false, None),
+        overlay,
+        stream: false,
+        session: None,
+    }
+    .served(bin, extra, prompt, workdir, input)
 }
 
 /// `invoke_dsh` over an already-settled launch, so the qualified

@@ -1629,10 +1629,11 @@ fn a_plan_whose_final_command_carries_no_off_is_refused_as_launch_refuses_it() {
 /// Review return M1 of run `0065-rebuild-unit-22-see-the-uni-79c858d5`:
 /// each harness is answered as its launch serves it. The same plan — one
 /// power, OFF by the harness default — is admitted under `exec`, which
-/// consumes no native control and checks no final command, and is refused,
-/// with the step doctor cannot take named, under DSH and LaneTally, whose
-/// launches check a final command doctor cannot build, and under a driver
-/// name no built-in driver answers to.
+/// consumes no native control and checks no final command, and under DSH,
+/// whose launch's final check reads the composition from its staged
+/// overlay; it is refused under LaneTally with its launch's own final-check
+/// refusal (review return SC22-2), and under a driver name no built-in
+/// driver answers to.
 #[test]
 fn each_harness_is_answered_as_its_launch_serves_it() {
     let dir = workspace_with(Some(json!([realm("private", None)])));
@@ -1667,23 +1668,21 @@ fn each_harness_is_answered_as_its_launch_serves_it() {
             "ok       capabilities private: grants nothing; every native capability is \
              governed by the no-grant default — switched off, or the seat is refused"
                 .to_string(),
-            refused(
-                "private",
-                "dsh",
-                &unchecked(
-                    "dsh",
-                    "every dsh command carries a staged overlay and a prompt"
-                ),
-            ),
-            search("dsh", NO_OFF),
+            admitted("private", "dsh"),
+            search("dsh", OFF),
             admitted("private", "exec"),
             search("exec", OFF),
             refused(
                 "private",
                 "lanetally",
-                &unchecked(
-                    "lanetally",
-                    "no reading of its launch's final command is exported",
+                &format!(
+                    "{}: refusing to invoke the agent CLI: the final command of harness \
+                     'lanetally' leaves tool 'web_search' available, which its plan denies as \
+                     native capability 'web-search'; a complete command is parsed back before \
+                     its spawn and must express exactly the capability state its sealed plan \
+                     records, so it is refused rather than spawned (operator ruling 2 of \
+                     2026-09-23; design D6)",
+                    hypothetical("private", "adapter-plan")
                 ),
             ),
             search("lanetally", NO_OFF),
@@ -1750,6 +1749,171 @@ fn a_final_validation_refusal_is_bounded_as_a_compile_refusal_is() {
                  [{office}] only through dialect 'codex-native-search'; the adapter-level plan of \
                  a seat of office '{office}' that wants it is refused ({cut}); for a seat that \
                  does not hold it, {NO_OFF} · {EVIDENCE}"
+            ),
+        ]
+    );
+}
+
+/// Review return SC22-2 of run `0065-rebuild-unit-22-see-the-uni-79c858d5`
+/// (operator ruling of 2026-09-30): a DSH or LaneTally plan is admitted or
+/// refused by the final validation its own launch runs, never by a
+/// doctor-only substitute. DSH's launch refuses a template's effort level
+/// with no model beside it and admits a model pin; LaneTally's admits a
+/// plan whose OFF is its measured deny list (its default-OFF refusal is
+/// above). `brokkr-protocol`'s own suite shows each reading equal to its
+/// launch's outcome on the same command.
+#[test]
+fn dsh_and_lanetally_plans_are_judged_by_their_launchs_own_final_validation() {
+    let dir = workspace_with(Some(json!([realm("private", None)])));
+    let mut availability = installed(&[]);
+    for (provider, harness, declared, template) in [
+        (
+            "dsh-effort",
+            "dsh",
+            json!({"known": {}}),
+            &["--effort", "high"][..],
+        ),
+        (
+            "dsh-model",
+            "dsh",
+            json!({"known": {}}),
+            &["--model", "deepseek-v4-flash"],
+        ),
+        ("lanetally", "lanetally", selecting(), &[]),
+    ] {
+        let mut declared = adapter(provider, Some(declared));
+        let mut driver = vec!["{brokkr}", "driver", harness, "--"];
+        driver.extend(template);
+        declared["driver"] = json!(driver);
+        write(dir.path(), &format!("adapters/{provider}.json"), &declared);
+        availability.record(provider, Presence::Available);
+    }
+    let (healthy, lines) = lines(dir.path(), &availability);
+    assert!(healthy);
+    assert_eq!(
+        lines,
+        [
+            "ok       capabilities private: grants nothing; every native capability is \
+             governed by the no-grant default — switched off, or the seat is refused"
+                .to_string(),
+            refused(
+                "private",
+                "dsh-effort",
+                &format!(
+                    "{}: dsh driver: `--effort` needs a `--model` beside it: the level rides the \
+                     seat's default-model selection, which names its provider and model, and \
+                     this driver does not read the profile's default back to restate it",
+                    hypothetical("private", "adapter-plan")
+                ),
+            ),
+            admitted("private", "dsh-model"),
+            admitted("private", "lanetally"),
+            format!(
+                "warn     capabilities private native lanetally 'web-fetch': NOT granted here: \
+                 {OFF} · {EVIDENCE}"
+            ),
+        ]
+    );
+}
+
+/// Review return SC22-1 of run `0065-rebuild-unit-22-see-the-uni-79c858d5`:
+/// a realm whose authority does not load refuses every plan in it with the
+/// compiler's cause, through the one bounded sink every other plan refusal
+/// leaves by (design D6). The grant names a tool with a control character,
+/// of a dialect whose tool list alone passes 512 scalar values: the grant's
+/// own failing line and the plan line each carry it escaped and cut there.
+#[test]
+fn a_realm_authority_that_does_not_load_is_refused_through_the_bounded_sink() {
+    let dir = workspace_with(Some(json!([realm(
+        "private",
+        Some(json!({"web-search": {
+            "dialect": "codex-native-search", "tools": ["web_search\u{7}"]}}))
+    )])));
+    let tools: Vec<String> = (0..30)
+        .map(|at| format!("a-native-tool-named-{at:02}"))
+        .collect();
+    let mut dialect = native_dialect("codex-native-search", "codex");
+    dialect["tools"] = json!(tools);
+    write(
+        dir.path(),
+        "dialects/tools/codex-native-search.json",
+        &dialect,
+    );
+    let whole = format!(
+        "realm 'private' grants capability 'web-search' tool 'web_search\\u{{7}}', which dialect \
+         'codex-native-search' does not name; its tools are [{}]",
+        tools.join(", ")
+    );
+    let cut: String = whole.chars().take(511).chain(['…']).collect();
+    assert_eq!(
+        (whole.chars().count() > 512, cut.chars().count()),
+        (true, 512)
+    );
+    assert_eq!(cut.split(", ").last(), Some("a-native-tool-…"));
+    let (healthy, lines) = lines(dir.path(), &installed(&["codex"]));
+    assert!(!healthy);
+    assert_eq!(
+        lines,
+        [
+            format!("MISSING  capabilities private 'web-search': {cut}"),
+            refused("private", "codex", &cut),
+            format!(
+                "warn     capabilities private native codex 'web-search': UNKNOWN here: this \
+                 realm's grant of 'web-search' did not validate (its failing line is above), so \
+                 neither a grant nor a denial is claimed, and no seat compiles in this realm \
+                 until it is repaired · {EVIDENCE}"
+            ),
+        ]
+    );
+}
+
+/// Review return A22-1 of run `0065-rebuild-unit-22-see-the-uni-79c858d5`:
+/// a realm grant's office and an adapter's evidence are data doctor did not
+/// author. An office carrying a line break and an escape sequence, written
+/// to forge a line of its own, and evidence carrying a carriage return or
+/// an escape sequence reach the native lines through `Safe`, granted and
+/// not granted alike: the report keeps one line each.
+#[test]
+fn an_office_or_evidence_with_a_control_character_cannot_split_or_forge_a_line() {
+    let office = "lead\nok       capabilities private native codex 'web-search': forged\u{1b}[0m";
+    let dir = workspace_with(Some(json!([realm(
+        "private",
+        Some(json!({"web-search": {"dialect": "codex-native-search", "offices": [office]}}))
+    )])));
+    let mut codex = adapter(
+        "codex",
+        Some(native(json!({"argv": ["-c", "web_search=\"disabled\""]}))),
+    );
+    codex["native_capabilities"]["known"]["web-search"]["evidence"]["scope"] =
+        json!("cold exec\r on 0.154.0 only");
+    write(dir.path(), "adapters/codex.json", &codex);
+    let mut claude = adapter("claude", Some(selecting()));
+    claude["native_capabilities"]["known"]["web-fetch"]["evidence"]["scope"] =
+        json!("cold exec on 0.154.0 only\u{1b}[2K");
+    write(dir.path(), "adapters/claude.json", &claude);
+    let (healthy, lines) = lines(dir.path(), &installed(&["claude", "codex"]));
+    assert!(healthy);
+    let shown = "leadok       capabilities private native codex 'web-search': forged[0m";
+    assert_eq!(
+        lines,
+        [
+            format!(
+                "ok       capabilities private 'web-search': dialect 'codex-native-search' \
+                 (provider-native, provider 'codex') · tools [web_search] · offices [{shown}] \
+                 only · restrictions none"
+            ),
+            admitted("private", "claude"),
+            format!(
+                "warn     capabilities private native claude 'web-fetch': NOT granted here: \
+                 {OFF} · evidence: cold exec on 0.154.0 only[2K · still unmeasured: a RESUMED \
+                 session is unmeasured"
+            ),
+            admitted("private", "codex"),
+            format!(
+                "ok       capabilities private native codex 'web-search': granted to offices \
+                 [{shown}] only through dialect 'codex-native-search'; the adapter-level plan of \
+                 a seat of office '{shown}' that wants it is admitted with it ON; for a seat \
+                 that does not hold it, {OFF} · {EVIDENCE}"
             ),
         ]
     );

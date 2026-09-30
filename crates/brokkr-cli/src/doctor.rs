@@ -14,6 +14,7 @@ use brokkr_protocol::adapters::{
     DshUnprepared, DshUnselected,
 };
 use brokkr_protocol::hands::{execute, HandsSpec, Session};
+use brokkr_protocol::native_controls::bounded_line;
 use brokkr_runtime::agents::{Adapter, ResumeIdentity, ResumeStatus};
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
 use brokkr_store::Store;
@@ -69,6 +70,14 @@ fn safe_line(output: &[u8]) -> String {
     Safe::new(line.lines().next().unwrap_or_default().trim())
         .as_str()
         .to_string()
+}
+
+/// Adapter or realm data doctor did not author — evidence, an office, a
+/// scope, a drop reason — escaped for a native capability line, so no
+/// control character in it splits or forges a line (review return A22-1
+/// of rebuild unit 22).
+fn safe(text: &str) -> String {
+    Safe::new(text).as_str().to_string()
 }
 
 /// Quote one word for the `bash -lc` string `hands::execute` runs. The
@@ -948,8 +957,8 @@ fn report_capabilities(
             );
         }
         // The realm's whole authority, loaded as a compile under it loads
-        // it: a grant that fails refuses every plan in the realm, with the
-        // compiler's own cause, as it refuses every compile there.
+        // it: a grant that fails refuses every plan in the realm with the
+        // compiler's cause, through the one bounded sink (design D6; SC22-1).
         let whole = Authority::load(CapabilityContext {
             realm: realm.clone(),
             grants: grants.clone(),
@@ -957,7 +966,7 @@ fn report_capabilities(
         });
         let plan = |adapter: &Adapter, office: &str, asks| match &whole {
             Ok(authority) => authority.assess(adapter, office, asks),
-            Err(problem) => Err(problem.clone()),
+            Err(problem) => Err(bounded_line(problem)),
         };
         let wants = |capability: &str| [(capability.to_string(), Strength::Wants)].into();
         // The office a seat holding a grant is assessed in: the first the
@@ -984,7 +993,7 @@ fn report_capabilities(
             let authority = match Authority::load(alone) {
                 Ok(authority) => authority,
                 Err(problem) => {
-                    report.missing(&format!("{what} '{capability}'"), problem);
+                    report.missing(&format!("{what} '{capability}'"), bounded_line(&problem));
                     unread.insert(capability.as_str());
                     continue;
                 }
@@ -1101,11 +1110,11 @@ fn report_capabilities(
                 let granted = grants.get(capability).filter(|_| {
                     valid.get(capability.as_str()) == Some(&(provider.clone(), key.clone()))
                 });
-                let evidence = format!(
+                let evidence = safe(&format!(
                     "evidence: {} · still unmeasured: {}",
                     native.evidence.scope,
                     native.evidence.limitations.join("; ")
-                );
+                ));
                 match (granted, unread.contains(capability.as_str())) {
                     // A seat that holds it: the plan of a seat the grant
                     // reaches that wants it, submitted whole — held with
@@ -1122,13 +1131,13 @@ fn report_capabilities(
                             ),
                             Err(cause) => (format!("is refused ({cause})"), false),
                         };
-                        let detail = format!(
+                        let detail = safe(&format!(
                             "granted to {} through dialect '{}'; the adapter-level plan of a \
                              seat of office '{office}' that wants it {wanting}; for a seat that \
                              does not hold it, {off} · {evidence}",
                             scope_words(grant),
                             grant.dialect
-                        );
+                        ));
                         match on && unheld.is_ok() {
                             true => report.ok(&line, detail),
                             false => report.warn(&line, detail),

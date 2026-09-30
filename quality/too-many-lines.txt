@@ -2,7 +2,7 @@
 # production
  111 crates/brokkr-bridge/src/lib.rs:613 sync_once
  228 crates/brokkr-cli/src/compare.rs:23 seat_costs
- 254 crates/brokkr-cli/src/doctor.rs:862 report_capabilities
+ 254 crates/brokkr-cli/src/doctor.rs:871 report_capabilities
  118 crates/brokkr-cli/src/init.rs:1753 init
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
  105 crates/brokkr-cli/src/tui.rs:2396 plan
@@ -13,8 +13,8 @@
  109 crates/brokkr-core/src/policy.rs:432 parse_condition
  218 crates/brokkr-core/src/realms.rs:613 of
  112 crates/brokkr-protocol/src/adapters.rs:1507 fold_stream_event
- 128 crates/brokkr-protocol/src/adapters.rs:4415 dsh_launch_with
- 342 crates/brokkr-protocol/src/adapters.rs:6505 run_seat_with
+ 109 crates/brokkr-protocol/src/adapters.rs:4499 dsh_launch_with
+ 342 crates/brokkr-protocol/src/adapters.rs:6600 run_seat_with
  229 crates/brokkr-protocol/src/adapters/composite.rs:1346 pnpm_dependencies
  122 crates/brokkr-protocol/src/adapters/composite/image.rs:198 elf
  114 crates/brokkr-protocol/src/fake.rs:73 run_fake_session
@@ -143,8 +143,8 @@
  103 crates/brokkr-protocol/src/adapters/tests.rs:16966 an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list
  225 crates/brokkr-protocol/src/adapters/tests.rs:17344 the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it
  135 crates/brokkr-protocol/src/adapters/tests.rs:17590 a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it
- 192 crates/brokkr-protocol/src/adapters/tests.rs:17756 an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked
- 106 crates/brokkr-protocol/src/adapters/tests.rs:18086 the_final_rejoin_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it
+ 192 crates/brokkr-protocol/src/adapters/tests.rs:17878 an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked
+ 106 crates/brokkr-protocol/src/adapters/tests.rs:18208 the_final_rejoin_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it
  112 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:180 the_runner_adds_the_scoped_git_binds_and_nothing_wider
  138 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:472 every_known_bubblewrap_option_is_stepped_over_by_its_own_arity
  355 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:2581 a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds

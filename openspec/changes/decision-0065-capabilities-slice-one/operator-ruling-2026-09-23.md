@@ -241,3 +241,8 @@ The operator ruled that main comes into `slice-0065-capabilities` after unit 22 
 5. **Unit 22 admits `crates/brokkr-cli/tests/init_doctor.rs`** for its two assertion updates only (recorded in its own addendum of the same date).
 
 Seams recorded, not reopened: #372's unreadable-charter start refusal and unit 18's dispatch-door charter refusal meet at the dispatch door, which refuses first with decision 0066 ruling 5's words (still a failure to start); `brokkr init`'s Codex and dsh scaffolds (#379) carry the shipped adapters' `native_capabilities` declarations, so a scaffold compiles under 0065; main's retirement of the `python3` and `pytest` grants (#355) removes them from every typed allow list the slice migrated.
+
+## Addendum, 2026-09-30: unit 22's residual is finishing unit 22-fix-b
+
+OPERATOR RULING 2026-09-30 (unit 22).
+22-fix's commits are merged; its residual is not accepted. 22-fix-b fixes SC22-1, SC22-2 and A22-1. For SC22-2 it may export, from ONE brokkr-protocol file (adapters.rs or native_controls.rs), the existing final validation the launch already runs for a DSH or LaneTally command, so doctor calls the same judgment; the export changes no launch behaviour.

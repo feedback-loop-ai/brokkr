@@ -17736,6 +17736,128 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
     );
 }
 
+/// Operator ruling of 2026-09-30 (unit 22-fix-b): doctor's reading of a
+/// cold DSH command, [`dsh_cold_command`], is the launch's own judgment of
+/// the same command — the launch's argv refusals, then its final check on
+/// the overlay the launch staged — admitted and refused alike.
+#[cfg(unix)]
+#[test]
+fn the_dsh_reading_doctor_calls_is_the_launchs_own_judgment() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let workdir = root.to_str().unwrap();
+    env.set("DSH_HOME", &root);
+    let (bin, prompt) = ("/nonexistent/dsh", "the prompt");
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let plan = json!({"inventory": "known", "provider": "dsh", "harness": "dsh",
+                      "on": [], "off": [], "argv": [], "guards": []});
+    let sealed = |extra: &[String]| {
+        let input = engine_input(json!({"workdir": workdir}), plan.clone(), extra, 0);
+        sealed_pair(input, extra, Seal::authored(extra.len()))
+    };
+    // The launch's outcome and doctor's reading, on the overlay the launch
+    // staged; a launch refused before staging names none.
+    let both = |extra: &[String], input: &Value| {
+        let staged = dsh_launch_with(bin, extra, workdir, None, input, || {
+            panic!("the disabled gate must not recompute the composite")
+        });
+        let (launched, overlay) = match staged {
+            Ok(launch) => (
+                dsh_served(bin, &launch, extra, prompt, workdir, input),
+                launch.overlay.path().to_str().unwrap().to_string(),
+            ),
+            Err(refusal) => (Err(refusal), "/unstaged".to_string()),
+        };
+        let reading = dsh_cold_command(bin, extra, workdir, &overlay, prompt, input);
+        (launched, reading, overlay)
+    };
+
+    let pinned = s(&["--model", "deepseek-v4-flash"]);
+    let (launched, reading, overlay) = both(&pinned, &sealed(&pinned));
+    let admitted = s(&[bin, "--profile", "headless", "--patch", &overlay, prompt]);
+    assert_eq!((launched, reading), (Ok(admitted.clone()), Ok(admitted)));
+
+    let effort = s(&["--effort", "high"]);
+    let (launched, reading, _) = both(&effort, &sealed(&effort));
+    let refused = "dsh driver: `--effort` needs a `--model` beside it: the level rides the \
+                   seat's default-model selection, which names its provider and model, and this \
+                   driver does not read the profile's default back to restate it";
+    assert_eq!(
+        (launched, reading),
+        (Err(refused.to_string()), Err(refused.to_string()))
+    );
+
+    let mut unsealed = sealed(&pinned);
+    let unsealed = unsealed.as_object_mut().unwrap();
+    unsealed.remove("launch_record");
+    unsealed.remove(crate::native_controls::SERVING_INPUTS);
+    let (launched, reading, _) = both(&pinned, &Value::Object(unsealed.clone()));
+    assert_eq!(
+        (launched, reading),
+        (
+            Err(UNSEALED_REFUSAL.to_string()),
+            Err(UNSEALED_REFUSAL.to_string())
+        )
+    );
+}
+
+/// The same for LaneTally: [`lanetally_command`] is the command its launch
+/// builds and checks — claude's, under the wrapper's own name and shape —
+/// admitted and refused alike. Claude's reading of the same sealed plan
+/// refuses it as another harness's, so doctor needs the wrapper's own.
+#[test]
+fn the_lanetally_reading_doctor_calls_is_the_launchs_own_judgment() {
+    let mut plan = claude_plan(&[], &[], &["WebSearch", "WebFetch"]);
+    plan["provider"] = json!("lanetally");
+    plan["harness"] = json!("lanetally");
+    plan["local"] = json!([]);
+    let input = engine_input(json!({"workdir": "/w", "seat": "research"}), plan, &[], 0);
+    let sealed = sealed_pair(input.clone(), &[], Seal::claude(0, &[], &[], &[]));
+    let launch = |input: &Value| {
+        claude_launch("lanetally", &[], None, input, claude_shape(true), None)
+            .map(|plan| plan.command)
+    };
+    let admitted = [
+        &CLAUDE_HEAD[1..],
+        &["--disallowedTools", "WebSearch,WebFetch"],
+    ]
+    .concat()
+    .iter()
+    .map(|part| part.to_string())
+    .collect::<Vec<_>>();
+    assert_eq!(
+        (
+            launch(&sealed),
+            lanetally_command("lanetally", &[], None, &sealed)
+        ),
+        (
+            Ok([vec!["lanetally".to_string()], admitted.clone()].concat()),
+            Ok([vec!["lanetally".to_string()], admitted].concat())
+        )
+    );
+    assert_eq!(
+        (
+            launch(&input),
+            lanetally_command("lanetally", &[], None, &input)
+        ),
+        (
+            Err(UNSEALED_REFUSAL.to_string()),
+            Err(UNSEALED_REFUSAL.to_string())
+        )
+    );
+    assert_eq!(
+        claude_command("lanetally", &[], None, &sealed),
+        Err(
+            "refusing to invoke the agent CLI: provider 'claude' is known to carry native \
+             capability 'web-search', and the capability plan was resolved for harness \
+             'lanetally'; a known native power is launched only with a delivered control for it, \
+             never on what absence implies (decision 0066 ruling 1)"
+                .to_string()
+        )
+    );
+}
+
 /// Rebuild unit 15 (tasks 15.1 and 15.2) at the Codex seam: an eligible
 /// rejoin of a sealed inline launch and the cold command a rejected rejoin
 /// is replaced by are each served only as the final check returns them,

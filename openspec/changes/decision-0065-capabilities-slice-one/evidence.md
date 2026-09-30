@@ -23418,6 +23418,167 @@ medium findings (SC2, M1) and two low ones (L1, L2).
   `adapters.rs`, which is outside this unit. A plan `seal` refuses is
   unreachable from doctor's inputs, because the template is the
   adapter's own. N6 shows the check runs.
+  - **Corrected by unit 22-fix-b.** This gap was a doctor-only substitute
+    refusal, not the launch's refusal (review return SC22-2), so 22.1 and
+    22.2 could not stay ticked on it. Unit 22-fix-b closes it: doctor's
+    DSH and LaneTally plans are now judged by readings exported from
+    `adapters.rs`. See "Unit 22-fix-b" below.
 - **Pending.** `cargo test --workspace`, macOS, exact coverage outside the
   box (the new arms are each reached by the new test), remote CI and the
   council.
+
+### Unit 22-fix-b — one sink for load refusals, launch's own DSH and LaneTally judgment, escaped native details
+
+Run `0065-rebuild-unit-22-see-the-uni-603832dd`, base 9c3b3b37 (the merged
+slice). The chief's findings, verbatim in the commission, were SC22-1,
+SC22-2 (both medium) and A22-1 (low). The operator's ruling of 2026-09-30
+is recorded as the addendum "2026-09-30: unit 22's residual is finishing
+unit 22-fix-b".
+
+- **SC22-1, `crates/brokkr-cli/src/doctor.rs`.** The whole-realm
+  `Authority::load` failure reached plan refusals raw. It now leaves
+  through `native_controls::bounded_line`, the sink `Authority::assess`
+  and the launch use: one line of at most 512 scalar values, with control
+  characters escaped. The grant's own failing line, the other
+  `Authority::load` failure, uses the same sink.
+- **SC22-2, `crates/brokkr-protocol/src/adapters.rs` (the one admitted
+  protocol file) and `crates/brokkr-runtime/src/capabilities.rs`.**
+  - `lanetally_command` returns the command LaneTally's launch builds and
+    checks: `claude_launch` under `claude_shape(true)`, the call
+    `invoke_with_stager` makes.
+  - `dsh_cold_command` runs the launch's argv judgment, then the one
+    serving builder, `dsh_command`, unqualified and rejoining nothing,
+    ended by the prompt. It goes through the same `served` final check
+    `dsh_served` uses. The overlay is named, never staged.
+  - The argv judgment is `dsh_argv`, the head of `dsh_launch_with`
+    extracted verbatim. `dsh_launch_with` calls it, and so does the
+    export. `dsh_served` and the export share `DshServing::served`.
+  - No launch behaviour changes. The protocol suite passes, including
+    every existing DSH launch and `dsh_served` test.
+  - `final_validation` calls the two readings for `dsh` and `lanetally`.
+    The doctor-only "no adapter-level cold command … is checked here"
+    refusals for those harnesses are removed. An unknown driver name
+    keeps its refusal.
+  - Observed outcomes:
+    - a default-OFF DSH plan is admitted, as its launch admits it: the
+      final check reads a DSH composition from its staged overlay
+      (`carried`, `delivered`);
+    - a DSH template `--effort high` without `--model` is refused with the
+      launch's own "dsh driver: `--effort` needs a `--model` beside it…";
+    - a default-OFF LaneTally plan is refused with the final check's
+      "leaves tool 'web_search' available…";
+    - a LaneTally deny-list plan is admitted.
+- **A22-1, `doctor.rs`.** The granted native line's detail (office, scope,
+  wanting/drop reason, evidence) and the evidence of every native line go
+  through `Safe`, by a one-line `safe` helper. `report_capabilities` does
+  not grow (254 lines, as before).
+- **Tests.**
+  - In `crates/brokkr-cli/src/doctor/capability_tests.rs`:
+    - Changed: `each_harness_is_answered_as_its_launch_serves_it`. DSH is
+      now admitted, and LaneTally is refused with its launch's final-check
+      refusal.
+    - New: `dsh_and_lanetally_plans_are_judged_by_their_launchs_own_final_validation`
+      covers DSH refused (effort without model), DSH admitted (model pin)
+      and LaneTally admitted (deny list).
+    - New: `a_realm_authority_that_does_not_load_is_refused_through_the_bounded_sink`.
+      A grant tool `web_search\u{7}` sits in a 30-tool dialect. Both the
+      MISSING line and the plan line carry the cause escaped and cut at
+      512, asserted exactly.
+    - New: `an_office_or_evidence_with_a_control_character_cannot_split_or_forge_a_line`.
+      An office carries `\n` plus a forged report line and ESC, codex
+      evidence carries `\r`, and claude evidence carries ESC. The whole
+      report is asserted exactly.
+  - In `crates/brokkr-protocol/src/adapters/tests.rs` (the export's owning
+    tests):
+    - `the_dsh_reading_doctor_calls_is_the_launchs_own_judgment` compares
+      the launch (`dsh_launch_with` then `dsh_served`, on the overlay it
+      staged) with `dsh_cold_command` on the same sealed input. They are
+      equal when admitted, when refused by the argv judgment, and when
+      refused unsealed.
+    - `the_lanetally_reading_doctor_calls_is_the_launchs_own_judgment`
+      compares the launch's `claude_launch(.., claude_shape(true), ..)`
+      with `lanetally_command`. They are equal when admitted and when
+      refused unsealed. `claude_command` refuses the same sealed plan as
+      another harness's.
+- **Observed (logs in `.forge/unit-22-fix-b/`).**
+  - Baseline, with HEAD's `doctor.rs` and `capabilities.rs` and this
+    visit's tests, `cargo test -p brokkr-cli --lib
+    doctor::capability_tests`: 18 passed, 4 failed (`baseline-final.log`).
+    The four are `each_harness_…` :1665, `dsh_and_lanetally_…` :1783,
+    `a_realm_authority_…` :1842 and `an_office_or_evidence_…` :1884. The
+    left sides carry "no adapter-level cold command of harness 'dsh'" and
+    "'lanetally'", the raw office `lead\n…`, and the unbounded load cause.
+  - Baseline, protocol, with HEAD's `adapters.rs`: the two new tests do
+    not compile (E0425 `dsh_cold_command` ×1, `lanetally_command` ×2;
+    `baseline-protocol.log`).
+  - Fix: `doctor::capability_tests` 22 passed, `doctor::` 76 passed, and
+    the protocol `reading_doctor_calls` tests 2 passed.
+  - Mutations, each compiling, each restored. Lines are the positions the
+    logs name, in the file before `cargo fmt` wrapped the new tests.
+
+    | # | Mutation | Failed (test:line) |
+    | --- | --- | --- |
+    | M1 | plan load refusal unbounded (`Err(problem.clone())`) | a_realm_authority_… :1842 |
+    | M2 | grant's failing line unbounded | a_realm_authority_… :1842 |
+    | M3 | granted detail not through `Safe` | an_office_or_evidence_… :1884 |
+    | M4 | evidence not through `Safe` | an_office_or_evidence_… :1884 |
+    | M5 | `dsh` admitted unchecked | dsh_and_lanetally_… :1783 |
+    | M6 | `lanetally` read by `claude_command` | dsh_and_lanetally_… :1783, each_harness_… :1665 |
+    | M7 | `dsh_cold_command` skips `dsh_argv` | protocol the_dsh_reading_… :17786; dsh_and_lanetally_… :1783 |
+    | M8 | `lanetally_command` under `claude_shape(false)` | protocol the_lanetally_reading_… :17826; dsh_and_lanetally_… :1783, each_harness_… :1665 |
+
+  - Restored: `git diff` is byte-identical to the saved `all.patch`
+    (sha256 `c72e884e…`, before `cargo fmt`), checked after the
+    mutations and after each baseline.
+- **Gates.**
+  - `cargo fmt --all -- --check`: clean after one `cargo fmt`, which
+    wrapped test literals only.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: clean.
+  - `cargo test -p brokkr-protocol --all-features --locked`: 4 result
+    lines, all ok (lib 624).
+  - `cargo test -p brokkr-runtime --all-features --locked`: 27 result
+    lines, all ok (lib 688, `capability_launch` 68).
+  - `cargo test -p brokkr-cli --all-features --locked`: 45 result lines,
+    all ok (lib 552, `init_doctor` 17, `suppressions` 6 plus 1 ignored).
+  - `compile --bundle bundles/self` and `bundles/verify`: both compile.
+  - `openspec validate --all --strict`: 19 passed.
+  - `git diff --check`: clean.
+- **Ledgers.**
+  - `quality/file-lines.txt` is re-measured with `wc -l` for the five
+    moved files:
+
+    | File | Before | After |
+    | --- | --- | --- |
+    | `doctor.rs` | 1561 | 1570 |
+    | `capability_tests.rs` | 1756 | 1920 |
+    | `adapters.rs` | 7144 | 7239 |
+    | `adapters/tests.rs` | 18829 | 18951 |
+    | `capabilities.rs` | 2359 | 2370 |
+
+    The three production files and `adapters/tests.rs` were already over
+    their ceilings. Their growth is the ruled export and its owning tests,
+    and CI's `baselines` check needs its `Ruling:` line.
+  - `quality/too-many-lines.txt` is re-measured by the forced lint on the
+    three touched crates (`tml.log`). `dsh_launch_with` fell from 128 to
+    109 lines. `report_capabilities` stays at 254, and entries whose
+    positions moved were updated. No function newly crossed 100 lines.
+  - Suppression counts did not move; the `suppressions` test passes.
+- **Admissions.** No fixture migrations and no standing-admission lines.
+  No `init_doctor.rs` line moved, and no frozen surface moved.
+- **Assumption.** "Every doctor refusal" is read as every plan refusal and
+  both `Authority::load` failures. The `Definitions::load` MISSING line
+  is unchanged.
+- **Follow-ups, not fixed here.**
+  - `quality/public-api/brokkr-protocol.txt` is stale for the whole slice
+    at 9c3b3b37, before this visit. A `cargo public-api` run on the pinned
+    nightly (`api-protocol.txt`) also lists the pre-existing
+    `claude_command`/`codex_command` and the entire `native_controls`
+    module as missing. This visit's two exports join them. The re-measure
+    belongs to the merge's ledger work.
+  - Doctor's DSH reading does not claim a route (`route_overlay::claim`)
+    and stages no overlay. Those are launch-time effects, not the final
+    validation.
+- **Pending.** `cargo test --workspace`, macOS, exact coverage outside the
+  box, the jscpd clone ratchet and `ratchet.sh files` (neither runnable in
+  this seat), remote CI and the council.
