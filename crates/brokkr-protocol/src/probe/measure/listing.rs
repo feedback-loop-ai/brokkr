@@ -22,11 +22,11 @@ pub(super) struct Entry<T> {
 /// - (b) every value under the key, at any depth of every event of every
 ///   stream, is visited. A value that is not an array, or an array entry
 ///   the reader cannot name, leaves the listing unread, named by stream,
-///   event and pointer. Any line of any stream that is not one JSON object
-///   naming each key once leaves every listing of the turn unread, named
-///   by stream and line, whatever the line holds, and so does a stream
-///   that holds bytes but no event. Only a stream of no bytes is read as
-///   nothing, and named. Nothing is skipped;
+///   event and pointer. Any line of any stream that is not UTF-8, or not
+///   one JSON object naming each key once, leaves every listing of the turn
+///   unread, named by stream and line, whatever the line holds, and so
+///   does a stream that holds bytes but no event. Only a stream of no bytes
+///   is read as nothing, and named. Nothing is skipped;
 /// - (c) every entry named is kept whatever else went unread, so a reach
 ///   read anywhere stays in [`Listing::entries`] beside any unread value,
 ///   and an unread value never reads as nothing listed;
@@ -67,11 +67,9 @@ impl<T: serde::Serialize + PartialEq> Listing<T> {
             self.empty.push(stream.source.clone());
             return;
         }
-        for line in &stream.unparsed {
-            self.unread.push(format!(
-                "line {line} of {} is not one JSON object naming each key once",
-                stream.source
-            ));
+        for (line, fault) in &stream.unread {
+            self.unread
+                .push(format!("line {line} of {} {fault}", stream.source));
         }
         if stream.events.is_empty() {
             self.unread
