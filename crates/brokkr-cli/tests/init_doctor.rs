@@ -175,6 +175,23 @@ fn a_codex_only_host_gets_a_codex_scaffold_that_compiles() {
     );
 }
 
+/// A codex scaffold declares `harness`, where verify runs under no box of
+/// Brokkr's: the note its script journals on a pass says so, and claims
+/// no denied network (#366).
+#[test]
+fn a_harness_scaffolds_verify_note_claims_no_denied_network() {
+    let (_dir, bundle, _) = init_with_only(&["codex"]);
+    let script = std::fs::read_to_string(bundle.join("scripts/verify-seat.sh")).unwrap();
+    let notes: Vec<&str> = script
+        .lines()
+        .filter(|line| line.contains(" passed "))
+        .collect();
+    let unboxed = "printf '%s and %s passed unboxed, with no network denial confirmed' \
+                   \"$test_command\" \"$lint_command\" > \"$notes\"";
+    assert_eq!(notes, [unboxed]);
+    assert!(!script.contains("network denied"), "{script}");
+}
+
 /// A run writes its journal, results and ledger under `.forge/`, and the
 /// ship gate closes out only on a clean tree: `init` ignores `.forge/`
 /// from inside, beside the map and in the repository, and keeps an

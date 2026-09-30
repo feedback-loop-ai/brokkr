@@ -1,8 +1,8 @@
 //! `brokkr init <dir>` — scaffold a minimal reviewable bundle and prove it
 //! compiles. The template carries the tightened ship taxonomy (`ready` →
 //! `shipped` as the sole entry into `done`), the protected review phase,
-//! model-backed work and review offices, deterministic boxed verify and
-//! ship offices, and the bundled headless Claude Code and exec drivers.
+//! model-backed work and review offices, deterministic verify and ship
+//! offices, and the bundled headless Claude Code and exec drivers.
 //! Everything written is ordinary text meant to be reviewed and edited in
 //! git.
 //!
@@ -207,7 +207,7 @@ fn stack_binds(detected: Option<&Detected>) -> Vec<serde_json::Value> {
 }
 
 /// The scaffold follows the shipped roster: work and review are model
-/// offices, while verify and ship are deterministic boxed exec scripts.
+/// offices; verify and ship are exec scripts, boxed under `namespace`.
 fn bundle_json(detected: Option<&Detected>) -> String {
     let verify_binds = stack_binds(detected);
     let bundle = json!({
@@ -369,8 +369,9 @@ impl AgentSpec {
 }
 
 // A link's effort is data beside its model, never derived from its name.
+mod claims;
 mod effort;
-use effort::Effort;
+use {claims::Claims, effort::Effort};
 
 /// The two classes of decision 0021 ruling 1, as the scaffold seats them.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -949,11 +950,11 @@ fn allowance<'a>(spec: &AgentSpec, provider: Cli, grants: &'a Grants) -> Option<
 /// a considered one. It is never written to the target's own README.md.
 /// `hired` is the agent CLIs the seats are hired from: the adapters named
 /// here are the ones written, and only a claude adapter carries a tool map.
-fn stack_readme(detected: Option<&Detected>, hired: &[Cli]) -> String {
+fn stack_readme(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> String {
+    let header = stack_header(detected, hired, claims);
     if !hired.contains(&Cli::Claude) {
-        return format!("{}{NO_TOOL_MAP}", stack_header(detected, hired));
+        return format!("{header}{NO_TOOL_MAP}");
     }
-    let header = stack_header(detected, hired);
     match detected {
         Some(detected) => {
             let grants = grants(Some(detected));
@@ -1027,7 +1028,7 @@ const NO_TOOL_MAP: &str = "## Tool grants\n\n\
 /// The part of the scaffold's README that does not depend on the tool
 /// map: which stack was read, and — for a recognized one — the files
 /// written, naming the adapters `hired` actually produced.
-fn stack_header(detected: Option<&Detected>, hired: &[Cli]) -> String {
+fn stack_header(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> String {
     match detected {
         Some(detected) => {
             let adapters = hired
@@ -1041,7 +1042,7 @@ fn stack_header(detected: Option<&Detected>, hired: &[Cli]) -> String {
                  as a {name} project ({evidence}). Everything here is ordinary text:\n\
                  read it, edit it, commit it.\n\n\
                  ## What is here\n\n\
-                 - `bundle.json` — three model offices plus boxed exec verify and\n\
+                 - `bundle.json` — three model offices plus {gates} verify and\n\
                    ship gates, with each seat's results and limits.\n\
                  - `policy.json` — the phase table; `review` is the protected phase.\n\
                  - {adapters} and `adapters/exec.json` — the model and\n\
@@ -1050,9 +1051,11 @@ fn stack_header(detected: Option<&Detected>, hired: &[Cli]) -> String {
                    tool allowance, limits. `brokkr agents show <name>` reads one back.\n\
                  - `agents/charters/*.md` — the three model-office charters.\n\
                  - `scripts/*.sh` — deterministic verify and ship offices; verify\n\
-                   names this repository's own commands and runs without network.\n\n",
+                   names this repository's own commands and {runs}.\n\n",
                 name = detected.name,
                 evidence = detected.evidence,
+                gates = claims.gates,
+                runs = claims.runs,
             )
         }
         None => "# starter — scaffolded by `brokkr init`\n\n\
@@ -1073,7 +1076,7 @@ fn readme(
 ) -> String {
     format!(
         "{}\n## Agent CLI and boundary\n\n{}\n\n## Specification dialect\n\n{}\n",
-        stack_readme(detected, hired),
+        stack_readme(detected, hired, host.claims()),
         host.notes.join("\n\n"),
         dialect.note()
     )
@@ -1126,28 +1129,21 @@ fn host(path: &std::ffi::OsStr, os: &str) -> Host {
                 .to_string(),
         );
     }
-    let boundary = if cli == Cli::Codex {
-        notes.push(
-            "`realms.json` declares the `harness` boundary: codex holds each \
-             seat's hands under its own sandbox — read-only for the review gate, \
-             workspace-write for intake and implement — as `adapters/codex.json` \
-             addresses it, and verify and ship run their pinned scripts under no \
-             box of Brokkr's (decision 0046)."
-                .to_string(),
-        );
-        Some(Boundary::Harness)
-    } else if os == "macos" {
-        notes.push(
-            "`realms.json` declares the `harness` boundary: `namespace`, the \
-             default, is built by bubblewrap 0.10 or newer, which is Linux-only, \
-             so on macOS verify and ship run their pinned scripts under no box \
-             of Brokkr's (decision 0046)."
-                .to_string(),
-        );
-        Some(Boundary::Harness)
+    let why = if cli == Cli::Codex {
+        "codex holds each seat's hands under its own sandbox — read-only for \
+         the review gate, workspace-write for intake and implement — as \
+         `adapters/codex.json` addresses it, and"
     } else {
-        None
+        "`namespace`, the default, is built by bubblewrap 0.10 or newer, which \
+         is Linux-only, so on macOS"
     };
+    let boundary = (cli == Cli::Codex || os == "macos").then(|| {
+        notes.push(format!(
+            "`realms.json` declares the `harness` boundary: {why} verify and ship \
+             run their pinned scripts under no box of Brokkr's (decision 0046)."
+        ));
+        Boundary::Harness
+    });
     Host {
         cli,
         boundary,
@@ -1667,7 +1663,7 @@ fn shell_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn verify_script(stack: Option<&Detected>) -> String {
+fn verify_script(stack: Option<&Detected>, Claims { note, .. }: Claims) -> String {
     let (test, lint) = stack
         .map(|stack| (stack.test.as_str(), stack.lint.as_str()))
         .unwrap_or(("", ""));
@@ -1706,7 +1702,7 @@ if [ -z "$test_command" ] || [ -z "$lint_command" ]; then
 fi
 run "$test_command" "$test_command"
 run "$lint_command" "$lint_command"
-printf '%s and %s passed with network denied' "$test_command" "$lint_command" > "$notes"
+printf '%s and %s passed {note}' "$test_command" "$lint_command" > "$notes"
 write_result pass
 "#,
         test = shell_literal(test),
@@ -1841,10 +1837,9 @@ pub(crate) fn init(dir: &Path, repo: &Path, path: &std::ffi::OsStr, os: &str) ->
     std::fs::create_dir_all(library.join("charters"))?;
     std::fs::create_dir_all(&adapters_dir)?;
     std::fs::create_dir_all(dir.join("scripts"))?;
-    let realm_path = relative_realm_path(dir, repo);
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), bundle_json(detected))?;
-    let realms = realms_json(dialect, &realm_path, host.boundary);
+    let realms = realms_json(dialect, &relative_realm_path(dir, repo), host.boundary);
     std::fs::write(dir.join("realms.json"), realms)?;
     if let Some(choice) = dialect.choice() {
         write_dialect(dir, choice)?;
@@ -1870,7 +1865,8 @@ pub(crate) fn init(dir: &Path, repo: &Path, path: &std::ffi::OsStr, os: &str) ->
     for (declaration, declared) in &declarations {
         std::fs::write(declaration, declared)?;
     }
-    std::fs::write(dir.join("scripts/verify-seat.sh"), verify_script(detected))?;
+    let verify = verify_script(detected, host.claims());
+    std::fs::write(dir.join("scripts/verify-seat.sh"), verify)?;
     std::fs::write(dir.join("scripts/ship-seat.sh"), SHIP_SCRIPT)?;
     for spec in SEATS {
         let (provider, models) = spec.hire(host.cli);

@@ -9,8 +9,9 @@
 
 use super::{
     allowance, command_tools, detect, grants, host, leading_word, realms_json, relative_realm_path,
-    runner_tools, stack_readme, tools_for, write_dialect, AgentSpec, Boundary, Class, Cli,
-    Detected, DialectDetection, Effort, Tool, NO_TOOL_MAP, OPENSPEC, SEATS,
+    runner_tools, stack_readme, tools_for, verify_script, write_dialect, AgentSpec, Boundary,
+    Claims, Class, Cli, Detected, DialectDetection, Effort, Host, Tool, NO_TOOL_MAP, OPENSPEC,
+    SEATS,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -301,14 +302,14 @@ fn a_dsh_scaffold_hires_its_gate_from_claude() {
 #[test]
 fn the_readme_names_the_adapters_written_and_no_tool_map_without_claude() {
     let cargo = detected("cargo build", "cargo test", "cargo clippy");
-    let codex = stack_readme(Some(&cargo), &[Cli::Codex]);
+    let codex = stack_readme(Some(&cargo), &[Cli::Codex], claims(Some(Boundary::Harness)));
     assert!(
         codex.contains("- `adapters/codex.json` and `adapters/exec.json` — the model and"),
         "{codex}"
     );
     assert!(codex.ends_with(NO_TOOL_MAP), "{codex}");
     assert!(!codex.contains("claude.json"), "{codex}");
-    let dsh = stack_readme(Some(&cargo), &[Cli::Dsh, Cli::Claude]);
+    let dsh = stack_readme(Some(&cargo), &[Cli::Dsh, Cli::Claude], claims(None));
     assert!(
         dsh.contains(
             "- `adapters/dsh.json`, `adapters/claude.json` and `adapters/exec.json` — the model and"
@@ -326,7 +327,7 @@ fn the_readme_names_the_adapters_written_and_no_tool_map_without_claude() {
 #[test]
 fn the_readme_says_the_work_grant_pre_approves_and_removes_no_tool() {
     let cargo = detected("cargo build", "cargo test", "cargo clippy");
-    let readme = stack_readme(Some(&cargo), &[Cli::Claude]);
+    let readme = stack_readme(Some(&cargo), &[Cli::Claude], claims(None));
     let work = readme
         .split("\n\n")
         .find(|paragraph| paragraph.starts_with("Work-class seats"))
@@ -345,15 +346,71 @@ fn the_readme_says_the_work_grant_pre_approves_and_removes_no_tool() {
 fn no_scaffold_readme_calls_a_tool_list_a_restriction() {
     let cargo = detected("cargo build", "cargo test", "cargo clippy");
     for readme in [
-        stack_readme(Some(&cargo), &[Cli::Claude]),
-        stack_readme(None, &[Cli::Claude]),
-        stack_readme(Some(&cargo), &[Cli::Codex]),
+        stack_readme(Some(&cargo), &[Cli::Claude], claims(None)),
+        stack_readme(None, &[Cli::Claude], claims(None)),
+        stack_readme(Some(&cargo), &[Cli::Codex], claims(Some(Boundary::Harness))),
     ] {
         assert_eq!(
             readme.matches("restriction").collect::<Vec<_>>(),
             Vec::<&str>::new(),
             "{readme}"
         );
+    }
+}
+
+/// What the scaffold says of the boundary `boundary`, from a claude host.
+fn claims(boundary: Option<Boundary>) -> Claims {
+    let host = Host {
+        cli: Cli::Claude,
+        boundary,
+        notes: Vec::new(),
+    };
+    host.claims()
+}
+
+/// The README and the note a passing verify journals claim the box and a
+/// denied network only under `namespace`. Under every other boundary the
+/// scripts run under no box of Brokkr's, and a note saying "network
+/// denied" would record a control that was not applied (#366).
+#[test]
+fn the_scaffold_claims_the_box_and_a_denied_network_only_under_namespace() {
+    let cargo = detected("cargo build", "cargo test", "cargo clippy");
+    let said = |boundary: Option<Boundary>| {
+        let readme = stack_readme(Some(&cargo), &[Cli::Claude], claims(boundary));
+        let script = verify_script(Some(&cargo), claims(boundary));
+        let line = |text: &str, with: &str| {
+            let found = text.lines().find(|line| line.contains(with));
+            found.expect(with).to_string()
+        };
+        [
+            line(&readme, "- `bundle.json`"),
+            line(&readme, "own commands"),
+            line(&script, " passed "),
+        ]
+    };
+    let boxed = [
+        "- `bundle.json` — three model offices plus boxed exec verify and",
+        "names this repository's own commands and runs in Brokkr's box, without network.",
+        "printf '%s and %s passed with network denied' \
+         \"$test_command\" \"$lint_command\" > \"$notes\"",
+    ];
+    let unboxed = [
+        "- `bundle.json` — three model offices plus unboxed exec verify and",
+        "names this repository's own commands and runs under no box of Brokkr's, \
+         with no network denial confirmed.",
+        "printf '%s and %s passed unboxed, with no network denial confirmed' \
+         \"$test_command\" \"$lint_command\" > \"$notes\"",
+    ];
+    for namespace in [None, Some(Boundary::Namespace)] {
+        assert_eq!(said(namespace), boxed, "{namespace:?}");
+    }
+    for other in [
+        Boundary::Harness,
+        Boundary::Open,
+        Boundary::Seatbelt,
+        Boundary::Container,
+    ] {
+        assert_eq!(said(Some(other)), unboxed, "{other:?}");
     }
 }
 

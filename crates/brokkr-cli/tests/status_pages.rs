@@ -481,10 +481,17 @@ const OVERCLAIMS: [&str; 8] = [
 /// a boxed claude seat's harness still loads the operator's own
 /// configuration on the host, and under `open` nothing is added.
 ///
+/// The scaffold's verify and ship scripts said to be boxed, or to run
+/// with no network, on every host are refused too: `init` declares
+/// `harness` for a codex scaffold and on macOS, where they run under no
+/// box of Brokkr's and no network denial is reported. So is a gate said
+/// never to write or to be boxed whatever it declares: the default
+/// delivery's review gate runs unboxed under `acceptEdits`.
+///
 /// A comparison that only implies a bound, such as one arm called no
 /// narrower than another, is outside the guard: its wording names no
 /// control a list could hold.
-const ANYWHERE: [&str; 21] = [
+const ANYWHERE: [&str; 36] = [
     "blast radius",
     "no tool restriction",
     "tools restriction",
@@ -506,6 +513,21 @@ const ANYWHERE: [&str; 21] = [
     "prefixes the former inline seat named",
     "stack's seats may run",
     "on a restriction",
+    "replace the harness's own tools",
+    "removes the harness's own tools",
+    "boxes what a gate can reach",
+    "gates never write",
+    "boxed exec verify",
+    "two boxed exec gates",
+    "carry a boxed exec script",
+    "name boxed exec scripts",
+    "deterministic boxed verify and",
+    "deterministic boxed verifier",
+    "deterministic boxed driver",
+    "deterministic boxed exec scripts",
+    "boxed without network",
+    "runs without network",
+    "with network denied",
 ];
 
 /// The wording the guard refuses, as lists a test can take one word out of.
@@ -578,7 +600,7 @@ fn doc_text(source: &str) -> String {
 
 /// Excerpts of the pages this story reworded, word for word as they
 /// stood: each holds one paragraph the guard refuses.
-const OLD_PAGES: [&str; 22] = [
+const OLD_PAGES: [&str; 43] = [
     // docs/guides/agent-library.md
     "**The honesty rules are the point, and they are enforced rather than\n\
      documented.** A tool restriction the provider cannot express fails\n\
@@ -654,11 +676,59 @@ const OLD_PAGES: [&str; 22] = [
      harness cannot swap its tool surface, and a site with hands then refuses",
     // recipes/night-shift/README.md
     "harness permits, not the seven `Bash` prefixes the former inline seat named.",
+    // docs/research/0004-context-privilege-escalation.md's citations
+    "`agents/charters/review-chief.md` treats peer prose as untrusted input; decision 0043 \
+     boxes what a gate can reach; commit messages are still read by the reviewer as instructions",
+    "decision 0043: the box cannot plant a hook and gates never write; decision 0034: the seat \
+     record admits no prompt or response text",
+    "decision 0043: hands replace the harness's own tools with one boxed workspace tool, so a \
+     skill's shell block runs inside the box",
+    // docs/research/0005-model-based-agentic-software-engineering.md's
+    "decision 0021: work and gate seats; decision 0041: gates never write; decision 0033: the \
+     operator merges",
+    // docs/guides/agent-library.md
+    "([security model](../security-model.md)). Only declared hands put a\n\
+     seat in the box, where `--tools \"\"` removes the harness's own tools.",
+    // the scaffold's `agents/README.md`, as `brokkr init` wrote it on every host
+    "- `bundle.json` — three model offices plus boxed exec verify and\n  \
+     ship gates, with each seat's results and limits.",
+    "- `scripts/*.sh` — deterministic verify and ship offices; verify\n  \
+     names this repository's own commands and runs without network.",
+    // the note the scaffold's verify script journaled on every host
+    "printf '%s and %s passed with network denied' \"$test_command\" \"$lint_command\" > \"$notes\"",
+    // docs/guides/quickstart.md
+    "seat per phase. Model offices carry an agent definition with their charter,\n\
+     model chain and tool grant; deterministic offices carry a boxed exec script.",
+    "./adapters/exec.json   # the deterministic boxed driver",
+    "or gate (decision 0021 ruling 1) — and its result vocabulary. Intake,\n\
+     implement and review name agents; verify and ship name boxed exec scripts.",
+    "./bundle.json          # five seats: three model offices and two boxed exec gates",
+    "./scripts/verify-seat.sh # detected test and lint commands, boxed without network",
+    "gate constitutionally protected, three model offices, and boxed exec verify\n\
+     and ship gates. The agent files in the scaffold's own `agents/` carry each",
+    // docs/guides/starters/rust.md, go.md, node.md, bun.md and python.md
+    "The same scaffold shape as every stack: three model offices and two boxed\n\
+     exec gates, with model and exec adapters, verify/ship scripts and\n\
+     `realms.json`. The",
+    "The deterministic boxed verifier contains these detected command pins:",
+    "It runs both with network denied, using the bound Cargo registry cache,\n\
+     types `pass` only when both exit zero, and quotes decisive output on\n\
+     `fail`.",
+    "It runs both from the repository root with network denied, types `pass`\n\
+     only when both exit zero, and quotes decisive output on `fail`.",
+    "It runs both from the repository root with network denied, writes `pass`\n\
+     only when both exit zero, and writes `fail` with decisive output otherwise.",
+    "The deterministic boxed verifier pins `bun run test` and\n\
+     `bun run typecheck`. It runs both with network denied, types `pass` only\n\
+     when both exit zero, and quotes decisive output on `fail`.",
+    "The deterministic boxed verifier pins `uv run pytest` and\n\
+     `uv run ruff check .`. It runs both with network denied, types `pass` only\n\
+     when both exit zero, and quotes decisive output on `fail`.",
 ];
 
 /// Excerpts of the doc comments this story reworded, as the sources
 /// carried them.
-const OLD_SOURCES: [&str; 14] = [
+const OLD_SOURCES: [&str; 16] = [
     // crates/brokkr-protocol/src/hands.rs
     "//! `/tmp`, no host home, no host credential, no other process, and no\n\
      //! network unless the spec grants it. A tool allow-list bounded what the\n\
@@ -708,6 +778,10 @@ const OLD_SOURCES: [&str; 14] = [
      /// merely forbidden.",
     // crates/brokkr-cli/src/init.rs
     "/// The tools one detected stack's seats may run, split by decision 0021",
+    "//! model-backed work and review offices, deterministic boxed verify and\n\
+     //! ship offices, and the bundled headless Claude Code and exec drivers.",
+    "/// The scaffold follows the shipped roster: work and review are model\n\
+     /// offices, while verify and ship are deterministic boxed exec scripts.",
 ];
 
 /// Every old excerpt as the guard reads it: a page as written, a source

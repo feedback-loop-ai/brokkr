@@ -224,16 +224,18 @@ Line by line, the parts that were chosen rather than fixed:
 
 ## `scripts/verify-seat.sh`
 
-The deterministic boxed verifier contains these detected command pins:
+The deterministic verifier contains these detected command pins:
 
 ```bash
 test_command='cargo test --workspace'
 lint_command='cargo clippy --workspace --all-targets -- -D warnings'
 ```
 
-It runs both with network denied, using the bound Cargo registry cache,
-types `pass` only when both exit zero, and quotes decisive output on
-`fail`.
+It runs both, types `pass` only when both exit zero, and quotes decisive
+output on `fail`. Where the realm's boundary is `namespace`, Brokkr
+boxes it with no network and it uses the bound Cargo registry cache.
+Under `harness` — a codex scaffold, or macOS — it runs under no box of
+Brokkr's, and its note claims no denied network.
 
 - **`cargo test --workspace`** — the same command the implementer was
   given, on purpose. The implementer runs it to know it is done; the

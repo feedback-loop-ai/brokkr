@@ -66,9 +66,12 @@ report `complete` with failing tests or uncommitted changes.
 
 ### `scripts/verify-seat.sh`
 
-The deterministic boxed verifier pins `uv run pytest` and
-`uv run ruff check .`. It runs both with network denied, types `pass` only
-when both exit zero, and quotes decisive output on `fail`.
+The deterministic verifier pins `uv run pytest` and
+`uv run ruff check .`. It runs both, types `pass` only when both exit
+zero, and quotes decisive output on `fail`. Brokkr boxes it, with no
+network, where the realm's boundary is `namespace`; under `harness`, on
+a codex scaffold or macOS, no box of Brokkr's stands and its note claims
+no denied network.
 
 Annotated:
 

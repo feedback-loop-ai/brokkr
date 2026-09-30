@@ -183,7 +183,8 @@ credentials a route takes from the ambient environment instead.
 
 A **recipe** is a delivery strategy as reviewable data: a phase table and a
 seat per phase. Model offices carry an agent definition with their charter,
-model chain and tool grant; deterministic offices carry a boxed exec script.
+model chain and tool grant; deterministic offices carry an exec script,
+which Brokkr boxes under the `namespace` boundary and nowhere else.
 `brokkr init` writes one you are meant to open and edit.
 
 ```
@@ -206,11 +207,11 @@ what you were handed is a thing that runs.
 What it wrote:
 
 ```
-./bundle.json          # five seats: three model offices and two boxed exec gates
+./bundle.json          # five seats: three model offices and two exec gates, boxed under namespace only
 ./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
 ./realms.json          # the realm map: this repository, its journal, and the boundary where one is declared
 ./adapters/claude.json # the trust tier your gates judge on, and the tool map — yours to edit
-./adapters/exec.json   # the deterministic boxed driver
+./adapters/exec.json   # the deterministic exec driver
 ./agents/README.md     # what was written, and which tools the seats were granted — your own README is untouched
 ./agents/intake.json   # model offices: charter, model chain, tool grant, limits
 ./agents/implementer.json
@@ -218,7 +219,7 @@ What it wrote:
 ./agents/charters/intake.md
 ./agents/charters/implementer.md
 ./agents/charters/reviewer.md
-./scripts/verify-seat.sh # detected test and lint commands, boxed without network
+./scripts/verify-seat.sh # detected test and lint commands; under namespace, boxed with no network
 ./scripts/ship-seat.sh   # deterministic ledger and closeout
 ./dialects/              # only in a spec-kit or OpenSpec repository: the detected dialect's pinned data
 ./.forge/.gitignore      # ignores the run's own journal, results and ledger; one already there is kept
@@ -233,7 +234,15 @@ review gate, because its adapter is untrusted and names no judges. A dsh
 scaffold therefore hires intake and implement from dsh and keeps the
 reviewer on claude, and says so. On macOS `realms.json` declares
 `harness` whatever the CLI, because the default `namespace` boundary
-needs Linux bubblewrap 0.10 or newer. Commit the scaffold before the
+needs Linux bubblewrap 0.10 or newer. Under `harness`, verify and ship
+run their pinned scripts under no box of Brokkr's: the engine rebuilds
+their environment, and no network denial is confirmed. The scaffold's
+`agents/README.md` and the note a passing verify journals follow the
+boundary `init` declared: a `namespace` scaffold's note says the
+network was denied, and a `harness` scaffold's says "passed unboxed,
+with no network denial confirmed"
+([security model](../security-model.md)).
+Commit the scaffold before the
 first run: the ship gate closes out only on a clean tree, and the
 `.forge/.gitignore` keeps the run's own output out of it.
 
@@ -242,7 +251,7 @@ The table has five working phases — `intake`, `implement`, `verify`,
 the protected phase: compilation rejects any table with a path to a
 non-`stop` terminal that skips it. Each seat declares its class — work
 or gate (decision 0021 ruling 1) — and its result vocabulary. Intake,
-implement and review name agents; verify and ship name boxed exec scripts.
+implement and review name agents; verify and ship name exec scripts.
 Limits remain on every seat, while the model chain and tool grant belong
 only to agent-backed seats. `brokkr agents show <name>` reads an agent back.
 
@@ -775,8 +784,8 @@ stopped, without parsing anything.
 
 `brokkr init` writes a starter recipe you are meant to read: a seven-phase
 policy table (five working phases plus `done` and `stop`) with the review
-gate constitutionally protected, three model offices, and boxed exec verify
-and ship gates. The agent files in the scaffold's own `agents/` carry each
+gate constitutionally protected, three model offices, and exec verify and
+ship gates, boxed only under the `namespace` boundary. The agent files in the scaffold's own `agents/` carry each
 model office's charter, model chain and tool grant; all seat limits remain
 in `bundle.json`. It compiles the bundle before printing
 the digest, so the thing you were handed is a thing that runs. It also

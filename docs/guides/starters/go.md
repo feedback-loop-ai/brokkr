@@ -29,8 +29,8 @@ run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust
 
 ## What it wrote
 
-The same scaffold shape as every stack: three model offices and two boxed
-exec gates, with model and exec adapters, verify/ship scripts and
+The same scaffold shape as every stack: three model offices and two exec
+gates that Brokkr boxes under `namespace` only, with model and exec adapters, verify/ship scripts and
 `realms.json`. The
 invariant `bundle.json` is in
 [rust.md](rust.md#what-it-wrote); so are the fixed parts of the agent
@@ -79,15 +79,18 @@ report `complete` with failing tests or uncommitted changes.
 
 ## `scripts/verify-seat.sh`
 
-The deterministic boxed verifier contains these detected command pins:
+The deterministic verifier contains these detected command pins:
 
 ```bash
 test_command='go test ./...'
 lint_command='go vet ./...'
 ```
 
-It runs both from the repository root with network denied, types `pass`
-only when both exit zero, and quotes decisive output on `fail`.
+It runs both from the repository root, types `pass` only when both exit
+zero, and quotes decisive output on `fail`. Where the realm's boundary
+is `namespace`, Brokkr boxes it with no network. Under `harness` — a
+codex scaffold, or macOS — it runs under no box of Brokkr's, and its
+note claims no denied network.
 
 - **`go vet ./...`** is the arm's `lint`, and it is the honest default
   because it ships with the toolchain: `golangci-lint` would be a better
