@@ -358,6 +358,24 @@ fn every_add_and_claim_refusal_is_typed_says_why_and_writes_nothing() {
     assert_eq!((rows(&store), commands(&store.conn)), before);
 }
 
+/// A journal that records the queue's storage but has lost its entries
+/// table is not read as an empty queue: the listing fails with SQLite's
+/// own words, where a journal from before the queue lists empty.
+#[test]
+fn a_queue_whose_entries_table_is_gone_fails_to_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    store
+        .conn
+        .execute_batch(
+            "DROP TABLE queue_waits; DROP TABLE queue_commands; DROP TABLE queue_entries;",
+        )
+        .unwrap();
+    let error = store.queue_list().unwrap_err();
+    assert!(matches!(error, StoreError::Sqlite(_)), "{error}");
+    assert_eq!(error.to_string(), "sqlite: no such table: queue_entries");
+}
+
 #[test]
 fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
     let dir = tempfile::tempdir().unwrap();

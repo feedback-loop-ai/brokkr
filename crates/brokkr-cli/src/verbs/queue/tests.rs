@@ -132,6 +132,18 @@ fn an_entry_names_the_workspace_it_was_queued_in_absolutely() {
     assert_eq!(listed(&db)[0].1.workspace, here);
 }
 
+/// `brokkr queue` reaches its handler through the CLI's own dispatch,
+/// not only through the handler this file calls directly.
+#[test]
+fn the_cli_dispatches_brokkr_queue_to_its_handler() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    Store::open(&db).unwrap();
+    let argv = ["brokkr", "queue", "list", "--db", db.to_str().unwrap()];
+    let cli = Cli::try_parse_from(argv).unwrap();
+    assert_eq!(crate::run(cli).unwrap(), completed());
+}
+
 #[test]
 fn an_empty_queue_says_so() {
     assert_eq!(table(&[]), "the queue is empty\n");
