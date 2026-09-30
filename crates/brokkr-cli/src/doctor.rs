@@ -807,6 +807,12 @@ fn report_native_assessments(report: &mut Report, installed: &[&Adapter]) {
     }
 }
 
+/// The scope every adapter-level plan line names (design D8): what was
+/// submitted, what was not, and where a seat's own plan is judged.
+const ADAPTER_SCOPE: &str = "adapter-level scope: the adapter's own template alone, with no \
+                             seat's arguments, model pins, typed tools or hands assessed; a \
+                             seat's own plan is judged when its bundle compiles";
+
 /// Decision 0065 ruling 4: per realm, what it grants — by which dialect,
 /// to which offices, with which tools and restrictions — and then every
 /// native capability an INSTALLED harness declares that the realm has not
@@ -834,8 +840,23 @@ fn report_native_assessments(report: &mut Report, installed: &[&Adapter]) {
 /// neither. Adapter declarations that cannot be read say so here, so a
 /// report with no native line is never read as a harness with no native
 /// power.
+///
+/// What a seat on an installed harness is launched with is never judged
+/// one capability at a time (operator ruling 4 of 2026-09-23; design D8).
+/// Doctor resolves no seat, so it submits the complete adapter-level plan
+/// ([`Authority::assess`]) under the realm's whole authority, loaded as a
+/// compile loads it: once for a seat that holds nothing, and once for a
+/// seat that wants each granted or restricted capability. Each line
+/// reports what that plan's resolution and composition admit or refuse,
+/// with the refusal's own cause, and names the scope it was assessed at.
+///
+/// [`Authority::assess`]: brokkr_runtime::capabilities::Authority::assess
 #[expect(
     clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+#[expect(
+    clippy::excessive_nesting,
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn report_capabilities(
@@ -846,8 +867,8 @@ fn report_capabilities(
     availability: &Availability,
 ) {
     use brokkr_runtime::capabilities::{
-        restriction_names, Authority, CapabilityContext, Definitions, Denial, NativeInventory,
-        Transport, UNMAPPED,
+        restriction_names, Authority, CapabilityContext, Definitions, NativeInventory, Strength,
+        ADAPTER_SEAT, UNMAPPED,
     };
     let adapters = match Adapters::load(adapters_root) {
         Ok(adapters) => Some(adapters),
@@ -926,6 +947,30 @@ fn report_capabilities(
                 ),
             );
         }
+        // The realm's whole authority, loaded as a compile under it loads
+        // it: a grant that fails refuses every plan in the realm, with the
+        // compiler's own cause, as it refuses every compile there.
+        let whole = Authority::load(CapabilityContext {
+            realm: realm.clone(),
+            grants: grants.clone(),
+            root: root.clone(),
+        });
+        let plan = |adapter: &Adapter, office: &str, asks| match &whole {
+            Ok(authority) => authority.assess(adapter, office, asks),
+            Err(problem) => Err(problem.clone()),
+        };
+        let wants = |capability: &str| [(capability.to_string(), Strength::Wants)].into();
+        // The office a seat holding a grant is assessed in: the first the
+        // grant names, else the hypothesis's own label, which an office list
+        // that names none does not reach either.
+        let office = |grant: &brokkr_core::realms::CapabilityGrant| {
+            grant
+                .offices
+                .as_deref()
+                .and_then(<[String]>::first)
+                .map_or(ADAPTER_SEAT, String::as_str)
+                .to_string()
+        };
         // Each grant is judged ALONE, by the compiler's own validation:
         // one that fails is its own line and takes no neighbour with it.
         let mut valid = std::collections::BTreeMap::new();
@@ -958,55 +1003,33 @@ fn report_capabilities(
             // seat can hold the capability through this grant.
             let bound = adapters
                 .as_ref()
-                .and_then(|adapters| adapters.adapter(provider))
-                .map(|adapter| {
-                    (
-                        &adapter.native,
-                        brokkr_runtime::capabilities::harness_of(&adapter.driver),
+                .and_then(|adapters| adapters.adapter(provider));
+            let unusable = match bound.map(|adapter| (adapter, &adapter.native)) {
+                // CQ1 (design D11): no nonempty restriction is expressible
+                // in slice one, whatever transport the adapter declares, so
+                // a seat that requires the capability is refused and one
+                // that wants it drops it. What becomes of the seat that
+                // dropped it is its whole plan's to say, never the grant's
+                // (finding M1) nor one OFF control's (operator ruling 4).
+                Some((adapter, NativeInventory::Known { .. }))
+                    if !grant.restrictions.is_empty() =>
+                {
+                    let office = office(grant);
+                    let wanting = match plan(adapter, &office, wants(capability)) {
+                        Ok(outcome) => format!("drops it ({})", outcome.not_held[capability]),
+                        Err(cause) => {
+                            format!("is refused, and no denial is claimed ({cause})")
+                        }
+                    };
+                    format!(
+                        " · restriction '{}' is not usable authority: a seat that requires the \
+                         capability is refused, the adapter-level plan of a seat of office \
+                         '{office}' that wants it {wanting}, and it never runs unrestricted",
+                        restriction_names("", &grant.restrictions).join("', '")
                     )
-                });
-            let unusable = match bound {
-                Some((NativeInventory::Known { known, selection }, harness)) => known
-                    .get(key)
-                    .filter(|native| {
-                        !grant.restrictions.is_empty()
-                            && matches!(native.restrictions, Transport::Unsupported(_))
-                    })
-                    .map(|native| {
-                        // What becomes of the seat that dropped the want is
-                        // the OFF disposition's to say, never the grant's
-                        // (finding M1) — asked of the provider that would
-                        // deliver it (second council M2): the same
-                        // assessment the launch uses.
-                        let dropped = match native.denial_on(harness, selection.as_ref()) {
-                            Denial::Delivered => {
-                                "one that wants it drops it with the native capability OFF"
-                                    .to_string()
-                            }
-                            Denial::Impossible(reason) => format!(
-                                "one that wants it drops it and is then refused, because the \
-                                 native capability cannot be switched off ({reason})"
-                            ),
-                            Denial::Unmeasured(reason) => format!(
-                                "one that wants it drops it and is then refused, because the \
-                                 native capability's OFF control is unmeasured ({reason}) and \
-                                 no denial is claimed"
-                            ),
-                            Denial::Refused(cause) => format!(
-                                "one that wants it drops it and is then refused, because the \
-                                 native capability's declared OFF control cannot be composed \
-                                 for this provider ({cause}) and no denial is claimed"
-                            ),
-                        };
-                        format!(
-                            " · provider '{provider}' cannot express restriction '{}': a seat \
-                             that requires the capability is refused, {dropped}, and it never \
-                             runs unrestricted",
-                            restriction_names("", &grant.restrictions).join("', '")
-                        )
-                    })
-                    .unwrap_or_default(),
-                Some((NativeInventory::Unmeasured(reason), _)) => format!(
+                }
+                Some((_, NativeInventory::Known { .. })) => String::new(),
+                Some((_, NativeInventory::Unmeasured(reason))) => format!(
                     " · provider '{provider}' declares its native capabilities unmeasured \
                      ({reason}): no seat can hold the capability through this grant, and no \
                      native denial is claimed"
@@ -1030,13 +1053,8 @@ fn report_capabilities(
         }
         for adapter in &installed {
             let provider = &adapter.provider;
-            // Second council M2: the readout asks the HARNESS that would
-            // serve the seat whether the declared control can be composed,
-            // through the same composer the compiler uses. The driver kind
-            // an adapter dispatches is what its own invocation names.
-            let harness = brokkr_runtime::capabilities::harness_of(&adapter.driver);
-            let (natives, flags) = match &adapter.native {
-                NativeInventory::Known { known, selection } => (known, selection.as_ref()),
+            let natives = match &adapter.native {
+                NativeInventory::Known { known, .. } => known,
                 NativeInventory::Unmeasured(reason) => {
                     report.warn(
                         &format!("{what} native {provider}"),
@@ -1047,6 +1065,35 @@ fn report_capabilities(
                     );
                     continue;
                 }
+            };
+            // A seat that holds none of the harness's native powers: every
+            // one is switched OFF in ONE plan, and whether that plan is
+            // admitted is the answer for all of them together (operator
+            // ruling 4 of 2026-09-23). Two OFF controls that each compose
+            // alone can refuse together, and a grant, however scoped, leaves
+            // such a seat (finding M1).
+            let unheld = plan(adapter, ADAPTER_SEAT, Default::default());
+            let plan_line = format!("{what} plan {provider}");
+            match &unheld {
+                Ok(_) => report.ok(
+                    &plan_line,
+                    format!(
+                        "{ADAPTER_SCOPE} · a seat on {provider} that holds none of its native \
+                         capabilities is admitted, each of them switched off by the composed \
+                         command; that is composition, not a live measurement"
+                    ),
+                ),
+                Err(cause) => report.warn(
+                    &plan_line,
+                    format!(
+                        "{ADAPTER_SCOPE} · a seat on {provider} that holds none of its native \
+                         capabilities is refused, and no denial is claimed: {cause}"
+                    ),
+                ),
+            }
+            let off = match &unheld {
+                Ok(_) => "the adapter-level plan above switches it off",
+                Err(_) => "the adapter-level plan above is refused, so no denial is claimed",
             };
             for (key, native) in natives {
                 let capability = &native.capability;
@@ -1059,50 +1106,37 @@ fn report_capabilities(
                     native.evidence.scope,
                     native.evidence.limitations.join("; ")
                 );
-                // The OFF disposition is judged BEFORE the grant is described
-                // (finding M1): however a grant is scoped it leaves seats
-                // that do not hold the power, and what happens to those is
-                // the launch's own assessment — a declared control denies,
-                // an impossible one refuses, an unmeasured one claims
-                // nothing and refuses too (ruling 4).
-                let held_by = granted.map(|grant| {
-                    format!(
-                        "granted to {} through dialect '{}'",
-                        scope_words(grant),
-                        grant.dialect
-                    )
-                });
-                match (
-                    held_by,
-                    unread.contains(capability.as_str()),
-                    native.denial_on(harness, flags),
-                ) {
-                    (Some(held_by), _, Denial::Delivered) => report.ok(
-                        &line,
-                        format!(
-                            "{held_by}; every other seat on {provider} is launched with it \
-                             switched off · {evidence}"
-                        ),
-                    ),
-                    (Some(held_by), _, Denial::Impossible(reason)) => report.warn(
-                        &line,
-                        format!(
-                            "{held_by}, and it cannot be switched off ({reason}): a seat on \
-                             {provider} that does not hold it refuses compilation (decision \
-                             0065 ruling 4)"
-                        ),
-                    ),
-                    (Some(held_by), _, Denial::Unmeasured(reason)) => report.warn(
-                        &line,
-                        format!(
-                            "{held_by}, and its OFF control is unmeasured ({reason}); no denial \
-                             is claimed, and a seat on {provider} that does not hold it refuses \
-                             compilation (decision 0065 ruling 4)"
-                        ),
-                    ),
+                match (granted, unread.contains(capability.as_str())) {
+                    // A seat that holds it: the plan of a seat the grant
+                    // reaches that wants it, submitted whole — held with
+                    // every other power OFF, dropped, or refused.
+                    (Some(grant), _) => {
+                        let office = office(grant);
+                        let (wanting, on) = match plan(adapter, &office, wants(capability)) {
+                            Ok(outcome) if outcome.held.contains_key(capability) => {
+                                ("is admitted with it ON".to_string(), true)
+                            }
+                            Ok(outcome) => (
+                                format!("drops it ({})", outcome.not_held[capability]),
+                                false,
+                            ),
+                            Err(cause) => (format!("is refused ({cause})"), false),
+                        };
+                        let detail = format!(
+                            "granted to {} through dialect '{}'; the adapter-level plan of a \
+                             seat of office '{office}' that wants it {wanting}; for a seat that \
+                             does not hold it, {off} · {evidence}",
+                            scope_words(grant),
+                            grant.dialect
+                        );
+                        match on && unheld.is_ok() {
+                            true => report.ok(&line, detail),
+                            false => report.warn(&line, detail),
+                        }
+                    }
                     // The realm DECLARES a grant of this name and doctor
                     // could not read it: neither half may be asserted.
-                    (None, true, _) => report.warn(
+                    (None, true) => report.warn(
                         &line,
                         format!(
                             "UNKNOWN here: this realm's grant of '{capability}' did not \
@@ -1111,48 +1145,9 @@ fn report_capabilities(
                              repaired · {evidence}"
                         ),
                     ),
-                    (None, false, Denial::Impossible(reason)) => report.warn(
-                        &line,
-                        format!(
-                            "NOT granted here, and it cannot be switched off ({reason}): \
-                             seating {provider} in this realm without granting it refuses \
-                             compilation (decision 0065 ruling 4)"
-                        ),
-                    ),
-                    (None, false, Denial::Unmeasured(reason)) => report.warn(
-                        &line,
-                        format!(
-                            "NOT granted here, and its OFF control is unmeasured ({reason}); no \
-                             denial is claimed, and seating {provider} in this realm without \
-                             granting it refuses compilation (decision 0065 ruling 4)"
-                        ),
-                    ),
-                    (None, false, Denial::Delivered) => report.warn(
-                        &line,
-                        format!(
-                            "NOT granted here: every seat on {provider} is launched with it \
-                             switched off by the adapter's declared control · {evidence}"
-                        ),
-                    ),
-                    // Second council M2: a control the serving provider's
-                    // launch cannot consume denies nothing. The readout
-                    // says what the compiler will say, and says why.
-                    (held_by, _, Denial::Refused(cause)) => report.warn(
-                        &line,
-                        match held_by {
-                            Some(held_by) => format!(
-                                "{held_by}, and its declared OFF control cannot be composed for \
-                                 provider '{provider}' ({cause}): a seat on {provider} that \
-                                 does not hold it refuses compilation, and no denial is claimed"
-                            ),
-                            None => format!(
-                                "NOT granted here, and its declared OFF control cannot be \
-                                 composed for provider '{provider}' ({cause}): seating \
-                                 {provider} in this realm refuses compilation, and no denial is \
-                                 claimed"
-                            ),
-                        },
-                    ),
+                    (None, false) => {
+                        report.warn(&line, format!("NOT granted here: {off} · {evidence}"))
+                    }
                 }
             }
         }

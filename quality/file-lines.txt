@@ -2,23 +2,17 @@
 # production
    742 crates/brokkr-bridge/src/lib.rs
    128 crates/brokkr-cli/src/agents.rs
-   128 crates/brokkr-cli/src/agents.rs
-   128 crates/brokkr-cli/src/agents.rs
      8 crates/brokkr-cli/src/bin/brokkr.rs
    198 crates/brokkr-cli/src/boundary.rs
     50 crates/brokkr-cli/src/budget_frame.rs
    550 crates/brokkr-cli/src/cli_args.rs
    519 crates/brokkr-cli/src/compare.rs
-  1566 crates/brokkr-cli/src/doctor.rs
-  1566 crates/brokkr-cli/src/doctor.rs
-  1566 crates/brokkr-cli/src/doctor.rs
+  1561 crates/brokkr-cli/src/doctor.rs
    109 crates/brokkr-cli/src/exit.rs
    138 crates/brokkr-cli/src/fleet.rs
     59 crates/brokkr-cli/src/hands.rs
   1908 crates/brokkr-cli/src/init.rs
    177 crates/brokkr-cli/src/ledger.rs
-  2074 crates/brokkr-cli/src/lib.rs
-  2074 crates/brokkr-cli/src/lib.rs
   2074 crates/brokkr-cli/src/lib.rs
   1042 crates/brokkr-cli/src/muninn.rs
     67 crates/brokkr-cli/src/muninn/record.rs
@@ -43,8 +37,6 @@
    641 crates/brokkr-core/src/policy.rs
    902 crates/brokkr-core/src/realms.rs
   7144 crates/brokkr-protocol/src/adapters.rs
-  7144 crates/brokkr-protocol/src/adapters.rs
-  7144 crates/brokkr-protocol/src/adapters.rs
   4666 crates/brokkr-protocol/src/adapters/composite.rs
    476 crates/brokkr-protocol/src/adapters/composite/image.rs
    607 crates/brokkr-protocol/src/adapters/route_overlay.rs
@@ -53,8 +45,6 @@
    218 crates/brokkr-protocol/src/fake.rs
   1276 crates/brokkr-protocol/src/hands.rs
    296 crates/brokkr-protocol/src/hands/session.rs
-   218 crates/brokkr-protocol/src/lib.rs
-   218 crates/brokkr-protocol/src/lib.rs
    218 crates/brokkr-protocol/src/lib.rs
   4524 crates/brokkr-protocol/src/native_controls.rs
   1688 crates/brokkr-protocol/src/native_controls/grammar.rs
@@ -67,18 +57,12 @@
    677 crates/brokkr-protocol/src/secret.rs
    269 crates/brokkr-protocol/src/transcript.rs
   1671 crates/brokkr-runtime/src/agents.rs
-  1671 crates/brokkr-runtime/src/agents.rs
-  1671 crates/brokkr-runtime/src/agents.rs
   1334 crates/brokkr-runtime/src/agents/load.rs
    285 crates/brokkr-runtime/src/anchor.rs
   7793 crates/brokkr-runtime/src/bundle.rs
-  7793 crates/brokkr-runtime/src/bundle.rs
-  7793 crates/brokkr-runtime/src/bundle.rs
   1258 crates/brokkr-runtime/src/bundle/compose.rs
-  2269 crates/brokkr-runtime/src/capabilities.rs
+  2359 crates/brokkr-runtime/src/capabilities.rs
    645 crates/brokkr-runtime/src/dialect.rs
-  5310 crates/brokkr-runtime/src/engine.rs
-  5310 crates/brokkr-runtime/src/engine.rs
   5310 crates/brokkr-runtime/src/engine.rs
    313 crates/brokkr-runtime/src/engine/checkpoints.rs
    185 crates/brokkr-runtime/src/engine/marks.rs
@@ -109,7 +93,7 @@
    339 crates/brokkr-cli/src/boundary/tests.rs
   1631 crates/brokkr-cli/src/cli_reference_tests.rs
    422 crates/brokkr-cli/src/compare/tests.rs
-   962 crates/brokkr-cli/src/doctor/capability_tests.rs
+  1756 crates/brokkr-cli/src/doctor/capability_tests.rs
   3162 crates/brokkr-cli/src/doctor/tests.rs
     64 crates/brokkr-cli/src/exit/tests.rs
     32 crates/brokkr-cli/src/hands/tests.rs
@@ -121,8 +105,6 @@
    209 crates/brokkr-cli/src/recipes/tests.rs
   1220 crates/brokkr-cli/src/render/tests.rs
     95 crates/brokkr-cli/src/selector/tests.rs
-  4748 crates/brokkr-cli/src/tests.rs
-  4748 crates/brokkr-cli/src/tests.rs
   4748 crates/brokkr-cli/src/tests.rs
    402 crates/brokkr-cli/src/tui/snapshot_tests.rs
   6989 crates/brokkr-cli/src/tui/tests.rs
@@ -152,7 +134,7 @@
     10 crates/brokkr-cli/tests/heap_dsh.rs
    470 crates/brokkr-cli/tests/hosts.rs
    514 crates/brokkr-cli/tests/house_prose.rs
-   830 crates/brokkr-cli/tests/init_doctor.rs
+   834 crates/brokkr-cli/tests/init_doctor.rs
   1260 crates/brokkr-cli/tests/init_stacks.rs
   1123 crates/brokkr-cli/tests/layering/main.rs
   1440 crates/brokkr-cli/tests/layering/scan.rs
@@ -197,8 +179,6 @@
    302 crates/brokkr-protocol/src/adapters/notice_tests.rs
    623 crates/brokkr-protocol/src/adapters/route_overlay/tests.rs
  18829 crates/brokkr-protocol/src/adapters/tests.rs
- 18829 crates/brokkr-protocol/src/adapters/tests.rs
- 18829 crates/brokkr-protocol/src/adapters/tests.rs
   3127 crates/brokkr-protocol/src/dsh_sandbox/tests.rs
    153 crates/brokkr-protocol/src/fake/tests.rs
    303 crates/brokkr-protocol/src/hands/session/tests.rs
@@ -213,12 +193,8 @@
    138 crates/brokkr-protocol/tests/hands_exits.rs
     73 crates/brokkr-protocol/tests/secret_drop.rs
   5847 crates/brokkr-runtime/src/agents/tests.rs
-  5847 crates/brokkr-runtime/src/agents/tests.rs
-  5847 crates/brokkr-runtime/src/agents/tests.rs
    399 crates/brokkr-runtime/src/anchor/tests.rs
   6778 crates/brokkr-runtime/src/bundle/agent_tests.rs
-  4063 crates/brokkr-runtime/src/bundle/compose_tests.rs
-  4063 crates/brokkr-runtime/src/bundle/compose_tests.rs
   4063 crates/brokkr-runtime/src/bundle/compose_tests.rs
   4643 crates/brokkr-runtime/src/bundle/model_policy_tests.rs
    196 crates/brokkr-runtime/src/bundle/secret_binding_tests.rs
@@ -226,11 +202,7 @@
   2160 crates/brokkr-runtime/src/capabilities/tests.rs
    481 crates/brokkr-runtime/src/dialect/tests.rs
    441 crates/brokkr-runtime/src/engine/agent_tests.rs
-   441 crates/brokkr-runtime/src/engine/agent_tests.rs
-   441 crates/brokkr-runtime/src/engine/agent_tests.rs
    152 crates/brokkr-runtime/src/engine/artifact_gate_tests.rs
-  4642 crates/brokkr-runtime/src/engine/boundary_tests.rs
-  4642 crates/brokkr-runtime/src/engine/boundary_tests.rs
   4642 crates/brokkr-runtime/src/engine/boundary_tests.rs
   2220 crates/brokkr-runtime/src/engine/capability_tests.rs
    222 crates/brokkr-runtime/src/engine/cleanup_tests.rs
@@ -239,8 +211,6 @@
   1933 crates/brokkr-runtime/src/engine/notice_tests.rs
     46 crates/brokkr-runtime/src/engine/operator_tests.rs
     85 crates/brokkr-runtime/src/engine/replay/tests.rs
-  4089 crates/brokkr-runtime/src/engine/resume_tests.rs
-  4089 crates/brokkr-runtime/src/engine/resume_tests.rs
   4089 crates/brokkr-runtime/src/engine/resume_tests.rs
    121 crates/brokkr-runtime/src/engine/secret_threading_tests.rs
   6627 crates/brokkr-runtime/src/engine/tests.rs
@@ -253,8 +223,6 @@
    263 crates/brokkr-runtime/tests/crucible_review_sequence.rs
    214 crates/brokkr-runtime/tests/dispatch_seam.rs
    104 crates/brokkr-runtime/tests/fenced_commands.rs
-   822 crates/brokkr-runtime/tests/frozen_contracts.rs
-   822 crates/brokkr-runtime/tests/frozen_contracts.rs
    822 crates/brokkr-runtime/tests/frozen_contracts.rs
    418 crates/brokkr-runtime/tests/gpt_flash_shape.rs
     88 crates/brokkr-runtime/tests/inline_resume.rs
@@ -273,8 +241,6 @@
    198 crates/brokkr-runtime/tests/triage_shape.rs
    341 crates/brokkr-runtime/tests/two_engines_one_journal.rs
    152 crates/brokkr-runtime/tests/wager_parity.rs
-   408 crates/brokkr-runtime/tests/witness_digests.rs
-   408 crates/brokkr-runtime/tests/witness_digests.rs
    408 crates/brokkr-runtime/tests/witness_digests.rs
     10 crates/brokkr-seatbelt-probe/tests/seatbelt_lifetime_probe.rs
     22 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/controls.rs

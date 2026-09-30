@@ -226,6 +226,10 @@ OPERATOR RULING 2026-09-29 (unit 21).
 3. R3 WORDING: a capability the realm grants but no site of the seat requests is reported, in prompt and manifest, with the exact reason "granted, but this seat does not request it". A capability the realm does not grant keeps "the realm does not grant it to this seat". The two causes are distinct values, never one generic text.
 4. 21-FIX-B (tests only) follows 21-fix-a: R2's restriction rows and M1/M2/M4 re-run as final-check refusals, in unit 21's suites.
 
+## Addendum, 2026-09-29: unit 22 admits init_doctor.rs for its assertion updates
+
+Unit 22 may change crates/brokkr-cli/tests/init_doctor.rs for ASSERTION UPDATES ONLY: the wording in scaffolded_claude_denials (about :444-446) that the whole-plan readout replaces, and the one expected plan line after about :482 that the readout adds. No other line of that file moves; no test is added or removed there.
+
 ## Addendum, 2026-09-29: main merged into the slice, and the rulings the merge needed
 
 The operator ruled that main comes into `slice-0065-capabilities` after unit 22 and before the audit units 23–27, by a MERGE, not a rebase: one resolution of the conflicts (about 66 hunks in 21 files), and every unit commit that `tasks.md`, `evidence.md` and the journal cite stays reachable. Pull request #319 still squash-merges to one commit on main. Where main's code-health work and this slice met, the operator ruled:

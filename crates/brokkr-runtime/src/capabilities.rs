@@ -790,37 +790,28 @@ pub struct NativeCapability {
     pub authored: Authored,
 }
 
-/// What becomes of a seat that does NOT hold a known native power (ruling
-/// 4), read off the power's OFF disposition and nothing else. The one
-/// assessment launch admission and `brokkr doctor` share, so a readout can
-/// never promise a denial the launch does not deliver — a grant changes who
-/// holds the power, never what happens to everyone who does not.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What an OFF disposition declares of a known native power (ruling 4),
+/// read off that disposition and nothing else: the one step of a plan's
+/// resolution that decides between switching the power off and refusing
+/// the seat. It is never a finding that the power is delivered OFF: only
+/// the whole plan, composed by the launch's own composer, says that
+/// ([`Authority::resolve`]; operator ruling 4 of 2026-09-23).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Denial<'a> {
-    /// The adapter declares a control that switches it off, and the
-    /// serving provider's launch can compose it.
+    /// The adapter declares a control that switches it off.
     Delivered,
     /// Measured: it cannot be switched off. The seat is refused.
     Impossible(&'a str),
     /// Nobody measured its OFF control. No denial is claimed, and the seat
     /// is refused rather than launched on a guess.
     Unmeasured(&'a str),
-    /// The adapter declares a control the serving provider's launch cannot
-    /// consume, so nothing reaches the final command: the compile refuses,
-    /// with this cause (second council M2).
-    Refused(String),
 }
 
 impl NativeCapability {
     /// What the OFF disposition SAYS, with no question asked of the
-    /// provider that would have to deliver it.
-    ///
-    /// Second council M2: this is not what a reader may be told. A
-    /// declared `Argv` or `Selection` is only a denial if the serving
-    /// harness's launch consumes that representation — Codex takes no
-    /// tool selection at all — so a readout that stops here promises a
-    /// denial the compiler refuses. Use [`Self::denial_on`] wherever a
-    /// provider is known.
+    /// provider that would have to deliver it. A declared `Argv` or
+    /// `Selection` is a denial only once the whole plan it joins composes
+    /// for the serving provider, which is [`Authority::resolve`]'s to say.
     pub fn declared_denial(&self) -> Denial<'_> {
         match &self.off {
             Disposition::Unsupported(reason) => Denial::Impossible(reason),
@@ -828,64 +819,6 @@ impl NativeCapability {
             Disposition::Argv(_) | Disposition::Default(_) | Disposition::Selection(_) => {
                 Denial::Delivered
             }
-        }
-    }
-
-    /// The same assessment, asked of the harness that would serve it, with
-    /// the adapter's own selection mapping — through the SAME composer the
-    /// compiler and the driver use, so a readout cannot promise what a
-    /// launch refuses (second council M2).
-    pub fn denial_on(&self, harness: &str, flags: Option<&SelectionFlags>) -> Denial<'_> {
-        use brokkr_protocol::native_controls as launch;
-        let declared = self.declared_denial();
-        let list = |list: &ListFlag| launch::ListFlag {
-            flag: list.flag.clone(),
-            separator: list.separator.clone(),
-        };
-        let mapped =
-            flags.map(|flags| [list(&flags.include), list(&flags.allow), list(&flags.deny)]);
-        let (argv, selection) = match &self.off {
-            Disposition::Argv(switch) => (
-                switch.clone(),
-                launch::Selection {
-                    flags: mapped,
-                    ..Default::default()
-                },
-            ),
-            Disposition::Selection(lists) => (
-                Vec::new(),
-                launch::Selection {
-                    include: lists.include.clone(),
-                    allow: lists.allow.clone(),
-                    deny: lists.deny.clone(),
-                    flags: mapped,
-                },
-            ),
-            // Nothing to compose: a measured default, or a disposition
-            // that already answers for itself.
-            _ => return declared,
-        };
-        // Every known power of this harness is answered OFF, so the floor
-        // is satisfied and the only question left is the one being asked:
-        // can this representation reach the final command?
-        let controls = launch::Controls {
-            provider: harness.to_string(),
-            harness: harness.to_string(),
-            inventory: launch::Inventory::Known,
-            held: Vec::new(),
-            denied: launch::known_powers(harness)
-                .iter()
-                .map(|name| name.to_string())
-                .collect(),
-            admits: BTreeMap::new(),
-            argv,
-            selection,
-            guards: Vec::new(),
-            provenance: launch::Provenance::default(),
-        };
-        match launch::compose_for_provider(harness, &[], &[], &controls) {
-            Ok(_) => declared,
-            Err(refusal) => Denial::Refused(refusal.cause),
         }
     }
 }
@@ -1091,6 +1024,10 @@ fn declared_argv(harness: &str, argv: &[String]) -> Result<(), String> {
 /// The harness of a command that dispatches no built-in driver: opaque to
 /// the engine, which never sees its final command.
 pub const OPAQUE_HARNESS: &str = "<custom>";
+
+/// The seat an adapter-level plan is resolved for ([`Authority::assess`]):
+/// a label naming the hypothesis, never a seat a bundle declares.
+pub const ADAPTER_SEAT: &str = "adapter-plan";
 
 /// What resolution reads of one provider: its name, its native
 /// declaration, and the digest of the file that declaration came from.
@@ -1894,6 +1831,65 @@ impl Authority {
         })
     }
 
+    /// Design D8 and operator ruling 4 of 2026-09-23: the complete
+    /// adapter-level plan `brokkr doctor` submits where it has resolved no
+    /// seat. A seat labelled [`ADAPTER_SEAT`] of `office` asks `asks` of
+    /// the adapter's provider, served by the adapter's own template and
+    /// nothing else — no recipe's words, model pins, typed tools or hands —
+    /// and the whole plan goes through [`Authority::resolve`]: every known
+    /// power ON or OFF together, the realm's grants and restrictions, and
+    /// the admission by the composer the launch's final check recomposes
+    /// with. An admitted plan is then served as launch serves it
+    /// ([`final_validation`]), so a complete command that fails the final
+    /// check refuses here with launch's own cause. What it returns is that
+    /// admission or that refusal, never an answer for one capability alone.
+    ///
+    /// A refusal leaves through the protocol's one refusal sink
+    /// ([`launch::bounded_line`]), as a compile's and a launch's do: one
+    /// line of at most 512 scalar values, whichever step refused (design
+    /// D6; review return SC2 of rebuild unit 22).
+    pub fn assess(
+        &self,
+        adapter: &crate::agents::Adapter,
+        office: &str,
+        asks: Requests,
+    ) -> Result<Outcome, String> {
+        self.assessed(adapter, office, asks)
+            .map_err(|cause| launch::bounded_line(&cause))
+    }
+
+    /// [`Authority::assess`] before its refusal is bounded.
+    fn assessed(
+        &self,
+        adapter: &crate::agents::Adapter,
+        office: &str,
+        asks: Requests,
+    ) -> Result<Outcome, String> {
+        let site = SiteAsks {
+            label: ADAPTER_SEAT.to_string(),
+            office: office.to_string(),
+            asks,
+            subtracted: Vec::new(),
+        };
+        let outcome = self.resolve(
+            &site,
+            &Serving {
+                provider: &adapter.provider,
+                harness: harness_of(&adapter.driver),
+                model: None,
+                native: Some((&adapter.native, &adapter.digest)),
+                unloaded: None,
+                authored: &adapter.driver,
+                fragment: &[],
+                provenance: &launch::Provenance::default(),
+                written: &[],
+            },
+        )?;
+        final_validation(adapter, &outcome)
+            .map_err(|cause| format!("{}: {cause}", self.who(&site)))?;
+        Ok(outcome)
+    }
+
     /// Independently of every ask (design D4 step 4): each native power
     /// this candidate's harness is known to have is switched ON if held
     /// through it and OFF otherwise — and one that cannot be switched off
@@ -2064,15 +2060,15 @@ impl Authority {
         let (mut on, mut off) = (Vec::new(), Vec::new());
         for (key, native) in known {
             let holding = keys.get(key).map(|capability| &held[capability]);
-            // What becomes of a seat that does not hold the power is the
-            // one assessment `brokkr doctor` reads too ([`Denial`]): a
-            // declared control composes below, and the other two refuse.
-            // Whether the composition can actually deliver it is settled
-            // by `admit` over the whole plan, which is where the
-            // provider-aware answer belongs; here the declaration is what
-            // decides ON versus OFF.
+            // What becomes of a seat that does not hold the power
+            // ([`Denial`]): a declared control composes below, and the
+            // other two refuse. Whether the composition can actually
+            // deliver it is settled by `admit` over the whole plan, which
+            // is where the provider-aware answer belongs and what `brokkr
+            // doctor` reads through [`Authority::assess`]; here the
+            // declaration is what decides ON versus OFF.
             match (holding, native.declared_denial()) {
-                (Some(_), _) | (None, Denial::Delivered | Denial::Refused(_)) => {}
+                (Some(_), _) | (None, Denial::Delivered) => {}
                 // The refusal carries its own warrant: who measured that
                 // the power cannot be removed, and over what — so an
                 // operator can tell a finding about one CLI version from a
@@ -2262,6 +2258,100 @@ fn admit(serving: &Serving<'_>, plan: &NativePlan) -> Result<(), launch::Failure
         serving.fragment,
         &decoded,
     )
+    .map(drop)
+}
+
+/// The workdir an adapter-level plan's cold command names: a hypothesis
+/// has none of its own, and nothing is spawned in it.
+const ADAPTER_WORKDIR: &str = "/";
+
+/// Design D8 and review return SC1 of rebuild unit 22: the complete cold
+/// command an admitted adapter-level plan ([`Authority::assess`]) serves,
+/// handed to the built-in driver's own launch exactly as the engine hands a
+/// sealed launch over — the plan, a launch record sealed from its typed
+/// facts (the adapter's template and nothing authored, no local
+/// declaration, no hands) and empty serving inputs (no pins, no dialect
+/// fragment) — so the driver composes, builds and checks it with
+/// [`launch::check_final`], and its refusal is launch's own. The record
+/// and the launch arguments are the engine's own: a spawn of the adapter's
+/// template, sealed and projected by [`SiteSpawn::seal`] and
+/// [`SiteSpawn::launch_arguments`] (review return L1), so the template
+/// agreement and the local sandbox check a dispatch makes are made here.
+/// Nothing is spawned: a cold launch offers no session, so no version is
+/// probed.
+///
+/// Each harness is answered as its launch serves it (review return M1). A
+/// driver the engine does not dispatch is opaque, and `exec` consumes no
+/// native control and checks no final command: the composition
+/// [`Authority::resolve`] admitted is all their launch judges, and the plan
+/// rides as data. DSH and LaneTally launches do check a final command,
+/// which doctor cannot build here, so their plan is refused rather than
+/// reported as admitted unchecked; so is a driver name no built-in driver
+/// answers to, which launch refuses before anything is composed.
+///
+/// [`SiteSpawn::seal`]: crate::engine::SiteSpawn::seal
+/// [`SiteSpawn::launch_arguments`]: crate::engine::SiteSpawn::launch_arguments
+fn final_validation(adapter: &crate::agents::Adapter, outcome: &Outcome) -> Result<(), String> {
+    use launch::{
+        AllowIntent, Application, Expected, HandsIntent, LocalExpectation, Origin, SandboxIntent,
+        SealedServing, SERVING_INPUTS,
+    };
+    let harness = harness_of(&adapter.driver);
+    let unbuilt = |why: &str| {
+        Err(format!(
+            "no adapter-level cold command of harness '{harness}' is checked here, because \
+             {why}, so its plan is not reported as admitted (design D8)"
+        ))
+    };
+    match harness {
+        OPAQUE_HARNESS | "exec" => return Ok(()),
+        "codex" | "claude" => {}
+        "dsh" => return unbuilt("every dsh command carries a staged overlay and a prompt"),
+        "lanetally" => return unbuilt("no reading of its launch's final command is exported"),
+        _ => return unbuilt("no built-in driver of that name is launched"),
+    }
+    let segments = vec![Segment::new(Origin::Template, &adapter.driver)];
+    let mut spawn = crate::engine::SiteSpawn {
+        argv: adapter.driver.clone(),
+        env: brokkr_protocol::process::SpawnEnv::Inherit,
+        rewalk: None,
+        refusal: None,
+        segments,
+        record: None,
+        serving: None,
+        class: None,
+        charter: None,
+    };
+    spawn.seal(Expected {
+        identity: outcome.identity(),
+        native: outcome.native.expected(),
+        local: LocalExpectation {
+            allow: AllowIntent::Unspecified,
+            sandbox: SandboxIntent::Unspecified,
+            application: Application::Unrestricted,
+        },
+        hands: HandsIntent::None,
+        template: crate::agents::declared_template(&adapter.driver),
+    })?;
+    let extras = launch::harness_arguments(&adapter.driver).to_vec();
+    let input = json!({
+        "workdir": ADAPTER_WORKDIR,
+        "seat": ADAPTER_SEAT,
+        "native_controls": outcome.controls(),
+        "launch_record": spawn.launch_record(),
+        SERVING_INPUTS: SealedServing::default().value(),
+        "launch_arguments": spawn.launch_arguments(),
+    });
+    match harness {
+        "codex" => brokkr_protocol::adapters::codex_command(
+            harness,
+            &extras,
+            ADAPTER_WORKDIR,
+            None,
+            &input,
+        ),
+        _ => brokkr_protocol::adapters::claude_command(harness, &extras, None, &input),
+    }
     .map(drop)
 }
 

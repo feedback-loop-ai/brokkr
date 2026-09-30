@@ -22966,3 +22966,458 @@ and the logs in `.forge/u21fb2-N*-runtime.log`.
 - `git diff --check`: clean.
 - **Pending.** macOS, exact coverage outside the box
   (`scripts/coverage-exact.sh`), remote CI and the council.
+
+## Unit 22 — doctor submits the complete plan, 2026-09-29: OVERSIZED
+
+Run `0065-rebuild-unit-22-see-the-uni-e59d1b7e`. The fix is built and
+proved, but it is not landed. A test file outside the unit,
+`crates/brokkr-cli/tests/init_doctor.rs`, pins the doctor wording that
+operator ruling 4 and design D8 require to change. Updating it changes two
+assertions and adds one expected line, and neither standing admission
+covers that. No production file moved on the branch. 22.1 and 22.2 stay
+unticked.
+
+### What the fix does
+
+The fix is saved as `.forge/unit-22/unit-22-oversized.patch` (sha256
+`43497a92267bf90c13287029458ed512e390713d192e281d1bce0bfafd115a33`). It
+touches three files, all inside the unit: `capabilities.rs`, `doctor.rs`
+and `doctor/capability_tests.rs`. `git apply --check` against `4990c6e6`
+passes.
+
+- **`capabilities.rs`.**
+  - `NativeCapability::denial_on` is removed. It built synthetic
+    `Controls` with ONE power's OFF and every known power marked denied,
+    and asked `compose_for_provider` about that one control alone. This is
+    the "synthetic per-capability delivery" that the unit removes.
+  - `Denial::Refused`, which only `denial_on` produced, is removed too.
+    `declared_denial` keeps its one role: in `native_plan`, it decides
+    between switching a power OFF and refusing the seat.
+  - The new `Authority::assess(adapter, office, asks)` is the adapter-level
+    plan. It resolves a seat labelled `ADAPTER_SEAT` (`adapter-plan`) of
+    `office`, asking for `asks`. The seat is served by the adapter's own
+    provider, harness, native inventory, digest and driver template, with
+    no recipe words, pins, typed tools or hands. The plan goes through
+    `Authority::resolve`, the compile's own path:
+    - every known power ON or OFF together (`native_plan`);
+    - CQ1 holdings and restrictions;
+    - admission by `compose_or_exclude`, which `compose_for_provider` and
+      the final check's recomposition wrap.
+- **`doctor.rs`.** Both reporting paths submit whole plans:
+  - Each realm loads its whole authority as a compile does
+    (`Authority::load` of all its grants). If a grant or the definitions
+    fail to load, every plan in that realm is refused with the compiler's
+    own cause.
+  - **Native path.** For each installed known-inventory harness, a new
+    `capabilities <realm> plan <provider>` line reports the plan of a seat
+    that holds nothing. It is `ok` when that plan is admitted, and `warn`
+    with the full cause when it is refused. The line names its scope: "the
+    adapter's own template alone, with no seat's arguments, model pins,
+    typed tools or hands assessed; a seat's own plan is judged when its
+    bundle compiles".
+  - Each per-capability line now reads its OFF state from that one plan
+    ("the adapter-level plan above switches it off" or "… is refused, so no
+    denial is claimed"). A granted capability also gets the plan of a seat
+    the grant reaches that wants it. That plan is admitted with the power
+    ON, drops it with the plan's own `not_held` reason, or is refused with
+    the cause.
+  - **Restriction/drop path.** A grant with a nonempty restriction reports
+    the plan of a wanting seat in its scope: a drop with the plan's reason,
+    or a refusal with the cause.
+  - The old filter to `Transport::Unsupported` is gone. A declared argv
+    transport is no longer shown as usable. This closes the unit-11
+    follow-up about `doctor.rs:960-966`.
+- **Unchanged.** An unmeasured inventory, an unreadable map, unreadable
+  adapters, an invalid grant (UNKNOWN) and an MCP grant keep their own
+  lines. So task 0.19's no-provider and no-capability-server tests are
+  unchanged.
+
+### Tests (in `doctor/capability_tests.rs`)
+
+- **Three new tests.** Each has full doctor lines and, beside them, the
+  independent compile half: whole `compile_in_realm` results for an inline
+  seat that asks nothing (unused), the `researcher` agent that wants
+  `web-fetch`, and the same agent with `web-fetch` subtracted.
+  - `two_off_controls_that_compose_alone_are_refused_together_under_every_grant_shape`
+    covers interacting OFFs. Search's and fetch's OFFs are each
+    `--disallowedTools X`. Alone, each composes. Together, they repeat the
+    option, which the claude grammar refuses. The test covers five grant
+    shapes: absent, `[researcher]`, unrestricted, `offices: []` and
+    `tools: []`. Under every shape, the plan line and both capability lines
+    carry the duplicate refusal. The compile of the unused and subtracted
+    seats refuses with the same cause. The holder compiles only where the
+    grant reaches it.
+  - `a_held_tool_another_power_denies_refuses_its_holder_in_doctor_and_compile`
+    covers an include/deny conflict. Search's OFF also denies `WebFetch`.
+    The unheld plan is admitted. The holder's plan is refused: "tool
+    'WebFetch' both admitted and denied". Doctor and compile give the same
+    cause.
+  - `an_admitted_plan_is_reported_at_its_scope_and_the_template_is_submitted_with_it`
+    has two cases. With valid deny-list OFFs, every line is `ok` and all
+    three compiles are admitted. With a template that allows `WebFetch`,
+    the unheld plan and the subtracted seat's compile both refuse with the
+    template's cause. The holder is admitted.
+- **Changed tests.** Eleven existing tests move from the per-capability
+  words to the plan lines. Each assertion is a literal.
+  - `uncomposable_cause()` is removed. It took the expected cause from
+    `compose_for_provider` itself, which is what the spec forbids.
+  - `uncomposable_codex` now also declares web-fetch (OFF by measured
+    default). The claude-harness floor needs it, and without it the whole
+    plan refuses on the floor before it reaches the representation.
+  - `a_dropped_restricted_want…` adds a declared argv-transport case.
+  - The shipped-repository test asserts that the claude and codex plan
+    lines are admitted.
+- **Fixture migrations.** None. No inline refused option is authored.
+- **Standing-admission lines.** None.
+
+### Observed
+
+- **Baseline.** The new suite ran with both production files at `HEAD`
+  and the new tests applied (`.forge/u22-baseline.log`): 4 passed, 12
+  failed. In the two-OFF test, the old doctor said both Claude powers are
+  "launched with it switched off by the adapter's declared control". The
+  same fixture's compile refused the duplicate `--disallowedTools`.
+- **Fix.** `cargo test -p brokkr-cli --all-features --locked --lib
+  doctor::capability_tests`: 16 passed (`.forge/u22-restored.log`).
+- **Mutations.** Each compiled. Each was restored with `cp` from the saved
+  good copy, and its diff and log are in `.forge/`.
+
+  | # | Mutation | Failed (test:line) |
+  | --- | --- | --- |
+  | N1 | native path: the unheld plan is never submitted (`let unheld: Result<(), String> = Ok(())`) | 7 tests: malformed_definition :994, installed_harnesses :314, an_uncomposable_off :538, two_off_controls :1356, a_failing_grant :909, an_admitted_plan :1472, a_matching_grant :456 |
+  | N2 | holder's plan never submitted (always "admitted with it ON") | 5 tests: a_held_tool :1380, an_uncomposable_off :538, a_failing_grant :909, a_matching_grant :456, two_off_controls :1356 |
+  | N3 | restriction path: the wanting plan is replaced by "drops it (native capability remains OFF)" | an_empty_scope :280, a_dropped_restricted :607 |
+  | N3b | the old `Transport::Unsupported` filter is restored | a_dropped_restricted :636 (the declared-transport case) |
+  | N4 | `assess` submits the harness prefix only, dropping the template | an_admitted_plan :1472 (the template case) |
+  | N5 | `assess` drops the seat's asks | 9 tests: an_uncomposable_off :538, installed_harnesses :314, every_realm :231, a_dropped_restricted :607, a_held_tool :1380, an_admitted_plan :1447, an_empty_scope :280, two_off_controls :1356, a_matching_grant :456 |
+
+  After all restores, the suite ran 16 passed again. The line numbers are
+  those of the test file before its `cargo fmt`; the saved patch is the
+  formatted file.
+- **Gates.**
+  - `cargo fmt --all -- --check`: clean, after `cargo fmt --all` over the
+    test file and `doctor.rs`.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: finished clean.
+  - `cargo test -p brokkr-runtime --all-features --locked`: every result
+    line ok (lib 627, `capability_launch` 68;
+    `.forge/u22-runtime-suite.log`).
+  - `compile --bundle bundles/self` and `bundles/verify` both compile
+    (digests `45dc1c7e…` and `f7cbd4bb…`, unchanged).
+  - `git diff --check`: clean.
+- **The failure that stops the unit.**
+  - `cargo test -p brokkr-cli --all-features --locked`: the lib passed 485,
+    but `tests/init_doctor.rs` failed 2
+    (`.forge/u22-cli-suite.log`):
+    - `doctor_reads_the_scaffold_as_granting_nothing_and_names_claudes_native_tools`
+      at `:478`;
+    - `a_broken_agent_library_takes_no_native_capability_line_with_it` at
+      `:589`.
+  - Both assert, through `scaffolded_claude_denials`, the old line "NOT
+    granted here: every seat on claude is launched with it switched off by
+    the adapter's declared control". The first also pins the exact list of
+    capability lines, which now includes the plan line.
+  - With `.forge/unit-22/unit-22-init-doctor-proposed.patch` (sha256
+    `90975dfc1af773b0b5e6f69d96d759a895a850c772deba6153650ee07f3d1835`)
+    applied as well, every brokkr-cli result line is ok: 33 result lines,
+    no failures (`.forge/u22-cli-suite-proposed.log`).
+- **OpenSpec.** `openspec validate --all --strict --no-interactive` ran on
+  this record: 18 passed, 0 failed (`.forge/u22-openspec.log`).
+- **Pending.** The workspace-wide `cargo test --workspace`, macOS, exact
+  coverage (`scripts/coverage-exact.sh`), remote CI and the council.
+
+### The admission this needs
+
+`crates/brokkr-cli/tests/init_doctor.rs`, for assertion updates only:
+
+1. In `scaffolded_claude_denials` (`:444-446`), the expected wording
+   becomes "NOT granted here: the adapter-level plan above switches it off
+   · evidence: …".
+2. In `doctor_reads_the_scaffold_…` (after `:482`), the expected list
+   gains the one admitted plan line `ok       capabilities starter plan
+   claude: …`, between "grants nothing" and the two native lines.
+
+Both are in the proposed patch. Then apply both patches, re-take the
+baseline reds and the mutations, record them, and land. No production file
+is added.
+
+### Second visit, 2026-09-29: the stop repeats
+
+Triage re-ruled the unit `chore` and re-fired implement under the same run.
+No addendum was added in between: the last heading of
+`operator-ruling-2026-09-23.md` is "Addendum, 2026-09-29: unit 21's
+residual is split as 21-fix-a and 21-fix-b", and no heading or addendum
+names `init_doctor.rs` or admits anything for unit 22.
+
+At head 2b954413, `git apply --check` passed for both saved patches. Their
+sha256 digests are still `43497a92…` and `90975dfc…`.
+`init_doctor.rs:445` still pins "seat on claude is launched with it switched
+off by the adapter's declared", the wording the fix removes.
+
+This visit did not rebuild or re-run the suites. It reports `blocked` so the
+run stops instead of looping back through triage. The admission above is
+still the ruling it needs.
+
+## Unit 22-fix — 2026-09-29: the saved build lands under the operator's admission
+
+Run `0065-rebuild-unit-22-see-the-uni-79c858d5`. Base is 361520c3.
+
+### Ruling and patches
+
+- **The ruling.** The operator ruled on 2026-09-29. It is landed verbatim
+  as the addendum "2026-09-29: unit 22 admits init_doctor.rs for its
+  assertion updates", at the end of `operator-ruling-2026-09-23.md`.
+- **The patches, checked before applying.**
+  - `sha256sum` gave `43497a92267bf90c13287029458ed512e390713d192e281d1bce0bfafd115a33`
+    for `unit-22-oversized.patch` and
+    `90975dfc1af773b0b5e6f69d96d759a895a850c772deba6153650ee07f3d1835`
+    for `unit-22-init-doctor-proposed.patch`.
+  - `git apply --check` passed for both at 361520c3.
+  - Nothing was re-derived. After applying, `git diff` of the three unit
+    files is byte-identical to the saved patch. `git diff` of
+    `init_doctor.rs` is byte-identical to the proposed patch
+    (`diff` exits 0 for each).
+- **Lines the admission covers**, in `crates/brokkr-cli/tests/init_doctor.rs`
+  (numstat 7+/3−). These are assertion updates only, and no test was added
+  or removed.
+  1. In `scaffolded_claude_denials`, old `:444-446` become new `:444-445`.
+     The expected wording "every seat on claude is launched with it
+     switched off by the adapter's declared control" becomes "the
+     adapter-level plan above switches it off". The whole-plan readout
+     replaces the per-capability claim (operator ruling 4).
+  2. In `doctor_reads_the_scaffold_as_granting_nothing_and_names_claudes_native_tools`,
+     one expected line follows the old `:482` (new `:482-486`):
+     `ok       capabilities starter plan claude: adapter-level scope: …`.
+     It is the admitted plan line the readout adds.
+- **Other admissions.** No fixture migrations and no standing-admission
+  lines.
+
+### Observed, in this session (logs in `.forge/u22fix/`)
+
+- **Baseline.** Only the tests were applied first:
+  `git apply --include=…/doctor/capability_tests.rs` of the saved patch,
+  plus the `init_doctor.rs` patch. Production stayed at HEAD.
+  - `cargo test -p brokkr-cli --all-features --locked --lib
+    doctor::capability_tests`: 4 passed, 12 failed (`baseline-lib.log`).
+    This is the first visit's set. For example, `two_off_controls…:1363`
+    got "every seat on claude is launched with it switched off by the
+    adapter's declared control". The expected output was the refused plan
+    line: "it repeats option '--disallowedTools', which the grammar admits
+    once".
+  - `--test init_doctor`: 13 passed, 2 failed, which are the two admitted
+    assertions (`baseline-init-doctor.log`):
+    - `doctor_reads_the_scaffold_…` panicked at `init_doctor.rs:477`;
+    - `a_broken_agent_library_…` panicked at `:593`.
+- **Fix.** With the production halves applied: `doctor::capability_tests`
+  16 passed (`fix-lib.log`), and `init_doctor` 15 passed
+  (`fix-init-doctor.log`).
+- **Mutations.** Each one compiled. Each was restored with `cp` from
+  `.forge/u22fix/good/` and checked with `cmp`. Its diff is in
+  `.forge/u22fix/<id>.diff`.
+
+  | # | Mutation | Failed (test:line) |
+  | --- | --- | --- |
+  | N1 | `doctor.rs`: `let unheld: Result<(), String> = Ok(());` (the unheld plan is never submitted) | 7: installed_harnesses :314, an_uncomposable_off :545, two_off_controls :1363, malformed_definition :1001, a_failing_grant :916, an_admitted_plan :1481, a_matching_grant :463 (init_doctor 15 ok: the shipped claude plan is admitted) |
+  | N2 | holder's plan never submitted (`_ if true => ("is admitted with it ON", true)`) | 5: a_held_tool :1387, a_failing_grant :916, an_uncomposable_off :545, two_off_controls :1363, a_matching_grant :463 |
+  | N3 | restriction path: `_ if true => "drops it (native capability remains OFF)"` | 2: a_dropped_restricted :614, an_empty_scope :280 |
+  | N3b | old `Transport::Unsupported` filter restored on the restriction arm | 1: a_dropped_restricted :643 (declared-transport case) |
+  | N4 | `capabilities.rs` `assess`: `authored: &adapter.driver[..4.min(…)]` | 1: an_admitted_plan :1481 (template case) |
+  | N5 | `assess` drops the seat's asks (`Requests::new()`) | 9: a_dropped_restricted :614, a_held_tool :1387, every_realm :231, installed_harnesses :314, an_uncomposable_off :545, an_admitted_plan :1456, an_empty_scope :280, two_off_controls :1363, a_matching_grant :463 |
+  | IA1 | `doctor.rs`: the admitted OFF wording reverts to "every seat is launched with it switched off by the adapter's declared control" | init_doctor 2: `doctor_reads_the_scaffold_…` :477, `a_broken_agent_library_…` :593 (admitted assertion 1) |
+  | IA2 | `doctor.rs`: `Ok(_) if true => {}` (the admitted plan line is not printed) | init_doctor 1: `doctor_reads_the_scaffold_…` :477 (admitted assertion 2) |
+
+  Line numbers are those of the formatted files as landed.
+- **Restored.** Every mutation was restored, and the crate suites below ran
+  on the restored tree.
+- **Gates.**
+  - `cargo fmt --all -- --check`: clean.
+  - `git diff --check`: clean.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: finished clean (`clippy.log`).
+  - `cargo test -p brokkr-runtime --all-features --locked`: 25 result
+    lines, all ok, 0 failed (lib 627, `capability_launch` 68;
+    `runtime-suite.log`).
+  - `cargo test -p brokkr-cli --all-features --locked`: 33 result lines,
+    all ok, 0 failed. The lib passed 485 and `init_doctor` passed 15
+    (`cli-suite.log`).
+  - `openspec validate --all --strict --no-interactive`: 18 passed, 0
+    failed.
+  - `compile --bundle bundles/self` and `bundles/verify` both compile.
+    Their digests are `45dc1c7e…` and `f7cbd4bb…`, unchanged from the
+    first visit.
+- **Pending.** `cargo test --workspace` (not run: the workspace run can
+  hang in brokkr-cli), macOS, exact coverage outside the box, remote CI
+  and the council.
+
+### Review return SC1 — the adapter-level plan meets launch's final validation
+
+Same run, second implement visit, base 9bb7fe33. The review's HIGH SC1:
+`Authority::assess` resolved and composed the plan but never ran launch's
+final validation, so doctor reported an admitted, switched-off plan whose
+cold command `check_final` refuses (the Codex OFF declared as the harness
+default carries no measured OFF).
+
+- **Fix, `crates/brokkr-runtime/src/capabilities.rs` only.** `assess` now
+  hands an admitted plan to `final_validation`. That builds the input the
+  engine hands a sealed launch: the plan, a `LaunchRecord` sealed from
+  typed facts (the adapter's template as the one `template` segment,
+  `declared_template` as its expectation, no local declaration, no
+  hands), empty `SealedServing`, and `launch_arguments`. It then calls the
+  built-in driver's own `codex_command` / `claude_command`. Those compose,
+  build the cold command and run `check_final` through `served`, so the
+  cause is launch's own, prefixed by the adapter-level seat. The cold path
+  offers no session, so no version probe runs and nothing is spawned. An
+  opaque driver (`<custom>`) has no final command at launch and is
+  unchanged. Any other built-in harness with a known inventory refuses
+  with a named cause rather than being reported admitted unchecked.
+  `doctor.rs` is unchanged: both of its paths already report `assess`'s
+  refusal.
+- **Tests, `crates/brokkr-cli/src/doctor/capability_tests.rs`.**
+  - New: `a_plan_whose_final_command_carries_no_off_is_refused_as_launch_refuses_it`
+    (`:1541`). It uses a Codex adapter under the codex driver. With the OFF
+    declared as the harness default, both the unheld plan line and the
+    restricted-want line are refused with launch's literal cause ("the
+    final command of harness 'codex' carries no measured OFF for native
+    capability 'web-search', which its plan denies; …"). With the measured
+    `-c web_search="disabled"` restored, both are admitted/dropped-OFF.
+  - Changed assertion, `an_uncomposable_off_…` (`:501`, `:518`, `:551`).
+    The scoped holder of `uncomposable_codex` (claude driver, fetch OFF by
+    harness default) was "admitted with it ON". Launch refuses it: "the
+    final command of harness 'claude' leaves tool 'web_fetch' available,
+    which its plan denies as native capability 'web-fetch'".
+  - Changed assertion, `an_admitted_plan_…` (`:1462`, `:1510`). With the
+    template `--allowedTools WebFetch`, the holder was "admitted with it
+    ON". Launch refuses the template's authored control: "the arguments of
+    seat 'adapter-plan' carry '--allowedTools WebFetch', which controls
+    native capability 'web-fetch'…". The compile half of the same test
+    still admits the holder (`compile(holding) == Ok(())`, unchanged).
+    That compile/launch difference is pre-existing and is named as a
+    follow-up, not fixed here.
+- **Observed (logs in `.forge/unit-22-fix/`).**
+  - Baseline at 9bb7fe33 with the new test only: `cargo test -p
+    brokkr-cli --lib doctor::capability_tests` 16 passed, 1 failed (the
+    new test at `:1543`). Doctor said "is admitted, each of them switched
+    off by the composed command" (`baseline.txt`).
+  - Fix: `doctor::` 70 passed, 0 failed.
+  - Mutations, each compiling and each restored by `Edit`, with
+    `doctor::` re-run after each:
+
+    | # | Mutation | Failed (test:line) |
+    | --- | --- | --- |
+    | F1 | `served.map(drop).or(Ok(()))` (no final validation) | 3: a_plan_whose_final… :1575, an_uncomposable_off :558, an_admitted_plan :1498 |
+    | F2 | codex arm `Ok(Vec::new())` | 1: a_plan_whose_final… :1575 |
+    | F3 | claude arm `Ok(Vec::new())` | 2: an_uncomposable_off :558, an_admitted_plan :1498 |
+    | F4 | the `who` prefix dropped from the cause | 3: the same three as F1 |
+
+  - Restored: `doctor::` 70 passed.
+- **Gates.**
+  - `cargo fmt --all -- --check`: clean.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: clean.
+  - `cargo test -p brokkr-cli`: 33 result lines, all ok. The lib passed
+    486 and `init_doctor` passed 15, so the shipped claude and codex
+    adapter-level plans pass launch's final validation unchanged.
+  - `cargo test -p brokkr-runtime`: every result line ok (lib 627,
+    `capability_launch` 68).
+  - `compile --bundle bundles/self` and `bundles/verify`: both compile.
+  - `openspec validate --all --strict`: 18 passed.
+  - `git diff --check`: clean.
+- **Admissions.** No fixture migrations, no standing-admission lines, and
+  no `init_doctor.rs` line moved.
+- **Pending.** `cargo test --workspace`, macOS, exact coverage outside the
+  box, remote CI and the council.
+
+### Review return SC2, M1, L1, L2 — bounded refusals and per-harness answers
+
+Same run, third implement visit, base 201ff97a. The chief returned two
+medium findings (SC2, M1) and two low ones (L1, L2).
+
+- **Fix, `crates/brokkr-runtime/src/capabilities.rs` only.**
+  - SC2: `Authority::assess` (`:1843`) now returns every refusal through
+    `native_controls::bounded_line`, the one sink the compiler's
+    `CompileError::Capability` and the driver's `at_launch` use. That
+    covers resolution and final-validation refusals alike, with the site
+    prefix: one line, at most 512 scalar values. The unbounded body moved
+    to a private `assessed`.
+  - M1: `final_validation` (`:2282`) answers each harness as its launch
+    serves it. `exec` joins the opaque driver: its launch consumes no
+    native control and runs no final check, so the composition `resolve`
+    admitted is all it judges. `codex` and `claude` are unchanged. `dsh`
+    and `lanetally` launches do run `check_final`, but doctor cannot build
+    their command: every dsh command carries a staged overlay and a
+    prompt, and no reading of lanetally's final command is exported from
+    brokkr-protocol. Each is refused with that reason named. An unknown
+    driver name, which launch refuses before composing, is refused with
+    its own reason.
+  - L1: the launch record and `launch_arguments` are now the engine's own.
+    A `SiteSpawn` of the adapter's template segment is sealed by
+    `SiteSpawn::seal` and projected by `SiteSpawn::launch_record` /
+    `launch_arguments`. The template-agreement and local-sandbox checks a
+    dispatch makes therefore run here too. `engine.rs` is unchanged; its
+    fields are public in the crate.
+- **Tests, `crates/brokkr-cli/src/doctor/capability_tests.rs`.**
+  - Changed assertion, `two_off_controls_…` (`:1266`). The duplicate
+    `--disallowedTools` resolution refusal is now cut at 512, "…because a
+    control nobody can read is…". That is the same cut the compiler's
+    line of the same test already asserts for office `researcher`. It
+    binds the resolution-refusal bound in the native path and the holder
+    path.
+  - New: `a_final_validation_refusal_is_bounded_as_a_compile_refusal_is`
+    (`:1704`). The codex default-OFF plan runs in a realm and a grant
+    office each named at 64 bytes. The restriction line and the holder
+    line carry launch's final-check refusal cut at "(operator ruling 2 of
+    202…", asserted to be exactly 512 scalars. The unheld plan, under the
+    shorter `adapter-plan` office, is whole.
+  - New: `each_harness_is_answered_as_its_launch_serves_it` (`:1633`). One
+    default-OFF inventory is installed under the `exec`, `dsh`,
+    `lanetally` and `nosuch` drivers. `exec` is admitted with its OFF.
+    Each of the other three is refused with its literal reason.
+- **Observed (logs in `.forge/u22r2-*.log`).**
+  - Baseline at 201ff97a production with this visit's tests: `cargo test
+    -p brokkr-cli --lib doctor::capability_tests` 16 passed, 3 failed:
+    `two_off_…`, `each_harness_…` and `a_final_validation_…`
+    (`u22r2-baseline.log`).
+  - L2, a retrospective baseline taken in this session, not at the time
+    of the SC1 fix: 9bb7fe33's `capabilities.rs` against this test file.
+    6 failed, including the two changed holder expectations,
+    `an_uncomposable_off_…` `:558` and `an_admitted_plan_…` `:1499`. Both
+    left sides read "is admitted with it ON" where launch refuses
+    (`u22r2-l2-retro-baseline.log`).
+  - Fix: `doctor::` 72 passed, 0 failed (`u22r2-fix.log`).
+  - Mutations, each compiling, each restored from the saved patch, with
+    `doctor::capability_tests` re-run after each:
+
+    | # | Mutation | Failed (test:line) |
+    | --- | --- | --- |
+    | N1 | `assess` returns the cause unbounded | 2: two_off_… :1377, a_final_validation_… :1729 |
+    | N2 | `exec` dropped from the admitted arm (falls to the catch-all) | 1: each_harness_… :1660 |
+    | N3 | `dsh` arm returns `Ok(())` | 1: each_harness_… :1660 |
+    | N4 | `lanetally` arm returns `Ok(())` | 1: each_harness_… :1660 |
+    | N5 | catch-all returns `Ok(())` | 1: each_harness_… :1660 |
+    | N6 | the spawn's segment is the harness arguments, not the template (the old construction) | 2: the_shipped_realm_… :1095, an_admitted_plan_… :1499, refused by `seal`'s "dispatch refused: the permission template this spawn emits…" |
+    | N7 | `launch_arguments` emptied | 2: the_shipped_realm_… :1095, an_admitted_plan_… :1499 |
+
+  - Restored: `doctor::capability_tests` 19 passed; `doctor::` 72 passed.
+- **Gates.**
+  - `cargo fmt --all -- --check`: clean, after one `cargo fmt` wrap in the
+    new test.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: clean.
+  - `cargo test -p brokkr-cli --all-features --locked`: 33 result lines,
+    all ok. The lib passed 488; `init_doctor` passed 15.
+  - `cargo test -p brokkr-runtime --all-features --locked`: every result
+    line ok (lib 627, `capability_launch` 68).
+  - `compile --bundle bundles/self` and `bundles/verify`: both compile.
+  - `openspec validate --all --strict`: 18 passed.
+  - `git diff --check`: clean.
+- **Admissions.** No fixture migrations, no standing-admission lines, and
+  no `init_doctor.rs` line moved.
+- **Follow-up, not fixed here.** Doctor still cannot check a `dsh` or
+  `lanetally` plan with a known inventory. Doing so would need a
+  lanetally reading beside `claude_command` in brokkr-protocol's
+  `adapters.rs`, which is outside this unit. A plan `seal` refuses is
+  unreachable from doctor's inputs, because the template is the
+  adapter's own. N6 shows the check runs.
+- **Pending.** `cargo test --workspace`, macOS, exact coverage outside the
+  box (the new arms are each reached by the new test), remote CI and the
+  council.

@@ -4694,9 +4694,107 @@ production byte moved.
 
 ## 22. Unit 22 — Submit whole plans to doctor
 
-- [ ] 22.1 Unit 22 submits whole plans in both doctor paths. Verify interacting OFF/final-state conflicts and explicit adapter-only scope. Requirements: [Doctor reports grants for every realm][CD1], [Installed native capabilities absent from grants are explicit][CD2], [Restrictions are validated, carried and pinned without engine interpretation][RG4]. Reopened/remaining: operator ruling 2–4. (previous 8.3)
+- [x] 22.1 Unit 22 submits whole plans in both doctor paths. Verify interacting OFF/final-state conflicts and explicit adapter-only scope. Requirements: [Doctor reports grants for every realm][CD1], [Installed native capabilities absent from grants are explicit][CD2], [Restrictions are validated, carried and pinned without engine interpretation][RG4]. Reopened/remaining: operator ruling 2–4. (previous 8.3)
 
-- [ ] 22.2 Unit 22 independently asserts full doctor/compile outcomes for all grant shapes. Remove whole-plan assessment, observe intended failure, restore/pass; no model invocation. Requirements: [Installed native capabilities absent from grants are explicit][CD2], [Unknown inventories and live-control gaps remain unmeasured][CD3], [Known native powers require a valid delivered denial or refusal][NCR]. Reopened/remaining: operator ruling 2–4. (previous 8.4)
+- [x] 22.2 Unit 22 independently asserts full doctor/compile outcomes for all grant shapes. Remove whole-plan assessment, observe intended failure, restore/pass; no model invocation. Requirements: [Installed native capabilities absent from grants are explicit][CD2], [Unknown inventories and live-control gaps remain unmeasured][CD3], [Known native powers require a valid delivered denial or refusal][NCR]. Reopened/remaining: operator ruling 2–4. (previous 8.4)
+
+**Unit 22 note, 2026-09-29 (run `0065-rebuild-unit-22-see-the-uni-e59d1b7e`): OVERSIZED, record only.**
+
+- **Built and proved, not landed.** The fix is in
+  `.forge/unit-22/unit-22-oversized.patch` (sha256 `43497a92…`). It
+  covers `capabilities.rs`, `doctor.rs` and `doctor/capability_tests.rs`:
+  - it removes `denial_on` and `Denial::Refused`;
+  - it adds `Authority::assess`, which is the adapter-level plan through
+    `resolve`;
+  - both doctor paths submit whole plans, under the realm's whole
+    authority, with a labelled plan line.
+- **Proof.**
+  - Baseline: 12 of 16 red.
+  - Fix: 16 passed.
+  - Mutations N1–N5 and N3b each fail the intended tests, and the restored
+    suite passes.
+  - fmt and clippy are clean, brokkr-runtime is green, and self/verify
+    compile.
+- **What stops it.** Two `crates/brokkr-cli/tests/init_doctor.rs` tests pin
+  the old "every seat on claude is launched with it switched off" wording:
+  `doctor_reads_the_scaffold_…` at `:478` and `a_broken_agent_library_…`
+  at `:589`. Changing them is an assertion update outside the unit, so
+  neither standing admission covers it.
+- **The ruling needed.** With the proposed
+  `.forge/unit-22/unit-22-init-doctor-proposed.patch` (sha256
+  `90975dfc…`) applied as well, all 33 brokkr-cli result lines are ok.
+  The proposal is one wording change in `scaffolded_claude_denials` and one
+  added expected plan line.
+- **No admitted lines.** No fixture migrations and no standing-admission
+  lines. No frozen file moved.
+- **Where it is recorded.** evidence.md, "Unit 22 … OVERSIZED".
+- **Second visit, same run: BLOCKED.** Triage re-ruled the unit `chore`,
+  but no addendum admits `init_doctor.rs`. Both patches still apply at
+  2b954413, and their digests are unchanged. The visit did not rebuild. It
+  reports `blocked` so the run stops instead of looping. See evidence.md,
+  "Second visit".
+
+**Unit 22-fix note, 2026-09-29 (run `0065-rebuild-unit-22-see-the-uni-79c858d5`): LANDED.**
+
+- **Ruling.** The operator's ruling of 2026-09-29 is recorded as the
+  addendum "2026-09-29: unit 22 admits init_doctor.rs for its assertion
+  updates" in `operator-ruling-2026-09-23.md`.
+- **Patches.** Both saved patches kept their digests (`43497a92…` and
+  `90975dfc…`) and passed `git apply --check` at 361520c3. Both were
+  applied unchanged. The branch diff of the three unit files is
+  byte-identical to the saved patch, and the `init_doctor.rs` diff is
+  byte-identical to the proposed patch.
+- **Admitted lines in `crates/brokkr-cli/tests/init_doctor.rs`.**
+  Assertion updates only, and no test was added or removed:
+  - the `scaffolded_claude_denials` wording (`:444-445`) now reads "the
+    adapter-level plan above switches it off";
+  - one expected line, `ok       capabilities starter plan claude: …`, is
+    added after the old `:482` (new lines `:482-486`).
+- **Proof at 361520c3, re-taken.**
+  - Baseline, with production at HEAD and the tests applied: 12 of 16
+    red, and `init_doctor` 2 of 15 red (`:477`, `:593`).
+  - Fix: 16 of 16 and 15 of 15 pass.
+  - N1–N5 and N3b each fail their intended tests.
+  - IA1 (the old OFF wording) fails both admitted `init_doctor`
+    assertions. IA2 (no admitted plan line) fails `:477` only.
+  - After restore, both suites pass again.
+- **Gates.** fmt, clippy, `git diff --check`, the brokkr-runtime and
+  brokkr-cli suites, openspec and the self/verify compiles: see
+  evidence.md, "Unit 22-fix".
+- **Other admissions.** No fixture migrations and no standing-admission
+  lines.
+- **Ticked.** 22.1 and 22.2 are ticked on the evidence observed above.
+- **Pending.** macOS, exact coverage, remote CI and the council.
+- **Review return SC1, same run.** The council found that `assess` never
+  ran launch's final validation. Now `capabilities.rs` hands an admitted
+  adapter-level plan to the built-in driver's own
+  `codex_command`/`claude_command`, sealed as a launch, so `check_final`
+  judges its cold command. Both doctor paths therefore report launch's
+  refusal.
+  - Proof: baseline 1 of 17 red; fix `doctor::` 70 passed; mutations F1–F4
+    each fail their intended tests; restored 70 passed.
+  - Two assertions in the unit's own test file changed from "admitted with
+    it ON" to launch's refusal (`an_uncomposable_off_…`,
+    `an_admitted_plan_…` template case).
+  - No other file moved, including `init_doctor.rs`.
+  - 22.1 and 22.2 stay ticked on this evidence (evidence.md, "Review return
+    SC1").
+- **Review return SC2/M1/L1/L2, same run.**
+  - SC2: `assess` now bounds every refusal through `bounded_line`, the sink
+    compile and launch use.
+  - M1: `final_validation` admits `exec`, which checks no final command.
+    `dsh`, `lanetally` and unknown drivers are refused with a named reason.
+  - L1: the record and launch arguments come from the engine's own
+    `SiteSpawn::seal`/`launch_arguments`.
+  - L2: retrospective baseline for the two changed holder expectations,
+    taken at 9bb7fe33's production.
+  - Proof: baseline 3 of 19 red; fix `doctor::` 72 passed; mutations N1–N7
+    each fail their intended tests; restored.
+  - One assertion changed in the unit's own test file (`two_off_…`, now
+    the bounded cause). Two tests added.
+  - No other file moved, including `init_doctor.rs`.
+  - 22.1 and 22.2 stay ticked (evidence.md, "Review return SC2, M1, L1,
+    L2").
 
 ## 23. Unit 23 — Audit launch enforcement removals
 

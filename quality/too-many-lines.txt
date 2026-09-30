@@ -2,7 +2,7 @@
 # production
  111 crates/brokkr-bridge/src/lib.rs:613 sync_once
  228 crates/brokkr-cli/src/compare.rs:23 seat_costs
- 283 crates/brokkr-cli/src/doctor.rs:841 report_capabilities
+ 254 crates/brokkr-cli/src/doctor.rs:862 report_capabilities
  118 crates/brokkr-cli/src/init.rs:1753 init
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
  105 crates/brokkr-cli/src/tui.rs:2396 plan
@@ -38,8 +38,8 @@
  101 crates/brokkr-runtime/src/bundle.rs:7407 walk_files
  101 crates/brokkr-runtime/src/bundle/compose.rs:234 read_layers
  368 crates/brokkr-runtime/src/bundle/compose.rs:807 merge_layer
- 105 crates/brokkr-runtime/src/capabilities.rs:1659 holding
- 265 crates/brokkr-runtime/src/capabilities.rs:1905 native_plan
+ 105 crates/brokkr-runtime/src/capabilities.rs:1596 holding
+ 265 crates/brokkr-runtime/src/capabilities.rs:1901 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:320 check
  159 crates/brokkr-runtime/src/engine.rs:1093 seat_input
  150 crates/brokkr-runtime/src/engine.rs:1307 execute
@@ -51,6 +51,7 @@
  120 crates/brokkr-view/src/transcript.rs:2462 project_dsh
  126 crates/brokkr-view/src/transcript.rs:3082 dsh_row
 # test
+ 115 crates/brokkr-cli/src/doctor/capability_tests.rs:1267 two_off_controls_that_compose_alone_are_refused_together_under_every_grant_shape
  180 crates/brokkr-cli/src/doctor/tests.rs:2457 the_dsh_seam_precedence_moves_the_version_and_the_composite_together
  110 crates/brokkr-cli/src/tests.rs:410 summaries_costs_inspect_export_and_error_closures_are_exercised
  115 crates/brokkr-cli/src/tests.rs:542 export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim
