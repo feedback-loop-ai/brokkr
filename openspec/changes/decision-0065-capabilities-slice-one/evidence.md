@@ -25902,3 +25902,97 @@ ruling admits.
 - jscpd, `ratchet.sh`, CRAP and public-API;
 - the council;
 - the operator's ruling on (1)'s premise.
+
+## Unit 27b, review return — what `bundle.rs` alone cannot close, and two rulings owed (2026-10-01)
+
+The review of `7f4b9f54..4d7aae75` returned residual/medium with
+`spec_defect`, raising R1 to R4. This visit moves no crate byte. It
+corrects the record and reports `oversized`. Every line below was observed
+in this session by `grep -n` or a read of the file named, on `4d7aae75`.
+
+**R1: once-at-entry resolution is not established, and the first visit's
+account above overstated it.** "The entry resolution the ruling requires
+already exists" is withdrawn. After `compile_with_capabilities`
+canonicalizes the bundle directory (`bundle.rs:1428`), these root
+resolutions still run:
+
+- `compose.rs:239`: `read_layers` canonicalizes the leaf again. Its only
+  caller is `resolve_unsealed` (`compose.rs:1213`), which
+  `bundle.rs:1434` calls with the canonical directory.
+- `agents/load.rs:705`: `Adapters::load` canonicalizes its root, and one
+  compile calls it twice, through `load_pin_adapters` (`bundle.rs:1078`,
+  reached from `:1516`) and again at `bundle.rs:1602`.
+- `agents/load.rs:436`: `Library::scan` resolves the library root.
+  `agents/load.rs:579`: `contained` follows each charter's links.
+- `capabilities.rs:317` and `:321`: `read_document` resolves the document
+  and the operator root on every call. It is called from
+  `Definitions::load` (`:387`) and `ToolDialect::load` (`:623`), which
+  `Authority::load` reaches at `:1438` and `:1448`.
+  `CapabilityContext.root` (`capabilities.rs:1080`) reaches it as the
+  caller spelled it.
+
+`compose.rs:350`, the one resolution of each parent layer where the child
+names it, is that layer's own resolution. It also enforces the in-library
+refusal.
+
+`bundle.rs` can canonicalize the library, adapters and operator roots at
+entry. It cannot remove the resolutions that follow in the three other
+files, so point 1's "no second resolver, and no following of links after
+entry" would still be false. Unit 27b's admission (ruling point 5) is
+`bundle.rs`, plus `launch.rs` if the entry is there, and it is not
+(`bundle.rs:1419`). **Split proposed for the operator:**
+
+- **27b-fix-a** (three production files): `bundle.rs` resolves the
+  library, adapters and operator roots once at entry and loads the
+  adapters once. `bundle/compose.rs` takes the canonical leaf without
+  `:239`. `agents/load.rs` gives `Library::scan` and `Adapters::load` an
+  entry-resolved form, keeping a resolving form for their other callers.
+- **27b-fix-b**: `capabilities.rs` reads operator documents under the
+  entry-resolved root without resolving it again. Alternatively, the
+  operator rules that `read_document`'s per-document containment check,
+  which follows a link that stays inside the root, is not a second root
+  resolver.
+- **The proof R1 names**, for both: the linked-ancestor regression
+  extended with capability definitions under a linked operator root and
+  a composed parent. It needs a baseline red, one mutation per dropped
+  entry resolution, and a restored pass.
+
+**R2 and R3: 27b.3 was closed early, and its ruled shape contradicts the
+code.** `a_dialect_step_is_composed_and_marked_at_its_own_site` binds both
+removals by planted facts at the spawn and seal doors. It never inspects
+the normal validator's driver input, so 27b.3 is unticked. The ruling's
+parenthesis ("explicit null capabilities/controls") cannot be asserted
+as written:
+
+- `bundle.rs:6199-6218` gives every dialect step that has a validator
+  `site_capabilities(…, Some("exec"), …)`, an explicit outcome by design
+  D5's comment there.
+- `SiteMarks::capabilities` (`engine/marks.rs:42-53`) writes
+  `outcome.controls()` and `outcome.prompt()`.
+- `SiteCapabilities::serving(None)` returns the first outcome
+  (`capabilities.rs:1360-1362`).
+
+So the validator is handed objects, not `null`. `prompt()` is
+`{"held": …, "not_held": …}` (`capabilities.rs:1314-1320`). Which exact
+positive shape the test should pin is the operator's ruling. It could be
+the exec outcome that holds nothing, amending the parenthesis, or a
+change to the design, which this unit may not make.
+
+**R4: the spell-check gate is red, not merely at risk.** The review
+reports that `typos --hidden` (pinned 1.50.2) exits 2 with six errors,
+all on `operator-ruling-2026-09-23.md:267`: the verbatim addendum quotes
+the old spellings. This visit ran `typos --hidden --format brief`, and
+the seat refused it ("This command requires approval"). The six errors
+are therefore the review's observation, not this visit's. The renames
+stand. `_typos.toml` is unchanged, and it holds no genuine typo. 27b.4
+is unticked until the operator rules on how to reconcile quoting the old
+names verbatim with the spelling gate. Three ways are open: a narrow
+`extend-ignore-re` for the quoted former names (as `_typos.toml:30-33`
+does for refused examples), excluding the ruling file, or amending the
+quotation.
+
+**Gates.** This visit edits only tasks.md and evidence.md.
+`openspec validate --all --strict` and `git diff --check` are recorded
+in the tasks.md note. fmt, clippy and the crate suites were not re-run,
+because no crate byte moved; the first visit's results above still hold
+for these crates.

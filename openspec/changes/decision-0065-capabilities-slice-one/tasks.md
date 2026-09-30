@@ -5489,8 +5489,8 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
 
 - [ ] 27b.1 **Unit 27b (operator ruling of 2026-09-30, point 1):** Every root a compile binds is resolved once at compile entry to its canonical path, and every handle, binding and owner identity is taken from it. A path through a symlinked ancestor compiles, and a later replacement of the bound directory, or of an ancestor, still refuses at start and resume. Regression reproduces the macOS shape on Linux, with a baseline red, a compiling mutation (drop the entry resolution) caught and a restored pass. Requirements: [Refusal proofs assert the full reason][SC8] (scenario: macOS canonical fixture roots preserve exact diagnostics); [Library charter pins are enforced at consumption][MPL]. Open for macOS (remote CI) and the operator's ruling on the premise.
 - [ ] 27b.2 **Unit 27b (point 2):** The socket refusal's expected text is each supported host's own error kind, derived from the platform; the refusal is unchanged. Bound by a mutation. Requirement: [Refusal proofs assert the full reason][SC8]. Open for macOS (remote CI).
-- [x] 27b.3 **Unit 27b (point 3):** SQ3 and SQ4 (`engine/sequence.rs:395`, `:405`) are each bound by a test that fails when the edit is removed, or a provable equivalence is recorded for the operator's ruling. Tests only. Requirements: [Denial and admission have removal proofs and bounded live claims][NC6]; [Digest pins are measured and their history remains truthful][MP5].
-- [x] 27b.4 **Unit 27b (point 4):** The five possessive test names and the office string at `doctor/capability_tests.rs:1704` are renamed, every reference in tasks.md/evidence.md with them. Nothing is listed in `_typos.toml`. Requirement: house CI (typos).
+- [ ] 27b.3 **Unit 27b (point 3):** SQ3 and SQ4 (`engine/sequence.rs:395`, `:405`) are each bound by a test that fails when the edit is removed, or a provable equivalence is recorded for the operator's ruling. Tests only. Requirements: [Denial and admission have removal proofs and bounded live claims][NC6]; [Digest pins are measured and their history remains truthful][MP5].
+- [ ] 27b.4 **Unit 27b (point 4):** The five possessive test names and the office string at `doctor/capability_tests.rs:1704` are renamed, every reference in tasks.md/evidence.md with them. Nothing is listed in `_typos.toml`. Requirement: house CI (typos).
 
 **Unit 27b, 2026-10-01 (run `0065-rebuild-unit-27b-see-the-un-fd642276`, based on `7f4b9f54`, whose crates equal `5df5966c`'s)** (evidence.md, "Unit 27b").
 
@@ -5561,6 +5561,30 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
   - the council.
 
   28.1 stays open.
+
+**Unit 27b, review return, 2026-10-01 (same run, on `4d7aae75`)** (evidence.md, "Unit 27b, review return"). Returned residual/medium with `spec_defect`. No crate byte moves in this visit, and it reports `oversized`.
+
+- **27b.1 stays open, oversized (R1).** Resolving every root once is not
+  reachable from `bundle.rs` alone. After the entry, `compose.rs:239`
+  resolves the leaf again. `Adapters::load` (`agents/load.rs:705`) runs
+  twice per compile (`bundle.rs:1078`, `:1602`). `read_document`
+  (`capabilities.rs:317`, `:321`) resolves the operator root for each
+  document. The first visit's "production already resolves once" is
+  withdrawn. The split is in evidence.md.
+- **27b.3 unticked (R2, R3).** The test binds the two removals at the
+  spawn door. It does not inspect the validator's normal driver input.
+  The ruling's "explicit null" also contradicts `bundle.rs:6199-6218`,
+  which gives the validator an exec outcome, and `serving(None)`
+  (`capabilities.rs:1362`) projects that outcome as objects. This needs
+  the operator's ruling.
+- **27b.4 unticked (R4).** The renames stand. The review ran `typos
+  --hidden` (1.50.2) and got exit 2, with six errors, all in the verbatim
+  addendum at `operator-ruling-2026-09-23.md:267`. The seat refused this
+  visit's own run. The gate is red until the operator rules on quoting
+  the old names verbatim versus the spelling rule.
+- **Gates.** `openspec validate --all --strict`: 19/0. `git diff --check`:
+  clean. No crate byte moved, so fmt, clippy and the suites were not
+  re-run.
 
 ## 28. Later council judgment and final archive
 
