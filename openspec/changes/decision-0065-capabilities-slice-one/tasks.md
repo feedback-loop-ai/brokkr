@@ -5225,6 +5225,58 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
     OpenSpec (19) and `git diff --check`: all clean. No production,
     test or pin byte moved.
 
+## 26b. Unit 26b — Close exact coverage before the final gates
+
+- [ ] 26b.1 Unit 26b (operator ruling of 2026-09-30, inserted between 26 and 27) closes every uncovered line and branch arm the operator's exact gate found on `2098df8c` in the five 0065 production files. Each is closed through its owning suite and the real path, with exact assertions, each bound by a compiling mutation, and with no production edit. Arms no admitted input reaches stop for the operator's ruling. Requirements: [Refusal proofs assert the full reason][SC8], [Digest pins are measured and their history remains truthful][MP5].
+
+**Unit 26b, 2026-09-30 (run `0065-rebuild-unit-26b-see-the-un-4eac6ffb`, based on `8f8e696e`)** (evidence.md, "Unit 26b").
+
+- **26b.1, open: blocked on a ruling.**
+  - Closed, each bound by a mutation and then restored:
+    - adapters 2707–2709, 2789–2790, 2801, 3698;
+    - native_controls 1432, 2393–2396, 3414, 3533, 3550;
+    - bundle 1984–1985, 3095, 4782–4784, 4963–4964, 6194, 6420;
+    - engine 3659–3660.
+  - The seat diagnostic on the final tree, whole workspace, with the gate's
+    filters: lines 42746/42754, branches 6643/6652, functions 4507/4509.
+    The baseline was 42731/42754, 6631/6652 and 4506/4509.
+  - What remains is all in the five files, and none of it is reachable
+    by an admitted input:
+    - adapters 3332–3333 and 3362;
+    - native_controls 3541;
+    - capabilities 1941;
+    - bundle 2135, 2941, 2956–2961;
+    - engine 4090, 4107, 4292 and 4297;
+    - the closures at bundle 5406 and capabilities 2026.
+  - bundle 3805 is reached only through a verify-wrapper address
+    alias. A scratch compile confirmed it: a member named `dialect-verify`
+    compiles, and the validator's own site loses its facts. It is left
+    for a ruling rather than pinned.
+  - Tests for capabilities 1941 and native_controls 3541 that built
+    impossible states were written and then withdrawn.
+- **Admissions.** No production byte, no fixture migration and no
+  standing-admission line.
+  - One helper (`offered`) was extracted in `adapters/tests.rs` to avoid a
+    new clone.
+  - One expected text became a closure in `bundle/tests.rs`.
+  - One pinned row count moved 27 → 28 for the row added.
+  - None of these changes an assertion.
+- **Ledgers.** `file-lines.txt` has seven rows grown. In
+  `too-many-lines.txt` six functions grew and one shrank. The named
+  suites were already over their ceilings, so the pull request needs a
+  `Ruling:` line.
+- **Gates.**
+  - fmt: clean.
+  - Workspace clippy: no warning.
+  - `brokkr-protocol`: 626 passed. One untouched `hands::tests` probe
+    test flaked once and passed on re-run.
+  - `brokkr-runtime`: 870 passed.
+  - self and verify compile.
+  - `openspec validate --all --strict --no-interactive`: 19 passed.
+  - `git diff --check`: clean.
+- **Pending.** The exact gate outside the box, the rulings, jscpd and
+  `ratchet.sh`, macOS, remote CI and the council.
+
 ## 27. Unit 27 — Validate and commit the rebuilt candidate
 
 - [ ] 27.1 **Unit 27, rebuilt final candidate:** Run `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; resolve failures and record actual exits. Keep dependency versions and required compiler/license constraints unchanged by the repair. Requirement: [Digest pins are measured and their history remains truthful][MP5] (scenario: Validation remains a proof obligation). Reopened/remaining: operator ruling 1–4 / V1/R13. (previous 11.1)

@@ -192,13 +192,18 @@ fn a_generated_validator_is_refused_on_a_harness_whose_native_power_cannot_be_sw
             Boundary::Namespace,
         )
     };
+    let refused = |site: &str| {
+        format!(
+            "bundle: seat '{site}' (office '{site}') in realm '<unmapped>': provider 'exec' \
+             cannot switch off its native capability 'ambient-net', which this seat does not \
+             hold (the child inherits the host network; evidence: a test, scope: a test); an \
+             ungranted native capability that cannot be disabled cannot be seated in this realm \
+             (decision 0065 ruling 4)"
+        )
+    };
     assert_eq!(
         compile(adapters.path()).unwrap_err().to_string(),
-        "bundle: seat 'verify:dialect-verify' (office 'verify:dialect-verify') in realm \
-         '<unmapped>': provider 'exec' cannot switch off its native capability 'ambient-net', \
-         which this seat does not hold (the child inherits the host network; evidence: a test, \
-         scope: a test); an ungranted native capability that cannot be disabled cannot be \
-         seated in this realm (decision 0065 ruling 4)"
+        refused("verify:dialect-verify")
     );
     // The control: the same bundle under the shipped adapters compiles,
     // and the generated site carries its explicit empty outcome.
@@ -209,6 +214,18 @@ fn a_generated_validator_is_refused_on_a_harness_whose_native_power_cannot_be_sw
         .expect("the generated validator has an outcome");
     assert_eq!(generated.asks.office, "verify:dialect-verify");
     assert!(generated.outcomes[0].held.is_empty());
+    // An authored dialect step is the first exec site, and is refused by
+    // its own label (rebuild unit 26b).
+    let (stepped, _) = dialect_config(config["seats"]["verify"].clone());
+    std::fs::write(
+        fixture.dir.path().join("bundle.json"),
+        serde_json::to_vec(&stepped).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        compile(adapters.path()).unwrap_err().to_string(),
+        refused("design:validate")
+    );
 }
 
 #[test]
@@ -670,6 +687,14 @@ fn select_parses_every_case_and_refuses_closed_vocabulary_defects_by_case() {
     bad["seats"]["work"]["select"]["cases"]["feature"]["panel"] = json!({});
     let refusal = error(fixture.compile(&bad, &policy));
     assert!(refusal.contains("work:feature"), "{refusal}");
+    // A case that is a panel alone is parsed as one, and refused as one
+    // (rebuild unit 26b).
+    bad["seats"]["work"]["select"]["cases"]["feature"] = json!({"panel": {}});
+    assert_eq!(
+        error(fixture.compile(&bad, &policy)),
+        "bundle: seat 'work:feature' panel needs at least two members; a one-member panel is a \
+         single seat"
+    );
 }
 
 #[test]
@@ -733,6 +758,23 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         .0
         .len(),
         2
+    );
+    // A member that is not an object declares no tools, and is refused
+    // for what it lacks (rebuild unit 26b).
+    let members = json!({"panel": {"a": 1, "b": 1}, "aggregate": "unanimous-pass"});
+    assert_eq!(
+        error(parse_panel(
+            dir,
+            "review",
+            &members,
+            &results,
+            &[],
+            &mut None,
+            &mut BTreeMap::new(),
+            Boundary::Namespace,
+            &Default::default(),
+        )),
+        "bundle: seat 'review:a' missing 'role'"
     );
 
     for raw in [

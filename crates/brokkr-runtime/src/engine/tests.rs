@@ -5833,6 +5833,21 @@ fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
             "",
             None,
         );
+        // The dispatch door refuses it before anything starts (rebuild unit
+        // 26b).
+        let dir = tempfile::tempdir().unwrap();
+        let compiled = bundle(
+            &dir.path().canonicalize().unwrap(),
+            single_body(command.clone()),
+        );
+        let door = spawn_site(
+            &compiled,
+            &spawn,
+            &json!({}),
+            lossy,
+            std::time::Duration::from_secs(1),
+        );
+        assert_eq!(door.err(), Some(refusal.to_string()));
         assert_eq!(
             (spawn.argv, spawn.refusal),
             (command, Some(refusal.to_string()))

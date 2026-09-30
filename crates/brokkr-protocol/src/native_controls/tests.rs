@@ -3883,6 +3883,7 @@ fn a_selection_mapping_is_refused_by_its_bounded_option() {
         mapped(&reproduction),
         said("an option whose spelling is not plain")
     );
+    assert_eq!(mapped("-"), said("an option whose spelling is not plain"));
 }
 
 /// Rebuild unit 12-fix-e, the chief's SC-D2 (design D6): an unmeasured
@@ -3918,6 +3919,10 @@ fn an_unready_or_unanswered_plan_is_refused_in_bounded_identities() {
     );
     assert_eq!(
         unmeasured(&format!("see {PRIVATE}\n{}", "r".repeat(800))),
+        unready("declares the provider's inventory unmeasured (a reason that is not plain)")
+    );
+    assert_eq!(
+        unmeasured(""),
         unready("declares the provider's inventory unmeasured (a reason that is not plain)")
     );
     assert_eq!(
@@ -7473,6 +7478,15 @@ fn typed_hands_carry_their_whole_transport_through_the_composer() {
             "{what}"
         );
     }
+    // A harness with no hands transport is owed none (rebuild unit 26b).
+    let dsh = argv(&["--model", "flash"]);
+    assert_eq!(
+        compose_for_provider("dsh", &[], &dsh, &in_box(2, &ready("dsh", &[], &[]))),
+        Ok(Composed {
+            extra: dsh,
+            managed: Vec::new()
+        })
+    );
     // The bytes of a hands fragment the plan does not type as hands are a
     // managed boundary: no allowance and no hands base is written for them.
     let untyped = Controls {
@@ -9042,6 +9056,11 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
         refused(
             "is sealed with a typed sandbox class its adapter's local fragment does not express"
         )
+    );
+    other_class.sandbox = argv(&["--sandbox"]);
+    assert_eq!(
+        check(&other_class, &cold, None),
+        refused("is sealed with a local sandbox fragment that cannot be read")
     );
     let mut handed = sealed.clone();
     handed.expected.hands = HandsIntent::Required;
@@ -12980,6 +12999,11 @@ fn sealed_serving_inputs_refuse_each_tampered_member_with_its_full_cause() {
             cause("serving.dialect.permissions.flag", missing),
         ),
         (
+            "permissions flag not a string",
+            edit("/dialect/permissions/flag", Some(json!([sentinel]))),
+            cause("serving.dialect.permissions.flag", "is not a string"),
+        ),
+        (
             "permissions separator not a string",
             edit("/dialect/permissions/separator", Some(json!([sentinel]))),
             cause("serving.dialect.permissions.separator", "is not a string"),
@@ -13074,7 +13098,7 @@ fn sealed_serving_inputs_refuse_each_tampered_member_with_its_full_cause() {
             cause("serving.pins[3]", "is not a string"),
         ),
     ];
-    assert_eq!(rows.len(), 27);
+    assert_eq!(rows.len(), 28);
     // Every row reaches its own exact assertion; no cause carries the
     // sentinel it was handed.
     let failures: Vec<String> =

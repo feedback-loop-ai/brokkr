@@ -1127,6 +1127,35 @@ fn an_optional_inline_adapter_read_tells_absence_from_invalidity() {
             root.join("codex.json").display()
         ))
     );
+    // An inline DSH site, whose harness carries no known native power, is
+    // not refused by the capability pass: the present root that does not
+    // load is refused with the loader's words, where an absent root reads
+    // as no notice (decision 0069; rebuild unit 26b).
+    let mut dsh = inline_codex(false);
+    dsh["driver"]["command"] = json!([
+        "{brokkr}",
+        "driver",
+        "dsh",
+        "--",
+        "--model",
+        "deepseek-flash",
+        "--effort",
+        "high"
+    ]);
+    let compiled = |root: &Path| {
+        fixture
+            .compile(dsh.clone(), root, Boundary::Namespace)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    };
+    assert_eq!(
+        compiled(&root),
+        Err(format!(
+            "bundle: {}",
+            Adapters::load(&root).map(|_| ()).unwrap_err()
+        ))
+    );
+    assert_eq!(compiled(&absent), Ok(()));
 
     // A custom driver gains no inferred association with any adapter,
     // even one whose name says codex.

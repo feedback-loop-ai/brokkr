@@ -24977,3 +24977,246 @@ migration.
   - `git diff --check`: clean.
 - **Pending.** Unchanged: exact coverage outside the box, jscpd and
   `ratchet.sh`, macOS, remote CI and the council.
+
+## Unit 26b — exact coverage closed where the real code reaches (2026-09-30)
+
+Run `0065-rebuild-unit-26b-see-the-un-4eac6ffb`, based on `8f8e696e`.
+The operator's ruling of 2026-09-30 inserts this unit between 26 and 27.
+The visit adds tests only. No production byte moved: every mutation below
+was restored with `git checkout`, and `git status` showed only test files
+and `quality/` ledgers before the commit. Scratch logs, mutation diffs and
+both LCOV reports are in `.forge/u26b/`.
+
+**Result: blocked.** Every arm a real input reaches is now covered, and
+each new assertion is bound by a compiling mutation. Seventeen records
+and two closures remain. By this visit's reading none of them can be
+reached (listed below), so they wait for the operator's ruling on removal.
+
+### Baseline and the seat diagnostic
+
+- **Baseline.** The operator measured lines 42731/42754, branches
+  6631/6652 and functions 4506/4509 on `2098df8c`. That commit is an
+  ancestor of `HEAD` (`git merge-base --is-ancestor` exit 0). Units 24–26
+  changed no byte of the five production files since then (`git diff
+  --stat 2098df8c..HEAD` over them is empty), so every listed line number
+  still holds. A crate-scoped baseline run on `8f8e696e`
+  (`lcov-baseline.info`: brokkr-protocol, then brokkr-runtime `--lib` and
+  `--test '*'`) showed each listed record at zero.
+- **Final measurement.** Taken on this visit's final tree after `cargo
+  llvm-cov clean --workspace`, with `cargo +nightly-2026-09-05 llvm-cov
+  --no-report --all-features --locked --branch` run over these suites:
+  - brokkr-protocol (626 passed, 6, 1);
+  - brokkr-runtime (26 result lines ok);
+  - brokkr-cli with `--no-fail-fast` (44 ok);
+  - brokkr-core, brokkr-store, brokkr-view and brokkr-bridge (14 ok).
+
+  One `llvm-cov report --branch --lcov` then gave `lcov-final.info`. The
+  gate's awk was reproduced with jq. It drops the gate's test paths and
+  `brokkr-seatbelt-probe`, and counts functions by file and start line.
+  The result is **lines 42746/42754, branches 6643/6652, functions
+  4507/4509**. The totals equal the operator's exactly, so the filters
+  match the gate's.
+- **No other gap.** Every uncovered record left in the workspace is in the
+  five files, and every one is listed under "Unreachable" below. Units
+  24–26 introduced no 0065 gap.
+- This is the seat's diagnostic and not the gate.
+  `scripts/coverage-exact.sh` stays the operator's to run, and it is
+  pending.
+
+### Arms closed, each bound by a compiling mutation
+
+Every removal failed the named test at its new assertion, and the
+restored tree passed that test again. Groups of mutations were applied
+together only where their targets were disjoint. The logs are
+`protocol-group-a.log`, `protocol-m{2,3,4}.log` (re-run on the final
+helper as `protocol-m{1,2,3,4}-rerun.log`), `capabilities-m1.log` (see
+"Unreachable"), `engine-m1.log`, `bundle-group.log`, `bundle-b5b.log` and
+`bundle-b7.log`.
+
+| Site (source text) | Real path | Test, new assertion | Mutation, and what failed |
+|---|---|---|---|
+| `adapters.rs:2707/2708` `strip_prefix("--sandbox=")` | codex rejoin through `invoke` with a recording shim; `--ephemeral` makes the argv unplaceable, so the readers fall back to spelling | `adapters/tests.rs` `an_argv_the_grammar_cannot_place_rejoins_by_its_spelled_class_and_flags`, case `joined`: the whole resume argv | `class = …` replaced by `kept.push(at)`: `joined: the whole argv` got the cold argv |
+| `adapters.rs:2709` `-s` arm | same, case `short` (`-s read-only`) | same test, case `short` | `\|\| part == "-s"` dropped: `short: the whole argv` got the cold argv |
+| `adapters.rs:2789/2790` bare flag `continue` | same (`--ephemeral`, `--strict-config`) | same test | `if false && …`: `joined` went cold |
+| `adapters.rs:2801` joined `--model=` | same (`--model=sol`) | same test | guard `false && …`: `joined` went cold |
+| `adapters.rs:3698` unparsed switch read | `claude_launch` with `--no-session-persistence --debug` | `a_claude_resume_is_the_cold_argv_plus_exactly_one_owned_selector`, new case: refusal `nonpersistent-session` | `None => true`: the case rejoined (`launch.rejoining.is_none()` failed) |
+| `native_controls.rs:1432` `permissions.flag` not a string | `SealedServing::decode` of driver input | `sealed_serving_inputs_refuse_each_tampered_member_with_its_full_cause`, row `permissions flag not a string` (row count pinned 27 → 28) | `)?` → `.unwrap_or_default()`: `1 of 28 rows failed: row permissions flag not a string` |
+| `native_controls.rs:2393-2396` unreadable sandbox fragment | `check_final` over sealed inputs whose local fragment is a dangling `--sandbox` | `a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan`: `refused("is sealed with a local sandbox fragment that cannot be read")` | `read(..).or_else(\|\| read(&[]))`: got the "does not express" refusal |
+| `native_controls.rs:3414` `_ => Vec::new()` | `compose_for_provider("dsh", …)` with two typed hands, as the dsh driver composes a plan read from its input | `typed_hands_carry_their_whole_transport_through_the_composer`: `Ok(Composed { extra: ["--model", "flash"], managed: [] })` | `_ => vec![(false, "x")]`: got `Err(… carry no x …)` |
+| `native_controls.rs:3533` `!rest.is_empty()` | a plan selection mapped onto `-`, through `claude_command` | `a_selection_mapping_is_refused_by_its_bounded_option`: `said("an option whose spelling is not plain")` | the conjunct dropped: got `'-'` |
+| `native_controls.rs:3550` `!reason.is_empty()` | an unmeasured plan whose reason is `""`, through `claude_command` | `an_unready_or_unanswered_plan_is_refused_in_bounded_identities`: `… unmeasured (a reason that is not plain)` | the conjunct dropped: got `unmeasured ()` |
+| `bundle.rs:1984/1985` present root that does not load | compile of an inline DSH site (no known native power) against the malformed-notice adapters root | `engine/notice_tests.rs` `an_optional_inline_adapter_read_tells_absence_from_invalidity`: `Err("bundle: <loader's words>")`, and `Ok(())` for an absent root | `.filter(\|_\| false)`: got `Ok(())` |
+| `bundle.rs:3095` non-object site | `parse_panel` over members `1` | `panel_and_sequence_parsers_refuse_every_ambiguous_shape`: `"bundle: seat 'review:a' missing 'role'"` | `None => Err(… "is not an object")`: got that text |
+| `bundle.rs:4963/4964` bounded reference | compile naming role `roles/ab\nsent.md` and `roles/it's.md` | `a_missing_or_unresolvable_input_names_its_source_kind_and_reference`: each named by its lead and length | `&& true` for the quote: `roles/it's.md` quoted whole; printable range dropped: `roles/ab\nsent.md` quoted whole |
+| `bundle.rs:4782-4784` `..` step (the test-only `Binding::expected`) | compile of a seat whose role is a contained link `roles/up.md -> ../roles/work.md` | `every_selected_site_binds_its_charter_owner_reference_target_and_digest`, new row `work` | the arm removed: `1 of 13 rows failed: row work` (an extra `Entry("..")`) |
+| `bundle.rs:6194` dialect step refused | compile of the dialect fixture with its authored `design:validate` step, against the `exec` adapter that cannot switch `ambient-net` off | `a_generated_validator_is_refused_on_a_harness_whose_native_power_cannot_be_switched_off`: `refused("design:validate")` | `if false && sites.contains_key(what)`: the refusal moved to `verify:dialect-verify` |
+| `bundle.rs:6420` select case that is a panel | compile of `select` whose `feature` case is `{"panel": {}}` | `select_parses_every_case_and_refuses_closed_vocabulary_defects_by_case`: `"bundle: seat 'work:feature' panel needs at least two members; a one-member panel is a single seat"` | `has_panel && false`: got `missing 'role'` |
+| `engine.rs:3659/3660` the spawn door | `compose_site` under `namespace` with a non-UTF-8 workdir, then `spawn_site` | `engine/tests.rs` `a_model_seats_hands_are_expanded_by_the_checks_one_encoder`: `door.err() == Some(<the not-UTF-8 refusal>)` | `.filter(\|_\| false)`: the door tried to exec and returned `failed to spawn driver …` |
+
+**Test-code changes that are not new assertions.**
+
+- `adapters/tests.rs`: the new rejoin test and
+  `an_inert_resume_value_stays_…` share one new helper, `offered`. It
+  holds the shim, `invoke` and recording block they would otherwise
+  repeat (ruling 4, no new clone). The older test's assertions are
+  unchanged, and it still passes. The four adapters mutations above were
+  re-run on the helper form and fail as before.
+- `bundle/tests.rs`: the validator test's expected text became a
+  `refused(site)` closure. The value is unchanged, and the new
+  `design:validate` assertion reuses it.
+- `sealed_serving_inputs_refuse_…`'s pinned row count moved 27 → 28 for
+  the row added here.
+- No fixture migration and no standing-admission line.
+
+### Unreachable, stopped for the operator's ruling
+
+None of these arms is deleted, and none has a test that fakes it. Each is
+listed at its current line, with its source text and the reason no input
+the real code admits reaches it.
+
+1. **`adapters.rs:3332` (true arm) and `:3333`,** `"claude" | "lanetally"
+   if !composed.managed.is_empty() => Err("managed arguments, …")`.
+   - `serving_command` is `pub(crate)`, and its only caller is
+     `check_final` (`native_controls.rs:2044`).
+   - That caller passes `compose_for_provider(harness, …)`, whose
+     `claude | lanetally` arm returns `composed(extra, Vec::new())`
+     (`native_controls.rs:4341`).
+   - So `managed` is always empty there.
+2. **`adapters.rs:3362`,** `_ => Err("a harness with no built-in serving
+   shape")`.
+   - `check_final` returns early when `grammar::grammar(harness)` is
+     `None` (`native_controls.rs:1993-1997`).
+   - `grammar()` names exactly codex, claude, lanetally and dsh
+     (`grammar.rs:582-590`), and an earlier arm matches each of them.
+3. **`native_controls.rs:3541` (arm 0,1),** `!written.is_empty()` false.
+   - `Piece::Written` is built at `:383` from `authored_server_conflict`:
+     a node's spelling, or `"{spelling} mcp_servers"`, never empty.
+   - It is also built at `:546` (`conflict_refusal`). That function's
+     only production caller (`adapters.rs:2911`) passes
+     `typed_conflict`'s result: a canonical name, or `"{spelling} {…}"`.
+   - `opaque_conflict` cannot feed it: every `composed_launch` provider
+     has a grammar.
+   - A direct call of the public `conflict_refusal` with `""` was written
+     and then withdrawn as a faked state.
+4. **`capabilities.rs:1941`,** `None => String::new()`.
+   - The tail is built only when `(serving.native, floor.first())` is
+     `(None, None)` and `serving.provenance.local` is non-empty.
+   - An inline site's `local` is non-empty only where
+     `lower_inline_allow` lowered it (`bundle.rs:3419-3491`). That happens
+     only for claude and lanetally, and only with the driver's adapter
+     loaded, from the same library `record_capabilities` reads. So
+     `native` is `Some`.
+   - An agent candidate's `Direct` lowering was composed from its
+     provider's adapter, so `native` is `Some` there too.
+   - `Authority::assess` passes `native: Some` and an empty provenance.
+   - A test that called `resolve` with a hand-built `Serving` was written,
+     bound (`capabilities-m1.log`) and then withdrawn as a faked state.
+5. **`bundle.rs:2135`,** `)?` after `record_inline_tools` on the wrapper's
+   synthetic validator.
+   - `dialect_gate_site` (`bundle.rs:2737-2741`) writes no `tools`.
+   - Decoding therefore yields an unspecified allow and sandbox, and none
+     of `record_inline_tools`' refusals (`:3139`, `:3141`, `:3149`) can
+     fire.
+6. **`bundle.rs:2941` (arm 0,1).** `adapters.adapter(provider)` is `None`.
+   - Candidates come from `resolve_report` over `context.adapters`
+     (`:2833`), and the same map is passed at `:2855`.
+   - The loader requires the provider to equal the file name
+     (`agents/load.rs:810`).
+7. **`bundle.rs:2956-2958` (arm 2957 0,1).** The lowering is not
+   `Composed`. `resolve_report` refuses any entry with a gap or with no
+   provider (`agents.rs:1571-1580`), and those are the only sources of
+   `Refused` and `Unavailable`.
+8. **`bundle.rs:2960/2961` (arm 0,1).** `composition.segments` is empty.
+   `compose` starts from `vec![driver_template(adapter)]`
+   (`agents.rs:1109`) and only pushes onto it.
+9. **`engine.rs:4090`,** `Lowering::Unavailable | Lowering::Refused(_) =>
+   None` in `serving_inputs`.
+   - The only production caller is `mark_capabilities:1612`.
+   - It runs only after `expected_state` has succeeded for the same
+     link, and `expected_state` refuses those lowerings (`:4275-4277`).
+   - Compiled candidates are always `Composed` (item 7).
+10. **`engine.rs:4107` (arm 0,0),** `None if dialect.boundary ==
+    Default::default()`.
+    - Every spawn that reaches `mark_capabilities` in production comes
+      from `compose_site`, which sets `class = Some(class)` at `:4550`,
+      or from `compose_site_at`'s own arm (`:4587`).
+11. **`engine.rs:4292` and `:4297` (arm 0,1 each),** the `if
+    sandboxed.is_none()` guard false.
+    - `inline_sandbox` is written only by `record_inline_tools`
+      (`bundle.rs:3199`). Its `Some` arm (`:3144-3147`) records
+      `local.sandbox` with the same class in the same call (`:3161`).
+    - So `sandboxed` is `Some` exactly where `local.sandbox` is.
+12. **`bundle.rs:3805` (arm 0,1),** the `&& sites…inline_sandbox.is_some()`
+    side of `admit_local_sandbox`. This one is reachable, but only
+    through a defect.
+    - The wrapped verify's validator claims `verify:dialect-verify`
+      against the `remaining` census and not the whole one
+      (`bundle.rs:2057-2069`). A verify panel member named
+      `dialect-verify` therefore compiles.
+    - A scratch compile confirmed it: the probe, deleted afterwards, is
+      logged in `alias-probe.log`. The bundle compiled, and it had no
+      `verify:dialect-verify` site, only `verify:checks:dialect-verify`
+      and `verify:checks:other`. The validator's facts were written onto
+      the member's entry and relocated with it.
+    - A test for this arm would pin that defect's refusal text. The arm
+      is left for a ruling. The fix, a production change outside this
+      unit, would be to claim the validator's address against the whole
+      census. The arm is then dead.
+13. **Functions (2 of 4509).**
+    - `bundle.rs:5406`: the `map_err` closure on opening `/` in
+      `owner_directory`. Opening the root directory does not fail on a
+      supported host, and no test can make it fail without exhausting
+      the process's descriptors.
+    - `capabilities.rs:2026`: the `map_err` closure on
+      `authored_conflict` for an opaque harness. For a harness with no
+      grammar, `parse_origin` returns `Ok(None)`
+      (`native_controls.rs:2919-2920`), and `authored_conflict` then
+      returns `Ok(opaque_conflict(…))`. It is never `Err`.
+
+### Quality ledgers, gates and what is pending
+
+- **Ledgers.** `quality/file-lines.txt` re-measured with `wc -l`:
+  - `adapters/tests.rs` 19002 → 19063;
+  - `native_controls/tests.rs` 13098 → 13122;
+  - `bundle/agent_tests.rs` 6778 → 6788;
+  - `bundle/compose_tests.rs` 4063 → 4079;
+  - `bundle/tests.rs` 1795 → 1837;
+  - `engine/notice_tests.rs` 1933 → 1962;
+  - `engine/tests.rs` 6627 → 6642.
+
+  `quality/too-many-lines.txt` was re-measured with `measure.sh`'s own
+  clippy invocation (`build-finished` success). Clippy is the ledger's
+  own version, and the listing still has 309 entries. Growth by function:
+  - `a_claude_resume_…` 124 → 130;
+  - `typed_hands_carry_…` 148 → 156;
+  - `a_codex_cold_command_…` 190 → 195;
+  - `sealed_serving_inputs_refuse_…` 185 → 190;
+  - `panel_and_sequence_parsers_…` 161 → 176;
+  - `every_selected_site_binds_…` 166 → 175.
+
+  `an_inert_resume_value_stays_…` shrank 128 → 113. The rest moved by
+  line only. No suppression was added (`--test suppressions` and
+  `--test ratchets`: 13 and 6 passed).
+
+  The unit's named suites were already over the 2,000-line and
+  100-line ceilings. The growth above is therefore a raised baseline, and
+  it needs the pull request's `Ruling:` line (the 2026-09-30 commission).
+- **Gates, on this visit's tree:**
+  - `cargo fmt --all -- --check`: clean.
+  - Workspace clippy with `-D warnings`: no warning.
+  - `cargo test -p brokkr-protocol`: 626 passed, 1 ignored, then 6, 1
+    and 1 doc.
+    - One earlier run failed
+      `hands::tests::the_network_prefix_is_eight_tokens_and_the_probe_asks_the_dispatchs_path`
+      at `hands/tests.rs:1240`. That test is untouched by this visit. It
+      passed alone and on the full re-run (`protocol-suite-2.log`).
+      Recorded as a flake and not repaired.
+  - `cargo test -p brokkr-runtime`: 27 result lines ok, 870 passed.
+  - `bundles/self` and `bundles/verify` compile.
+  - OpenSpec and `git diff --check`: see the tasks note.
+- **Pending.**
+  - The exact gate outside the box.
+  - The rulings on the arms above.
+  - jscpd and `ratchet.sh` (only the helper extraction was judged for
+    clones here).
+  - macOS, remote CI and the council.

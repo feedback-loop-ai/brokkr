@@ -114,37 +114,37 @@
  177 crates/brokkr-protocol/src/adapters/tests.rs:102 adapter_vocabulary_prompt_and_fold_edges_are_closed
  102 crates/brokkr-protocol/src/adapters/tests.rs:338 cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries
  158 crates/brokkr-protocol/src/adapters/tests.rs:926 dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads
- 128 crates/brokkr-protocol/src/adapters/tests.rs:1957 an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_final_parse
- 102 crates/brokkr-protocol/src/adapters/tests.rs:2556 a_codex_resume_carries_the_thread_the_class_and_the_prompt
- 159 crates/brokkr-protocol/src/adapters/tests.rs:2795 a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled
- 148 crates/brokkr-protocol/src/adapters/tests.rs:3165 only_the_flags_a_resume_can_safely_carry_travel_with_it
- 105 crates/brokkr-protocol/src/adapters/tests.rs:3571 the_launch_hold_bounds_its_facts_and_publishes_exactly_once
- 124 crates/brokkr-protocol/src/adapters/tests.rs:3868 a_claude_resume_is_the_cold_argv_plus_exactly_one_owned_selector
- 172 crates/brokkr-protocol/src/adapters/tests.rs:4104 the_lanetally_wrapper_resumes_on_its_own_shape_and_its_own_binary
- 123 crates/brokkr-protocol/src/adapters/tests.rs:5352 the_planned_dsh_fold_boundary_reaches_the_transcript_drain
- 151 crates/brokkr-protocol/src/adapters/tests.rs:6807 dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body
- 150 crates/brokkr-protocol/src/adapters/tests.rs:7680 a_miscorrelated_duplicate_or_unnegotiated_offer_launches_nothing
- 102 crates/brokkr-protocol/src/adapters/tests.rs:8685 the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store
- 131 crates/brokkr-protocol/src/adapters/tests.rs:10337 a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route
- 266 crates/brokkr-protocol/src/adapters/tests.rs:10490 a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route
- 235 crates/brokkr-protocol/src/adapters/tests.rs:10829 dsh_residual_and_joined_controls_refuse_before_any_observation
- 201 crates/brokkr-protocol/src/adapters/tests.rs:11447 a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator
- 107 crates/brokkr-protocol/src/adapters/tests.rs:11873 dsh_admission_reads_are_complete_within_their_bounds_or_decline
- 152 crates/brokkr-protocol/src/adapters/tests.rs:12210 dsh_unsafe_stored_candidates_decline_instead_of_being_skipped
- 130 crates/brokkr-protocol/src/adapters/tests.rs:12604 dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows
- 273 crates/brokkr-protocol/src/adapters/tests.rs:12756 dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path
- 140 crates/brokkr-protocol/src/adapters/tests.rs:13054 dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path
- 133 crates/brokkr-protocol/src/adapters/tests.rs:13959 every_dsh_component_drift_declines_the_offer_before_any_provider_work
- 284 crates/brokkr-protocol/src/adapters/tests.rs:14190 a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_journal
- 155 crates/brokkr-protocol/src/adapters/tests.rs:15560 every_authored_spelling_the_shipped_codex_adapter_guards_is_refused
- 102 crates/brokkr-protocol/src/adapters/tests.rs:15945 a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv
- 138 crates/brokkr-protocol/src/adapters/tests.rs:16588 claude_admits_only_held_native_tools_beside_its_hands
- 114 crates/brokkr-protocol/src/adapters/tests.rs:16848 a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag
- 103 crates/brokkr-protocol/src/adapters/tests.rs:17017 an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list
- 225 crates/brokkr-protocol/src/adapters/tests.rs:17395 the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it
- 135 crates/brokkr-protocol/src/adapters/tests.rs:17641 a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it
- 192 crates/brokkr-protocol/src/adapters/tests.rs:17929 an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked
- 106 crates/brokkr-protocol/src/adapters/tests.rs:18259 the_final_rejoin_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it
+ 113 crates/brokkr-protocol/src/adapters/tests.rs:1957 an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_final_parse
+ 102 crates/brokkr-protocol/src/adapters/tests.rs:2611 a_codex_resume_carries_the_thread_the_class_and_the_prompt
+ 159 crates/brokkr-protocol/src/adapters/tests.rs:2850 a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled
+ 148 crates/brokkr-protocol/src/adapters/tests.rs:3220 only_the_flags_a_resume_can_safely_carry_travel_with_it
+ 105 crates/brokkr-protocol/src/adapters/tests.rs:3626 the_launch_hold_bounds_its_facts_and_publishes_exactly_once
+ 130 crates/brokkr-protocol/src/adapters/tests.rs:3923 a_claude_resume_is_the_cold_argv_plus_exactly_one_owned_selector
+ 172 crates/brokkr-protocol/src/adapters/tests.rs:4165 the_lanetally_wrapper_resumes_on_its_own_shape_and_its_own_binary
+ 123 crates/brokkr-protocol/src/adapters/tests.rs:5413 the_planned_dsh_fold_boundary_reaches_the_transcript_drain
+ 151 crates/brokkr-protocol/src/adapters/tests.rs:6868 dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body
+ 150 crates/brokkr-protocol/src/adapters/tests.rs:7741 a_miscorrelated_duplicate_or_unnegotiated_offer_launches_nothing
+ 102 crates/brokkr-protocol/src/adapters/tests.rs:8746 the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store
+ 131 crates/brokkr-protocol/src/adapters/tests.rs:10398 a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route
+ 266 crates/brokkr-protocol/src/adapters/tests.rs:10551 a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route
+ 235 crates/brokkr-protocol/src/adapters/tests.rs:10890 dsh_residual_and_joined_controls_refuse_before_any_observation
+ 201 crates/brokkr-protocol/src/adapters/tests.rs:11508 a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator
+ 107 crates/brokkr-protocol/src/adapters/tests.rs:11934 dsh_admission_reads_are_complete_within_their_bounds_or_decline
+ 152 crates/brokkr-protocol/src/adapters/tests.rs:12271 dsh_unsafe_stored_candidates_decline_instead_of_being_skipped
+ 130 crates/brokkr-protocol/src/adapters/tests.rs:12665 dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows
+ 273 crates/brokkr-protocol/src/adapters/tests.rs:12817 dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path
+ 140 crates/brokkr-protocol/src/adapters/tests.rs:13115 dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path
+ 133 crates/brokkr-protocol/src/adapters/tests.rs:14020 every_dsh_component_drift_declines_the_offer_before_any_provider_work
+ 284 crates/brokkr-protocol/src/adapters/tests.rs:14251 a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_journal
+ 155 crates/brokkr-protocol/src/adapters/tests.rs:15621 every_authored_spelling_the_shipped_codex_adapter_guards_is_refused
+ 102 crates/brokkr-protocol/src/adapters/tests.rs:16006 a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv
+ 138 crates/brokkr-protocol/src/adapters/tests.rs:16649 claude_admits_only_held_native_tools_beside_its_hands
+ 114 crates/brokkr-protocol/src/adapters/tests.rs:16909 a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag
+ 103 crates/brokkr-protocol/src/adapters/tests.rs:17078 an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list
+ 225 crates/brokkr-protocol/src/adapters/tests.rs:17456 the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it
+ 135 crates/brokkr-protocol/src/adapters/tests.rs:17702 a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it
+ 192 crates/brokkr-protocol/src/adapters/tests.rs:17990 an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked
+ 106 crates/brokkr-protocol/src/adapters/tests.rs:18320 the_final_rejoin_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it
  112 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:180 the_runner_adds_the_scoped_git_binds_and_nothing_wider
  138 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:472 every_known_bubblewrap_option_is_stepped_over_by_its_own_arity
  355 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:2581 a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds
@@ -162,30 +162,30 @@
  328 crates/brokkr-protocol/src/native_controls/tests.rs:2572 the_final_lists_hold_their_invariants_over_every_combination
  189 crates/brokkr-protocol/src/native_controls/tests.rs:3269 every_composition_conflict_is_refused_in_bounded_identities
  249 crates/brokkr-protocol/src/native_controls/tests.rs:3586 every_refusal_line_is_one_bounded_line_naming_no_payload
- 380 crates/brokkr-protocol/src/native_controls/tests.rs:4545 the_private_reader_refuses_each_malformed_member_with_its_full_cause
- 120 crates/brokkr-protocol/src/native_controls/tests.rs:5247 only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin
- 147 crates/brokkr-protocol/src/native_controls/tests.rs:5398 a_grammar_refusal_names_a_bounded_label_and_never_a_payload
- 249 crates/brokkr-protocol/src/native_controls/tests.rs:5571 every_table_is_inventoried_with_its_forms_and_effects
- 245 crates/brokkr-protocol/src/native_controls/tests.rs:5870 every_catalogue_spelling_bears_a_capability_or_refuses_by_name
- 130 crates/brokkr-protocol/src/native_controls/tests.rs:6251 a_codex_assignment_has_a_bounded_meaning_or_refuses
- 206 crates/brokkr-protocol/src/native_controls/tests.rs:6472 a_final_command_places_its_positions_and_nothing_else
- 148 crates/brokkr-protocol/src/native_controls/tests.rs:7339 typed_hands_carry_their_whole_transport_through_the_composer
- 153 crates/brokkr-protocol/src/native_controls/tests.rs:7701 the_result_capture_is_one_typed_sink_the_engine_emits
- 129 crates/brokkr-protocol/src/native_controls/tests.rs:8265 every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly
- 308 crates/brokkr-protocol/src/native_controls/tests.rs:8452 the_sealed_inputs_are_checked_independently_of_the_command
- 190 crates/brokkr-protocol/src/native_controls/tests.rs:8891 a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan
- 151 crates/brokkr-protocol/src/native_controls/tests.rs:9111 the_hands_are_bound_to_the_engines_transport_and_nothing_else
- 154 crates/brokkr-protocol/src/native_controls/tests.rs:9344 a_restriction_the_serving_builder_drops_is_refused_by_the_final_check
- 140 crates/brokkr-protocol/src/native_controls/tests.rs:9541 under_harness_the_hands_are_the_adapters_harness_fragment_alone
- 169 crates/brokkr-protocol/src/native_controls/tests.rs:9848 a_sealed_contribution_carries_only_established_effects
- 151 crates/brokkr-protocol/src/native_controls/tests.rs:10037 every_sealed_sandbox_contribution_names_one_admitted_class
- 172 crates/brokkr-protocol/src/native_controls/tests.rs:10659 an_unmeasured_dsh_command_checks_only_under_its_own_reason
- 381 crates/brokkr-protocol/src/native_controls/tests.rs:11140 claude_case
- 155 crates/brokkr-protocol/src/native_controls/tests.rs:11576 claude_states
- 292 crates/brokkr-protocol/src/native_controls/tests.rs:11786 codex_states
- 129 crates/brokkr-protocol/src/native_controls/tests.rs:12148 capture_states
- 197 crates/brokkr-protocol/src/native_controls/tests.rs:12553 mutations
- 185 crates/brokkr-protocol/src/native_controls/tests.rs:12907 sealed_serving_inputs_refuse_each_tampered_member_with_its_full_cause
+ 380 crates/brokkr-protocol/src/native_controls/tests.rs:4550 the_private_reader_refuses_each_malformed_member_with_its_full_cause
+ 120 crates/brokkr-protocol/src/native_controls/tests.rs:5252 only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin
+ 147 crates/brokkr-protocol/src/native_controls/tests.rs:5403 a_grammar_refusal_names_a_bounded_label_and_never_a_payload
+ 249 crates/brokkr-protocol/src/native_controls/tests.rs:5576 every_table_is_inventoried_with_its_forms_and_effects
+ 245 crates/brokkr-protocol/src/native_controls/tests.rs:5875 every_catalogue_spelling_bears_a_capability_or_refuses_by_name
+ 130 crates/brokkr-protocol/src/native_controls/tests.rs:6256 a_codex_assignment_has_a_bounded_meaning_or_refuses
+ 206 crates/brokkr-protocol/src/native_controls/tests.rs:6477 a_final_command_places_its_positions_and_nothing_else
+ 156 crates/brokkr-protocol/src/native_controls/tests.rs:7344 typed_hands_carry_their_whole_transport_through_the_composer
+ 153 crates/brokkr-protocol/src/native_controls/tests.rs:7715 the_result_capture_is_one_typed_sink_the_engine_emits
+ 129 crates/brokkr-protocol/src/native_controls/tests.rs:8279 every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly
+ 308 crates/brokkr-protocol/src/native_controls/tests.rs:8466 the_sealed_inputs_are_checked_independently_of_the_command
+ 195 crates/brokkr-protocol/src/native_controls/tests.rs:8905 a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan
+ 151 crates/brokkr-protocol/src/native_controls/tests.rs:9130 the_hands_are_bound_to_the_engines_transport_and_nothing_else
+ 154 crates/brokkr-protocol/src/native_controls/tests.rs:9363 a_restriction_the_serving_builder_drops_is_refused_by_the_final_check
+ 140 crates/brokkr-protocol/src/native_controls/tests.rs:9560 under_harness_the_hands_are_the_adapters_harness_fragment_alone
+ 169 crates/brokkr-protocol/src/native_controls/tests.rs:9867 a_sealed_contribution_carries_only_established_effects
+ 151 crates/brokkr-protocol/src/native_controls/tests.rs:10056 every_sealed_sandbox_contribution_names_one_admitted_class
+ 172 crates/brokkr-protocol/src/native_controls/tests.rs:10678 an_unmeasured_dsh_command_checks_only_under_its_own_reason
+ 381 crates/brokkr-protocol/src/native_controls/tests.rs:11159 claude_case
+ 155 crates/brokkr-protocol/src/native_controls/tests.rs:11595 claude_states
+ 292 crates/brokkr-protocol/src/native_controls/tests.rs:11805 codex_states
+ 129 crates/brokkr-protocol/src/native_controls/tests.rs:12167 capture_states
+ 197 crates/brokkr-protocol/src/native_controls/tests.rs:12572 mutations
+ 190 crates/brokkr-protocol/src/native_controls/tests.rs:12926 sealed_serving_inputs_refuse_each_tampered_member_with_its_full_cause
  454 crates/brokkr-runtime/src/agents/tests.rs:686 every_declared_half_parses_under_its_harness_at_load_even_unused
  230 crates/brokkr-runtime/src/agents/tests.rs:1764 the_adapter_loader_names_the_file_and_the_key_it_refuses
  118 crates/brokkr-runtime/src/agents/tests.rs:2677 an_adapters_harness_hands_are_three_members_and_two_doors
@@ -211,17 +211,17 @@
  106 crates/brokkr-runtime/src/bundle/agent_tests.rs:5497 an_unreadable_contribution_refuses_by_position_without_echoing_its_token
  110 crates/brokkr-runtime/src/bundle/agent_tests.rs:5624 a_valid_native_denial_keeps_a_matching_sandbox_admitted_and_only_there
  114 crates/brokkr-runtime/src/bundle/agent_tests.rs:5791 resolved_native_on_and_restriction_contributions_obey_the_same_refusals
- 166 crates/brokkr-runtime/src/bundle/agent_tests.rs:6437 every_selected_site_binds_its_charter_owner_reference_target_and_digest
- 149 crates/brokkr-runtime/src/bundle/agent_tests.rs:6624 a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified
+ 175 crates/brokkr-runtime/src/bundle/agent_tests.rs:6437 every_selected_site_binds_its_charter_owner_reference_target_and_digest
+ 149 crates/brokkr-runtime/src/bundle/agent_tests.rs:6634 a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified
  130 crates/brokkr-runtime/src/bundle/compose_tests.rs:165 a_derived_recipe_overrides_one_named_select_case_and_no_neighbour
  103 crates/brokkr-runtime/src/bundle/compose_tests.rs:610 policy_is_per_layer_and_tables_merge_by_name
- 110 crates/brokkr-runtime/src/bundle/compose_tests.rs:1912 a_replacement_between_check_and_read_is_refused_never_read
- 101 crates/brokkr-runtime/src/bundle/compose_tests.rs:3887 a_bundle_root_is_a_closed_vocabulary_at_every_layer
+ 110 crates/brokkr-runtime/src/bundle/compose_tests.rs:1928 a_replacement_between_check_and_read_is_refused_never_read
+ 101 crates/brokkr-runtime/src/bundle/compose_tests.rs:3903 a_bundle_root_is_a_closed_vocabulary_at_every_layer
  119 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:1221 a_value_attached_to_a_short_flag_is_the_pin_that_flag_carries
  106 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3165 the_gate_law_reads_the_boundary_for_sites_that_declare_hands
  131 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3356 ruling_4s_own_binding_is_pinned_against_the_shipped_adapters
  130 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3854 every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured
- 161 crates/brokkr-runtime/src/bundle/tests.rs:677 panel_and_sequence_parsers_refuse_every_ambiguous_shape
+ 176 crates/brokkr-runtime/src/bundle/tests.rs:702 panel_and_sequence_parsers_refuse_every_ambiguous_shape
  102 crates/brokkr-runtime/src/capabilities/tests.rs:627 a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys
  102 crates/brokkr-runtime/src/capabilities/tests.rs:1734 a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks
  101 crates/brokkr-runtime/src/dialect/tests.rs:108 every_checked_dialect_boundary_is_named
@@ -244,8 +244,8 @@
  253 crates/brokkr-runtime/src/engine/capability_tests.rs:733 the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed
  106 crates/brokkr-runtime/src/engine/capability_tests.rs:1577 a_moved_charter_refuses_the_start_and_resume_in_a_mapped_and_an_unmapped_context
  369 crates/brokkr-runtime/src/engine/capability_tests.rs:1826 every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings
- 234 crates/brokkr-runtime/src/engine/notice_tests.rs:1308 a_recipe_cannot_declare_or_suppress_the_notice_structurally
- 112 crates/brokkr-runtime/src/engine/notice_tests.rs:1653 inputs_house_feature_and_charter_text_neither_replace_nor_create_the_notice
+ 234 crates/brokkr-runtime/src/engine/notice_tests.rs:1337 a_recipe_cannot_declare_or_suppress_the_notice_structurally
+ 112 crates/brokkr-runtime/src/engine/notice_tests.rs:1682 inputs_house_feature_and_charter_text_neither_replace_nor_create_the_notice
  103 crates/brokkr-runtime/src/engine/resume_tests.rs:1047 every_fact_the_offer_rests_on_can_refuse_it_alone
  299 crates/brokkr-runtime/src/engine/resume_tests.rs:1196 a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root
  183 crates/brokkr-runtime/src/engine/resume_tests.rs:1548 the_site_key_is_structural_and_the_owner_key_moves_on_every_axis
