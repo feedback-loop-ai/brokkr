@@ -480,7 +480,8 @@ fn a_dialect_step_is_composed_and_marked_at_its_own_site() {
     std::fs::write(dir.join("bundle.json"), config.to_string()).unwrap();
     let dialect = crate::dialect::Dialect::load(&repository.join("dialects/openspec.json"));
     let (agents, adapters) = (repository.join("agents"), repository.join("adapters"));
-    let (dialect, boundary) = (Some(&dialect.unwrap().0), Boundary::Namespace);
+    let dialect = dialect.unwrap();
+    let (dialect, boundary) = (Some(&dialect.0), Boundary::Namespace);
     let compiled = Bundle::compile_with_realm(&dir, &agents, &adapters, None, dialect, boundary);
     let compiled = compiled.unwrap();
     let SeatBody::Sequence { steps } = &compiled.seats["design"].body else {
