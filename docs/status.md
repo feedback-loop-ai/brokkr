@@ -45,7 +45,11 @@ they are read in the adapter file, not here.
   through their Claude Code configuration. Only the boxed claude
   fragment passes `--strict-mcp-config`, which shuts those out.
 - **Boxed hands**: whether the harness can put its hands in Brokkr's
-  box (decision 0043). **Own sandbox for** is the seat classes whose
+  box (decision 0043). A boxed Codex seat keeps Codex's native shell,
+  read-only and outside the box, so it can still read the host,
+  credential files included; only its writes go through the box
+  ([security model](security-model.md#what-the-box-does-not-do)).
+  **Own sandbox for** is the seat classes whose
   harness sandbox stands in for the box under the `harness` boundary
   (decision 0046 ruling 4).
 - **Resume shapes**: each named shape's measured status and the version

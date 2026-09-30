@@ -47,9 +47,11 @@ prohibition (untrusted judge, ungranted secret binding) applies.
 What the seat gives up, and the comparison must say: `adapters/dsh.json`
 declares `tool_permissions: "unsupported"`, because the headless dsh
 launcher has no allowed-tools flag. The seat runs with whatever the
-harness permits, not the seven `Bash` prefixes the former inline seat named.
-That asymmetry is the same one [`recipes/wager-harness`](../wager-harness/README.md)
-records for its challenger arm, for the same reason.
+harness permits. The former inline seat's seven `Bash` prefixes were
+pre-approval under `--allowedTools`, not a bound: they removed no
+tool, so neither seat was held to a named list. The difference is the
+one [`recipes/wager-harness`](../wager-harness/README.md) records for
+its challenger arm, for the same reason.
 
 How the pin reaches the harness: dsh has no model flag of its own; the
 model is a row of its composed profile tree, and the launcher's only

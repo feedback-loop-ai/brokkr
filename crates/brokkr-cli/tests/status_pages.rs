@@ -10,7 +10,9 @@
 //! cannot go unlisted, and a rendered value that changes shows on the page.
 //!
 //! No living doc may say a tool list bounds a seat: every tracked Markdown
-//! file outside the dated records is read for that wording.
+//! file outside the dated records, and every doc comment in the crates'
+//! sources, is read for that wording, and each sentence this story
+//! reworded is held refused.
 
 use std::collections::BTreeSet;
 
@@ -195,9 +197,16 @@ fn resume_shapes(provider: &str, resume: &ResumeAssessment, gaps: &mut Vec<Strin
             // points to the file for them.
             limitations: _,
         } = shape;
+        // The installed version a measurement is claimed for, the
+        // composite runner digest and an unknown identity's reason are
+        // the adapter's record of the proof, read in the file.
         let version = match identity {
-            ResumeIdentity::Measured { version, .. } => version.as_str(),
-            ResumeIdentity::Unknown { .. } => "version unknown",
+            ResumeIdentity::Measured {
+                version,
+                applies_to: _,
+                wrapper_digest: _,
+            } => version.as_str(),
+            ResumeIdentity::Unknown { reason: _ } => "version unknown",
         };
         cells.push(format!(
             "`{name}`: {} ({version}); classes {}; boundaries {}; hands `{hands}`; evidence {}",
@@ -404,11 +413,13 @@ fn every_known_limitation_links_its_issue() {
 
 /// Records whose words are fixed when they are written, and so are not
 /// living docs.
-const RECORDS: [&str; 4] = [
+const RECORDS: [&str; 6] = [
     "docs/decisions/",
     "docs/releases/",
     "docs/lore/",
     "docs/essays/",
+    "docs/evidence/",
+    "openspec/changes/archive/",
 ];
 
 /// What names a claude seat's tool list: the list itself, the agent
@@ -431,7 +442,10 @@ const TOOL_LIST: [&str; 8] = [
 /// MCP servers, never by its tool list alone (#467). The resolver's
 /// "more power than it declares" is not here: a provider that cannot
 /// express a tool list refuses it, and the docs quote that refusal.
-const OVERCLAIMS: [&str; 14] = [
+const OVERCLAIMS: [&str; 17] = [
+    "bounded what the model may run",
+    "blast radius",
+    "not a command it may run",
     "enforced rather than documented",
     "seats run under",
     "only restriction",
@@ -448,11 +462,14 @@ const OVERCLAIMS: [&str; 14] = [
     "decides what the seats may run",
 ];
 
-/// Each paragraph of a Markdown text that pairs a tool list with wording
-/// that says it bounds the seat, lowercased with its code and emphasis
-/// marks dropped and its line breaks joined, so neither can hide one.
+/// Each paragraph of a Markdown text with wording that says a tool list
+/// bounds the seat, where it or the paragraph before names the tool list,
+/// so a list introduced above its bullets cannot hide one. Paragraphs are
+/// lowercased with their code and emphasis marks dropped and their line
+/// breaks joined, so neither can hide one either.
 fn tool_list_overclaims(text: &str) -> Vec<String> {
-    text.split("\n\n")
+    let paragraphs: Vec<String> = text
+        .split("\n\n")
         .map(|paragraph| {
             paragraph
                 .replace(['`', '*'], "")
@@ -461,26 +478,149 @@ fn tool_list_overclaims(text: &str) -> Vec<String> {
                 .join(" ")
                 .to_lowercase()
         })
-        .filter(|paragraph| TOOL_LIST.iter().any(|anchor| paragraph.contains(anchor)))
-        .filter(|paragraph| OVERCLAIMS.iter().any(|claim| paragraph.contains(claim)))
+        .filter(|paragraph| !paragraph.is_empty())
+        .collect();
+    let names_a_tool_list =
+        |paragraph: &str| TOOL_LIST.iter().any(|anchor| paragraph.contains(anchor));
+    paragraphs
+        .iter()
+        .enumerate()
+        .filter(|(_, paragraph)| OVERCLAIMS.iter().any(|claim| paragraph.contains(claim)))
+        .filter(|(at, paragraph)| {
+            names_a_tool_list(paragraph)
+                || at
+                    .checked_sub(1)
+                    .is_some_and(|before| names_a_tool_list(&paragraphs[before]))
+        })
+        .map(|(_, paragraph)| paragraph.clone())
         .collect()
+}
+
+/// A Rust source's doc comments as Markdown: each `//!` or `///` line's
+/// text, and a paragraph break at every line that is not one.
+fn doc_text(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| {
+            let line = line.trim_start();
+            line.strip_prefix("//!")
+                .or_else(|| line.strip_prefix("///"))
+                .unwrap_or("")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Excerpts of the pages this story reworded, word for word as they
+/// stood: each holds one paragraph the guard refuses.
+const OLD_PAGES: [&str; 7] = [
+    // docs/guides/agent-library.md
+    "**The honesty rules are the point, and they are enforced rather than\n\
+     documented.** A tool restriction the provider cannot express fails\n\
+     compilation naming the agent, the provider and the capability — the\n\
+     agent would run with MORE power than it declares, so `optional` is\n\
+     structurally unrepresentable there.",
+    // `brokkr init`'s line, as the quickstart and starters captured it
+    "run brokkr from inside my-bundle — its adapters/ and agents/ declare the \
+     trust tier and the tool grants its seats run under",
+    // docs/guides/quickstart.md
+    "**The seats are granted the tools their charters name.** The same\n\
+     detection below decides what the seats may *run*: the binary each\n\
+     command invokes (`cargo`, `bun`, `pnpm`, …) plus `git`, `ls`, `rg` and\n\
+     `mkdir` go into the adapter's `tool_permissions.names` as\n\
+     `Bash(<bin>:*)` entries, and each model agent's `tools.allow` names them —",
+    "command it did not need. The same stack decides what the seats may RUN:\n\
+     the binaries its commands invoke are written into the scaffold's\n\
+     `adapters/claude.json` `tool_permissions.names` as `Bash(<bin>:*)`\n\
+     entries and granted in the agents' `tools.allow` — the whole set to the\n\
+     work seats,",
+    // docs/guides/starters/rust.md: the list is named above the bullet
+    "The same names, in the same order, are each agent's `tools.allow` —\n\
+     sized by the class of the seat the agent backs:\n\n\
+     - **work seats (`intake`, `implement`)** — the whole set:\n  \
+     `[\"cargo\", \"git\", \"ls\", \"rg\", \"mkdir\"]`. A work seat may run exactly\n  \
+     the commands its charter names, and nothing broader.",
+    // docs/guides/provider-adapters.md
+    "above records 2.1.251), because the implementing seat's tool grant is\n\
+     `cargo` and `git` and `claude` is not a command it may run. Until it is",
+    // recipes/wager-harness/README.md
+    "   implement seat runs `--permission-mode acceptEdits` with\n   \
+     `--allowedTools` naming seven `Bash` prefixes, so it may edit freely\n   \
+     but may run nothing outside that list — no network command, for\n   \
+     instance.",
+];
+
+/// Excerpts of the module docs this story reworded, as the sources
+/// carried them.
+const OLD_SOURCES: [&str; 3] = [
+    // crates/brokkr-protocol/src/hands.rs
+    "//! `/tmp`, no host home, no host credential, no other process, and no\n\
+     //! network unless the spec grants it. A tool allow-list bounded what the\n\
+     //! model may run; the box bounds what running anything can touch.",
+    // crates/brokkr-runtime/src/agents.rs
+    "//! - A **restriction** the resolved provider cannot express (a tool\n\
+     //!   permission narrowing) is always a hard failure: the agent would run\n\
+     //!   with MORE power than it declares. `optional` is structurally\n\
+     //!   unrepresentable on a restriction — `tools.allow` is a plain array,\n\
+     //!   there is no key to set.\n\
+     //! - Both checks run over **every** entry in the chain, not just the\n\
+     //!   chosen one: a chain whose second link cannot express the agent's\n\
+     //!   restrictions would silently widen its blast radius the moment it\n\
+     //!   fell back.",
+    // crates/brokkr-cli/src/init.rs
+    "//! name, in the scaffolded model agents' `tools.allow` lists: an allowance the\n\
+     //! adapter cannot express is a compile refusal, so the two files are ONE\n\
+     //! grant, not two. The split is decision 0021 ruling 1's: the WORK-class\n\
+     //! seats (intake, implement) may run the full set — the stack's runners\n\
+     //! plus `git`, `ls`, `rg` and `mkdir` — so a seat may run exactly the\n\
+     //! commands its charter names and nothing broader;",
+];
+
+#[test]
+fn the_guard_refuses_every_sentence_this_story_reworded() {
+    for page in OLD_PAGES {
+        assert_eq!(tool_list_overclaims(page).len(), 1, "not refused:\n{page}");
+    }
+    for source in OLD_SOURCES {
+        let docs = doc_text(&format!("{source}\nfn f() {{}}\n"));
+        assert_eq!(
+            tool_list_overclaims(&docs).len(),
+            1,
+            "not refused:\n{source}"
+        );
+    }
 }
 
 #[test]
 fn no_living_doc_says_a_tool_list_bounds_an_unboxed_seat() {
-    let pages: Vec<String> = tracked_files::tracked(&workspace(), &["*.md"])
+    let root = workspace();
+    let pages: Vec<String> = tracked_files::tracked(&root, &["*.md"])
         .into_iter()
         .filter(|page| !RECORDS.iter().any(|record| page.starts_with(record)))
         .collect();
     for page in ["ARCHITECTURE.md", "README.md", "docs/security-model.md"] {
         assert!(pages.iter().any(|p| p == page), "{page} is not scanned");
     }
-    let offenses: Vec<String> = pages
-        .iter()
-        .flat_map(|page| {
-            tool_list_overclaims(&read(page))
+    let sources = tracked_files::tracked(&root, &["crates/*/src/*.rs"]);
+    for source in [
+        "crates/brokkr-protocol/src/hands.rs",
+        "crates/brokkr-runtime/src/agents.rs",
+    ] {
+        assert!(
+            sources.iter().any(|s| s == source),
+            "{source} is not scanned"
+        );
+    }
+    let texts = pages.iter().map(|page| (page, read(page))).chain(
+        sources
+            .iter()
+            .map(|source| (source, doc_text(&read(source)))),
+    );
+    let offenses: Vec<String> = texts
+        .flat_map(|(path, text)| {
+            tool_list_overclaims(&text)
                 .into_iter()
-                .map(move |paragraph| format!("{page}: {paragraph}"))
+                .map(move |paragraph| format!("{path}: {paragraph}"))
         })
         .collect();
     assert_eq!(

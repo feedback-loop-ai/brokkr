@@ -321,6 +321,24 @@ fn the_readme_names_the_adapters_written_and_no_tool_map_without_claude() {
     );
 }
 
+/// The README says the work seats' grant pre-approves and removes no
+/// tool, never that a seat may run only what its charter names (#366).
+#[test]
+fn the_readme_says_the_work_grant_pre_approves_and_removes_no_tool() {
+    let cargo = detected("cargo build", "cargo test", "cargo clippy");
+    let readme = stack_readme(Some(&cargo), &[Cli::Claude]);
+    let work = readme
+        .split("\n\n")
+        .find(|paragraph| paragraph.starts_with("Work-class seats"))
+        .expect("a work-class paragraph");
+    assert_eq!(
+        work,
+        "Work-class seats (intake, implement) are pre-approved for the whole set:\n\
+         cargo, git, ls, rg, mkdir. Pre-approval removes no tool: an unboxed seat keeps the\n\
+         harness's defaults, your own permission settings and MCP servers."
+    );
+}
+
 /// The agent CLI is the first of claude, codex and dsh on PATH, claude
 /// when none is; the boundary is `harness` for a codex scaffold and on
 /// macOS, and left to the `namespace` default otherwise.

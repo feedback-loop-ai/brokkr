@@ -20,13 +20,19 @@ A realm names the wall around its seats (decision
 [0046](decisions/0046-the-boundary-is-named.md)). There are five words,
 and a realm that names none gets `namespace`:
 
-| Boundary | What stands around a seat today |
+| Boundary | What stands around a seat that declares hands today |
 |---|---|
 | `namespace` | Brokkr's box, built by bubblewrap 0.10 or newer. Linux only, WSL2 included. |
 | `seatbelt` | **Refused.** macOS's `sandbox-exec` box is not built. |
 | `container` | **Refused.** The container box is not built. |
 | `harness` | Nothing of Brokkr's. The harness's own sandbox stands, as its adapter's fragment addresses it. |
-| `open` | Nothing at all. A model gate whose agent declares hands is refused under `open`; a gate that declares a tool list or no tools runs unboxed, as it does under every boundary. |
+| `open` | Nothing at all. A model gate whose agent declares hands is refused under `open`. |
+
+The wall stands only around a seat that declares hands. A seat without
+hands is launched with its command unchanged under every boundary, so a
+seat that declares a tool list or no tools runs unboxed on the host,
+and under `harness` no harness sandbox is added for it either (see
+[what the box does not do](#what-the-box-does-not-do)).
 
 A realm may declare `seatbelt` or `container` and compile. A run whose
 seats declare hands under either is refused before any row is written,
@@ -37,19 +43,22 @@ whatever tools the host has:
 > hands and cannot run under it here — a realm may declare `harness`
 > today (decision 0046 ruling 2)
 
-The box is never simulated. A `namespace` realm on a host without
-`bwrap` is refused, and on macOS that is every host: `brokkr init` writes
-`harness` there, and verify and ship run their pinned scripts under no
-box of Brokkr's.
+The box is never simulated. A run whose seats declare hands in a
+`namespace` realm on a host without `bwrap` is refused, and on macOS
+that is every host: `brokkr init` writes `harness` there, and verify and
+ship run their pinned scripts under no box of Brokkr's. A bundle whose
+seats declare no hands asks nothing of the host and runs, unboxed.
 
 ## What the namespace box does
 
 The box runs two things: each call a boxed model seat makes to its one
 `workspace` tool, as `bash -lc <command>`, and a boxed `exec` seat's
 whole command. The harness process itself runs outside the box, with its
-credential and its connection to the provider. A claude or codex seat
-reaches the box only through its `workspace` tool, and a dsh seat, whose
-adapter cannot express boxed hands, never does.
+credential and its connection to the provider. A boxed claude seat
+reaches the host only through its `workspace` tool. A boxed codex seat
+also keeps Codex's native shell, read-only and outside the box (see
+below). A dsh seat, whose adapter cannot express boxed hands, never
+reaches the box.
 
 - **Namespaces.** `box_argv` passes `--unshare-pid`, `--unshare-ipc`,
   `--unshare-uts` and `--unshare-cgroup-try`, and `--unshare-net` unless
@@ -82,6 +91,15 @@ adapter cannot express boxed hands, never does.
   host's network namespace. There is no allow-list of hosts.
 - **No resource limits** beyond the timeout and the output cap: no
   memory, process-count or file-size limit.
+- **A boxed Codex seat can still read the host.** The codex hands
+  fragment sets Codex's native shell `--sandbox read-only` and adds the
+  `workspace` tool beside it, and Codex has no switch that removes the
+  native shell. So the model keeps a read-only view of the whole host
+  outside the box, credential files and the host home included, and only
+  its writes go through the box (decision
+  [0043](decisions/0043-the-hands-are-one-tool.md)'s consequences). "The
+  host home is not bound" holds for the box's own calls, for claude and
+  for exec, not for what a Codex seat reads. No issue owns this yet.
 - **Provider-side tools run outside it.** Codex's server-side
   `web_search` runs at the provider, so a boxed Codex seat whose hands
   set no network can still search the web. dsh 0.1.5 turns on
@@ -108,7 +126,11 @@ adapter cannot express boxed hands, never does.
   reach it ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
   The `bundles/verify` review seat is the same: unboxed, `acceptEdits`,
   with `cargo`, `git`, `ls`, `rg`, `gh pr view` and `gh run view`
-  pre-approved. Offices that declare neither, such as `triage` and the
+  pre-approved. So are `recipes/fast`'s own inline implement and review
+  seats, with the five `Bash` prefixes `cargo`, `git`, `ls`, `rg` and
+  `mkdir` pre-approved, and a recipe that `extends fast` inherits them
+  unless it replaces them: the default delivery's review gate is
+  unboxed. Offices that declare neither, such as `triage` and the
   position seats, get no tool flag at all.
 - **An unboxed claude seat with no tool list keeps Claude Code's
   defaults.** Brokkr passes no tool flag, no `--settings` and no

@@ -8,8 +8,9 @@
 //! namespace built from an empty root: the worktree bound read-write at
 //! its own path, the host toolchain read-only, a private `HOME` and
 //! `/tmp`, no host home, no host credential, no other process, and no
-//! network unless the spec grants it. A tool allow-list bounded what the
-//! model may run; the box bounds what running anything can touch.
+//! network unless the spec grants it. A tool list only pre-approves what
+//! the model runs and removes no tool; the box bounds what running
+//! anything can touch.
 //!
 //! The same namespace boxes a deterministic `exec` seat whole, which is
 //! what lets a pinned script hold a gate (ruling 3). The strategy is part

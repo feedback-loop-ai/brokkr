@@ -13,9 +13,11 @@ results, class, the phase table, and every gate are `fast`'s, inherited.
   "unsupported"`: the headless launcher has no allowed-tools flag. The
   challenger runs with whatever the harness permits — dsh's own
   `fs-sandbox` and code runtime in the seat's workdir — while the
-  incumbent runs seven named `Bash` prefixes under `acceptEdits`. Not
-  narrower than the incumbent as far as is known; not equal; not
-  verified beyond that. The comparison must say so.
+  incumbent runs under `acceptEdits` with five `Bash` prefixes
+  pre-approved through `--allowedTools`, which removes no tool, so
+  neither arm is held to a named list: each is bounded by its own
+  harness and the operator's settings. Not equal; not verified beyond
+  that. The comparison must say so.
 - **Same model class?** No, and that is the point: the wager measures
   a cheap untrusted lane against the incumbent's opus, on the same
   commission, judged by the same gates on the incumbent.
