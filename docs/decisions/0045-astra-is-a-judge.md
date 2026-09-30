@@ -310,9 +310,18 @@ chain keeps a codex model, sol, beside claude models, so the last judge
 before ship still crosses the vendor line from the claude smith, and
 ruling 3's panels keep their vendor diversity at the first hires.
 
+The table's second row also bears on decision 0058 ruling 2, "a scoped
+office pins one model, one effort, and no fallback". For
+`gpt-flash-review-chief` alone that office now holds two links, sol
+then astra. Both are codex models, so the forced crew still hires no
+Claude model and no other vendor, which is what ruling 2 of 0058
+protects. Every other scoped office keeps one model and no fallback.
+
 **Enforcement binding:** the agent files, `adapters/codex.json` and the
 recipes named above; `crates/brokkr-runtime/tests/roster.rs`
 (`sol_is_capped_and_astra_is_a_chiefs_last_fallback`) pins that the
 codex adapter maps `sol` to `gpt-6.1-sol`, that no agent hires sol above
-`high`, and that astra stands only last in the three chiefs' chains, at
-`max`; the witness pins move for every bundle that hires a moved office.
+`high`, that astra stands only last in the three chiefs' chains, at
+`max`, and that no inline codex site in a shipped bundle pins astra's
+model or pins sol's above `high`; the witness pins move for every bundle
+that hires a moved office.

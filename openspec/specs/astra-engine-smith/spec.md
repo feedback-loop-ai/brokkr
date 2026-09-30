@@ -1,17 +1,20 @@
 # astra-engine-smith Specification
 
 ## Purpose
-Seat Astra as the engine smith with Fable as fallback under decision 0043's
+Seat the Codex-lane engine smith with Fable as fallback under decision 0043's
 existing workspace confinement, with declared identity and evidence limits
-that an operator can inspect.
+that an operator can inspect. The seat was Astra's when the capability was
+named; decision 0045's addendum of 2026-09-30 gave it to Sol, one effort
+step below Astra's, and the capability keeps its name.
 
 ## Requirements
 
 ### Requirement: The engine smith hires the ruled chain through workspace hands
 
 The shipped `implementer-engine` agent SHALL declare models exactly
-`["astra", "fable"]` and efforts exactly `{"astra":"high","fable":"high"}`.
-It SHALL declare workspace hands with `network: false`, a `~/.cargo` overlay
+`["sol", "fable"]` and efforts exactly `{"sol":"medium","fable":"high"}`
+(decision 0045's addendum of 2026-09-30: Sol stands where Astra stood, one
+effort step below Astra's). It SHALL declare workspace hands with `network: false`, a `~/.cargo` overlay
 masking `credentials.toml` and `credentials`, and `~/.rustup` read-only.
 The existing workspace hands mount SHALL supply the writable workdir; extra
 binds SHALL NOT duplicate it or name a machine-specific checkout. The agent
@@ -23,7 +26,7 @@ SHALL receive arguments generated from the retired agent `tools.allow` list.
 
 #### Scenario: The shipped engine smith resolves both ruled hires
 - **WHEN** an otherwise valid work seat names `implementer-engine` under a namespace realm using the shipped adapters
-- **THEN** it compiles with Astra on Codex first and Fable on Claude second, both at high effort
+- **THEN** it compiles with Sol on Codex first at medium effort and Fable on Claude second at high effort
 - **AND** its recorded hands contain network false and exactly the two toolchain binds above; its boundary is namespace
 
 #### Scenario: Writable project access uses the existing workspace mount
@@ -34,7 +37,7 @@ SHALL receive arguments generated from the retired agent `tools.allow` list.
 #### Scenario: The inactive tools declaration is removed while the workspace grant remains (A1)
 - **WHEN** the shipped engine-smith declaration is inspected and resolved for both chain links under namespace
 - **THEN** it has no `tools` object and neither candidate receives arguments generated from the retired `tools.allow` list
-- **AND** Astra/Codex receives no per-tool list flag, while Fable/Claude retains exactly the existing `--allowedTools mcp__brokkr__workspace` grant as part of its complete `hands.workspace` fragment
+- **AND** Sol/Codex receives no per-tool list flag, while Fable/Claude retains exactly the existing `--allowedTools mcp__brokkr__workspace` grant as part of its complete `hands.workspace` fragment
 - **AND** neither candidate receives `Bash(cargo:*)` or `Bash(git:*)` anywhere in its arguments; granting the workspace MCP tool does not impose a `cargo,git` command restriction inside the box
 
 ### Requirement: Changed hires and hands are witnessed by actual compiled identities
@@ -92,15 +95,15 @@ being designed.
 ### Requirement: Deterministic evidence does not stand in for the first live smith
 
 The delivery record SHALL distinguish expressibility from live proof. This
-boxed seat has no network and SHALL NOT run or claim a live Astra smith.
-The first live Astra implementation SHALL remain the controller's measurement
+boxed seat has no network and SHALL NOT run or claim a live Sol smith.
+The first live Sol implementation SHALL remain the controller's measurement
 after landing: Cargo and Git through Codex's workspace hands, a real commit,
 and verify passing. Compilation, launch inspection, mocks and removal tests
 SHALL NOT discharge that measurement. The result notes SHALL describe evidence
 and residuals, never instruct a gate to pass.
 
 #### Scenario: A deterministic composition passes before any live measurement
-- **WHEN** the compiler and composition tests pass without a controller observation of Astra implementing
+- **WHEN** the compiler and composition tests pass without a controller observation of Sol implementing
 - **THEN** the record says the ruling is expressible, not proved by a live smith, and names the controller's Cargo/Git/commit/verify measurement as pending
 
 #### Scenario: The required quality evidence is available or explicitly pending
@@ -112,3 +115,4 @@ and residuals, never instruct a gate to pass.
 ## Provenance
 
 - `2026-09-21-307-astra-engine-smith` — folded 2026-09-21
+- `2026-09-30-sol-6-1-roster` — folded 2026-09-30

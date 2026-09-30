@@ -1,6 +1,6 @@
 {
   "name": "review-first",
-  "description": "An existing branch judged first: Astra reviews, the suite verifies, Muse remediates findings on return, and the run ships.",
+  "description": "An existing branch judged first: Sol reviews, the suite verifies, Muse remediates findings on return, and the run ships.",
   "cost": "medium",
   "policy": "policy.json",
   "protected_phase": "review",

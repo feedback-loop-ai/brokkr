@@ -335,7 +335,7 @@ addendum, ruling 1).
 Decision 0046 ruling 6 promises that after this slice a macOS operator
 runs every shipped bundle, the review offices under their harness's own
 sandbox. The work offices that declare hands are the chief architect,
-which chains claude and codex (fable, astra, opus) and is seated by
+which chains claude and codex (fable, sol, opus, astra) and is seated by
 `recipes/triage`'s specify and design steps and, through inheritance,
 by `recipes/night-shift`, and the sdd intake, which chains claude alone
 (sonnet, opus) and is hired by no shipped bundle — `recipes/sdd` folded
@@ -377,7 +377,7 @@ decision).
 
 #### Scenario: The measurement is not reachable from the implementing seat
 - **WHEN** the shipped adapters are loaded as they stand, `adapters/claude.json` declaring no `hands.harness` member because no claude the implementing seat may run was reachable, and every bundle under `recipes/` and `bundles/` compiles under `harness` in a realm that declares the openspec dialect
-- **THEN** exactly four bundles refuse, each naming the ground the compiler reaches first: `bundles/self` at `review`, whose reviewer chains `astra`, `fable`, `opus`, and `recipes/panel-review` at `review:correctness`, whose judge chains `sol`, `opus`, each naming `claude`, `hands.harness.gate` and the site; and `recipes/triage` and `recipes/night-shift`, which inherits the seat, naming the `analyze` sequence's `check` step, decision 0046 ruling 4 and decision 0042 ruling 4 — the compiler walks phases in name order (`serde_json::Map` is a `BTreeMap` in this tree; `preserve_order` is off), so `analyze` compiles first and its first step is the dialect check, reached before any claude link, and the claude ground stands behind that refusal unreached; the pin names `claude` for those two only if a decision admits the dialect step before the measurement lands; every other shipped bundle compiles; and the implementation completes and commits every other task, reports nothing blocked, and names the measurement in its completion note as the operator's with the recipe, the candidates and the version
+- **THEN** exactly four bundles refuse, each naming the ground the compiler reaches first: `bundles/self` at `review`, whose reviewer chains `sol`, `fable`, `opus`, and `recipes/panel-review` at `review:correctness`, whose judge chains `sol`, `opus`, each naming `claude`, `hands.harness.gate` and the site; and `recipes/triage` and `recipes/night-shift`, which inherits the seat, naming the `analyze` sequence's `check` step, decision 0046 ruling 4 and decision 0042 ruling 4 — the compiler walks phases in name order (`serde_json::Map` is a `BTreeMap` in this tree; `preserve_order` is off), so `analyze` compiles first and its first step is the dialect check, reached before any claude link, and the claude ground stands behind that refusal unreached; the pin names `claude` for those two only if a decision admits the dialect step before the measurement lands; every other shipped bundle compiles; and the implementation completes and commits every other task, reports nothing blocked, and names the measurement in its completion note as the operator's with the recipe, the candidates and the version
 
 #### Scenario: A measured gap is reported, not papered over
 - **WHEN** the measurement declares claude's `work` member unsupported
@@ -588,3 +588,4 @@ amended by the boxed-marker fix).
 
 - `2026-09-06-boundary-named-slice-i` — folded 2026-09-06
 - `2026-09-27-356-windows-is-not-a-host` — folded 2026-09-27
+- `2026-09-30-sol-6-1-roster` — folded 2026-09-30

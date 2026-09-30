@@ -309,16 +309,17 @@ write_result shipped
 /// repository's own library's: work leads with the stronger model where
 /// the ship does, review reads adversarially, and the gate seats fall
 /// back rather than pretend. Each seat carries one chain per agent CLI
-/// `init` can scaffold for, in that CLI's adapter vocabulary; `dsh` is
-/// `None` on the gate, because an untrusted adapter with no judges can
-/// never hold one (decision 0021 ruling 2).
+/// `init` can scaffold for, in that CLI's adapter vocabulary, each link
+/// with the effort it is hired at; `dsh` is `None` on the gate, because an
+/// untrusted adapter with no judges can never hold one (decision 0021
+/// ruling 2).
 struct AgentSpec {
     agent: &'static str,
     class: Class,
     description: &'static str,
-    models: &'static [&'static str],
-    codex: &'static [&'static str],
-    dsh: Option<&'static [&'static str]>,
+    models: &'static [(&'static str, Effort)],
+    codex: &'static [(&'static str, Effort)],
+    dsh: Option<&'static [(&'static str, Effort)]>,
     max_attempts: u64,
     timeout_seconds: u64,
 }
@@ -358,7 +359,7 @@ impl AgentSpec {
     /// chain it is hired with: its own, except that a dsh scaffold's gate
     /// stays on claude — the one gate the starter has cannot be held by
     /// dsh.
-    fn hire(&self, cli: Cli) -> (Cli, &'static [&'static str]) {
+    fn hire(&self, cli: Cli) -> (Cli, &'static [(&'static str, Effort)]) {
         match (cli, self.dsh) {
             (Cli::Claude, _) | (Cli::Dsh, None) => (Cli::Claude, self.models),
             (Cli::Codex, _) => (Cli::Codex, self.codex),
@@ -367,10 +368,9 @@ impl AgentSpec {
     }
 }
 
-/// The effort every scaffolded agent hires its model at: the level the
-/// claude harness runs unconfigured, so the starter names what it would
-/// have got rather than tuning a stranger's first run.
-const SCAFFOLD_EFFORT: &str = "high";
+// A link's effort is data beside its model, never derived from its name.
+mod effort;
+use effort::Effort;
 
 /// The two classes of decision 0021 ruling 1, as the scaffold seats them.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -387,9 +387,9 @@ const SEATS: &[AgentSpec] = &[
         agent: "intake",
         class: Class::Work,
         description: "Frames a raw request into a recorded, actionable task before any code is written.",
-        models: &["sonnet", "opus"],
-        codex: &["sol", "terra"],
-        dsh: Some(&["flash", "pro"]),
+        models: &[("sonnet", Effort::High), ("opus", Effort::High)],
+        codex: &[("sol", Effort::Medium), ("terra", Effort::High)],
+        dsh: Some(&[("flash", Effort::High), ("pro", Effort::High)]),
         max_attempts: 2,
         timeout_seconds: 1800,
     },
@@ -397,9 +397,9 @@ const SEATS: &[AgentSpec] = &[
         agent: "implementer",
         class: Class::Work,
         description: "Builds the framed task to the repository's conventions and commits the work with its tests.",
-        models: &["opus", "sonnet"],
-        codex: &["sol", "terra"],
-        dsh: Some(&["pro", "flash"]),
+        models: &[("opus", Effort::High), ("sonnet", Effort::High)],
+        codex: &[("sol", Effort::Medium), ("terra", Effort::High)],
+        dsh: Some(&[("pro", Effort::High), ("flash", Effort::High)]),
         max_attempts: 2,
         timeout_seconds: 5400,
     },
@@ -407,8 +407,8 @@ const SEATS: &[AgentSpec] = &[
         agent: "reviewer",
         class: Class::Gate,
         description: "The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.",
-        models: &["fable", "opus"],
-        codex: &["sol"], // astra is only a chief's last fallback (0045's addendum)
+        models: &[("fable", Effort::High), ("opus", Effort::High)],
+        codex: &[("sol", Effort::Medium)], // astra is only a chief's last fallback (0045)
         dsh: None,
         max_attempts: 2,
         timeout_seconds: 3600,
@@ -735,20 +735,20 @@ fn codex_hands(detected: Option<&Detected>) -> serde_json::Value {
 /// the two an absent key means.
 fn agent_json(
     spec: &AgentSpec,
-    models: &[&str],
+    models: &[(&str, Effort)],
     allowance: Option<&[Tool]>,
     hands: Option<serde_json::Value>,
 ) -> String {
     let mut definition = json!({
         "description": spec.description,
         "charter": format!("charters/{}.md", spec.agent),
-        "models": models,
+        "models": models.iter().map(|(model, _)| model).collect::<Vec<_>>(),
         // Every model pin carries an effort pin (decision 0035 ruling
-        // 5): the scaffold names the effort it hires beside the model, at
-        // the level the harness runs unconfigured (sol's scale sits a step
-        // lower, decision 0045's addendum), so a first bundle is a full hire.
+        // 5): the scaffold names the effort it hires beside the model, the
+        // one its roster carries for that link, so a first bundle is a
+        // full hire.
         "efforts": models.iter()
-            .map(|model| (model.to_string(), json!(if *model == "sol" { "medium" } else { SCAFFOLD_EFFORT })))
+            .map(|(model, effort)| (model.to_string(), json!(effort.word())))
             .collect::<serde_json::Map<String, serde_json::Value>>(),
         "limits": {
             "max_attempts": spec.max_attempts,

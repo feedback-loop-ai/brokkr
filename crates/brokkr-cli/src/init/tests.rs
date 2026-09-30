@@ -10,7 +10,7 @@
 use super::{
     allowance, command_tools, detect, grants, host, leading_word, realms_json, relative_realm_path,
     runner_tools, stack_readme, tools_for, write_dialect, AgentSpec, Boundary, Class, Cli,
-    Detected, DialectDetection, Tool, NO_TOOL_MAP, OPENSPEC, SEATS,
+    Detected, DialectDetection, Effort, Tool, NO_TOOL_MAP, OPENSPEC, SEATS,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -212,9 +212,9 @@ fn an_agents_allowance_follows_its_seats_class() {
         agent: "implementer",
         class: Class::Work,
         description: "",
-        models: &["opus", "sonnet"],
-        codex: &["sol", "terra"],
-        dsh: Some(&["pro", "flash"]),
+        models: &[("opus", Effort::High)],
+        codex: &[("sol", Effort::Medium)],
+        dsh: Some(&[("pro", Effort::High)]),
         max_attempts: 2,
         timeout_seconds: 5400,
     };
@@ -222,8 +222,8 @@ fn an_agents_allowance_follows_its_seats_class() {
         agent: "verifier",
         class: Class::Gate,
         description: "",
-        models: &["sonnet", "opus"],
-        codex: &["sol"],
+        models: &[("sonnet", Effort::High)],
+        codex: &[("sol", Effort::Medium)],
         dsh: None,
         max_attempts: 2,
         timeout_seconds: 3600,
@@ -253,9 +253,13 @@ fn an_agents_allowance_follows_its_seats_class() {
 }
 
 /// Each seat's hire under each CLI: its own chain, except that dsh never
-/// holds the gate, which a dsh scaffold hires from claude.
+/// holds the gate, which a dsh scaffold hires from claude. Every link
+/// carries its effort as data: high, except sol, whose scale sits a step
+/// lower (decision 0045's addendum).
 #[test]
 fn a_dsh_scaffold_hires_its_gate_from_claude() {
+    const H: Effort = Effort::High;
+    const M: Effort = Effort::Medium;
     let hires = |cli| {
         SEATS
             .iter()
@@ -265,25 +269,28 @@ fn a_dsh_scaffold_hires_its_gate_from_claude() {
     assert_eq!(
         hires(Cli::Claude),
         [
-            ("intake", (Cli::Claude, &["sonnet", "opus"][..])),
-            ("implementer", (Cli::Claude, &["opus", "sonnet"][..])),
-            ("reviewer", (Cli::Claude, &["fable", "opus"][..])),
+            ("intake", (Cli::Claude, &[("sonnet", H), ("opus", H)][..])),
+            (
+                "implementer",
+                (Cli::Claude, &[("opus", H), ("sonnet", H)][..])
+            ),
+            ("reviewer", (Cli::Claude, &[("fable", H), ("opus", H)][..])),
         ]
     );
     assert_eq!(
         hires(Cli::Codex),
         [
-            ("intake", (Cli::Codex, &["sol", "terra"][..])),
-            ("implementer", (Cli::Codex, &["sol", "terra"][..])),
-            ("reviewer", (Cli::Codex, &["sol"][..])),
+            ("intake", (Cli::Codex, &[("sol", M), ("terra", H)][..])),
+            ("implementer", (Cli::Codex, &[("sol", M), ("terra", H)][..])),
+            ("reviewer", (Cli::Codex, &[("sol", M)][..])),
         ]
     );
     assert_eq!(
         hires(Cli::Dsh),
         [
-            ("intake", (Cli::Dsh, &["flash", "pro"][..])),
-            ("implementer", (Cli::Dsh, &["pro", "flash"][..])),
-            ("reviewer", (Cli::Claude, &["fable", "opus"][..])),
+            ("intake", (Cli::Dsh, &[("flash", H), ("pro", H)][..])),
+            ("implementer", (Cli::Dsh, &[("pro", H), ("flash", H)][..])),
+            ("reviewer", (Cli::Claude, &[("fable", H), ("opus", H)][..])),
         ]
     );
 }

@@ -499,14 +499,67 @@ fn a_codex_lane_is_chained_only_into_boxed_or_toolless_offices() {
 /// The chiefs: the offices that rule on a panel's or a council's work.
 const CHIEFS: [&str; 3] = ["chief-architect", "gpt-flash-review-chief", "review-chief"];
 
+/// Sol's cap (decision 0045's addendum, ruling 3): no effort above `high`.
+fn within_sol_cap(effort: &str) -> bool {
+    matches!(effort, "none" | "minimal" | "low" | "medium" | "high")
+}
+
+/// Every inline codex model site in a shipped bundle: where it stands, and
+/// the concrete model and the effort its driver command pins. A codex site
+/// that pins either one by no flag fails the walk instead of passing unread.
+fn inline_codex_pins(root: &Path) -> Vec<(String, String, String)> {
+    let mut pins = Vec::new();
+    for dir in shipped_bundle_dirs(root) {
+        let bundle = json(&dir.join("bundle.json"));
+        let name = dir.file_name().unwrap().to_string_lossy().into_owned();
+        walk(&bundle, &mut Vec::new(), &mut |path, value| {
+            let words: Vec<&str> = value
+                .get("driver")
+                .and_then(|driver| driver.get("command"))
+                .and_then(Value::as_array)
+                .map(|command| command.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            if !words.starts_with(&["{brokkr}", "driver", "codex"]) {
+                return;
+            }
+            let site = format!("{name} at {}", path.join("."));
+            let pinned = |flag: &str| {
+                let at = words.iter().position(|word| *word == flag);
+                at.and_then(|at| words.get(at + 1))
+                    .unwrap_or_else(|| panic!("{site} pins no {flag}"))
+                    .to_string()
+            };
+            pins.push((site.clone(), pinned("--model"), pinned("--effort")));
+        });
+    }
+    pins
+}
+
 /// The operator's roster ruling of 2026-09-30 (decision 0045's addendum):
 /// `sol` is Sol 6.1, its effort is capped at `high`, and `astra` stands
-/// only as a chief's last fallback, at `max`.
+/// only as a chief's last fallback, at `max`. The inline codex sites of
+/// decision 0041 ruling 7 are held to the same two rules by the concrete
+/// model they pin, so a recipe cannot hire past the library's cap.
 #[test]
 fn sol_is_capped_and_astra_is_a_chiefs_last_fallback() {
     let root = workspace();
     let codex = json(&root.join("adapters/codex.json"));
     assert_eq!(codex["models"]["sol"], "gpt-6.1-sol", "sol is Sol 6.1");
+    let inline = inline_codex_pins(&root);
+    assert!(
+        inline.len() >= 4,
+        "{inline:?} are too few inline codex sites"
+    );
+    for (site, model, effort) in &inline {
+        assert_ne!(
+            codex["models"]["astra"], *model,
+            "{site} pins astra inline; astra is only a chief's last fallback"
+        );
+        assert!(
+            codex["models"]["sol"] != *model || within_sol_cap(effort),
+            "{site} pins sol inline at {effort}, above its cap of high"
+        );
+    }
     let mut astra_chiefs = BTreeSet::new();
     for entry in std::fs::read_dir(root.join("agents")).unwrap().flatten() {
         let path = entry.path();
@@ -517,7 +570,7 @@ fn sol_is_capped_and_astra_is_a_chiefs_last_fallback() {
         let agent = json(&path);
         if let Some(effort) = agent["efforts"]["sol"].as_str() {
             assert!(
-                matches!(effort, "none" | "minimal" | "low" | "medium" | "high"),
+                within_sol_cap(effort),
                 "{name} hires sol at {effort}, above its cap of high"
             );
         }

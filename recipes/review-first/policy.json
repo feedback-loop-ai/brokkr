@@ -1,6 +1,6 @@
 {
   "schema": "forge.phase-machine/v2",
-  "description": "Found-branch delivery: the suite verifies the branch as found, Astra judges it, findings return to Muse for remediation, and a clean verified branch ships. Fast's constitution entered at verify instead of implement.",
+  "description": "Found-branch delivery: the suite verifies the branch as found, Sol judges it, findings return to Muse for remediation, and a clean verified branch ships. Fast's constitution entered at verify instead of implement.",
   "phases": [
     "implement",
     "verify",
