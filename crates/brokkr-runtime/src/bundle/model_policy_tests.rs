@@ -283,7 +283,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             provider,
             "--",
             "--model",
-            "gpt-6-sol",
+            "gpt-6.1-sol",
             "--effort",
             "medium",
             "true"
@@ -2230,7 +2230,9 @@ fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     // transcribed, not remembered. On 2026-09-22 (codex-cli 0.154.0)
     // `sol` and `luna` moved to `gpt-6-sol` and `gpt-6-luna`, each probed
     // with a `codex exec` turn; the `gpt-6.0-*` spellings are refused for
-    // a ChatGPT-account codex. `terra` has no 6 release and stays. The
+    // a ChatGPT-account codex. On 2026-09-30 (codex-cli 0.159.0) `sol`
+    // moved to `gpt-6.1-sol`, probed the same way; `gpt-6-1-sol` is
+    // refused. `terra` has no 6 release and stays. The
     // pairs live once, in `adapters/codex.json` (#358); what holds here
     // is what each must satisfy: the id is a `gpt-` slug from codex's
     // own catalog, and the abstract names are codex's own family words —
@@ -4470,8 +4472,8 @@ fn a_seat_with_hands_is_refused_under_namespace_naming_the_providers_measured_re
 }
 
 /// H3: the SHIPPED engine smith, seated alone against the shipped library
-/// and adapters. Under `namespace` it compiles to astra on codex, then
-/// fable on claude, both high; under `harness` the whole chain is judged
+/// and adapters. Under `namespace` it compiles to sol on codex at medium,
+/// then fable on claude at high; under `harness` the whole chain is judged
 /// and it is refused at link 2 — claude declares no `hands.harness.work`
 /// — although the Codex-only H1 below passes. Nothing drops the fallback
 /// or invents a writable Claude fragment to make it compile.
@@ -4502,7 +4504,7 @@ fn the_shipped_engine_smith_is_refused_under_harness_at_its_claude_link() {
     assert_eq!(
         hires,
         [
-            ("codex", "astra", Some("high")),
+            ("codex", "sol", Some("medium")),
             ("claude", "fable", Some("high"))
         ]
     );

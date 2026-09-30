@@ -34,8 +34,8 @@ that cannot be performed blocks preparation; the charter does not silently
 ignore it. Keep configuration inline in the house file so the existing pin
 covers it; merely linking to another mutable file does not pin its contents.
 
-The shipped hire is **opus → astra, both at medium effort**, as ruled by the
-operator. Both use the workspace tool because Codex cannot express a native
+The shipped hire is **opus at medium effort → sol at low effort**, as ruled
+by the operator. Both use the workspace tool because Codex cannot express a native
 tool allow-list. The agent definition enables workspace networking for release
 and profile reads, binds the Rust toolchain and Linux resolver/CA files, and
 masks registry credentials. These are this repository's configuration, separate

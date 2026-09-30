@@ -2443,10 +2443,10 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
         "{resume_line}"
     );
     assert!(
-        resume_line.contains("model_reasoning_effort=\"xhigh\""),
+        resume_line.contains("model_reasoning_effort=\"high\""),
         "{resume_line}"
     );
-    assert!(resume_line.contains("gpt-6-astra"), "{resume_line}");
+    assert!(resume_line.contains("gpt-6.1-sol"), "{resume_line}");
     // The same argv over element boundaries. The class expected here is
     // the one this coordinate declares and the composed spawn argv above
     // already pinned: `--sandbox workspace-write`, from the shipped
@@ -2455,7 +2455,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
     assert_resume_argv(
         &resume_parts(workdir.path()),
         "workspace-write",
-        "xhigh",
+        "high",
         offered,
         "shipped harness work seat",
     );
@@ -2494,9 +2494,9 @@ fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
         "codex",
         "--",
         "--model",
-        "gpt-6-astra",
+        "gpt-6.1-sol",
         "--effort",
-        "xhigh",
+        "high",
         "--sandbox",
         "danger-full-access",
     ]
@@ -2599,7 +2599,7 @@ fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
     assert_resume_argv(
         &resume_parts(workdir.path()),
         "danger-full-access",
-        "xhigh",
+        "high",
         offered,
         "shipped inline work seat",
     );
@@ -2781,9 +2781,9 @@ fn assert_paired_override(parts: &[String], key: &str, expected: &str, case: &st
 /// make that pass would be to edit what ships.
 ///
 /// The effort literal genuinely is shared, and for two separate reasons:
-/// the harness lane's `xhigh` comes from the shipped `agents/reviewer.json`
-/// `efforts.astra`, the inline lane's from the literal `--effort xhigh`
-/// in the shipped recipe argv.
+/// the harness lane's `high` comes from the shipped `agents/reviewer.json`
+/// `efforts.sol`, the inline lane's from the literal `--effort high` in
+/// the shipped `recipes/standby` argv.
 fn assert_resume_argv(parts: &[String], class: &str, effort: &str, offered: &str, case: &str) {
     assert_paired_override(
         parts,
@@ -2912,9 +2912,9 @@ fn proof_codex_argv() -> Value {
         "codex",
         "--",
         "--model",
-        "gpt-6-astra",
+        "gpt-6.1-sol",
         "--effort",
-        "xhigh",
+        "high",
         "--sandbox",
         "danger-full-access"
     ])
@@ -2926,9 +2926,9 @@ fn proof_codex_driver() -> Vec<String> {
         "codex",
         "--",
         "--model",
-        "gpt-6-astra",
+        "gpt-6.1-sol",
         "--effort",
-        "xhigh",
+        "high",
         "--sandbox",
         "danger-full-access",
     ]
@@ -3306,7 +3306,7 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
             "{shape:?} wrapped={wrapped}: the class is re-expressed: {resume_line}"
         );
         assert!(
-            resume_line.contains("model_reasoning_effort=\"xhigh\""),
+            resume_line.contains("model_reasoning_effort=\"high\""),
             "{shape:?} wrapped={wrapped}: the effort is re-expressed: {resume_line}"
         );
         // The same argv over element boundaries, at all four compiled
@@ -3315,7 +3315,7 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
         assert_resume_argv(
             &resume_parts(run_dir.path()),
             "danger-full-access",
-            "xhigh",
+            "high",
             PROOF_OFFER,
             &format!("compiled live inline {shape:?} wrapped={wrapped}"),
         );

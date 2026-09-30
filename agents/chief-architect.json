@@ -3,13 +3,15 @@
   "charter": "charters/chief-architect.md",
   "models": [
     "fable",
-    "astra",
-    "opus"
+    "sol",
+    "opus",
+    "astra"
   ],
   "efforts": {
     "fable": "max",
-    "astra": "max",
-    "opus": "max"
+    "sol": "high",
+    "opus": "max",
+    "astra": "max"
   },
   "hands": {
     "kind": "workspace",

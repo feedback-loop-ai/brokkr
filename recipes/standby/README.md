@@ -12,16 +12,18 @@ role charter and the policy table itself are `fast`'s, inherited:
 
 | Seat | `fast` | `standby` |
 |---|---|---|
-| implement | claude `fable` @ high | codex `astra` @ xhigh, sandbox `danger-full-access` |
-| review | claude `fable` @ high | codex `astra` @ xhigh, sandbox `workspace-write` |
+| implement | claude `fable` @ high | codex `sol` (`gpt-6.1-sol`) @ high, sandbox `danger-full-access` |
+| review | claude `fable` @ high | codex `sol` (`gpt-6.1-sol`) @ high, sandbox `workspace-write` |
 | verify, ship | boxed exec scripts | unchanged — no model, no vendor |
 
-`astra` is a judge in `adapters/codex.json`, which is what lets it hold
-the review gate (decision 0041 ruling 3). The smith is hired at `xhigh`
-rather than `fast`'s `high` on the operator's instruction of 2026-09-06:
-a hedge is reached for when the other crew cannot run at all, so it is
-carrying work the default crew would otherwise have done, and a returned
-heat costs more than the effort. The smith writes under `danger-full-access`, as the wager harness's
+`sol` is a judge in `adapters/codex.json`, which is what lets it hold
+the review gate (decision 0041 ruling 3). Both seats were hired on
+`astra` at `xhigh` until the operator's roster ruling of 2026-09-30
+(decision 0045's addendum) replaced Astra 6.0 with Sol 6.1 and capped
+Sol's effort at `high`. The smith sits at that cap on the operator's
+instruction of 2026-09-06: a hedge is reached for when the other crew
+cannot run at all, so it is carrying work the default crew would
+otherwise have done, and a returned heat costs more than the effort. The smith writes under `danger-full-access`, as the wager harness's
 codex arm does, because a smith that cannot write is not a smith. The
 reviewer runs under `workspace-write` and not `read-only`, which was
 measured the hard way on 2026-09-06: a read-only judge reached a full

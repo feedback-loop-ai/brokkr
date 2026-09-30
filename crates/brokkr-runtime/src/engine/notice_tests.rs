@@ -104,11 +104,11 @@ impl Fixture {
         let fixture = Fixture { _dir: dir, root };
         fixture.charter(CHARTER);
         for (name, models, hands) in [
-            ("codex-boxed", &["astra"][..], true),
+            ("codex-boxed", &["sol"][..], true),
             ("claude-boxed", &["fable"][..], true),
-            ("codex-then-claude", &["astra", "fable"][..], true),
-            ("claude-then-codex", &["fable", "astra"][..], true),
-            ("codex-bare", &["astra"][..], false),
+            ("codex-then-claude", &["sol", "fable"][..], true),
+            ("claude-then-codex", &["fable", "sol"][..], true),
+            ("codex-bare", &["sol"][..], false),
         ] {
             fixture.office(name, models, hands);
         }
@@ -869,7 +869,7 @@ fn inline_codex(hands: bool) -> Value {
         "results": ["pass", "fail"],
         "class": "work",
         "driver": {"command": ["{brokkr}", "driver", "codex", "--",
-            "--model", "gpt-6-sol", "--effort", "high"]},
+            "--model", "gpt-6.1-sol", "--effort", "medium"]},
     });
     if hands {
         seat["hands"] = hands_value();

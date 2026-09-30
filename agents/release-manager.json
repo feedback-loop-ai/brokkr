@@ -3,11 +3,11 @@
   "charter": "charters/release-manager.md",
   "models": [
     "opus",
-    "astra"
+    "sol"
   ],
   "efforts": {
     "opus": "medium",
-    "astra": "medium"
+    "sol": "low"
   },
   "hands": {
     "kind": "workspace",

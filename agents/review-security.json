@@ -3,12 +3,12 @@
   "charter": "charters/review-security.md",
   "models": [
     "fable",
-    "astra",
+    "sol",
     "opus"
   ],
   "efforts": {
     "fable": "xhigh",
-    "astra": "xhigh",
+    "sol": "high",
     "opus": "xhigh"
   },
   "hands": {

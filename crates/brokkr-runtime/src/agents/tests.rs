@@ -2108,13 +2108,13 @@ fn the_shipped_adapters_declare_their_harness_as_the_record_says() {
         "reviewer",
     )
     .expect("the reviewer resolves");
-    let astra = resolution
+    let sol = resolution
         .candidates
         .iter()
-        .find(|candidate| candidate.model == "astra")
-        .expect("the reviewer chains astra");
-    assert_eq!(astra.provider, "codex");
-    assert_eq!(&astra.harness, codex);
+        .find(|candidate| candidate.model == "sol")
+        .expect("the reviewer chains sol");
+    assert_eq!(sol.provider, "codex");
+    assert_eq!(&sol.harness, codex);
     let fable = resolution
         .candidates
         .iter()

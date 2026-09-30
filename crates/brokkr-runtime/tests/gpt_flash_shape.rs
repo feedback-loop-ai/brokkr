@@ -4,8 +4,9 @@
 //! The feature framing requires that EVERY strategy keeps the same
 //! division: GPT Sol rules triage, specification, clarification, planning
 //! and analysis; DeepSeek Flash 4.1 implements; a GPT/Flash review panel
-//! states positions; and the GPT Astra chief alone rules the protected
-//! review phase. The recipe extends `recipes/triage`, so the deterministic
+//! states positions; and the GPT chief alone rules the protected review
+//! phase — Sol, falling back to Astra and to nothing else since the
+//! operator's roster ruling of 2026-09-30 (decision 0045's addendum). The recipe extends `recipes/triage`, so the deterministic
 //! verify/ship/validate gates are inherited rather than restated, and the
 //! scoped `gpt-flash-*` offices replace the standard roster without
 //! hiring a Claude model or a fallback Flash.
@@ -20,7 +21,8 @@
 //! Decision 0058 rules the scoped roster this file checks: the fifteen
 //! `gpt-flash-*` offices are ordinary library agents that reuse their
 //! charters and pin exactly one model, so the mandated crew is forced and
-//! no fallback can silently hire another vendor or an older Flash.
+//! no fallback can silently hire another vendor or an older Flash. The
+//! review chief's astra fallback is the one second link, and it is codex's.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -65,14 +67,6 @@ fn sole_candidate<'a>(body: &'a SeatBody, what: &str) -> &'a Candidate {
         1,
         "{what} must pin one model, so no older Flash can be reached silently"
     );
-    &candidates[0]
-}
-
-fn sole_step_candidate<'a>(body: &'a StepBody, what: &str) -> &'a Candidate {
-    let StepBody::Single { candidates, .. } = body else {
-        panic!("{what} must be a single driver");
-    };
-    assert_eq!(candidates.len(), 1, "{what} must pin one model");
     &candidates[0]
 }
 
@@ -181,7 +175,7 @@ fn every_strategy_implements_with_flash_41() {
 }
 
 #[test]
-fn every_strategy_reviews_with_a_mixed_panel_before_the_astra_chief() {
+fn every_strategy_reviews_with_a_mixed_panel_before_the_sol_chief() {
     let bundle = gpt_flash();
     let cases = select_cases(&bundle, "review");
     assert_eq!(
@@ -269,14 +263,41 @@ fn every_strategy_reviews_with_a_mixed_panel_before_the_astra_chief() {
             );
         }
 
-        let chief = sole_step_candidate(&steps[1].body, strategy);
-        assert_eq!(chief.agent, "gpt-flash-review-chief");
-        assert_eq!(chief.model, "astra", "{strategy} chief must be Astra");
-        assert_eq!(chief.provider, "codex");
+        assert_sol_chief_falling_back_to_astra(&steps[1].body, strategy);
+    }
+}
+
+/// The review chief is Sol at `high`, falling back to Astra at `max` and
+/// to nothing else (decision 0045's addendum of 2026-09-30), each link
+/// composing its concrete id.
+fn assert_sol_chief_falling_back_to_astra(body: &StepBody, strategy: &str) {
+    let StepBody::Single { candidates, .. } = body else {
+        panic!("{strategy} chief must be a single driver");
+    };
+    let hires: Vec<(&str, &str, &str, Option<&str>)> = candidates
+        .iter()
+        .map(|candidate| {
+            (
+                candidate.agent.as_str(),
+                candidate.provider.as_str(),
+                candidate.model.as_str(),
+                candidate.effort.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        hires,
+        [
+            ("gpt-flash-review-chief", "codex", "sol", Some("high")),
+            ("gpt-flash-review-chief", "codex", "astra", Some("max")),
+        ],
+        "{strategy} chief must be Sol, falling back to Astra alone"
+    );
+    for (candidate, id) in candidates.iter().zip(["gpt-6.1-sol", "gpt-6-astra"]) {
         assert!(
-            chief.argv.iter().any(|token| token == "gpt-6-astra"),
-            "{strategy} chief must compose Astra's concrete id: {:?}",
-            chief.argv
+            candidate.argv.iter().any(|token| token == id),
+            "{strategy} chief must compose {id}: {:?}",
+            candidate.argv
         );
     }
 }
@@ -300,7 +321,8 @@ fn sol_rules_specification_and_planning() {
 
 /// The recipe hires only its own `gpt-flash-*` offices: no standard
 /// roster agent survives the override, no provider is Claude, and every
-/// office is pinned to a single model (no silent fallback).
+/// office is pinned to a single model (no silent fallback) except the
+/// review chief, whose second link is Astra on codex.
 #[test]
 fn the_scoped_roster_excludes_the_standard_offices_and_claude() {
     let bundle = gpt_flash();
@@ -322,9 +344,14 @@ fn the_scoped_roster_excludes_the_standard_offices_and_claude() {
             "{site} landed on an unexpected provider {provider}"
         );
         assert_eq!(record["chosen_index"], 0);
+        let links = if agent == "gpt-flash-review-chief" {
+            2
+        } else {
+            1
+        };
         assert_eq!(
             record["chain"].as_array().map(Vec::len),
-            Some(1),
+            Some(links),
             "{site} carries a fallback chain"
         );
         assert_eq!(record["skipped"].as_array().map(Vec::len), Some(0));
