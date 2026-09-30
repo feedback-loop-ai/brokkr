@@ -143,7 +143,13 @@ that prefix with `NO_ADAPTER` at launch.
   ([#319](https://github.com/feedback-loop-ai/brokkr/pull/319)).
 - **A timed-out attempt's detached descendants can outlive the kill**
   ([#403](https://github.com/feedback-loop-ai/brokkr/issues/403)).
-- **Dead hands servers leak their scratch trees under `/tmp`**
+- **A dead hands server's scratch tree waits for the next run.** The
+  start of every run, resume and rerun removes each `brokkr-hands-*` tree
+  under the temporary directory whose recorded owner is dead and whose
+  lock no process holds, and names it on stderr. It keeps a locked tree,
+  and keeps and names a tree whose lock cannot be probed. Until 0.13.0 it
+  also removes a lockless tree left by a server from before the lock,
+  even one a live server in another pid namespace still uses
   ([#415](https://github.com/feedback-loop-ai/brokkr/issues/415)).
 - **The docs-only preflight tier cannot be reached**
   ([#286](https://github.com/feedback-loop-ai/brokkr/issues/286),

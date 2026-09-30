@@ -11,7 +11,7 @@ use super::{
     allowance, command_tools, detect, grants, host, leading_word, realms_json, relative_realm_path,
     runner_tools, stack_readme, tools_for, verify_script, write_dialect, AgentSpec, Boundary,
     Claims, Class, Cli, Detected, DialectDetection, Effort, Host, Tool, NO_TOOL_MAP, OPENSPEC,
-    SEATS,
+    PRE_APPROVAL, REVIEW_GATE, SEATS,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -378,26 +378,38 @@ fn the_scaffold_claims_the_box_and_a_denied_network_only_under_namespace() {
     let said = |boundary: Option<Boundary>| {
         let readme = stack_readme(Some(&cargo), &[Cli::Claude], claims(boundary));
         let script = verify_script(Some(&cargo), claims(boundary));
-        let line = |text: &str, with: &str| {
-            let found = text.lines().find(|line| line.contains(with));
-            found.expect(with).to_string()
+        let lines = |text: &str, with: &str, count: usize| {
+            let at = text.lines().position(|line| line.contains(with));
+            let at = at.expect(with);
+            text.lines()
+                .skip(at)
+                .take(count)
+                .collect::<Vec<_>>()
+                .join("\n")
         };
         [
-            line(&readme, "- `bundle.json`"),
-            line(&readme, "own commands"),
-            line(&script, " passed "),
+            lines(&readme, "- `bundle.json`", 2),
+            lines(&readme, "own commands", 1),
+            lines(&readme, "Verify and ship", 2),
+            lines(&script, " passed ", 1),
         ]
     };
     let boxed = [
-        "- `bundle.json` — three model offices plus boxed exec verify and",
+        "- `bundle.json` — three model offices plus the verify and ship exec\n  \
+         gates, which `namespace` boxes,",
         "names this repository's own commands and runs in Brokkr's box, without network.",
-        "printf '%s and %s passed with network denied' \
+        "cargo, git, ls, rg. Verify and ship are exec scripts with no model grant,\n\
+         and `namespace` boxes them.",
+        "printf '%s and %s passed boxed under namespace, with no network' \
          \"$test_command\" \"$lint_command\" > \"$notes\"",
     ];
     let unboxed = [
-        "- `bundle.json` — three model offices plus unboxed exec verify and",
+        "- `bundle.json` — three model offices plus the verify and ship exec\n  \
+         gates, which no box of Brokkr's holds,",
         "names this repository's own commands and runs under no box of Brokkr's, \
          with no network denial confirmed.",
+        "cargo, git, ls, rg. Verify and ship are exec scripts with no model grant,\n\
+         and no box of Brokkr's holds them.",
         "printf '%s and %s passed unboxed, with no network denial confirmed' \
          \"$test_command\" \"$lint_command\" > \"$notes\"",
     ];
@@ -412,6 +424,91 @@ fn the_scaffold_claims_the_box_and_a_denied_network_only_under_namespace() {
     ] {
         assert_eq!(said(Some(other)), unboxed, "{other:?}");
     }
+}
+
+/// Words that claim a box, a network, a read-only surface or a tool
+/// bound. Outside the sentences `claims.rs` gives, no generated prose
+/// may carry one.
+const CLAIM_WORDS: [&str; 5] = ["box", "network", "read-only", "sandbox", "restrict"];
+
+/// Every host arm `init` can take — the `namespace` default, `harness` on
+/// macOS, a codex scaffold and a dsh one — writes each sentence its
+/// claims give, once, into the whole `agents/README.md`, the scripts and
+/// the notes `init` prints; with those sentences taken out, no claim
+/// word is left in the README or the scripts. So no literal in `init`
+/// restates a claim, and one written beside the claims fails here on
+/// the arm it is false for (#366).
+#[test]
+fn every_host_arm_says_its_claims_and_no_other() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    std::fs::write(repo.join("Cargo.toml"), "[workspace]\n").unwrap();
+    let arms = [
+        ("namespace", "claude", "linux", Cli::Claude, None),
+        (
+            "macos",
+            "claude",
+            "macos",
+            Cli::Claude,
+            Some(Boundary::Harness),
+        ),
+        (
+            "codex",
+            "codex",
+            "linux",
+            Cli::Codex,
+            Some(Boundary::Harness),
+        ),
+        ("dsh", "dsh", "linux", Cli::Dsh, None),
+    ];
+    let mut wrong = Vec::new();
+    for (arm, binary, os, cli, boundary) in arms {
+        let bins = root.path().join(format!("{arm}-bin"));
+        std::fs::create_dir(&bins).unwrap();
+        std::fs::write(bins.join(binary), "").unwrap();
+        let dir = root.path().join(arm);
+        let scaffold = super::init(&dir, &repo, bins.as_os_str(), os).unwrap();
+        let claims = super::claims::claims(cli, boundary);
+        let read = |path: &str| std::fs::read_to_string(dir.join(path)).unwrap();
+        let mut said = vec![claims.gates, claims.runs];
+        if cli != Cli::Codex {
+            said.extend([claims.scripts, PRE_APPROVAL, REVIEW_GATE]);
+        }
+        said.extend(claims.realm);
+        let files = [
+            (read("agents/README.md"), said),
+            (read("scripts/verify-seat.sh"), vec![claims.note]),
+            (read("scripts/ship-seat.sh"), Vec::new()),
+            (scaffold.notes.join("\n\n"), Vec::from_iter(claims.realm)),
+        ];
+        for (text, said) in files {
+            wrong.extend(
+                unsaid(&text, &said)
+                    .into_iter()
+                    .map(|at| format!("{arm}: {at}")),
+            );
+        }
+    }
+    assert_eq!(wrong, Vec::<String>::new());
+}
+
+/// What is wrong with one generated text against the claim sentences it
+/// must say: each sentence not said exactly once, then each claim word
+/// left once those sentences are taken out.
+fn unsaid(text: &str, said: &[&str]) -> Vec<String> {
+    let mut rest = text.to_string();
+    let mut wrong = Vec::new();
+    for sentence in said {
+        if rest.matches(sentence).count() != 1 {
+            wrong.push(format!("not said once: {sentence:?}"));
+        }
+        rest = rest.replace(sentence, "");
+    }
+    let rest = rest.to_lowercase();
+    let left = CLAIM_WORDS.iter().filter(|word| rest.contains(*word));
+    wrong.extend(left.map(|word| format!("{word:?} outside claims.rs")));
+    wrong
 }
 
 /// The agent CLI is the first of claude, codex and dsh on PATH, claude

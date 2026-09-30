@@ -16,7 +16,8 @@ The design route is the SDD table: a chief specifies, a clarifier judges to
 zero ambiguity, the council designs, the smith writes the work breakdown, and
 an analyst judges to zero drift. Each artifact phase ends in the realm
 dialect's boxed validator. Each loop begins with the dialect's deterministic
-check, whose result is passed to its read-only judge. Failed validations retry
+check, whose result is passed to its judge, a gate chartered not to write
+whose only enforced check is that it left HEAD where it found it. Failed validations retry
 once; upstream findings and judged returns are bounded at three visits and
 then park for the operator.
 

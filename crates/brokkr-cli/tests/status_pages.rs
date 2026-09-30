@@ -488,10 +488,19 @@ const OVERCLAIMS: [&str; 8] = [
 /// never to write or to be boxed whatever it declares: the default
 /// delivery's review gate runs unboxed under `acceptEdits`.
 ///
+/// So is the sweep's class, each word held for the sentence it replaced:
+/// a gate said to change nothing or never to write, where the engine
+/// checks only that HEAD did not move; the box said to plant no hook or
+/// to leave the host untouched, where it binds the common git directory
+/// read-write; a verifier, a bind mode or a boundary said to hold with
+/// no boundary named; a tool list called a restriction or a seat's
+/// bound; and a dead hands server's tree said to leak, where the next
+/// run's start reaps it.
+///
 /// A comparison that only implies a bound, such as one arm called no
 /// narrower than another, is outside the guard: its wording names no
 /// control a list could hold.
-const ANYWHERE: [&str; 37] = [
+const ANYWHERE: [&str; 83] = [
     "blast radius",
     "no tool restriction",
     "tools restriction",
@@ -529,6 +538,52 @@ const ANYWHERE: [&str; 37] = [
     "runs without network",
     "with network denied",
     "are boxed scripts",
+    "read and never write",
+    "box bounds only the workspace calls",
+    "plants no git hook",
+    "the box expresses the restriction",
+    "gates change nothing",
+    "the verifier is a boxed script",
+    "decision 0043: the box;",
+    "judges only and changes nothing",
+    "controlled agent effects",
+    "brokkr-like effect authorization",
+    "grant/effect boundary",
+    "boxes its verify and ship gates",
+    "read-only subset for review",
+    "sandbox holds each seat's hands",
+    "keeps a verify seat from installing",
+    "gate agents (verify, review, ship)",
+    "boxed hands declared at the site",
+    "no — reports findings for the implementer",
+    "nobody pushes, nobody merges",
+    "list in each seat's driver",
+    "read-only sdd judge",
+    "are boxed, inline exec scripts",
+    "holding the worktree read-write and the host toolchain",
+    "the box clears the environment",
+    "and reports, it never writes",
+    "and it never writes",
+    "box lacks",
+    "boxed and offline",
+    "nothing in this repository pushes",
+    "re-express every restriction",
+    "which boundary builds them",
+    "the box replaces the tool list",
+    "workdir mounted writable, the declared binds",
+    "overlay (the host path as a read-only lower layer",
+    "the boundary that enforces it",
+    "the read-only judge",
+    "its read-only judge",
+    "nothing here can execute it",
+    "leak their scratch trees",
+    "scratch tree stays under",
+    "own sandbox stands, as its adapter's fragment",
+    "the git directory's hooks",
+    "for a linked worktree the box binds",
+    "every restriction expressible",
+    "boxed verify seat and an unboxed review seat under",
+    "policy and boxed exec gates",
 ];
 
 /// The wording the guard refuses, as lists a test can take one word out of.
@@ -599,9 +654,94 @@ fn doc_text(source: &str) -> String {
         .join("\n")
 }
 
+/// A Rust source's string literals as Markdown: each literal's text with
+/// its escapes decoded, a line continuation joined, and a paragraph break
+/// between literals, so a sentence a generated file carries is read
+/// where it is written. Comments are stepped over (`doc_text` reads the
+/// doc comments), and so are char literals and lifetimes.
+fn literal_text(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut literals = Vec::new();
+    let mut at = 0;
+    while at < chars.len() {
+        let next = |ahead: usize| chars.get(at + ahead).copied();
+        at = match (chars[at], next(1)) {
+            ('/', Some('/')) => past(&chars, at, "\n"),
+            ('/', Some('*')) => past(&chars, at + 2, "*/"),
+            ('\'', Some('\\')) => past(&chars, at + 3, "'"),
+            ('\'', _) if next(2) == Some('\'') => at + 3,
+            ('r', Some('"' | '#')) => raw_literal(&chars, at + 1, &mut literals),
+            ('"', _) => literal(&chars, at + 1, &mut literals),
+            _ => at + 1,
+        };
+    }
+    literals.join("\n\n")
+}
+
+/// The index just past the first `end` at or after `from`, or the end.
+fn past(chars: &[char], from: usize, end: &str) -> usize {
+    let end: Vec<char> = end.chars().collect();
+    (from..chars.len())
+        .find(|&at| chars[at..].starts_with(&end))
+        .map_or(chars.len(), |at| at + end.len())
+}
+
+/// A raw literal whose `#`s start at `from`; not one when no `"` follows
+/// them, as in a raw identifier.
+fn raw_literal(chars: &[char], from: usize, literals: &mut Vec<String>) -> usize {
+    let hashes = chars[from..].iter().take_while(|c| **c == '#').count();
+    if chars.get(from + hashes) != Some(&'"') {
+        return from;
+    }
+    let start = from + hashes + 1;
+    let close: String = std::iter::once('"')
+        .chain("#".repeat(hashes).chars())
+        .collect();
+    let end = past(chars, start, &close);
+    let body = chars[start..end.saturating_sub(close.len()).max(start)].iter();
+    literals.push(body.collect());
+    end
+}
+
+/// A quoted literal whose body starts at `from`, escapes decoded.
+fn literal(chars: &[char], from: usize, literals: &mut Vec<String>) -> usize {
+    let mut text = String::new();
+    let mut at = from;
+    while at < chars.len() && chars[at] != '"' {
+        if chars[at] != '\\' {
+            text.push(chars[at]);
+            at += 1;
+            continue;
+        }
+        let escaped = chars.get(at + 1).copied().unwrap_or('\\');
+        at += 2;
+        match escaped {
+            '\n' => at += chars[at..].iter().take_while(|c| c.is_whitespace()).count(),
+            'n' => text.push('\n'),
+            't' => text.push('\t'),
+            'r' => text.push('\r'),
+            '0' => text.push('\0'),
+            'x' => {
+                let hex: String = chars[at..(at + 2).min(chars.len())].iter().collect();
+                text.extend(u8::from_str_radix(&hex, 16).ok().map(char::from));
+                at += 2;
+            }
+            'u' => {
+                let end = past(chars, at, "}");
+                let hex: String = chars[at + 1..end - 1].iter().collect();
+                text.extend(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32));
+                at = end;
+            }
+            other => text.push(other),
+        }
+    }
+    literals.push(text);
+    at + 1
+}
+
 /// Excerpts of the pages this story reworded, word for word as they
 /// stood: each holds one paragraph the guard refuses.
-const OLD_PAGES: [&str; 43] = [
+const OLD_PAGES: [&str; 90] = [
     // docs/guides/agent-library.md
     "**The honesty rules are the point, and they are enforced rather than\n\
      documented.** A tool restriction the provider cannot express fails\n\
@@ -725,6 +865,117 @@ const OLD_PAGES: [&str; 43] = [
     "The deterministic boxed verifier pins `uv run pytest` and\n\
      `uv run ruff check .`. It runs both with network denied, types `pass` only\n\
      when both exit zero, and quotes decisive output on `fail`.",
+    // docs/research/0003, 0004, 0005, 0006 and 0007's citations
+    "decision 0041: gates read and never write, so it writes no tests",
+    "decision 0043: the box bounds only the workspace calls of a gate whose agent declares hands",
+    "decision 0043: a boxed workspace call finds the git hooks directory empty and the git config \
+     read-only, so it plants no git hook",
+    "decision 0043: a seat's hands are one workspace tool, and the box expresses the restriction",
+    "decision 0041: gates change nothing and the engine checks; the reviewed head is recorded",
+    "decision 0043: the verifier is a boxed script, not the implementer's word",
+    "decision 0002: the journal is the state and the table is the stop condition; decision 0043: \
+     the box; decision 0021: the checker is a gate seat",
+    "decision 0041: a gate hires judges only and changes nothing;",
+    // docs/research/github-peers/
+    "It is a direct architecture peer for Brokkr's controlled agent effects and inspectable execution",
+    "These choices support unattended operation, but they do not enforce Brokkr-like effect \
+     authorization boundaries.",
+    "Brokkr's grant/effect boundary and dispatcher work should test every externally reachable path",
+    // docs/guides/quickstart.md
+    "Every shipped bundle boxes its verify and ship gates, and what stands\n\
+     between a boxed seat's hands and your machine is the realm's",
+    "`Bash(<bin>:*)` entries, and each model agent's `tools.allow` names them —\n\
+     the whole set for the work seats and the read-only subset for review.",
+    "`adapters/codex.json` in place of `adapters/claude.json`, hires every\n\
+     seat from codex, and declares the `harness` boundary in `realms.json`,\n\
+     so codex's own sandbox holds each seat's hands.",
+    // docs/guides/starters/bun.md, go.md and node.md
+    "it is each gate's charter — \"prove it, fix nothing\", with no install\n\
+     line — and not the grant that keeps a verify seat from installing.",
+    "The work agents (`intake`, `implement`) carry all five names in\n\
+     `tools.allow`; the gate agents (`verify`, `review`, `ship`) carry the\n\
+     same minus `mkdir`.",
+    // docs/guides/starters/rust.md
+    "Verify and ship are deterministic scripts with their limits and\n\
+     boxed hands declared at the site.",
+    // docs/guides/adopting-a-node-repo.md
+    "| `review` | gate | reads the diff for correctness, simplicity and security | no — reports \
+     findings for the implementer |",
+    "Nobody pushes, nobody merges, and nobody publishes — no `npm publish`,\n\
+     no `npm version`, no tag. That authority is yours.",
+    "swap point for pnpm and yarn: the `--allowedTools` list in each seat's\n\
+     driver, and the install/type-check/test commands plus the lockfile name",
+    // docs/guides/agent-library.md
+    "analyst\tfable → sol → opus\tRead-only SDD judge: finds drift across the artifacts and the \
+     realm constitution.",
+    "They are boxed, inline `exec` scripts with no model: verification runs a\n\
+     recipe's fixed checks",
+    "serve`, and every call to it executes inside an empty-root bubblewrap\n\
+     namespace holding the worktree read-write and the host toolchain\n\
+     read-only.",
+    // docs/guides/secrets.md and docs/security-model.md
+    "all: the box clears the environment, and compilation refuses it",
+    // docs/guides/journal-and-verification.md
+    "across a gate's own span: a gate reads and reports, it never writes",
+    // CONTRIBUTING.md
+    "and CI proves the rest (any non-Rust lint whose tool the seat's box lacks, which the seat \
+     names as not run,",
+    // recipes/triage/README.md
+    "Each loop begins with the dialect's deterministic\n\
+     check, whose result is passed to its read-only judge.",
+    // recipes/research/README.md
+    "It opens no issue and no pull request, and it never writes\n\
+     `Status: ruled`.",
+    // docs/guides/contributing-by-hand.md
+    "landing's verify seat runs the same list with `--seat`, which names a\n  \
+     lint whose tool its box lacks as not run and runs the others",
+    "`cargo test --workspace` and `cargo run -p brokkr-cli -- compile\n\
+     --bundle bundles/self`, boxed and offline, in that order",
+    "- **The operator keeps push and merge.** Nothing in this repository\n  \
+     pushes on your behalf, and no agent merges anything.",
+    // docs/guides/driver-authoring.md
+    "- **Re-express every restriction the seat declared.** If your harness's\n  \
+     resume path drops a sandbox class, a permission mode or a tool\n  \
+     allow-list, put it back explicitly.",
+    "A driver that\n\
+     wants walls declares `hands` on its site and lets the realm say which\n\
+     boundary builds them.",
+    // docs/guides/provider-adapters.md
+    "(decision [0043](../decisions/0043-the-hands-are-one-tool.md) ruling 2:\n\
+     the box replaces the tool list).",
+    "What that confinement **is**: the box decision 0043 already builds — an\n\
+     empty root, the run's workdir mounted writable, the declared binds in\n\
+     their declared modes, and the declared network (here, none).",
+    // docs/guides/recipe-authoring.md
+    "with mode `ro`, `rw` or `overlay` (the host path as a read-only lower layer, writes kept in \
+     a per-seat upper layer that never touches the host — the mode for a toolchain cache).",
+    "`hands` is the **policy** — what the seat may reach; the **boundary** that enforces it is \
+     the realm's, never the bundle's",
+    "their dialect check before the read-only judge, which receives that output as\n\
+     `prior_results`.",
+    // docs/guides/read-surfaces.md
+    "Nothing it proposes is executed, and nothing here can execute it.",
+    // docs/status.md and docs/security-model.md
+    "- **Dead hands servers leak their scratch trees under `/tmp`**\n  \
+     ([#415](https://github.com/feedback-loop-ai/brokkr/issues/415)).",
+    "- **Process settlement.** A timed-out attempt's detached descendants can\n  \
+     outlive the kill, and a dead hands server's scratch tree stays under\n  \
+     `/tmp`.",
+    "| `harness` | Nothing of Brokkr's. The harness's own sandbox stands, as its adapter's \
+     fragment addresses it. |",
+    "`/runtime/bundle`. The git directory's `hooks` sit behind an empty\n  \
+     tmpfs and its `config` is read-only.",
+    "- **The git common directory is writable.** For a linked worktree the\n  \
+     box binds the shared git directory read-write, so a boxed command can\n  \
+     move a sibling worktree's branch, rewrite the object store or another\n  \
+     worktree's `config.worktree`.",
+    // ARCHITECTURE.md
+    "resolve --> checks{\"gate site → trusted tier?<br/>secret bindings → route class ≥ \
+     minimum?<br/>every restriction expressible?\"}",
+    "| Brokkr verification | `bundles/verify` examines a delivered change with a boxed verify \
+     seat and an unboxed review seat under the operator's Claude Code permissions",
+    "`recipes/release` combines the manager and library reviewer with `fast`'s policy\n\
+     and boxed exec gates.",
 ];
 
 /// Excerpts of the doc comments this story reworded, as the sources
@@ -786,14 +1037,31 @@ const OLD_SOURCES: [&str; 17] = [
     "//! Verify and ship are boxed scripts and carry no model grants.",
 ];
 
+/// Excerpts of the string literals this story reworded, as the sources
+/// carried them: text a generated file or an error message says.
+const OLD_LITERALS: [&str; 3] = [
+    // crates/brokkr-cli/src/init.rs, the scaffold README's tool grants
+    r#""{gate_list}. Verify and ship are boxed scripts with no model grant.\n\n\
+                 The grant is per BINARY, not per subcommand""#,
+    // crates/brokkr-runtime/src/agents/load.rs
+    r#""{what} 'tools.allow' is empty, which is ambiguous between \
+                     'no restriction' and 'restrict to nothing'; omit the key to \
+                     declare no restriction""#,
+    // crates/brokkr-runtime/src/bundle.rs
+    r#""seat '{what}' declares hands and secret bindings {secrets:?}; the box \
+                     clears the environment, so a boxed seat cannot receive a binding \
+                     (decision 0043)""#,
+];
+
 /// Every old excerpt as the guard reads it: a page as written, a source
-/// as its doc comments.
+/// as its doc comments or its string literals.
 fn old_texts() -> Vec<String> {
     let pages = OLD_PAGES.iter().map(|page| page.to_string());
     let sources = OLD_SOURCES
         .iter()
         .map(|source| doc_text(&format!("{source}\nfn f() {{}}\n")));
-    pages.chain(sources).collect()
+    let literals = OLD_LITERALS.iter().map(|source| literal_text(source));
+    pages.chain(sources).chain(literals).collect()
 }
 
 #[test]
@@ -856,11 +1124,13 @@ fn no_living_doc_says_a_tool_list_bounds_an_unboxed_seat() {
             "{source} is not scanned"
         );
     }
-    let texts = pages.iter().map(|page| (page, read(page))).chain(
-        sources
-            .iter()
-            .map(|source| (source, doc_text(&read(source)))),
-    );
+    let texts = pages
+        .iter()
+        .map(|page| (page, read(page)))
+        .chain(sources.iter().flat_map(|source| {
+            let text = read(source);
+            [(source, doc_text(&text)), (source, literal_text(&text))]
+        }));
     let offenses: Vec<String> = texts
         .flat_map(|(path, text)| {
             tool_list_overclaims(&text)

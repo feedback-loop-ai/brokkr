@@ -371,7 +371,10 @@ impl AgentSpec {
 // A link's effort is data beside its model, never derived from its name.
 mod claims;
 mod effort;
-use {claims::Claims, effort::Effort};
+use {
+    claims::{Claims, PRE_APPROVAL, REVIEW_GATE},
+    effort::Effort,
+};
 
 /// The two classes of decision 0021 ruling 1, as the scaffold seats them.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -567,7 +570,7 @@ fn runner_tools(detected: &Detected) -> Vec<Tool> {
 /// - `work` — the whole set: every runner above plus `git`, `ls`, `rg`
 ///   and `mkdir`, the commands a work seat's charter names; pre-approval
 ///   removes no other tool;
-/// - `gate` — the read-only subset: the test command's tools (which, for
+/// - `gate` — the smaller set: the test command's tools (which, for
 ///   every row in the tables today, are the same binary the build and
 ///   lint lines also lead with — the grant is per binary, and the README
 ///   says so) plus `git`, `ls` and `rg`, and never `mkdir`.
@@ -926,7 +929,7 @@ fn agent_json(
 }
 
 /// The allowance one seat's agent is written with: the whole set for the
-/// work-class seats, the read-only subset for the gate-class seats —
+/// work-class seats, the smaller set for the gate-class seats —
 /// the class the seat declares in `bundle.json`, applied here to the
 /// grant the agent may express. Only a claude-hired agent is written one:
 /// codex and dsh cannot express a tool name, and an allowance their
@@ -936,7 +939,7 @@ fn allowance<'a>(spec: &AgentSpec, provider: Cli, grants: &'a Grants) -> Option<
         (Cli::Claude, Class::Work, false) => Some(&grants.work),
         (Cli::Claude, Class::Gate, false) => Some(&grants.gate),
         // No stack was recognized: no tool was granted, and an agent must
-        // not name one — omit the restriction and let the README say why.
+        // not name one — omit the list and let the README say why.
         (Cli::Claude, _, true) => None,
         (Cli::Codex | Cli::Dsh, _, _) => None,
     }
@@ -972,15 +975,14 @@ fn stack_readme(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> S
                  own runners, and nothing broader:\n\
                  \n    {work_rendered}\n\n\
                  Work-class seats (intake, implement) are pre-approved for the whole set:\n\
-                 {work_list}. Pre-approval removes no tool: an unboxed seat keeps the\n\
-                 harness's defaults, your own permission settings and MCP servers.\n\n\
-                 The model-backed review gate is granted the read-only subset — the\n\
+                 {work_list}. {PRE_APPROVAL}\n\n\
+                 The model-backed review gate is pre-approved for a smaller set — the\n\
                  test runner's tools and the tools that read — and never `mkdir`:\n\
-                 {gate_list}. Verify and ship are boxed scripts with no model grant.\n\n\
+                 {gate_list}. {scripts}\n\n\
                  The grant is per BINARY, not per subcommand: the test runner's\n\
                  binary also answers to its build and install subcommands, so it is\n\
                  each gate's charter (prove it, fix nothing) and not the grant that\n\
-                 keeps a gate from building.\n\n\
+                 keeps a gate from building. {REVIEW_GATE}\n\n\
                  An allowance is ONE grant with the adapter's `tool_permissions.names`:\n\
                  an allowance whose name the map cannot express refuses this\n\
                  scaffold's own compile, so when you edit one, edit both.\n\n\
@@ -999,6 +1001,7 @@ fn stack_readme(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> S
                     .map(|tool| tool.name)
                     .collect::<Vec<_>>()
                     .join(", "),
+                scripts = claims.scripts,
             )
         }
         None => format!(
@@ -1012,7 +1015,7 @@ fn stack_readme(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> S
                  adapter's `tool_permissions.names` as `Bash(<bin>:*)`, then list\n\
                  the names in each agent's `tools.allow` — the work-class seats\n\
                  (intake, implement) get the whole set and the model-backed review\n\
-                 gate gets the read-only subset (git, ls, rg and the test runner).\n"
+                 gate gets git, ls, rg and the test runner, never `mkdir`.\n"
         ),
     }
 }
@@ -1021,9 +1024,8 @@ fn stack_readme(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> S
 /// map: there is none, because its adapter cannot express a tool name.
 const NO_TOOL_MAP: &str = "## Tool grants\n\n\
      None. No seat is hired from claude, and the agent CLI that hires them\n\
-     restricts by sandbox class rather than by tool name, so no agent under\n\
-     `agents/` declares a `tools` list and no adapter carries a tool\n\
-     map to edit.\n";
+     cannot express a tool name, so no agent under `agents/` declares a\n\
+     `tools` list and no adapter carries a tool map to edit.\n";
 
 /// The part of the scaffold's README that does not depend on the tool
 /// map: which stack was read, and — for a recognized one — the files
@@ -1042,8 +1044,8 @@ fn stack_header(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> S
                  as a {name} project ({evidence}). Everything here is ordinary text:\n\
                  read it, edit it, commit it.\n\n\
                  ## What is here\n\n\
-                 - `bundle.json` — three model offices plus {gates} verify and\n\
-                   ship gates, with each seat's results and limits.\n\
+                 - `bundle.json` — three model offices plus {gates},\n\
+                   with each seat's results and limits.\n\
                  - `policy.json` — the phase table; `review` is the protected phase.\n\
                  - {adapters} and `adapters/exec.json` — the model and\n\
                    deterministic drivers, including their trust tiers.\n\
@@ -1129,21 +1131,8 @@ fn host(path: &std::ffi::OsStr, os: &str) -> Host {
                 .to_string(),
         );
     }
-    let why = if cli == Cli::Codex {
-        "codex holds each seat's hands under its own sandbox — read-only for \
-         the review gate, workspace-write for intake and implement — as \
-         `adapters/codex.json` addresses it, and"
-    } else {
-        "`namespace`, the default, is built by bubblewrap 0.10 or newer, which \
-         is Linux-only, so on macOS"
-    };
-    let boundary = (cli == Cli::Codex || os == "macos").then(|| {
-        notes.push(format!(
-            "`realms.json` declares the `harness` boundary: {why} verify and ship \
-             run their pinned scripts under no box of Brokkr's (decision 0046)."
-        ));
-        Boundary::Harness
-    });
+    let boundary = (cli == Cli::Codex || os == "macos").then_some(Boundary::Harness);
+    notes.extend(claims::claims(cli, boundary).realm.map(str::to_string));
     Host {
         cli,
         boundary,

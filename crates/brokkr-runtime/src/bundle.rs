@@ -5875,9 +5875,9 @@ pub(crate) fn layer_drift(bundle: &Bundle, directory: &Path) -> Option<(String, 
 
 /// Decision 0043: record one site's hands — the agent's when the site
 /// names an agent, the site's own `hands` value when it is inline. A
-/// site with hands and secret bindings is refused: the box clears the
-/// environment, and a binding that cannot reach its seat is a binding
-/// silently dropped.
+/// site with hands and secret bindings is refused under every boundary: the
+/// `namespace` box clears the environment, and a binding that cannot reach
+/// its seat is a binding silently dropped.
 fn record_hands(
     what: &str,
     raw: &Value,
@@ -5896,9 +5896,9 @@ fn record_hands(
         Some(spec) => {
             if !secrets.is_empty() {
                 return Err(CompileError::Invalid(format!(
-                    "seat '{what}' declares hands and secret bindings {secrets:?}; the box \
-                     clears the environment, so a boxed seat cannot receive a binding \
-                     (decision 0043)"
+                    "seat '{what}' declares hands and secret bindings {secrets:?}; under \
+                     every boundary a seat with hands receives no binding, as the \
+                     `namespace` box clears the environment (decision 0043)"
                 )));
             }
             HandsState::Hands(spec)

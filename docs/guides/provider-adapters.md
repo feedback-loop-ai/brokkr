@@ -433,13 +433,15 @@ going in: claude's `--permission-mode` choices are `acceptEdits`,
 `auto`, `bypassPermissions`, `manual`, `dontAsk` and `plan` — there is
 no `read-only` value. Candidates for `gate`: `--permission-mode
 dontAsk` with `--allowedTools` naming the read tools and one edit rule
-scoped to `{result_path}` (`result` `file`); `--permission-mode plan`
+scoped to `{result_path}` (`result` `file`), where what runs is that
+list plus the operator's own allow rules, so it is measured with those
+settings in place; `--permission-mode plan`
 if it can still write the result file; and the `--restricted` /
 `--permission-prompts none` pair reported on 2.1.263, unconfirmed.
 Candidates for `work`: `--permission-mode acceptEdits` with the shell
 allowed, or the harness's own sandbox settings with the shell
 auto-allowed when sandboxed — a bare `acceptEdits` prompts for every
-shell call, and a non-interactive seat answers a prompt with a denial,
+shell call the operator's own settings do not already allow, and a non-interactive seat answers a prompt with a denial,
 which is why the empty fragment is an answer only if the measurement
 shows the driver's own mode grants the shell. The recipe: under each
 candidate, run one gate seat whose prompt asks it to read a file
@@ -468,11 +470,15 @@ sandbox class, not by tool name — cannot be told an agent's
 hands is therefore refused on it, in the resolver's own words: the
 restriction "cannot be expressed and the agent would run with MORE power
 than it declares". That refusal is unchanged, and no fallback link
-rescues the chain, because every mapped link is judged.
+rescues the chain, because every mapped link is judged. On claude the
+same list rides as `--allowedTools`, which pre-approves and removes no
+tool: the refusal keeps the record honest, and does not make the list
+bound a claude seat.
 
 Such a provider serves a work seat only through **declared hands**
 (decision [0043](../decisions/0043-the-hands-are-one-tool.md) ruling 2:
-the box replaces the tool list). Under the `namespace` boundary the seat
+under `namespace` the box stands where the tool list stood, and under
+`harness` and `open` Brokkr builds no box). Under the `namespace` boundary the seat
 compiles when the agent declares `hands` and the provider declares
 `hands.workspace`; a provider whose `hands` is absent or unsupported
 refuses it, and a declared `hands.harness.work` does not stand in. The
@@ -481,8 +487,9 @@ operator rulings of 2026-09-20 and 2026-09-21): it hires `sol` at
 `medium` then `fable` at `high` — the seat `astra` held at `high` until
 the roster ruling of 2026-09-30 (decision
 [0045](../decisions/0045-astra-is-a-judge.md)'s addendum) moved it to Sol
-6.1 one step down Sol's shifted scale — with no network, `~/.cargo` as an overlay with
-`credentials.toml` and `credentials` masked, and `~/.rustup` read-only.
+6.1 one step down Sol's shifted scale — declaring no network, `~/.cargo` as an overlay with
+`credentials.toml` and `credentials` masked, and `~/.rustup` read-only,
+which the `namespace` box enforces and no other boundary does.
 It carries no `tools` member, because hands would leave one dead on
 claude as well as on codex.
 
@@ -497,7 +504,10 @@ value is `mcp__brokkr__workspace` — the grant of the hands tool itself,
 never a list of commands.
 
 What that confinement **is**: the box decision 0043 already builds — an
-empty root, the run's workdir mounted writable, the declared binds in
+empty root, the run's workdir mounted writable, the repository's common
+git directory bound read-write (so a boxed command can move shared refs,
+corrupt objects and, where `extensions.worktreeConfig` is on, plant a
+hook through a worktree's `config.worktree`), the declared binds in
 their declared modes, and the declared network (here, none). What it is
 **not**: a command allow-list. Inside the box the hands tool runs the
 shell command it is given, so `cargo` and `git` are reachable because

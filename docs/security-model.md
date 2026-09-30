@@ -25,7 +25,7 @@ and a realm that names none gets `namespace`:
 | `namespace` | Brokkr's box, built by bubblewrap 0.10 or newer. Linux only, WSL2 included. |
 | `seatbelt` | **Refused.** macOS's `sandbox-exec` box is not built. |
 | `container` | **Refused.** The container box is not built. |
-| `harness` | Nothing of Brokkr's. The harness's own sandbox stands, as its adapter's fragment addresses it. |
+| `harness` | Nothing of Brokkr's. A model seat's harness sandbox stands only where its adapter declares a fragment for the seat's class, as that fragment addresses it (the status page's *Own sandbox for* column). An `exec` seat's script runs unboxed in a rebuilt environment. |
 | `open` | Nothing at all. A model gate whose agent declares hands is refused under `open`. |
 
 The wall stands only around a seat that declares hands. A seat without
@@ -78,8 +78,11 @@ reaches the box.
   are generated per call. `HOME` and `/tmp` are private per call and
   removed after it. The host home is not bound. The worktree is
   read-write at its own path. An exec seat's bundle is read-only at
-  `/runtime/bundle`. The git directory's `hooks` sit behind an empty
-  tmpfs and its `config` is read-only. A declared bind's mode is `ro`,
+  `/runtime/bundle`. The common git directory's `hooks` sit behind an
+  empty tmpfs and its `config` is read-only, but the rest of that
+  directory is read-write, so neither cover stops a boxed command from
+  planting a hook (see [what the box does not
+  do](#what-the-box-does-not-do)). A declared bind's mode is `ro`,
   `rw` or `overlay` (an upper layer that never reaches the host), and
   its `mask` names files under it that the box covers with `/dev/null`.
 - **Bounds.** A call times out after 30 seconds by default and 600 at
@@ -114,10 +117,14 @@ reaches the box.
   `web_search` runs at the provider, so a boxed Codex seat whose hands
   set no network can still search the web. dsh 0.1.5 turns on
   `web_search` and `web_fetch` in every seat.
-- **The git common directory is writable.** For a linked worktree the
-  box binds the shared git directory read-write, so a boxed command can
-  move a sibling worktree's branch, rewrite the object store or another
-  worktree's `config.worktree`. `hands.rs` records this as known open
+- **The git common directory is writable.** The box binds the
+  repository's common git directory read-write, with only its `hooks`
+  and `config` covered; a plain checkout's lies inside the read-write
+  worktree. So a boxed command can move a sibling worktree's branch,
+  rewrite or corrupt the object store, and write any worktree's
+  `config.worktree`, and in a repository with `extensions.worktreeConfig`
+  a `core.hooksPath` written there plants a hook the host's next `git`
+  runs. `hands.rs` records this as known open
   (decision [0054](decisions/0054-the-dsh-harness-sandbox-reaches-a-linked-worktree-s-git-metadata.md)'s
   consequences). The dsh runner closes it for dsh seats by giving the
   seat a private common directory.
@@ -161,8 +168,11 @@ reaches the box.
   operator's user can. On Linux the engine attempts a network narrowing
   for it and does not report when the narrowing is unavailable.
 - **Process settlement.** A timed-out attempt's detached descendants can
-  outlive the kill, and a dead hands server's scratch tree stays under
-  `/tmp`.
+  outlive the kill. A dead hands server's scratch tree waits under the
+  temporary directory for the next run, resume or rerun to start. That
+  start removes it when its recorded owner is dead and no process holds
+  its lock, keeps it while its lock is held, and keeps and names it on
+  stderr when its lock cannot be probed.
 
 ## How secrets flow
 
@@ -182,7 +192,9 @@ Bundles and journals carry secret **names** only (decision 0012).
   environment, never its argv: exec, claude, LaneTally, codex and dsh
   alike. In an exec command `{{secret:NAME}}` becomes the text `$NAME`.
 - **Where a secret cannot go.** Compilation refuses a binding on a seat
-  with hands, because the box clears the environment. It also refuses a
+  with hands, under every boundary: under `namespace` the box starts
+  its commands from a cleared environment, and under `harness` the
+  engine rebuilds an exec seat's. It also refuses a
   binding on a route whose egress class is below the bundle's
   `egress_minimum`, `contracted` by default. At that default the shipped
   claude and exec adapters may bind. The codex and LaneTally adapters
@@ -256,7 +268,10 @@ an instruction:
   brings the capability grants meant to close it.
 - **A timed-out attempt's detached descendants can outlive the kill**
   ([#403](https://github.com/feedback-loop-ai/brokkr/issues/403)).
-- **Dead hands servers leak their scratch trees**
+- **A dead hands server's scratch tree waits for the next run's start**,
+  which keeps a tree whose lock cannot be probed and, until 0.13.0,
+  removes a lockless tree from before the lock even when a live server
+  in another pid namespace still uses it
   ([#415](https://github.com/feedback-loop-ai/brokkr/issues/415)).
 - **Runtime resources are unbounded** beyond timeouts and output caps
   ([#433](https://github.com/feedback-loop-ai/brokkr/issues/433)).

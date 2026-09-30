@@ -48,8 +48,9 @@ the operator's skill runs this one.
 
 ## What a run does not do
 
-It opens no issue and no pull request, and it never writes
-`Status: ruled`. The operator's `research-intake` skill wraps the run:
+Its charter opens no issue and no pull request and writes no
+`Status: ruled`. The seat runs unboxed with a tool list that removes no
+tool, so that is its charter and your own settings, not a control. The operator's `research-intake` skill wraps the run:
 it opens the Research-typed issue that carries the run id and the
 proposals, and, once the operator has ruled the rows, delivers the
 branch under decisions 0033 and 0038.

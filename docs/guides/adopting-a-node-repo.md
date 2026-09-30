@@ -21,9 +21,10 @@ Zero really is zero on the Brokkr side: there is nothing to `npx`, no
 package to add to your `devDependencies`, no postinstall hook. Brokkr is
 one native binary written in Rust (decision 0009) that stands *outside*
 your project and drives it. Your `package.json` never learns it exists.
-The verifier script stays in the installed recipe: Brokkr mounts that
-bundle read-only in its exec box, so adopting the recipe requires no
-separate script copy into the repository.
+The verifier script stays in the installed recipe: under the `namespace`
+boundary Brokkr mounts that bundle read-only in its exec box, and under
+`harness` it runs the pinned script from the bundle unboxed, so adopting
+the recipe requires no separate script copy into the repository.
 
 You will need, beyond the spine's requirements:
 
@@ -58,7 +59,10 @@ Two consequences worth holding:
   time anyone reviews its provenance. The reviewer charter names
   lockfile provenance and install scripts as a review dimension for
   exactly this reason.
-- **A run wants the network the same way `npm ci` does.**
+- **A run wants the network the same way `npm ci` does.** The unboxed
+  implement seat has it. The verify seat's hands grant none, so under
+  `namespace` its `npm ci` runs in the box from the bound `~/.npm` cache;
+  under `harness` it runs unboxed, network and all.
 
 Run it against a repository whose dependency tree you would install by
 hand.
@@ -202,11 +206,14 @@ write two or three sentences that would let a new colleague start.
 |---|---|---|---|
 | `implement` | work | `npm ci`, writes code and tests, `npx tsc --noEmit`, `npm test` | yes |
 | `verify` | gate | `npm ci`, `npx tsc --noEmit`, `npm test`, and `npm run lint` if you declare one | no — fixes nothing |
-| `review` | gate | reads the diff for correctness, simplicity and security | no — reports findings for the implementer |
+| `review` | gate | reads the diff for correctness, simplicity and security | no, by charter — reports findings for the implementer; a commit parks as `GATE-MOVED-HEAD`, an uncommitted edit is not caught |
 | `ship` | gate | writes `.forge/ledger/<run-id>.md`, confirms the tree is clean | no |
 
-Nobody pushes, nobody merges, and nobody publishes — no `npm publish`,
-no `npm version`, no tag. That authority is yours.
+No seat's charter pushes, merges or publishes — no `npm publish`, no
+`npm version`, no tag — and that authority is yours. The implement and
+review seats run unboxed with `Bash(git:*)` and `Bash(npm:*)`
+pre-approved, so it is their charters and your own credentials and
+settings, not the tool list, that keep those commands unrun.
 
 The spine's step 4 reads the ending, and its stop rulings mean what they
 say here too: `VERIFY-FAIL` means your suite was red and the machine
@@ -223,8 +230,8 @@ come up.
 
 **A different package manager.** One table in
 [`recipes/node/README.md`](../../recipes/node/README.md) names every
-swap point for pnpm and yarn: the `--allowedTools` list in each seat's
-driver, and the install/type-check/test commands plus the lockfile name
+swap point for pnpm and yarn: the `--allowedTools` list in the implement
+and review drivers, and the install/type-check/test commands plus the lockfile name
 in the house rules and verifier script. There is deliberately no second bundle to keep in
 sync. For bun, [cards/bun.md](cards/bun.md) names the same three
 command swaps.

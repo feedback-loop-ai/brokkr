@@ -126,7 +126,7 @@ The four checks the list above adds to the older eight:
   and zizmor in `ci.yml`, actionlint and lychee in
   `.github/actions/setup-actionlint` and `.github/actions/setup-lychee`. A
   landing's verify seat runs the same list with `--seat`, which names a
-  lint whose tool its box lacks as not run and runs the others; that
+  lint whose tool the seat cannot reach as not run and runs the others; that
   lint's only judge is then this check. The job then renders the
   diagrams and validates Renovate's configuration; both are written out
   in [the non-Rust lints](#the-non-rust-lints) below.
@@ -484,7 +484,10 @@ verify  →  review  →  done / stop
 ```
 
 There is no intake to reframe your work, no implement to change your
-branch, and no ship to merge it. The policy table
+branch, and no ship to merge it. The review seat is a gate chartered not
+to write, yet it runs unboxed under `acceptEdits` with `Bash(git:*)`
+pre-approved, and the engine parks it only when it moves HEAD: an edit
+it leaves uncommitted is not caught. The policy table
 (`recipes/preflight/policy.json`) ends after `review` with a terminal
 ruling, and
 [`crates/brokkr-runtime/tests/preflight_shape.rs`](../../crates/brokkr-runtime/tests/preflight_shape.rs)
@@ -520,13 +523,16 @@ review seat, code goes through the verifier first — `cargo fmt --all
 -- --check`, `bash scripts/lint-non-rust.sh --seat`, `cargo clippy
 --workspace --all-targets --all-features --locked -- -D warnings`,
 `cargo test --workspace` and `cargo run -p brokkr-cli -- compile
---bundle bundles/self`, boxed and offline, in that order
-(`recipes/fast/scripts/verify-seat.sh`, #427). The rest of the twelve
+--bundle bundles/self`, in that order
+(`recipes/fast/scripts/verify-seat.sh`, #427), in the box with no
+network because this repository's realm declares no boundary and so
+reads `namespace`; under `harness` the same script would run unboxed.
+The rest of the twelve
 stay CI's to prove: the suite in CI's own form
 (`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, `--all-features`, `--locked` and
-`--no-fail-fast`; inside the box a boundary proof cannot open a
-namespace, and it skips), any non-Rust lint whose tool the box lacks
-(the seat names it `not run`), the MSRV, the suppression check and the
+`--no-fail-fast`; inside the `namespace` box a boundary proof cannot
+open a namespace, and it skips), any non-Rust lint whose tool the seat
+cannot reach (the seat names it `not run`), the MSRV, the suppression check and the
 `bundles/verify` compile, the other OS, the exact coverage gate,
 cargo-deny, the diagram render and Renovate's validator, the ratchets,
 the RustSec audit, the release build and its size budget, and the
@@ -784,8 +790,10 @@ What still matters:
   no trace in `main` anyway. Write the history that is easiest to
   review; you are not being graded on bisectability of commits that
   will be collapsed.
-- **The operator keeps push and merge.** Nothing in this repository
-  pushes on your behalf, and no agent merges anything. Open the pull
+- **The operator keeps push and merge.** No shipped script pushes on
+  your behalf, and no seat is chartered to merge. That is a charter rule,
+  not a control: an unboxed claude seat with `Bash(git:*)` pre-approved
+  runs under your own credentials and settings. Open the pull
   request and it is ruled on by a human.
 
 If your own fork or organisation requires signed commits for its own

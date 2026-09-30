@@ -119,13 +119,15 @@ plus `git`, `ls`, `rg` and `mkdir`:
 }
 ```
 
-The work agents carry all five names in `tools.allow`; the gate agents
-carry the same minus `mkdir`. Read that sentence twice, because bun is
-the arm where it matters most: the gate seats hold `Bash(bun:*)` —
-their test runner IS bun — and that same glob answers to `bun install`
-as readily as to `bun run test`. The grant cannot draw the boundary, so
-it is each gate's charter — "prove it, fix nothing", with no install
-line — and not the grant that keeps a verify seat from installing. The
+The work agents carry all five names in `tools.allow`; the review gate's
+agent carries the same minus `mkdir`, and the verify and ship scripts
+carry no grant. Read that sentence twice, because bun is the arm where
+it matters most: the review gate holds `Bash(bun:*)` — its test runner
+IS bun — and that same glob answers to `bun install` as readily as to
+`bun run test`. The grant cannot draw the boundary: what asks the review
+gate not to install is its charter — "prove it, fix nothing", with no
+install line — and the engine checks only that the gate left HEAD where
+it found it, which an install does not move. The
 boundary is not expressible finer than per binary: a gate that may not
 run `bun` at all could not run `bun run test` either, and an allowance
 whose name the adapter map lacks refuses the scaffold's own compile.

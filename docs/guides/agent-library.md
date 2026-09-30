@@ -20,9 +20,9 @@ changing an agent or recipe digest.
 
 ```
 $ brokkr agents list
-analyst	fable → sol → opus	Read-only SDD judge: finds drift across the artifacts and the realm constitution.
+analyst	fable → sol → opus	SDD judge, read-only by charter: finds drift across the artifacts and the realm constitution.
 chief-architect	fable → sol → opus → astra	Authors the dialect artifacts assigned to the chief and reconciles council positions during design.
-clarifier	opus → sol	Read-only SDD judge: identifies every material ambiguity in the specification.
+clarifier	opus → sol	SDD judge, read-only by charter: identifies every material ambiguity in the specification.
 implementer-engine	sol → fable	Engine-class implementer: builds core, store, contract, and policy work selected by triage.
 implementer-sdd	opus → sonnet	Smith for spec-driven delivery: writes the breakdown, builds it, and closes out the dialect change.
 implementer	opus → sonnet	Builds the framed task to the repository's conventions and commits the work with its tests.
@@ -60,7 +60,8 @@ organization profiles; the [release recipe](../../recipes/release/README.md)
 explains configuration and stack-specific verification.
 
 Verifier and shipper are deliberately absent from the agent library.
-They are boxed, inline `exec` scripts with no model: verification runs a
+They are inline `exec` scripts with no model, boxed under the `namespace`
+boundary and run unboxed in a rebuilt environment under `harness`: verification runs a
 recipe's fixed checks, and shipping renders journal evidence through
 `brokkr ledger` before confirming the recorded head and clean tree.
 
@@ -275,12 +276,16 @@ nothing about its task, its holdings or its result contract.
 ## Hands
 
 An agent may declare `"hands"` instead of relying on its `tools.allow`
-list (decision 0043). The harness keeps its credential and its network;
-Brokkr hands the model one MCP tool, `workspace`, served by `brokkr hands
-serve`, and every call to it executes inside an empty-root bubblewrap
-namespace holding the worktree read-write and the host toolchain
-read-only. The box bounds those calls and nothing else the harness does:
-a claude seat has no other tool, but a Codex seat keeps its native shell,
+list (decision 0043). Under the `namespace` boundary the harness keeps
+its credential and its network; Brokkr hands the model one MCP tool,
+`workspace`, served by `brokkr hands serve`, and every call to it
+executes inside an empty-root bubblewrap namespace holding the worktree
+and the repository's common git directory read-write and the host
+toolchain read-only, so a boxed call can move shared refs and write a
+worktree's `config.worktree`. Under `harness` no such box stands. The box
+bounds those calls and nothing else the harness does: a claude seat has
+no other tool, though Claude Code still loads the operator's own
+configuration on the host, and a Codex seat keeps its native shell,
 read-only and outside the box, and can read the host through it (see the
 [security model](../security-model.md#what-the-box-does-not-do)). `binds` add host paths — the Rust toolchain cache as an
 overlay (the box may write to it, the host never sees the writes), its

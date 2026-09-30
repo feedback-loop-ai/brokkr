@@ -122,8 +122,8 @@ every seat needs:
 ```
 
 The work agents (`intake`, `implement`) carry all five names in
-`tools.allow`; the gate agents (`verify`, `review`, `ship`) carry the
-same minus `mkdir`. The grant is per binary, not per subcommand:
+`tools.allow`; the review gate's agent carries the same minus `mkdir`.
+The grant is per binary, not per subcommand:
 `Bash(npm:*)` answers to `npm run build` as readily as to `npm test`,
 and what keeps a gate from building is its charter, not the glob.
 

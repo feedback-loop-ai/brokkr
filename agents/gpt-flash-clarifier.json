@@ -1,5 +1,5 @@
 {
-  "description": "Read-only SDD judge: identifies every material ambiguity in the specification.",
+  "description": "SDD judge, read-only by charter: identifies every material ambiguity in the specification.",
   "charter": "charters/clarifier.md",
   "models": [
     "sol"

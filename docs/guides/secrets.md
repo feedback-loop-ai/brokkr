@@ -31,7 +31,9 @@ seat hands it to that model and to the route's provider, so bind there
 only what the route is cleared to receive.
 
 Two refusals bound that. A seat with hands cannot declare a binding at
-all: the box clears the environment, and compilation refuses it
+all: its hands start from a cleared environment, in the box under
+`namespace` and rebuilt by the engine for an exec seat under `harness`,
+and compilation refuses it
 (decision [0043](../decisions/0043-the-hands-are-one-tool.md)). At the
 default minimum, `contracted`, the shipped claude and exec adapters may
 bind; the codex and LaneTally adapters may not, and neither may any dsh

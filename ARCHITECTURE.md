@@ -192,7 +192,7 @@ flowchart LR
   flat --> resolve{{"resolve"}}
   agents["agents/‹name›.json<br/>charter · model chain · limits · inputs · tools"] --> resolve
   adapters["adapters/‹provider›.json<br/>model ids · permissions · trust_tier · egress class per route"] --> resolve
-  resolve --> checks{"gate site → trusted tier?<br/>secret bindings → route class ≥ minimum?<br/>every restriction expressible?"}
+  resolve --> checks{"gate site → trusted tier?<br/>secret bindings → route class ≥ minimum?<br/>every declaration expressible?"}
   checks -- "no" --> refuse["compile refuses, naming agent · provider · capability"]
   checks -- "yes" --> manifest["run manifest<br/>digest pins recipe, chain and adapters<br/>resume uses exactly this or refuses"]
 ```
@@ -267,7 +267,7 @@ CLI, TUI and web readouts retain that fact.
 | Differential corpus | A frozen 97-case corpus in [fixtures/](fixtures/) pins the evaluator: contract data, never regenerated. |
 | Machine proof | End-to-end scenarios drive the real binary and real subprocess protocol through success, retries, stops, parks, crash recovery at every durable boundary, panels, boxed hands and bundle pinning. |
 | Self-delivery | `bundles/self` lets the engine deliver changes to this repository; `shipped` is the sole entry into `done`, and the operator keeps push and merge. |
-| Brokkr verification | `bundles/verify` examines a delivered change with a boxed verify seat and an unboxed review seat under the operator's Claude Code permissions ([security model](docs/security-model.md)). It has hard-stopped its author's work on a real security finding. |
+| Brokkr verification | `bundles/verify` examines a delivered change with a verify seat `namespace` boxes and an unboxed review seat under the operator's Claude Code permissions ([security model](docs/security-model.md)). It has hard-stopped its author's work on a real security finding. |
 
 ## The operating surface
 
@@ -294,7 +294,7 @@ prompt assembly. Configuration describes required work and evidence; it does
 not execute commands or add checks to a gate.
 
 `recipes/release` combines the manager and library reviewer with `fast`'s policy
-and boxed exec gates. The shipped verifier is Rust-specific; another stack
+and `namespace`-boxed exec gates. The shipped verifier is Rust-specific; another stack
 replaces it through recipe composition. External patches and base commits are
 reviewed in the handoff. Publication and cross-repository application are
 verified separately from local run completion.

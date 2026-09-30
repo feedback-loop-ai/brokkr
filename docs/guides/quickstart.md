@@ -85,8 +85,8 @@ gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 Put the binary somewhere on your `PATH`. The rest of this guide assumes
 plain `brokkr`.
 
-Every shipped bundle boxes its verify and ship gates, and what stands
-between a boxed seat's hands and your machine is the realm's
+Every shipped bundle declares hands on its verify and ship gates, and
+what stands between a seat's hands and your machine is the realm's
 **boundary** (decision
 [0046](../decisions/0046-the-boundary-is-named.md), accepted
 2026-09-05) — one word in `realms.json` beside `house` and `dialect`,
@@ -228,8 +228,10 @@ What it wrote:
 `init` scaffolds for the first agent CLI on `PATH`: `claude`, `codex`
 or `dsh`, and `claude` when none is found. A codex scaffold writes
 `adapters/codex.json` in place of `adapters/claude.json`, hires every
-seat from codex, and declares the `harness` boundary in `realms.json`,
-so codex's own sandbox holds each seat's hands. dsh cannot hold the
+model seat from codex, and declares the `harness` boundary in
+`realms.json`, so codex's own sandbox holds each model seat's hands —
+read-only for the review gate, workspace-write for intake and
+implement. dsh cannot hold the
 review gate, because its adapter is untrusted and names no judges. A dsh
 scaffold therefore hires intake and implement from dsh and keeps the
 reviewer on claude, and says so. On macOS `realms.json` declares
@@ -260,7 +262,10 @@ detection below decides what the seats are pre-approved to *run*: the
 binary each command invokes (`cargo`, `bun`, `pnpm`, …) plus `git`,
 `ls`, `rg` and `mkdir` go into the adapter's `tool_permissions.names` as
 `Bash(<bin>:*)` entries, and each model agent's `tools.allow` names them —
-the whole set for the work seats and the read-only subset for review. The
+the whole set for the work seats and the same set without `mkdir` for
+review. That smaller set does not make the review gate read-only: it runs
+unboxed under `acceptEdits`, and the engine checks only that it left HEAD
+where it found it. The
 verify and ship gates are scripts with no model grant. A
 repository `init` does not recognize gets an EMPTY map and a README
 that says so, rather than a guessed permission. The grant is claude's
@@ -494,8 +499,10 @@ adopt a repository you did not write:
   run its install scripts by the time anyone reviews its provenance —
   which is why the reviewer charter names lockfile provenance and
   install scripts as a review dimension — and a run wants the network
-  the same way your CI does. Run it against a dependency tree you would
-  install by hand.
+  the same way your CI does. The unboxed implement seat has it; a verify
+  seat has it too unless the `namespace` box denies it to hands that grant
+  none, and then its install reads a bound package cache. Run it against
+  a dependency tree you would install by hand.
 
 The long form, with the five files a Node repository needs and the three
 edits that actually come up, is
@@ -805,8 +812,9 @@ settings allow them:
 the binaries its commands invoke are written into the scaffold's
 `adapters/claude.json` `tool_permissions.names` as `Bash(<bin>:*)`
 entries and granted in the agents' `tools.allow` — the whole set to the
-work seats, the read-only subset (the test runner's tools plus `git`,
-`ls` and `rg`) to the gates, never `mkdir`. A repository no row
+work seats, and the same set without `mkdir` (the test runner's tools
+plus `git`, `ls` and `rg`) to the review gate's agent, which that smaller
+set does not make read-only; verify and ship are scripts with no grant. A repository no row
 recognizes gets an EMPTY map and a scaffold README that says so, because
 a tool name is a permission and one guessed is one granted. The digest
 is therefore a function of what was scaffolded and differs from

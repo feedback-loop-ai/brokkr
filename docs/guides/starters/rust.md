@@ -122,7 +122,8 @@ For completeness, the invariant `bundle.json`:
 The three model offices name agents; their charter, model chain, limits and
 tool grant live under `agents/`, where `brokkr agents show <name>` reads
 them back. Verify and ship are deterministic scripts with their limits and
-boxed hands declared at the site. Class remains the seat's authority.
+hands declared at the site, which Brokkr boxes under the `namespace`
+boundary only. Class remains the seat's authority.
 
 Every other page in this directory omits this file and points here.
 
@@ -154,8 +155,9 @@ sized by the class of the seat the agent backs:
 - **work seats (`intake`, `implement`)** — the whole set:
   `["cargo", "git", "ls", "rg", "mkdir"]`, pre-approved as exactly the
   commands its charter names.
-- **gate seats (`verify`, `review`, `ship`)** — the read-only subset:
-  `["cargo", "git", "ls", "rg"]`, never `mkdir`.
+- **the review gate** — the same set without `mkdir`:
+  `["cargo", "git", "ls", "rg"]`. The verify and ship scripts carry no
+  grant.
 
 The grant is per BINARY, not per subcommand: `Bash(cargo:*)` answers to
 `cargo build` as readily as to `cargo test`. What keeps a gate from

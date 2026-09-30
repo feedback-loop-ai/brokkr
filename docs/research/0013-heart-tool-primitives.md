@@ -31,7 +31,7 @@ times the average of three frontier commercial models.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Wrap every external tool in an LLM-facing interface and make natural language, not schemas, the invocation interface | alternative | decision 0043 and decision 0046; `crates/brokkr-runtime/src/engine.rs`: namespace hands use one workspace tool with explicit binds, while harness and open boundaries compose differently; Brokkr does not add an LLM wrapper per external tool |
+| 1 | Wrap every external tool in an LLM-facing interface and make natural language, not schemas, the invocation interface | alternative | decision 0043 and decision 0046; `crates/brokkr-runtime/src/engine.rs`: namespace hands add one workspace tool with explicit binds, the only tool a claude seat keeps while a Codex seat keeps its native read-only shell on the host beside it, while harness and open boundaries compose differently; Brokkr does not add an LLM wrapper per external tool |
 | 2 | Hold a central repository of tools and retrieve only the relevant ones into context at inference time | alternative | decision 0016 and decision 0041; `crates/brokkr-runtime/src/agents.rs`: the library resolves declared office/model chains against availability and recipe strategy, rather than retrieving tools by semantic relevance |
 | 3 | Orchestrate tool use with a planner, a router and a verifier instead of one reasoning loop | alternative | decision 0002 and decision 0042; `recipes/triage/bundle.json`: a linear outer phase machine includes strategy selection, artifact-authoring sequences and judging panels; routing follows declared policy rather than a tool planner |
 | 4 | Bound the recovery loop: verifier feedback drives re-planning under an explicit budget | alternative | decision 0041 and decision 0042; `recipes/triage/policy.json`: declared findings return to implement, design or triage under phase-visit bounds, with bounded clarify/analyze loops and per-seat attempt/deadline limits |
@@ -43,8 +43,9 @@ Against main at `7b53e92` (decision 0046 slice (i)).
 
 The outer machine remains linear, but it now contains the enacted SDD
 sequences and strategy-dependent seats; saying it has no routing would
-miss those controls. The one-tool description applies to namespace
-hands, not every invocation on every boundary. Declared availability
+miss those controls. The one-tool description applies to a claude
+seat's namespace hands, not to a Codex seat, which keeps its native
+read-only shell, nor to every invocation on every boundary. Declared availability
 fallbacks also differ from substituting a cheaper model after a failure.
 
 ## Candidates

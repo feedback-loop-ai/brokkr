@@ -44,7 +44,7 @@ The maintainers published advisory GHSA-c4hm-4h84-2cf3 for unauthenticated execu
 
 At the inspected revision, the bridge refuses a public bind without an authentication token; configured bearer authentication uses a constant-time comparison; and the shared `executeTool` path disables terminal execution unless explicitly enabled. Runtime regression tests start the bridge and assert unauthenticated rejection, authenticated access, terminal denial and failure to bind publicly without a token. A dedicated workflow runs static and runtime security checks. This is much stronger evidence than counting a separate `SafeExecutor` module, although it still does not establish complete security of all bridge tools and alternate deployments. [Bridge][bridge], [runtime tests][bridge-tests], [security workflow][security-ci]
 
-The lesson is the placement of enforcement. A protection applied only in one high-level automation path can leave another direct tool endpoint outside it. Brokkr's grant/effect boundary and dispatcher work should test every externally reachable path, including replay and retry, rather than merely asserting a validator exists. No public vulnerability report or external contact was made during this inspection.
+The lesson is the placement of enforcement. A protection applied only in one high-level automation path can leave another direct tool endpoint outside it. Brokkr's grants (which pre-approve tools and remove none), its engine-held effects and its dispatcher work should test every externally reachable path, including replay and retry, rather than merely asserting a validator exists. No public vulnerability report or external contact was made during this inspection.
 
 ## Setup and maintainability
 
