@@ -5111,6 +5111,39 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
 - **Pending.** macOS (25.2), jscpd and `ratchet.sh`, exact coverage
   outside the box, remote CI and the council.
 
+**Unit 25 review return, 2026-09-30 (same run, second visit, based on `00c43172`)** (evidence.md, "Unit 25", "Review return").
+
+- **SC25-2, answered.** The boxed cold expectations were not independent,
+  so 25.3's first tick rested on a matrix row that overstated them.
+  - The cold test's Claude hands, and `boxed_hands`'s Codex hands (used at
+    four more sites), came from the production `Transport::expand`.
+  - They are now whole ordered literals: `codex_hands()`, `claude_hands()`
+    and `HANDS_SERVE` in `capability_launch.rs`. The resume test's two
+    equal literal copies use them too. No expectation's value changed.
+  - Mutations M-G1 (Claude fragment order), M-G2 (Codex fragment order)
+    and M-G3 (`Transport::arguments`' separator) each left the cold test
+    passing on `00c43172`'s file. On this file, the cold test fails at
+    `:1397`, and the boxed-inline, inline-panel and links-origins tests
+    fail too. Each mutation was restored.
+  - The matrix row is corrected in place and marked. 25.3 stays ticked on
+    the corrected record.
+- **25.2 stays open.** No macOS host is reachable from the seat (SC25-1).
+- **Kept as recorded.** I1/I2 limits and SC25-3's divergent runtime
+  result (`--lib` 688/0 twice here; the cause is not established).
+- **Admissions.** No production byte, no standing-admission line and no
+  fixture migration. `file-lines.txt` 11885 → 11883. `too-many-lines.txt`:
+  34 `capability_launch.rs` entries re-measured (cold 201 → 190, rejoin
+  401 → 391).
+- **Gates.**
+  - fmt: clean.
+  - Workspace clippy with `-D warnings`: clean.
+  - `brokkr-runtime`: 870 passed, 27 result lines.
+  - `ratchets`/`contributing`/`suppressions`: 8/13/6.
+  - `openspec validate --all --strict`: 19 passed.
+  - `git diff --check`: clean.
+- **Pending.** macOS (25.2), jscpd and `ratchet.sh`, exact coverage
+  outside the box, remote CI and the council.
+
 ## 26. Unit 26 — Update guides, measured pins and scope audit
 
 - [ ] 26.1 Unit 26 corrects guides to refusal/typed migration/containment/whole-plan doctor. Verify no outward-link or merging advice remains; retain live/later-slice limits. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Authored provider configuration cannot supply capability authority][RGR], [Installed native capabilities absent from grants are explicit][CD2], [Slice-one records do not claim later-slice behavior][MP6]. Reopened/remaining: operator ruling 1–4. (previous 10.1)

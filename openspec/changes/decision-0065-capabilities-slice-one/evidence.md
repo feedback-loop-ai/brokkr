@@ -24326,7 +24326,7 @@ Line numbers are on this visit's head.
 | actual eligible resume, Codex | `:9378` work sites; `:10669`; `:11445` | whole literal |
 | actual eligible resume, Claude | `:10155`, `:10408`, `:11174`; `"boxed claude, rejoined"` in `:4703` | whole literal, under the supported assessment the test writes (`claude_rejoined_at`), not a compiled one. Tasks 4630 already says so |
 | resume, LaneTally/DSH | `:9378` | declined, served cold |
-| boxed (namespace) | Codex: `:11649` and older tests. Claude: `"boxed claude as sealed"` in `:1182`, `"boxed claude, rejoined"` in `:4703`, and the boxed refusal in `:10155` | whole literal or refusal. The older tests take the hands fragment from the production `Transport::expand` |
+| boxed (namespace) | Codex: `:11649` and older tests. Claude: `"boxed claude as sealed"` in `:1182`, `"boxed claude, rejoined"` in `:4703`, and the boxed refusal in `:10155` | whole literal or refusal. The older tests take the hands fragment from the production `Transport::expand`. **Corrected by the review return (SC25-2), below:** as first recorded, this row credited the cold `:1182` rows and the tests using `boxed_hands` as whole-literal proof. They were not: their hands were production's own expansion. They are independent literals only from the return's edit on |
 | harness-boxed (`boxed` carrier) | `:9378`, `:11445` | whole literal |
 | gate / work, primary / fallback, ordinary / panel / sequence / select, inline / agent-backed | `:9378`, `:11174`, `:11445`, `:11649` | whole literal |
 | inherited | `:9378` `*-base`; `one_shape` "inherited" | one level, work seat only |
@@ -24527,3 +24527,123 @@ below (44 result lines, all ok).
   - exact coverage outside the box;
   - remote CI;
   - the council.
+
+### Review return (run `0065-rebuild-unit-25-see-the-uni-fb95626a`, second visit, on `00c43172`)
+
+The council returned `residual` at a medium floor. This visit answers
+SC25-2 and records the other findings. It changes no production byte and
+uses no standing-admission line and no fixture migration. Scratch logs are
+in `.forge/u25r/`.
+
+**SC25-2: the boxed cold expectations were not independent.** The finding
+is confirmed. On `00c43172`:
+
+- `a_compiled_cold_command_is_served_only_as_its_final_check_returns_it`
+  (`capability_launch.rs:1182`) built its Claude hands by reading
+  `adapters/claude.json` and calling the production
+  `native_controls::Transport::expand` (`:1234–1245`);
+- its Codex rows (`:1272`) and three other tests (`:882`, `:983`, `:1097`)
+  took their Codex hands from `boxed_hands` (`:943`), which did the same
+  with `adapters/codex.json`.
+
+So a change to a shipped hands fragment, or to the expansion, moved the
+expectation with the emission. The "boxed (namespace)" row of the matrix
+above credited these as whole-literal proof. That row is now corrected in
+place, marked as corrected, and 25.3's note in tasks.md says so. The resume
+expectations (`:4796–4846` on `00c43172`) were already independent literals
+and are not part of this defect.
+
+**The change** (`capability_launch.rs` only):
+
+- `boxed_hands(bundle, label)` is replaced by `codex_hands()` (`:949`),
+  and `claude_hands()` (`:965`) is added beside it. Both are the whole
+  ordered fragment written out as literals. Only the test's own executable
+  is substituted, as the value the canonical fixture `{brokkr}` binds. The
+  serve arguments are one constant, `HANDS_SERVE` (`:942`).
+- The five call sites use them. The cold test no longer reads an adapter
+  or calls `Transport`.
+- Two literal copies in the resume test become uses of the shared ones
+  (`let serve = HANDS_SERVE`, `:4809`; `let claude_hands =
+  claude_hands()`, `:4844`), so the literal has one home (0071 ruling 5).
+  The values are byte-for-byte what that test wrote before, and its
+  fallback's whole-command literal is unchanged.
+- No expectation's value changed. On unmutated production the new file
+  passes `capability_launch` 68/0. So there is no baseline red on the
+  unmutated head: the defect was that nothing could fail, not a wrong
+  value. The red is the mutation comparison below.
+
+**Binding, old file against new.** Each mutation was a compiling edit to
+production or shipped data. Each was run once with the new test file and
+once with `00c43172`'s, put back by `git show HEAD:… >`. The new file was
+then re-applied from the saved `.forge/u25r/fix.diff`, compared equal by
+`cmp`, and the mutation restored with `git checkout --`.
+
+| # | Mutation | `00c43172`'s tests | This visit's tests |
+|---|---|---|---|
+| M-G1 | `adapters/claude.json` `hands.workspace`: `--strict-mcp-config` moved ahead of `--tools ""` | 64/4. The cold test **passes** (its derived expectation followed). The 4 failures are other tests: `:914`, `:5129`, `:7594`, `:7996` | 63/5. The same four fail (`:914`, `:5127`, `:7592`, `:7994`), and so does the cold test, at `:1397` in rows `boxed claude as sealed` and `boxed claude, the OFF dropped behind an empty tool list` (left `…"--strict-mcp-config", "--tools", ""…`, right `…"--tools", "", "--strict-mcp-config"…`) |
+| M-G2 | `adapters/codex.json` `hands.workspace`: the approval-mode `-c` pair moved ahead of the command pair | 66/2 (`:5129`, `:11884`). The cold, boxed-inline, inline-panel and links-origins tests all **pass** | 62/6. Adds `:1006` (boxed inline), `:1119` (inline panel member), `:878` (links origins) and `:1397` (rows `codex as sealed`, `inline codex as sealed`) |
+| M-G3 | `native_controls.rs` `Transport::arguments` joins with `", "` (the expansion itself) | 66/2 (`:5129`, `:11884`). The same four tests **pass** | 62/6, at the same four lines as M-G2 |
+
+(Line numbers are as each run reported them. The two files' numbering
+diverges below `:938`.)
+
+After every restore, `git status --short` showed only the test file
+modified. With every mutation restored, `capability_launch` passes 68/0.
+
+**SC25-1: macOS, still not observed.** No macOS host is reachable from
+this seat. Pushing to reach CI's macOS job is outside a seat. So 25.2
+stays open for its macOS leg, with the three commands recorded above. This
+visit does not claim it.
+
+**I1 and I2 (info), retained.** The history audit's limits stand as
+written above:
+
+- the retrospective and missing reds;
+- the two overstated labels at 1636 and 5395;
+- the matrix limits: no `exec` final-command row, inheritance one level
+  deep at a work seat, CQ1's wants and unused outcomes at a work seat,
+  the Claude rejoin under a test-written assessment, and `dispatched`
+  restating `mark_hands`'s markers.
+
+Nothing here supplies a missing red, and none of those paths is
+certified.
+
+**SC25-3 (info): the diverging runtime result.** The chief saw
+`brokkr-runtime --lib` at 687/1, with
+`a_panels_members_and_a_sequences_steps_carry_their_own_word`
+(`boundary_tests.rs:3601`, no `EffectSucceeded`). The panel reported
+685/3. On this visit's tree, `--lib` passed 688/0 twice: alone, and inside
+the `--tests` run. That file is unchanged. Two passes do not establish the
+cause of the chief's failure, or rule out a flake. Both observations are
+kept. The protocol crate is untouched by this visit and was not re-run.
+
+**CH25-1 (low).** The panel's prose "panel need not hold" is evidence, not
+authority, under L1. Nothing in this visit relies on it.
+
+**Measured pins.**
+
+- `quality/file-lines.txt`: `capability_launch.rs` 11885 → 11883.
+- `quality/too-many-lines.txt`: the 34 `capability_launch.rs` entries were
+  re-measured with `measure.sh`'s clippy step (`-p brokkr-runtime`, jq
+  filter as in the script), and each name was checked at its line.
+  - The cold test went from 201 to 190, now at `:1203`.
+  - The rejoin test went from 401 to 391, now at `:4724`.
+  - Every other entry moved location only (+8 before `:4724`, −2 after).
+- The `ratchets`, `contributing` and `suppressions` suites pass (8, 13
+  and 6, with 1 ignored).
+
+**Gates, on this visit's tree.**
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, with no warning.
+- `cargo test -p brokkr-runtime --all-features --locked`:
+  - `--lib`: 688/0.
+  - `--tests`: 26 result lines, all ok.
+  - `--doc`: 0.
+  - Total: 870 passed.
+- `openspec validate --all --strict --no-interactive`: 19 passed, 0
+  failed.
+- `git diff --check`: clean.
+- **Pending:** the macOS leg of 25.2, jscpd and `quality/ratchet.sh`,
+  exact coverage outside the box, remote CI, and the council.
