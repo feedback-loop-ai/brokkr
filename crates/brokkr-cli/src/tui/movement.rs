@@ -91,20 +91,22 @@ pub(super) fn selected_run<'a>(tui: &Tui, views: &'a Views) -> Option<&'a RunRow
     views.runs.runs.iter().find(|row| row.run_id == keys[index])
 }
 
-/// The run the detail pane shows on a frame `width` wide: the fleet's
-/// selection, once the frame holds the pane beside the capped list.
-pub(super) fn detail_row<'a>(tui: &Tui, views: &'a Views, width: u16) -> Option<&'a RunRow> {
-    match width >= DETAIL_MIN_WIDTH {
+/// The run the detail pane shows: the fleet's selection, once the frame
+/// the shell measured holds the pane beside the list. The one answer to
+/// whether the pane is on the frame, which the frame, its footer and the
+/// keys all read.
+pub(super) fn detail_row<'a>(tui: &Tui, views: &'a Views) -> Option<&'a RunRow> {
+    match tui.width >= DETAIL_MIN_WIDTH {
         true => selected_run(tui, views),
         false => None,
     }
 }
 
-/// At the fleet level: the detail pane is on the frame the shell last
-/// drew, and focused. A terminal narrowed under a focused pane hands the
-/// keys back to the list.
+/// At the fleet level: the detail pane is on the frame, and focused. A
+/// terminal narrowed under a focused pane hands the keys back to the
+/// list.
 pub(super) fn detail_focused(tui: &Tui, views: &Views) -> bool {
-    tui.pane == 1 && detail_row(tui, views, tui.width).is_some()
+    tui.pane == 1 && detail_row(tui, views).is_some()
 }
 
 pub(super) fn index_of(keys: &[String], cursor: &Option<String>) -> Option<usize> {
@@ -208,12 +210,15 @@ fn scroll(offset: &mut usize, len: usize, step: Step) {
     *offset = cursor.and_then(|line| line.parse().ok()).unwrap_or(0);
 }
 
-/// The fleet's keys move the list, or scroll the detail pane's feature
-/// a line at a time while it has the focus. A new selection is read
-/// from its first line.
+/// The fleet's keys move the list, or scroll the detail pane a drawn
+/// line at a time while it has the focus. A new selection is read from
+/// its first line.
 fn fleet_step(tui: &mut Tui, views: &Views, step: Step) {
-    match detail_row(tui, views, tui.width).filter(|_| tui.pane == 1) {
-        Some(row) => scroll(&mut tui.offset, row.feature.lines().count(), step),
+    match detail_row(tui, views).filter(|_| tui.pane == 1) {
+        Some(row) => {
+            let drawn = detail_lines(row, &views.now).len();
+            scroll(&mut tui.offset, drawn, step);
+        }
         None => {
             let keys = keys_for(tui, views);
             move_to(&keys, &mut tui.cursor[0], step);

@@ -184,31 +184,24 @@ fn run_view_for(seat: &str) -> RunView {
 /// not parse: the absence marks have a row to live in.
 fn fleet() -> RunsView {
     let folded = state();
+    let entry = |run_id, feature, created_at, state| brokkr_view::RunEntry {
+        run_id,
+        feature,
+        created_at,
+        last_recorded_at: None,
+        state,
+        detail: None,
+        residuals: &[],
+    };
     let entries = [
-        brokkr_view::RunEntry {
-            run_id: "run-unfoldable",
-            feature: "a run whose journal does not fold",
-            created_at: "not a timestamp",
-            state: None,
-            detail: None,
-            residuals: &[],
-        },
-        brokkr_view::RunEntry {
-            run_id: "run-old",
-            feature: "an older feature",
-            created_at: T0,
-            state: Some(&folded),
-            detail: None,
-            residuals: &[],
-        },
-        brokkr_view::RunEntry {
-            run_id: "run-7",
-            feature: "one derivation, three surfaces",
-            created_at: T1,
-            state: Some(&folded),
-            detail: None,
-            residuals: &[],
-        },
+        entry(
+            "run-unfoldable",
+            "a run whose journal does not fold",
+            "not a timestamp",
+            None,
+        ),
+        entry("run-old", "an older feature", T0, Some(&folded)),
+        entry("run-7", "one derivation, three surfaces", T1, Some(&folded)),
     ];
     brokkr_view::run_rows(&entries)
 }
@@ -687,6 +680,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
             run_id: "run-other",
             feature: "another run",
             created_at: T0,
+            last_recorded_at: None,
             state: None,
             detail: None,
             residuals: &[],
@@ -1567,6 +1561,7 @@ pub(super) fn panel_views() -> Views {
             run_id: "run-stopped",
             feature: "a run that stopped",
             created_at: T0,
+            last_recorded_at: None,
             state: Some(&stopped),
             detail: None,
             residuals: &[],

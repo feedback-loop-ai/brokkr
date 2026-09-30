@@ -3,10 +3,10 @@ source: crates/brokkr-cli/src/tui/snapshot_tests.rs
 ---
 "┌runs──────────────────────────────────────────────────────────────────────────┐"
 "│needs you                                                                     │"
-"│? quarantined does not fold  a run whose journal does  —        run-unfoldable│"
+"│? quarantined does not fold           a run whose journ —       run-unfoldable│"
 "│running                                                                       │"
-"│▶ design                     one derivation, three sur 6m58s    run-7         │"
-"│▶ design                     an older feature          7m03s    run-old       │"
+"│▶ design                              one derivation, t 6m58s   run-7         │"
+"│▶ design                              an older feature  7m03s   run-old       │"
 "│                                                                              │"
 "│                                                                              │"
 "│                                                                              │"

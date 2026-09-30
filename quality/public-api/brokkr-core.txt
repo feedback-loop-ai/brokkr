@@ -305,6 +305,16 @@ pub brokkr_core::policy::Outcome::Ruling::reason: alloc::string::String
 pub brokkr_core::policy::Outcome::Ruling::requires_artifacts: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::policy::Outcome::Ruling::rule_id: alloc::string::String
 pub brokkr_core::policy::Outcome::Ruling::severity: alloc::string::String
+pub enum brokkr_core::policy::Severity
+pub brokkr_core::policy::Severity::Critical
+pub brokkr_core::policy::Severity::High
+pub brokkr_core::policy::Severity::Info
+pub brokkr_core::policy::Severity::Low
+pub brokkr_core::policy::Severity::Medium
+pub brokkr_core::policy::Severity::None
+impl brokkr_core::policy::Severity
+pub fn brokkr_core::policy::Severity::name(self) -> &'static str
+pub fn brokkr_core::policy::Severity::named(&str) -> core::option::Option<brokkr_core::policy::Severity>
 pub struct brokkr_core::policy::Machine
 pub brokkr_core::policy::Machine::initial: alloc::string::String
 pub brokkr_core::policy::Machine::phases: alloc::vec::Vec<alloc::string::String>

@@ -28,6 +28,7 @@ pub fn run_frame_for_budget(
             .and_then(|state| state.feature.as_deref())
             .unwrap_or(""),
         created_at: first.map_or("", |event| event.recorded_at.as_str()),
+        last_recorded_at: events.last().map(|event| event.recorded_at.as_str()),
         state: state.as_ref(),
         detail: None,
         residuals: &[],

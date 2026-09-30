@@ -44,7 +44,7 @@ fn runs_footer(tui: &Tui, views: &Views, tail: &str) -> String {
         true => " · [ ] 1-9 realm",
         false => "",
     };
-    let detail = match detail_row(tui, views, tui.width) {
+    let detail = match detail_row(tui, views) {
         Some(_) => " · Tab detail",
         None => "",
     };

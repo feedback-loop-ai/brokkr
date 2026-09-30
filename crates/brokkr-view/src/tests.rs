@@ -49,6 +49,25 @@ pub(crate) fn state(phase: Option<&str>, status: Status, last_decision: Option<V
     }
 }
 
+/// A listed run with no refusal, no residual and a journal that states
+/// no last event: the fleet fixtures' one builder.
+pub(crate) fn listed<'a>(
+    run_id: &'a str,
+    feature: &'a str,
+    created_at: &'a str,
+    state: Option<&'a RunState>,
+) -> RunEntry<'a> {
+    RunEntry {
+        run_id,
+        feature,
+        created_at,
+        last_recorded_at: None,
+        state,
+        detail: None,
+        residuals: &[],
+    }
+}
+
 /// A single seat that starts, turns, finishes its session and succeeds.
 fn seat_journal() -> Vec<EventEnvelope> {
     vec![
@@ -275,21 +294,10 @@ fn run_rows_are_newest_first_and_carry_the_whole_feature() {
     let running = state(Some("design"), Status::Running, None);
     let entries = [
         RunEntry {
-            run_id: "old",
-            feature: "the older feature",
-            created_at: T0,
-            state: None,
             detail: Some("event 93: OperatorAccepted is impossible at cursor EffectInFlight"),
-            residuals: &[],
+            ..listed("old", "the older feature", T0, None)
         },
-        RunEntry {
-            run_id: "new",
-            feature: "the newer feature",
-            created_at: T1,
-            state: Some(&running),
-            detail: None,
-            residuals: &[],
-        },
+        listed("new", "the newer feature", T1, Some(&running)),
     ];
     let view = run_rows(&entries);
     assert_eq!(view.count, 2);
@@ -323,30 +331,12 @@ fn run_rows_are_newest_first_and_carry_the_whole_feature() {
 fn fleet_rows_group_by_realm_and_never_merge_two_journals() {
     let running = state(Some("design"), Status::Running, None);
     let alpha = [
-        RunEntry {
-            run_id: "a-old",
-            feature: "alpha's older feature",
-            created_at: T0,
-            state: Some(&running),
-            detail: None,
-            residuals: &[],
-        },
-        RunEntry {
-            run_id: "a-new",
-            feature: "alpha's newer feature",
-            created_at: T1,
-            state: Some(&running),
-            detail: None,
-            residuals: &[],
-        },
+        listed("a-old", "alpha's older feature", T0, Some(&running)),
+        listed("a-new", "alpha's newer feature", T1, Some(&running)),
     ];
     let beta = [RunEntry {
-        run_id: "b-one",
-        feature: "beta's only feature",
-        created_at: T1,
-        state: None,
         detail: Some("event 4: the journal does not fold"),
-        residuals: &[],
+        ..listed("b-one", "beta's only feature", T1, None)
     }];
     let view = fleet_rows(&[
         HearthEntries {
@@ -396,14 +386,7 @@ fn fleet_rows_group_by_realm_and_never_merge_two_journals() {
 #[test]
 fn one_hearth_groups_to_the_same_rows_run_rows_derives() {
     let running = state(Some("design"), Status::Running, None);
-    let entries = [RunEntry {
-        run_id: "solo",
-        feature: "the one feature",
-        created_at: T0,
-        state: Some(&running),
-        detail: None,
-        residuals: &[],
-    }];
+    let entries = [listed("solo", "the one feature", T0, Some(&running))];
     let flat = serde_json::to_value(run_rows(&entries)).unwrap();
     let grouped = serde_json::to_value(fleet_rows(&[HearthEntries {
         realm: "brokkr",
@@ -3798,12 +3781,8 @@ fn the_ruling_line_and_the_run_rows_carry_the_mark() {
     // so it prints the mark.
     let residuals = residual_findings("r1", &events);
     let entries = [RunEntry {
-        run_id: "r1",
-        feature: "the finding is closed by name",
-        created_at: T0,
-        state: Some(&stopped),
-        detail: None,
         residuals: &residuals,
+        ..listed("r1", "the finding is closed by name", T0, Some(&stopped))
     }];
     let json = serde_json::to_value(run_rows(&entries)).unwrap();
     assert_eq!(json["runs"][0]["residuals"][0]["seq"], ruled);

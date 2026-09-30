@@ -230,6 +230,9 @@ pub(super) fn ascend(tui: &mut Tui) {
         Level::Run => {
             tui.level = Level::Runs;
             tui.pane = 0;
+            // The checkpoint pane's scroll is not the detail pane's: the
+            // fleet reads its selection from the top.
+            tui.offset = 0;
             tui.force = true;
         }
         Level::Runs => {}

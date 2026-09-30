@@ -3,9 +3,9 @@ source: crates/brokkr-cli/src/tui/snapshot_tests.rs
 ---
 "┌runs──────────────────────────────────────────────────────────────────────────┐"
 "│needs you                                                                     │"
-"│? quarantined does not fold  a run whose journal does  —        run-unfoldable│"
+"│? quarantined does not fold           a run whose journ —       run-unfoldable│"
 "│running                                                                       │"
-"│▶ design                     an older feature          7m03s    run-old       │"
+"│▶ design                              an older feature  7m03s   run-old       │"
 "│                                                                              │"
 "│                                                                              │"
 "│                                                                              │"

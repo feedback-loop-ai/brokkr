@@ -50,11 +50,16 @@ fn finding(input: &str, value: &str, superseded: bool) -> ResidualFinding {
     }
 }
 
-fn wanted(standing: Standing, rule: Option<&str>, residual: Option<&str>, text: &str) -> Verdict {
+fn wanted(
+    standing: Standing,
+    rule: Option<&str>,
+    residual: Option<Severity>,
+    text: &str,
+) -> Verdict {
     Verdict {
         standing,
         rule: rule.map(str::to_string),
-        residual: residual.map(str::to_string),
+        residual,
         reason: None,
         text: text.to_string(),
     }
@@ -140,7 +145,7 @@ fn a_stop_says_who_stopped_it_and_by_which_rule() {
         wanted(
             Standing::Stopped,
             Some("REVIEW-SECURITY-HOLD"),
-            Some("high"),
+            Some(Severity::High),
             "SECURITY-HOLD"
         )
     );
@@ -169,6 +174,11 @@ fn a_stop_says_who_stopped_it_and_by_which_rule() {
         verdict(Some(&unruled), &[]),
         wanted(Standing::Stopped, None, None, ABSENT)
     );
+    let unnamed = settled(Status::Stopped, "stop", Some(json!({"rule_id": 7})));
+    assert_eq!(
+        verdict(Some(&unnamed), &[]),
+        wanted(Standing::Stopped, None, None, ABSENT)
+    );
     let operator = settled(
         Status::Stopped,
         "review",
@@ -180,11 +190,11 @@ fn a_stop_says_who_stopped_it_and_by_which_rule() {
     );
 }
 
-/// Acceptance 4, shipped: the cell is the worst OPEN residual, `clean`
-/// when there is none; a superseded finding is closed, and a boolean
-/// flag names no severity.
+/// Acceptance 4, shipped: the cell names the ruling that shipped it, and
+/// the residual is the worst OPEN one; a superseded finding is closed, a
+/// boolean flag names no severity, and `none` is no residual.
 #[test]
-fn a_shipped_run_shows_its_worst_open_residual() {
+fn a_shipped_run_shows_its_ruling_and_its_worst_open_residual() {
     let shipped = settled(
         Status::Completed,
         "done",
@@ -192,7 +202,7 @@ fn a_shipped_run_shows_its_worst_open_residual() {
     );
     assert_eq!(
         verdict(Some(&shipped), &[]),
-        wanted(Standing::Shipped, Some("SHIP-COMPLETE"), None, "clean")
+        wanted(Standing::Shipped, Some("SHIP-COMPLETE"), None, "COMPLETE")
     );
     let residuals = [
         finding("max_residual_severity", "low", false),
@@ -201,8 +211,15 @@ fn a_shipped_run_shows_its_worst_open_residual() {
     ];
     assert_eq!(
         verdict(Some(&shipped), &residuals),
-        wanted(Standing::Shipped, Some("SHIP-COMPLETE"), Some("low"), "low")
+        wanted(
+            Standing::Shipped,
+            Some("SHIP-COMPLETE"),
+            Some(Severity::Low),
+            "COMPLETE"
+        )
     );
+    let none = [finding("max_residual_severity", "none", false)];
+    assert_eq!(verdict(Some(&shipped), &none).residual, None);
 }
 
 /// Acceptance 4, the runs that need the operator: a park a ruling made
@@ -297,6 +314,7 @@ fn fleet(
         run_id,
         feature: "a run",
         created_at,
+        last_recorded_at: None,
         state,
         detail: None,
         residuals: &[],
@@ -354,8 +372,67 @@ fn the_sections_are_ordered_by_who_must_act() {
     );
 }
 
+/// A finished run is dated by when its journal last moved, not by when
+/// it was created: one that waited weeks on a ruling and ended within
+/// the day is in the last 24 hours. A journal that never moved falls
+/// back to the run's creation.
+#[test]
+fn a_finished_run_is_dated_by_its_last_event() {
+    let shipped = settled(Status::Completed, "done", None);
+    let entry = |run_id, last_recorded_at| RunEntry {
+        run_id,
+        feature: "a run",
+        created_at: "2025-12-01T00:00:00Z",
+        last_recorded_at,
+        state: Some(&shipped),
+        detail: None,
+        residuals: &[],
+    };
+    let view = run_rows(&[
+        entry("ended-a-day-ago", Some(DAY_BEFORE)),
+        entry("ended-today", Some(JUST_UNDER_A_DAY)),
+        entry("never-moved", None),
+    ]);
+    assert_eq!(
+        ids(sections(&view.runs, NOW)),
+        [
+            (Section::NeedsYou, vec![]),
+            (Section::Running, vec![]),
+            (Section::Recent, vec!["ended-today"]),
+            (Section::Older, vec!["never-moved", "ended-a-day-ago"]),
+        ]
+    );
+}
+
+// ------------------------------------------------------------- the wrap
+
+/// The detail pane's lines: broken at the last space that fits, by
+/// display columns, a word wider than the width cut where it stops
+/// fitting, indentation kept on the line it starts, and a blank line
+/// kept as a line.
+#[test]
+fn a_text_wraps_at_a_word_by_display_columns() {
+    assert_eq!(
+        wrap("one two three four\n\nfive", 9),
+        ["one two", "three", "four", "", "five"]
+    );
+    assert_eq!(wrap("abcdefghij klm", 4), ["abcd", "efgh", "ij", "klm"]);
+    assert_eq!(wrap("   abcdefgh ij", 6), ["   abc", "defgh", "ij"]);
+    assert_eq!(wrap("漢字 漢字漢字", 5), ["漢字", "漢字", "漢字"]);
+    assert_eq!(
+        wrap("e\u{301}e\u{301}e\u{301} x", 3),
+        ["e\u{301}e\u{301}e\u{301}", "x"]
+    );
+    // Narrower than one wide character: a character a line, and it ends.
+    assert_eq!(wrap("漢字", 1), ["漢", "字"]);
+    assert_eq!(wrap("", 9), Vec::<String>::new());
+    for line in wrap(&"word ".repeat(300), 98) {
+        assert!(line.width() <= 98, "{line}");
+    }
+}
+
 /// The wire: a row carries its title and its verdict beside the whole
-/// feature, so `--json` stays lossless.
+/// feature, so `--json` stays lossless, and when its journal last moved.
 #[test]
 fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
     let shipped = settled(
@@ -364,21 +441,24 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         ruled("SHIP-COMPLETE", "ship", Some("done")),
     );
     let feature = "fleet titles\n\nthe whole commission, every line of it";
+    let residuals = [finding("max_residual_severity", "medium", false)];
     let view = run_rows(&[RunEntry {
         run_id: "r1",
         feature,
         created_at: DAY_BEFORE,
+        last_recorded_at: Some(JUST_UNDER_A_DAY),
         state: Some(&shipped),
         detail: None,
-        residuals: &[],
+        residuals: &residuals,
     }]);
     let json = serde_json::to_value(&view).unwrap();
     assert_eq!(json["view_version"], 12);
     assert_eq!(json["runs"][0]["feature"], feature);
     assert_eq!(json["runs"][0]["title"], "fleet titles");
+    assert_eq!(json["runs"][0]["last_recorded_at"], JUST_UNDER_A_DAY);
     assert_eq!(
         json["runs"][0]["verdict"],
-        json!({"standing": "shipped", "rule": "SHIP-COMPLETE", "residual": null,
-               "reason": null, "text": "clean"})
+        json!({"standing": "shipped", "rule": "SHIP-COMPLETE", "residual": "medium",
+               "reason": null, "text": "COMPLETE"})
     );
 }

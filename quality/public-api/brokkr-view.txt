@@ -273,6 +273,7 @@ pub struct brokkr_view::RunEntry<'a>
 pub brokkr_view::RunEntry::created_at: &'a str
 pub brokkr_view::RunEntry::detail: core::option::Option<&'a str>
 pub brokkr_view::RunEntry::feature: &'a str
+pub brokkr_view::RunEntry::last_recorded_at: core::option::Option<&'a str>
 pub brokkr_view::RunEntry::residuals: &'a [brokkr_view::ResidualFinding]
 pub brokkr_view::RunEntry::run_id: &'a str
 pub brokkr_view::RunEntry::state: core::option::Option<&'a brokkr_core::fold::RunState>
@@ -283,6 +284,7 @@ pub struct brokkr_view::RunRow
 pub brokkr_view::RunRow::created_at: alloc::string::String
 pub brokkr_view::RunRow::detail: core::option::Option<alloc::string::String>
 pub brokkr_view::RunRow::feature: alloc::string::String
+pub brokkr_view::RunRow::last_recorded_at: core::option::Option<alloc::string::String>
 pub brokkr_view::RunRow::phase: core::option::Option<alloc::string::String>
 pub brokkr_view::RunRow::residuals: alloc::vec::Vec<brokkr_view::ResidualFinding>
 pub brokkr_view::RunRow::run_id: alloc::string::String
@@ -340,7 +342,7 @@ pub brokkr_view::Transcript::kind: alloc::string::String
 pub brokkr_view::Transcript::locator: alloc::string::String
 pub struct brokkr_view::Verdict
 pub brokkr_view::Verdict::reason: core::option::Option<alloc::string::String>
-pub brokkr_view::Verdict::residual: core::option::Option<alloc::string::String>
+pub brokkr_view::Verdict::residual: core::option::Option<brokkr_core::policy::Severity>
 pub brokkr_view::Verdict::rule: core::option::Option<alloc::string::String>
 pub brokkr_view::Verdict::standing: brokkr_view::Standing
 pub brokkr_view::Verdict::text: alloc::string::String
@@ -354,6 +356,7 @@ pub const brokkr_view::ABSENT: &str
 pub const brokkr_view::NO_BOUNDARY: &str
 pub const brokkr_view::RESIDUAL_PHASES: [&str; 2]
 pub const brokkr_view::SUPERSEDE: &str
+pub const brokkr_view::TITLE_COLUMNS: usize
 pub const brokkr_view::VERDICT_COLUMNS: usize
 pub const brokkr_view::VIEW_VERSION: u32
 pub fn brokkr_view::age(&str, &str) -> core::option::Option<alloc::string::String>
@@ -370,3 +373,4 @@ pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::opti
 pub fn brokkr_view::sections<'a>(&'a [brokkr_view::RunRow], &str) -> alloc::vec::Vec<(brokkr_view::Section, alloc::vec::Vec<&'a brokkr_view::RunRow>)>
 pub fn brokkr_view::short_target(&str) -> alloc::string::String
 pub fn brokkr_view::status_str(&brokkr_core::fold::Status) -> &'static str
+pub fn brokkr_view::wrap(&str, usize) -> alloc::vec::Vec<alloc::string::String>

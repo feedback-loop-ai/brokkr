@@ -93,6 +93,7 @@ fn fleet_of_every_status() -> Views {
             run_id,
             feature: "a run in one status",
             created_at: T0,
+            last_recorded_at: None,
             state: Some(state),
             detail: None,
             residuals: &[],
@@ -132,6 +133,8 @@ fn the_fleet_by_who_must_act_is_pinned() {
     let mut tui = Tui::new(None);
     snapshot("fleet_sections", &tui, &views);
     let (width, height) = WIDE;
+    // The width the shell measures before it draws a frame this wide.
+    tui.width = width;
     let frame = drawn(&tui, &views, width, height).backend().to_string();
     settings().bind(|| insta::assert_snapshot!("fleet_320x80", frame));
     tui.cursor[0] = Some("cargo-exemption-hold-5b6c7d8e".to_string());

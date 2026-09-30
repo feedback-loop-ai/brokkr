@@ -18,6 +18,41 @@ use thiserror::Error;
 /// vocabulary of `max_residual_severity`. Distinct from ruling severity.
 pub const SEVERITY_ORDER: [&str; 6] = ["none", "info", "low", "medium", "high", "critical"];
 
+/// A residual finding's severity, typed: the closed set [`SEVERITY_ORDER`]
+/// names, ordered as it orders them. It serializes as its name.
+#[derive(serde::Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    None,
+    Info,
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl Severity {
+    /// Every severity, lowest first, at its [`SEVERITY_ORDER`] rank.
+    const ALL: [Severity; 6] = [
+        Severity::None,
+        Severity::Info,
+        Severity::Low,
+        Severity::Medium,
+        Severity::High,
+        Severity::Critical,
+    ];
+
+    /// The severity `name` names, or `None` for a word outside the set.
+    pub fn named(name: &str) -> Option<Severity> {
+        severity_rank(name).map(|rank| Severity::ALL[rank])
+    }
+
+    /// The name the table and every surface write for it.
+    pub fn name(self) -> &'static str {
+        SEVERITY_ORDER[self as usize]
+    }
+}
+
 /// Ruling severity axis — the phase-event/v1 vocabulary.
 pub const RULING_SEVERITIES: [&str; 3] = ["normal", "flagged", "hard"];
 

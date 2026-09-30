@@ -5,19 +5,20 @@
 //! 0013); a renderer lays them out and derives none of them.
 
 use brokkr_core::fold::{RunState, Status};
-use brokkr_core::policy::SEVERITY_ORDER;
+use brokkr_core::policy::Severity;
 use serde::Serialize;
 use serde_json::Value;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    js, status_str, FleetView, RealmRuns, ResidualFinding, RunEntry, RunRow, RunsView, ABSENT,
-    KNOWN_STATUS, VIEW_VERSION,
+    decided, js, status_str, FleetView, RealmRuns, ResidualFinding, RunEntry, RunRow, RunsView,
+    ABSENT, KNOWN_STATUS, VIEW_VERSION,
 };
 
 /// The widest a title may be, in display columns: a wide character
-/// counts two, a combining mark none.
-pub(crate) const TITLE_COLUMNS: usize = 60;
+/// counts two, a combining mark none. A renderer that sizes a column for
+/// a whole title sizes it by this.
+pub const TITLE_COLUMNS: usize = 60;
 
 /// The widest a verdict cell may be, in display columns. A renderer
 /// sizes its verdict column by it.
@@ -76,15 +77,16 @@ pub struct Verdict {
     /// nowhere. `None` for a run still working, one an operator stopped,
     /// and a park no ruling made.
     pub rule: Option<String>,
-    /// The highest severity an open residual finding names; a finding
-    /// the operator has superseded (decision 0047) is closed.
-    pub residual: Option<String>,
+    /// The highest severity an open residual finding names. A finding
+    /// the operator has superseded (decision 0047) is closed, and one
+    /// valued `none` names no residual.
+    pub residual: Option<Severity>,
     /// Why the run waits, verbatim, while it is parked.
     pub reason: Option<String>,
     /// The fleet's verdict cell, at most [`VERDICT_COLUMNS`] wide: the
-    /// residual of a shipped run (`clean` when none), the rule of a
-    /// stopped or parked one without its own phase's prefix, and nothing
-    /// yet for a running one.
+    /// rule that shipped, stopped or parked the run without its own
+    /// phase's prefix, and nothing yet for a running one. The residual
+    /// is its own cell beside it.
     pub text: String,
 }
 
@@ -94,7 +96,9 @@ pub enum Section {
     /// Parked, or quarantined because the journal does not fold.
     NeedsYou,
     Running,
-    /// Finished within the last 24 hours, by creation time.
+    /// Finished within the last 24 hours, by when its journal last
+    /// moved: a run that waited days on a ruling and ended today is
+    /// today's news.
     Recent,
     /// Finished and older.
     Older,
@@ -137,8 +141,9 @@ fn section_of(row: &RunRow, now: &str) -> Section {
         Standing::Quarantined | Standing::Parked => Section::NeedsYou,
         Standing::Running => Section::Running,
         Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => {
-            match (js::parse_millis(&row.created_at), js::parse_millis(now)) {
-                (Some(created), Some(now)) if now - created >= RECENT_MILLIS => Section::Older,
+            let moved = row.last_recorded_at.as_deref().unwrap_or(&row.created_at);
+            match (js::parse_millis(moved), js::parse_millis(now)) {
+                (Some(moved), Some(now)) if now - moved >= RECENT_MILLIS => Section::Older,
                 _ => Section::Recent,
             }
         }
@@ -159,12 +164,43 @@ pub(crate) fn title(feature: &str) -> String {
     if first.width() <= TITLE_COLUMNS {
         return first.to_string();
     }
-    let end = fitting(first, TITLE_COLUMNS - 1);
-    let cut = match first[end..].starts_with(char::is_whitespace) {
-        true => end,
-        false => first[..end].rfind(char::is_whitespace).unwrap_or(end),
-    };
+    let cut = break_at(first, TITLE_COLUMNS - 1);
     format!("{}{ELLIPSIS}", first[..cut].trim_end())
+}
+
+/// `text` wrapped to `columns` display columns, a line per entry: each
+/// source line broken at its last space that fits, a word wider than the
+/// width cut where it stops fitting, and a blank line kept. A pane that
+/// scrolls a wrapped text scrolls by these lines.
+pub fn wrap(text: &str, columns: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        let mut rest = line.trim_end();
+        // At least one character a line, so a width narrower than a wide
+        // character still ends.
+        while rest.width() > columns && rest.chars().nth(1).is_some() {
+            let first = rest.char_indices().nth(1).map_or(rest.len(), |(at, _)| at);
+            let cut = break_at(rest, columns).max(first);
+            lines.push(rest[..cut].trim_end().to_string());
+            rest = rest[cut..].trim_start();
+        }
+        lines.push(rest.to_string());
+    }
+    lines
+}
+
+/// Where `text` breaks to fit `columns`: at its last space within them
+/// that follows a word, or where the next character stops fitting when
+/// there is none.
+fn break_at(text: &str, columns: usize) -> usize {
+    let end = fitting(text, columns);
+    match text[end..].starts_with(char::is_whitespace) {
+        true => end,
+        false => text[..end]
+            .rfind(char::is_whitespace)
+            .filter(|at| !text[..*at].trim().is_empty())
+            .unwrap_or(end),
+    }
 }
 
 /// `text` clamped to `columns` display columns, with an ellipsis when
@@ -223,10 +259,9 @@ fn verdict(state: Option<&RunState>, residuals: &[ResidualFinding]) -> Verdict {
         | Standing::Quarantined => None,
     };
     let text = match standing {
-        Standing::Shipped => residual.clone().unwrap_or_else(|| "clean".to_string()),
         Standing::Running => String::new(),
         Standing::OperatorStopped => "by operator".to_string(),
-        Standing::Parked | Standing::Stopped | Standing::Quarantined => {
+        Standing::Shipped | Standing::Parked | Standing::Stopped | Standing::Quarantined => {
             rule.map_or(ABSENT.to_string(), |(rule, from)| abbreviate(rule, from))
         }
     };
@@ -252,9 +287,8 @@ fn standing_of(state: &RunState) -> Standing {
 /// The last ruling's rule id and the phase that ruled, when it names a
 /// rule at all.
 fn last_rule(state: &RunState) -> Option<(&str, Option<&str>)> {
-    let decision = state.last_decision.as_ref()?;
-    let rule = decision.get("rule_id").and_then(Value::as_str)?;
-    Some((rule, decision.get("from").and_then(Value::as_str)))
+    let ruled = decided(state.last_decision.as_ref()?)?;
+    Some((ruled.rule.as_str()?, ruled.from.and_then(Value::as_str)))
 }
 
 /// The last ruling routed nowhere, so it is what parked the run — the
@@ -264,7 +298,8 @@ fn ruling_parked(state: &RunState) -> bool {
     state
         .last_decision
         .as_ref()
-        .is_some_and(|decision| decision.get("next").and_then(Value::as_str).is_none())
+        .and_then(decided)
+        .is_some_and(|ruled| ruled.next.and_then(Value::as_str).is_none())
 }
 
 /// A rule id without the prefix naming the phase that ruled it —
@@ -279,19 +314,15 @@ fn abbreviate(rule: &str, from: Option<&str>) -> String {
 }
 
 /// The highest severity any open residual finding names. Only the
-/// severity input carries a name from [`SEVERITY_ORDER`]; the boolean
-/// flags carry none and stay in the findings themselves.
-fn open_severity(residuals: &[ResidualFinding]) -> Option<String> {
+/// severity input carries a [`Severity`]; the boolean flags carry none
+/// and stay in the findings themselves, and `none` is no residual.
+fn open_severity(residuals: &[ResidualFinding]) -> Option<Severity> {
     residuals
         .iter()
         .filter(|finding| finding.superseded.is_none())
-        .filter_map(|finding| {
-            SEVERITY_ORDER
-                .iter()
-                .position(|name| *name == finding.value)
-        })
+        .filter_map(|finding| Severity::named(&finding.value))
+        .filter(|severity| *severity > Severity::None)
         .max()
-        .map(|rank| SEVERITY_ORDER[rank].to_string())
 }
 
 // ------------------------------------------------------------ run rows
@@ -311,6 +342,7 @@ fn run_row(entry: &RunEntry) -> RunRow {
         phase: entry.state.and_then(|state| state.phase.clone()),
         seq: entry.state.map(|state| state.seq),
         created_at: entry.created_at.to_string(),
+        last_recorded_at: entry.last_recorded_at.map(str::to_string),
         feature: entry.feature.to_string(),
         detail: entry.detail.map(str::to_string),
         residuals: entry.residuals.to_vec(),

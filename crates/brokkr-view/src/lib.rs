@@ -30,7 +30,8 @@ pub mod js;
 pub mod transcript;
 
 pub use fleet::{
-    fleet_rows, run_rows, sections, HearthEntries, Section, Standing, Verdict, VERDICT_COLUMNS,
+    fleet_rows, run_rows, sections, wrap, HearthEntries, Section, Standing, Verdict, TITLE_COLUMNS,
+    VERDICT_COLUMNS,
 };
 
 use std::collections::BTreeMap;
@@ -111,6 +112,9 @@ pub struct RunEntry<'a> {
     pub run_id: &'a str,
     pub feature: &'a str,
     pub created_at: &'a str,
+    /// When the journal last moved: its last event's `recorded_at`, or
+    /// none when it would not load. The fleet dates a finished run by it.
+    pub last_recorded_at: Option<&'a str>,
     pub state: Option<&'a RunState>,
     /// Why the state is absent: a fleet read quarantines a run whose
     /// journal does not fold rather than losing the whole fleet with it,
@@ -133,6 +137,8 @@ pub struct RunRow {
     pub phase: Option<String>,
     pub seq: Option<u64>,
     pub created_at: String,
+    /// When the run's journal last moved, as its entry states it (#491).
+    pub last_recorded_at: Option<String>,
     /// The **full** feature: the model stays terminal-agnostic and
     /// `--json` stays lossless. Clamping is the renderer's job.
     pub feature: String,
@@ -2691,10 +2697,35 @@ fn summary_of(state: &RunState) -> Summary {
     }
 }
 
+/// A ruling's routing facts, read by key in this one place for every
+/// reader in this crate: the rule, the phase that ruled it, and where it
+/// routed, beside the object they were read from.
+pub(crate) struct Decided<'a> {
+    pub(crate) object: &'a serde_json::Map<String, Value>,
+    pub(crate) rule: &'a Value,
+    pub(crate) from: Option<&'a Value>,
+    pub(crate) next: Option<&'a Value>,
+}
+
+/// `decision` read as a ruling, when it is an object that names a rule.
+pub(crate) fn decided(decision: &Value) -> Option<Decided<'_>> {
+    let object = decision.as_object()?;
+    Some(Decided {
+        object,
+        rule: object.get("rule_id")?,
+        from: object.get("from"),
+        next: object.get("next"),
+    })
+}
+
 fn ruling_of(decision: Option<&Value>, superseded: Option<Superseded>) -> Option<Ruling> {
     let decision = decision?;
-    let object = decision.as_object()?;
-    let rule = object.get("rule_id")?;
+    let Decided {
+        object,
+        rule,
+        from,
+        next,
+    } = decided(decision)?;
     let inputs = match object.get("inputs").and_then(Value::as_object) {
         Some(map) => map
             .iter()
@@ -2705,8 +2736,8 @@ fn ruling_of(decision: Option<&Value>, superseded: Option<Superseded>) -> Option
     Some(Ruling {
         rule_id: display_or_mark(Some(rule)),
         severity_class: severity_class(decision).to_string(),
-        from: display_or_mark(object.get("from")),
-        next: display_or_mark(object.get("next")),
+        from: display_or_mark(from),
+        next: display_or_mark(next),
         result: match object.get("result") {
             Some(result) if truthy(Some(result)) => Some(js::to_display(Some(result))),
             _ => None,

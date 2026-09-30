@@ -90,6 +90,7 @@ pub(super) fn fleet_to_act_on() -> Views {
         run_id,
         feature,
         created_at,
+        last_recorded_at: None,
         state,
         detail: None,
         residuals,
@@ -275,15 +276,19 @@ fn a_long_id_is_shortened_in_its_head_and_never_in_its_hash() {
 // ---------------------------------------------------------- the detail pane
 
 /// Acceptance 5's frame, asked of its cells: the detail pane stands
-/// beside the list from 200 columns, and only over a selection; the list
-/// keeps the frame below it and with nothing selected.
+/// beside the list from [`DETAIL_MIN_WIDTH`] columns, and only over a
+/// selection; the list keeps the frame below it and with nothing
+/// selected. Each frame is drawn at the width the shell measured for it.
 #[test]
 fn the_detail_pane_needs_the_width_and_a_selection() {
     let views = fleet_to_act_on();
     let mut tui = Tui::new(None);
+    tui.width = 320;
     assert!(!frame_of(&tui, &views, 320, 80).contains("rule      "));
     tui.cursor[0] = Some(HELD.to_string());
+    tui.width = DETAIL_MIN_WIDTH - 1;
     assert!(!frame_of(&tui, &views, DETAIL_MIN_WIDTH - 1, 30).contains(HELD));
+    tui.width = DETAIL_MIN_WIDTH;
     let frame = frame_of(&tui, &views, DETAIL_MIN_WIDTH, 30);
     let wanted = [
         HELD,
@@ -298,9 +303,18 @@ fn the_detail_pane_needs_the_width_and_a_selection() {
     for text in wanted {
         assert!(frame.contains(text), "{text}:\n{frame}");
     }
+    // The list beside the pane holds a whole title, sixty columns of it.
+    let title = "#403 macOS fix, round 9: PR #483's test (macos-latest) job…";
+    assert!(frame.contains(&format!("{title}  ")), "{frame}");
     let top = frame.lines().next().unwrap();
-    assert_eq!(top.chars().position(|c| c == '┐'), Some(99), "{frame}");
+    let list_edge = usize::from(LIST_COLUMNS) - 1;
+    assert_eq!(
+        top.chars().position(|c| c == '┐'),
+        Some(list_edge),
+        "{frame}"
+    );
     tui.cursor[0] = Some("journal-that-broke-7f8e9d0c".to_string());
+    tui.width = 320;
     let frame = frame_of(&tui, &views, 320, 80);
     assert!(
         frame.contains("journal   event 12: event after terminal status"),
@@ -311,8 +325,9 @@ fn the_detail_pane_needs_the_width_and_a_selection() {
 }
 
 /// `Tab` reaches the detail pane only while it is on the frame; there
-/// the list keys scroll the feature a line at a time, `Enter` still
-/// opens the run, and moving the list reads the next run from the top.
+/// the list keys scroll it a drawn line at a time, the run's own lines
+/// first, `Enter` still opens the run, and moving the list reads the
+/// next run from the top.
 #[test]
 fn tab_focuses_the_detail_pane_which_scrolls_and_enter_still_opens_the_run() {
     let views = fleet_to_act_on();
@@ -326,16 +341,19 @@ fn tab_focuses_the_detail_pane_which_scrolls_and_enter_still_opens_the_run() {
     apply(&mut tui, &views, Key::Tab);
     assert_eq!(tui.pane, 1);
     assert!(footer_for(&tui, &views).starts_with("↑↓/jk scroll · Enter open run · Tab list"));
-    apply(&mut tui, &views, Key::Char('j'));
-    apply(&mut tui, &views, Key::Char('j'));
-    assert_eq!((tui.offset, tui.cursor[0].as_deref()), (2, Some(HELD)));
+    // Nine lines of the run's own, then the feature's first line.
+    for _ in 0..10 {
+        apply(&mut tui, &views, Key::Char('j'));
+    }
+    assert_eq!((tui.offset, tui.cursor[0].as_deref()), (10, Some(HELD)));
     // The title stays on the list's row and the pane's border; the body
-    // has scrolled past the feature's own first line.
+    // has scrolled past the run's lines and the feature's first line.
     let frame = frame_of(&tui, &views, DETAIL_MIN_WIDTH, 30);
     assert!(frame.contains("The review held"), "{frame}");
+    assert!(!frame.contains("verdict   "), "{frame}");
     assert_eq!(frame.matches("#362 cargo exemption").count(), 2, "{frame}");
     apply(&mut tui, &views, Key::Char('G'));
-    assert_eq!(tui.offset, HELD_FEATURE.lines().count() - 1);
+    assert_eq!(tui.offset, 17, "nine lines, and the feature's nine drawn");
     tui.width = DETAIL_MIN_WIDTH - 1;
     assert!(
         footer_for(&tui, &views).starts_with("↑↓/jk move"),
@@ -366,6 +384,7 @@ fn the_focused_fleet_pane_wears_the_bold_border() {
     let views = fleet_to_act_on();
     let mut tui = Tui::new(None);
     tui.cursor[0] = Some(HELD.to_string());
+    tui.width = 320;
     let worn = [
         (0, Modifier::BOLD, Modifier::DIM),
         (1, Modifier::DIM, Modifier::BOLD),
@@ -391,4 +410,94 @@ fn the_shell_tells_the_keys_how_wide_its_frame_was() {
     drive(&mut terminal, &test_ops(), &mut source, &mut tui, 9).unwrap();
     assert_eq!((tui.width, tui.pane), (DETAIL_MIN_WIDTH, 1));
     assert_eq!(tui.cursor[0].as_deref(), Some(HELD));
+}
+
+/// One answer to whether the detail pane is on the frame: the shell
+/// measures the frame before it draws it, so the very first frame at a
+/// wide width draws the pane and its footer names the key to reach it.
+#[test]
+fn the_first_wide_frame_and_its_footer_agree_on_the_detail_pane() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let mut terminal = Terminal::new(TestBackend::new(DETAIL_MIN_WIDTH, 30)).unwrap();
+    script(&[]);
+    let mut source = |_: Ask| Ok(Some(fleet_to_act_on()));
+    let mut tui = Tui::new(None);
+    tui.cursor[0] = Some(HELD.to_string());
+    drive(&mut terminal, &test_ops(), &mut source, &mut tui, 1).unwrap();
+    let frame = lines_of(terminal.backend().buffer()).join("\n");
+    assert!(frame.contains(&format!("│{HELD}")), "{frame}");
+    assert!(frame.contains("· Tab detail ·"), "{frame}");
+}
+
+/// Review finding 1: the pane scrolls by the lines it draws, so a feature
+/// that is one long paragraph scrolls to its last wrapped line.
+#[test]
+fn the_detail_pane_scrolls_a_one_paragraph_feature_to_its_last_line() {
+    let feature = format!(
+        "One paragraph {}the last words",
+        "and more words ".repeat(200)
+    );
+    let running = state_of(Status::Running);
+    let mut views = Views::empty();
+    views.now = NOW.to_string();
+    views.runs = brokkr_view::run_rows(&[brokkr_view::RunEntry {
+        run_id: "one-paragraph-0a1b2c3d",
+        feature: &feature,
+        created_at: T0,
+        last_recorded_at: None,
+        state: Some(&running),
+        detail: None,
+        residuals: &[],
+    }]);
+    let mut tui = Tui::new(None);
+    tui.cursor[0] = Some("one-paragraph-0a1b2c3d".to_string());
+    tui.width = DETAIL_MIN_WIDTH;
+    tui.pane = 1;
+    let frame = frame_of(&tui, &views, DETAIL_MIN_WIDTH, 30);
+    assert!(!frame.contains("the last words"), "{frame}");
+    apply(&mut tui, &views, Key::Char('G'));
+    assert_eq!(tui.offset, 37, "seven lines of the run's, then 31 drawn");
+    let frame = frame_of(&tui, &views, DETAIL_MIN_WIDTH, 30);
+    assert!(frame.contains("the last words"), "{frame}");
+}
+
+/// Review finding 3: a stopped or parked run shows its worst open
+/// residual beside its ruling, as a shipped one does.
+#[test]
+fn every_row_names_its_ruling_and_its_worst_open_residual() {
+    let views = fleet_to_act_on();
+    let frame = frame_of(&Tui::new(None), &views, 160, 48);
+    let wanted = [
+        "● parked      UNVERIFIED-SE… high     #362 cargo exemption",
+        "✓ shipped     COMPLETE       low      Landing 4 of the fleet view",
+        "✓ shipped     COMPLETE                Landing 5 of the fleet view",
+        "✗ stopped     FAIL-EXHAUSTED          0065 rebuild unit 19",
+    ];
+    for row in wanted {
+        assert!(frame.contains(row), "{row}:\n{frame}");
+    }
+}
+
+/// Review finding 7: `a` is the hearth's own, parked with its selection
+/// and returned by a switch back (decision 0026 ruling 2).
+#[test]
+fn a_is_a_hearths_own_and_a_switch_back_returns_it() {
+    let views = fleet_to_act_on();
+    let mut tui = Tui::over(None, vec!["alpha".to_string(), "beta".to_string()], 0);
+    apply(&mut tui, &views, Key::Char('a'));
+    switch(&mut tui, 1);
+    assert!(!tui.all, "beta folds its older runs");
+    switch(&mut tui, 0);
+    assert!(tui.all, "alpha's `a` is returned");
+}
+
+/// Review finding 8: the participant level's checkpoint scroll does not
+/// follow the operator back up to the fleet's detail pane.
+#[test]
+fn the_fleet_reads_its_selection_from_the_top_after_a_run() {
+    let views = fleet_to_act_on();
+    let mut tui = Tui::new(Some(HELD.to_string()));
+    tui.offset = 5;
+    apply(&mut tui, &views, Key::Backspace);
+    assert_eq!((tui.level, tui.offset), (Level::Runs, 0));
 }
