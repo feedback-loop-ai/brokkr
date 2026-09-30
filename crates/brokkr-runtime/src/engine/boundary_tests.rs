@@ -2183,6 +2183,41 @@ fn smith_site(bundle: &Bundle) -> (&[Candidate], &HandsSpec) {
     (candidates, hands)
 }
 
+/// The SHIPPED engine smith compiled under `namespace` in a fresh root,
+/// beside the checkout its launch runs in.
+fn shipped_smith() -> (tempfile::TempDir, PathBuf, Bundle) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let workdir = root.join("checkout");
+    std::fs::create_dir_all(workdir.join("results")).unwrap();
+    let agents = repository().join("agents");
+    let bundle = smith_bundle(&root, &agents, "implementer-engine", Boundary::Namespace);
+    (dir, workdir, bundle)
+}
+
+/// One link of the smith's chain composed as its work site under
+/// `boundary` by production `compose_site`, as the engine launches it.
+fn compose_smith(
+    boundary: BuiltBoundary,
+    link: &Candidate,
+    hands: &HandsSpec,
+    workdir: &Path,
+    bundle: &Bundle,
+) -> SiteSpawn {
+    let result_path = workdir.join("results/fx.json");
+    compose_site(
+        boundary,
+        SeatClass::Work,
+        link.argv.clone(),
+        Some(hands),
+        Some(link),
+        workdir,
+        &bundle.roots,
+        result_path.to_str().unwrap(),
+        None,
+    )
+}
+
 fn engine_exe() -> String {
     std::env::current_exe()
         .unwrap()
@@ -2239,43 +2274,23 @@ fn assert_no_token_is_left_unexpanded(argv: &[String]) {
 
 /// The shipped engine smith, compiled under `namespace` from the shipped
 /// agent and adapters and composed by production `compose_site`, first
-/// link: astra on Codex. The native sandbox is the read-only one
+/// link: sol on Codex. The native sandbox is the read-only one
 /// `hands.workspace` declares, the one writable surface is the MCP hands
 /// server carrying the declared box, the harness work fragment is absent
 /// and no tool-list flag appears anywhere. This is what the launch SAYS;
 /// what Codex enforces natively is the controller's live measurement.
 #[test]
-fn the_shipped_engine_smith_launches_astra_read_only_with_the_boxed_hands_server() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
-    let workdir = root.join("checkout");
-    std::fs::create_dir_all(workdir.join("results")).unwrap();
-    let result_path = workdir.join("results/fx.json");
-    let bundle = smith_bundle(
-        &root,
-        &repository().join("agents"),
-        "implementer-engine",
-        Boundary::Namespace,
-    );
+fn the_shipped_engine_smith_launches_sol_read_only_with_the_boxed_hands_server() {
+    let (_dir, workdir, bundle) = shipped_smith();
     assert_eq!(bundle.manifest["boundary"], json!({"work": "namespace"}));
     let (candidates, hands) = smith_site(&bundle);
-    let astra = &candidates[0];
+    let sol = &candidates[0];
     assert_eq!(
-        (astra.provider.as_str(), astra.model.as_str()),
-        ("codex", "astra")
+        (sol.provider.as_str(), sol.model.as_str()),
+        ("codex", "sol")
     );
 
-    let spawn = compose_site(
-        BuiltBoundary::Namespace,
-        SeatClass::Work,
-        astra.argv.clone(),
-        Some(hands),
-        Some(astra),
-        &workdir,
-        &bundle.roots,
-        result_path.to_str().unwrap(),
-        None,
-    );
+    let spawn = compose_smith(BuiltBoundary::Namespace, sol, hands, &workdir, &bundle);
     let exe = engine_exe();
     assert_eq!(spawn.argv.len(), 16, "{:?}", spawn.argv);
     let served = spawn.argv[13]
@@ -2293,9 +2308,9 @@ fn the_shipped_engine_smith_launches_astra_read_only_with_the_boxed_hands_server
             "codex",
             "--",
             "--model",
-            "gpt-6-astra",
+            "gpt-6.1-sol",
             "--effort",
-            "high",
+            "medium",
             "--sandbox",
             "read-only",
             "-c",
@@ -2331,17 +2346,7 @@ fn the_shipped_engine_smith_launches_astra_read_only_with_the_boxed_hands_server
 /// and its MCP server carries the same box.
 #[test]
 fn the_shipped_engine_smith_falls_back_to_fable_with_the_mcp_grant_alone() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
-    let workdir = root.join("checkout");
-    std::fs::create_dir_all(workdir.join("results")).unwrap();
-    let result_path = workdir.join("results/fx.json");
-    let bundle = smith_bundle(
-        &root,
-        &repository().join("agents"),
-        "implementer-engine",
-        Boundary::Namespace,
-    );
+    let (_dir, workdir, bundle) = shipped_smith();
     let (candidates, hands) = smith_site(&bundle);
     assert_eq!(candidates.len(), 2);
     let fable = &candidates[1];
@@ -2350,17 +2355,7 @@ fn the_shipped_engine_smith_falls_back_to_fable_with_the_mcp_grant_alone() {
         ("claude", "fable")
     );
 
-    let spawn = compose_site(
-        BuiltBoundary::Namespace,
-        SeatClass::Work,
-        fable.argv.clone(),
-        Some(hands),
-        Some(fable),
-        &workdir,
-        &bundle.roots,
-        result_path.to_str().unwrap(),
-        None,
-    );
+    let spawn = compose_smith(BuiltBoundary::Namespace, fable, hands, &workdir, &bundle);
     let exe = engine_exe();
     assert_eq!(spawn.argv.len(), 17, "{:?}", spawn.argv);
     let config: Value = serde_json::from_str(&spawn.argv[14]).expect("the MCP config is JSON");
@@ -2426,12 +2421,11 @@ fn a_codex_only_smith_compiled_under_harness_launches_the_work_fragment_alone() 
     )
     .unwrap();
     smith["charter"] = json!("charters/smith.md");
-    smith["models"] = json!(["astra"]);
-    smith["efforts"] = json!({"astra": "high"});
+    smith["models"] = json!(["sol"]);
+    smith["efforts"] = json!({"sol": "medium"});
     std::fs::write(agents.join("smith.json"), smith.to_string()).unwrap();
     let workdir = root.join("checkout");
     std::fs::create_dir_all(workdir.join("results")).unwrap();
-    let result_path = workdir.join("results/fx.json");
 
     let bundle = smith_bundle(&root, &agents, "smith", Boundary::Harness);
     assert_eq!(bundle.boundary, Boundary::Harness);
@@ -2439,20 +2433,10 @@ fn a_codex_only_smith_compiled_under_harness_launches_the_work_fragment_alone() 
     assert_eq!(bundle.manifest["hands"]["work"]["network"], json!(false));
     let (candidates, hands) = smith_site(&bundle);
     assert_eq!(hands.binds.len(), 2);
-    let astra = &candidates[0];
-    assert!(astra.hands_fragment.is_empty(), "{:?}", astra.argv);
+    let sol = &candidates[0];
+    assert!(sol.hands_fragment.is_empty(), "{:?}", sol.argv);
 
-    let spawn = compose_site(
-        BuiltBoundary::Harness,
-        SeatClass::Work,
-        astra.argv.clone(),
-        Some(hands),
-        Some(astra),
-        &workdir,
-        &bundle.roots,
-        result_path.to_str().unwrap(),
-        None,
-    );
+    let spawn = compose_smith(BuiltBoundary::Harness, sol, hands, &workdir, &bundle);
     let exe = engine_exe();
     assert_eq!(
         spawn.argv,
@@ -2462,9 +2446,9 @@ fn a_codex_only_smith_compiled_under_harness_launches_the_work_fragment_alone() 
             "codex",
             "--",
             "--model",
-            "gpt-6-astra",
+            "gpt-6.1-sol",
             "--effort",
-            "high",
+            "medium",
             "--sandbox",
             "workspace-write",
         ]

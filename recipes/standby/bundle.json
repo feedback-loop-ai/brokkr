@@ -34,9 +34,9 @@
           "codex",
           "--",
           "--model",
-          "gpt-6-astra",
+          "gpt-6.1-sol",
           "--effort",
-          "xhigh",
+          "high",
           "--sandbox",
           "danger-full-access"
         ]
@@ -65,9 +65,9 @@
           "codex",
           "--",
           "--model",
-          "gpt-6-astra",
+          "gpt-6.1-sol",
           "--effort",
-          "xhigh",
+          "high",
           "--sandbox",
           "workspace-write"
         ]

@@ -316,9 +316,9 @@ struct AgentSpec {
     agent: &'static str,
     class: Class,
     description: &'static str,
-    models: [&'static str; 2],
-    codex: [&'static str; 2],
-    dsh: Option<[&'static str; 2]>,
+    models: &'static [&'static str],
+    codex: &'static [&'static str],
+    dsh: Option<&'static [&'static str]>,
     max_attempts: u64,
     timeout_seconds: u64,
 }
@@ -358,7 +358,7 @@ impl AgentSpec {
     /// chain it is hired with: its own, except that a dsh scaffold's gate
     /// stays on claude — the one gate the starter has cannot be held by
     /// dsh.
-    fn hire(&self, cli: Cli) -> (Cli, [&'static str; 2]) {
+    fn hire(&self, cli: Cli) -> (Cli, &'static [&'static str]) {
         match (cli, self.dsh) {
             (Cli::Claude, _) | (Cli::Dsh, None) => (Cli::Claude, self.models),
             (Cli::Codex, _) => (Cli::Codex, self.codex),
@@ -387,9 +387,9 @@ const SEATS: &[AgentSpec] = &[
         agent: "intake",
         class: Class::Work,
         description: "Frames a raw request into a recorded, actionable task before any code is written.",
-        models: ["sonnet", "opus"],
-        codex: ["sol", "terra"],
-        dsh: Some(["flash", "pro"]),
+        models: &["sonnet", "opus"],
+        codex: &["sol", "terra"],
+        dsh: Some(&["flash", "pro"]),
         max_attempts: 2,
         timeout_seconds: 1800,
     },
@@ -397,9 +397,9 @@ const SEATS: &[AgentSpec] = &[
         agent: "implementer",
         class: Class::Work,
         description: "Builds the framed task to the repository's conventions and commits the work with its tests.",
-        models: ["opus", "sonnet"],
-        codex: ["sol", "terra"],
-        dsh: Some(["pro", "flash"]),
+        models: &["opus", "sonnet"],
+        codex: &["sol", "terra"],
+        dsh: Some(&["pro", "flash"]),
         max_attempts: 2,
         timeout_seconds: 5400,
     },
@@ -407,8 +407,8 @@ const SEATS: &[AgentSpec] = &[
         agent: "reviewer",
         class: Class::Gate,
         description: "The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.",
-        models: ["fable", "opus"],
-        codex: ["astra", "sol"],
+        models: &["fable", "opus"],
+        codex: &["sol"], // astra is only a chief's last fallback (0045's addendum)
         dsh: None,
         max_attempts: 2,
         timeout_seconds: 3600,
@@ -668,7 +668,7 @@ const CODEX_ADAPTER: &str = r#"{
   "driver": ["{brokkr}", "driver", "codex", "--"],
   "models": {
     "astra": "gpt-6-astra",
-    "sol": "gpt-6-sol",
+    "sol": "gpt-6.1-sol",
     "terra": "gpt-5.6-terra"
   },
   "judges": ["astra", "sol"],
@@ -735,7 +735,7 @@ fn codex_hands(detected: Option<&Detected>) -> serde_json::Value {
 /// the two an absent key means.
 fn agent_json(
     spec: &AgentSpec,
-    models: [&str; 2],
+    models: &[&str],
     allowance: Option<&[Tool]>,
     hands: Option<serde_json::Value>,
 ) -> String {
@@ -744,11 +744,11 @@ fn agent_json(
         "charter": format!("charters/{}.md", spec.agent),
         "models": models,
         // Every model pin carries an effort pin (decision 0035 ruling
-        // 5): the scaffold names the effort it hires beside the model,
-        // at the level the harness runs unconfigured, so a stranger's
-        // first bundle compiles and reads as a complete hire.
+        // 5): the scaffold names the effort it hires beside the model, at
+        // the level the harness runs unconfigured (sol's scale sits a step
+        // lower, decision 0045's addendum), so a first bundle is a full hire.
         "efforts": models.iter()
-            .map(|model| (model.to_string(), json!(SCAFFOLD_EFFORT)))
+            .map(|model| (model.to_string(), json!(if *model == "sol" { "medium" } else { SCAFFOLD_EFFORT })))
             .collect::<serde_json::Map<String, serde_json::Value>>(),
         "limits": {
             "max_attempts": spec.max_attempts,

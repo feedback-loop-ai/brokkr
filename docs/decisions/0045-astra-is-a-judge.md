@@ -260,3 +260,59 @@ the journal's evidence and the operator's later word.
   hands question answered first. The `fast` service tier, a price
   lever and not a hire. The inline quickstart gates, which 0041 ruling
   7 keeps explicit and which still cannot fall back.
+
+## Addendum — 2026-09-30, operator ruled: Sol 6.1 replaces Astra 6.0, and Astra is a chief's last fallback
+
+The operator ruled three things in chat that day. They amend ruling 1's
+mapping and ruling 2's table. The controller probed the first the same
+day with codex-cli 0.159.0: `codex exec -m gpt-6.1-sol`
+answered, `gpt-6-1-sol` is refused for a ChatGPT-account codex, and the
+efforts `high`, `xhigh` and `max` were each accepted.
+
+1. **Sol 6.1 replaces Sol 6.0 everywhere.** `adapters/codex.json` maps
+   `sol` to `gpt-6.1-sol`.
+2. **Astra 6.0 is replaced by Sol 6.1 everywhere, except as a chief's
+   last fallback.** The `astra` alias stays, mapped to `gpt-6-astra`,
+   and the adapter's `judges` stay `["astra", "sol"]`. Astra appears
+   only as the last link of a chief's chain — `review-chief`,
+   `gpt-flash-review-chief` and `chief-architect` — at effort `max`.
+   Every other seat astra held, in the library and inline in
+   `recipes/standby` and `recipes/review-first`, is sol's.
+3. **Sol's effort is capped at `high`, and its scale shifts down one
+   step:** `max` and `xhigh` become `high`, `high` becomes `medium`,
+   `medium` becomes `low`, and lower levels are unchanged. This holds for
+   every sol seat, astra's old seats included. Fable and opus efforts do
+   not change.
+
+The table's principle: where astra stood, sol stands at the level one
+step below astra's; where sol stood, its effort steps down the same way;
+and a chief falls back to astra at `max` after every other link. Ruling
+2's "a first link is never hired below its fallback" reads sol's `high`
+as another model's `xhigh`, and the chief's astra fallback is the second
+ruled exception beside triage's.
+
+| Office | Chain after 2026-09-30 |
+|---|---|
+| `review-chief` | sol high, fable xhigh, opus xhigh, astra max |
+| `gpt-flash-review-chief` | sol high, astra max |
+| `chief-architect` | fable max, sol high, opus max, astra max |
+| `analyst`, `review-security` | fable xhigh, sol high, opus xhigh |
+| `triage` | fable xhigh, sol high, opus max |
+| `review-adversarial`, `reviewer` | sol high, fable xhigh, opus xhigh |
+| `implementer-engine` | sol medium, fable high |
+| `release-manager` | opus medium, sol low |
+| `clarifier` | opus xhigh, sol high |
+| `gpt-flash-clarifier` | sol high |
+| every other sol seat that stood at `high` | sol medium |
+
+Ruling 2's cross-vendor principle still holds: every chief and reviewer
+chain keeps a codex model, sol, beside claude models, so the last judge
+before ship still crosses the vendor line from the claude smith, and
+ruling 3's panels keep their vendor diversity at the first hires.
+
+**Enforcement binding:** the agent files, `adapters/codex.json` and the
+recipes named above; `crates/brokkr-runtime/tests/roster.rs`
+(`sol_is_capped_and_astra_is_a_chiefs_last_fallback`) pins that the
+codex adapter maps `sol` to `gpt-6.1-sol`, that no agent hires sol above
+`high`, and that astra stands only last in the three chiefs' chains, at
+`max`; the witness pins move for every bundle that hires a moved office.

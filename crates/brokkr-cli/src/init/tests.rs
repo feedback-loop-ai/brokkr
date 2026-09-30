@@ -212,9 +212,9 @@ fn an_agents_allowance_follows_its_seats_class() {
         agent: "implementer",
         class: Class::Work,
         description: "",
-        models: ["opus", "sonnet"],
-        codex: ["sol", "terra"],
-        dsh: Some(["pro", "flash"]),
+        models: &["opus", "sonnet"],
+        codex: &["sol", "terra"],
+        dsh: Some(&["pro", "flash"]),
         max_attempts: 2,
         timeout_seconds: 5400,
     };
@@ -222,8 +222,8 @@ fn an_agents_allowance_follows_its_seats_class() {
         agent: "verifier",
         class: Class::Gate,
         description: "",
-        models: ["sonnet", "opus"],
-        codex: ["astra", "sol"],
+        models: &["sonnet", "opus"],
+        codex: &["sol"],
         dsh: None,
         max_attempts: 2,
         timeout_seconds: 3600,
@@ -265,25 +265,25 @@ fn a_dsh_scaffold_hires_its_gate_from_claude() {
     assert_eq!(
         hires(Cli::Claude),
         [
-            ("intake", (Cli::Claude, ["sonnet", "opus"])),
-            ("implementer", (Cli::Claude, ["opus", "sonnet"])),
-            ("reviewer", (Cli::Claude, ["fable", "opus"])),
+            ("intake", (Cli::Claude, &["sonnet", "opus"][..])),
+            ("implementer", (Cli::Claude, &["opus", "sonnet"][..])),
+            ("reviewer", (Cli::Claude, &["fable", "opus"][..])),
         ]
     );
     assert_eq!(
         hires(Cli::Codex),
         [
-            ("intake", (Cli::Codex, ["sol", "terra"])),
-            ("implementer", (Cli::Codex, ["sol", "terra"])),
-            ("reviewer", (Cli::Codex, ["astra", "sol"])),
+            ("intake", (Cli::Codex, &["sol", "terra"][..])),
+            ("implementer", (Cli::Codex, &["sol", "terra"][..])),
+            ("reviewer", (Cli::Codex, &["sol"][..])),
         ]
     );
     assert_eq!(
         hires(Cli::Dsh),
         [
-            ("intake", (Cli::Dsh, ["flash", "pro"])),
-            ("implementer", (Cli::Dsh, ["pro", "flash"])),
-            ("reviewer", (Cli::Claude, ["fable", "opus"])),
+            ("intake", (Cli::Dsh, &["flash", "pro"][..])),
+            ("implementer", (Cli::Dsh, &["pro", "flash"][..])),
+            ("reviewer", (Cli::Claude, &["fable", "opus"][..])),
         ]
     );
 }

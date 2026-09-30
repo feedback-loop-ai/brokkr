@@ -133,7 +133,7 @@ fn shipped_model_sites_name_the_library_outside_the_ruled_exceptions() {
             // (decision 0041's addendum of 2026-09-06). The retired strategy directories no longer need an
             // exception because their crews are selected from the roster.
             // review-first forces its crew for the reason a wager does: the
-            // firing names the models (Muse implements, Astra judges), and a
+            // firing names the models (Muse implements, Sol judges), and a
             // library chain would silently undo that at its first fallback
             // (decision 0060, under decision 0041 ruling 7).
             let allowed = recipe.starts_with("wager-harness")
@@ -209,17 +209,24 @@ fn tool_grants_keep_house_tools_explicit_and_effort_never_rises_on_fallback() {
         }
         let models = agent["models"].as_array().unwrap();
         let efforts = agent["efforts"].as_object().unwrap();
+        // Sol's scale sits one step down (decision 0045's addendum of
+        // 2026-09-30): its `high` is the level another model's `xhigh` is.
+        let rank_of =
+            |model: &str| rank(efforts[model].as_str().unwrap()) + i32::from(model == "sol");
         let first = models[0].as_str().unwrap();
-        let first_rank = rank(efforts[first].as_str().unwrap());
+        let first_rank = rank_of(first);
         // Triage's ruling-6 office is explicitly pinned fable/xhigh then
         // opus/max by the commission, the one deliberate rising fallback.
         if entry.file_name() == "triage.json" {
             continue;
         }
-        for later in &models[1..] {
+        // Astra at `max` as a chief's last fallback is the other one, by
+        // the same addendum; `sol_is_capped_and_astra_is_a_chiefs_last_fallback`
+        // pins where it may stand.
+        for later in models[1..].iter().filter(|model| *model != "astra") {
             let later = later.as_str().unwrap();
             assert!(
-                first_rank >= rank(efforts[later].as_str().unwrap()),
+                first_rank >= rank_of(later),
                 "{} hires {first} below fallback {later}",
                 entry.path().display()
             );
@@ -228,21 +235,23 @@ fn tool_grants_keep_house_tools_explicit_and_effort_never_rises_on_fallback() {
 }
 
 /// Issue #307 (operator rulings 2026-09-20 and 2026-09-21): the engine
-/// smith hires astra, then fable, both high, and its power is decision
+/// smith hires codex, then fable at high — sol at medium since the
+/// 2026-09-30 roster ruling moved astra's seats to Sol 6.1 one step down —
+/// and its power is decision
 /// 0043's workspace box — no network, the Cargo home as a masked overlay
 /// and the toolchain read-only — never a tool list, which hands would
 /// leave dead on both providers. The boundary stays the realm's fact and
 /// the workdir stays the box's own mount, so neither is declared here.
 #[test]
-fn the_engine_smith_hires_astra_then_fable_through_workspace_hands() {
+fn the_engine_smith_hires_sol_then_fable_through_workspace_hands() {
     let agent = json(&workspace().join("agents/implementer-engine.json"));
     assert_eq!(
         agent,
         serde_json::json!({
             "description": "Engine-class implementer: builds core, store, contract, and policy work selected by triage.",
             "charter": "charters/implementer.md",
-            "models": ["astra", "fable"],
-            "efforts": {"astra": "high", "fable": "high"},
+            "models": ["sol", "fable"],
+            "efforts": {"sol": "medium", "fable": "high"},
             "hands": {
                 "kind": "workspace",
                 "network": false,
@@ -484,6 +493,56 @@ fn a_codex_lane_is_chained_only_into_boxed_or_toolless_offices() {
     assert!(
         chained >= 8,
         "the roster chains codex into {chained} offices"
+    );
+}
+
+/// The chiefs: the offices that rule on a panel's or a council's work.
+const CHIEFS: [&str; 3] = ["chief-architect", "gpt-flash-review-chief", "review-chief"];
+
+/// The operator's roster ruling of 2026-09-30 (decision 0045's addendum):
+/// `sol` is Sol 6.1, its effort is capped at `high`, and `astra` stands
+/// only as a chief's last fallback, at `max`.
+#[test]
+fn sol_is_capped_and_astra_is_a_chiefs_last_fallback() {
+    let root = workspace();
+    let codex = json(&root.join("adapters/codex.json"));
+    assert_eq!(codex["models"]["sol"], "gpt-6.1-sol", "sol is Sol 6.1");
+    let mut astra_chiefs = BTreeSet::new();
+    for entry in std::fs::read_dir(root.join("agents")).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let name = path.file_stem().unwrap().to_str().unwrap().to_string();
+        let agent = json(&path);
+        if let Some(effort) = agent["efforts"]["sol"].as_str() {
+            assert!(
+                matches!(effort, "none" | "minimal" | "low" | "medium" | "high"),
+                "{name} hires sol at {effort}, above its cap of high"
+            );
+        }
+        let models: Vec<&str> = agent["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        if let Some(link) = models.iter().position(|model| *model == "astra") {
+            assert!(
+                CHIEFS.contains(&name.as_str()) && link + 1 == models.len(),
+                "{name} chains astra at link {link} of {models:?}; astra is only a chief's last fallback"
+            );
+            assert_eq!(
+                agent["efforts"]["astra"], "max",
+                "{name} hires astra below max"
+            );
+            astra_chiefs.insert(name);
+        }
+    }
+    assert_eq!(
+        astra_chiefs,
+        BTreeSet::from(CHIEFS.map(String::from)),
+        "every chief falls back to astra last"
     );
 }
 
