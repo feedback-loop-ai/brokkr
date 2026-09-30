@@ -6,12 +6,13 @@
 //! init knows, that the charter says so in those words instead of dressing
 //! a placeholder as a choice.
 //!
-//! The same table decides what the seats may RUN: the binary each command
-//! invokes is written into the scaffold's adapter as a tool permission and
-//! granted to the scaffolded agents — the whole set to the work seats, the
-//! read-only subset to the gates — and what is asserted is the resolved
-//! argv the compiler composes for the implement seat, because a grant that
-//! never reached `--allowedTools` is no grant.
+//! The same table decides what the seats are pre-approved to run: the
+//! binary each command invokes is written into the scaffold's adapter as a
+//! tool permission and granted to the scaffolded agents — the whole set to
+//! the work seats, the read-only subset to the gates — and what is asserted
+//! is the resolved argv the compiler composes for the implement seat,
+//! because a grant that never reached `--allowedTools` is no grant.
+//! Pre-approval removes no tool.
 //!
 //! Every scaffold is made in a tempdir the fixture's markers are COPIED
 //! into. Never in the checked-in fixture itself: `init` writes, and a
@@ -952,9 +953,9 @@ fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
 }
 
 /// A repository no row recognizes is granted nothing BY NAME: the
-/// adapter's names map stays empty and no agent declares a `tools`
-/// restriction (the loader reads an absent `tools` as "no restriction" —
-/// the only honest reading an empty map can serve). The README says so in
+/// adapter's names map stays empty and no agent declares a `tools` list
+/// (the loader reads an absent `tools` as no list and composes no tool
+/// flag — the only honest reading an empty map can serve). The README says so in
 /// those words rather than letting the silence pass for a choice, and the
 /// scaffold still compiles with no `--allowedTools` on any seat.
 #[test]
@@ -970,7 +971,7 @@ fn an_unrecognized_stack_scaffolds_an_empty_map_and_a_readme_that_says_so() {
         let definition = agent(&bundle, name);
         assert!(
             definition.get("tools").is_none(),
-            "generic agent {name} declares a tools restriction the empty map cannot express"
+            "generic agent {name} declares a tools list the empty map cannot express"
         );
         // Everything else an agent needs is still there.
         assert_eq!(definition["charter"], format!("charters/{name}.md"));

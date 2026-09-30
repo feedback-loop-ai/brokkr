@@ -54,8 +54,9 @@ seats declare no hands asks nothing of the host and runs, unboxed.
 The box runs two things: each call a boxed model seat makes to its one
 `workspace` tool, as `bash -lc <command>`, and a boxed `exec` seat's
 whole command. The harness process itself runs outside the box, with its
-credential and its connection to the provider. A boxed claude seat
-reaches the host only through its `workspace` tool. A boxed codex seat
+credential and its connection to the provider. A boxed claude seat has
+no tool but `workspace`, yet the Claude Code process still loads the
+operator's own configuration on the host (see below). A boxed codex seat
 also keeps Codex's native shell, read-only and outside the box (see
 below). A dsh seat, whose adapter cannot express boxed hands, never
 reaches the box.
@@ -98,8 +99,17 @@ reaches the box.
   outside the box, credential files and the host home included, and only
   its writes go through the box (decision
   [0043](decisions/0043-the-hands-are-one-tool.md)'s consequences). "The
-  host home is not bound" holds for the box's own calls, for claude and
-  for exec, not for what a Codex seat reads. No issue owns this yet.
+  host home is not bound" holds for the box's own calls and for exec,
+  not for what a Codex seat reads. No issue owns this yet.
+- **A boxed claude seat still loads the operator's Claude Code
+  configuration.** The Claude Code process runs outside the box, and
+  the claude hands fragment passes no `--settings`, no
+  `--setting-sources` and no configuration directory, so it reads the
+  operator's user-scope settings, `CLAUDE.md` and auto-memory from the
+  host home. That text reaches the model's context, and the hooks those
+  settings declare run on the host, outside the box. `--tools ""` and
+  `--strict-mcp-config` still leave the model no tool but `workspace`.
+  No issue owns this yet.
 - **Provider-side tools run outside it.** Codex's server-side
   `web_search` runs at the provider, so a boxed Codex seat whose hands
   set no network can still search the web. dsh 0.1.5 turns on

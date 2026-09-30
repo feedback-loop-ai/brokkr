@@ -276,10 +276,13 @@ nothing about its task, its holdings or its result contract.
 
 An agent may declare `"hands"` instead of relying on its `tools.allow`
 list (decision 0043). The harness keeps its credential and its network;
-what the model asks to run goes through one MCP tool, `workspace`, served
-by `brokkr hands serve`, and every call executes inside an empty-root
-bubblewrap namespace holding the worktree read-write and the host
-toolchain read-only. `binds` add host paths — the Rust toolchain cache as an
+Brokkr hands the model one MCP tool, `workspace`, served by `brokkr hands
+serve`, and every call to it executes inside an empty-root bubblewrap
+namespace holding the worktree read-write and the host toolchain
+read-only. The box bounds those calls and nothing else the harness does:
+a claude seat has no other tool, but a Codex seat keeps its native shell,
+read-only and outside the box, and can read the host through it (see the
+[security model](../security-model.md#what-the-box-does-not-do)). `binds` add host paths — the Rust toolchain cache as an
 overlay (the box may write to it, the host never sees the writes), its
 credentials masked, rustup read-only:
 
@@ -295,10 +298,11 @@ credentials masked, rustup read-only:
 ```
 
 With hands, the adapter's per-tool map is not consulted; what the adapter
-must express is how its harness's own tools are replaced by the one boxed
-tool (`hands` in the adapter file, or `"unsupported"` with the reason).
-The review agents declare hands, which is what lets a codex lane hold a
-review office at all: `sol` opens the single reviewer, the review
+must express is how its harness is handed the boxed tool (`hands` in the
+adapter file, or `"unsupported"` with the reason). Claude's fragment
+removes Claude Code's own tools; Codex's sets its native shell read-only
+beside the tool, and no switch removes it. The review agents declare
+hands, which is what lets a codex lane hold a review office at all: `sol` opens the single reviewer, the review
 chief and the adversarial member, and stands second behind `fable` on
 the security member, triage, the analyst and the chief-architect;
 `astra` stands only last in a chief's chain (decision 0045 and its

@@ -2,15 +2,19 @@
 //! (decision 0043).
 //!
 //! A harness keeps its credential and its network to the provider
-//! OUTSIDE the box. What the model asks to RUN goes through one tool,
-//! `workspace`, served over MCP on stdio by `brokkr hands serve`, and
-//! every call executes `bash -lc <command>` inside a bubblewrap
-//! namespace built from an empty root: the worktree bound read-write at
-//! its own path, the host toolchain read-only, a private `HOME` and
-//! `/tmp`, no host home, no host credential, no other process, and no
-//! network unless the spec grants it. A tool list only pre-approves what
-//! the model runs and removes no tool; the box bounds what running
-//! anything can touch.
+//! OUTSIDE the box. Brokkr serves one tool, `workspace`, over MCP on
+//! stdio by `brokkr hands serve`, and every call executes
+//! `bash -lc <command>` inside a bubblewrap namespace built from an empty
+//! root: the worktree bound read-write at its own path, the host
+//! toolchain read-only, a private `HOME` and `/tmp`, no host home, no
+//! host credential, no other process, and no network unless the spec
+//! grants it. The box bounds what a `workspace` call can touch, and
+//! nothing else the harness does. Claude's fragment removes Claude Code's
+//! own tools, so a claude seat runs commands through `workspace` alone.
+//! Codex has no switch that removes its native shell, so a boxed Codex
+//! seat keeps it beside `workspace`, read-only and outside the box, and
+//! can read the host through it. A tool list only pre-approves what the
+//! model runs and removes no tool.
 //!
 //! The same namespace boxes a deterministic `exec` seat whole, which is
 //! what lets a pinned script hold a gate (ruling 3). The strategy is part
@@ -35,7 +39,7 @@ use serde_json::{json, Map, Value};
 mod session;
 pub use session::{reap_dead_sessions, Reaped, Session, SessionError};
 
-/// The one tool the model sees. Claude Code names it `mcp__brokkr__workspace`.
+/// The boxed tool Brokkr serves. Claude Code names it `mcp__brokkr__workspace`.
 pub const SERVER_NAME: &str = "brokkr";
 pub const TOOL_NAME: &str = "workspace";
 /// The workdir is bound at its own path, so the paths a prompt names are

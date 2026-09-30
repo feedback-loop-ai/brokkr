@@ -424,16 +424,14 @@ const RECORDS: [&str; 6] = [
 
 /// What names a claude seat's tool list: the list itself, the agent
 /// field it comes from, the flag it is passed as, or the restriction or
-/// allow list it is called.
-const TOOL_LIST: [&str; 8] = [
+/// grant it is called.
+const TOOL_LIST: [&str; 6] = [
     "tool list",
     "tools.allow",
     "tool grant",
+    "the grant",
     "--allowedtools",
     "tool restriction",
-    "allow list",
-    "allow-list",
-    "allowlist",
 ];
 
 /// Wording that says a tool list bounds a seat. `--allowedTools`
@@ -442,32 +440,61 @@ const TOOL_LIST: [&str; 8] = [
 /// MCP servers, never by its tool list alone (#467). The resolver's
 /// "more power than it declares" is not here: a provider that cannot
 /// express a tool list refuses it, and the docs quote that refusal.
-const OVERCLAIMS: [&str; 17] = [
-    "bounded what the model may run",
-    "blast radius",
+const OVERCLAIMS: [&str; 8] = [
     "not a command it may run",
     "enforced rather than documented",
     "seats run under",
     "only restriction",
     "bounded only by",
-    "bounded by its tool list",
-    "restricted to its tool list",
-    "restricted by its tool list",
-    "limited to its tool list",
-    "can only use",
-    "may only use",
-    "may run only",
     "may run exactly",
     "may run nothing outside",
     "decides what the seats may run",
 ];
 
-/// Each paragraph of a Markdown text with wording that says a tool list
-/// bounds the seat, where it or the paragraph before names the tool list,
-/// so a list introduced above its bullets cannot hide one. Paragraphs are
-/// lowercased with their code and emphasis marks dropped and their line
-/// breaks joined, so neither can hide one either.
+/// Wording refused wherever it stands: a tool list called a restriction
+/// or a narrowing, or the box said to bound more than a `workspace` call.
+/// A boxed Codex seat keeps its native read-only shell outside the box,
+/// and a boxed claude seat's harness still loads the operator's own
+/// configuration on the host.
+const ANYWHERE: [&str; 11] = [
+    "blast radius",
+    "no tool restriction",
+    "tools restriction",
+    "no restriction",
+    "permission narrowing",
+    "what the model asks to run goes through one",
+    "the one tool the model sees",
+    "own tools are replaced by the one boxed tool",
+    "replaces the harness's own tools",
+    "bounds what running anything can touch",
+    "only through its workspace tool",
+];
+
+/// The wording the guard refuses, as lists a test can take one word out of.
+struct Vocabulary<'a> {
+    tool_list: &'a [&'a str],
+    overclaims: &'a [&'a str],
+    anywhere: &'a [&'a str],
+}
+
+const VOCABULARY: Vocabulary<'static> = Vocabulary {
+    tool_list: &TOOL_LIST,
+    overclaims: &OVERCLAIMS,
+    anywhere: &ANYWHERE,
+};
+
+/// Each paragraph of a Markdown text that the full [`VOCABULARY`] refuses.
 fn tool_list_overclaims(text: &str) -> Vec<String> {
+    overclaims_in(text, &VOCABULARY)
+}
+
+/// Each paragraph of a Markdown text with wording refused anywhere, or
+/// wording that says a tool list bounds the seat where it or the
+/// paragraph before names the tool list, so a list introduced above its
+/// bullets cannot hide one. Paragraphs are lowercased with their code and
+/// emphasis marks dropped and their line breaks joined, so neither can
+/// hide one either.
+fn overclaims_in(text: &str, vocabulary: &Vocabulary) -> Vec<String> {
     let paragraphs: Vec<String> = text
         .split("\n\n")
         .map(|paragraph| {
@@ -480,17 +507,17 @@ fn tool_list_overclaims(text: &str) -> Vec<String> {
         })
         .filter(|paragraph| !paragraph.is_empty())
         .collect();
-    let names_a_tool_list =
-        |paragraph: &str| TOOL_LIST.iter().any(|anchor| paragraph.contains(anchor));
+    let says = |paragraph: &str, words: &[&str]| words.iter().any(|word| paragraph.contains(word));
     paragraphs
         .iter()
         .enumerate()
-        .filter(|(_, paragraph)| OVERCLAIMS.iter().any(|claim| paragraph.contains(claim)))
         .filter(|(at, paragraph)| {
-            names_a_tool_list(paragraph)
-                || at
-                    .checked_sub(1)
-                    .is_some_and(|before| names_a_tool_list(&paragraphs[before]))
+            says(paragraph, vocabulary.anywhere)
+                || says(paragraph, vocabulary.overclaims)
+                    && (says(paragraph, vocabulary.tool_list)
+                        || at
+                            .checked_sub(1)
+                            .is_some_and(|before| says(&paragraphs[before], vocabulary.tool_list)))
         })
         .map(|(_, paragraph)| paragraph.clone())
         .collect()
@@ -513,7 +540,7 @@ fn doc_text(source: &str) -> String {
 
 /// Excerpts of the pages this story reworded, word for word as they
 /// stood: each holds one paragraph the guard refuses.
-const OLD_PAGES: [&str; 7] = [
+const OLD_PAGES: [&str; 13] = [
     // docs/guides/agent-library.md
     "**The honesty rules are the point, and they are enforced rather than\n\
      documented.** A tool restriction the provider cannot express fails\n\
@@ -548,11 +575,28 @@ const OLD_PAGES: [&str; 7] = [
      `--allowedTools` naming seven `Bash` prefixes, so it may edit freely\n   \
      but may run nothing outside that list — no network command, for\n   \
      instance.",
+    // docs/security-model.md, as this story first wrote it
+    "  the engine's environment, under claude's `--permission-mode\n  \
+     acceptEdits`, and the tool list is their only restriction. The",
+    "credential and its connection to the provider. A boxed claude seat\n\
+     reaches the host only through its `workspace` tool. A boxed codex seat",
+    // ARCHITECTURE.md, as this story first wrote it
+    "| Brokkr verification | `bundles/verify` examines a delivered change with a boxed verify \
+     seat and an unboxed review seat bounded only by its tool list ([security \
+     model](docs/security-model.md)).",
+    // docs/guides/agent-library.md's hands
+    "list (decision 0043). The harness keeps its credential and its network;\n\
+     what the model asks to run goes through one MCP tool, `workspace`, served",
+    "With hands, the adapter's per-tool map is not consulted; what the adapter\n\
+     must express is how its harness's own tools are replaced by the one boxed\n\
+     tool (`hands` in the adapter file, or `\"unsupported\"` with the reason).",
+    // docs/guides/starters/rust.md's fallback
+    "(`\"names\": {}`), no `tools` restriction on any agent, and a README that",
 ];
 
-/// Excerpts of the module docs this story reworded, as the sources
+/// Excerpts of the doc comments this story reworded, as the sources
 /// carried them.
-const OLD_SOURCES: [&str; 3] = [
+const OLD_SOURCES: [&str; 12] = [
     // crates/brokkr-protocol/src/hands.rs
     "//! `/tmp`, no host home, no host credential, no other process, and no\n\
      //! network unless the spec grants it. A tool allow-list bounded what the\n\
@@ -574,19 +618,71 @@ const OLD_SOURCES: [&str; 3] = [
      //! seats (intake, implement) may run the full set — the stack's runners\n\
      //! plus `git`, `ls`, `rg` and `mkdir` — so a seat may run exactly the\n\
      //! commands its charter names and nothing broader;",
+    "/// - `work` — the whole set: every runner above plus `git`, `ls`, `rg`\n\
+     ///   and `mkdir`, so a work seat may run exactly the commands its\n\
+     ///   charter names and nothing broader;\n\
+     /// - `gate` — the read-only subset: the test command's tools (which, for\n\
+     ///   every row in the tables today, are the same binary the build and\n\
+     ///   lint lines also lead with — the grant is per binary, and the README",
+    "//! EMPTY, no agent declares a `tools` restriction, and the scaffold's",
+    "/// grant: the loader rejects an empty `allow` as ambiguous between \"no\n\
+     /// restriction\" and \"restrict to nothing\", and the README says which of",
+    // crates/brokkr-cli/tests/init_stacks.rs
+    "//! The same table decides what the seats may RUN: the binary each command\n\
+     //! invokes is written into the scaffold's adapter as a tool permission and\n\
+     //! granted to the scaffolded agents — the whole set to the work seats, the\n\
+     //! read-only subset to the gates — and what is asserted is the resolved\n\
+     //! argv the compiler composes for the implement seat, because a grant that\n\
+     //! never reached `--allowedTools` is no grant.",
+    // crates/brokkr-protocol/src/hands.rs
+    "/// The one tool the model sees. Claude Code names it `mcp__brokkr__workspace`.",
+    // crates/brokkr-runtime/src/agents.rs and its tests
+    "    /// `None` declares NO tool restriction; `Some` is ordered, and that",
+    "    /// anything can touch — and the adapter must say how it replaces the\n\
+     /// harness's own tools with that one.",
+    "/// How a provider expresses a tool-permission narrowing on its command",
+    "/// would widen the agent's blast radius on fallback is a design-time",
 ];
+
+/// Every old excerpt as the guard reads it: a page as written, a source
+/// as its doc comments.
+fn old_texts() -> Vec<String> {
+    let pages = OLD_PAGES.iter().map(|page| page.to_string());
+    let sources = OLD_SOURCES
+        .iter()
+        .map(|source| doc_text(&format!("{source}\nfn f() {{}}\n")));
+    pages.chain(sources).collect()
+}
 
 #[test]
 fn the_guard_refuses_every_sentence_this_story_reworded() {
-    for page in OLD_PAGES {
-        assert_eq!(tool_list_overclaims(page).len(), 1, "not refused:\n{page}");
+    for text in old_texts() {
+        assert_eq!(tool_list_overclaims(&text).len(), 1, "not refused:\n{text}");
     }
-    for source in OLD_SOURCES {
-        let docs = doc_text(&format!("{source}\nfn f() {{}}\n"));
-        assert_eq!(
-            tool_list_overclaims(&docs).len(),
-            1,
-            "not refused:\n{source}"
+}
+
+/// Each word the guard holds is the only word that refuses some old
+/// excerpt, so none can be dropped with this file green and none is held
+/// for a sentence no one wrote.
+#[test]
+fn every_word_the_guard_holds_alone_refuses_an_old_sentence() {
+    let texts = old_texts();
+    for word in TOOL_LIST.iter().chain(&OVERCLAIMS).chain(&ANYWHERE) {
+        let keep = |list: &[&'static str]| -> Vec<&'static str> {
+            list.iter().copied().filter(|kept| kept != word).collect()
+        };
+        let (tool_list, overclaims, anywhere) =
+            (keep(&TOOL_LIST), keep(&OVERCLAIMS), keep(&ANYWHERE));
+        let without = Vocabulary {
+            tool_list: &tool_list,
+            overclaims: &overclaims,
+            anywhere: &anywhere,
+        };
+        assert!(
+            texts
+                .iter()
+                .any(|text| overclaims_in(text, &without).is_empty()),
+            "{word:?} alone refuses no old excerpt: drop it, or hold the sentence it is for"
         );
     }
 }
@@ -601,10 +697,17 @@ fn no_living_doc_says_a_tool_list_bounds_an_unboxed_seat() {
     for page in ["ARCHITECTURE.md", "README.md", "docs/security-model.md"] {
         assert!(pages.iter().any(|p| p == page), "{page} is not scanned");
     }
-    let sources = tracked_files::tracked(&root, &["crates/*/src/*.rs"]);
+    // This file holds the refused sentences as its fixtures.
+    let sources: Vec<String> =
+        tracked_files::tracked(&root, &["crates/*/src/*.rs", "crates/*/tests/*.rs"])
+            .into_iter()
+            .filter(|source| source != "crates/brokkr-cli/tests/status_pages.rs")
+            .collect();
     for source in [
         "crates/brokkr-protocol/src/hands.rs",
         "crates/brokkr-runtime/src/agents.rs",
+        "crates/brokkr-runtime/src/agents/tests.rs",
+        "crates/brokkr-cli/tests/init_stacks.rs",
     ] {
         assert!(
             sources.iter().any(|s| s == source),

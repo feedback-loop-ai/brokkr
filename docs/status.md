@@ -47,7 +47,10 @@ they are read in the adapter file, not here.
 - **Boxed hands**: whether the harness can put its hands in Brokkr's
   box (decision 0043). A boxed Codex seat keeps Codex's native shell,
   read-only and outside the box, so it can still read the host,
-  credential files included; only its writes go through the box
+  credential files included; only its writes go through the box. A
+  boxed claude seat has no tool but `workspace`, but Claude Code runs
+  outside the box and loads the operator's user-scope settings,
+  `CLAUDE.md` and auto-memory, and runs their hooks, on the host
   ([security model](security-model.md#what-the-box-does-not-do)).
   **Own sandbox for** is the seat classes whose
   harness sandbox stands in for the box under the `harness` boundary

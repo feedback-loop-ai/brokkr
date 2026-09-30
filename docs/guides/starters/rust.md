@@ -283,7 +283,7 @@ by its bytes, and a run records which bytes it ran.
 
 A repository `init` does not recognize — no manifest, no lockfile, no
 `Makefile` — gets the same fourteen files with an **empty** tool map
-(`"names": {}`), no `tools` restriction on any agent, and a README that
+(`"names": {}`), no `tools` list on any agent, and a README that
 says so in those words rather than granting a guessed permission. The
 two charters carry `<this project's …>` placeholders. See
 [quickstart.md](../quickstart.md#step-2--brokkr-init-) for the shape.

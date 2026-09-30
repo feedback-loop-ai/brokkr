@@ -79,7 +79,7 @@
 //! the grant that keeps a gate from building, and the README says so
 //! rather than promising a boundary the glob cannot draw. A stack no row
 //! of the two tables recognizes earns NO tool name: the map is written
-//! EMPTY, no agent declares a `tools` restriction, and the scaffold's
+//! EMPTY, no agent declares a `tools` list, and the scaffold's
 //! README says so in those words — a tool name is a permission, and one
 //! guessed is one granted.
 
@@ -884,9 +884,9 @@ fn codex_hands(detected: Option<&Detected>) -> serde_json::Value {
 
 /// One agent definition, in the repository's own library format. The
 /// `tools` key is omitted — not written empty — when there is nothing to
-/// grant: the loader rejects an empty `allow` as ambiguous between "no
-/// restriction" and "restrict to nothing", and the README says which of
-/// the two an absent key means.
+/// grant: the loader rejects an empty `allow` as ambiguous between no
+/// list and a list naming nothing, and the README says which of the two
+/// an absent key means.
 fn agent_json(
     spec: &AgentSpec,
     models: &[(&str, Effort)],
@@ -1003,7 +1003,7 @@ fn stack_readme(detected: Option<&Detected>, hired: &[Cli]) -> String {
         None => format!(
             "{header}The tool map was scaffolded EMPTY for the same reason:\n\
                  `adapters/claude.json` → `tool_permissions.names` names nothing,\n\
-                 and no agent under `agents/` declares a `tools` restriction.\n\
+                 and no agent under `agents/` declares a `tools` list.\n\
                  `brokkr init` grants no tool it could not read from a manifest,\n\
                  because a tool name is a permission and one guessed is one granted.\n\n\
                  Before a headless run, find this repository's own build, test and\n\
@@ -1021,7 +1021,7 @@ fn stack_readme(detected: Option<&Detected>, hired: &[Cli]) -> String {
 const NO_TOOL_MAP: &str = "## Tool grants\n\n\
      None. No seat is hired from claude, and the agent CLI that hires them\n\
      restricts by sandbox class rather than by tool name, so no agent under\n\
-     `agents/` declares a `tools` restriction and no adapter carries a tool\n\
+     `agents/` declares a `tools` list and no adapter carries a tool\n\
      map to edit.\n";
 
 /// The part of the scaffold's README that does not depend on the tool

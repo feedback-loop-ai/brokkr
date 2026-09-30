@@ -205,7 +205,7 @@ fn an_unrecognized_stack_grants_nothing() {
 
 /// The allowance an agent is written with follows the class of the seat
 /// that names it — and, when nothing was granted, every agent omits the
-/// `tools` restriction rather than name a tool the empty map cannot back.
+/// `tools` list rather than name a tool the empty map cannot back.
 #[test]
 fn an_agents_allowance_follows_its_seats_class() {
     let work = AgentSpec {
@@ -337,6 +337,24 @@ fn the_readme_says_the_work_grant_pre_approves_and_removes_no_tool() {
          cargo, git, ls, rg, mkdir. Pre-approval removes no tool: an unboxed seat keeps the\n\
          harness's defaults, your own permission settings and MCP servers."
     );
+}
+
+/// No README the scaffold writes calls a `tools` list a restriction: a
+/// list pre-approves and removes no tool (#366).
+#[test]
+fn no_scaffold_readme_calls_a_tool_list_a_restriction() {
+    let cargo = detected("cargo build", "cargo test", "cargo clippy");
+    for readme in [
+        stack_readme(Some(&cargo), &[Cli::Claude]),
+        stack_readme(None, &[Cli::Claude]),
+        stack_readme(Some(&cargo), &[Cli::Codex]),
+    ] {
+        assert_eq!(
+            readme.matches("restriction").collect::<Vec<_>>(),
+            Vec::<&str>::new(),
+            "{readme}"
+        );
+    }
 }
 
 /// The agent CLI is the first of claude, codex and dsh on PATH, claude

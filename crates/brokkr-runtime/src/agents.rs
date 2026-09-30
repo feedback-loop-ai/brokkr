@@ -132,9 +132,10 @@ pub struct Agent {
     /// grant: it names no dialect, server, provider or tool.
     pub capabilities: crate::capabilities::Requests,
     /// Decision 0043: the agent's hands are one boxed tool. When set, the
-    /// tool allow-list is not consulted — the box bounds what running
-    /// anything can touch — and the adapter must say how it replaces the
-    /// harness's own tools with that one.
+    /// tool list is not consulted, and the adapter must say how it hands
+    /// the harness that tool. The box bounds only what a call to it can
+    /// touch: claude's fragment removes Claude Code's own tools, while a
+    /// Codex seat keeps its native read-only shell outside the box.
     pub hands: Option<brokkr_protocol::hands::HandsSpec>,
     pub limits: Option<Limits>,
     pub inputs: Option<Vec<String>>,
@@ -1207,9 +1208,9 @@ fn compose(
             }
         }
         if boxed {
-            // Decision 0043 ruling 2: the box expresses the restriction. The
-            // tool list is not consulted; what the provider must be able to
-            // say is how its own tools are replaced by the one boxed tool.
+            // Decision 0043 ruling 2: the tool list is not consulted; what
+            // the provider must be able to say is how its harness is handed
+            // the boxed tool (a Codex seat keeps its read-only native shell).
             let fragment = adapter.hands.as_ref().ok_or_else(|| {
                 let declared = match &adapter.hands_gap {
                     Some(reason) => format!("the provider declares hands unsupported ({reason})"),

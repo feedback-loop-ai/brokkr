@@ -254,7 +254,7 @@ fn composition_is_a_lookup_and_a_join() {
     assert!(resolution.notices.is_empty());
 }
 
-/// An agent that declares no restriction gets none composed, and the
+/// An agent that declares no tool list gets none composed, and the
 /// record says so by carrying no tool flag at all.
 #[test]
 fn an_agent_without_tools_allow_declares_no_restriction() {
