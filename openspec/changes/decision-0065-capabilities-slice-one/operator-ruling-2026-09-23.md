@@ -276,3 +276,7 @@ Unit 27b (run 0065-rebuild-unit-27b-see-the-un-fd642276; 4d7aae75, 3c2bb484, dcc
 3. **The spell-check residue was this file's own quote.** The unit 27b ruling's item 4 is amended to name the renamed tests without their misspelled forms. Task 27b.4 closes once `typos --hidden` is clean on the tree.
 
 Task 27b.2 (the macOS results) stays open until remote CI runs the pushed head.
+
+## Addendum, 2026-09-30: the budgets decision 0065 raises
+
+Remote CI on #319 at 5df5966c measured what the slice costs against main. The operator accepts both as the cost of capability resolution, native controls, the final launch check and the bound reads: the release binary rises 8.8 per cent to 21,931,184 bytes (quality/binary-size.json, with that reason), and the CPU budget's compile of bundles/self rises about 135 per cent in instruction count (11.5M to 27.0M; the cpu-budgets job is not a required check and is ruled on here). Compile performance is follow-up work after #319.
