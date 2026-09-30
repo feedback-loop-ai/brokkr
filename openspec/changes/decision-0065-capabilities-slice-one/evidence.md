@@ -25484,3 +25484,40 @@ passed, 6, 1), brokkr-runtime (26 result lines ok), brokkr-cli with
     baselines. One `pub` item was added, `native_controls::opaque_conflict`,
     whose consumer is `capabilities.rs`.
   - macOS, remote CI and the council.
+
+## Unit 26c, third visit — blocked on the ruling the second visit asked for (2026-09-30)
+
+Run `0065-rebuild-unit-26c-see-the-un-b18b678d`, third implement visit,
+based on `62424f3d`. The second visit's oversized result returned to
+triage, which ruled `chore` again with the same five admitted files
+(`.forge/tasks/0065-unit-26c-triage.md`).
+
+**Result: blocked.** Triage cannot grant scope, and no operator addendum
+followed the unit 26c one: `grep -n "^## "` on
+`operator-ruling-2026-09-23.md` ends at "Addendum, 2026-09-30: unit 26c
+removes the unreachable arms and refuses the validator's name", and
+`git log` for that file ends at `08345c77`. No code moved this visit.
+
+The two residuals were read again on this head and stand:
+
+- `bundle.rs:2931` `refuse_permission_pins` still takes
+  `&agents::Candidate` and `&agents::Adapters`. `Candidate`
+  (`agents.rs:745`) carries `provider: String`. Handing the check an
+  adapter and a `Composition` by type is an edit to `agents.rs`.
+- `adapters.rs:3385` `ServingShape::of` still matches `claude`,
+  `lanetally`, `codex` and `dsh`, the vocabulary
+  `native_controls/grammar.rs:582` `grammar` also matches. One source is
+  an edit to `grammar.rs`.
+
+What the operator's ruling needs to say: either admit those two files
+for exactly these narrowings, or accept the two as the second visit left
+them, each held by proof (the pins and segments iterated, the parity
+test).
+
+Observed this visit: `git status --short` empty at `62424f3d`;
+`cargo fmt --all -- --check` clean;
+`a_literal_phase_that_aliases_the_injected_validator_is_refused` 1 passed;
+`an_opaque_command_is_judged_by_name_behind_its_driver_prefix_alone` 1
+passed. Not re-run, as no code moved: the crate suites, clippy, the two
+compiles and the seat diagnostic. Their results are the second visit's
+above, and everything it lists as pending is still pending.

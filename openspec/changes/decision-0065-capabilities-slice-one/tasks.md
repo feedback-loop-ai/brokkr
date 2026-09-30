@@ -5377,6 +5377,23 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
   `ratchet.sh` with the public-API baseline (one new `pub fn`), macOS,
   remote CI and the council.
 
+**Unit 26c, third implement visit, 2026-09-30 (same run, based on `62424f3d`)** (evidence.md, "Unit 26c, third visit").
+
+- **26c.1 stays open: blocked on the operator's ruling.** The oversized
+  return went to triage, which ruled `chore` again over the same five
+  files. No addendum after the unit 26c one exists in
+  `operator-ruling-2026-09-23.md`, so neither `agents.rs` nor
+  `native_controls/grammar.rs` is admitted, and the two residuals stand
+  as the second visit left them.
+- No file other than this note and its evidence section moved. No
+  fixture migration and no standing-admission line.
+- **Observed this visit.** The tree was clean at `62424f3d`; fmt clean;
+  the validator-name regression and the `opaque_conflict` contract test
+  each pass alone. The full suites, clippy, the compiles and the seat
+  diagnostic were not re-run, as no code moved; their results are the
+  second visit's.
+- **Pending.** Everything the second visit lists, unchanged.
+
 ## 27. Unit 27 — Validate and commit the rebuilt candidate
 
 - [ ] 27.1 **Unit 27, rebuilt final candidate:** Run `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; resolve failures and record actual exits. Keep dependency versions and required compiler/license constraints unchanged by the repair. Requirement: [Digest pins are measured and their history remains truthful][MP5] (scenario: Validation remains a proof obligation). Reopened/remaining: operator ruling 1–4 / V1/R13. (previous 11.1)
