@@ -17854,7 +17854,7 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
 /// the overlay the launch staged — admitted and refused alike.
 #[cfg(unix)]
 #[test]
-fn the_dsh_reading_doctor_calls_is_the_launchs_own_judgment() {
+fn the_dsh_reading_doctor_calls_is_the_launch_own_judgment() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
@@ -17919,7 +17919,7 @@ fn the_dsh_reading_doctor_calls_is_the_launchs_own_judgment() {
 /// admitted and refused alike. Claude's reading of the same sealed plan
 /// refuses it as another harness's, so doctor needs the wrapper's own.
 #[test]
-fn the_lanetally_reading_doctor_calls_is_the_launchs_own_judgment() {
+fn the_lanetally_reading_doctor_calls_is_the_launch_own_judgment() {
     let mut plan = claude_plan(&[], &[], &["WebSearch", "WebFetch"]);
     plan["provider"] = json!("lanetally");
     plan["harness"] = json!("lanetally");

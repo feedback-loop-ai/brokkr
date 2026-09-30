@@ -701,7 +701,9 @@ fn select_parses_every_case_and_refuses_closed_vocabulary_defects_by_case() {
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
     let fixture = Fixture::new();
-    let dir = fixture.dir.path();
+    // The parsers stand below the compile's entry, which hands them its
+    // canonical root (unit 27b; macOS's temporary root is a link).
+    let dir = fixture.root.as_path();
     let results = vec!["pass".to_string(), "fail".to_string()];
 
     for raw in [
@@ -1869,5 +1871,93 @@ fn every_shipped_bundle_addresses_its_sites_unambiguously() {
                 );
             }
         }
+    }
+}
+
+/// Rebuild unit 27b (operator ruling 2026-09-30, point 1): A RECIPE REACHED
+/// THROUGH A LINKED ANCESTOR COMPILES, AND ITS OWNERS STILL BIND. macOS's
+/// temporary root is `/var` -> `/private/var`; here a realm is reached
+/// through a link to it, and every root the compile is given is spelled
+/// through that link. Each is resolved once at entry, so the recipe
+/// compiles, both owners are bound at their canonical directories, and a
+/// run starts and resumes. Each owner's directory, then the realm's above
+/// both, replaced by an equal-byte copy after the compile, refuses the start
+/// and the resume, by owner and cause, exactly as units 16–19 prove.
+#[cfg(unix)]
+#[test]
+fn a_recipe_reached_through_a_linked_ancestor_compiles_and_still_refuses_a_replacement() {
+    use crate::engine::{Engine, EngineError};
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let (realm, link) = (root.join("realm"), root.join("link"));
+    for (relative, body) in [
+        ("agents/charters/worker.md", "# work\n".to_string()),
+        (
+            "agents/worker.json",
+            json!({"description": "w", "charter": "charters/worker.md",
+            "models": ["opus"], "efforts": {"opus": "high"}})
+            .to_string(),
+        ),
+        (
+            "adapters/claude.json",
+            std::fs::read_to_string(workspace_root().join("adapters/claude.json")).unwrap(),
+        ),
+        ("recipe/roles/role.md", "# role\n".to_string()),
+        ("recipe/policy.json", Fixture::policy().to_string()),
+        (
+            "recipe/bundle.json",
+            json!({"name": "recipe", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "agent": "worker"},
+            "review": Fixture::config()["seats"]["review"]}})
+            .to_string(),
+        ),
+    ] {
+        std::fs::create_dir_all(realm.join(relative).parent().unwrap()).unwrap();
+        std::fs::write(realm.join(relative), body).unwrap();
+    }
+    std::os::unix::fs::symlink(&realm, &link).unwrap();
+    let (agents, adapters) = (link.join("agents"), link.join("adapters"));
+    let bundle = Bundle::compile_with(&link.join("recipe"), &agents, &adapters);
+    let bundle = bundle.expect("a recipe reached through a link compiles");
+    let owners = bundle.charters.values().flatten();
+    let owners: BTreeSet<_> = owners.map(|pin| pin.owner.root().to_path_buf()).collect();
+    assert_eq!(
+        owners,
+        BTreeSet::from([realm.join("agents"), realm.join("recipe")])
+    );
+    let store = || brokkr_store::Store::open(&root.join("forge.db")).unwrap();
+    let door = |door: Result<Engine, EngineError>| match door {
+        Ok(engine) => Ok(engine.run_id),
+        Err(EngineError::CharterMoved { owner, key }) => Err((owner, key)),
+        Err(other) => panic!("not a charter refusal: {other:?}"),
+    };
+    let run = door(Engine::start(store(), bundle.clone(), "f", None)).unwrap();
+    let doors = || {
+        let started = door(Engine::start(store(), bundle.clone(), "f", None));
+        let resumed = door(Engine::resume(store(), bundle.clone(), &run, None));
+        (started.map(|id| id != run), resumed)
+    };
+    assert_eq!(doors(), (Ok(true), Ok(run.clone())));
+    let moved = |owner: &str, key: &str| (owner.to_string(), format!("replaced: {key}"));
+    for (path, owner, key) in [
+        (realm.join("recipe"), "layer 'recipe'", "roles/role.md"),
+        (realm.join("agents"), "agent 'worker'", "worker.md"),
+        (realm.clone(), "agent 'worker'", "worker.md"),
+    ] {
+        let away = root.join("away");
+        std::fs::rename(&path, &away).unwrap();
+        let mut copy = std::process::Command::new("cp");
+        assert!(copy
+            .arg("-R")
+            .arg(&away)
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        let refused = moved(owner, key);
+        assert_eq!(doors(), (Err(refused.clone()), Err(refused)), "{path:?}");
+        std::fs::remove_dir_all(&path).unwrap();
+        std::fs::rename(&away, &path).unwrap();
+        assert_eq!(doors(), (Ok(true), Ok(run.clone())), "{path:?} restored");
     }
 }

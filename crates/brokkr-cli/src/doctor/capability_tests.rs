@@ -1701,7 +1701,7 @@ fn each_harness_is_answered_as_its_launch_serves_it() {
 /// shorter office, is not.
 #[test]
 fn a_final_validation_refusal_is_bounded_as_a_compile_refusal_is() {
-    let office = "an-office-named-at-the-sixty-four-byte-bound-a-site-keeps-in-ful";
+    let office = "an-office-named-at-the-sixty-four-byte-bound-a-site-keeps-in-all";
     let name = "a-realm-named-at-the-sixty-four-byte-bound-a-site-keeps-it-whole";
     assert_eq!((office.len(), name.len()), (64, 64));
     let mut codex = adapter(
@@ -1759,7 +1759,7 @@ fn a_final_validation_refusal_is_bounded_as_a_compile_refusal_is() {
 /// above). `brokkr-protocol`'s own suite shows each reading equal to its
 /// launch's outcome on the same command.
 #[test]
-fn dsh_and_lanetally_plans_are_judged_by_their_launchs_own_final_validation() {
+fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
     let dir = workspace_with(Some(json!([realm("private", None)])));
     let mut availability = installed(&[]);
     for (provider, harness, declared, template) in [

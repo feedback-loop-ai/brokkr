@@ -15279,7 +15279,7 @@ The baseline is the final tests run against `48ad7d82`'s `native_controls.rs`
 `-baseline-final-launch.txt`). All four positives were red there, each with
 the refusal 14b recorded.
 
-- `native_controls/tests.rs::an_unselected_entrys_off_for_a_held_capability_is_no_denial`
+- `native_controls/tests.rs::an_unselected_entry_off_for_a_held_capability_is_no_denial`
   (`:9130`), new. The fixture is `claude_local`'s plan with a second,
   unselected web-search entry guarding `Read`. It holds web-search and
   lists web-search and web-fetch as denied. Its selection denies
@@ -15538,7 +15538,7 @@ in the composition. `adapters.rs` did not move either.
     workspace fragment beside the harness fragment, the empty fragment
     under `open`, the work fragment under `open`, the work fragment under
     the box (`namespace`), and the empty fragment under no boundary.
-  - `an_unselected_entrys_off_for_a_held_capability_is_no_denial` did not
+  - `an_unselected_entry_off_for_a_held_capability_is_no_denial` did not
     change.
   - `sealed_serving_inputs_round_trip_byte_exactly` (`:12315`) round-trips
     each of the five words exactly. `full_serving` seals `harness`, and the
@@ -23477,7 +23477,7 @@ unit 22-fix-b".
     - Changed: `each_harness_is_answered_as_its_launch_serves_it`. DSH is
       now admitted, and LaneTally is refused with its launch's final-check
       refusal.
-    - New: `dsh_and_lanetally_plans_are_judged_by_their_launchs_own_final_validation`
+    - New: `dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation`
       covers DSH refused (effort without model), DSH admitted (model pin)
       and LaneTally admitted (deny list).
     - New: `a_realm_authority_that_does_not_load_is_refused_through_the_bounded_sink`.
@@ -23490,12 +23490,12 @@ unit 22-fix-b".
       report is asserted exactly.
   - In `crates/brokkr-protocol/src/adapters/tests.rs` (the export's owning
     tests):
-    - `the_dsh_reading_doctor_calls_is_the_launchs_own_judgment` compares
+    - `the_dsh_reading_doctor_calls_is_the_launch_own_judgment` compares
       the launch (`dsh_launch_with` then `dsh_served`, on the overlay it
       staged) with `dsh_cold_command` on the same sealed input. They are
       equal when admitted, when refused by the argv judgment, and when
       refused unsealed.
-    - `the_lanetally_reading_doctor_calls_is_the_launchs_own_judgment`
+    - `the_lanetally_reading_doctor_calls_is_the_launch_own_judgment`
       compares the launch's `claude_launch(.., claude_shape(true), ..)`
       with `lanetally_command`. They are equal when admitted and when
       refused unsealed. `claude_command` refuses the same sealed plan as
@@ -23656,7 +23656,7 @@ byte is committed. Only this file and `tasks.md` move.
 | D2 | managed Read/empty, cold (21 M1, re-run) | `adapters.rs` `claude_serving` drops the `--tools` pair when not rejoining | P 16, R 12 | `a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_resume`: each `cold` is `Err("… leaves tool 'WebSearch' available, which its plan denies as native capability 'web-search' …")` beside the expected served `… --tools "" --disallowedTools WebFetch`. So the lost limit is refused, not served, on this head. |
 | D3 | Codex cold OFF (21 M3, re-run) | `codex_cold` extends `managed…take(0)` | P 23, R 23 | CQ1 `cold`, inline: refused by the inline attribution check. No row is served without the OFF. |
 | D4 | Codex rejoin OFF (21 M4, re-run) | `codex_rejoin` extends `managed…take(0)` | P 11, R 5 | CQ1 `rejoined`: agent-backed `Err("… the final command of harness 'codex' leaves native capability 'web-search' on, which its plan denies by its measured OFF …")`, and inline refused by attribution, each beside the expected served `… -c web_search="disabled" <thread> -`. |
-| C2 | Claude/LaneTally cold and rejoin seams (14b, 15) | `served_plan` returns the launch without `served` | P 6, R 4 | `capability_launch` cold and rejoin rows; `the_lanetally_reading_doctor_calls_is_the_launchs_own_judgment`; `the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam`. |
+| C2 | Claude/LaneTally cold and rejoin seams (14b, 15) | `served_plan` returns the launch without `served` | P 6, R 4 | `capability_launch` cold and rejoin rows; `the_lanetally_reading_doctor_calls_is_the_launch_own_judgment`; `the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam`. |
 | C3 | DSH seams (14b, 15) | `DshServing::served` returns the command without `served` | P 3 | `a_sealed_dsh_cold_command_…`, `a_sealed_dsh_rejoin_…` and `the_dsh_reading_doctor_calls_…`. |
 | R1 | resume, record reassembly (15 review) | `served`: `reassemble` not called | P 1, R 1 | `capability_launch.rs:5129`, row "codex agent, its record emptied": served `Ok([… "exec", "resume", …])`, where the expected value is `refusing the private launch record: its segments do not reassemble the arguments supplied; they first differ at argument 0 (0 recorded, 6 supplied) …`. |
 | R2 | unsealed plan (15-fix-b) | `served`: `(None, None)` with a plan serves the command | P 5 | `the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam`, and the inline-Codex, DSH and LaneTally readings. |
@@ -25712,3 +25712,193 @@ and the council.
 
 **Admissions.** No committed production byte, test byte, fixture
 migration, standing-admission line or `quality/` ledger.
+
+## Unit 27b — the two macOS failures remote CI found, and SQ3/SQ4 bound (2026-10-01)
+
+Run `0065-rebuild-unit-27b-see-the-un-fd642276`, based on `7f4b9f54`. The
+operator's ruling of 2026-09-30 is landed verbatim as the last addendum of
+`operator-ruling-2026-09-23.md`. No crate byte differs between `5df5966c`
+(the head CI ran) and `7f4b9f54` (`git diff --stat 5df5966c HEAD --
+crates/` is empty), so every baseline below, observed on `7f4b9f54`, is
+`5df5966c`'s code.
+
+### (1) A root reached through a symlinked ancestor
+
+**Reproduced on Linux.** A scratch program under `.forge/u27b/mklink/`
+made `.forge/u27b/tmp-link` a symlink to `.forge/u27b/real`, the macOS
+shape (`/var` -> `/private/var`). `cargo test -p brokkr-runtime --lib
+bundle::` with `TMPDIR` forced to the link (`--config env.TMPDIR…`,
+`GIT_CEILING_DIRECTORIES` at `.forge/u27b`): 249 passed, 1 failed, and the
+failure is exactly CI's: `panel_and_sequence_parsers_refuse_every_ambiguous_shape`
+panicked at `tests.rs:757` with `Invalid("…/tmp-link/.tmp…/bundle.json:
+seat 'review:a' names role 'roles/role.md', whose owner's directory, or a
+directory above it, is no longer the one the compile bound: it was
+replaced, or reached through a link. …")` (`.forge/u27b/linked-tmpdir-head.log`).
+
+**What the reproduction shows, which the ruling's premise does not.**
+The failing test calls `parse_panel` directly with `fixture.dir.path()`,
+the temporary directory as spelled, beneath the compile's entry. Every
+production compile reaches `parse_panel` through `assemble`, which
+`compile_with_capabilities` hands the bundle directory canonicalized once
+at entry (`bundle.rs:1428`). The other roots are canonical before any
+handle is taken: the library at `Library::scan` (`agents/load.rs:436`),
+each composed layer at `read_layers` (`compose.rs:239`, `:350`). The
+operator and capability documents are read with no owner binding
+(`capabilities.rs:311`). On this head a bundle, a library and adapters
+all spelled through a link compile, start and resume (the regression
+below passes unchanged on the baseline code). Owner binding only refuses
+a non-canonical root that bypasses the entry. The other tests in this
+suite that compile `fixture.dir.path()` through `Bundle::compile_*` with
+an inline role (`compile_dialect_fixture`, `tests.rs:108`) passed in CI's
+macOS job, 695 of 697, which is the same evidence from the Mac side. So
+no production byte moved: the entry resolution the ruling requires
+already exists, and a second resolver, or a canonicalization inside the
+owner read, is what ruling point 1 forbids. **This is reported for the
+operator's ruling**: the defect is the fixture's, not production's.
+
+- **Fix, test-only.** `panel_and_sequence_parsers_refuse_every_ambiguous_shape`
+  now hands the parsers `fixture.root`, the fixture's root canonicalized
+  once at creation, as the compile's entry hands them the canonical
+  root. Re-run under the linked `TMPDIR`: `bundle::`, 250 passed, 0 failed
+  (`.forge/u27b/linked-tmpdir-fixed.log`). The baseline red above is its
+  removal control: the unfixed line fails there, and the fixed line
+  passes.
+- **Regression, new**:
+  `bundle/tests.rs::a_recipe_reached_through_a_linked_ancestor_compiles_and_still_refuses_a_replacement`.
+  - A realm with an inline-role layer, an agent library and adapters,
+    compiled with every root spelled through a link to it.
+  - It compiles. Its two owners are bound at the canonical
+    `realm/agents` and `realm/recipe`, and a run starts and resumes.
+  - Then each of the layer's directory, the library's, and the realm
+    above both is renamed away and replaced by an equal-byte `cp -R`
+    copy. Each refuses both `Engine::start` and `Engine::resume` by
+    `CharterMoved` with the exact owner and key: `layer 'recipe'` /
+    `replaced: roles/role.md`, `agent 'worker'` / `replaced: worker.md`,
+    and, for the realm, `agent 'worker'` first.
+  - Renamed back, the doors pass again.
+  - It passed on the baseline code.
+- **Mutation, the one the ruling names (drop the entry resolution).**
+  `let dir = dir.to_path_buf();` in place of `bundle.rs:1428`'s
+  `canonicalize`. The regression failed at the start door (then
+  `tests.rs:1919`, now `:1934` after fmt) with `("bundle 'recipe'",
+  "unpinned: /tmp/.tmp…/realm/recipe/roles/role.md")`. Restored with
+  `git checkout`, it passes.
+
+### (2) The socket refusal, per host
+
+`compose_tests.rs::a_replacement_between_check_and_read_is_refused_never_read`
+hard-coded Linux's `(uncategorized error)`. On macOS, open(2) on a socket
+answers `EOPNOTSUPP`, and std names that kind `unsupported`: a scratch
+binary (`.forge/u27b/mklink/src/bin/kinds.rs`) printed `ENXIO 6:
+uncategorized error` and `EOPNOTSUPP(linux) 95: unsupported`. The
+expectation is now each host's errno (`rustix::io::Errno::NXIO` on Linux,
+`OPNOTSUPP` on macOS, by `cfg(target_os)`), rendered through
+`std::io::Error::from(…).kind()`. The refusal is unchanged.
+
+- **Mutation.** Linux's arm set to `OPNOTSUPP`: the test failed (then
+  `compose_tests.rs:2101`, now `:2104`) with left `… which cannot be read
+  (uncategorized error) …` and right `… (unsupported) …`, which is
+  exactly CI's macOS text. Restored, it passes.
+- **Pending.** The macOS arm is confirmed only by remote CI on the
+  operator's next push.
+
+### (3) SQ3 and SQ4, bound
+
+**New test:** `engine/agent_tests.rs::a_dialect_step_is_composed_and_marked_at_its_own_site`.
+It compiles a recipe whose `design` seat is an inline `author` step and
+the openspec dialect's `validate` step, and drives only the dialect step
+through `execute_sequence`. Its child is the test executable, so the
+driver input it is handed cannot be captured in this suite. Each edit is
+bound at the spawn door instead, by a fact planted at the validator's own
+site (`design:validate`).
+
+- **Unplanted.** The compiled site holds no `charter`, `inline_local`,
+  `inline_sandbox` or `inline_hands`, and it does hold `local` and
+  `capabilities`. So on every compiled bundle today, composing at the
+  label (SQ3) adds nothing to the spawn. That is the equivalence the
+  unit-27 survivor reflected, now recorded by an assertion.
+- **SQ3.** The `author` step's charter pin is planted on the validator's
+  site. The dispatch refuses before spawning: `sequence step 'validate':
+  driver did not spawn: dispatch refused: a charter of layer 'd' moved
+  since the compile (replaced: roles/role.md); …`.
+  - Mutation: `compose_at(None, …)` at `sequence.rs:395`. It failed at
+    the error-payload assertion (then `agent_tests.rs:523`, now `:539`):
+    left `Null`, because the validator spawned.
+  - Restored, it passes.
+- **SQ4.** `local` is taken off the validator's site. The seal refuses:
+  `… dispatch refused: the site's local declaration was never judged, so
+  no launch record can be sealed for this site; …`.
+  - Mutation: the `mark_capabilities` call at `sequence.rs:405` removed.
+    It compiles, with an unused-`mut` warning. It failed at the same
+    assertion with left `Null`.
+  - Restored (`git checkout`), `engine::agent_tests::` passed 10/10.
+- **Not claimed.** The driver-input shape the ruling's parenthesis names
+  (explicit null `capabilities`/`native_controls`) is not observed:
+  nothing in the lib suite captures a dialect step's start message. What
+  is bound is that the step composes, and seals its record, from its own
+  site's facts.
+
+### (4) The spell checker's possessives
+
+Renamed:
+
+- `doctor/capability_tests.rs` → `…_launches_own_final_validation`;
+- `adapters/tests.rs` → `the_dsh_…` and `the_lanetally_reading_doctor_calls_is_the_launch_own_judgment`;
+- `native_controls/tests.rs` → `a_selection_mapping_is_read_against_the_harness_own_lists`
+  and `an_unselected_entry_off_for_a_held_capability_is_no_denial`.
+
+The 64-byte office string at `doctor/capability_tests.rs:1704` now ends
+`-in-all`, and its test still asserts `(64, 64)`. Every reference in this
+file was updated. tasks.md held none. `git grep` finds no old spelling
+outside the ruling's verbatim addendum, and `_typos.toml` is unchanged.
+**Risk:** that addendum quotes the four old spellings verbatim, so the
+spell checker may flag the ruling file. `typos` is not runnable in this
+seat, so that is pending on remote CI.
+
+### Gates observed on this tree
+
+- `cargo fmt --all -- --check`: clean.
+- Workspace clippy, locked, all targets and features, `-D warnings`: no
+  warning or error line (a first run's `type_complexity` on the new test
+  was fixed with a local alias).
+- `brokkr-runtime`:
+  - `--lib`: 701 passed, 0 failed (699 plus the two new tests);
+  - `--test '*'`: 25 result lines, 183 passed, 0 failed;
+  - `--doc`: 0 tests.
+- `brokkr-protocol`: 628, 6, 1 and 1 passed, 1 ignored, 0 failed (636,
+  as in unit 27). All four renamed tests ran and passed.
+- `brokkr-cli`: `--lib` 555 passed; `--bins --test '*'` 43 of 43 targets
+  ok, 464 passed, 1 ignored. That is 1019, as in unit 27, and
+  `dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation`
+  passed.
+- Untouched crates (`brokkr-core`, `-store`, `-view`, `-bridge`) were not
+  re-run.
+- self and verify compile, with digests `605c2d29…` and `11aebe40…`,
+  both already recorded above: no pin moved.
+- `openspec validate --all --strict --no-interactive`: 19 passed, 0
+  failed.
+- `git diff --check`: clean.
+
+**Ledgers re-measured**:
+
+- `quality/too-many-lines.txt`:
+  `a_replacement_between_check_and_read_is_refused_never_read` went from
+  110 to 109 lines, by clippy's `too_many_lines` measured with
+  `--force-warn`. Both new tests are under 100.
+- `quality/file-lines.txt`: `bundle/tests.rs` from 1873 to 1963 and
+  `engine/agent_tests.rs` from 441 to 544, both under the 2,000 ceiling.
+  `compose_tests.rs` stays at its 4136 baseline.
+
+**Admissions.** No production byte. No fixture migration and no
+standing-admission line. The test edits are in the owning suites the
+ruling admits.
+
+**Pending.**
+
+- macOS confirmation of (1) and (2), from remote CI on the operator's
+  next push;
+- the spell check;
+- exact coverage (27.4, 26b.1);
+- jscpd, `ratchet.sh`, CRAP and public-API;
+- the council;
+- the operator's ruling on (1)'s premise.

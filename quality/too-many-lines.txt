@@ -212,7 +212,7 @@
  149 crates/brokkr-runtime/src/bundle/agent_tests.rs:6634 a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified
  130 crates/brokkr-runtime/src/bundle/compose_tests.rs:165 a_derived_recipe_overrides_one_named_select_case_and_no_neighbour
  103 crates/brokkr-runtime/src/bundle/compose_tests.rs:610 policy_is_per_layer_and_tables_merge_by_name
- 110 crates/brokkr-runtime/src/bundle/compose_tests.rs:1985 a_replacement_between_check_and_read_is_refused_never_read
+ 109 crates/brokkr-runtime/src/bundle/compose_tests.rs:1985 a_replacement_between_check_and_read_is_refused_never_read
  101 crates/brokkr-runtime/src/bundle/compose_tests.rs:3960 a_bundle_root_is_a_closed_vocabulary_at_every_layer
  119 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:1221 a_value_attached_to_a_short_flag_is_the_pin_that_flag_carries
  106 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3167 the_gate_law_reads_the_boundary_for_sites_that_declare_hands

@@ -5485,6 +5485,83 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
 
   28.1 stays open, and the security hold awaits the council.
 
+## 27b. Unit 27b — Fix the two failures remote CI's macOS job found
+
+- [ ] 27b.1 **Unit 27b (operator ruling of 2026-09-30, point 1):** Every root a compile binds is resolved once at compile entry to its canonical path, and every handle, binding and owner identity is taken from it. A path through a symlinked ancestor compiles, and a later replacement of the bound directory, or of an ancestor, still refuses at start and resume. Regression reproduces the macOS shape on Linux, with a baseline red, a compiling mutation (drop the entry resolution) caught and a restored pass. Requirements: [Refusal proofs assert the full reason][SC8] (scenario: macOS canonical fixture roots preserve exact diagnostics); [Library charter pins are enforced at consumption][MPL]. Open for macOS (remote CI) and the operator's ruling on the premise.
+- [ ] 27b.2 **Unit 27b (point 2):** The socket refusal's expected text is each supported host's own error kind, derived from the platform; the refusal is unchanged. Bound by a mutation. Requirement: [Refusal proofs assert the full reason][SC8]. Open for macOS (remote CI).
+- [x] 27b.3 **Unit 27b (point 3):** SQ3 and SQ4 (`engine/sequence.rs:395`, `:405`) are each bound by a test that fails when the edit is removed, or a provable equivalence is recorded for the operator's ruling. Tests only. Requirements: [Denial and admission have removal proofs and bounded live claims][NC6]; [Digest pins are measured and their history remains truthful][MP5].
+- [x] 27b.4 **Unit 27b (point 4):** The five possessive test names and the office string at `doctor/capability_tests.rs:1704` are renamed, every reference in tasks.md/evidence.md with them. Nothing is listed in `_typos.toml`. Requirement: house CI (typos).
+
+**Unit 27b, 2026-10-01 (run `0065-rebuild-unit-27b-see-the-un-fd642276`, based on `7f4b9f54`, whose crates equal `5df5966c`'s)** (evidence.md, "Unit 27b").
+
+- **27b.1, open.**
+  - **Reproduced on Linux** with `TMPDIR` through a symlink. `bundle::`
+    went 249/1, and the one failure is CI's, at `tests.rs:757`, word for
+    word.
+  - **The failing test called `parse_panel` beneath the compile's
+    entry** with the non-canonical temp path. Production already
+    resolves every bound root before any handle is taken:
+    - the bundle directory at `bundle.rs:1428`;
+    - the library at `agents/load.rs:436`;
+    - each layer at `compose.rs:239` and `:350`.
+
+    No production byte moved, and adding a second resolver is what the
+    ruling forbids. **The premise, that this is a production defect, is
+    reported for the operator's ruling.**
+  - **Fix, test-only.** The test hands the parsers `fixture.root`. Under
+    the linked `TMPDIR`, `bundle::` passes 250/0.
+  - **Regression.** `a_recipe_reached_through_a_linked_ancestor_compiles_and_still_refuses_a_replacement`
+    compiles a layer, a library and adapters spelled through a link. It
+    starts and resumes a run. A replaced layer, library or realm
+    directory refuses both doors with the exact owner and key.
+  - **Mutation.** Dropping `bundle.rs:1428`'s `canonicalize` fails the
+    regression at the start door (`unpinned: …`). Restored, it passes.
+  - macOS confirmation awaits the operator's next push.
+- **27b.2, open for macOS.** The expectation is `ENXIO` on Linux and
+  `EOPNOTSUPP` on macOS, rendered through std's kind (`uncategorized
+  error`, `unsupported`, observed by a scratch binary). The mutation
+  that gives Linux macOS's errno fails with CI's macOS text on the
+  right. Restored, it passes.
+- **27b.3, ticked.** `engine/agent_tests.rs::a_dialect_step_is_composed_and_marked_at_its_own_site`
+  compiles the openspec `validate` step and drives it alone.
+  - Unplanted, the validator's site holds no charter or inline segment,
+    and it does hold `local` and `capabilities`.
+  - With the author's charter pin planted there, the door refuses
+    `replaced: roles/role.md`. `compose_at(None, …)` (SQ3) makes the
+    step spawn instead: the error is `Null`.
+  - With `local` taken off, the seal refuses. Removing
+    `mark_capabilities` (SQ4) makes it spawn instead.
+  - Both were restored, and `engine::agent_tests::` passes 10/10.
+  - Not observed: the driver input's explicit nulls, because no lib-suite
+    capture of a dialect step's start message exists. This answers unit
+    27's pending SQ3/SQ4 obligation (27.5).
+- **27b.4, ticked.** The renames are listed in evidence.md, and each
+  renamed test ran and passed. The office string stays 64 bytes
+  (`-in-all`). Only the ruling's verbatim addendum still quotes the old
+  spellings, which may draw the spell checker (pending remote CI;
+  `typos` is not runnable in the seat).
+- **Gates.**
+  - fmt: clean. Workspace clippy with `-D warnings`: clean.
+  - `brokkr-runtime`: lib 701/0, integration 183/0 over 25 result lines,
+    doc 0.
+  - `brokkr-protocol`: 636, 1 ignored. `brokkr-cli`: 1019, 1 ignored,
+    over 44 targets.
+  - self and verify compile at their recorded digests.
+  - `openspec validate --all --strict`: 19/0. `git diff --check`: clean.
+- **Ledgers.** Re-measured as counts moved: `too-many-lines.txt` (one
+  entry, 110 to 109) and `file-lines.txt` (`bundle/tests.rs` 1963,
+  `engine/agent_tests.rs` 544).
+- **Admissions.** No production byte, no fixture migration and no
+  standing-admission line.
+- **Pending.**
+  - macOS (27b.1, 27b.2, 27.2, 25.2);
+  - the spell check;
+  - exact coverage (27.4, 26b.1);
+  - jscpd, `ratchet.sh`, CRAP and public-API;
+  - the council.
+
+  28.1 stays open.
+
 ## 28. Later council judgment and final archive
 
 - [ ] 28.1 **Do not archive or fold in this commission.** The operator holds this final task open for council re-judgment; completed local repairs/gates do not clear the security hold. If subsequently authorized after that judgment, the dialect's final operation is `openspec archive decision-0065-capabilities-slice-one --yes`, folding the six deltas into living truth with append-only provenance, followed by archived strict validation and a commit. That later work is outside this repair visit, so leave this box unchecked. Requirements: [Slice-one records do not claim later-slice behavior][MP6]; [Digest pins are measured and their history remains truthful][MP5]; operator no-archive ruling and dialect archive operation. (previous 12.1)

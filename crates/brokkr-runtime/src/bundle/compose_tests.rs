@@ -2091,17 +2091,17 @@ fn a_replacement_between_check_and_read_is_refused_never_read() {
     let bound = library.path().join("s");
     let _listener = std::os::unix::net::UnixListener::bind(&bound).unwrap();
     std::fs::rename(&bound, base.join("sock.json")).unwrap();
-    assert_eq!(
-        said(&base),
-        format!(
-            "bundle: {}",
-            policy_escape(
-                &base,
-                "sock.json",
-                "which cannot be read (uncategorized error)"
-            )
-        )
+    // Each host's own open(2) answer (decision 0063; unit 27b, ruling point 2).
+    #[cfg(target_os = "linux")]
+    let refused = rustix::io::Errno::NXIO;
+    #[cfg(target_os = "macos")]
+    let refused = rustix::io::Errno::OPNOTSUPP;
+    let clause = format!(
+        "which cannot be read ({})",
+        std::io::Error::from(refused).kind()
     );
+    let expected = format!("bundle: {}", policy_escape(&base, "sock.json", &clause));
+    assert_eq!(said(&base), expected);
 }
 
 /// Rebuild unit 16, second visit (16.1; design D7; review S16-2, C2, SC1):

@@ -4256,7 +4256,7 @@ fn every_token_the_grammar_cannot_place_is_refused_at_its_own_cause() {
 /// An adapter's selection mapping is read against the harness's own
 /// grammar: a flag that harness writes no such list with maps nothing.
 #[test]
-fn a_selection_mapping_is_read_against_the_harnesss_own_lists() {
+fn a_selection_mapping_is_read_against_the_harness_own_lists() {
     use grammar::list_of;
     assert_eq!(list_of("claude", "--tools"), Some(ListKind::Include));
     assert_eq!(list_of("claude", "--allowed-tools"), Some(ListKind::Allow));
@@ -9328,7 +9328,7 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
 /// checks; the unselected Read stays unavailable. The selected entry's OFF
 /// for web-fetch still denies: left available, WebFetch refuses.
 #[test]
-fn an_unselected_entrys_off_for_a_held_capability_is_no_denial() {
+fn an_unselected_entry_off_for_a_held_capability_is_no_denial() {
     let mut unselected = claude_local();
     unselected.controls.denied = argv(&["web-search", "web-fetch"]);
     unselected.controls.guards.push(Guard {
