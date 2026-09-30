@@ -45,7 +45,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::Result;
-use brokkr_view::{Column, Node, Participant, Phase, RunView, RunsView};
+use brokkr_view::{Column, Node, Participant, Phase, RunRow, RunView, RunsView, Section, Standing};
 use ratatui::backend::Backend;
 use ratatui::crossterm::cursor::{Hide, Show};
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -56,7 +56,7 @@ use ratatui::crossterm::terminal::{
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap};
+use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap};
 use ratatui::{Frame, Terminal};
 
 use crate::render::{self, Safe, Tone};
@@ -78,6 +78,18 @@ const RUNS_REFRESH_TICKS: usize = 8;
 
 /// One `PageUp`/`PageDown` in list rows.
 const PAGE: usize = 10;
+
+/// The fleet list's width once the detail pane stands beside it (#491).
+const LIST_COLUMNS: u16 = 100;
+
+/// The narrowest frame that holds the fleet's detail pane: the capped
+/// list, and a pane as wide again for the feature to wrap in. Below it
+/// the list keeps the frame and `Enter` opens the run, as it always did.
+const DETAIL_MIN_WIDTH: u16 = 2 * LIST_COLUMNS;
+
+/// The widest the detail pane wraps the feature at, however wide the
+/// terminal: a line longer than this is not read, it is scanned.
+const DETAIL_TEXT_COLUMNS: u16 = 100;
 
 /// One pulse frame per this many shell ticks: four frames × 2 × `TICK`
 /// ≈ a two-second breath, the terminal's answer to the console's 1.8s
@@ -123,6 +135,9 @@ pub(crate) use self::panes::draw;
 pub use self::participant::transcript_surfaces_for_test;
 pub(crate) use self::state::{Ask, Refreshed, Subject, Tui, Views};
 pub(crate) use self::terminal::{production_ops, start};
+
+#[cfg(test)]
+mod fleet_tests;
 
 #[cfg(test)]
 mod snapshot_tests;

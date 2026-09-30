@@ -23,15 +23,32 @@ pub(crate) fn footer_for(tui: &Tui, views: &Views) -> String {
     }
     let tail = "· / filter · r refresh · ? help · q quit";
     match tui.level {
-        // The tab keys are said where they are bound, and only there:
-        // a one-hearth world's footer is the footer it always was.
-        Level::Runs if tabbed(tui) => {
-            format!("↑↓/jk move · Enter open run · [ ] 1-9 realm · g/G top/bottom {tail}")
-        }
-        Level::Runs => format!("↑↓/jk move · Enter open run · g/G top/bottom {tail}"),
+        Level::Runs => runs_footer(tui, views, tail),
         Level::Run => run_footer(tui, views, tail),
         Level::Participant => participant_footer(tui, views, tail),
     }
+}
+
+/// The fleet's footer: the list's, or the detail pane's while it has
+/// the focus. The tab keys are said where they are bound, and only
+/// there: a one-hearth world's footer never names them.
+fn runs_footer(tui: &Tui, views: &Views, tail: &str) -> String {
+    let all = match tui.all {
+        true => "a recent only",
+        false => "a all runs",
+    };
+    if detail_focused(tui, views) {
+        return format!("↑↓/jk scroll · Enter open run · Tab list · {all} {tail}");
+    }
+    let realm = match tabbed(tui) {
+        true => " · [ ] 1-9 realm",
+        false => "",
+    };
+    let detail = match detail_row(tui, views, tui.width) {
+        Some(_) => " · Tab detail",
+        None => "",
+    };
+    format!("↑↓/jk move · Enter open run{realm}{detail} · {all} · g/G top/bottom {tail}")
 }
 
 /// The run level's footer, one per pane.
@@ -144,7 +161,7 @@ pub(super) const HELP: [&str; 13] = [
     "Tab         next pane     g G     top / bottom",
     "PgUp PgDn   page          /       filter this list",
     "r           refresh       ?       this help",
-    "q Ctrl+C    quit",
+    "q Ctrl+C    quit          a       all runs, older ones too",
     "",
     "Selecting a phase or a seat scopes the run level; Esc clears it.",
 ];

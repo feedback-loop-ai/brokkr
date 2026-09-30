@@ -2,10 +2,10 @@
 source: crates/brokkr-cli/src/tui/snapshot_tests.rs
 ---
 "┌runs──────────────────────────────────────────────────────────────────────────┐"
-"│id                       status    phase        seq    age      feature       │"
-"│run-old                  running   design       18     7m03s    an older featu│"
-"│run-unfoldable           ?         -            -      —        a run whose jo│"
-"│                                                                              │"
+"│needs you                                                                     │"
+"│? quarantined does not fold  a run whose journal does  —        run-unfoldable│"
+"│running                                                                       │"
+"│▶ design                     an older feature          7m03s    run-old       │"
 "│                                                                              │"
 "│                                                                              │"
 "│                                                                              │"

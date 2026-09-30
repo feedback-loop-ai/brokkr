@@ -121,63 +121,187 @@ pub(super) fn draw_runs(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views)
             rest
         }
     };
+    // A frame wide enough holds the selected run beside the list; any
+    // other draws the list alone, exactly where it always stood.
+    match detail_row(tui, views, area.width) {
+        Some(row) => {
+            let [list, detail] =
+                Layout::horizontal([Constraint::Length(LIST_COLUMNS), Constraint::Min(1)])
+                    .areas(area);
+            draw_fleet(frame, list, tui, views, tui.pane == 0);
+            draw_detail(frame, detail, tui, views, row);
+        }
+        None => draw_fleet(frame, area, tui, views, true),
+    }
+}
+
+/// The width of a run id in the list. An id longer than this is
+/// shortened in the middle, and its minted hash — the last
+/// [`ID_HASH_CHARS`] characters — is never cut: it is the only part
+/// that tells two runs of one commission apart.
+const ID_COLUMNS: usize = 14;
+
+/// The hash the engine mints at the end of every run id.
+const ID_HASH_CHARS: usize = 8;
+
+/// A run id in [`ID_COLUMNS`], its head shortened and its hash whole.
+pub(super) fn short_id(id: &str) -> String {
+    let count = id.chars().count();
+    if count <= ID_COLUMNS {
+        return id.to_string();
+    }
+    let head: String = id.chars().take(ID_COLUMNS - ID_HASH_CHARS - 1).collect();
+    let hash: String = id.chars().skip(count - ID_HASH_CHARS).collect();
+    format!("{head}…{hash}")
+}
+
+/// The fleet list (#491): a heading over each section that lists a run,
+/// each run on one row by its title and never by its feature, and one
+/// line counting the older runs `a` would show. Every cell is a model
+/// field; the cursor's row is kept in view however long the list.
+fn draw_fleet(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, focused: bool) {
     let keys = keys_for(tui, views);
     let cursor = tui.cursor[0].as_deref();
-    let header = Row::new(
-        ["id", "status", "phase", "seq", "age", "feature"]
-            .iter()
-            .map(|name| cell(name, header_style()))
-            .collect::<Vec<Cell>>(),
-    );
+    let (sections, folded) = fleet_sections(tui, views);
     let mut rows: Vec<Row> = Vec::new();
-    for row in &views.runs.runs {
-        if !keys.iter().any(|key| key == &row.run_id) {
+    let mut selected = None;
+    for (section, members) in sections {
+        let listed: Vec<&RunRow> = members
+            .into_iter()
+            .filter(|row| keys.contains(&row.run_id))
+            .collect();
+        if listed.is_empty() {
             continue;
         }
-        // Every cell is a model field; the absence marks are the
-        // model's, and a run whose journal does not fold keeps its row.
-        let status = match &row.status {
-            Some(status) => status.clone(),
-            None => "?".to_string(),
-        };
-        let phase = match &row.phase {
-            Some(phase) => phase.clone(),
-            None => "-".to_string(),
-        };
-        let seq = match row.seq {
-            Some(seq) => seq.to_string(),
-            None => "-".to_string(),
-        };
-        let age = match brokkr_view::age(&row.created_at, &views.now) {
-            Some(age) => age,
-            None => brokkr_view::ABSENT.to_string(),
-        };
-        rows.push(
-            Row::new(vec![
-                cell(&row.run_id, plain()),
-                cell(&status, tone_style(&status)),
-                cell(&phase, plain()),
-                cell(&seq, plain()),
-                cell(&age, plain()),
-                cell(&row.feature, plain()),
-            ])
-            .style(selected_style(cursor == Some(row.run_id.as_str()))),
-        );
+        rows.push(Row::new([cell(section.label(), header_style())]));
+        for row in listed {
+            let chosen = cursor == Some(row.run_id.as_str());
+            if chosen {
+                selected = Some(rows.len());
+            }
+            rows.push(fleet_row(row, &views.now).style(selected_style(chosen)));
+        }
+    }
+    if folded > 0 {
+        let count = format!("{folded} hidden · a shows them");
+        let dim = Style::new().add_modifier(Modifier::DIM);
+        rows.push(Row::new([
+            cell(Section::Older.label(), header_style()),
+            cell("", plain()),
+            cell(&count, dim),
+        ]));
     }
     let widths = [
-        Constraint::Length(24),
-        Constraint::Length(9),
-        Constraint::Length(12),
-        Constraint::Length(6),
-        Constraint::Length(8),
+        Constraint::Length(13),
+        Constraint::Length(u16::try_from(brokkr_view::VERDICT_COLUMNS).unwrap_or(u16::MAX)),
         Constraint::Min(10),
+        Constraint::Length(8),
+        Constraint::Length(u16::try_from(ID_COLUMNS).unwrap_or(u16::MAX)),
     ];
-    frame.render_widget(
-        Table::new(rows, widths)
-            .header(header)
-            .block(pane("runs", true)),
-        area,
+    let mut state = TableState::default().with_selected(selected);
+    let table = Table::new(rows, widths).block(pane("runs", focused));
+    frame.render_stateful_widget(table, area, &mut state);
+}
+
+/// One run's row: how it stands (its phase while it runs), its verdict,
+/// its title, its age and its id. A run whose journal does not fold
+/// keeps its row and its absence marks.
+fn fleet_row(row: &RunRow, now: &str) -> Row<'static> {
+    let standing = row.verdict.standing;
+    let word = match standing {
+        Standing::Running => row.phase.as_deref().unwrap_or(brokkr_view::ABSENT),
+        Standing::Quarantined
+        | Standing::Parked
+        | Standing::Shipped
+        | Standing::Stopped
+        | Standing::OperatorStopped => standing.label(),
+    };
+    let status = row.status.as_deref().unwrap_or("?");
+    let age = brokkr_view::age(&row.created_at, now).unwrap_or(brokkr_view::ABSENT.to_string());
+    Row::new([
+        cell(
+            &format!("{} {word}", standing_glyph(standing)),
+            tone_style(status),
+        ),
+        cell(&row.verdict.text, plain()),
+        cell(&row.title, plain()),
+        cell(&age, plain()),
+        cell(&short_id(&row.run_id), plain()),
+    ])
+}
+
+/// The one glyph each standing wears, so a row reads without colour.
+fn standing_glyph(standing: Standing) -> &'static str {
+    match standing {
+        Standing::Quarantined => "?",
+        Standing::Parked => "●",
+        Standing::Running => "▶",
+        Standing::Shipped => "✓",
+        Standing::Stopped => "✗",
+        Standing::OperatorStopped => "■",
+    }
+}
+
+/// The selected run, whole (#491): its full id; how it stands, where
+/// and since when; its verdict and every residual finding; and the full
+/// feature, wrapped at [`DETAIL_TEXT_COLUMNS`] and scrolled a line at a
+/// time from `offset`.
+fn draw_detail(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, row: &RunRow) {
+    let block = pane(&row.title, tui.pane == 1);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let text = Rect {
+        width: inner.width.min(DETAIL_TEXT_COLUMNS),
+        ..inner
+    };
+    let lines = detail_lines(row, &views.now, tui.offset);
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), text);
+}
+
+fn detail_lines(row: &RunRow, now: &str, offset: usize) -> Vec<Line<'static>> {
+    let verdict = &row.verdict;
+    let absent = brokkr_view::ABSENT;
+    let phase = row.phase.as_deref().unwrap_or(absent);
+    let age = brokkr_view::age(&row.created_at, now).unwrap_or(absent.to_string());
+    let standing = format!("{} · {phase} · {age}", verdict.standing.label());
+    let status = row.status.as_deref().unwrap_or("?");
+    let text = Some(verdict.text.as_str()).filter(|text| !text.is_empty());
+    let mut lines = vec![
+        line(&row.run_id, header_style()),
+        line(&standing, tone_style(status)),
+        line("", plain()),
+        line(&format!("verdict   {}", text.unwrap_or(absent)), plain()),
+        line(
+            &format!("rule      {}", verdict.rule.as_deref().unwrap_or(absent)),
+            plain(),
+        ),
+        line(
+            &format!(
+                "residual  {}",
+                verdict.residual.as_deref().unwrap_or("none")
+            ),
+            plain(),
+        ),
+    ];
+    let notes = [("parked", &verdict.reason), ("journal", &row.detail)];
+    for (label, note) in notes {
+        if let Some(note) = note {
+            lines.push(line(&format!("{label:<9} {note}"), plain()));
+        }
+    }
+    lines.extend(
+        row.residuals
+            .iter()
+            .map(|finding| line(&finding.line, plain())),
     );
+    lines.push(line("", plain()));
+    lines.extend(
+        row.feature
+            .lines()
+            .skip(offset)
+            .map(|text| line(text, plain())),
+    );
+    lines
 }
 
 pub(super) fn draw_run(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, view: &RunView) {

@@ -61,6 +61,10 @@ clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 ureq = { version = "2.12", features = ["json"] }
 url = "2"
+# The fleet's titles are clamped by display width, not by char count
+# (#491). Already in the lockfile through ratatui, at the version the TUI
+# measures its own cells with.
+unicode-width = "0.2"
 # Decision 0014's narrow, explicit exception to the no-new-dependencies
 # default, on the TUI path only. crossterm is reached through ratatui's
 # own re-export: a second manifest line could resolve a different

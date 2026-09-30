@@ -224,7 +224,8 @@ where
             }
         }
         settle(tui, &views);
-        terminal.draw(|frame| draw(frame, tui, &views))?;
+        // What the keys below are pressed against: the frame just drawn.
+        tui.width = terminal.draw(|frame| draw(frame, tui, &views))?.area.width;
         if (ops.poll)(TICK)? {
             if let Some(key) = from_crossterm((ops.read)()?) {
                 if apply(tui, &views, key) == Flow::Quit {

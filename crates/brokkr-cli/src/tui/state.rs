@@ -179,6 +179,13 @@ pub(crate) struct Tui {
     /// One parked [`TabState`] per tab, so switching away and back is a
     /// return rather than a reset.
     pub parked: Vec<TabState>,
+    /// `a`: the fleet lists its older runs too, where it otherwise folds
+    /// them into one count line (#491).
+    pub all: bool,
+    /// The width the shell last drew at, so the state machine knows
+    /// whether the fleet's detail pane is on the frame. Zero until the
+    /// first frame is drawn.
+    pub width: u16,
 }
 
 impl Tui {
@@ -227,6 +234,8 @@ impl Tui {
             status: None,
             ticks: 0,
             force: true,
+            all: false,
+            width: 0,
         }
     }
 
@@ -301,9 +310,11 @@ pub(super) fn fleet_live(views: &Views) -> bool {
         .any(|row| row.status.as_deref() == Some("running"))
 }
 
-pub(super) fn panes_at(level: Level) -> usize {
-    match level {
-        Level::Runs => 1,
+/// The panes `Tab` moves across: the fleet gains its detail pane while
+/// one is on the frame.
+pub(super) fn panes_at(tui: &Tui, views: &Views) -> usize {
+    match tui.level {
+        Level::Runs => 1 + usize::from(detail_row(tui, views, tui.width).is_some()),
         Level::Run => 3,
         Level::Participant => 2,
     }

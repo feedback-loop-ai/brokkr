@@ -312,7 +312,7 @@ fn buffer_of(tui: &Tui, views: &Views, width: u16, height: u16) -> Vec<String> {
     lines_of(drawn(tui, views, width, height).backend().buffer())
 }
 
-fn frame_of(tui: &Tui, views: &Views, width: u16, height: u16) -> String {
+pub(super) fn frame_of(tui: &Tui, views: &Views, width: u16, height: u16) -> String {
     buffer_of(tui, views, width, height).join("\n")
 }
 
@@ -441,10 +441,10 @@ fn enter_descends_one_rung_at_a_time_and_esc_pops_the_same_rungs() {
     assert_eq!(apply(&mut tui, &views, Key::Enter), Flow::Continue);
     assert_eq!(tui.run, None, "no selection descends into nothing");
     apply(&mut tui, &views, Key::Down);
-    assert_eq!(tui.cursor[0].as_deref(), Some("run-7"), "newest first");
+    assert_eq!(tui.cursor[0].as_deref(), Some("run-unfoldable")); // needs you first
     apply(&mut tui, &views, Key::Enter);
     assert_eq!(tui.level, Level::Run);
-    assert_eq!(tui.run.as_deref(), Some("run-7"));
+    assert_eq!(tui.run.as_deref(), Some("run-unfoldable"));
     assert_eq!(tui.pane, 0);
 
     // A pane with no selected row is not a door. This is a normal first
@@ -840,8 +840,8 @@ fn the_runs_table_is_a_bordered_navigable_table_of_model_fields() {
     let frame = frame_of(&tui, &views, 100, 20);
 
     assert!(frame.contains("┌"), "bordered: {frame}");
-    for column in ["id", "status", "phase", "seq", "age", "feature"] {
-        assert!(frame.contains(column), "header names {column}: {frame}");
+    for cell in ["needs you", "? quarantined", "does not fold", "▶ design"] {
+        assert!(frame.contains(cell), "the fleet names {cell}: {frame}");
     }
     assert!(frame.contains("run-7"));
     assert!(frame.contains("running"));
@@ -1140,14 +1140,14 @@ fn every_startup_refusal_names_both_of_the_other_readouts() {
 
 /// `set_hook`/`take_hook` and the recorders below are process-global, so every
 /// test that touches them takes this first; hook counters are per panicking thread.
-static TERMINAL: Mutex<()> = Mutex::new(());
+pub(super) static TERMINAL: Mutex<()> = Mutex::new(());
 static SCRIPT: Mutex<Vec<Event>> = Mutex::new(Vec::new());
 static ENTERED: AtomicUsize = AtomicUsize::new(0);
 static LEFT: AtomicUsize = AtomicUsize::new(0);
 thread_local!(static RESTORED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
 thread_local!(static CHAINED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
 
-fn script(keys: &[Key]) {
+pub(super) fn script(keys: &[Key]) {
     let mut script = SCRIPT.lock().unwrap();
     script.clear();
     for key in keys {
@@ -1199,7 +1199,7 @@ fn record_restore() {
     RESTORED.set(RESTORED.get() + 1);
 }
 
-fn test_ops() -> TerminalOps {
+pub(super) fn test_ops() -> TerminalOps {
     TerminalOps {
         enter_raw: record_enter,
         leave_raw: record_leave,
@@ -1398,7 +1398,7 @@ fn the_shell_redraws_keeps_keys_live_through_a_bad_journal_and_gives_up_at_last(
     let mut tui = Tui::new(None);
     let code = drive(&mut terminal, &test_ops(), &mut source, &mut tui, 9).unwrap();
     assert_eq!(code, ExitCode::SUCCESS);
-    assert_eq!(tui.cursor[0].as_deref(), Some("run-7"), "the key arrived");
+    assert_eq!(tui.cursor[0].as_deref(), Some("run-unfoldable")); // the key arrived
     assert_eq!(
         forced,
         vec![true, false, true],
@@ -1596,9 +1596,9 @@ fn the_keys_lists_and_tints_a_console_still_needs_are_all_there() {
 
     // ↑ and k move alike; an unbound letter is not a command.
     apply(&mut tui, &views, Key::Up);
-    assert_eq!(tui.cursor[0].as_deref(), Some("run-7"), "newest first");
+    assert_eq!(tui.cursor[0].as_deref(), Some("run-unfoldable")); // needs you first
     apply(&mut tui, &views, Key::Char('k'));
-    assert_eq!(tui.cursor[0].as_deref(), Some("run-unfoldable"), "k wraps");
+    assert_eq!(tui.cursor[0].as_deref(), Some("run-old"), "k wraps");
     let held = tui.cursor[0].clone();
     apply(&mut tui, &views, Key::Char('x'));
     assert_eq!(tui.cursor[0], held);

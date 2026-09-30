@@ -17,6 +17,7 @@
 //! `INSTA_UPDATE=no`. A new or changed frame is written locally with
 //! `INSTA_UPDATE=always`, read in its `.snap` file, and committed.
 
+use super::fleet_tests::fleet_to_act_on;
 use super::tests::{
     adopting_views, at_run, at_seats, at_transcript, boxed_views, cell_at, claude_reference, drawn,
     lines_of, panel_views, read_of, refused_read, state_of, turns_of, views, NOW, T0,
@@ -28,6 +29,10 @@ use ratatui::buffer::Buffer;
 
 /// The issue's two fixed terminals: the common 80×20 and a wide 160×48.
 const SIZES: [(u16, u16); 2] = [(80, 20), (160, 48)];
+
+/// A 4K-class terminal, the one #491 was measured on: wide enough for
+/// the fleet's detail pane.
+const WIDE: (u16, u16) = (320, 80);
 
 // --------------------------------------------------------------- helpers
 
@@ -117,6 +122,21 @@ fn the_fleet_list_is_pinned() {
     tui.filter = "old".to_string();
     tui.typing = true;
     snapshot("fleet_filtered", &tui, &views);
+}
+
+/// #491's fleet: every section, the count line, and on a 4K-class frame
+/// the list alone and the list beside the selected run's detail pane.
+#[test]
+fn the_fleet_by_who_must_act_is_pinned() {
+    let views = fleet_to_act_on();
+    let mut tui = Tui::new(None);
+    snapshot("fleet_sections", &tui, &views);
+    let (width, height) = WIDE;
+    let frame = drawn(&tui, &views, width, height).backend().to_string();
+    settings().bind(|| insta::assert_snapshot!("fleet_320x80", frame));
+    tui.cursor[0] = Some("cargo-exemption-hold-5b6c7d8e".to_string());
+    let frame = drawn(&tui, &views, width, height).backend().to_string();
+    settings().bind(|| insta::assert_snapshot!("fleet_detail_320x80", frame));
 }
 
 // ------------------------------------------------------- the run level
@@ -232,11 +252,13 @@ fn flow_snapshot(name: &str, tui: &mut Tui, views: &Views, keys: &[Key]) {
 fn each_keyboard_flow_is_pinned() {
     let views = with_read(read_of(turns_of(2), false));
     let mut tui = Tui::new(None);
+    // The fleet lists the run that needs you first (#491), so the second
+    // row is the one this flow opens.
     flow_snapshot(
         "flow_open_a_run",
         &mut tui,
         &views,
-        &[Key::Down, Key::Enter],
+        &[Key::Down, Key::Down, Key::Enter],
     );
     let drill = [Key::Tab, Key::Down, Key::Enter, Key::Enter];
     flow_snapshot("flow_drill_into_a_participant", &mut tui, &views, &drill);
@@ -273,21 +295,17 @@ fn style_of(buffer: &Buffer, run: &str, text: &str) -> Style {
 
 /// The text snapshots drop colour, so the colour each status row wears
 /// is asserted on its cells: green for done, red only for stopped, bold
-/// while it works and dim while it waits on the operator.
+/// while it works and dim while it waits on the operator. Since #491 the
+/// cell reads the run's standing, or its phase while it runs.
 #[test]
 fn each_status_row_wears_its_own_colour() {
     let views = fleet_of_every_status();
     for (width, height) in SIZES {
         let terminal = drawn(&Tui::new(None), &views, width, height);
         let cases = [
-            ("run-running", "running", Color::Reset, Modifier::BOLD),
-            ("run-parked", "awaiting_", Color::Reset, Modifier::DIM),
-            (
-                "run-completed",
-                "completed",
-                Color::Green,
-                Modifier::empty(),
-            ),
+            ("run-running", "design", Color::Reset, Modifier::BOLD),
+            ("run-parked", "parked", Color::Reset, Modifier::DIM),
+            ("run-completed", "shipped", Color::Green, Modifier::empty()),
             ("run-stopped", "stopped", Color::Red, Modifier::empty()),
         ];
         for (run, status, fg, modifier) in cases {

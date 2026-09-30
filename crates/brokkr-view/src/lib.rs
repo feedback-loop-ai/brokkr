@@ -5,9 +5,9 @@
 //! ruling, participants, live seat lines, the phase rail with each
 //! phase's inner topology, and the decision trail. There is no I/O, no
 //! rendering, and no terminal or DOM concept here — the manifest depends
-//! on exactly `brokkr-core`, `serde` and `serde_json`, so that property is
-//! a compile error rather than a review convention, and the absence of a
-//! clock is what forces `now` to be a parameter.
+//! on exactly `brokkr-core`, `serde`, `serde_json` and `unicode-width`,
+//! so that property is a compile error rather than a review convention,
+//! and the absence of a clock is what forces `now` to be a parameter.
 //!
 //! Every displayed scalar reaches a caller as a **(structured value,
 //! rendered text) pair**. The console's renderer is JavaScript and
@@ -25,8 +25,13 @@
 
 #![forbid(unsafe_code)]
 
+mod fleet;
 pub mod js;
 pub mod transcript;
+
+pub use fleet::{
+    fleet_rows, run_rows, sections, HearthEntries, Section, Standing, Verdict, VERDICT_COLUMNS,
+};
 
 use std::collections::BTreeMap;
 
@@ -65,7 +70,8 @@ use serde_json::Value;
 /// `cost` became every attempt's reported cost summed (the rule
 /// [`reported_cost`] states), where it was the last attempt's alone, and
 /// participants gained `last_attempt_cost` beside it.
-pub const VIEW_VERSION: u32 = 11;
+/// Bumped to 12 by #491: a run row gained its `title` and its `verdict`.
+pub const VIEW_VERSION: u32 = 12;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -141,6 +147,12 @@ pub struct RunRow {
     /// clamping and omission are the renderer's job, losslessness is
     /// the model's.
     pub residuals: Vec<ResidualFinding>,
+    /// What the fleet calls the run: the feature's first line, clamped
+    /// at a word to 60 display columns (#491). `feature` stays whole
+    /// beside it.
+    pub title: String,
+    /// How the run stands and how it was last ruled (#491).
+    pub verdict: Verdict,
 }
 
 #[derive(Serialize)]
@@ -922,78 +934,6 @@ pub fn quarantine_finding(run_id: &str, seq: u64, error: &str) -> ResidualFindin
         // derived rather than the evaluator: `--findings` names a
         // ruling's seq, and this one names the seq the fold refused at.
         superseded: None,
-    }
-}
-
-// ------------------------------------------------------- run rows
-
-fn run_row(entry: &RunEntry) -> RunRow {
-    let status = entry
-        .state
-        .map(|state| status_str(&state.status).to_string());
-    let status_known = match &status {
-        Some(status) => KNOWN_STATUS.contains(&status.as_str()),
-        None => false,
-    };
-    RunRow {
-        run_id: entry.run_id.to_string(),
-        status,
-        status_known,
-        phase: entry.state.and_then(|state| state.phase.clone()),
-        seq: entry.state.map(|state| state.seq),
-        created_at: entry.created_at.to_string(),
-        feature: entry.feature.to_string(),
-        detail: entry.detail.map(str::to_string),
-        residuals: entry.residuals.to_vec(),
-    }
-}
-
-/// Run rows, newest first. Ordering is a derivation rule, not something
-/// each surface reverses for itself.
-pub fn run_rows(entries: &[RunEntry]) -> RunsView {
-    let mut runs: Vec<RunRow> = entries.iter().map(run_row).collect();
-    runs.reverse();
-    let count = runs.len();
-    RunsView {
-        view_version: VIEW_VERSION,
-        runs,
-        count,
-    }
-}
-
-/// One hearth as a fleet reader hands it over: the realm it belongs to,
-/// the journal it was read from, and either that journal's entries or
-/// the words of the refusal that stopped it being read.
-pub struct HearthEntries<'a> {
-    pub realm: &'a str,
-    pub journal: &'a str,
-    pub entries: &'a [RunEntry<'a>],
-    pub detail: Option<&'a str>,
-}
-
-/// The world's fleet, grouped by realm. Each hearth's rows are derived
-/// by exactly the same [`run_rows`] a one-journal world uses — the
-/// grouping is an arrangement of that derivation, never a second one,
-/// and no fold ever crosses a journal boundary (decision 0026 ruling 5).
-pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
-    let realms: Vec<RealmRuns> = hearths
-        .iter()
-        .map(|hearth| {
-            let view = run_rows(hearth.entries);
-            RealmRuns {
-                realm: hearth.realm.to_string(),
-                journal: hearth.journal.to_string(),
-                runs: view.runs,
-                count: view.count,
-                detail: hearth.detail.map(str::to_string),
-            }
-        })
-        .collect();
-    let count = realms.iter().map(|realm| realm.count).sum();
-    FleetView {
-        view_version: VIEW_VERSION,
-        realms,
-        count,
     }
 }
 

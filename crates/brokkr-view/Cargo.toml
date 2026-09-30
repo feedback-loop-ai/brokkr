@@ -14,3 +14,4 @@ workspace = true
 brokkr-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+unicode-width = { workspace = true }
