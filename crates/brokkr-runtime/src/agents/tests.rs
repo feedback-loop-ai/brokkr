@@ -299,11 +299,7 @@ fn an_agent_naming_an_mcp_server_is_refused_and_never_reaches_a_command_line() {
         tree.write("adapters/claude.json", &claude_body());
         // The WHOLE migration reason, agent and file named (SC7): a suffix
         // would pass on a refusal that blamed the wrong definition.
-        let file = tree
-            .library_root()
-            .canonicalize()
-            .unwrap()
-            .join("tester.json");
+        let file = tree.library_root().join("tester.json");
         assert_eq!(
             tree.library_error(),
             format!(
@@ -5494,11 +5490,7 @@ fn hands_adapter(hands: Value) -> Tree {
 
 /// The loader's refusal, whole: provider, file, field and rule.
 fn notice_refusal(tree: &Tree, rule: &str) -> String {
-    let path = tree
-        .adapters_root()
-        .canonicalize()
-        .unwrap()
-        .join("claude.json");
+    let path = tree.adapters_root().join("claude.json");
     format!(
         "adapter 'claude' ({}) 'hands.notice' {rule}",
         path.display()

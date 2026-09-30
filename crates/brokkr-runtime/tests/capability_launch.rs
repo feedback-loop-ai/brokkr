@@ -5625,16 +5625,7 @@ fn a_restriction_value_moves_the_manifest_digest_even_where_it_is_inactive() {
 #[test]
 fn a_native_control_declaration_moves_the_manifest_digest() {
     let operator = Operator::new();
-    let copied = tempfile::tempdir().unwrap();
-    for entry in std::fs::read_dir(workspace().join("adapters")).unwrap() {
-        let path = entry.unwrap().path();
-        if path
-            .extension()
-            .is_some_and(|extension| extension == "json")
-        {
-            std::fs::copy(&path, copied.path().join(path.file_name().unwrap())).unwrap();
-        }
-    }
+    let copied = copied_adapters();
     let context = operator.context(json!({}));
     let digest = |adapters: &Path| {
         operator
@@ -5675,11 +5666,7 @@ fn a_native_control_declaration_moves_the_manifest_digest() {
 #[test]
 fn a_codex_that_could_not_switch_search_off_is_unseatable_boxed_and_unboxed() {
     let operator = Operator::new();
-    let copied = tempfile::tempdir().unwrap();
-    for entry in std::fs::read_dir(workspace().join("adapters")).unwrap() {
-        let path = entry.unwrap().path();
-        std::fs::copy(&path, copied.path().join(path.file_name().unwrap())).unwrap();
-    }
+    let copied = copied_adapters();
     let codex = copied.path().join("codex.json");
     let mut declared: Value = serde_json::from_slice(&std::fs::read(&codex).unwrap()).unwrap();
     let native = &mut declared["native_capabilities"]["known"]["web-search"];
@@ -6705,14 +6692,16 @@ fn a_known_native_power_with_no_valid_denial_refuses_the_seat() {
         CapabilityContext::no_grants("private", operator.root()),
         operator.context(json!({})),
     ];
+    // One bounded line (design D6): a cause naming the temporary root is
+    // cut where a long root (macOS's `/private/var/folders/…`) runs past 512.
     let refusal = |realm: &str, provider: &str, capability: &str, cause: &str| {
-        format!(
+        bounded(format!(
             "bundle: seat 'work' (office 'work') in realm '{realm}': provider '{provider}' is \
              known to carry native capability '{capability}', which this seat does not hold, \
              and no valid control denies it: {cause}. A known native power is launched only \
              with a delivered denial, never on what absence implies; repair the adapter data \
              (decision 0066 ruling 1)"
-        )
+        ))
     };
     let unloaded = |root: &Path| {
         format!(

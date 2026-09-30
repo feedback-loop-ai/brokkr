@@ -5033,11 +5033,83 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
 
 ## 25. Unit 25 — Audit proof history and portability
 
-- [ ] 25.1 Unit 25 audits baseline red/fix/removal/restored revisions from each owning unit. Record reds before fixes, never invent history. Verify intended exact assertions. Requirements: [Refusal proofs assert the full reason][SC8], [Denial and admission have removal proofs and bounded live claims][NC6]. Reopened/remaining: operator ruling 1–4 / R10. (previous 0.2)
+- [x] 25.1 Unit 25 audits baseline red/fix/removal/restored revisions from each owning unit. Record reds before fixes, never invent history. Verify intended exact assertions. Requirements: [Refusal proofs assert the full reason][SC8], [Denial and admission have removal proofs and bounded live claims][NC6]. Reopened/remaining: operator ruling 1–4 / R10. (previous 0.2)
 
 - [ ] 25.2 Unit 25 audits canonical roots including R12 restriction-resume. Retain TempDir, canonicalize once for writes/expectations. Verify alias-root regression and Linux/macOS results. Requirement: [Refusal proofs assert the full reason][SC8]. Reopened/remaining: operator ruling 1–2 / R12. (previous 3.6)
 
-- [ ] 25.3 Unit 25 audits finding/baseline/fix/removal/restored revisions and compiled matrix. Verify stale evidence closes nothing; retain L1 and historical security/spec-defect facts. Requirements: [Refusal proofs assert the full reason][SC8], [Denial and admission have removal proofs and bounded live claims][NC6], [Digest pins are measured and their history remains truthful][MP5]. Reopened/remaining: operator ruling 1–4 / R10. (previous 9.4)
+- [x] 25.3 Unit 25 audits finding/baseline/fix/removal/restored revisions and compiled matrix. Verify stale evidence closes nothing; retain L1 and historical security/spec-defect facts. Requirements: [Refusal proofs assert the full reason][SC8], [Denial and admission have removal proofs and bounded live claims][NC6], [Digest pins are measured and their history remains truthful][MP5]. Reopened/remaining: operator ruling 1–4 / R10. (previous 9.4)
+
+**Unit 25 note, 2026-09-30 (run `0065-rebuild-unit-25-see-the-uni-fb95626a`, based on `b385e4e4`): audited on the merged head** (evidence.md, "Unit 25").
+
+- **History reachable.** 287 cited SHAs are commits. 241 are reachable
+  from `HEAD`. The other 46 predate unit 1's replay: 45 have their
+  same-subject replay on `HEAD`, and `38660cc8` is the amended unit 2 WIP.
+- **25.1, ticked: the audit, not the history.**
+  - Every evidence section was classified: red taken before the fix, red
+    taken retrospectively, no behavioural red, removals that survived or
+    failed elsewhere, and completion claims later withdrawn. Each is
+    cited by line.
+  - The ledger claims no pre-change red it did not take. Lines 1636 and
+    5395 are worded more strongly than their records and are noted.
+  - Where the order red-then-fix was not kept, no visit can recreate it,
+    and none is invented.
+  - Enforcement is bound by the removals of the owning units and of
+    units 23/24 on this head. The survivors and equivalents are listed.
+- **25.3, ticked.**
+  - The compiled matrix is mapped dimension by dimension to whole-literal
+    or whole-refusal assertions.
+  - Limits, which no row claims:
+    - `exec` has no final-command row (its outcome is asserted at the
+      manifest);
+    - inheritance is asserted one level deep, at a work seat;
+    - CQ1's wants and unused outcomes are asserted at the work seat;
+    - the Claude actual rejoin runs under a supported assessment the test
+      writes;
+    - `dispatched` restates `mark_hands`'s markers.
+  - Stale text is corrected in evidence and left as it stands here: the
+    matrix is 113 rows, not 114 (notes 4207 and 4382); LaneTally's 21.1
+    shape is its R5 compile refusal.
+  - Historical security holds, `spec_defect=true` facts and L1's rejected
+    direction are retained by line.
+- **25.2, open for its macOS leg only.**
+  - Linux: under `/tmp/../tmp` and under a 69-character non-canonical
+    root, `b385e4e4` failed:
+    - P1, a refusal whose unbounded expectation holds only while the
+      canonical `TMPDIR` is at most 63 characters (`capability_launch.rs`,
+      now `:6695`, through the existing `bounded`);
+    - P2, the Linux-only `real_linked_worktree`'s lexical root
+      (`adapters/tests.rs:8475`).
+  - Both are fixed. R12's fixture (`:16525`), two copy loops (now
+    `copied_adapters()`) and two re-canonicalisations in `agents/tests.rs`
+    were conformed.
+  - Bound by M-A (alias root: 10 fail, 8 before this change), M-B, M-D,
+    M-E (10 fail, the R12 restriction rows cold and on the actual resume
+    among them) and M-F (the R12 resume row), each restored. All three
+    suites then pass under every root.
+  - macOS is not observed. The three commands are in evidence.
+- **Merge-rewritten code.** `verbs/delivery.rs` D1 (the operated root) and
+  D2 (the `unreproducible` door), and `verbs/setup.rs` S1/S1′ (the
+  operator's lint root), each fail their intended row and are restored.
+- **Admissions.**
+  - No production byte, no standing-admission line and no fixture
+    migration.
+  - One changed expectation, P1's, has its baseline red (`:6739` on
+    `b385e4e4`), mutation M-B (`:6728`) and restored pass.
+  - `quality/file-lines.txt`: 5847 → 5839 and 11896 → 11885.
+    `quality/too-many-lines.txt`: 40 locations re-measured, no count
+    moved. That includes 9 `adapters/tests.rs` entries left stale by unit
+    23.
+- **Gates.**
+  - `cargo fmt --all -- --check`: clean.
+  - Workspace clippy with `-D warnings`: 0 lines.
+  - `brokkr-protocol`: 4 result lines ok (lib 625).
+  - `brokkr-runtime`: 27 result lines ok (870 passed).
+  - `brokkr-cli`: lib 552 and 44 `--tests` result lines ok.
+  - `bundles/self` and `bundles/verify`: both compiled.
+  - `openspec validate --all --strict`: 19 passed.
+  - `git diff --check`: clean.
+- **Pending.** macOS (25.2), jscpd and `ratchet.sh`, exact coverage
+  outside the box, remote CI and the council.
 
 ## 26. Unit 26 — Update guides, measured pins and scope audit
 

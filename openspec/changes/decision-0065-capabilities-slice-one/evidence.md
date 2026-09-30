@@ -24196,3 +24196,334 @@ both.
 - `git diff --check`: clean.
 - Pending as before: jscpd, `quality/ratchet.sh`, macOS, exact coverage
   outside the box, remote CI and the council.
+
+## Unit 25 — proof history and portability, audited on the merged head (2026-09-30)
+
+Run `0065-rebuild-unit-25-see-the-uni-fb95626a`, based on `b385e4e4`. This
+visit audits tasks 25.1–25.3 on the merged head. It changes no production
+byte. Its edits are these:
+
+- four fixture lines and one expectation, in the unit's three named test
+  files;
+- the two `quality/` ledgers those files' counts moved.
+
+It uses no standing-admission line and no fixture migration. Scratch logs
+and diffs are in `.forge/u25/`.
+
+### Cited history is reachable (the merge addendum)
+
+Every 8-hex token in `tasks.md`, `evidence.md`, `design.md` and the
+ruling was fed to `git cat-file --batch-check`. The results:
+
+- 287 of the tokens are commits.
+- 241 of those are reachable from `HEAD` (`git rev-list HEAD`).
+- The other 46 are all dated at or before the 2026-09-23 replay, or they
+  are the amended WIP `38660cc8` (evidence line 1540 records that it was
+  amended).
+- 45 of the 46 have a same-subject commit on `HEAD`, the replay that unit
+  1 recorded under "Replay mapping". For example `44430402` is `1703fbdf`,
+  and `12641369` is `75c41f9f`. The only exception is `38660cc8`.
+
+Every unit commit after unit 1 is reachable, and so are both merges
+(`1c71ce5c`, `9c3b3b37`). The merge rewrote nothing any citation depends
+on.
+
+### 25.1 and 25.3: the proof-history audit
+
+**Method.** Every section of this file from line 84 to line 24198 was
+read in four read-only passes by line range. Each pass classified one
+section at a time:
+
+- the findings it owned;
+- its baseline red: taken before the fix, taken retrospectively (the fix
+  reverted after it was written), missing, or only a compile error;
+- its fix commit;
+- each removal, and whether it failed at its intended assertion;
+- whether it recorded a restored pass;
+- what it left pending;
+- any claim it made that was later withdrawn.
+
+This seat re-read a sample of the citations: lines 424, 1636, 12587,
+15016–15021 and 23978–23980. Each says what the audit reports.
+
+The index below is the ledger's own record, not new measurement. Nothing
+here re-labels a red, and no missing red is supplied after the fact.
+
+| Record | Sections (evidence.md line) |
+|---|---|
+| Red taken before the fix | 2 proof repair (1385), 2 second return (1808), 2-fix repair (2235) and return (2397), 4 SC1 (3551), 5 (3729), 5b-fix2 (4391), 5b-fix3 (4528), 5c-fix-b return (5250), 6 (5725), 10 (6851, 6976), 11 oversized (8420), 12 F1 (9675), 12-fix-d (11441, 11526, 11627), 13 adapters (12332), 13-fix (13087), 13-fix-c probes (13641), 14a4a (14940, 15193), 14a4c (15552), 18-fix (19886), 18-fix-b (20136, 20303), 19 (20453), 21-fix-a (22199, 22357), 22 (23075, 23197, 23297, 23376) |
+| Red taken retrospectively, labelled as such or on the pre-fix bytes put back | 2 review return (1636, headed "before the repair" but taken by swapping the old file in afterwards), 3 return (3017), 5b (3966), 5b-fix E1 (4138), 5d-fix (7392), 5d-fix-b (7610), 5d-fix-c1 (7835), 5d-fix-c2 (8021), 5e-fix (6324), 5e-fix-b (6572), 11 (8577, 8839, 9201), 12-fix (10263), 12-fix-b (10483), 12-fix-c (10880, 11023, 11150, 11273), 12-fix-e (11824), 12-fix-f (12151), 13 returns (12409, 12766), 13-fix-d (13974), 14a1 return (14337), 14a2 (14467), 14a3 (14719), 14a4a F1 (15081), 14a4b (15277), 14b fourth (15938), 15 (16087), 15-fix-b (16781), 16 and every 16-fix return (17065, 17273, 17594, 17873, 18121, 18383, 18597, 18800, 18950, 19130, 19303), 19 return (20579), 19-fix return (20852), 20-fix R2 (21533), 22 L2 (23380) |
+| No behavioural red: missing, or a compile error or mutation standing in for it | 1 (424, E0061 called "Baseline red"), 1b (572, order unchanged by ruling, so never red), 2 implementation (922–926; 1087–1093 "stay missing"), 3 (2825–2834), 4 (3389), 5c, 5c-fix and 5c-fix2 (4660, 4896, 5509, compile errors), 5c-fix-b second return (5395, mutation N1 called "the baseline"), 5d (7195, compile error only), 5e (none), 12 protocol (9569, E0425), 13 native_controls (12335), 12-fix-f (12159, "reproduced by M1"), 14a1 (14218), three 14a2 tests (14470), 14b DSH (15947), 16-fix-b F2 (17895), 16-fix-d `a_lookup_that_fails` (18622), 16-fix-e F2 (18950), 17 (19487), 18 (19674), 18-fix F2/F3 (19897), 19-fix `src/tests.rs` (20733, M2 as its red), 20 (21092, "no baseline red is intended"), 20-fix emission (21431) and R3 (21561), 20-fix-b (21679), 21 (21858), 21-fix-b and its return (22737, 22933), 22-fix-b protocol (23511, E0425) |
+| Removals that survived, or failed somewhere other than their assertion | survived: 1 X1 (520), 4 SC3 (3585), 5b dispatch label (4045), 5e-fix R3 (6280), 11 F2 on Linux (8894), 13 F7 (12587), 15 M3 (16114; unit 23 kept it as equivalent, bound jointly), 16-fix MI (17644) and 16-fix-b M14 (17930), both pending macOS, 23 SM1 (23767, equivalent). Survived first and killed only by a row added later: 12-fix-d M4 (11652), 13-fix M12 (13124), 13-fix-b M8 (13438), 13-fix-c M9 (13689), 14a4c M6 (15621), 15 M6 (killed by unit 23 at `capability_launch.rs:5129`). Failed in a helper, an `unwrap` or a production `expect`: 2 implementation (1015), 5e M4–M7 (6168), 5d-fix MH/MJ (7436), 7 M3 (8176), 8 M1 (8319), 16 M1/M12/M13 (17108), 14a3 A (14720). Failed by timeout, not assertion: 24 K2 (23980). Failed only with another assertion skipped: 24 O3 (23987) |
+| Completion claims withdrawn by their own ledger | 1.1 (497), 2 (961 against 1107), 3 audit (3188), 5b-fix (4231), 5c-fix-b.1 (5206), 5e.1 (6220), 5d-fix (7341), 5d-fix-b (7725), 12's third return on 12.2 (10043 against 10054), 14a1 (14155), 14a4a parity (15016), 14a4b and 14a4c (15388, 15653), 15 (16160), 16-fix-b (17715), 16-fix-c (18022), 16-fix-d (18493, 18737), 18-fix (19813), 18-fix-b (20040), 19 (20507), 20-fix pinned resume (21382 against 21490), 21 canonical roots (21740 against 22059), 21-fix-b boxed CQ1 (22612 against 22784), 22 SC1 (23421) |
+
+**What the audit establishes.**
+
+- Where a section has no pre-change red, the ledger says so, or shows a
+  retrospective or mutation red in its place. No section claims a
+  pre-change red it did not take. Two sections name a red by a word the
+  record does not bear out:
+  - 1636 is headed "Baseline observed before the repair", though the red
+    was taken by swapping the old file in after the repair;
+  - 5395 calls mutation N1 "the baseline".
+  They are recorded here and left as written.
+- SC8 asks that the order be red first, then the fix. For the missing
+  rows in the table, that cannot be recreated by any later visit, and
+  none is invented.
+- Each enforcement those units built has a compiling removal that fails
+  at its intended assertion, restored to a pass. That is either their own
+  ledger's, or unit 23's (22 removals, plus the review's) and unit 24's
+  (38) re-runs on the merged head. The survivors and equivalents above
+  are the stated exceptions.
+
+**Historical security and specification-defect facts, retained.**
+
+- Security holds or security-rated findings: 770, 1565, 1579, 1750, 1910,
+  2371, 4057, 4232, 4447, 4966, 6229, 7263–7266, 7488–7491, 10115–10127,
+  10392, 12868, 13297, 17466, 17696, 17711, 17997, 18011, 18263, 18275,
+  18464, 19777, 20001.
+- `spec_defect=true`: 5d-fix (7264, 7344), 5d-fix-b (7490, 7727), and
+  design D1's C7/R3 row.
+- The operator's "security surface closed" ruling for 16-fix-e (18886).
+- Unit 21's return: "maximum severity, a security residual, and
+  `spec_defect` false" (21978).
+
+None of these is rewritten.
+
+**L1, audited as a claim, not a behaviour.** The second chief's L1
+(`.forge/tasks/council-ruling-25d222e6.md:23`, run-local) rejects the
+spec-compliance notes' workflow direction "as instruction". It keeps the
+aggregate `has_security_residual` true over one position's prose `false`.
+H5 and H6 stay "security and specification defect" (`:11`, `:13`). The
+tracked record holds the same facts:
+
+- design D1: "L1's rejection of embedded workflow directions remains
+  valid" and "Panel prose is evidence, never authority" (design.md 96–97);
+- the owning scenario "Second L1 panel prose does not direct the workflow"
+  (capability-manifest-and-prompts spec).
+
+No runtime change or mutation was made for L1.
+
+### 25.3: the compiled matrix, mapped to its assertions
+
+The fixtures compile through `Bundle::compile_with_capabilities` with a
+real realm, dialect and adapters, and none is a hand-built plan. The
+tests are:
+
+- `every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside_its_charter`
+  (`capability_launch.rs:9378`);
+- `an_authored_capability_option_refuses_every_site_shape_of_every_harness`
+  (`:9807`);
+- unit 21's six restriction tests (`:10155`, `:10408`, `:10669`, `:11174`,
+  `:11445`, `:11649`);
+- the older served-command tests (`:1182`, `:4703`).
+
+Line numbers are on this visit's head.
+
+| Dimension | Asserted by | Kind |
+|---|---|---|
+| cold, claude/codex/lanetally/dsh | `:9378`, nine `CARRIERS` | whole ordered literal |
+| actual eligible resume, Codex | `:9378` work sites; `:10669`; `:11445` | whole literal |
+| actual eligible resume, Claude | `:10155`, `:10408`, `:11174`; `"boxed claude, rejoined"` in `:4703` | whole literal, under the supported assessment the test writes (`claude_rejoined_at`), not a compiled one. Tasks 4630 already says so |
+| resume, LaneTally/DSH | `:9378` | declined, served cold |
+| boxed (namespace) | Codex: `:11649` and older tests. Claude: `"boxed claude as sealed"` in `:1182`, `"boxed claude, rejoined"` in `:4703`, and the boxed refusal in `:10155` | whole literal or refusal. The older tests take the hands fragment from the production `Transport::expand` |
+| harness-boxed (`boxed` carrier) | `:9378`, `:11445` | whole literal |
+| gate / work, primary / fallback, ordinary / panel / sequence / select, inline / agent-backed | `:9378`, `:11174`, `:11445`, `:11649` | whole literal |
+| inherited | `:9378` `*-base`; `one_shape` "inherited" | one level, work seat only |
+| authored option, every site shape | `:9807` (inline by design) | whole refusal |
+| CQ1 requires / wants / unused | `:10669` (work seat); `:11445` requires at its first site | whole |
+
+**Limits this audit records (claimed by no row).**
+
+- The `exec` harness has no final-command row. Its outcome, which holds
+  nothing and claims no denial, is asserted at the manifest
+  (`every_site_of_every_shipped_bundle_…`).
+- Inheritance is asserted one level deep, at a work seat.
+- CQ1's wants and unused outcomes are asserted at the work seat.
+- `dispatched` (`:8740`) writes the confinement markers by the test's own
+  copy of `mark_hands`'s rule (`:8765–8777`), not by calling the engine.
+  A removal inside `mark_hands` is not what this matrix proves. The
+  engine's own start/resume rows (unit 24) are.
+
+**Stale text, corrected here and not rewritten where it stands.**
+
+- The matrix has 113 rows (`assert_eq!(rows.len(), 113)`, since
+  `39b9b1a8`; evidence 21379). Tasks notes 4207 and 4382 still say 114.
+- Task 21.1 says "Claude/LaneTally shapes". Under the R5 addendum of
+  2026-09-29, LaneTally's shape is its exact compile refusal and its cold
+  unmeasured spawn (`:10408`). No LaneTally managed limit exists to serve.
+
+Neither stale text closes a task. 20.1 closed on 20-fix's 113-row matrix.
+
+### 25.2: canonical roots, and the R12 restriction-resume fixture
+
+**Fixture inventory in the three files.**
+
+- `agents/tests.rs` `Tree` keeps its `TempDir` and reaches its tree
+  through a symlink alias, canonicalised once (`:14–29`).
+- `capability_launch.rs` `Operator` keeps its `TempDir` and a canonical
+  root (`:42–53`). `copied_adapters()` creates its `TempDir` under the
+  canonical temporary base (`:6581`).
+- One temporary directory in `capability_launch.rs` stays lexical,
+  `elsewhere` (`:5466`). It is a decoy operator root, and no expectation
+  names it. Its leak check searches both spellings (`:5528–5541`).
+- `adapters/tests.rs` keeps about 150 plain `tempdir()` fixtures from
+  other decisions. Every one passed under both non-canonical spellings
+  below except `real_linked_worktree`.
+
+**The macOS split, reproduced on Linux.** `TMPDIR` was set through `cargo
+--config 'env.TMPDIR.value=…' --config 'env.TMPDIR.force=true'`, because
+the seat refuses an environment prefix. Two spellings were used:
+
+- `/tmp/../tmp`: short, and not canonical.
+- `…/brokkr-wt-318/.forge/u25/real/../real`: long (it canonicalises to 69
+  characters), and not canonical. It was run with `env.GIT_CEILING_DIRECTORIES`
+  set to `.forge/u25`, because the first run without it showed a scratch
+  root inside this git worktree. The DSH driver correctly refuses a
+  workspace nested in a linked worktree, which is an artifact of the
+  scratch place and not of the code.
+
+**Baseline on `b385e4e4`, before any edit.**
+
+| Suite | default `/tmp` | `/tmp/../tmp` | long root |
+|---|---|---|---|
+| `capability_launch` | 68/0 | 68/0 | 67/1: `a_known_native_power_with_no_valid_denial_refuses_the_seat` at `:6739` |
+| `agents::tests` | 81/0 | 81/0 | 81/0 |
+| `adapters::tests` | 229/0 | 228/1: `a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap` at `:8573` | 228/1, the same |
+
+**Two portability defects, both in the tests.**
+
+1. **P1, a length-dependent expectation.** The refusal names the missing
+   adapters root. Design D6 bounds the line to 512 scalar values: its
+   first 511 and `…`. Under the long root the production line ends
+   `(decision 0066 ru…`, and the unbounded expectation does not. The line
+   is 438 scalar values plus the root. So it passes only while the
+   canonical `TMPDIR` is at most 63 characters, on the `<unmapped>` row,
+   the longest realm name.
+
+   A typical macOS per-user temporary directory canonicalises to about 56
+   characters (`/private/var/folders/xx/<30>/T`). That figure is
+   computed, not observed. So macOS would pass by a margin of about seven
+   characters, and a longer host root would fail.
+
+   The fix is at `capability_launch.rs:6695`. The expectation passes
+   through the file's existing `bounded` helper (unit 21, `:10114`). No
+   new rule is written.
+2. **P2, a lexical root in a Linux-only fixture.** `real_linked_worktree`
+   (`adapters/tests.rs:8473`, `#[cfg(target_os = "linux")]`) joined
+   `dir.path()` lexically. It now takes one canonical root at `:8475`,
+   and its worktree sits beside it, `main.with_file_name("wt")` (`:8498`).
+   macOS never compiles it. Its twin at `:8688` passed under both
+   spellings and is unchanged.
+
+**Conformance edits with no Linux removal control.**
+
+- R12's own fixture, `a_held_supported_restriction_reaches_the_cold_and_resumed_claude_commands`
+  (`adapters/tests.rs:16525`), now takes a canonical root. Its lexical form
+  passed under both spellings, because the D11 refusal fires before the
+  program path matters. It is conformance only, as unit 13's F7 and unit
+  11's F2 were.
+- Two copy loops in `capability_launch.rs` (`:5628`, `:5669`) now use
+  `copied_adapters()`. The adapters directory holds only `*.json`, so the
+  set copied is unchanged, and so is each expectation. They too passed
+  lexically.
+- In `agents/tests.rs` at `:302` and `:5493`, two expectations re-canonicalised
+  a path already derived from `Tree`'s canonical root. They now derive
+  from it directly, so the alias regression reaches them (M-A below).
+
+**Removals and restores** (test-side; each was restored by reverse edit,
+and `git diff` then compared equal, by `cmp`, to the saved
+`.forge/u25/fix.diff`):
+
+| # | Mutation | Run under | Observed |
+|---|---|---|---|
+| M-A | `Tree` root is the lexical alias (`alias.clone()`) | default | 10 of 81 fail, among them `an_agent_naming_an_mcp_server_…` `:303`, `a_malformed_hands_notice_…` `:5580` and `a_native_declaration_with_a_repeated_key_or_an_uncomposable_selection_is_refused` `:635`. The historical "lexical" row (line 126) is reproduced on this head |
+| M-A′ | M-A with `b385e4e4`'s re-canonicalisation put back at `:302` and `:5493` | default | 8 of 81 fail. `:303` and `:5580` pass, so on the old head the alias regression did not reach them |
+| M-B | P1's `bounded(` replaced by `std::convert::identity(` | long root; default | fails at `:6728`, left ending `ru…`; passes at the default root |
+| M-D | P2's root lexical again | `/tmp/../tmp` | fails at `adapters/tests.rs:8573` ("the row names the session workspace") |
+| M-E | `Operator`'s root lexical (`dir.path().to_path_buf()`) | `/tmp/../tmp` | 10 of 68 fail, including the R12 restriction rows cold and on the actual eligible resume (`:10382`, `:10986`) and the matrix (`:9678`) |
+| M-F | `copied_adapters` under the lexical base | `/tmp/../tmp` | 1 fails: `a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_resume` `:10382`. This updates unit 11's F2 (8894): since unit 21's rows, this helper has a Linux removal control |
+
+(Line numbers in the M-rows are as each mutated run reported them.)
+
+**After the edits.** All three suites pass under every root:
+
+| Suite | default `/tmp` | `/tmp/../tmp` | long root |
+|---|---|---|---|
+| `capability_launch` | 68/0 | 68/0 | 68/0 |
+| `agents::tests` | 81/0 | 81/0 | 81/0 |
+| `adapters::tests` | 229/0 | 229/0 | 229/0 |
+
+At the long root P1's row still names `broken.json` (`:6813–6816`).
+
+**The repeated-native-key and uncomposable-selection diagnostics.**
+`a_native_declaration_with_a_repeated_key_or_an_uncomposable_selection_is_refused`
+builds its whole expectation from `tree.adapters_root()`. It passed on
+Linux under all three roots, and it fails under M-A. **macOS: not
+observed.** No macOS host is reachable from this seat. The macOS leg of
+25.2 is pending. It needs these runs on a macOS host:
+
+- `cargo test -p brokkr-runtime --all-features --locked --test capability_launch`;
+- `cargo test -p brokkr-runtime --all-features --locked --lib agents::tests`;
+- `cargo test -p brokkr-protocol --all-features --locked --lib adapters::tests`.
+
+### Merge-rewritten code re-proved on this head
+
+Units 23 and 24 re-ran the SiteMarks prompt (SM1–SM6) and the rustix
+bound reads (K3, L1–L3). Main's moved `verbs/delivery.rs` and
+`verbs/setup.rs` carry the slice's edits (`git diff 1c71ce5c^2 HEAD`),
+and no audit unit had re-run them. Each removal below was a compiling
+production edit, restored with `git checkout --` and a clean
+`git status`. Diffs are `.forge/u25/{D1,D2,S1,S1b}.diff`.
+
+| # | Removal | Failed |
+|---|---|---|
+| D1 | `resume` compiles against `workspace`, not `repo.unwrap_or(workspace)` (the historical R2) | `capability_verbs.rs:661` `an_unmapped_run_reads_and_keeps_the_operated_repository_as_its_root`: the resume is refused as "pins a different bundle: capabilities differ …". Also `:606` `a_resume_over_a_retargeted_or_missing_charter_is_refused_mapped_or_not` |
+| D2 | the `unreproducible` door dropped (`map_err(std::convert::identity)`, the historical R4) | `:273` `a_resume_that_cannot_reproduce_its_pinned_inputs_is_a_capability_mismatch`: the bare "tool dialect … is not at …" compile error. Also 20-fix-b's `:431`, whose rendered cause changed |
+| S1 | `agents list` lints against the library root | `agent_readouts.rs:455`: a library-local definition lints clean |
+| S1′ | `agents show` lints against the library root | `agent_readouts.rs:478`: `show` succeeds where the operator's broken definition must refuse |
+
+After restore, both suites pass within the `brokkr-cli --tests` run
+below (44 result lines, all ok).
+
+### Measured pins
+
+- `quality/file-lines.txt`: `agents/tests.rs` 5847 → 5839;
+  `capability_launch.rs` 11896 → 11885. `adapters/tests.rs` stays 19002.
+- `quality/too-many-lines.txt`: the entries for the three files were
+  re-measured with `measure.sh`'s own clippy step, run for the two
+  crates, and the ledger now equals it (`diff` empty). No count moved,
+  because clippy does not count comments. Locations moved: 20 in
+  `capability_launch.rs`, 11 in `agents/tests.rs`, and 9 in
+  `adapters/tests.rs`. The `adapters/tests.rs` entries were already 51
+  lines stale on `b385e4e4`, from unit 23's added test, which re-measured
+  only `file-lines.txt`.
+- `quality/suppressions.txt`: unchanged, and no `#[expect]` moved.
+  `ratchets`, `contributing` and `suppressions` pass (8, 13 and 6).
+- No production byte, witness pin, prompt budget or frozen surface moved.
+
+### Gates, on the final tree
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: 0 warning or error lines.
+- `cargo test -p brokkr-protocol --all-features --locked`: 4 result
+  lines, all ok, lib 625 (1 ignored).
+- `cargo test -p brokkr-runtime --all-features --locked`: 27 result
+  lines, all ok, 870 passed, lib 688.
+- `cargo test -p brokkr-cli --all-features --locked`: `--lib` 552, and
+  `--tests` 44 result lines, all ok.
+- The other five crates have no byte changed since `b06a43e8`'s
+  crate-by-crate run, and were not re-run.
+- `compile --bundle bundles/self` and `bundles/verify`: both compiled.
+- `openspec validate --all --strict --no-interactive`: 19 passed, 0
+  failed.
+- `git diff --check`: clean.
+- **Pending:**
+  - the macOS leg of 25.2 (commands above);
+  - jscpd and `quality/ratchet.sh`, which the seat refused to run
+    directly (the two copy loops removed are a clone reduction, which the
+    ratchet does not fail);
+  - exact coverage outside the box;
+  - remote CI;
+  - the council.

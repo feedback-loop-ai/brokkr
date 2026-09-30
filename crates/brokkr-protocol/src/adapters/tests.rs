@@ -8472,7 +8472,7 @@ fn a_failure_before_the_promotion_keeps_the_private_store_and_names_it() {
 #[cfg(target_os = "linux")]
 fn real_linked_worktree() -> (tempfile::TempDir, PathBuf, GitFacts) {
     let dir = tempfile::tempdir().unwrap();
-    let main = dir.path().join("main");
+    let main = dir.path().canonicalize().unwrap().join("main");
     std::fs::create_dir_all(&main).unwrap();
     let git = |cwd: &Path, args: &[&str]| {
         let out = Command::new("git")
@@ -8495,7 +8495,7 @@ fn real_linked_worktree() -> (tempfile::TempDir, PathBuf, GitFacts) {
     std::fs::write(main.join("a.txt"), "a\n").unwrap();
     git(&main, &["add", "-A"]);
     git(&main, &["commit", "-q", "--no-gpg-sign", "-m", "base"]);
-    let worktree = dir.path().join("wt");
+    let worktree = main.with_file_name("wt");
     git(
         &main,
         &[
@@ -16522,7 +16522,7 @@ fn a_held_supported_restriction_reaches_the_cold_and_resumed_claude_commands() {
     const RESTRICTION: &str = "{\"permissions\":{\"deny\":[\"WebFetch\"]}}";
     let dir = tempfile::tempdir().unwrap();
     let bin = executable(
-        dir.path(),
+        &dir.path().canonicalize().unwrap(),
         "claude",
         &format!(
             "#!/bin/sh\n{}exit 1\n",

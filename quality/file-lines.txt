@@ -192,7 +192,7 @@
    508 crates/brokkr-protocol/src/secret/tests.rs
    138 crates/brokkr-protocol/tests/hands_exits.rs
     73 crates/brokkr-protocol/tests/secret_drop.rs
-  5847 crates/brokkr-runtime/src/agents/tests.rs
+  5839 crates/brokkr-runtime/src/agents/tests.rs
    399 crates/brokkr-runtime/src/anchor/tests.rs
   6778 crates/brokkr-runtime/src/bundle/agent_tests.rs
   4063 crates/brokkr-runtime/src/bundle/compose_tests.rs
@@ -219,7 +219,7 @@
    331 crates/brokkr-runtime/tests/adoption.rs
     94 crates/brokkr-runtime/tests/anchor_test.rs
    384 crates/brokkr-runtime/tests/budgets.rs
- 11896 crates/brokkr-runtime/tests/capability_launch.rs
+ 11885 crates/brokkr-runtime/tests/capability_launch.rs
    263 crates/brokkr-runtime/tests/crucible_review_sequence.rs
    214 crates/brokkr-runtime/tests/dispatch_seam.rs
    104 crates/brokkr-runtime/tests/fenced_commands.rs
