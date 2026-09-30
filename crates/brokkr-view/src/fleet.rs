@@ -154,8 +154,11 @@ fn section_of(row: &RunRow, now: &str) -> Section {
 
 /// The feature's first line that says anything, clamped at a word
 /// boundary to [`TITLE_COLUMNS`] display columns with an ellipsis. A
-/// line with no space to cut at is cut where it stops fitting.
-pub(crate) fn title(feature: &str) -> String {
+/// line with no space to cut at is cut where it stops fitting. A
+/// renderer that strips characters widens what it measures here (a
+/// family emoji loses its joiners), so it clamps its sanitized title
+/// again with this, and paints what it measured.
+pub fn title(feature: &str) -> String {
     let first = feature
         .lines()
         .map(str::trim)

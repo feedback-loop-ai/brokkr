@@ -30,8 +30,8 @@ pub mod js;
 pub mod transcript;
 
 pub use fleet::{
-    fleet_rows, run_rows, sections, wrap, HearthEntries, Section, Standing, Verdict, TITLE_COLUMNS,
-    VERDICT_COLUMNS,
+    fleet_rows, run_rows, sections, title, wrap, HearthEntries, Section, Standing, Verdict,
+    TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 
 use std::collections::BTreeMap;

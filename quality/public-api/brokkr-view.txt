@@ -373,4 +373,5 @@ pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::opti
 pub fn brokkr_view::sections<'a>(&'a [brokkr_view::RunRow], &str) -> alloc::vec::Vec<(brokkr_view::Section, alloc::vec::Vec<&'a brokkr_view::RunRow>)>
 pub fn brokkr_view::short_target(&str) -> alloc::string::String
 pub fn brokkr_view::status_str(&brokkr_core::fold::Status) -> &'static str
+pub fn brokkr_view::title(&str) -> alloc::string::String
 pub fn brokkr_view::wrap(&str, usize) -> alloc::vec::Vec<alloc::string::String>

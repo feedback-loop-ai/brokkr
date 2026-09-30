@@ -28,7 +28,9 @@ on, so this file names them.
 2. **A title, not the prompt.** A row is called by its feature's first line
    that says anything, clamped at a word to 60 display columns (a wide
    character counts two) with an ellipsis. `RunRow::feature` stays whole, so
-   `--json` stays lossless.
+   `--json` stays lossless. The TUI strips the zero-width joiners that hold
+   an emoji sequence at two columns, so it clamps its sanitized title again
+   by the same function and paints what it measured.
 3. **The verdict is two cells.** A row names the ruling that shipped, stopped
    or parked it, without its own phase's prefix and clamped to 14 columns,
    and, beside it, the worst open residual. A residual finding the operator
@@ -47,7 +49,7 @@ on, so this file names them.
    moves 11 to 12, additively, by decision 0016's precedent. The pure
    `brokkr-view` crate's closed dependency set gains `unicode-width`, already
    in the lockfile through ratatui, with no effectful items. `brokkr-view`
-   exports `sections`, `wrap`, `Section`, `Standing`, `Verdict`,
+   exports `sections`, `title`, `wrap`, `Section`, `Standing`, `Verdict`,
    `TITLE_COLUMNS` and `VERDICT_COLUMNS`; `brokkr-core` exports `Severity`.
 
 ## Consequences

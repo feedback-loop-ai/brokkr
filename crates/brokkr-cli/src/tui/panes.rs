@@ -216,10 +216,16 @@ fn fleet_row(row: &RunRow, now: &str) -> Row<'static> {
         ),
         cell(&row.verdict.text, plain()),
         cell(row.verdict.residual.map_or("", Severity::name), plain()),
-        cell(&row.title, plain()),
+        cell(&painted_title(row), plain()),
         cell(&age, plain()),
         cell(&short_id(&row.run_id), plain()),
     ])
+}
+
+/// The run's title as the TUI paints it: sanitized, then clamped again,
+/// so the columns it measures are the columns it draws.
+fn painted_title(row: &RunRow) -> String {
+    brokkr_view::title(&safe(&row.title))
 }
 
 /// The one glyph each standing wears, so a row reads without colour.
@@ -238,7 +244,7 @@ fn standing_glyph(standing: Standing) -> &'static str {
 /// and since when; its verdict and every residual finding; and the full
 /// feature. The pane scrolls from `offset` by the lines it draws.
 fn draw_detail(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, row: &RunRow) {
-    let block = pane(&row.title, tui.pane == 1);
+    let block = pane(&painted_title(row), tui.pane == 1);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let lines: Vec<Line> = detail_lines(row, &views.now)

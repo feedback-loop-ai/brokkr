@@ -263,6 +263,36 @@ fn a_row_prints_its_title_and_an_id_whose_hash_is_whole() {
     }
 }
 
+/// Acceptance 1 against the sanitizer: a family emoji is one 2-column
+/// sequence only while its joiners hold, and the TUI strips joiners, so
+/// thirty of them measure 60 columns in the view and paint 240 here.
+/// The row paints its title clamped as drawn: 29 emoji and an ellipsis.
+#[test]
+fn a_title_is_clamped_as_it_is_painted_once_its_joiners_are_stripped() {
+    let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}";
+    let feature = family.repeat(30);
+    let state = state_of(Status::Running);
+    let entry = brokkr_view::RunEntry {
+        run_id: "a-family-of-emoji-5d6e7f80",
+        feature: &feature,
+        created_at: T0,
+        last_recorded_at: None,
+        state: Some(&state),
+        detail: None,
+        residuals: &[],
+    };
+    let mut views = Views::empty();
+    views.now = NOW.to_string();
+    views.runs = brokkr_view::run_rows(&[entry]);
+    assert_eq!(views.runs.runs[0].title, feature, "the view measures 60");
+    let frame = frame_of(&Tui::new(None), &views, 320, 80);
+    let painted = frame
+        .chars()
+        .filter(|c| family.contains(*c) && *c != '\u{200D}');
+    assert_eq!(painted.count(), 29, "{frame}");
+    assert!(frame.contains('…'), "{frame}");
+}
+
 #[test]
 fn a_long_id_is_shortened_in_its_head_and_never_in_its_hash() {
     assert_eq!(short_id("run-unfoldable"), "run-unfoldable");
