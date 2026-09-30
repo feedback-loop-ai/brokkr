@@ -24647,3 +24647,261 @@ authority, under L1. Nothing in this visit relies on it.
 - `git diff --check`: clean.
 - **Pending:** the macOS leg of 25.2, jscpd and `quality/ratchet.sh`,
   exact coverage outside the box, remote CI, and the council.
+
+## Unit 26 — guides, measured pins and scope audit, on the merged head (2026-09-30)
+
+Run `0065-rebuild-unit-26-see-the-uni-340609da`, based on `8418eb96`. This
+visit changes no production byte. Its edits are:
+
+- three guides: `recipe-authoring.md`, `agent-library.md` and
+  `provider-adapters.md`;
+- one failure message in `witness_digests.rs`;
+- this file and `tasks.md`.
+
+It uses no standing-admission line and no fixture migration.
+`compose_tests.rs` was audited and needed no edit. Scratch output is in
+`.forge/`.
+
+### 26.1: the guides
+
+Each change below replaces advice the operator's rulings of 2026-09-23
+supersede with the behaviour the branch implements.
+
+- **Outward links (ruling 3).** `recipe-authoring.md` said
+  "`roles/role.md` may be a link pointing anywhere, and its target's
+  bytes ride the digest". This is the pinned-outward-link permission
+  that ruling 3 rejects. Consequence 5 now says:
+  - a role or policy is resolved on the filesystem and must land under
+    its declaring layer's own directory;
+  - a link inside that directory is pinned and consumed as the file it
+    reaches;
+  - a link that resolves outside is refused whatever its pins or its
+    lexical path, and so is `alias/../charter.md`;
+  - a FIFO, device or directory never supplies a charter or policy.
+
+  Consequence 6 adds that the read is bound to the checked file, so a
+  replaced path or ancestor is refused even with equal bytes (units
+  16–19 and 24).
+- **Inline flags (ruling 1).**
+  - `recipe-authoring.md`'s seat example authored `--permission-mode
+    acceptEdits`, which compilation now refuses. It now declares
+    `"tools": {"allow": ["cargo", "git"]}` and authors only the model and
+    effort.
+  - The key table gains `tools` and `capabilities` rows.
+  - A new subsection, "The tools a seat is given", covers:
+    - the refusal of every capability-bearing option at compile;
+    - typed `tools.allow` lowered at inline Claude sites, with the
+      engine's `--permission-mode acceptEdits` template (addendum of
+      2026-09-24);
+    - `tools.allow` refused beside hands, on a driver that cannot
+      deliver it, and on LaneTally (addendum of 2026-09-29, R5);
+    - `tools.sandbox` as `read-only` at gates and `workspace-write` at
+      work, with `danger-full-access` nowhere (addendum of 2026-09-25,
+      "narrow").
+- **Merging advice (ruling 1).** `provider-adapters.md` said three
+  things the rulings retire:
+  - native controls were "folded ONCE into a Claude seat's own
+    `--tools`…";
+  - "A deny list is subtraction and always survives", with an authored
+    `--disallowedTools mcp__*` narrowing a seat and the engine's denial
+    merging into it;
+  - an authored list was admitted unless it named `mcp__` or a wildcard.
+
+  The guide now says:
+  - the engine composes only its own lists (template, typed local
+    permissions, hands);
+  - tool lists of any polarity refuse when authored, and nothing is
+    merged;
+  - subtraction is typed, by leaving a capability out of `capabilities`;
+  - every capability-bearing option is refused at compile. The
+    catalogue is given, and the exact refusal is quoted from
+    `capability_launch.rs:861-865`.
+  - The `authored` field is described as the launch guard's re-check
+    and the opaque-driver search, not as the compile rule.
+- **The launch proves itself (ruling 2).** `provider-adapters.md` says
+  that the final command is parsed back and compared with the plan's
+  expected state, and must equal the engine's recomposition token for
+  token (`check_final`, `native_controls.rs:1943-1985`). It also says
+  that ON/OFF argv are parsed at adapter load.
+- **The whole-plan doctor (ruling 4).** A new paragraph in
+  `provider-adapters.md` describes the adapter-level plan: one plan per
+  realm and installed harness, with every power OFF together, submitted
+  to the compile's resolution and the launch's final validation. It
+  quotes the scope that `doctor.rs:821-823` prints, and states that
+  `doctor --bundle` compiles in the realm (`doctor.rs:664-705`).
+  `recipe-authoring.md`'s "Compile it" points there.
+- **Limits kept (MP6, D11).**
+  - `provider-adapters.md` now states that slice one carries only the
+    empty restriction: a `requires` refuses and a `wants` drops with the
+    capability OFF (`capabilities.rs:1682-1699`). The removed sentence
+    had said a restriction transport "is appended verbatim".
+  - `agent-library.md` gains "Only the engine writes a seat's tools" and
+    "What slice one does not do". The second names MCP brokers and grants,
+    gate-class rules, checkpoint attribution, retained results and
+    capability comparisons as slices two and three, and keeps a composed
+    ON or OFF apart from a live measurement.
+- **Sweep.** `grep -n -i -e anywhere -e merge -e folded -e outward -e
+  "always survives"` over the three guides now finds only two kinds of
+  line:
+  - recipe composition ("Named things merge by name", "merge by union");
+  - engine-owned folding ("folded into the same engine-owned deny
+    list", "folded from" the journal), plus the two new "Nothing is
+    merged" statements.
+
+  `grep -rn "acceptEdits|--allowedTools|--sandbox"` over `docs/guides`
+  finds these outside the new refusal text:
+  - adapter data (hands fragments, `tool_permissions`);
+  - the engine-owned template;
+  - one stale line outside this unit's files (see "Not done here").
+- **Suites that read the guides.** All passed:
+  - `brokkr-cli --test house_prose` (8), `rename_guard` (2),
+    `contributing` (23) and `packaging` (6);
+  - `brokkr-runtime --test crucible_review_sequence` (6) and
+    `library_data` (14);
+  - `brokkr-cli --lib -- doctor:: cli_reference` (93);
+  - `brokkr-protocol --lib -- composite` (127).
+
+### 26.2: measured pins
+
+- **Witnesses on this head.** `cargo test -p brokkr-runtime
+  --all-features --locked --test witness_digests` passes 6/6 without
+  bless. So every pin in `witnesses.json` equals this head's compile:
+  - 18 bundles and 18 charters;
+  - `bundles/self` `7df03d1f…eb3e`;
+  - `bundles/verify` `cc7291bc…d59c`.
+
+  No witness input has moved since the merge.
+  `git log 1c71ce5c..HEAD` over `witnesses.json`, `agents/`,
+  `adapters/`, `recipes/`, `bundles/`, `capabilities/`, `dialects/`,
+  `realms.json` and `Cargo.toml` is empty. No pin was re-blessed.
+- **Compose pins.** Since main's #358, `compose_tests.rs` holds no digest
+  of its own. `recipes_that_opted_into_nothing_keep_their_digests` (four
+  uncomposed bundles) and `a_composed_bundles_manifest_is_pinned`
+  (`recipes/triage`) read `witnesses.json`. Both passed in the crate run
+  below, so `compose_tests.rs` needed no edit.
+- **The CLI compile.** `cargo run --locked -p brokkr-cli -- compile
+  --bundle bundles/self` compiled with digest `b85876a4…6b28`, and
+  `bundles/verify` with `11aebe40…6aef`. These differ from the witness
+  pins. The CLI compiles in the discovered realm (`realms.json`, realm
+  `brokkr`), while the witness suite calls `Bundle::compile_with` with
+  explicit roots only. Both are recorded, and neither is a pin.
+- **The reasons, appended.** Main's #358 moved the witnesses into one
+  data table. It rules that why a value moved belongs in the commit that
+  moves it (`witness_digests.rs:20-23`), so no history block remains to
+  append to. The per-witness reasons against main at the merge
+  (`1c71ce5c^2` = `5eda13bf`) are recorded here and in this unit's commit
+  message. They come from `git diff 5eda13bf HEAD` over the witness
+  inputs. The workspace `Cargo.toml` is unchanged, so the engine version
+  is not a cause.
+  - **Every bundle (18):** run-manifest v11's required `capabilities`
+    section is present in every compiled manifest:
+    - the realm, the grants, the consulted definitions and dialects;
+    - per-site records.
+
+    Every adapter file also gained `native_capabilities`, so every
+    adapter digest in `drivers` and in the agent resolution records
+    moved. `bundles/self` and `recipes/panel-review` changed no file of
+    their own and move for these two reasons alone.
+  - **Typed-tool migrations (ruling 1; units 5b–7):** `recipes/fast`,
+    `node`, `preflight`, `standby`, `review-first`, `wager-harness` and
+    `bundles/verify`. Their inline flags became `tools.allow` or
+    `tools.sandbox`.
+  - **Composed:** `triage`, `landing`, `release`, `wager-harness-dsh` and
+    `wager-harness-muse` extend `fast`; `night-shift` and `gpt-flash`
+    extend `triage`. Each moves with its ancestor's digest, as well as for
+    its own sections.
+  - **The researcher:** `agents/researcher.json` asks for `web-search`
+    and `web-fetch` as `wants`, drops its native web tools from
+    `tools.allow`, and has a new charter:
+    - the `researcher.md` charter pin moved from `ce577d4c…fd1b` to
+      `8324c2dc…e21`;
+    - `recipes/research` moved;
+    - `recipes/research-dsh` moved too, through its ancestor and its own
+      `roles/researcher.md`.
+  - Every other charter pin is unchanged against main.
+- **One message corrected.** `every_witness_manifest_satisfies_the_v9_contract_it_claims`
+  validates against `run-manifest.v11.schema.json`, but its failure text
+  said "outside run-manifest/v9". The text now says v11. The test's name
+  is kept, as its doc comment records. No assertion changed.
+  - **Mutation.** The schema path was pointed at
+    `run-manifest.v10.schema.json`. The test failed:
+    `witness_digests.rs:335:9: bundles/self emits a manifest outside
+    run-manifest/v11`, 5 passed and 1 failed.
+  - **Restored.** 6/6 passed.
+
+### 26.3: frozen bytes, grants, hands, MCP, scope and compiler pins
+
+- **Frozen bytes.** `git diff --name-status 5eda13bf HEAD` (and the same
+  against `origin/main`) over `contracts fixtures reference
+  policy/phase-machine.json extensions` lists:
+  - `A` for `realms.v6.schema.json`, `run-manifest.v11.schema.json` and
+    `tool-dialect.v1.schema.json`;
+  - `M` only for `contracts/README.md`, which is an appended section.
+
+  No frozen schema, fixture, reference file, production table or
+  extension moved. The contracts are additive only.
+- **Empty grants.** The shipped `realms.json` is `forge.realms/v3`, which
+  cannot carry `capabilities` (v6 only). So the shipped world grants
+  nothing, and older versions grant nothing (RG1). What ships beside it
+  is:
+  - two abstract definitions, `capabilities/web-fetch.json` and
+    `capabilities/web-search.json`;
+  - three `provider-native` dialects under `dialects/tools/`.
+- **Hands (TD6).** No shipped dialect has kind `hands`. `grep -rln
+  '"hands"' dialects/` is empty. The reserved kind moves nothing, and the
+  boxed-hands suites stay green in the crate run below.
+- **MCP.** No shipped dialect is `mcp`. Four agents write `"mcp": []`,
+  and no agent, recipe or bundle writes a non-empty `mcp` list
+  (`grep -rn '"mcp": \[[^]]'` is empty).
+- **Legacy permissions (SC7).** No agent's `tools.allow` names
+  `webfetch` or `websearch` (`grep -il` over `agents/*.json` is empty).
+  `every_bundle_in_the_tree_compiles` passes, and every shipped recipe
+  and bundle compiles. So none authors a capability-bearing option, since
+  compilation refuses each one.
+- **Later-slice scope (MP6).** The guides now name slices two and three
+  for MCP brokers and grants, gate rules, attribution, retained results
+  and comparisons. `contracts/README.md` already does. No text edited
+  here claims a nonempty restriction or a live measurement beyond the
+  adapters table.
+- **Compiler pins.**
+  - `git diff --stat 5eda13bf HEAD` over `rust-toolchain.toml`,
+    `rust-nightly-version.txt`, `.github/workflows`,
+    `scripts/coverage-exact.sh`, `Cargo.toml`, `Cargo.lock` and
+    `deny.toml` shows one line: `Cargo.lock` gains `rustix` in
+    brokkr-runtime's dependency list. This is ruling 1 of the merge
+    addendum, a direct edge to the locked 1.1.4 that brokkr-protocol and
+    brokkr-cli already take.
+  - `jsonschema` moved from brokkr-runtime's dev-dependencies to its
+    dependencies. It is the same workspace-locked package.
+  - `ci.yml:293-295`, `release.yml:70-72` and `coverage-exact.sh:200`
+    all read `rust-nightly-version.txt` (`nightly-2026-09-05`), so the
+    three agree.
+  - `rust-version = "1.88"` is unchanged.
+
+### Not done here
+
+- `docs/guides/adopting-a-node-repo.md:226` still names "the
+  `--allowedTools` list in each seat's driver" as the pnpm/yarn swap
+  point. Since unit 6, `recipes/node` declares `tools.allow`, and
+  `recipes/node/README.md:42-48` states that correctly. The file is
+  outside this unit's three named guides, so it is a follow-up.
+- `compose_tests.rs:1004-1009` (`named`) still normalises Windows
+  separators. That predates this unit and is outside its scope
+  (decision 0063); it is a follow-up.
+
+### Gates, on this visit's tree
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, with no warning.
+- `cargo test -p brokkr-runtime --all-features --locked`: 27 result
+  lines, all ok. `--lib` 688, total 870 passed.
+- The guide-reading suites listed under 26.1: all ok.
+- `compile --bundle bundles/self` and `bundles/verify`: both compiled.
+- `openspec validate --all --strict --no-interactive`: 19 passed, 0
+  failed.
+- `git diff --check`: clean.
+- **Pending:** exact coverage outside the box, jscpd and
+  `quality/ratchet.sh`, macOS, remote CI and the council. No `quality/`
+  ledger moved: no Rust file's line count changed, and the one edited
+  line in `witness_digests.rs` is inside an existing test.

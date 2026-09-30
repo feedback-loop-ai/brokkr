@@ -334,7 +334,7 @@ fn every_witness_manifest_satisfies_the_v9_contract_it_claims() {
         .unwrap();
         assert!(
             validator.is_valid(&bundle.manifest),
-            "{relative} emits a manifest outside run-manifest/v9"
+            "{relative} emits a manifest outside run-manifest/v11"
         );
         let hands = bundle.manifest.get("hands").and_then(|v| v.as_object());
         let boundary = bundle.manifest.get("boundary").and_then(|v| v.as_object());

@@ -5146,11 +5146,63 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
 
 ## 26. Unit 26 — Update guides, measured pins and scope audit
 
-- [ ] 26.1 Unit 26 corrects guides to refusal/typed migration/containment/whole-plan doctor. Verify no outward-link or merging advice remains; retain live/later-slice limits. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Authored provider configuration cannot supply capability authority][RGR], [Installed native capabilities absent from grants are explicit][CD2], [Slice-one records do not claim later-slice behavior][MP6]. Reopened/remaining: operator ruling 1–4. (previous 10.1)
+- [x] 26.1 Unit 26 corrects guides to refusal/typed migration/containment/whole-plan doctor. Verify no outward-link or merging advice remains; retain live/later-slice limits. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Authored provider configuration cannot supply capability authority][RGR], [Installed native capabilities absent from grants are explicit][CD2], [Slice-one records do not claim later-slice behavior][MP6]. Reopened/remaining: operator ruling 1–4. (previous 10.1)
 
-- [ ] 26.2 Unit 26 compiles self/verify/all witnesses and measures bytes/pins with reasons. Verify witness/compose/library tests; retain historical measurements. Requirement: [Digest pins are measured and their history remains truthful][MP5]. Reopened/remaining: operator ruling 1–4. (previous 10.2)
+- [x] 26.2 Unit 26 compiles self/verify/all witnesses and measures bytes/pins with reasons. Verify witness/compose/library tests; retain historical measurements. Requirement: [Digest pins are measured and their history remains truthful][MP5]. Reopened/remaining: operator ruling 1–4. (previous 10.2)
 
-- [ ] 26.3 Unit 26 audits frozen bytes/empty grants/hands/MCP/later-slice scope. Verify inventory, compiler-pin agreement and additive contracts only. Requirements: [Realms v6 adds grants without changing frozen versions][RG1], [Legacy concrete permissions cannot grandfather a capability][SC7], [Reserved hands preserves the existing workspace authority][TD6], [Slice-one records do not claim later-slice behavior][MP6]. Reopened/remaining: operator ruling 1–4. (previous 10.3)
+- [x] 26.3 Unit 26 audits frozen bytes/empty grants/hands/MCP/later-slice scope. Verify inventory, compiler-pin agreement and additive contracts only. Requirements: [Realms v6 adds grants without changing frozen versions][RG1], [Legacy concrete permissions cannot grandfather a capability][SC7], [Reserved hands preserves the existing workspace authority][TD6], [Slice-one records do not claim later-slice behavior][MP6]. Reopened/remaining: operator ruling 1–4. (previous 10.3)
+
+**Unit 26, 2026-09-30 (run `0065-rebuild-unit-26-see-the-uni-340609da`, based on `8418eb96`)** (evidence.md, "Unit 26").
+
+- **26.1, ticked.**
+  - `recipe-authoring.md` lost its outward-link advice ("a link pointing
+    anywhere"). In its place: canonical containment, contained links
+    pinned, regular files only, and a bound read.
+  - Its seat example no longer authors `--permission-mode`; it declares
+    `tools.allow`. A new subsection covers the refusal of authored
+    capability-bearing options and the typed `tools.allow` and
+    `tools.sandbox` limits.
+  - `provider-adapters.md` lost its merging advice ("folded into a
+    seat's own `--tools`", "a deny list … always survives"). In its
+    place: engine-owned lists only, the quoted compile refusal, the
+    launch's parse-back (ruling 2), the whole-plan doctor (ruling 4) and
+    the empty-restriction limit (D11).
+  - `agent-library.md` gains the engine's ownership of tools and the
+    slice-two/three limits.
+- **26.2, ticked.**
+  - `witness_digests` passes 6/6 unblessed. All 36 pins equal this
+    head's compiles, and no witness input moved since `1c71ce5c`.
+  - The compose pins read the same table, and `compose_tests.rs` needed
+    no edit.
+  - The per-witness reasons against main are recorded in evidence.md and
+    the commit, where main's #358 puts them.
+  - One stale failure text (v9 → v11) was corrected. It was bound by a
+    v10-schema mutation (failed at `:335`) and then restored (6/6).
+- **26.3, ticked.**
+  - The frozen trees are additive only (3 `A` and the README appended).
+  - The shipped `realms.json` is v3 and grants nothing.
+  - There is no `hands` or `mcp` dialect, no non-empty `mcp` list and no
+    legacy web tool in any allow list.
+  - Every shipped bundle compiles.
+  - The compiler pins agree (`rust-nightly-version.txt` is read by
+    `ci.yml`, `release.yml` and `coverage-exact.sh`). The only
+    dependency line is ruling 1's `rustix` edge.
+- **Admissions.** No production byte, no standing-admission line and no
+  fixture migration. No `quality/` ledger moved.
+- **Follow-ups, outside the unit's files.**
+  - `docs/guides/adopting-a-node-repo.md:226` still says "the
+    `--allowedTools` list in each seat's driver".
+  - `compose_tests.rs:1004-1009` still normalises Windows separators.
+- **Gates.**
+  - fmt: clean.
+  - Workspace clippy with `-D warnings`: clean.
+  - `brokkr-runtime`: 27 result lines ok, 870 passed.
+  - The guide-reading suites in `brokkr-cli` and `brokkr-protocol`: ok.
+  - self and verify compile.
+  - `openspec validate --all --strict`: 19 passed.
+  - `git diff --check`: clean.
+- **Pending.** Exact coverage outside the box, jscpd and `ratchet.sh`,
+  macOS, remote CI and the council.
 
 ## 27. Unit 27 — Validate and commit the rebuilt candidate
 
