@@ -11,7 +11,8 @@ const LATER: &str = "the system/init event on line 2 of stdout";
 const TRANSCRIPT: &str = "the system/init event on line 1 of ~/.claude/projects/{workdir}";
 const PLANTED_TOOL: &str =
     "mcp__brokkr-probe-user-scope__probe of the MCP server brokkr-probe-user-scope";
-const PLANTED_SERVER: &str = "the MCP server brokkr-probe-user-scope was listed connected by";
+pub(super) const PLANTED_SERVER: &str =
+    "the MCP server brokkr-probe-user-scope was listed connected by";
 
 /// A plain turn that lists no MCP server at all.
 const PLAIN_CLEAN: &str = ":";
@@ -351,7 +352,7 @@ const BOXED_FILE: &str = "~/.claude/projects/{workdir}/boxed.jsonl";
 const ESCAPED_O: &str = concat!("\\", "u006f");
 
 /// The planted server's init event.
-const PLANTED_INIT: &str = r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr-probe-user-scope","status":"connected"}]}"#;
+pub(super) const PLANTED_INIT: &str = r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr-probe-user-scope","status":"connected"}]}"#;
 
 /// A boxed turn whose `event` lands in the session file the plain turn
 /// wrote, which `redirect` appends to or rewrites, and is read at `at`.

@@ -3,7 +3,7 @@
 //! reached the turn beside the hands server (#467). Pure, like `measure`.
 
 use super::listing::Listing;
-use super::{on_turn, Streams, Turn};
+use super::{on_turn, Stream, Streams, Turn};
 use crate::hands::SERVER_NAME;
 use crate::probe::facts::{Capability, Fact};
 use crate::probe::plan::{Plan, Step, UserConfig, USER_SCOPE_SERVER};
@@ -65,7 +65,7 @@ fn tool_server(tool: &str) -> Option<&str> {
 /// The CLI's own tools: every listed tool that names no MCP server. A
 /// tool naming one is read by [`user_mcp`], never dropped unread.
 pub(super) fn native_tools(streams: &Streams) -> Fact<Vec<String>> {
-    Listing::read(streams, "tools", tool_name)
+    Listing::read(&streams.all, "tools", tool_name)
         .fact()
         .map(|tools| {
             tools
@@ -183,7 +183,7 @@ fn off_switch(tool: &str, boxed_tools: &Fact<Vec<String>>, plan: &Plan) -> Fact<
 /// The hands server's status, unmeasured when the turn's listings gave it
 /// more than one.
 pub(super) fn mcp_server(streams: &Streams) -> Fact<String> {
-    let statuses = Listing::read(streams, "mcp_servers", server_entry)
+    let statuses = Listing::read(&streams.all, "mcp_servers", server_entry)
         .fact()
         .map(|servers| {
             servers
@@ -207,19 +207,60 @@ pub(super) fn mcp_server(streams: &Streams) -> Fact<String> {
 }
 
 /// Whether an MCP server other than the hands server reached a turn
-/// (#467), read from both listings by [`Listing`]'s invariant: a reach
-/// read anywhere is a reach, whatever else went unread. With none read,
-/// any value either listing left unread, or a user-scope configuration
-/// the probe could not plant, leaves the question open, and only then
-/// does the server listing, read whole, say no.
+/// (#467), read from both listings by [`Listing`]'s invariant and from
+/// stderr's text: a reach read anywhere is a reach, whatever else went
+/// unread and however the turn ended, so a turn the CLI refused, or one
+/// that never finished, still shows the reach it printed (#484). With
+/// none read, a turn that failed says what `on_turn` says of it; in one
+/// that was read, any value either listing left unread, or a user-scope
+/// configuration the probe could not plant, leaves the question open, and
+/// only then does the server listing, read whole, say no.
 pub(super) fn user_mcp(turn: &Turn, config: &UserConfig) -> Fact<bool> {
-    on_turn(turn, |streams| {
-        let tools = Listing::read(streams, "tools", tool_name);
-        let servers = Listing::read(streams, "mcp_servers", server_entry);
-        match reach(&tools, &servers) {
-            Some(reached) => Fact::measured(true, reached),
-            None => no_reach(&tools, servers, config),
-        }
+    let streams = turn.streams();
+    let tools = Listing::read(streams, "tools", tool_name);
+    let servers = Listing::read(streams, "mcp_servers", server_entry);
+    match reach(&tools, &servers).or_else(|| text_reach(streams)) {
+        Some(reached) => Fact::measured(true, reached),
+        None => on_turn(turn, |_| no_reach(&tools, servers, config)),
+    }
+}
+
+/// Each value the turn's two listings hold that their reader could not
+/// name, which the verdict's evidence counts as unread (#484).
+pub(super) fn unread_values(turn: &Turn) -> Vec<String> {
+    let streams = turn.streams();
+    let mut values = Listing::read(streams, "tools", tool_name).unread_values();
+    values.extend(Listing::read(streams, "mcp_servers", server_entry).unread_values());
+    values
+}
+
+/// The first line of text, stderr's, that names an MCP server other than
+/// the hands server.
+fn text_reach(streams: &[Stream]) -> Option<String> {
+    streams.iter().find_map(|stream| {
+        stream.text.iter().find_map(|(line, text)| {
+            let named = named_in(text)?;
+            Some(format!("line {line} of {} names {named}", stream.source))
+        })
+    })
+}
+
+/// The MCP server other than the hands server a line of text names: the
+/// planted user-scope server, or the server of a tool it spells as
+/// `mcp__<server>__<tool>`.
+fn named_in(text: &str) -> Option<String> {
+    if text.contains(USER_SCOPE_SERVER) {
+        return Some(format!(
+            "the planted user-scope MCP server {USER_SCOPE_SERVER}"
+        ));
+    }
+    text.match_indices("mcp__").find_map(|(at, _)| {
+        let tool: String = text[at..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+            .collect();
+        let server = tool_server(&tool).filter(|server| *server != SERVER_NAME)?;
+        Some(format!("{tool} of the MCP server {server}"))
     })
 }
 

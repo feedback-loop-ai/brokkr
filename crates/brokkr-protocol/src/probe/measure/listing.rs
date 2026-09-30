@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-use super::{event_type, found_in, Stream, Streams, EXCERPT_CHARS};
+use super::{event_type, found_in, Lines, Stream, EXCERPT_CHARS};
 use crate::probe::facts::Fact;
 
 /// One entry a listing named, and where it was read: `the <type> event
@@ -17,16 +17,19 @@ pub(super) struct Entry<T> {
 
 /// Everything a turn listed under one key, read under one invariant:
 ///
-/// - (a) every stream the turn produced is read: stdout's events and those
-///   of every transcript the turn wrote, never one in place of another;
+/// - (a) every stream the turn produced is read: stdout's events, those
+///   of every transcript the turn wrote and those on stderr, never one in
+///   place of another;
 /// - (b) every value under the key, at any depth of every event of every
 ///   stream, is visited. A value that is not an array, or an array entry
 ///   the reader cannot name, leaves the listing unread, named by stream,
 ///   event and pointer. Any line of any stream that is not UTF-8, or not
 ///   one JSON object naming each key once, leaves every listing of the turn
 ///   unread, named by stream and line, whatever the line holds, and so
-///   does a stream that holds bytes but no event. Only a stream of no bytes
-///   is read as nothing, and named. Nothing is skipped;
+///   does a stream that holds bytes but no event. Stderr alone is text: a
+///   line of it that is UTF-8 and no event is read as text, and leaves no
+///   listing unread. Only a stream of no bytes is read as nothing, and
+///   named. Nothing is skipped;
 /// - (c) every entry named is kept whatever else went unread, so a reach
 ///   read anywhere stays in [`Listing::entries`] beside any unread value,
 ///   and an unread value never reads as nothing listed;
@@ -36,6 +39,8 @@ pub(super) struct Listing<T> {
     entries: Vec<Entry<T>>,
     listed: Vec<String>,
     unread: Vec<String>,
+    /// Those of `unread` that are values rather than lines.
+    values: Vec<String>,
     empty: Vec<String>,
 }
 
@@ -43,7 +48,7 @@ impl<T: serde::Serialize + PartialEq> Listing<T> {
     /// Read every value under `key` in every stream of the turn, each
     /// array entry named by `name`.
     pub(super) fn read(
-        streams: &Streams,
+        streams: &[Stream],
         key: &'static str,
         name: impl Fn(&Value) -> Option<T>,
     ) -> Listing<T> {
@@ -52,9 +57,10 @@ impl<T: serde::Serialize + PartialEq> Listing<T> {
             entries: Vec::new(),
             listed: Vec::new(),
             unread: Vec::new(),
+            values: Vec::new(),
             empty: Vec::new(),
         };
-        for stream in &streams.all {
+        for stream in streams {
             listing.read_stream(stream, &name);
         }
         listing
@@ -71,7 +77,7 @@ impl<T: serde::Serialize + PartialEq> Listing<T> {
             self.unread
                 .push(format!("line {line} of {} {fault}", stream.source));
         }
-        if stream.events.is_empty() {
+        if stream.events.is_empty() && stream.lines == Lines::Events {
             self.unread
                 .push(format!("{} holds no JSON event", stream.source));
         }
@@ -101,7 +107,7 @@ impl<T: serde::Serialize + PartialEq> Listing<T> {
     ) {
         let Value::Array(items) = value else {
             let json: String = value.to_string().chars().take(EXCERPT_CHARS).collect();
-            self.unread.push(format!(
+            self.unnamed(format!(
                 "{event} holds at {pointer} a value that is not a list: {json}"
             ));
             return;
@@ -113,7 +119,7 @@ impl<T: serde::Serialize + PartialEq> Listing<T> {
                     value,
                     at: format!("{event} at {pointer}/{index}"),
                 }),
-                None => self.unread.push(format!(
+                None => self.unnamed(format!(
                     "{event} holds an entry at {pointer}/{index} the probe cannot name"
                 )),
             }
@@ -122,6 +128,18 @@ impl<T: serde::Serialize + PartialEq> Listing<T> {
             self.listed
                 .push(format!("{event} listed {}: {}", self.key, items.len()));
         }
+    }
+
+    /// A value under the key that the reader could not name.
+    fn unnamed(&mut self, what: String) {
+        self.values.push(what.clone());
+        self.unread.push(what);
+    }
+
+    /// Each value under the key that went unread, named by stream, event
+    /// and pointer.
+    pub(super) fn unread_values(self) -> Vec<String> {
+        self.values
     }
 
     /// Every entry named, wherever it was read and whatever went unread.
