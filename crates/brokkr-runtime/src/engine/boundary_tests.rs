@@ -1884,7 +1884,7 @@ fn an_owner_or_an_ancestor_replaced_since_the_compile_refuses_the_dispatch() {
     // Rebuild unit 24: so do a start, a dispatch-bound start and the run's
     // resume, by the first binding, and nothing is written.
     let refused = charter_moved("agent 'worker'", "replaced: worker.md");
-    let doors = doors(&root, &bundle, &run, None);
+    let doors = doors(&root, &bundle, &run, None).map(answer);
     assert_eq!(doors, [refused.clone(), refused.clone(), refused], "doors");
     assert_eq!(written_in(&root, &run), before, "nothing is written");
 }
@@ -2556,24 +2556,28 @@ fn moved(owner: &str, cause: &str) -> Result<Value, String> {
     ))
 }
 
-/// The start or resume refusal for a charter of `owner` that moved for
-/// `cause`.
-fn charter_moved(owner: &str, cause: &str) -> Result<String, String> {
-    Err(format!(
-        "a charter of {owner} moved since the compile ({cause}); a run is started or resumed \
-         only over the charters the bundle's identity names, so restore it, or recompile and \
-         start a new run (decision 0066 ruling 5)"
-    ))
+/// The fields of [`EngineError::CharterMoved`] for a charter of `owner` that
+/// moved for `cause` (its text is pinned once, in `capability_tests`).
+fn charter_moved(owner: &str, cause: &str) -> Result<String, (String, String)> {
+    Err((owner.to_string(), cause.to_string()))
 }
+
+/// A door's run id, or the owner and key of its `CharterMoved`: any other
+/// refusal fails the test by its variant (decision 0071 ruling 8).
+fn answer(door: Door) -> Result<String, (String, String)> {
+    match door {
+        Ok(engine) => Ok(engine.run_id),
+        Err(EngineError::CharterMoved { owner, key }) => Err((owner, key)),
+        Err(other) => panic!("not a charter refusal: {other:?}"),
+    }
+}
+
+/// What a start or resume door answers, before [`answer`] reads it.
+type Door = Result<Engine, EngineError>;
 
 /// What a start, a dispatch-bound start and `run`'s resume of `bundle`
 /// answer, in that order, over the store under `root` (rebuild unit 24).
-fn doors(
-    root: &Path,
-    bundle: &Bundle,
-    run: &str,
-    work: Option<&Path>,
-) -> [Result<String, String>; 3] {
+fn doors(root: &Path, bundle: &Bundle, run: &str, work: Option<&Path>) -> [Door; 3] {
     let (store, work) = (|| store_at(root), || work.map(Path::to_path_buf));
     let dispatch = super::tests::dispatch(bundle);
     [
@@ -2581,7 +2585,6 @@ fn doors(
         Engine::start_with_dispatch(store(), bundle.clone(), "f", work(), dispatch),
         Engine::resume(store(), bundle.clone(), run, work()),
     ]
-    .map(|door| Ok(door.map_err(|error| error.to_string())?.run_id))
 }
 
 /// The store under `root`'s run count and `run`'s event ids: what a refused
@@ -2616,9 +2619,8 @@ fn a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume() {
     let run = Engine::start(store_at(&root), bundle.clone(), "f", Some(work.clone()));
     let run = run.expect("the compiled charters start a run").run_id;
     let resume = || {
-        Engine::resume(store_at(&root), bundle.clone(), &run, Some(work.clone()))
-            .map(|engine| engine.run_id)
-            .map_err(|error| error.to_string())
+        let door = Engine::resume(store_at(&root), bundle.clone(), &run, Some(work.clone()));
+        answer(door)
     };
     assert_eq!(resume(), Ok(run.clone()));
     let before = written_in(&root, &run);
@@ -2670,7 +2672,7 @@ fn a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume() {
         for (cause, act) in rows {
             act();
             let refused = charter_moved(owner, &format!("{cause}: {key}"));
-            let doors = doors(&root, &bundle, &run, Some(&work));
+            let doors = doors(&root, &bundle, &run, Some(&work)).map(answer);
             let each = [refused.clone(), refused.clone(), refused];
             assert_eq!(doors, each, "{owner} {cause}: the doors");
             assert_eq!(written_in(&root, &run), before, "{owner} {cause}");
@@ -2684,20 +2686,21 @@ fn a_charter_that_moved_since_the_compile_refuses_the_start_and_the_resume() {
     // resumes, and a dispatch-bound start meets the refusal it always met:
     // v2 cannot pin agent resolutions.
     let [started, bound, resumed] = doors(&root, &bundle, &run, Some(&work));
-    let fresh = started.map(|id| id.starts_with("f-") && id != run);
+    let fresh = answer(started).map(|id| id.starts_with("f-") && id != run);
     assert_eq!(fresh, Ok(true));
+    let bound = bound.map(drop).unwrap_err();
+    let EngineError::Dispatch(DispatchError::AgentsUnsupportedByDispatchLineage) = bound else {
+        panic!("not the v2 lineage refusal: {bound:?}")
+    };
     assert_eq!(
-        bound,
-        Err(
-            "dispatch: this bundle pins agent resolutions ('agents' in its manifest) and the \
-             Looper-bound run-manifest/v2 lineage cannot carry them: the v2 round-trip \
-             reconstructs the bundle manifest from six named keys, so the pin would be dropped \
-             and the run would become unresumable. Run this bundle without --dispatch until a \
-             jointly agreed v2-lineage manifest version exists"
-                .to_string()
-        )
+        bound.to_string(),
+        "dispatch: this bundle pins agent resolutions ('agents' in its manifest) and the \
+         Looper-bound run-manifest/v2 lineage cannot carry them: the v2 round-trip \
+         reconstructs the bundle manifest from six named keys, so the pin would be dropped \
+         and the run would become unresumable. Run this bundle without --dispatch until a \
+         jointly agreed v2-lineage manifest version exists"
     );
-    assert_eq!(resumed, Ok(run.clone()));
+    assert_eq!(answer(resumed), Ok(run.clone()));
 }
 
 /// Rebuild unit 19, review return (F1): A RESUME IS HELD TO THE BINDINGS
@@ -2792,9 +2795,8 @@ fn a_resume_over_a_recompile_is_held_to_the_bindings_the_run_started_over() {
         ]
     );
     let resume = |run: &str| {
-        Engine::resume(store_at(&root), recompile(), run, Some(work.clone()))
-            .map(|engine| engine.run_id)
-            .map_err(|error| error.to_string())
+        let door = Engine::resume(store_at(&root), recompile(), run, Some(work.clone()));
+        answer(door)
     };
     assert_eq!(resume(&run), Ok(run.clone()));
     let written = || written_in(&root, &run);
@@ -2912,11 +2914,7 @@ fn a_run_that_recorded_no_bindings_is_refused_even_by_a_bundle_that_binds_none()
     let started = Engine::start(store_at(&root), bundle.clone(), "f", None)
         .unwrap()
         .run_id;
-    let resume = |run: &str| {
-        Engine::resume(store_at(&root), bundle.clone(), run, None)
-            .map(|engine| engine.run_id)
-            .map_err(|error| error.to_string())
-    };
+    let resume = |run: &str| answer(Engine::resume(store_at(&root), bundle.clone(), run, None));
     assert_eq!(resume(&started), Ok(started.clone()));
     let mut store = store_at(&root);
     store
@@ -2931,16 +2929,8 @@ fn a_run_that_recorded_no_bindings_is_refused_even_by_a_bundle_that_binds_none()
             None,
         )
         .unwrap();
-    assert_eq!(
-        resume("legacy"),
-        Err(
-            "a charter of bundle 'test' moved since the compile (unrecorded: the run started \
-             with no charter record); a run is started or resumed only over the charters the \
-             bundle's identity names, so restore it, or recompile and start a new run (decision \
-             0066 ruling 5)"
-                .to_string()
-        )
-    );
+    let unrecorded = "unrecorded: the run started with no charter record";
+    assert_eq!(resume("legacy"), charter_moved("bundle 'test'", unrecorded));
     assert_eq!(store_at(&root).load("legacy").unwrap().len(), 1);
 }
 

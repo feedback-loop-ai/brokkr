@@ -203,7 +203,7 @@
    481 crates/brokkr-runtime/src/dialect/tests.rs
    441 crates/brokkr-runtime/src/engine/agent_tests.rs
    152 crates/brokkr-runtime/src/engine/artifact_gate_tests.rs
-  4636 crates/brokkr-runtime/src/engine/boundary_tests.rs
+  4626 crates/brokkr-runtime/src/engine/boundary_tests.rs
   2220 crates/brokkr-runtime/src/engine/capability_tests.rs
    222 crates/brokkr-runtime/src/engine/cleanup_tests.rs
    669 crates/brokkr-runtime/src/engine/conclude_tests.rs

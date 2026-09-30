@@ -24111,3 +24111,88 @@ of its own at each door. `engine/boundary_tests.rs`, this unit's file:
   - macOS;
   - exact coverage outside the box;
   - remote CI and the council.
+
+### Review return (run `0065-rebuild-unit-24-see-the-uni-576fe9d6`, third visit, on `b06a43e8`)
+
+The chief returned one medium finding and one info finding.
+
+**SC24-1 (medium, decision 0071 ruling 8).** This unit's `charter_moved`
+and `doors` helpers in `engine/boundary_tests.rs` returned
+`Result<String, String>`. `doors` turned each `EngineError` into its
+`Display` text, so the door assertions compared text, not the
+`CharterMoved` variant. The fix is test-only:
+
+- `charter_moved(owner, cause)` now gives the variant's exact fields,
+  `Err((owner, key))`.
+- `doors` returns the doors' own `Result<Engine, EngineError>` (the
+  `Door` alias).
+- A new `answer` reads one door. It gives the run id, or `CharterMoved`'s
+  `(owner, key)`. Any other variant panics by name
+  (`not a charter refusal: <variant>`).
+- Every assertion that compared a door's text now reads through
+  `answer`:
+  - the doors vector (`:1888`, `:2677`);
+  - the recompile test's resumes (`:2838`, `:2898`);
+  - the no-bindings test's `legacy` resume (`:2933`), whose second copy
+    of the `unrecorded` text went too.
+- The restored dispatch-bound start is matched by variant first,
+  `EngineError::Dispatch(DispatchError::AgentsUnsupportedByDispatchLineage)`
+  (`:2693`). The file's one pin of that refusal's text stays after it.
+- `CharterMoved`'s text keeps its one pin, `capability_tests.rs:1669`.
+
+Every expected owner and key is the one the text carried.
+
+- **Ledger.** The file had grown to 4654 lines, which ruling 4 forbids for
+  a file already over. It now measures 4626 by `wc -l`
+  (`quality/file-lines.txt` 4636 → 4626). The resume closures bind the
+  door to a local before `answer`, and the no-bindings test's resume fits
+  on one line. Measured with the unit's clippy `too_many_lines` run:
+  - the recompile test, 174 → 173, now at `:2722`;
+  - five later entries only move up 10 lines.
+- **Binding.** Each mutation below was one compiling edit, saved as
+  `.forge/u24/v3-<id>.diff` and restored with `git checkout --`. Each was
+  run against `cargo test --locked -p brokkr-runtime --all-features --lib
+  -- engine::boundary_tests` (41 tests) on the final test file. Line
+  numbers are the final file's.
+
+| # | Mutation | Failing assertion observed |
+|---|---|---|
+| T1 | `charter_moved` in `engine.rs` builds `CapabilityInputMoved { input: owner, problem: key }` (same fields, other variant) | 4 tests, each through `answer`'s panic `not a charter refusal: CapabilityInputMoved { input: "layer 'recipe'", problem: "changed: roles/review.md" }` (and `agent 'worker'` `replaced: worker.md`, `bundle 'test'` `unrecorded: …`). |
+| T2 | the same, owner and key swapped | `:2677` `[Err(("changed: roles/review.md", "layer 'recipe'")), …]`; `:1888`; `:2838`; `:2933`. |
+| T3 | `brokkr-core` `dispatch.rs:424` answers `BadManifest` | `:2693` `not the v2 lineage refusal: Dispatch(BadManifest)`, the variant match before the text pin. |
+| O2 | `pinned_charter` compares the two keys only (`.forge/u24/O2.diff`) | `:2677` for `replaced`: the start door answered `Ok`, and the dispatch-bound door panicked `not a charter refusal: Dispatch(AgentsUnsupportedByDispatchLineage)`. The dispatch rows at `:2106` and `:2174` failed too. |
+| O3 | `owner_read`: `false && &now != owner` | `:1876` (dispatch) as before. With that assertion skipped in scratch, `:1888` failed: the start door answered `Ok`, and the dispatch-bound door panicked `Dispatch(AgentsUnsupportedByDispatchLineage)`. |
+| O5 | start door: the check's error read as `[]` | `:2677` `[Ok("f-f03a4edc"), Err(("layer 'recipe'", "changed: …")), Err(…)]`; `:1888` `[Ok("f-700a7671"), …]`. |
+| O6 | dispatch-bound start door: the same | `:2677` and `:1888`: the middle door, `not a charter refusal: Dispatch(AgentsUnsupportedByDispatchLineage)`. |
+| O7 | `resume`: `charters_as_started` result discarded | `:2677` `[…, Ok("f-59958799")]`; `:1888` `[…, Ok("f-40c803ef")]`; `:2838` `Ok("f-6a41a44b")` for `retargeted`; `:2933` `Ok("legacy")`. |
+| O8 | `resume` checks the recompile only | `:2838` `Ok("f-5b688796")`; `:2933` `Ok("legacy")`. |
+| O9 | `charters_as_started`: `false && was["target"] != …` | `:2838` `Err(("layer 'recipe'", "replaced: roles/review.md"))` for `retargeted`. |
+| O10 | `binding_digest` drops every `(dev, ino)` | `:2838` `Ok("f-a11f2f9b")` for `replaced`. |
+| O11 | an absent record read as the current bindings | `:2898` `Ok("f-unrecorded")`; `:2933` `Ok("legacy")`. |
+| O12 | `None => continue` | `:2898` `Err(("bundle 'recipe'", "unselected: …"))` for `("agent 'worker'", "unrecorded: worker.md")`. |
+
+Restored, `git status --short` lists only the test file and the two
+ledgers, and the 41 boundary tests pass.
+
+**C24-1 (info).** K2's exit code differed by visit, and the `tasks.md`
+summary now says so. The first visit's `timeout 90` exited 124. The second
+visit's uutils `timeout -k 5 90` exited 125. The row above already carried
+both.
+
+**Gates, this visit, on the final tree.**
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: 0 warning or error lines.
+- `cargo test -p brokkr-runtime --all-features --locked`: 27 `test
+  result` lines, all ok, lib 688. This includes the suppression and
+  witness suites.
+- `cargo test -p brokkr-cli --all-features --locked`: 45 lines, all ok.
+  This includes `ratchets` (the ledgers) and `capability_verbs`.
+- The other six crates have no byte changed since `b06a43e8`, whose
+  crate-by-crate run is recorded above. They were not re-run.
+- `compile --bundle bundles/self` and `bundles/verify`: both compiled.
+- `openspec validate --all --strict`: 19 passed, 0 failed.
+- `git diff --check`: clean.
+- Pending as before: jscpd, `quality/ratchet.sh`, macOS, exact coverage
+  outside the box, remote CI and the council.

@@ -4952,7 +4952,8 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
   - containment: C1 role alone, C2 policy alone, C3 the contained-link
     control, C4 excluded inputs;
   - regular file and blocking: K1, and K2 (without `NONBLOCK` the FIFO row
-    blocks: timeout exit 124, no orphan);
+    blocks, with no orphan; `timeout` exited 124 on the first visit and
+    125 under the host's uutils `timeout -k 5 90` on the second);
   - the merge's rustix calls: K3 no-follow, L1/L2 the handle-bound
     listing, L3 the link text at the owner;
   - owner and target: O1–O4 at the door, O5–O7 each door alone, O8–O12
@@ -4996,6 +4997,39 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
   - `git diff --check`: clean.
 - **Pending.** jscpd and `quality/ratchet.sh` (not run in the seat),
   macOS, exact coverage outside the box, remote CI and the council.
+
+**Unit 24 review return, 2026-09-30 (run `0065-rebuild-unit-24-see-the-uni-576fe9d6`, third visit; head `b06a43e8`)** (evidence.md, "Review return"):
+
+- **SC24-1 (medium, ruling 8).** Answered test-only in
+  `engine/boundary_tests.rs`.
+  - `doors` returns the doors' own `Result<Engine, EngineError>`.
+  - A new `answer` reads each door as its run id or `CharterMoved`'s exact
+    `(owner, key)`, and panics by name on any other variant.
+  - `charter_moved` gives those fields, not text.
+  - The no-bindings test's second copy of the `unrecorded` text went too.
+  - The restored dispatch-bound start is matched by
+    `DispatchError::AgentsUnsupportedByDispatchLineage` before its one
+    text pin.
+  - `CharterMoved`'s text keeps its one pin, `capability_tests.rs:1669`.
+- **Binding.** T1 (another variant, same fields), T2 (fields swapped), T3
+  (another dispatch variant), O2, O3, and O5–O12 were re-run on the final
+  file. Each failed its intended assertion, and each was restored.
+- **Measured pins.**
+  - `quality/file-lines.txt` 4636 → 4626.
+  - `quality/too-many-lines.txt`: the recompile test 174 → 173, and five
+    entries' lines moved.
+- **C24-1 (info).** K2's exit code is now given for each visit (above).
+- **Gates.**
+  - `cargo fmt --all -- --check`: clean.
+  - Workspace clippy with `-D warnings`: clean.
+  - `cargo test -p brokkr-runtime`: 27 result lines, all ok.
+  - `cargo test -p brokkr-cli`: 45 result lines, all ok.
+  - `bundles/self` and `bundles/verify`: both compiled.
+  - `openspec validate --all --strict`: 19 passed.
+  - `git diff --check`: clean.
+- **Admissions.** No production byte, no standing-admission lines and no
+  fixture migrations.
+- **Pending.** As above.
 
 ## 25. Unit 25 — Audit proof history and portability
 
