@@ -71,25 +71,10 @@ fn harness(args: ProbeHarnessArgs) -> Result<ExitCode> {
             args.adapters_dir.display()
         )
     })?;
-    // A built-in driver is `{brokkr} driver <kind> -- …`; any other driver
-    // has no launch grammar the probe knows.
-    let kind = adapter
-        .driver
-        .get(2)
-        .and_then(|word| AdapterKind::parse(word))
-        .ok_or_else(|| {
-            anyhow!(
-                "adapter '{}' is not launched by a built-in driver, so the probe has no \
-                 launch grammar for its CLI",
-                args.adapter
-            )
-        })?;
+    let kind = launch_kind(adapter, &args.adapter)?;
     let bindings = secret::resolve_bindings(&args.secrets_file, &args.credentials)
         .map_err(anyhow::Error::msg)?;
-    let previous = match &args.out {
-        Some(out) if out.exists() => Some(Report::parse(&std::fs::read_to_string(out)?)?),
-        _ => None,
-    };
+    let previous = previous_report(args.out.as_deref())?;
     let declared = declared(adapter);
     let cli = args.cli.unwrap_or_else(|| adapter.binary.clone());
     let brokkr = std::env::current_exe()?;
@@ -112,6 +97,31 @@ fn harness(args: ProbeHarnessArgs) -> Result<ExitCode> {
         None => print!("{text}"),
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The built-in driver kind that launches `adapter`'s CLI. A built-in
+/// driver is `{brokkr} driver <kind> -- …`; any other driver has no launch
+/// grammar the probe knows.
+fn launch_kind(adapter: &Adapter, name: &str) -> Result<AdapterKind> {
+    adapter
+        .driver
+        .get(2)
+        .and_then(|word| AdapterKind::parse(word))
+        .ok_or_else(|| {
+            anyhow!(
+                "adapter '{name}' is not launched by a built-in driver, so the probe has no \
+                 launch grammar for its CLI"
+            )
+        })
+}
+
+/// The report `--out` already holds, which the new one's drift is read
+/// against, or none when `--out` is absent or names no file yet.
+fn previous_report(out: Option<&Path>) -> Result<Option<Report>> {
+    match out {
+        Some(out) if out.exists() => Ok(Some(Report::parse(&std::fs::read_to_string(out)?)?)),
+        _ => Ok(None),
+    }
 }
 
 fn write_report(out: &Path, text: &str, report: &Report) -> Result<()> {
