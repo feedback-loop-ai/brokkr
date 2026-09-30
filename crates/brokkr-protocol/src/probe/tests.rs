@@ -9,10 +9,11 @@ use serde_json::{json, Value};
 
 use super::facts::{Capability, Eligibility, Fact, Verdict};
 use super::measure::{self, Observed};
-use super::observe::{Observation, Trial};
+use super::observe::{Captured, Observation, Trial};
 use super::*;
 use crate::secret;
 
+mod evidence;
 #[path = "../../../../tests/support/executable.rs"]
 mod executable;
 mod listings;
@@ -1180,13 +1181,13 @@ fn sample_report() -> Report {
     let declared = claude_declared();
     let plan = plan::plan(AdapterKind::Claude, &declared).unwrap();
     let observed = observed(observation(Some(0), "", ""));
-    let facts = measure::facts(&plan, &observed, &[]);
+    let measure::Reading { facts, unread } = measure::reading(&plan, &observed, &[]);
     let version = measure::version(&observed.version);
     Report {
         probe: facts::PROBE_VERSION.to_string(),
         adapter: "claude".to_string(),
         adapter_fields: judge::adapter_fields(&declared, &facts, &version),
-        eligibility: judge::eligibility(&facts),
+        eligibility: judge::eligibility(&facts, &unread),
         cli: Cli {
             command: "claude".to_string(),
             version,
@@ -1202,10 +1203,14 @@ fn sample_report() -> Report {
 }
 
 fn observation(exit: Option<i32>, stdout: &str, stderr: &str) -> Observation {
+    let captured = |text: &str| Captured {
+        text: text.to_string(),
+        not_utf8: Vec::new(),
+    };
     Observation {
         exit,
-        stdout: stdout.to_string(),
-        stderr: stderr.to_string(),
+        stdout: captured(stdout),
+        stderr: captured(stderr),
         transcripts: Vec::new(),
     }
 }
@@ -1224,7 +1229,7 @@ fn observed(turn: Observation) -> Observed {
 
 fn facts_of(turn: Observation) -> super::facts::Facts {
     let plan = plan::plan(AdapterKind::Claude, &claude_declared()).unwrap();
-    measure::facts(&plan, &observed(turn), &[])
+    measure::reading(&plan, &observed(turn), &[]).facts
 }
 
 #[test]
@@ -1347,7 +1352,7 @@ fn unboxed_facts(kind: AdapterKind, declared: &Declared) -> super::facts::Facts 
         boxed: Trial::Untried(gap),
         ..observed(observation(Some(0), init, ""))
     };
-    measure::facts(&plan, &observed, &[])
+    measure::reading(&plan, &observed, &[]).facts
 }
 
 #[test]
@@ -1522,7 +1527,7 @@ fn a_hands_server_that_does_not_connect_is_not_boxed_and_removable_egress_is_unb
         Fact::measured("failed".to_string(), "the init event listed mcp_servers: 1"),
         Fact::measured(true, "the plain turn listed no native egress tool"),
     );
-    let eligibility = judge::eligibility(&facts);
+    let eligibility = judge::eligibility(&facts, &[]);
     assert_eq!(eligibility.verdict, Verdict::UnboxedOnly);
     assert_eq!(
         eligibility.reason,
@@ -1555,7 +1560,7 @@ fn a_hands_server_that_does_not_connect_is_not_boxed_and_removable_egress_is_unb
     let mut leaking = facts;
     leaking.user_mcp_unboxed = Fact::measured(true, "the init event listed mcp_servers: 1");
     assert_eq!(
-        judge::eligibility(&leaking),
+        judge::eligibility(&leaking, &[]),
         Eligibility {
             verdict: Verdict::Refused,
             reason: format!(
@@ -1577,16 +1582,40 @@ fn a_plain_turn_not_shown_to_keep_the_user_scope_server_out_holds_a_boxable_cli_
         ),
         Fact::measured(true, "the plain turn listed no native egress tool"),
     );
-    assert_eq!(judge::eligibility(&facts).verdict, Verdict::Boxed);
+    assert_eq!(judge::eligibility(&facts, &[]).verdict, Verdict::Boxed);
     facts.user_mcp_unboxed = Fact::unmeasured("the plain turn listed no MCP servers");
     assert_eq!(
-        judge::eligibility(&facts),
+        judge::eligibility(&facts, &[]),
         Eligibility {
             verdict: Verdict::BoxedOnly,
             reason: "its own tools switch off and the hands MCP server connects, but its plain \
                      turn, the launch an office outside the box uses, is not shown to keep the \
                      planted user-scope MCP server out (#467): the plain turn listed no MCP \
                      servers, so it may hold boxed offices only"
+                .to_string(),
+        }
+    );
+}
+
+#[test]
+fn an_unread_line_refuses_a_verdict_whose_every_fact_was_measured() {
+    let facts = with_hands(
+        Fact::measured(Vec::new(), "emptied"),
+        Fact::measured("connected".to_string(), "listed"),
+        Fact::measured(true, "the plain turn listed no native egress tool"),
+    );
+    let line = measure::UnreadLine {
+        turn: measure::TurnName::Plain,
+        source: "~/.cli/log.jsonl".to_string(),
+        line: 4,
+        fault: measure::Fault::NotUtf8,
+    };
+    assert_eq!(
+        judge::eligibility(&facts, &[line]),
+        Eligibility {
+            verdict: Verdict::Refused,
+            reason: "the evidence for boxed offices is not complete: line 4 of the plain turn's \
+                     ~/.cli/log.jsonl is not UTF-8"
                 .to_string(),
         }
     );
@@ -1623,7 +1652,7 @@ fn a_cli_whose_native_capabilities_have_no_off_switch_is_seated_only_where_a_rea
         "the init event listed tools: 3",
     );
     assert_eq!(
-        judge::eligibility(&facts),
+        judge::eligibility(&facts, &[]),
         Eligibility {
             verdict: Verdict::GrantingRealmsOnly,
             reason: format!(
@@ -1634,7 +1663,7 @@ fn a_cli_whose_native_capabilities_have_no_off_switch_is_seated_only_where_a_rea
     );
     facts.capabilities = Fact::unmeasured("no event of the turn listed its tools");
     assert_eq!(
-        judge::eligibility(&facts),
+        judge::eligibility(&facts, &[]),
         Eligibility {
             verdict: Verdict::Refused,
             reason: "its native egress has no measured off switch (the hands argv left \
@@ -1646,7 +1675,7 @@ fn a_cli_whose_native_capabilities_have_no_off_switch_is_seated_only_where_a_rea
 }
 
 #[test]
-fn a_capability_without_an_off_switch_needs_a_grant_whatever_egress_reads_and_unread_is_named() {
+fn a_capability_without_an_off_switch_needs_a_grant_whatever_egress_reads_and_unread_refuses() {
     let mut facts = with_hands(
         Fact::measured(strings(&["Bash"]), "the init event listed tools: 1"),
         Fact::measured("failed".to_string(), "the init event listed mcp_servers: 1"),
@@ -1660,7 +1689,7 @@ fn a_capability_without_an_off_switch_needs_a_grant_whatever_egress_reads_and_un
     };
     facts.capabilities = Fact::measured(vec![bash.clone()], "the init event listed tools: 1");
     assert_eq!(
-        judge::eligibility(&facts),
+        judge::eligibility(&facts, &[]),
         Eligibility {
             verdict: Verdict::GrantingRealmsOnly,
             reason: format!(
@@ -1674,13 +1703,13 @@ fn a_capability_without_an_off_switch_needs_a_grant_whatever_egress_reads_and_un
     };
     facts.capabilities = Fact::measured(vec![bash, read], "the init event listed tools: 2");
     assert_eq!(
-        judge::eligibility(&facts),
+        judge::eligibility(&facts, &[]),
         Eligibility {
-            verdict: Verdict::GrantingRealmsOnly,
-            reason: format!(
-                "no off switch exists for its native capabilities Bash, and the off switch was \
-                 not read for its native capabilities Read, {GRANTING_REALMS}"
-            ),
+            verdict: Verdict::Refused,
+            reason: "the evidence for a seat in a realm that grants its capabilities is not \
+                     complete: Read's off switch is unmeasured: the boxed turn was not read: the \
+                     boxed turn did not finish"
+                .to_string(),
         }
     );
 }

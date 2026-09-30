@@ -32,13 +32,24 @@ pub(crate) const SCRATCH_PREFIX: &str = "brokkr-probe-";
 
 const POLL: Duration = Duration::from_millis(20);
 
+/// Captured bytes, masked, as text decoded line by line and strictly: a
+/// line whose bytes are not UTF-8 is never repaired. It stays an empty
+/// line of `text`, so the lines after it keep their numbers, and is named
+/// in `not_utf8`, so no reader reads it as anything (#484).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Captured {
+    pub(crate) text: String,
+    /// Each line, counted from 1, whose bytes are not UTF-8.
+    pub(crate) not_utf8: Vec<usize>,
+}
+
 /// A `.jsonl` file a launch wrote under the scratch HOME, `~`-relative,
 /// how it wrote it, and the masked text of what it wrote.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Transcript {
     pub(crate) path: String,
     pub(crate) written: Written,
-    pub(crate) text: String,
+    pub(crate) text: Captured,
 }
 
 /// How a launch wrote a transcript, which says which of its bytes are the
@@ -48,7 +59,8 @@ pub(crate) enum Written {
     /// The file is new, and all of it is the launch's.
     Created,
     /// The file kept the bytes it held and grew; the launch's are those
-    /// after them, from this line of the file on.
+    /// after them, read from the start of the line they begin in, which
+    /// is this line of the file.
     Appended { from_line: usize },
     /// The file shrank or its earlier bytes changed, so all of it is read.
     Rewritten,
@@ -69,12 +81,19 @@ impl Seen {
     }
 
     /// What a launch that left the file holding `bytes` wrote to it, and
-    /// the bytes that are its; `None` when it left the file as it was.
+    /// the bytes that are its, from the start of the physical line its
+    /// first byte landed in, so a line it joined to one an earlier launch
+    /// left unfinished is read whole (#484); `None` when it left the file
+    /// as it was.
     fn added<'a>(&self, bytes: &'a [u8]) -> Option<(Written, &'a [u8])> {
         match bytes.split_at_checked(self.len) {
             Some((kept, grown)) if Seen::of(kept).digest == self.digest => {
-                let from_line = kept.iter().filter(|byte| **byte == b'\n').count() + 1;
-                (!grown.is_empty()).then_some((Written::Appended { from_line }, grown))
+                let start = kept
+                    .iter()
+                    .rposition(|byte| *byte == b'\n')
+                    .map_or(0, |newline| newline + 1);
+                let from_line = kept[..start].iter().filter(|byte| **byte == b'\n').count() + 1;
+                (!grown.is_empty()).then_some((Written::Appended { from_line }, &bytes[start..]))
             }
             _ => Some((Written::Rewritten, bytes)),
         }
@@ -86,8 +105,8 @@ impl Seen {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Observation {
     pub(crate) exit: Option<i32>,
-    pub(crate) stdout: String,
-    pub(crate) stderr: String,
+    pub(crate) stdout: Captured,
+    pub(crate) stderr: Captured,
     pub(crate) transcripts: Vec<Transcript>,
 }
 
@@ -286,10 +305,26 @@ impl Runner<'_> {
     }
 
     /// Captured bytes as text: every bound value masked first (decision
-    /// 0012), then the scratch root, which no two runs share, written as
+    /// 0012), then each line decoded strictly, and in each line that
+    /// decodes the scratch root, which no two runs share, written as
     /// `{scratch}`.
-    fn clean(&self, bytes: &[u8]) -> String {
-        let mut text = String::from_utf8_lossy(&mask_bytes(bytes, self.bindings)).into_owned();
+    fn clean(&self, bytes: &[u8]) -> Captured {
+        let mut captured = Captured::default();
+        let masked = mask_bytes(bytes, self.bindings);
+        for (index, line) in masked.split_inclusive(|byte| *byte == b'\n').enumerate() {
+            match std::str::from_utf8(line) {
+                Ok(line) => captured.text.push_str(&self.unscratched(line)),
+                Err(_) => {
+                    captured.not_utf8.push(index + 1);
+                    captured.text.push('\n');
+                }
+            }
+        }
+        captured
+    }
+
+    fn unscratched(&self, line: &str) -> String {
+        let mut text = line.to_string();
         for spelling in &self.scratch.spellings {
             text = text.replace(spelling.as_str(), "{scratch}");
         }

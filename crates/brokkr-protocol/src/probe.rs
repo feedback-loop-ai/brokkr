@@ -124,13 +124,13 @@ pub fn run(input: &ProbeInput<'_>) -> Result<Report, ProbeError> {
         boxed: runner.trial(&plan.boxed)?,
     };
     let bound: Vec<&str> = input.bindings.iter().map(BoundSecret::name).collect();
-    let facts = measure::facts(&plan, &observed, &bound);
+    let measure::Reading { facts, unread } = measure::reading(&plan, &observed, &bound);
     let version = measure::version(&observed.version);
     Ok(Report {
         probe: PROBE_VERSION.to_string(),
         adapter: input.declared.adapter.clone(),
         adapter_fields: judge::adapter_fields(input.declared, &facts, &version),
-        eligibility: judge::eligibility(&facts),
+        eligibility: judge::eligibility(&facts, &unread),
         cli: Cli {
             command: input.cli.to_string(),
             version,

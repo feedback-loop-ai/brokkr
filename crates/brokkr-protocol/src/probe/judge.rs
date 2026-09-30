@@ -5,6 +5,7 @@
 use std::collections::BTreeSet;
 
 use super::facts::{Agreement, DriftRow, Eligibility, Fact, Facts, FieldRow, Report, Verdict};
+use super::measure::UnreadLine;
 use super::Declared;
 
 /// The status a CLI gives an MCP server it started and reached.
@@ -28,6 +29,85 @@ fn boxable(facts: &Facts) -> Option<bool> {
     Some(emptied && served)
 }
 
+/// Ruling 4's verdict, admitted only on complete evidence (#484): a
+/// verdict that admits the harness anywhere stands only when every line
+/// of both turns' streams was read, none of them undecoded, cut short or
+/// joined, and every fact that verdict rests on was measured. A fact the
+/// CLI refused counts as measured, its refusal being what the probe read;
+/// an unmeasured one never does. Otherwise the harness is refused, and the
+/// reason names each unread line and each unmeasured fact.
+pub(crate) fn eligibility(facts: &Facts, unread: &[UnreadLine]) -> Eligibility {
+    let proposed = verdict(facts);
+    let Some((admits, unmeasured)) = rests_on(proposed.verdict, facts) else {
+        return proposed;
+    };
+    let gaps: Vec<String> = unread
+        .iter()
+        .map(ToString::to_string)
+        .chain(unmeasured)
+        .collect();
+    if gaps.is_empty() {
+        return proposed;
+    }
+    Eligibility {
+        verdict: Verdict::Refused,
+        reason: format!(
+            "the evidence for {admits} is not complete: {}",
+            gaps.join("; ")
+        ),
+    }
+}
+
+/// `fact`, named `name`, when it is unmeasured: why, under its name.
+fn gap<T: serde::Serialize>(name: &str, fact: &Fact<T>) -> Option<String> {
+    match fact {
+        Fact::Unmeasured { why } => Some(format!("{name} is unmeasured: {why}")),
+        Fact::Measured { .. } | Fact::Unsupported { .. } => None,
+    }
+}
+
+/// What a verdict admits the harness to, and each fact it rests on that
+/// is unmeasured; `None` for a refusal, which admits nothing. The box
+/// rests on the plain turn's tool inventory too, since its own tools are
+/// shown switched off only against the tools it has; a seat outside the
+/// box rests on each native capability's off switch, a grant on those it
+/// lacks and an unboxed office on those it has.
+fn rests_on(verdict: Verdict, facts: &Facts) -> Option<(&'static str, Vec<String>)> {
+    let plain = || gap("user_mcp_unboxed", &facts.user_mcp_unboxed);
+    let boxed_tools = || gap("boxed_tools", &facts.boxed_tools);
+    let server = || gap("mcp_server", &facts.mcp_server);
+    let switches = || {
+        let each = facts.capabilities.value().into_iter().flatten();
+        let offs = each.map(|capability| {
+            let name = format!("{}'s off switch", capability.tool);
+            gap(&name, &capability.off)
+        });
+        let listed = gap("capabilities", &facts.capabilities);
+        std::iter::once(listed).chain(offs).collect::<Vec<_>>()
+    };
+    let (admits, rested_on) = match verdict {
+        Verdict::Refused => return None,
+        Verdict::Boxed => ("boxed offices", vec![plain(), boxed_tools(), server()]),
+        Verdict::BoxedOnly => ("boxed offices only", vec![boxed_tools(), server()]),
+        Verdict::GrantingRealmsOnly => (
+            "a seat in a realm that grants its capabilities",
+            [vec![plain()], switches()].concat(),
+        ),
+        Verdict::UnboxedOnly => {
+            let egress = gap("native_egress", &facts.native_egress);
+            let off = gap("egress_off", &facts.egress_off);
+            (
+                "unboxed offices",
+                [vec![plain(), egress, off], switches()].concat(),
+            )
+        }
+    };
+    let isolated = gap("config_isolation", &facts.config_isolation);
+    let inventory = gap("tools", &facts.tools);
+    let unmeasured = [isolated, inventory].into_iter().chain(rested_on);
+    Some((admits, unmeasured.flatten().collect()))
+}
+
 /// Ruling 4, in order: a harness not shown to keep a user-scope MCP
 /// server out of its turn (#467) is refused; one that empties its own
 /// tools and reaches an MCP server may hold boxed offices; one with a
@@ -35,11 +115,13 @@ fn boxable(facts: &Facts) -> Option<bool> {
 /// only in a realm that grants it (operator ruling A, 2026-09-29, reading
 /// decision 0065 ruling 4), whatever its egress reads; and one whose
 /// native egress is absent or switched off may hold unboxed offices. An
-/// unmeasured fact never admits more. An office outside the box launches
+/// unmeasured fact never admits more, and [`eligibility`] admits what
+/// this proposes only on complete evidence, so an off switch left unread
+/// refuses the harness. An office outside the box launches
 /// the plain turn, so a plain turn not shown to keep the planted server
 /// out holds a boxable harness to boxed offices (operator ruling B,
 /// 2026-09-29) and refuses any other.
-pub(crate) fn eligibility(facts: &Facts) -> Eligibility {
+fn verdict(facts: &Facts) -> Eligibility {
     let (verdict, reason) = if facts.config_isolation.value() != Some(&true) {
         (
             Verdict::Refused,
