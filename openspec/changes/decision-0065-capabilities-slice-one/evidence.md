@@ -23582,3 +23582,143 @@ unit 22-fix-b".
 - **Pending.** `cargo test --workspace`, macOS, exact coverage outside the
   box, the jscpd clone ratchet and `ratchet.sh files` (neither runnable in
   this seat), remote CI and the council.
+
+## Unit 23 — launch enforcement removals, audited on the merged head (2026-09-30)
+
+Run `0065-rebuild-unit-23-see-the-uni-807999a6`, on `e1cb7bf2` (main merged
+at `1c71ce5c`, then units 22-fix and 22-fix-b). No production, test or pin
+byte is committed. Only this file and `tasks.md` move.
+
+### Method
+
+- **Records checked.** Every recorded isolated removal in units 10–15 and
+  21 was indexed by category: grammar, authored refusal, load parsing,
+  final parse, state, ON/OFF delivery, cold serving, resume and
+  replacement, the empty restriction, and CQ1. Every category has records:
+  - unit 10: M1–M28 (`:6873`, `:6987`, `:6997`, `:7044`);
+  - unit 11: M1–M25 (`:8706`, `:8868`, `:9070`, `:9225`);
+  - unit 12 and its fixes: M1–M12 (`:9575`), `:10289`, `:10894`,
+    `:11459`, `:11952`;
+  - unit 13 and its fixes: `:12344`, `:12560`, `:12797`, `:13112`,
+    `:13429`, `:13680`, `:13990`;
+  - unit 14b: M1–M5b (`:15958`);
+  - unit 15 and 15-fix-b: `:16112`, `:16222`, `:16800`, `:16891`;
+  - units 21, 21-fix-a and 21-fix-b: `:21870`, `:22204`, `:22642`,
+    `:22706`, `:22894`.
+- **Gaps in the records.** The record left three gaps, and this visit
+  answers each below:
+  - the held-empty-restriction row over a declared transport had no
+    dedicated removal. It passed under unit 21's M3 and M5 (`:21889`,
+    `:21902`);
+  - unit 15's M3 and M6 survived, argued equivalent (`:16114`–`:16126`);
+  - between `1c71ce5c^1` and `e1cb7bf2` (the merge, 22-fix and 22-fix-b),
+    `adapters.rs` changed by 811 lines (`git diff --stat`), so the
+    serving-builder removals had to be re-run on this head. In the same
+    range, `grammar.rs` moved only by one `#[expect]` attribute, and
+    `native_controls.rs` by 16 added lines.
+- **Re-run on this head.** One representative removal per category was
+  re-run, plus each gap. Each mutation was one compiling edit to one
+  production file, with its diff saved as `.forge/u23-<id>.diff`, which is
+  not committed. It was run against:
+  - `cargo test --locked -p brokkr-protocol --lib -- native_controls::
+    adapters::tests` (312 tests at baseline);
+  - `cargo test --locked -p brokkr-runtime --test capability_launch` (68
+    at baseline);
+  - for runtime mutations, also `cargo test --locked -p brokkr-runtime
+    --lib -- agents:: capabilities::` (116 at baseline).
+
+  Each mutation was restored with `git checkout --` of that file, and
+  `git status --short` was empty after each restore. Every failure below
+  is an assertion failure on a compiled tree. None is a build error.
+
+### Removals
+
+"P", "R" and "L" are failing-test counts in the protocol,
+`capability_launch` and runtime-lib runs above.
+
+| # | Category (unit) | Removal | Failed | A failing assertion observed |
+|---|---|---|---|---|
+| A1 | authored (12) | `native_controls.rs` `authored_refusal` returns `Ok` first | P 4, R 7 | `capability_launch.rs:7200` (grant states): the compile's ruling-1 refusal naming `'--disallowedTools' (argument 5)` became `compiled, and the driver said: … the recipe's words or its adapter's pins carrying … a capability-bearing effect …`: the launch guard still refused. `native_controls/tests.rs:1341`: every authored spelling returned `Ok(())`. |
+| A2 | authored, launch side (12, 13) | `sealed_inputs`: the inert-words/pins refusal disabled (`false && …`) | P 5 (R not run) | `adapters/tests.rs:15672`: Codex `--add-dir` served `Ok(true)`, where the expected value is the pins/words refusal. `native_controls/tests.rs:8135`: a later grammar refusal replaced the expected one. |
+| B1 | load (11) | `capabilities.rs` `check_declared` returns `Ok` first | L 1, R 0 (P not run: a runtime-only file) | `agents/tests.rs:1142`: every malformed row, from `codex dangling -c` onwards, `loaded` instead of its exact load refusal. |
+| B2 | load, empty restriction (11) | `check_declared`: the transport's empty-slot parse result discarded | L 1 | `agents/tests.rs:1142`: exactly `codex transport`, `codex config transport`, `codex substituted transport` and `codex substituted config transport` `loaded`. |
+| K1 | CQ1 (11, 21) | `capabilities.rs` holding: `false && !grant.restrictions.is_empty()` | R 4, L 4 | `capabilities/tests.rs:1443` (`cq1_…_refuses_a_requirement`): `unwrap_err` on `Ok(Outcome { held: {"web-search": …} })`. The three CQ1 matrix tests, the boxed matrix and the manifest-digest test failed in `capability_launch`. |
+| E1 | empty restriction over a transport (21; the gap) | holding: also refuse when `native.restrictions` is `Transport::Argv(_)`, even for `{}` | R 1, L 2 | `capability_launch.rs:10997`, row "the empty restriction, over a declared transport, inline". Nothing held, the prompt's `not_held` gained the deferral cause, and `cold` and the ACTUAL `rejoined` both gained `-c web_search="disabled"`. Also `capabilities/tests.rs` `a_declared_transport_carries_only_the_empty_restriction` and `agents/tests.rs` `unit3_native_expectation_…`. |
+| E2 | nonempty guard at launch (13; D11) | `sealed_inputs`: the held nonempty-restriction refusal disabled | P 2, R 0 | `native_controls/tests.rs:8538`: `Ok(Checked { … --tools WebSearch … })`, where the expected value is `would hold native capability 'web-search' under a nonempty restriction, which slice one never delivers …`. Also `adapters/tests.rs:16517`. |
+| F1 | final parse (13) | `check_final`: `read_state(&parsed.command).unwrap_or_default()` | P 7, R 1 | `native_controls/tests.rs:8303`: `cannot be read: it carries '--allowedTools' (argument 12), whose value names a tool that is not a plain name …` became a later delivery refusal. `capability_launch` `a_compiled_cold_command_is_served_only_as_its_final_check_returns_it` failed. |
+| F2 | final parse (13) | `read_state`: `Effect::Session => {}` (a non-rejoin selector read as nothing) | P 2 | `native_controls/tests.rs:8324`: `carries '--session-id' (argument 16), a session selector other than a rejoin's` became `departs at argument 16 …`. |
+| S1 | state (21-fix-a) | `check_final`: `carried` not called | P 12 | `native_controls/tests.rs:9438`: `does not carry an include list as its sealed plan composes it, a restriction lost however its serving builder rebuilds it` became `departs at argument 7 …`. |
+| S2 | state (13-fix-c) | the token-for-token departure comparison disabled | P 11, R 1 | `native_controls/tests.rs:8432`: `Ok(Checked { … })`, where the expected value is `departs at argument 12 …`. `capability_launch` `a_compiled_rejoin_is_served_only_as_its_final_check_returns_it` failed. |
+| D1 | OFF delivery (13, 21-fix-a) | `check_final`: `delivered` not called | P 8, R 3 | `capability_launch.rs:1389`, row "claude, the OFF dropped": served `Ok(["claude", "-p", …, "--effort", "high"])`, where the expected value is `leaves tool 'WebFetch' available, which its plan denies as native capability 'web-fetch'`. |
+| O1 | ON, holding subset (13) | `delivered`: the held-capability loop runs no iteration | P 1 | `native_controls/tests.rs:10479`: `leaves tool 'WebPeek' available, which its plan's holding of native capability 'web-search' does not admit` became `does not carry a deny list …`. |
+| D2 | managed Read/empty, cold (21 M1, re-run) | `adapters.rs` `claude_serving` drops the `--tools` pair when not rejoining | P 16, R 12 | `a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_resume`: each `cold` is `Err("… leaves tool 'WebSearch' available, which its plan denies as native capability 'web-search' …")` beside the expected served `… --tools "" --disallowedTools WebFetch`. So the lost limit is refused, not served, on this head. |
+| D3 | Codex cold OFF (21 M3, re-run) | `codex_cold` extends `managed…take(0)` | P 23, R 23 | CQ1 `cold`, inline: refused by the inline attribution check. No row is served without the OFF. |
+| D4 | Codex rejoin OFF (21 M4, re-run) | `codex_rejoin` extends `managed…take(0)` | P 11, R 5 | CQ1 `rejoined`: agent-backed `Err("… the final command of harness 'codex' leaves native capability 'web-search' on, which its plan denies by its measured OFF …")`, and inline refused by attribution, each beside the expected served `… -c web_search="disabled" <thread> -`. |
+| C2 | Claude/LaneTally cold and rejoin seams (14b, 15) | `served_plan` returns the launch without `served` | P 6, R 4 | `capability_launch` cold and rejoin rows; `the_lanetally_reading_doctor_calls_is_the_launchs_own_judgment`; `the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam`. |
+| C3 | DSH seams (14b, 15) | `DshServing::served` returns the command without `served` | P 3 | `a_sealed_dsh_cold_command_…`, `a_sealed_dsh_rejoin_…` and `the_dsh_reading_doctor_calls_…`. |
+| R1 | resume, record reassembly (15 review) | `served`: `reassemble` not called | P 1, R 1 | `capability_launch.rs:5129`, row "codex agent, its record emptied": served `Ok([… "exec", "resume", …])`, where the expected value is `refusing the private launch record: its segments do not reassemble the arguments supplied; they first differ at argument 0 (0 recorded, 6 supplied) …`. |
+| R2 | unsealed plan (15-fix-b) | `served`: `(None, None)` with a plan serves the command | P 5 | `the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam`, and the inline-Codex, DSH and LaneTally readings. |
+| G1 | grammar (10, M8 re-run) | `profiles` dropped from `CAPABILITY_TABLES` | P 1 (R not run) | `native_controls/tests.rs:6346`: `"profiles.wide.model=\"x\""` returned `Err("assigns a key no bounded meaning is modelled for …")`, where the expected value is `Ok(Capability("profiles"))`. |
+| G2 | grammar redaction (10, M2 re-run) | label length bound → `usize::MAX` | P 1 | `native_controls/tests.rs:5532`: the 5019-scalar option name was spelled into the refusal. |
+
+### Unit 15's survivors, re-examined
+
+- **C1 = unit 15 M3.** The Codex cold replacement is not passed through
+  `served`. It **survives** on this head: P 0, R 0. The equivalence is
+  tested here, not assumed. C1 was paired with D3, which drops the OFF in
+  `codex_cold`, the one builder the replacement and the check's rebuild
+  share. The test `a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied`
+  was run under each:
+  - under D3 alone, the launch is refused at `adapters/tests.rs:15161` with
+    `… leaves native capability 'web-search' on, which its plan denies by
+    its measured OFF …`. The replacement's check refuses it;
+  - under C1+D3, the replacement SPAWNED `exec --json -C <dir> --sandbox
+    read-only` with no OFF (`:15163`).
+
+  So C1 alone is equivalent while `codex_cold` is sound: its output is the
+  command the check rebuilds. Once that builder is defective, the
+  replacement's check is the only barrier, and the suite binds it there.
+  No test can kill C1 alone, so none is added.
+- **C4 = unit 15 M6.** The Codex rejoin is served unchecked when rejoining.
+  It is **now killed**: R 1, at `capability_launch.rs:5129`, row "codex
+  inline, the recipe's words counterfeited as the engine's". The refusal
+  moves from the rejoin's `departs at argument 7` to the replacement's
+  `departs at argument 5`. The later 15 review and 15-fix-b rows bind what
+  unit 15 recorded as equivalent.
+
+### Where each removal is caught
+
+- E2, F2, S1, O1, C3, R2 and G2 were run against `capability_launch`, and
+  it stayed green (68 passed). They are caught by the protocol suites that
+  own them (`native_controls/tests.rs`, `adapters/tests.rs`). For A2 and
+  G1, `capability_launch` was not run.
+- The load removals (B1, B2) are caught only by unit 11's owning suite,
+  `agents/tests.rs`.
+- A1 shows a second layer: with the compile refusal removed, the launch
+  check still refuses the authored option. So the two are independent
+  guards.
+
+### Restored
+
+- After the last restore, `git status --short` and `git diff --stat HEAD`
+  were empty.
+- The three runs on the restored tree: 312 passed; 68 passed; 116 passed;
+  0 failed in each.
+
+### Deferred, stated
+
+- The held NONEMPTY restriction's cold/resume delivery removal stays
+  deferred (D11; "Deferred to the restriction-transport slice", 23.1's
+  restriction portion). E2 proves only that slice one refuses one at
+  launch.
+- The panel-member rejoin positive stays deferred (addendum of
+  2026-09-26).
+
+### Admissions and gates
+
+- No standing-admission lines, no fixture migrations and no test edits.
+  Every intended assertion above already existed and failed under its
+  removal. No frozen surface moved.
+- The gates are recorded in `tasks.md`'s unit 23 note.
+- **Pending.** macOS, exact coverage outside the box
+  (`scripts/coverage-exact.sh`), remote CI and the council.

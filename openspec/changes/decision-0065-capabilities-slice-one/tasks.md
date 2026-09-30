@@ -4840,7 +4840,54 @@ production byte moved.
 
 ## 23. Unit 23 — Audit launch enforcement removals
 
-- [ ] 23.1 Unit 23 independently removes authored refusal/load parsing/final parse-state/cold-resume empty-restriction and CQ1/ON-OFF enforcement (narrowed by the addendum of 2026-09-25; the held nonempty restriction removal is deferred below). Verify intended compiled final assertions fail, restore/pass. Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Authored provider configuration cannot supply capability authority][RGR], [Refusal proofs assert the full reason][SC8]. Reopened/remaining: operator ruling 1–4 / R10. (previous 9.2)
+- [x] 23.1 Unit 23 independently removes authored refusal/load parsing/final parse-state/cold-resume empty-restriction and CQ1/ON-OFF enforcement (narrowed by the addendum of 2026-09-25; the held nonempty restriction removal is deferred below). Verify intended compiled final assertions fail, restore/pass. Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Authored provider configuration cannot supply capability authority][RGR], [Refusal proofs assert the full reason][SC8]. Reopened/remaining: operator ruling 1–4 / R10. (previous 9.2)
+
+**Unit 23 note, 2026-09-30 (run `0065-rebuild-unit-23-see-the-uni-807999a6`, head `e1cb7bf2`): audited on the merged head.**
+
+- **Records.** Units 10–15 and 21 were checked. Each category has recorded
+  isolated removals: authored, load, final parse, state, ON/OFF, cold and
+  resume seams, empty restriction, and CQ1.
+- **Re-run on this head.** Twenty-two removals were re-run, covering every
+  category and every record gap, plus unit 15's two survivors. Each was a compiling production edit, restored
+  with `git checkout --` (evidence.md, "Unit 23"). Each fails its intended
+  exact assertion:
+  - A1/A2: authored refusal, at compile and at launch;
+  - B1/B2: load parse and the empty-slot transport parse;
+  - K1: CQ1;
+  - E1: the held empty restriction over a transport, which is the gap unit
+    21 left. It fails at `capability_launch.rs:10997`, cold and on the
+    actual rejoin;
+  - E2: the launch's nonempty guard;
+  - F1/F2: final parse;
+  - S1/S2: state and departure;
+  - D1/O1: OFF and ON delivery;
+  - D2–D4: the serving builders the merge rewrote. Each lost limit or OFF
+    is refused by the final check, never served;
+  - C2/C3: the Claude/LaneTally and DSH seams;
+  - R1/R2: reassembly and the unsealed guard;
+  - G1/G2: grammar and redaction.
+- **Unit 15's survivors.**
+  - M6 is now killed (`capability_launch.rs:5129`).
+  - M3 still survives alone. Paired with a lost cold OFF, it spawns the
+    replacement without the OFF, where the lost OFF alone is refused.
+    That confirms the equivalence, and binds the replacement's check
+    jointly.
+- **Restored.** The tree is clean. The protocol suite passed 312, the
+  runtime `capability_launch` suite 68, and runtime `agents::` and
+  `capabilities::` 116, with 0 failed in each.
+- **Admissions.** No test, production or pin edit. No standing-admission
+  lines and no fixture migrations.
+- **Gates.** All clean:
+  - `cargo fmt --all -- --check`;
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`;
+  - `openspec validate --all --strict --no-interactive`: 19 passed, 0
+    failed;
+  - `git diff --check`.
+- **Deferred.** The held NONEMPTY restriction's removal stays deferred
+  (D11, below).
+- **Pending.** macOS, exact coverage outside the box, remote CI and the
+  council.
 
 ## 24. Unit 24 — Audit identity enforcement removals
 
