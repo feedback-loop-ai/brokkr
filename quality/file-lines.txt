@@ -46,7 +46,7 @@
   1276 crates/brokkr-protocol/src/hands.rs
    296 crates/brokkr-protocol/src/hands/session.rs
    218 crates/brokkr-protocol/src/lib.rs
-  4526 crates/brokkr-protocol/src/native_controls.rs
+  4539 crates/brokkr-protocol/src/native_controls.rs
   1688 crates/brokkr-protocol/src/native_controls/grammar.rs
    138 crates/brokkr-protocol/src/oneshot.rs
    161 crates/brokkr-protocol/src/overrides.rs
@@ -59,9 +59,9 @@
   1671 crates/brokkr-runtime/src/agents.rs
   1334 crates/brokkr-runtime/src/agents/load.rs
    285 crates/brokkr-runtime/src/anchor.rs
-  7810 crates/brokkr-runtime/src/bundle.rs
+  7815 crates/brokkr-runtime/src/bundle.rs
   1258 crates/brokkr-runtime/src/bundle/compose.rs
-  2373 crates/brokkr-runtime/src/capabilities.rs
+  2369 crates/brokkr-runtime/src/capabilities.rs
    645 crates/brokkr-runtime/src/dialect.rs
   5319 crates/brokkr-runtime/src/engine.rs
    313 crates/brokkr-runtime/src/engine/checkpoints.rs
@@ -183,7 +183,7 @@
    153 crates/brokkr-protocol/src/fake/tests.rs
    303 crates/brokkr-protocol/src/hands/session/tests.rs
   1392 crates/brokkr-protocol/src/hands/tests.rs
- 13122 crates/brokkr-protocol/src/native_controls/tests.rs
+ 13152 crates/brokkr-protocol/src/native_controls/tests.rs
    194 crates/brokkr-protocol/src/oneshot/tests.rs
    137 crates/brokkr-protocol/src/overrides/tests.rs
    560 crates/brokkr-protocol/src/process/attempts/tests.rs

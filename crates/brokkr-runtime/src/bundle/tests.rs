@@ -1679,18 +1679,18 @@ fn a_literal_phase_that_aliases_the_injected_validator_is_refused() {
         })
     };
     let (config, policy) = dialect_config(panel("dialect-verify"));
-    assert_eq!(
-        error(compile_dialect_fixture(
-            &fixture,
-            &config,
-            &policy,
-            Some(&dialect)
-        )),
-        "bundle: seat 'verify' addresses two different sites as 'verify:dialect-verify': panel \
-         member 'dialect-verify' of seat 'verify' and the injected dialect validator. The \
-         selection, the argv lookup, the hands map and the boundary map all key on that one \
-         string, so one site would answer for the other; rename one of them"
-    );
+    // The variant is asserted with its payload: `Capability` renders the
+    // same line and is handled differently by `brokkr resume`.
+    match compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)) {
+        Err(CompileError::Invalid(reason)) => assert_eq!(
+            reason,
+            "seat 'verify' addresses two different sites as 'verify:dialect-verify': panel \
+             member 'dialect-verify' of seat 'verify' and the injected dialect validator. The \
+             selection, the argv lookup, the hands map and the boundary map all key on that one \
+             string, so one site would answer for the other; rename one of them"
+        ),
+        other => panic!("an Invalid refusal, never {:?}", other.map(|_| ())),
+    }
     // The control: any other member name compiles, and the validator keeps
     // its own site beside the moved members'.
     let (config, policy) = dialect_config(panel("alpha"));

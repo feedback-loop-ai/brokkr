@@ -25372,3 +25372,115 @@ built from them would be refused as a departure.
     baselines. No `pub` item was added: `ServingShape`, `composed`,
     `record_judged_tools`, `at_compile` and `unreached_at` are crate-private.
   - macOS, remote CI and the council.
+
+## Unit 26c, review return — what the admission can close, and what it cannot (2026-09-30)
+
+Run `0065-rebuild-unit-26c-see-the-un-b18b678d`, second implement visit,
+based on `08345c77`. It answers the chief's residual of that head. Scratch
+logs and mutation diffs are in `.forge/u26c-r1/`.
+
+**Result: oversized.** Two findings need a production file outside the
+five the ruling admits: `crates/brokkr-runtime/src/agents.rs` (finding 1)
+and `crates/brokkr-protocol/src/native_controls/grammar.rs` (finding 5).
+Neither file was touched. The findings the admission can close are closed
+below. Task 26c.1 is reopened, as its completion claim was wrong.
+
+### Each finding
+
+| Finding | Outcome | What was done, or what it needs |
+|---|---|---|
+| 1. SC26C-1, `refuse_permission_pins` still takes a `Candidate` and `Adapters` | **oversized: `agents.rs`** | Not changed. `resolve_report` returns `Resolution.candidates: Vec<Candidate>`, and a `Candidate` carries a `Lowering` and a provider name. Every way to hand the check an adapter and a `Composition` from inside `bundle.rs` converts those two, and the conversion is the impossible arm: a branch the gate counts uncovered, or the fold the chief refused. The narrowing belongs where the adapter and the composition are in hand together, `agents.rs` (`entry_for`, `resolve_report`): either a resolved candidate carries its `Composition` by type, or the pin check moves there. The serving inputs' `pins` cannot stand in for the adapter's two flags, as an effort flag is carried only where an effort is pinned, and the check refuses the declaration whichever effort is pinned |
+| 2. SC26C-2, the regression erased the variant | closed | `a_literal_phase_that_aliases_the_injected_validator_is_refused` matches `CompileError::Invalid` and asserts its whole payload (M7) |
+| 3. SC26C-3, `plain_written` dropped its guard with no removal control | closed | The comment states the omission and names three existing tests that pin every producer's text by value. Both producers were emptied by mutation and those tests failed (M8a, M8b). No new test: the producers' texts were already pinned. `conflict_refusal` is public and still takes any string; a hand-built empty one renders `''`, as M8b's output shows |
+| 4a. L1(a), `admit_local_sandbox` returns on every empty chain | closed as the chief asked, by proof and not by type | The comment names the removal control, `an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_field`, and the dispatch test that still refuses a class recorded without its lowering. Mutation M9 records a seat's class without lowering it, and that test fails. The state stays representable in `SiteFacts` |
+| 4c. L1(c), the R5 tail is always written | closed the same way | The comment names `an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_refuses`. Mutation M10 lowers an allow through another provider's adapter, and its row `lanetally without an adapter` fails. The state stays representable in `Serving` |
+| 5. L2, `ServingShape::of` repeats the grammar's harness vocabulary | **oversized: `native_controls/grammar.rs`** | Not changed. The vocabulary's home is `grammar::grammar` and `grammar::TABLES`. One source means a table row carries its shape, which is an edit to `grammar.rs`. The parity test of the first visit still holds the two equal |
+| 6. L3, capabilities: `at_compile` shared an edge no input takes | closed by narrowing | `opaque_conflict` is public, strips the driver prefix itself and returns `Option<(String, String)>`. The compile calls it for a harness with no grammar, so it receives no `Result` and converts nothing. `at_compile` is removed, and `authored_refusal`'s conversion is its own closure again, which refused inputs cover |
+| 6. L3, bundle: `unreached_at` shared the edge of opening `/` | not narrowed, and stated | Opening `/` is an operating system call and returns `io::Result`. No type makes it infallible, and no test can make it fail. The shared conversion stays. It needs a ruling if sharing is not accepted |
+| 7. chief, panel integrity | nothing to build | |
+
+**A residue of finding 6, stated for the council.** The three drivers
+call `authored_conflict` for claude, lanetally, codex and dsh only, so its
+opaque arm is now reached by the new unit test and by no production
+caller. The function is public and its contract covers an unmodelled
+harness; the arm is covered, and the diagnostic is at equality.
+
+### Signatures, before and after
+
+- `native_controls::opaque_conflict`: `fn(&[String], &[Guard]) ->
+  Option<(String, String)>`, private, given arguments already stripped →
+  `pub fn`, same types, stripping `harness_arguments` itself.
+- `capabilities.rs`, the opaque judgment in `native_plan`:
+  `authored_conflict(..) -> Result<Option<_>, Refusal>` with `.map_err` →
+  `opaque_conflict(..) -> Option<_>`.
+- `capabilities::at_compile`: removed.
+
+### Mutations, each restored
+
+| | Mutation | What failed |
+|---|---|---|
+| M7 (`m7-m9-m10.log`) | `claim_address` returns `CompileError::Capability` | `a_literal_phase_that_aliases_the_injected_validator_is_refused` at `bundle/tests.rs:1692`: `an Invalid refusal, never Err(Capability(..))` |
+| M8a (`m8a-typed-empty.log`) | every `typed_conflict` text emptied | `every_authored_spelling_of_a_native_control_is_found_by_name`: `Some(("", "web-search"))` for `Some(("--search", "web-search"))`; `a_tool_list_that_admits_a_native_tool_is_an_authored_control`; three driver tests in `adapters/tests.rs` |
+| M8b (`m11-m8b.log`) | every `authored_server_conflict` text emptied | `an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes`: `carry ''` for `carry '-c mcp_servers'`; `a_tool_list_that_admits_a_native_tool_is_an_authored_control`; three driver tests |
+| M9 (`m7-m9-m10.log`) | `record_inline_tools` records a seat's class with no lowering | `an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_field`: 3 of 12 rows compiled; `an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuses`: row `claude` compiled |
+| M10 (`m7-m9-m10.log`) | `lower_inline_allow` falls back to the claude adapter | `an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_refuses`: row `lanetally without an adapter` |
+| M11 (`m11-m8b.log`) | `opaque_conflict` without its strip | `an_opaque_command_is_judged_by_name_behind_its_driver_prefix_alone`: `Some(("--search", "web-search"))` for `None`. Before the test was added the same mutation passed both library suites (`m11-protocol.log`, `m11-runtime.log`), so the strip was unbound |
+| M12 (`m12-compile-opaque.log`) | the compile hands `opaque_conflict` no arguments | `an_authored_native_control_is_refused_at_compile_naming_the_seat` and `two_links_sharing_a_provider_and_model_carry_equal_outcomes`: compiled where the refusal is expected |
+
+M7, M9 and M10 ran together, and M11 with M8b; each failure above is the
+named mutation's own assertion. `m11-m8b.diff` was taken against the
+commit and so also shows this visit's real edits to `native_controls.rs`.
+Restored: `native_controls.rs` was compared byte for byte with the saved
+real diff (`RESTORED-IDENTICAL`), and the final suites below are green.
+
+### Tests
+
+- `native_controls/tests.rs`
+  `an_opaque_command_is_judged_by_name_behind_its_driver_prefix_alone`
+  (new): binds `opaque_conflict`'s changed contract, and that
+  `authored_conflict` gives its answer for an unmodelled harness (M11).
+- `bundle/tests.rs`: the regression's assertion now matches the variant
+  (M7). The file's length is unchanged.
+- No fixture migration and no standing-admission line.
+
+### The seat diagnostic
+
+Taken on this visit's final tree after `cargo +nightly-2026-09-05 llvm-cov
+clean --workspace`, as the first visit took it: brokkr-protocol (628
+passed, 6, 1), brokkr-runtime (26 result lines ok), brokkr-cli with
+`--no-fail-fast` (44 ok), and the four lower crates (14 ok); one report,
+`lcov-final.info`; the gate's filters in jq (`final-counts.json`).
+
+- **Lines 42761/42761, branches 6634/6634, functions 4515/4515.** No
+  uncovered record.
+- This is not the gate. `scripts/coverage-exact.sh` is pending.
+
+### Ledgers, gates and what is pending
+
+- **Ledgers.** `quality/file-lines.txt`, by `wc -l`: `native_controls.rs`
+  4526 → 4539 and `bundle.rs` 7810 → 7815, both comments naming removal
+  controls and the `opaque_conflict` doc; `capabilities.rs` 2373 → 2369;
+  `native_controls/tests.rs` 13122 → 13152. `quality/too-many-lines.txt`
+  was re-measured with `measure.sh`'s clippy invocation (`build-finished`
+  true, 309 entries): `native_plan` 261 → 256, and the other rows of the
+  touched files moved by line only. Two production files over the ceiling
+  grew, so the pull request still needs its `Ruling:` line.
+- **Gates, on the final tree:**
+  - `cargo fmt --all -- --check`: clean.
+  - Workspace clippy with `-D warnings`: no warning.
+  - `cargo test -p brokkr-protocol --all-features --locked`: 628 passed,
+    1 ignored, then 6, 1 and 1 doc.
+  - `cargo test -p brokkr-runtime --all-features --locked`: 27 result
+    lines ok, the library 688 passed.
+  - `cargo test -p brokkr-cli --test suppressions --test ratchets`: 13
+    and 6 passed.
+  - `bundles/self` and `bundles/verify` compile.
+  - `openspec validate --all --strict --no-interactive`: 19 passed.
+  - `git diff --check`: clean.
+- **Pending.**
+  - The ruling on the two files above.
+  - The exact gate outside the box.
+  - jscpd and `ratchet.sh`, with the CRAP, clone and public-API
+    baselines. One `pub` item was added, `native_controls::opaque_conflict`,
+    whose consumer is `capabilities.rs`.
+  - macOS, remote CI and the council.

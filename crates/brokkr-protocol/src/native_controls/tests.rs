@@ -415,6 +415,36 @@ fn an_unrelated_value_is_never_read_as_a_control() {
     }
 }
 
+/// Unit 26c: the opaque judgment is asked directly and refuses nothing. It
+/// reads the arguments behind a driver prefix alone, by name, a joined
+/// value aside; the launch guard's answer for an unmodelled harness is its.
+#[test]
+fn an_opaque_command_is_judged_by_name_behind_its_driver_prefix_alone() {
+    let guards = [codex_guard()];
+    let found = Some(("--search".to_string(), "web-search".to_string()));
+    for (authored, conflict) in [
+        (argv(&["run", "--search"]), found.clone()),
+        (
+            argv(&["/bin/brokkr", "driver", "mine", "--", "--search=live"]),
+            found,
+        ),
+        // The prefix is the engine's dispatch, never the recipe's words.
+        (argv(&["--search", "driver", "--search", "run"]), None),
+        (argv(&["run", "--model", "m"]), None),
+    ] {
+        assert_eq!(
+            opaque_conflict(&authored, &guards),
+            conflict,
+            "{authored:?}"
+        );
+        assert_eq!(
+            authored_conflict("<custom>", &authored, &guards),
+            Ok(conflict),
+            "{authored:?}"
+        );
+    }
+}
+
 /// Second council H2: a tool list is judged on EVERY value, not on the
 /// first. The lists are variadic, so `--allowedTools Read WebFetch` admits
 /// two tools and the second is the one the guard finds.

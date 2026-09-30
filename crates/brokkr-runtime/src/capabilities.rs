@@ -1765,7 +1765,7 @@ impl Authority {
         // realm grants and whatever the option's value; nothing authored is
         // merged into what the engine composes below.
         brokkr_protocol::native_controls::authored_refusal(serving.harness, serving.written)
-            .map_err(at_compile(who))?;
+            .map_err(|refusal| refusal.at_compile(&who))?;
         // An explicit include limit that excludes a held tool (design D6;
         // CQ1): a wanted capability drops, its native control switched OFF,
         // and the plan is resolved again without it; a required one refuses
@@ -1934,6 +1934,12 @@ impl Authority {
         // The cause is stated whole right after the site, in the engine's
         // own words. The adapter's reason, which may be long adapter data,
         // follows as the line's tail, so the bound cuts only that.
+        // The tail is written whatever declared it (unit 26c): an undeclared
+        // provider types no local allow, as a list lowers only through its
+        // provider's loaded adapter, so no arm for it stands here, where the
+        // exact-coverage gate would count it unreachable. The removal
+        // control is the bundle suite's
+        // `an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_refuses`.
         let unmeasured = |declaration: Option<String>, reason: String, cause: &str| {
             if !serving.provenance.local.is_empty() {
                 return Err(format!(
@@ -2011,15 +2017,12 @@ impl Authority {
         // A command nothing parses — an opaque custom driver — is judged
         // CONSERVATIVELY by name for a guarded control (design D6a). A
         // harness brokkr drives was judged by origin in `resolve`, and its
-        // values are never read for admission (rebuild unit 12).
+        // values are never read for admission (rebuild unit 12). The opaque
+        // judgment places nothing in a grammar, so it has no refusal of its
+        // own to convert (unit 26c).
         let opaque = brokkr_protocol::native_controls::grammar::grammar(serving.harness).is_none();
         if let Some((written, capability)) = match opaque {
-            true => brokkr_protocol::native_controls::authored_conflict(
-                serving.harness,
-                serving.authored,
-                &guards,
-            )
-            .map_err(at_compile(who))?,
+            true => brokkr_protocol::native_controls::opaque_conflict(serving.authored, &guards),
             false => None,
         } {
             return Err(format!(
@@ -2266,13 +2269,6 @@ const ADAPTER_WORKDIR: &str = "/";
 /// argument it is, so neither is staged or written.
 const ADAPTER_OVERLAY: &str = "/adapter-plan/overlay.json";
 const ADAPTER_PROMPT: &str = "adapter-plan";
-
-/// A launch refusal as the compile states it at `who`: the one conversion
-/// every refusal [`Authority::resolve`] and its native plan take from the
-/// launch's own judgments goes through (unit 26c).
-fn at_compile(who: launch::Site<'_>) -> impl Fn(launch::Refusal) -> String + '_ {
-    move |refusal| refusal.at_compile(&who)
-}
 
 /// Design D8 and review return SC1 of rebuild unit 22: the complete cold
 /// command an admitted adapter-level plan ([`Authority::assess`]) serves,

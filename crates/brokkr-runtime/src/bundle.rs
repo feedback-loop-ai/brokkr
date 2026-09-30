@@ -3815,7 +3815,12 @@ fn admit_local_sandbox(
     // where it was recorded (`lower_inline_sandbox`), onto the engine's own
     // control; the standing refusals above have had their say. No inline
     // site records a class any other way: `record_inline_tools` lowers it
-    // or refuses the site (operator ruling of 2026-09-30, unit 26c).
+    // or refuses the site (operator ruling of 2026-09-30, unit 26c), so no
+    // guard on the lowering stands here, where the exact-coverage gate would
+    // count it unreachable. The removal control is
+    // `an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_field`,
+    // and a class recorded without its lowering still refuses at dispatch
+    // (`the_dispatch_door_admits_only_the_record_sealed_for_its_spawn`).
     if candidates.is_empty() {
         return Ok(());
     }
