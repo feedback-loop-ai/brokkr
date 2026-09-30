@@ -25220,3 +25220,155 @@ the real code admits reaches it.
   - jscpd and `ratchet.sh` (only the helper extraction was judged for
     clones here).
   - macOS, remote CI and the council.
+
+## Unit 26c — the unreachable arms removed, and the validator's name refused (2026-09-30)
+
+Run `0065-rebuild-unit-26c-see-the-un-b18b678d`, based on `2da88e8b`.
+The operator's ruling of 2026-09-30 is landed verbatim as the last
+addendum of `operator-ruling-2026-09-23.md`. Production edits are confined
+to the five admitted files. Scratch logs, mutation diffs and the LCOV
+report are in `.forge/u26c/`.
+
+**Result: complete, with the exact gate pending.** Every record unit 26b
+left uncovered is gone from the denominator or covered, and the seat
+diagnostic reads equality in all three counts.
+
+### The seat diagnostic
+
+- Taken on this visit's final tree after `cargo +nightly-2026-09-05
+  llvm-cov clean --workspace`, with `cargo +nightly-2026-09-05 llvm-cov
+  --no-report --all-features --locked --branch` over brokkr-protocol (627
+  passed, 6, 1), brokkr-runtime (26 result lines ok), brokkr-cli with
+  `--no-fail-fast` (44 ok), and brokkr-core, brokkr-store, brokkr-view and
+  brokkr-bridge (14 ok). One `llvm-cov report --branch --lcov` gave
+  `lcov-final.info`.
+- The gate's awk was reproduced in jq (`final-counts.json`). The same jq
+  over unit 26b's `lcov-final.info` gives 42746/42754, 6643/6652 and
+  4507/4509, which are 26b's and the operator's totals, so the filters
+  match.
+- **Lines 42768/42768, branches 6634/6634, functions 4516/4516.** No
+  uncovered record is left in the workspace.
+- This is the seat's diagnostic and not the gate.
+  `scripts/coverage-exact.sh` stays the operator's to run, and it is
+  pending.
+
+### Each arm, before and after
+
+Line numbers under "before" are unit 26b's. The existing suites stayed
+green on every restructure before any test was added
+(`protocol-1.log`: 626 passed; `runtime-lib-1.log`: 688 passed;
+`runtime-tests-1.log`: 25 result lines ok).
+
+| Arm (26b's number) | Before | After | Reachable behaviour |
+|---|---|---|---|
+| 1. `adapters.rs:3332-3333`, claude with managed arguments | `serving_command(harness: &str, …)` with a guarded refusal arm | `serving_command(shape: ServingShape, …)`; the claude arm builds from the whole composition, `extra` then `managed`, as `check_final` reads it | unchanged: the claude composition leaves `managed` empty. A non-empty one would now depart from the driver's command and refuse there |
+| 2. `adapters.rs:3362`, `_ => Err("a harness with no built-in serving shape")` | a match on `&str` with a wildcard | a match on the new `pub(crate) enum ServingShape { Claude, Codex, Dsh }`, exhaustive, no wildcard. `check_final` takes the shape beside the grammar in one `let … else` and refuses a harness with neither in the words it already used | unchanged |
+| 3. `native_controls.rs:3541`, `!written.is_empty()` | `plain_written` refused an empty text | the conjunct is removed | unchanged: no producer writes an empty text. An empty one would now render `''`; no test pins that, as 26b's withdrawn test would have pinned a state no producer makes |
+| 4. `capabilities.rs:1941`, `None => String::new()` | the R5 refusal's tail was matched on the declaration | the tail is always `: {reason}` | unchanged for a declared adapter. The undeclared case with a typed allow, which no input reaches, would now repeat its reason as the tail |
+| 5. `bundle.rs:2135`, `)?` on the validator's `record_inline_tools` | the validator decoded a `tools` it never writes | `record_inline_tools` keeps the decoding and refusing half and calls the new `record_judged_tools(dir, what, local, lowered, sandboxed, sites)`, which returns nothing. The wrapper calls that half with `LocalTools::unspecified()` | unchanged: bound by the existing `a_dialect_wrapped_verify_relocates_its_declaration_and_the_validator_records_a_checked_value` (mutation M2 below) |
+| 6. `bundle.rs:2941`, no adapter for the candidate's provider | `if let Some(adapter)` | the two pin fields are iterated from `adapters.adapter(provider)`, none where there is no adapter | unchanged |
+| 7, 8. `bundle.rs:2956-2961`, a lowering that is not `Composed`, or has no segment | two `let … else { return Ok(()) }` | the segments come from the new `engine::composed(candidate) -> Option<&Composition>`, empty where there is none, and every segment after the first is judged against the first | unchanged; the segment number in the refusal is bound by the existing `an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the_compile` (mutation M6) |
+| 9. `engine.rs:4090`, `Unavailable \| Refused(_) => None` in `serving_inputs` | `expected_state` and `serving_inputs` each matched the lowering | both read `composed(link)`; its `None` arm is the one `expected_state` refuses by | unchanged |
+| 10. `engine.rs:4107`, a classless spawn whose inputs carry no fragment | sealed with an empty boundary | refuses like every classless spawn | unchanged in production: every spawn comes from `compose_site` or `compose_site_at`, which class it. **Contract change**, bound below |
+| 11. `engine.rs:4292`, `:4297`, `if sandboxed.is_none()` | two guards on a three-member match | the lowered class is the match's fourth member; both arms require `None` by pattern | unchanged for every input: a lowered class beside no declared one still falls to the refusal |
+| 12. `bundle.rs:3805`, an inline site with a class it did not lower | `candidates.is_empty() && …inline_sandbox.is_some()` | `candidates.is_empty()` | unchanged once the defect below is fixed: `record_inline_tools` lowers an inline class or refuses the site. The impossible state is still refused at dispatch by `expected_state` |
+| 13. closure `bundle.rs:5406`, opening `/` | its own `map_err` closure | the new `unreached_at(path)` makes the one conversion, for `/` and for every directory below it | unchanged |
+| 13. closure `capabilities.rs:2026`, an opaque `authored_conflict` | its own `map_err` closure | the new `at_compile(who)` makes the one conversion, for `authored_refusal` and `authored_conflict` alike | unchanged |
+
+**What this does not do, stated for the council.** Items 6 to 8 remove
+the arms but leave `agents::Candidate` able to hold a provider with no
+adapter and a lowering that never composed: the type's home is
+`agents.rs`, outside the admission, and `engine.rs` still refuses such a
+lowering at dispatch, where a tampered bundle reaches it. Item 13's two
+conversions are shared, so the error edge of `/` and of an opaque
+judgment has no function of its own; neither edge can be taken. Item 1's
+`Composed` can still hold managed arguments for claude; the command
+built from them would be refused as a departure.
+
+### The dialect-verify defect
+
+- **Fix.** `bundle.rs` claims `verify:dialect-verify` against the whole
+  authoring census, before any source is drained, where it used to claim
+  against the drained one. The refusal is `claim_address`'s own.
+- **Regression**, in `bundle/tests.rs`
+  `a_literal_phase_that_aliases_the_injected_validator_is_refused`
+  (extended, so no preamble is repeated): a wrapped verify panel with a
+  member named `dialect-verify` fails with exactly `bundle: seat 'verify'
+  addresses two different sites as 'verify:dialect-verify': panel member
+  'dialect-verify' of seat 'verify' and the injected dialect validator.
+  The selection, the argv lookup, the hands map and the boundary map all
+  key on that one string, so one site would answer for the other; rename
+  one of them`. The control, a member named `alpha`, compiles with the
+  sites `verify:checks:alpha`, `verify:checks:other` and
+  `verify:dialect-verify`.
+- **Baseline red.** Unit 26b's `.forge/u26b/alias-probe.log` shows the
+  bundle compiling with no `verify:dialect-verify` site. Mutation M1
+  reproduces it on this tree.
+
+### Mutations, each restored
+
+| | Mutation | What failed |
+|---|---|---|
+| M1 (`m1-defect.log`) | the validator's claim made against a census with the moved sources drained (the code before the fix) | `a_literal_phase_that_aliases_the_injected_validator_is_refused`: `expected compilation to fail`. Restored: passes (`m1-defect-restored.log`) |
+| M2 (`m2-validator-tools.log`) | the validator's `record_judged_tools` call skipped | `a_dialect_wrapped_verify_relocates_its_declaration_and_the_validator_records_a_checked_value` at `agent_tests.rs:6226`: `Some((None, 0))` for `Some((Some(LocalTools { allow: None, sandbox: None }), 0))` |
+| M3 (`m3-classless.log`) | `None if dialect.boundary == Default::default() => Vec::new()` put back | `the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed` at `capability_tests.rs:887`: the classless spawn sealed a record and serving inputs where the refusal is expected |
+| M4 (`m4-claude-whole.log`) | the claude command built from `extra` alone | `a_serving_command_is_built_in_its_harness_shape_from_the_whole_composition`: the argv lost `--disallowedTools WebSearch` |
+| M5 (`m5-shape-of.log`) | `lanetally` dropped from `ServingShape::of` | same test: `("lanetally", None)` for `("lanetally", Some(Claude))` |
+| M6 (`m6-segment-number.log`) | the refusal's segment numbered `at + 2` | `an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the_compile`: `segment 3` for `segment 2` |
+
+### Tests added
+
+- `adapters/tests.rs`
+  `a_serving_command_is_built_in_its_harness_shape_from_the_whole_composition`
+  (new): every grammar table's harness has its shape, `exec` and
+  `<custom>` have none, and a claude command is the builder's over
+  `extra` then `managed` (M4, M5). It calls `serving_command` with a
+  composition the composer does not produce; that is the changed
+  contract the unit text asks to bind, and it covers no arm.
+- `engine/capability_tests.rs`
+  `the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed`:
+  one new case, a classless spawn of the primary candidate, whose inputs
+  carry no boundary fragment, refuses as the classless fallback does and
+  seals nothing (M3).
+- `bundle/tests.rs`: the regression above (M1).
+- No fixture migration and no standing-admission line.
+
+### Quality ledgers, gates and what is pending
+
+- **Ledgers.** `quality/file-lines.txt`, by `wc -l`:
+  - production: `adapters.rs` 7239 → 7268; `native_controls.rs` 4524 →
+    4526; `bundle.rs` 7793 → 7810; `capabilities.rs` 2370 → 2373;
+    `engine.rs` 5310 → 5319;
+  - test: `adapters/tests.rs` 19063 → 19096; `bundle/tests.rs` 1837 →
+    1873; `engine/capability_tests.rs` 2220 → 2228.
+
+  `quality/too-many-lines.txt` was re-measured with `measure.sh`'s own
+  clippy invocation (`build-finished` success, the ledger's clippy
+  version, still 309 entries). Three production functions shrank:
+  `assemble` 650 → 643, `admit_local_sandbox` 120 → 116 and `native_plan`
+  265 → 261. One test function grew: `the_serving_inputs_are_sealed_…`
+  253 → 259. The rest moved by line only. No suppression was added
+  (`--test suppressions` and `--test ratchets`: 13 and 6 passed).
+
+  The five production files were already over the 800-line ceiling and
+  the ruling's restructures grew each of them, and one over-long test
+  grew, so the pull request needs a `Ruling:` line (the 2026-09-30
+  ruling above).
+- **Gates, on this visit's final tree:**
+  - `cargo fmt --all -- --check`: clean.
+  - Workspace clippy with `-D warnings`: no warning.
+  - `cargo test -p brokkr-protocol --all-features --locked`: 627 passed,
+    1 ignored, then 6, 1 and 1 doc.
+  - `cargo test -p brokkr-runtime --all-features --locked`: 27 result
+    lines ok, 870 passed.
+  - brokkr-cli and the four lower crates ran under the diagnostic: 44 and
+    14 result lines ok.
+  - `bundles/self` and `bundles/verify` compile.
+  - `openspec validate --all --strict --no-interactive`: 19 passed.
+  - `git diff --check`: clean.
+- **Pending.**
+  - The exact gate outside the box.
+  - jscpd and `ratchet.sh`, with the CRAP, clone and public-API
+    baselines. No `pub` item was added: `ServingShape`, `composed`,
+    `record_judged_tools`, `at_compile` and `unreached_at` are crate-private.
+  - macOS, remote CI and the council.

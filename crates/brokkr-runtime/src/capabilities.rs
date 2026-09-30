@@ -1765,7 +1765,7 @@ impl Authority {
         // realm grants and whatever the option's value; nothing authored is
         // merged into what the engine composes below.
         brokkr_protocol::native_controls::authored_refusal(serving.harness, serving.written)
-            .map_err(|refusal| refusal.at_compile(&who))?;
+            .map_err(at_compile(who))?;
         // An explicit include limit that excludes a held tool (design D6;
         // CQ1): a wanted capability drops, its native control switched OFF,
         // and the plan is resolved again without it; a required one refuses
@@ -1936,14 +1936,10 @@ impl Authority {
         // follows as the line's tail, so the bound cuts only that.
         let unmeasured = |declaration: Option<String>, reason: String, cause: &str| {
             if !serving.provenance.local.is_empty() {
-                let tail = match declaration {
-                    Some(_) => format!(": {reason}"),
-                    None => String::new(),
-                };
                 return Err(format!(
                     "{who}: its typed 'tools.allow' refuses at compile, as harness '{}' of \
                      provider '{provider}' has native controls {cause} (ruling R5 of 2026-09-29; \
-                     design D5.3){tail}",
+                     design D5.3): {reason}",
                     serving.harness
                 ));
             }
@@ -2023,7 +2019,7 @@ impl Authority {
                 serving.authored,
                 &guards,
             )
-            .map_err(|refusal| refusal.at_compile(&who))?,
+            .map_err(at_compile(who))?,
             false => None,
         } {
             return Err(format!(
@@ -2270,6 +2266,13 @@ const ADAPTER_WORKDIR: &str = "/";
 /// argument it is, so neither is staged or written.
 const ADAPTER_OVERLAY: &str = "/adapter-plan/overlay.json";
 const ADAPTER_PROMPT: &str = "adapter-plan";
+
+/// A launch refusal as the compile states it at `who`: the one conversion
+/// every refusal [`Authority::resolve`] and its native plan take from the
+/// launch's own judgments goes through (unit 26c).
+fn at_compile(who: launch::Site<'_>) -> impl Fn(launch::Refusal) -> String + '_ {
+    move |refusal| refusal.at_compile(&who)
+}
 
 /// Design D8 and review return SC1 of rebuild unit 22: the complete cold
 /// command an admitted adapter-level plan ([`Authority::assess`]) serves,

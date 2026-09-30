@@ -1632,7 +1632,8 @@ fn a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused() {
 
 /// Design D10 F2: the injected deterministic validator's address is a
 /// wrapper-created coordinate too, so a literal phase that flattens to it
-/// is refused before the validator's facts are written there.
+/// is refused before the validator's facts are written there, and so is a
+/// wrapped panel member named for it.
 #[test]
 fn a_literal_phase_that_aliases_the_injected_validator_is_refused() {
     let fixture = Fixture::new();
@@ -1665,6 +1666,41 @@ fn a_literal_phase_that_aliases_the_injected_validator_is_refused() {
         message.contains("addresses two different sites as 'verify:dialect-verify'"),
         "{message}"
     );
+    // Operator ruling of 2026-09-30 (unit 26c): a wrapped panel member
+    // named for the validator owns that address until the wrapper moves it,
+    // and the validator's facts are written before the move. The whole
+    // census refuses it, where the drained one let the member carry the
+    // validator's facts away.
+    let member = json!({"role":"roles/role.md","driver":{"command":["driver"]}});
+    let panel = |name: &str| {
+        json!({
+            "results":["pass","fail"], "aggregate":"unanimous-pass",
+            "panel":{name: member.clone(), "other": member.clone()}
+        })
+    };
+    let (config, policy) = dialect_config(panel("dialect-verify"));
+    assert_eq!(
+        error(compile_dialect_fixture(
+            &fixture,
+            &config,
+            &policy,
+            Some(&dialect)
+        )),
+        "bundle: seat 'verify' addresses two different sites as 'verify:dialect-verify': panel \
+         member 'dialect-verify' of seat 'verify' and the injected dialect validator. The \
+         selection, the argv lookup, the hands map and the boundary map all key on that one \
+         string, so one site would answer for the other; rename one of them"
+    );
+    // The control: any other member name compiles, and the validator keeps
+    // its own site beside the moved members'.
+    let (config, policy) = dialect_config(panel("alpha"));
+    let compiled = compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)).unwrap();
+    let verify: Vec<&str> = compiled
+        .sites
+        .keys()
+        .filter_map(|site| site.strip_prefix("verify:"))
+        .collect();
+    assert_eq!(verify, ["checks:alpha", "checks:other", "dialect-verify"]);
 }
 
 /// Design D10 F1/F2: relocation moves only the wrapped seat's OWN owners.

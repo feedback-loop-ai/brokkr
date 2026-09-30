@@ -1991,7 +1991,10 @@ pub fn check_final(
     serving: Serving<'_>,
 ) -> Result<Checked, Refusal> {
     let refuse = |problem: Vec<Piece<'_>>| unchecked(harness, problem);
-    let Some(table) = grammar::grammar(harness) else {
+    // A modelled harness has both its grammar and the shape its driver
+    // serves; one without either is read by neither (unit 26c).
+    let shape = crate::adapters::ServingShape::of(harness);
+    let (Some(table), Some(shape)) = (grammar::grammar(harness), shape) else {
         return Err(refuse(vec![Piece::Words(
             "has no modelled grammar, so no capability state can be read from it",
         )]));
@@ -2041,7 +2044,7 @@ pub fn check_final(
     delivered(harness, controls, &state)?;
     carried(harness, &composition, &state)?;
     let rebuilt =
-        crate::adapters::serving_command(harness, &serving, &composed).map_err(|cause| {
+        crate::adapters::serving_command(shape, &serving, &composed).map_err(|cause| {
             refuse(vec![
                 Piece::Words(
                     "rebuilds no serving command from its sealed inputs and the engine's serving \
@@ -3536,12 +3539,11 @@ fn plain_option(flag: &str) -> bool {
 
 /// What an authored argument was named by — an option and the key, tool or
 /// feature it reaches: ASCII letters, digits, spaces, `-`, `_`, `.`, `*`
-/// and `=`, never a path.
+/// and `=`, never a path. Every producer names an option, so none is empty.
 fn plain_written(written: &str) -> bool {
-    !written.is_empty()
-        && written
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || " -_.*=".contains(c))
+    written
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || " -_.*=".contains(c))
 }
 
 /// An adapter's reason in words: ASCII letters, digits, spaces and

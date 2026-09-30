@@ -19061,3 +19061,36 @@ fn a_dsh_transcript_tool_quoting_a_long_bound_value_leaks_no_prefix() {
     let tools: Vec<&Value> = emitted.iter().filter_map(|row| row.get("tool")).collect();
     assert_eq!(tools, vec!["probe-[secret:API_TOKEN]"], "{emitted:?}");
 }
+
+/// Operator ruling of 2026-09-30 (unit 26c): a serving command is asked for
+/// by the shape its driver builds, which every modelled grammar has and no
+/// other harness does, and a claude command is built from the whole
+/// composition, its managed part behind its extras.
+#[test]
+fn a_serving_command_is_built_in_its_harness_shape_from_the_whole_composition() {
+    use crate::native_controls::{grammar, Composed, Serving};
+    use ServingShape::{Claude, Codex, Dsh};
+    assert_eq!(
+        grammar::TABLES.map(|table| (table.harness, ServingShape::of(table.harness))),
+        [
+            ("codex", Some(Codex)),
+            ("claude", Some(Claude)),
+            ("lanetally", Some(Claude)),
+            ("dsh", Some(Dsh)),
+        ]
+    );
+    assert_eq!(["exec", "<custom>"].map(ServingShape::of), [None, None]);
+    let serving = Serving {
+        program: "claude",
+        ..Default::default()
+    };
+    let whole = ["--model", "opus", "--disallowedTools", "WebSearch"].map(String::from);
+    let composed = Composed {
+        extra: whole[..2].to_vec(),
+        managed: whole[2..].to_vec(),
+    };
+    assert_eq!(
+        serving_command(Claude, &serving, &composed),
+        Ok(claude_serving("claude", &whole, None))
+    );
+}

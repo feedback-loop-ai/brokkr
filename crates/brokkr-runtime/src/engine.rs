@@ -4065,13 +4065,24 @@ fn verify_serving(spawn: &SiteSpawn, input: &Value) -> Result<(), String> {
     Ok(())
 }
 
+/// The composition a candidate carries, or none for one that never
+/// composed: read once, for the expected state, the serving inputs and the
+/// compile's pin check alike (unit 26c).
+pub(crate) fn composed(link: &Candidate) -> Option<&crate::agents::Composition> {
+    match &link.lowering {
+        Lowering::Composed(composition) => Some(composition),
+        Lowering::Unavailable | Lowering::Refused(_) => None,
+    }
+}
+
 /// The typed serving inputs of the site a spawn serves (rebuild unit
 /// 14a2), carried from where they were chosen (rebuild unit 14a1) and
 /// never read back from any argv: the selected candidate's composition, or
 /// an inline site's recorded dialect and hands. Of the two boundary
 /// fragments a composition carries, the spawn's class selects the one
-/// sealed, as [`compose_segments`] selects the one appended; carried
-/// fragments with no class to select them refuse. The run's `boundary` is
+/// sealed, as [`compose_segments`] selects the one appended; a spawn with
+/// no class refuses, as every composition classes its own (operator ruling
+/// of 2026-09-30, unit 26c). The run's `boundary` is
 /// sealed beside them as the typed fact the site stood under, and none for
 /// a site without hands (rebuild unit 14a4c), so a declared-empty fragment
 /// pair under `harness` never reads as no boundary.
@@ -4085,10 +4096,7 @@ pub fn serving_inputs(
         .filter(|facts| matches!(facts.hands, HandsState::Hands(_)))
         .and_then(|_| SealedBoundary::named(boundary.word()));
     let carried = match link {
-        Some(link) => match &link.lowering {
-            Lowering::Composed(composition) => Some((*composition.serving).clone()),
-            Lowering::Unavailable | Lowering::Refused(_) => None,
-        },
+        Some(link) => composed(link).map(|composition| (*composition.serving).clone()),
         None => facts.and_then(SiteFacts::inline_serving),
     };
     let crate::agents::ServingInputs {
@@ -4104,7 +4112,6 @@ pub fn serving_inputs(
     let boundary = match class {
         Some(SeatClass::Gate) => dialect.boundary.gate,
         Some(SeatClass::Work) => dialect.boundary.work,
-        None if dialect.boundary == Default::default() => Vec::new(),
         None => {
             return Err(
                 "dispatch refused: the spawn was composed for no seat class, so none of the \
@@ -4263,19 +4270,18 @@ pub fn expected_state(
         )
     };
     let (local, hands, template) = match link {
-        Some(link) => match &link.lowering {
+        Some(link) => {
+            let composition = composed(link)
+                .ok_or_else(|| refused("the selected candidate carries no composition"))?;
             // Rebuild unit 5c-fix2: the adapter's declared template, the
             // composition's typed fact, and never the segment it emitted,
             // which the seal checks against it.
-            Lowering::Composed(composition) => (
+            (
                 composition.local(),
                 composition.intent.hands,
                 composition.template.clone(),
-            ),
-            Lowering::Unavailable | Lowering::Refused(_) => {
-                return Err(refused("the selected candidate carries no composition"))
-            }
-        },
+            )
+        }
         None => {
             let local = facts
                 .and_then(|facts| facts.local.as_ref())
@@ -4288,18 +4294,21 @@ pub fn expected_state(
             // expected as the class the site declared — and only where the
             // lowering recorded that same class.
             let sandboxed = facts.and_then(|facts| facts.inline_sandbox.as_ref());
-            let (allow, application, sandbox) = match (&local.allow, lowered, local.sandbox) {
-                (None, None, None) if sandboxed.is_none() => (
+            // A lowered class beside no declared one is no arm's, and falls
+            // to the refusal with every other mismatch (unit 26c).
+            let declared = (&local.allow, lowered, local.sandbox, sandboxed);
+            let (allow, application, sandbox) = match declared {
+                (None, None, None, None) => (
                     AllowIntent::Unspecified,
                     Application::Unrestricted,
                     SandboxIntent::Unspecified,
                 ),
-                (Some(names), Some(lowered), None) if sandboxed.is_none() => (
+                (Some(names), Some(lowered), None, None) => (
                     AllowIntent::Listed(names.clone()),
                     Application::Direct(lowered.limits.clone()),
                     SandboxIntent::Unspecified,
                 ),
-                (None, None, Some(class))
+                (None, None, Some(class), _)
                     if sandboxed.is_some_and(|sandboxed| sandboxed.class == class) =>
                 {
                     (

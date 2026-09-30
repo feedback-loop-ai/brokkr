@@ -5277,6 +5277,63 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
 - **Pending.** The exact gate outside the box, the rulings, jscpd and
   `ratchet.sh`, macOS, remote CI and the council.
 
+## 26c. Unit 26c — Remove the unreachable arms and refuse the validator's name
+
+- [x] 26c.1 Unit 26c (operator ruling of 2026-09-30, the last addendum of `operator-ruling-2026-09-23.md`) removes each arm unit 26b proved unreachable by restructuring the code, never by an exclusion, with behaviour for every reachable input unchanged, and fixes the dialect-verify defect: a site whose address equals the injected validator's refuses at compile with an exact reason, and the validator's facts are never lost. Production edits stay inside `adapters.rs`, `native_controls.rs`, `bundle.rs`, `capabilities.rs` and `engine.rs`. Requirements: [Refusal proofs assert the full reason][SC8], [Digest pins are measured and their history remains truthful][MP5].
+
+**Unit 26c, 2026-09-30 (run `0065-rebuild-unit-26c-see-the-un-b18b678d`, based on `2da88e8b`)** (evidence.md, "Unit 26c").
+
+- **26c.1, closed on the seat diagnostic; the exact gate is pending.**
+  - The seat diagnostic on the final tree, whole workspace, with the
+    gate's filters: lines 42768/42768, branches 6634/6634, functions
+    4516/4516. Unit 26b's were 42746/42754, 6643/6652 and 4507/4509.
+  - Removed, with the before and after of each in evidence.md:
+    - adapters 3332–3333 and 3362: `serving_command` takes a
+      `ServingShape` and has no wildcard; a claude command is built from
+      the whole composition;
+    - native_controls 3541: the emptiness conjunct of `plain_written`;
+    - capabilities 1941: the R5 refusal's tail is always the reason;
+    - bundle 2135: the validator records through `record_judged_tools`,
+      which refuses nothing;
+    - bundle 2941 and 2956–2961: the pins and segments are iterated;
+    - engine 4090: one `composed(link)` for the expected state, the
+      serving inputs and the pin check;
+    - engine 4107: a classless spawn always refuses (a contract change,
+      bound by a new case);
+    - engine 4292 and 4297: the lowered class is matched by pattern;
+    - bundle 3805: an inline site returns on its empty chain;
+    - the closures at bundle 5406 and capabilities 2026: one shared
+      conversion each.
+  - The defect: the validator's address is claimed against the whole
+    census. A wrapped panel member named `dialect-verify` is refused with
+    the full `claim_address` reason. Baseline red is 26b's
+    `alias-probe.log`, reproduced by mutation M1.
+  - Six mutations, each failing its named test and restored (M1–M6 in
+    evidence.md).
+  - Not done here, and named for the council: `agents::Candidate` can
+    still hold the states items 6–8 no longer branch on, because its
+    type lives in `agents.rs`, outside the admission.
+- **Admissions.** Production: the five files only. No fixture migration
+  and no standing-admission line.
+  - One new test in `adapters/tests.rs`, one new case in
+    `engine/capability_tests.rs`, and the regression folded into an
+    existing test in `bundle/tests.rs`.
+- **Ledgers.** `file-lines.txt` has eight rows grown, the five
+  production files among them. In `too-many-lines.txt` three production
+  functions shrank and one test function grew. The pull request needs a
+  `Ruling:` line.
+- **Gates.**
+  - fmt: clean.
+  - Workspace clippy: no warning.
+  - `brokkr-protocol`: 627 passed.
+  - `brokkr-runtime`: 870 passed.
+  - self and verify compile.
+  - `openspec validate --all --strict --no-interactive`: 19 passed.
+  - `git diff --check`: clean.
+- **Pending.** The exact gate outside the box, jscpd and `ratchet.sh`,
+  macOS, remote CI and the council. 26b.1 stays open until the exact
+  gate is observed.
+
 ## 27. Unit 27 — Validate and commit the rebuilt candidate
 
 - [ ] 27.1 **Unit 27, rebuilt final candidate:** Run `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; resolve failures and record actual exits. Keep dependency versions and required compiler/license constraints unchanged by the repair. Requirement: [Digest pins are measured and their history remains truthful][MP5] (scenario: Validation remains a proof obligation). Reopened/remaining: operator ruling 1–4 / V1/R13. (previous 11.1)

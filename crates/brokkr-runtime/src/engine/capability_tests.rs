@@ -880,6 +880,14 @@ fn the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed()
         (input.get(LAUNCH_RECORD), input.get(SERVING_INPUTS)),
         (None, None)
     );
+    // Nor is one whose inputs carry no fragment to select (unit 26c): every
+    // composition classes its spawn, so a classless one is never sealed.
+    let mut bare = SiteSpawn::inherit(primary.argv.clone());
+    engine.mark_capabilities("work", Some(&primary), Some(&mut bare), &mut json!({}));
+    assert_eq!(
+        (&bare.refusal, &bare.record, &bare.serving),
+        (&unclassed.refusal, &None, &None)
+    );
 
     // Missing, then malformed: the strict reader's own whole causes.
     let decoded = |path: &str, problem: &str| {
