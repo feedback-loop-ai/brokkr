@@ -19,7 +19,7 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-const POLICY: &str = r#"{"schema":"forge.phase-machine/v1","phases":["work","review","done","stop"],"initial":"work","terminal":["done","stop"],"rules":[{"id":"W","from":"work","result":"complete","next":"review","reason":"r"},{"id":"OK","from":"review","result":"clean","next":"done","reason":"r"}]}"#;
+const POLICY: &str = r#"{"schema":"forge.phase-machine/v1","phases":["work","review","done"],"initial":"work","terminal":["done"],"rules":[{"id":"W","from":"work","result":"complete","next":"review","reason":"r"},{"id":"OK","from":"review","result":"clean","next":"done","reason":"r"}]}"#;
 
 /// A bundle whose `work` seat is an exec site running the bundle's own
 /// `./scripts/gate.sh` — the one shape every boundary admits at compile

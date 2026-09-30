@@ -9,9 +9,9 @@ use brokkr_store::Store;
 use serde_json::json;
 
 const POLICY: &str = r#"{
-  "phases": ["intake", "review", "done", "stop"],
+  "phases": ["intake", "review", "done"],
   "initial": "intake",
-  "terminal": ["done", "stop"],
+  "terminal": ["done"],
   "rules": [
     {"id": "INTAKE-OK", "from": "intake", "result": "resolved", "next": "review",
      "reason": "framed"},

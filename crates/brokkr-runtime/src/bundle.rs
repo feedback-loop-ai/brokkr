@@ -59,28 +59,9 @@ fn capability_line(reason: &str) -> String {
     brokkr_protocol::native_controls::bounded_line(&format!("bundle: {reason}"))
 }
 
-/// Inputs the engine owns. A seat may never supply or declare these:
-/// journal-computed truth is never accepted from a caller (README law 2).
-pub const ENGINE_OWNED_INPUTS: [&str; 7] = [
-    "consecutive_failures",
-    "drift_detected",
-    "dirty_worktrees",
-    "reviewed_heads",
-    // The fold remembers the last successful triage result. A seat may
-    // neither declare nor overwrite the class that governs its run.
-    "strategy",
-    // Read from the tree at the protected phase's ruling (decision
-    // 0039): the review's own commits, classified by the repository's
-    // declared docs class.
-    "fixes_docs_only",
-    // The same repository facts, keyed by realm (decision 0023). Read
-    // from the tree by the engine, exactly like the two above it.
-    REALM_FACTS,
-];
-
-/// The per-realm repository facts a decision records in a mapped world:
-/// realm name -> observed HEAD, dirty worktree, drift.
-pub const REALM_FACTS: &str = "realm_facts";
+/// The engine-owned inputs live with the policy that reads them, because
+/// the loader's presence refusal (decision 0050, ruling 1) exempts them.
+pub use brokkr_core::policy::{is_engine_owned, ENGINE_OWNED_INPUTS, REALM_FACTS};
 
 /// Closed, seat-declarable enum inputs. Their values are validated by the
 /// pure policy evaluator whenever a ruling reads them.
@@ -96,13 +77,6 @@ pub(crate) fn dialect_results(phase: &str) -> [&'static str; 2] {
         "verify" => ["pass", "fail"],
         _ => ["drafted", "fail"],
     }
-}
-
-/// The same law over the phase-visit family (decision 0022): every
-/// `visits_<phase>` is counted by the fold from `phase/entered` events,
-/// so no seat may declare one and no seat may claim one.
-pub fn is_engine_owned(name: &str) -> bool {
-    ENGINE_OWNED_INPUTS.contains(&name) || name.starts_with(brokkr_core::policy::VISIT_PREFIX)
 }
 
 #[derive(Debug, Clone)]

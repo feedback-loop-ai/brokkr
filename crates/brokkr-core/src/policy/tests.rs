@@ -203,7 +203,8 @@ fn the_phase_visit_predicate_is_closed_over_the_tables_own_phases() {
              "when": {"visits_check_gte": 3}, "reason": "the same phase, twice"},
         ],
     });
-    let many = Machine::from_table(&many).unwrap();
+    // `check` is never entered: this table is read for its visits alone.
+    let many = Machine::parse(&many).unwrap();
     assert_eq!(many.visit_phases("work"), vec!["check".to_string()]);
     assert!(many.visit_phases("done").is_empty());
 }
@@ -364,7 +365,12 @@ fn a_rule_may_rule_a_park_and_only_a_v2_table_may_hold_one() {
         );
     }
 
-    let machine = Machine::from_table(&v2(park())).unwrap();
+    // Another result reaches `done`, so the table is live (decision 0050).
+    let mut parking = v2(park());
+    let mut done = rule();
+    done["result"] = json!("shipped");
+    parking["rules"].as_array_mut().unwrap().push(done);
+    let machine = Machine::from_table(&parking).unwrap();
     assert_eq!(
         machine.evaluate("work", "complete", &Map::new()),
         Outcome::Park {
@@ -537,6 +543,12 @@ fn shipped_machine(relative: &str) -> Machine {
     Machine::from_table(&shipped_table(relative)).unwrap()
 }
 
+/// A recipe's own table, which is an overlay its composed recipe
+/// completes: its arms are read before the composer makes it whole.
+fn overlay_machine(relative: &str) -> Machine {
+    Machine::parse(&shipped_table(relative)).unwrap()
+}
+
 fn ruling(machine: &Machine, phase: &str, result: &str, inputs: Value) -> (String, String) {
     match machine.evaluate(phase, result, inputs.as_object().unwrap()) {
         Outcome::Ruling {
@@ -630,7 +642,7 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
         "stop"
     );
 
-    let sdd = shipped_machine("../../recipes/triage/policy.json");
+    let sdd = overlay_machine("../../recipes/triage/policy.json");
     assert_eq!(
         ruling(
             &sdd,
@@ -680,7 +692,7 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_shipped_sdd_table_rules_every_artifact_and_loop_arm() {
-    let machine = shipped_machine("../../recipes/triage/policy.json");
+    let machine = overlay_machine("../../recipes/triage/policy.json");
     let park = |phase: &str, result: &str, inputs: Value| match machine.evaluate(
         phase,
         result,

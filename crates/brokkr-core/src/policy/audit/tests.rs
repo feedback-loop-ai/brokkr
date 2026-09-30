@@ -16,8 +16,10 @@ fn engine_owned(name: &str) -> bool {
         .contains(&name)
 }
 
+/// The audit of a table the loader may refuse: these tests plant the
+/// findings its refusals are built on.
 fn audit(table: &Value) -> Audit {
-    Machine::from_table(table)
+    Machine::parse(table)
         .unwrap()
         .audit_with(SWEEP_BUDGET, engine_owned)
         .unwrap()
@@ -62,8 +64,11 @@ fn unruled(valuation: &[(&str, Setting)]) -> Finding {
     }
 }
 
+/// The exchange #429 reported: the loader refuses it, naming both rules,
+/// because the table it would load parks a high residual at the bound
+/// where the ordered table stops.
 #[test]
-fn the_swapped_self_arms_load_today_and_the_audit_names_both_rules() {
+fn the_swapped_self_arms_are_refused_and_the_audit_names_both_rules() {
     let ordered = Machine::from_table(&self_table()).unwrap();
     let mut swapped = self_table();
     let rules = swapped["rules"].as_array_mut().unwrap();
@@ -74,7 +79,14 @@ fn the_swapped_self_arms_load_today_and_the_audit_names_both_rules() {
         .unwrap();
     assert_eq!(ids[above + 1], "\"REVIEW-REFORGE-EXHAUSTED-MEDIUM\"");
     rules.swap(above, above + 1);
-    let machine = Machine::from_table(&swapped).expect("the loader admits the swap today");
+    assert_eq!(
+        Machine::from_table(&swapped).unwrap_err().to_string(),
+        "malformed phase machine table: REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM is dead \
+         behind REVIEW-REFORGE-EXHAUSTED-MEDIUM: its guard holds wherever \
+         REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM's does, and first match wins; it fires on \
+         no present valuation (decision 0050, ruling 2)"
+    );
+    let machine = Machine::parse(&swapped).unwrap();
     let bound = json!({"max_residual_severity": "high", "visits_implement": 3,
                        "has_security_residual": true});
     let bound = bound.as_object().unwrap();
@@ -378,7 +390,7 @@ fn presence_names_an_advancing_rule_that_skips_a_hard_input() {
                           "severity": "hard", "reason": "r"});
         let clean = json!({"id": "CLEAN", "from": "review", "result": "clean", "next": "done",
                            "reason": "r"});
-        let machine = Machine::from_table(&table(json!([deny, arm, clean]))).unwrap();
+        let machine = Machine::parse(&table(json!([deny, arm, clean]))).unwrap();
         let audit = machine.audit_with(SWEEP_BUDGET, owned).unwrap();
         audit
             .findings
@@ -495,14 +507,26 @@ fn the_sweep_is_measured_before_it_runs_and_refuses_past_its_budget() {
     for flag in BOOLEAN_INPUTS {
         when[flag] = json!(true);
     }
-    let wide = Machine::from_table(&table(json!([residual("WIDE", when, "done")]))).unwrap();
+    let wide = table(json!([residual("WIDE", when, "done")]));
     assert_eq!(
-        wide.audit_with(SWEEP_BUDGET, engine_owned).unwrap_err(),
+        Machine::from_table(&wide)
+            .unwrap()
+            .audit_with(SWEEP_BUDGET, engine_owned)
+            .unwrap_err(),
         AuditError::Budget {
             phase: "review".into(),
             result: "residual".into(),
             valuations: 92_160,
             budget: SWEEP_BUDGET,
         }
+    );
+    // The loader sweeps nothing past the budget, and still refuses what
+    // needs no sweep (#429).
+    let mut unentered = wide;
+    unentered["phases"] = json!(["work", "review", "loop", "done", "stop"]);
+    assert_eq!(
+        Machine::from_table(&unentered).unwrap_err().to_string(),
+        "malformed phase machine table: phase 'loop' is unreachable from the initial \
+         phase (decision 0050, ruling 3)"
     );
 }

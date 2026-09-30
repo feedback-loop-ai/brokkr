@@ -112,6 +112,41 @@ pub const SEVERITY_INPUTS: [&str; 1] = ["max_residual_severity"];
 /// branch on them: identity is data passed to effects, not a control signal.
 pub const IDENTIFIER_INPUTS: [&str; 1] = ["change"];
 
+/// Inputs the engine owns. A seat may never supply or declare these:
+/// journal-computed truth is never accepted from a caller (README law 2).
+pub const ENGINE_OWNED_INPUTS: [&str; 7] = [
+    "consecutive_failures",
+    "drift_detected",
+    "dirty_worktrees",
+    REVIEWED_HEADS,
+    // The fold remembers the last successful triage result. A seat may
+    // neither declare nor overwrite the class that governs its run.
+    "strategy",
+    // Read from the tree at the protected phase's ruling (decision
+    // 0039): the review's own commits, classified by the repository's
+    // declared docs class.
+    "fixes_docs_only",
+    // The same repository facts, keyed by realm (decision 0023). Read
+    // from the tree by the engine, exactly like the two above it.
+    REALM_FACTS,
+];
+
+/// The protected phase's record: realm name (or the legacy unkeyed
+/// `repo`, per [`crate::realms::LEGACY_REALM_KEY`]) to observed head.
+pub(crate) const REVIEWED_HEADS: &str = "reviewed_heads";
+
+/// The per-realm repository facts a decision records in a mapped world:
+/// realm name -> observed HEAD, dirty worktree, drift.
+pub const REALM_FACTS: &str = "realm_facts";
+
+/// The same law over the phase-visit family (decision 0022): every
+/// `visits_<phase>` is counted by the fold from `phase/entered` events,
+/// so no seat may declare one and no seat may claim one. Presence
+/// (decision 0050, ruling 1) exempts exactly these inputs.
+pub fn is_engine_owned(name: &str) -> bool {
+    ENGINE_OWNED_INPUTS.contains(&name) || name.starts_with(VISIT_PREFIX)
+}
+
 /// Artifact ownership reported by the read-only analysis judge. Unlike an
 /// identifier, this is a closed enum which policy may branch on.
 pub const DRIFT_PHASES: [&str; 3] = ["specify", "design", "tasks"];
@@ -185,7 +220,20 @@ pub struct Machine {
 }
 
 impl Machine {
+    /// Parse a whole table, then refuse what decision 0050 refuses at load
+    /// (`Machine::refuse_findings`).
     pub fn from_table(table: &Value) -> Result<Machine, PolicyError> {
+        let machine = Machine::parse(table)?;
+        machine.refuse_findings(
+            table.get("schema").and_then(Value::as_str) == Some(TABLE_SCHEMA_V2),
+        )?;
+        Ok(machine)
+    }
+
+    /// The table's structure and closed vocabulary, rule by rule. A
+    /// recipe's overlay is not a whole table, so its unit tests read it
+    /// here.
+    fn parse(table: &Value) -> Result<Machine, PolicyError> {
         let obj = table
             .as_object()
             .ok_or_else(|| PolicyError("table must be an object".into()))?;

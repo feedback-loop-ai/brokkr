@@ -23,11 +23,12 @@
 //! fail presence exactly as decision 0004 recorded, and every v2 delivery
 //! table leaves one valuation shape unruled — a `residual` verdict at
 //! severity `none`. The operator accepted the decision on the #429 audit
-//! (`docs/evidence/decision-0050-audit.md`), and the audit refuses nothing
-//! until its enactment slices land. The enactment turns the refusals on,
-//! names the closed valuations with a parking rule, and retires these
-//! pins by driving them to zero. Until then a table change that moves a
-//! pin is a reviewed change.
+//! (`docs/evidence/decision-0050-audit.md`). Its first enactment slice
+//! refuses order, liveness and v2 presence at load, so every table here
+//! loads with none of those findings. The later slices move the v1 tables
+//! to v2, name the closed valuations with a parking rule, and retire
+//! these pins by driving them to zero. Until then a table change that
+//! moves a pin is a reviewed change.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -426,37 +427,29 @@ fn position(table: &Value, id: &str) -> usize {
         .unwrap_or_else(|| panic!("{id} is in the table"))
 }
 
-/// The decision's context, reproduced: exchange the two exhaustion arms
-/// and the table still loads, while a high residual at the bound parks
-/// where the constitution says it stops.
+/// The decision's context, reproduced: exchange the two exhaustion arms,
+/// which parked a high residual at the bound where the constitution says
+/// it stops, and the loader refuses the table (#429).
 #[test]
-fn the_exchanged_self_table_is_dead_behind_its_weaker_arm() {
+fn the_exchanged_self_table_is_refused_behind_its_weaker_arm() {
     let mut json = self_table();
     let above = position(&json, "REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM");
     let medium = position(&json, "REVIEW-REFORGE-EXHAUSTED-MEDIUM");
     json["rules"].as_array_mut().unwrap().swap(above, medium);
-    let t = table("bundles/self, exchanged", json);
     assert_eq!(
-        sweep(&t).order,
-        vec![
-            "REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM is dead behind REVIEW-REFORGE-EXHAUSTED-MEDIUM"
-        ]
-    );
-    let high = json!({"max_residual_severity": "high", "visits_implement": 3});
-    assert!(
-        matches!(
-            t.machine.evaluate("review", "residual", high.as_object().unwrap()),
-            Outcome::Park { ref rule_id, .. } if rule_id == "REVIEW-REFORGE-EXHAUSTED-MEDIUM"
-        ),
-        "the exchanged table parks a high residual at the bound"
+        Machine::from_table(&json).unwrap_err().to_string(),
+        "malformed phase machine table: REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM is dead \
+         behind REVIEW-REFORGE-EXHAUSTED-MEDIUM: its guard holds wherever \
+         REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM's does, and first match wins; it fires on \
+         no present valuation (decision 0050, ruling 2)"
     );
 }
 
 /// Seq 335 of `implement-decision-0022-reforgin-54a88e9b`, reproduced:
-/// permissive arms that read no severity ship an absent one, security
-/// flag and all. Presence refuses the shape by name.
+/// permissive arms that read no severity shipped an absent one, security
+/// flag and all. Presence refuses the v2 table by name (#429).
 #[test]
-fn the_0022_era_permissive_arms_fail_open() {
+fn the_0022_era_permissive_arms_are_refused() {
     let mut json = self_table();
     for rule in json["rules"].as_array_mut().unwrap() {
         if rule["id"] == "REVIEW-REFORGE-EXHAUSTED-DEBT" || rule["id"] == "REVIEW-RESIDUAL-OK" {
@@ -464,21 +457,10 @@ fn the_0022_era_permissive_arms_fail_open() {
             when.retain(|key, _| !key.starts_with("max_residual_severity"));
         }
     }
-    let t = table("bundles/self, 0022-era", json);
     assert_eq!(
-        sweep(&t).presence,
-        vec![
-            "REVIEW-REFORGE-EXHAUSTED-DEBT lets the run go on without reading [\"max_residual_severity\"]",
-            "REVIEW-RESIDUAL-OK lets the run go on without reading [\"max_residual_severity\"]",
-        ]
-    );
-    let absent = json!({"visits_implement": 3, "has_security_residual": true});
-    assert!(
-        matches!(
-            t.machine.evaluate("review", "residual", absent.as_object().unwrap()),
-            Outcome::Ruling { ref rule_id, ref next_phase, .. }
-                if rule_id == "REVIEW-REFORGE-EXHAUSTED-DEBT" && next_phase == "ship"
-        ),
-        "an absent severity with the security flag set ships"
+        Machine::from_table(&json).unwrap_err().to_string(),
+        "malformed phase machine table: REVIEW-REFORGE-EXHAUSTED-DEBT lets the run go on \
+         without reading max_residual_severity, which a hard rule of its group reads \
+         (decision 0050, ruling 1, forge.phase-machine/v2)"
     );
 }

@@ -51,7 +51,9 @@ const POLICY: &str = r#"{
     {"id": "INTAKE-OK", "from": "intake", "result": "resolved", "next": "review",
      "reason": "framed"},
     {"id": "REVIEW-CLEAN", "from": "review", "result": "clean", "next": "done",
-     "reason": "clean"}
+     "reason": "clean"},
+    {"id": "REVIEW-HOLD", "from": "review", "result": "security-hold", "next": "stop",
+     "severity": "hard", "reason": "held"}
   ]
 }"#;
 

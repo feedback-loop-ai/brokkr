@@ -74,8 +74,8 @@ const POLICY: &str = r#"{
 /// The same machine with decision 0022's review constitution: a security
 /// residual sends the run BACK to implement while implement's visit count
 /// stays inside two reforgings, and the exhaustion ladder then stops,
-/// parks, or ships it as named debt. The non-security rules are the v1
-/// table's, character for character.
+/// parks, or ships it as named debt. Its shipping arms read what the hard
+/// rules of their group read (decision 0050, ruling 1).
 const REFORGING_POLICY: &str = r#"{
   "schema": "forge.phase-machine/v2",
   "phases": ["intake", "implement", "verify", "review", "ship", "done", "stop"],
@@ -113,7 +113,7 @@ const REFORGING_POLICY: &str = r#"{
      "reason": "Two reforgings spent and a medium security residual survives."},
     {"id": "REVIEW-REFORGE-EXHAUSTED-DEBT", "from": "review", "result": "residual",
      "when": {"has_security_residual": true, "visits_implement_gte": 3,
-              "fixes_applied": true},
+              "fixes_applied": true, "max_residual_severity_at_most": "low"},
      "next": "ship", "severity": "flagged",
      "reason": "Two reforgings spent; low or info with fixes applied ships as tracked debt."},
     {"id": "REVIEW-REFORGE-EXHAUSTED-UNFIXED", "from": "review", "result": "residual",
@@ -126,9 +126,9 @@ const REFORGING_POLICY: &str = r#"{
     {"id": "REVIEW-RESIDUAL-ABOVE-MEDIUM", "from": "review", "result": "residual",
      "when": {"max_residual_severity_above": "medium"}, "next": "stop",
      "severity": "hard", "reason": "Residual severity above medium; not shippable."},
-    {"id": "REVIEW-RESIDUAL-OK", "from": "review", "result": "residual", "next": "ship",
-     "severity": "flagged",
-     "reason": "Non-security residuals at or below medium proceed as tracked debt."},
+    {"id": "REVIEW-RESIDUAL-OK", "from": "review", "result": "residual", "severity": "flagged",
+     "when": {"has_security_residual": false, "max_residual_severity_at_most": "medium"},
+     "next": "ship", "reason": "Non-security residuals at or below medium proceed as tracked debt."},
     {"id": "REVIEW-CLEAN-NO-FIXES", "from": "review", "result": "clean",
      "when": {"fixes_applied": false}, "next": "ship",
      "reason": "Clean with no fixes reported; a gate that moves HEAD parks and ship stops on a dirty tree."},

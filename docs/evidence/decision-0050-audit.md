@@ -10,13 +10,18 @@ file builds only checks that add no refusal and no transition to a table
 that loads today. Every check below that would refuse such a table is
 listed under [The operator's ruling](#the-operators-ruling).
 
+The decision's first enactment slice (#429) followed the ruling. It
+refuses order, liveness and v2 presence in `Machine::from_table`. The
+table below and the gaps under rulings 1 to 3 record that slice; the rest
+of this file is the audit as it was taken.
+
 ## The seven rulings
 
 | Ruling | Status | Where it is built | Gap |
 |---|---|---|---|
-| 1. Presence | partial: reported, not refused | `Machine::audit_with`, `Finding::Unread` | no refusal in `Machine::from_table`; `bundles/verify` and `recipes/preflight` are still v1 |
-| 2. Order | partial: the unconditional shadow is refused, every other dead rule is reported | `Machine::from_table`; `Machine::audit_with`, `Finding::Shadowed`, `Finding::Covered` and `Finding::Unsatisfiable` | no refusal of a dead rule at load or compile; the decision's condition-wise wording misses vacuous guards and collective cover |
-| 3. Liveness | partial: reported, not refused | `Machine::audit_with`, `Finding::Unreachable` and `Finding::DeadEnd` | no refusal |
+| 1. Presence | built: refused at load | `Machine::from_table` through `Machine::refuse_findings`, `Finding::Unread`, in a `forge.phase-machine/v2` table | `bundles/verify` and `recipes/preflight` are still v1, so presence is only reported for them |
+| 2. Order | built: refused at load | `Machine::from_table` through `Machine::refuse_findings`, `Finding::Shadowed`, `Finding::Covered` and `Finding::Unsatisfiable` | a table past `SWEEP_BUDGET` is not swept at load; its order stays reported until the budget refusal lands with totality |
+| 3. Liveness | built: refused at load | `Machine::from_table` through `Machine::refuse_findings`, `Finding::Unreachable` and `Finding::DeadEnd` | none |
 | 4. Totality | partial: swept, bounded and reported by `brokkr compile` | `Machine::audit_with`, `Finding::Unruled`, `AuditError::Budget` | no refusal; no shipped table names its closed valuations |
 | 5. Stated properties | partial: the three properties hold on every shipped table at the valuations the test evaluates; `clean` is held at the plain verdict only | `crates/brokkr-runtime/tests/table_lints.rs` | the clean property's domain awaits a ruling; the sequence leg waits on ruling 7; no `table_properties.rs` |
 | 6. Fold arms total | unbuilt | none | no transition table and no enumeration test |
@@ -36,7 +41,7 @@ listed under [The operator's ruling](#the-operators-ruling).
   phase, re-enters it directly, stops or parks, or the engine owns the
   input. In `table_lints.rs`,
   `presence_refuses_exactly_the_three_v1_tables` pins today's three
-  findings, and `the_0022_era_permissive_arms_fail_open` reproduces
+  findings, and `the_0022_era_permissive_arms_are_refused` reproduces
   seq 335.
 - **Reading taken.** A rule whose next phase is its own phase *returns*.
   The ruling says a returning rule is one whose "every road onward
@@ -47,8 +52,15 @@ listed under [The operator's ruling](#the-operators-ruling).
   `SPECIFY-RETRY`, `DESIGN-RETRY` and `TASKS-RETRY` beside
   `consecutive_failures`, `SHIP-READY` beside `dirty_worktrees`, and
   `ARCH-COUNCIL-FAILED` in a group with no hard rule.
-- **Gap.** `Machine::from_table` refuses nothing for presence.
-  `bundles/verify` and `recipes/preflight` are still
+- **Built: refused at load.** `Machine::from_table` refuses
+  `Finding::Unread` in a `forge.phase-machine/v2` table, exempting the
+  engine-owned inputs (`brokkr_core::policy::is_engine_owned`).
+  `crates/brokkr-core/tests/policy_lint.rs`,
+  `a_v2_table_with_an_unread_hard_input_is_refused_and_the_same_v1_table_loads`,
+  covers the refusal and the v1 table that loads;
+  `the_0022_era_permissive_arms_are_refused` in `table_lints.rs` refuses
+  seq 335's shape.
+- **Gap.** `bundles/verify` and `recipes/preflight` are still
   `forge.phase-machine/v1`, and their `REVIEW-RESIDUAL-OK` advances to
   `done` reading neither `has_security_residual` nor
   `max_residual_severity`. The frozen heritage table carries the same
@@ -96,25 +108,32 @@ listed under [The operator's ruling](#the-operators-ruling).
   both directions of each form, across inputs and across forms.
   `a_shadowed_rule_names_the_first_rule_that_subsumes_it` pins the
   report text.
-  `the_swapped_self_arms_load_today_and_the_audit_names_both_rules`
+  `the_swapped_self_arms_are_refused_and_the_audit_names_both_rules`
   exchanges `REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM` and
-  `REVIEW-REFORGE-EXHAUSTED-MEDIUM` in `bundles/self`. Today's loader
-  admits the table, and it parks a high residual at the bound where the
+  `REVIEW-REFORGE-EXHAUSTED-MEDIUM` in `bundles/self`. The audit's loader
+  admitted the table, and it parks a high residual at the bound where the
   ordered table stops. The audit names both rules.
   `the_ordered_self_table_leaves_only_the_severity_none_hole` is the
   valid counterpart. For composed tables,
-  `an_overlay_that_shadows_or_opens_a_hole_is_reported_on_the_flat_table`
+  `an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_the_flat_table`
   in `crates/brokkr-runtime/src/bundle/compose_tests.rs` shows a derived
   rule prepended ahead of the base rule it subsumes.
 - **Measured on 2026-09-29.** `brokkr compile --bundle` on a copy of
   `bundles/self` with the two rules exchanged exits 0 and prints
   `REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM is dead behind
   REVIEW-REFORGE-EXHAUSTED-MEDIUM`.
-- **Gap.** Neither the loader nor the compiler refuses a dead rule.
-  Decision 0050's own definition of subsumption ("each of the earlier
-  guard's conditions is implied by a condition of the later one") is
-  incomplete in the same way the first cut was. It misses vacuous guards
-  and collective cover. See item 2 of the list below.
+- **Built: refused at load.** `Machine::from_table` refuses every dead
+  rule on the semantic definition the addendum ruled, and says it fires
+  on no present valuation. `policy_lint.rs` covers a vacuous ceiling
+  ahead of a hard floor, two flag arms that partition an axis ahead of a
+  hard rule, and a fallback behind complementary flag arms, each beside
+  the order that loads.
+  `the_swapped_self_arms_are_refused_and_the_audit_names_both_rules`
+  refuses the exchanged `bundles/self`, and
+  `an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_the_flat_table`
+  refuses the composed overlay.
+- **Gap.** A table past `SWEEP_BUDGET` is not swept at load, so its
+  dead rules stay reported until the budget refusal (item 6 below).
 
 ### Ruling 3: liveness
 
@@ -126,7 +145,10 @@ listed under [The operator's ruling](#the-operators-ruling).
   the same spin made live by a parking rule.
   `every_shipped_table_is_ordered_and_live` in `table_lints.rs` admits
   every shipped table.
-- **Gap.** There is no refusal.
+- **Built: refused at load.** `Machine::from_table` refuses both
+  findings, past the sweep budget too. `an_unreachable_phase_is_refused`
+  and `a_dead_end_is_refused` in `policy_lint.rs` each carry the table
+  that loads.
 
 ### Ruling 4: totality, and every ending named
 

@@ -24,10 +24,10 @@ fn machine() -> Machine {
         "rules":[
             {"id":"WORK", "from":"work", "result":"complete", "next":"review",
              "reason":"work"},
+            {"id":"BLOCKED", "from":"work", "result":"blocked", "next":"stop", "reason":"blocked"},
             {"id":"BACK", "from":"review", "result":"residual", "next":"work",
              "reason":"one more pass"},
-            {"id":"DONE", "from":"review", "result":"clean", "next":"done",
-             "reason":"clean"}
+            {"id":"DONE", "from":"review", "result":"clean", "next":"done", "reason":"clean"}
         ]
     }))
     .unwrap()
@@ -667,10 +667,10 @@ fn panel_machine() -> Machine {
              "reason":"the panel agreed"},
             {"id":"WORK-FAIL", "from":"work", "result":"fail", "next":"review",
              "reason":"the panel did not"},
+            {"id":"WORK-HALT", "from":"work", "result":"halt", "next":"stop", "reason":"halted"},
             {"id":"BACK", "from":"review", "result":"residual", "next":"work",
              "reason":"one more pass"},
-            {"id":"DONE", "from":"review", "result":"clean", "next":"done",
-             "reason":"clean"}
+            {"id":"DONE", "from":"review", "result":"clean", "next":"done", "reason":"clean"}
         ]
     }))
     .unwrap()
@@ -3762,8 +3762,8 @@ fn implement_machine() -> Machine {
         "rules":[
             {"id":"IMPL", "from":"implement", "result":"complete", "next":"review",
              "reason":"implemented"},
-            {"id":"DONE", "from":"review", "result":"clean", "next":"done",
-             "reason":"clean"}
+            {"id":"IMPL-STOP", "from":"implement", "result":"stop", "next":"stop", "reason":"stop"},
+            {"id":"DONE", "from":"review", "result":"clean", "next":"done", "reason":"clean"}
         ]
     }))
     .unwrap()
