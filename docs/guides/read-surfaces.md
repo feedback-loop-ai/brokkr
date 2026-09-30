@@ -389,7 +389,7 @@ searches every run by title and id:
 │last 24h                                                                      │
 │✓ shipped     COMPLETE       low      Landing 4 of the  7m03s   landi…2a3b4c5d│
 │✗ stopped     FAIL-EXHAUSTED          0065 rebuild unit 7m03s   0065-…8c9d0e1f│
-│older                                 2 hidden · a show                       │
+│older         2 hidden                a shows them                            │
 └──────────────────────────────────────────────────────────────────────────────┘
 runs
 ↑↓/jk move · Enter open run · a all runs · g/G top/bottom · / filter · r refresh

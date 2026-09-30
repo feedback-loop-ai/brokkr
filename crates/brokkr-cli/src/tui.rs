@@ -83,7 +83,8 @@ const PAGE: usize = 10;
 /// The fleet list's columns, left to right (#491): how the run stands (a
 /// glyph and its widest word, `quarantined`), its verdict, its residual
 /// (the widest, `critical`), its title, its age (`999h59m`) and its id.
-/// The title takes what the frame leaves.
+/// The title takes what the frame leaves, and a list too narrow for the
+/// rest folds the age and then the residual away (`fleet_widths`).
 const FLEET_COLUMNS: [u16; 6] = [
     13,
     brokkr_view::VERDICT_COLUMNS as u16,
@@ -104,6 +105,11 @@ const LIST_COLUMNS: u16 = 2
     + FLEET_COLUMNS[3]
     + FLEET_COLUMNS[4]
     + FLEET_COLUMNS[5];
+
+/// The fewest columns the fleet's title is left, which is also the width
+/// of the count line's `a shows them`. With the age and the residual
+/// folded, the list is exactly [`MIN_WIDTH`] wide at it.
+const TITLE_MIN_COLUMNS: u16 = 12;
 
 /// The narrowest frame that holds the fleet's detail pane: the list, and
 /// a pane that wraps the feature at its full [`DETAIL_TEXT_COLUMNS`].

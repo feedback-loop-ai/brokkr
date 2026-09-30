@@ -43,7 +43,10 @@ on, so this file names them.
    feature wrapped at 100 columns. The pane scrolls by the lines it draws.
    The shell measures the frame before it draws it, so the frame, its footer
    and the keys read one width. Below 225 columns the list keeps the frame
-   and `Enter` opens the run as before.
+   and `Enter` opens the run as before. A list too narrow for every column
+   and a 12-column title folds the age away, then the residual, and never
+   cuts a cell, so from the TUI's 60-column minimum every row's verdict and
+   whole id hash are drawn.
 5. **The wire and the crates.** `RunEntry` and `RunRow` gain
    `last_recorded_at`; `RunRow` gains `title` and `verdict`. `VIEW_VERSION`
    moves 11 to 12, additively, by decision 0016's precedent. The pure

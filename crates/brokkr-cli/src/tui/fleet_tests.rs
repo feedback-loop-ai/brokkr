@@ -168,11 +168,16 @@ fn the_sections_render_in_order_and_the_older_runs_fold_into_a_count() {
         "landi…6e7f8a9b",
         "landi…2a3b4c5d",
         "0065-…8c9d0e1f",
-        "2 hidden · a shows them",
+        "2 hidden",
     ]
     .map(|text| row_of(&lines, text));
     assert!(rows.is_sorted(), "{rows:?}:\n{}", lines.join("\n"));
     assert_eq!(rows[10], rows[9] + 1, "the count is the list's last line");
+    assert!(
+        lines[rows[10]].contains("a shows them"),
+        "{}",
+        lines[rows[10]]
+    );
     let frame = lines.join("\n");
     for hidden in ["0a1b2c3d", "4e5f6a7b"] {
         assert!(!frame.contains(hidden), "{hidden} is folded:\n{frame}");
@@ -203,7 +208,7 @@ fn a_shows_the_older_runs_and_a_second_a_folds_them_again() {
     assert!(tui.all);
     assert!(footer_for(&tui, &views).contains("· a recent only ·"));
     let frame = frame_of(&tui, &views, 100, 30);
-    assert!(!frame.contains("hidden ·"), "{frame}");
+    assert!(!frame.contains("2 hidden"), "{frame}");
     let older = frame.lines().position(|line| line.contains("│older"));
     let first = frame
         .lines()
@@ -231,7 +236,7 @@ fn the_filter_finds_a_folded_run_by_its_title_or_its_id() {
     let frame = frame_of(&tui, &views, 100, 30);
     assert!(frame.contains("landi…0a1b2c3d"), "{frame}");
     assert!(
-        !frame.contains("hidden ·"),
+        !frame.contains("hidden"),
         "a filter folds nothing:\n{frame}"
     );
     tui.filter = "second line".to_string();
@@ -260,6 +265,29 @@ fn a_row_prints_its_title_and_an_id_whose_hash_is_whole() {
             "{} keeps {hash}:\n{frame}",
             row.run_id
         );
+    }
+}
+
+/// Acceptance 2 at every width the TUI draws: from [`MIN_WIDTH`] to the
+/// list the detail pane stands beside, each row paints its verdict and
+/// its id whole, and the count line its count and its key. The columns
+/// that give way are the age and the residual, never a cell's tail.
+#[test]
+fn every_width_from_the_minimum_draws_each_verdict_and_id_whole() {
+    let views = fleet_to_act_on();
+    let mut tui = Tui::new(None);
+    for width in MIN_WIDTH..=LIST_COLUMNS {
+        let lines = lines_of(drawn(&tui, &views, width, 30).backend().buffer());
+        let count = &lines[row_of(&lines, "2 hidden")];
+        assert!(count.contains("a shows them"), "at {width}: {count}");
+    }
+    tui.all = true;
+    for width in MIN_WIDTH..=LIST_COLUMNS {
+        let lines = lines_of(drawn(&tui, &views, width, 30).backend().buffer());
+        for row in &views.runs.runs {
+            let line = &lines[row_of(&lines, &short_id(&row.run_id))];
+            assert!(line.contains(&row.verdict.text), "at {width}: {line}");
+        }
     }
 }
 

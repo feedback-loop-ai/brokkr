@@ -12,7 +12,7 @@ source: crates/brokkr-cli/src/tui/snapshot_tests.rs
 "│✓ shipped     COMPLETE                Landing 5 of the fleet view                                                                       7m03s   landi…6e7f8a9b│"
 "│✓ shipped     COMPLETE       low      Landing 4 of the fleet view                                                                       7m03s   landi…2a3b4c5d│"
 "│✗ stopped     FAIL-EXHAUSTED          0065 rebuild unit 19                                                                              7m03s   0065-…8c9d0e1f│"
-"│older                                 2 hidden · a shows them                                                                                                 │"
+"│older         2 hidden                a shows them                                                                                                            │"
 "│                                                                                                                                                              │"
 "│                                                                                                                                                              │"
 "│                                                                                                                                                              │"

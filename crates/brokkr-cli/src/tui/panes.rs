@@ -175,23 +175,47 @@ fn draw_fleet(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, focused: 
             rows.push(fleet_row(row, &views.now).style(selected_style(chosen)));
         }
     }
+    // The count stands in the verdict's column and the key in the
+    // title's, the two that are whole at every width.
     if folded > 0 {
-        let count = format!("{folded} hidden · a shows them");
         let dim = Style::new().add_modifier(Modifier::DIM);
         rows.push(Row::new([
             cell(Section::Older.label(), header_style()),
+            cell(&format!("{folded} hidden"), dim),
             cell("", plain()),
-            cell("", plain()),
-            cell(&count, dim),
+            cell("a shows them", dim),
         ]));
     }
-    // The title takes the rest: a whole title in the list the detail pane
-    // stands beside, which is exactly that wide.
-    let [standing, verdict, residual, _, age, id] = FLEET_COLUMNS.map(Constraint::Length);
-    let widths = [standing, verdict, residual, Constraint::Min(10), age, id];
     let mut state = TableState::default().with_selected(selected);
-    let table = Table::new(rows, widths).block(pane("runs", focused));
+    let table = Table::new(rows, fleet_widths(area.width)).block(pane("runs", focused));
     frame.render_stateful_widget(table, area, &mut state);
+}
+
+/// The fleet list's columns in a list `width` wide (#491). A column is
+/// drawn whole or not at all: a list too narrow for every column and a
+/// title of [`TITLE_MIN_COLUMNS`] folds the age away, then the residual,
+/// so the standing, the verdict and the id's hash are whole from
+/// [`MIN_WIDTH`] up. The title takes the rest: a whole title in the list
+/// the detail pane stands beside, which is exactly that wide.
+fn fleet_widths(width: u16) -> [Constraint; 6] {
+    let [standing, verdict, mut residual, _, mut age, id] = FLEET_COLUMNS;
+    let needs = |residual: u16, age: u16| {
+        2 + 5 + standing + verdict + residual + TITLE_MIN_COLUMNS + age + id
+    };
+    if needs(residual, age) > width {
+        age = 0;
+    }
+    if needs(residual, age) > width {
+        residual = 0;
+    }
+    [
+        Constraint::Length(standing),
+        Constraint::Length(verdict),
+        Constraint::Length(residual),
+        Constraint::Min(TITLE_MIN_COLUMNS),
+        Constraint::Length(age),
+        Constraint::Length(id),
+    ]
 }
 
 /// One run's row: how it stands (its phase while it runs), its verdict,
