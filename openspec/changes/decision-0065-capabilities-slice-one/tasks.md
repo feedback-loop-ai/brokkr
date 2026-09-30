@@ -5396,15 +5396,48 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
 
 ## 27. Unit 27 — Validate and commit the rebuilt candidate
 
-- [ ] 27.1 **Unit 27, rebuilt final candidate:** Run `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; resolve failures and record actual exits. Keep dependency versions and required compiler/license constraints unchanged by the repair. Requirement: [Digest pins are measured and their history remains truthful][MP5] (scenario: Validation remains a proof obligation). Reopened/remaining: operator ruling 1–4 / V1/R13. (previous 11.1)
+- [x] 27.1 **Unit 27, rebuilt final candidate:** Run `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; resolve failures and record actual exits. Keep dependency versions and required compiler/license constraints unchanged by the repair. Requirement: [Digest pins are measured and their history remains truthful][MP5] (scenario: Validation remains a proof obligation). Reopened/remaining: operator ruling 1–4 / V1/R13. (previous 11.1)
 
 - [ ] 27.2 **Unit 27, rebuilt final candidate:** Run each crate suite with `cargo test -p <crate> --all-features --locked` for `brokkr-core`, `brokkr-store`, `brokkr-protocol`, `brokkr-runtime`, `brokkr-view`, `brokkr-bridge` and `brokkr-cli`, then `cargo test --workspace` and `cargo test --workspace --all-features --locked`. Record each actual result and obtain relevant Linux and macOS fixture/suite results on the repair candidate; Linux is not macOS evidence. Missing commands/skipped boundary execution remain pending. Attribute issue-255's known flake if observed without repairing it here or counting a failed suite green. Requirements: [Digest pins are measured and their history remains truthful][MP5] (scenario: Validation remains a proof obligation); [Refusal proofs assert the full reason][SC8] (scenario: macOS canonical fixture roots preserve exact diagnostics). Reopened/remaining: operator ruling 1–4 / V1/R13. (previous 11.2)
 
-- [ ] 27.3 **Unit 27, rebuilt final candidate:** Run `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and the equivalent `bundles/verify` compile; confirm final measured pins. Run `openspec validate --all --strict --no-interactive` and `git diff --check`, recording results for the final candidate. Keep repaired artifacts coherent and council/live measurement status explicit. Requirement: [Digest pins are measured and their history remains truthful][MP5] (scenario: Validation remains a proof obligation). Reopened/remaining: operator ruling 1–4 / V1/R13. (previous 11.3)
+- [x] 27.3 **Unit 27, rebuilt final candidate:** Run `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and the equivalent `bundles/verify` compile; confirm final measured pins. Run `openspec validate --all --strict --no-interactive` and `git diff --check`, recording results for the final candidate. Keep repaired artifacts coherent and council/live measurement status explicit. Requirement: [Digest pins are measured and their history remains truthful][MP5] (scenario: Validation remains a proof obligation). Reopened/remaining: operator ruling 1–4 / V1/R13. (previous 11.3)
 
 - [ ] 27.4 **Unit 27, rebuilt final candidate:** Run the authorized `bash scripts/coverage-exact.sh` on the final head with the unchanged pinned compiler and exact gate. Preserve the chief's failed baseline separately (34897/35073 lines, 5730/5744 branches, 3443/3453 logical functions; exit 1). Inspect uncovered regions and fix/prove in-scope omissions without assuming a regression cause; do not widen this repair into unrelated work. Preserve the fresh report/revision and report **source lines, branches and logical functions** separately as covered/total counts, each nonzero and exactly equal (literal 100%), including every added production line. If workspace restrictions prevent execution, obtain host/CI evidence outside the nested box; leave this task pending until that final-head result exists. Missing counts are unavailable, not zero/zero or rounded 100%. Do not exclude lines or lower thresholds. Requirement: [Digest pins are measured and their history remains truthful][MP5] (scenario: Validation remains a proof obligation). Reopened/remaining: operator ruling 1–4 / V1/R13. (previous 11.4)
 
 - [ ] 27.5 **Unit 27, rebuilt final candidate:** Audit the complete finding/test/removal matrix against 25.3 and the actual gate results, leaving unavailable obligations open. Commit restored work, task ticks and observed evidence in repository message style; never push. Require clean scoped status, adopted history, no leftover mutation and all required repair proofs/gates green before a repair-completion claim. Run strict all-item OpenSpec validation, diff cleanliness and the unchanged exact-coverage gate again on the resulting final committed HEAD; record that SHA, command exits and all three fresh counts in run-local evidence/result outside tracked inputs so recording the final check does not silently create a different source head. A failure or further tracked edit reopens the affected task and requires a new committed candidate and final-head checks. Report the actual commit and coverage counts with 28.1 open and the security hold awaiting council. Requirements: [Digest pins are measured and their history remains truthful][MP5]; [Refusal proofs assert the full reason][SC8]; house commit/no-push rule. Reopened/remaining: operator ruling 1–4 / V1/R13. (previous 11.5)
+
+**Unit 27, 2026-09-30 (run `0065-rebuild-unit-27-see-the-uni-e053b0b8`, based on `5df5966c`, the head pushed to #319)** (evidence.md, "Unit 27").
+
+- **27.1, ticked.** fmt: exit 0. Workspace clippy, locked, all targets
+  and features, `-D warnings`: exit 0, no warning. No dependency or
+  compiler pin moved.
+- **27.2, open for macOS and remote CI.** Every Linux suite exited 0:
+  - `brokkr-core` 114, `brokkr-store` 78, `brokkr-protocol` 636 (1
+    ignored), `brokkr-runtime` 882 (27 result lines), `brokkr-view` 244
+    (3 ignored), `brokkr-bridge` 17 and `brokkr-cli` 1019 (45 result
+    lines, 1 ignored);
+  - `cargo test --workspace` and `cargo test --workspace --all-features
+    --locked`: 95 result lines each, no failure.
+  - Issue #255's flake was not observed. CI on `5df5966c` and macOS
+    were not read: the seat has no approval for `gh` or the GitHub API.
+- **27.3, ticked.** self and verify compile (exit 0, digests in
+  evidence.md). `witness_digests` 6/6 unblessed, so every pin equals
+  this head. `openspec validate --all --strict --no-interactive`: 19
+  passed. `git diff --check`: clean. The compiler pin is read by
+  `ci.yml`, `release.yml` and `coverage-exact.sh`.
+- **27.4, open.** The exact gate runs outside the box, on the operator's
+  host. The seat diagnostic was not re-run, and unit 26c's predates the
+  two merges that brought main's code in, so no count is claimed.
+- **27.5, open.** The audit against 25.3 reopens nothing: no gate
+  failed. It closes only on the three fresh exact counts for the final
+  committed head. This commit changes this file and evidence.md only,
+  so the validated source is `5df5966c`'s. Its SHA and the re-checks on
+  it are recorded run-locally, outside tracked inputs.
+- **Admissions.** No production or test byte, no fixture migration, no
+  standing-admission line and no `quality/` ledger moved.
+- **Pending.** Exact coverage (27.4, 26b.1), macOS (27.2, 25.2), remote
+  CI, jscpd, `ratchet.sh`, CRAP and public-API, and the council. 28.1
+  stays open, and the security hold awaits the council.
 
 ## 28. Later council judgment and final archive
 

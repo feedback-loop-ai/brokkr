@@ -25521,3 +25521,92 @@ Observed this visit: `git status --short` empty at `62424f3d`;
 passed. Not re-run, as no code moved: the crate suites, clippy, the two
 compiles and the seat diagnostic. Their results are the second visit's
 above, and everything it lists as pending is still pending.
+
+## Unit 27 — the final candidate's local gates, on the merged head (2026-09-30)
+
+Run `0065-rebuild-unit-27-see-the-uni-e053b0b8`, based on `5df5966c`
+(the fifth merge of main, #498's roster). `git rev-parse HEAD
+origin/slice-0065-capabilities` printed `5df5966c…` twice, so the
+validated source is the head pushed to draft #319. `git status --short`
+was empty before this section was written. This visit made no mutation,
+so none is left over, and nothing needed restoring.
+
+**Validated source head: `5df5966c`.** The unit commit that carries this
+section changes `tasks.md` and `evidence.md` only; no production, test,
+pin or data byte moves, so every result below is also the result for
+that commit's source.
+
+### Gates observed (each command run in the foreground in this seat)
+
+| Gate | Command | Exit | Observed |
+| --- | --- | --- | --- |
+| format | `cargo fmt --all -- --check` | 0 | clean |
+| clippy | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | 0 | no warning |
+| `brokkr-core` | `cargo test -p brokkr-core --all-features --locked` | 0 | 5 result lines ok, 114 passed |
+| `brokkr-store` | `cargo test -p brokkr-store --all-features --locked` | 0 | 9 result lines ok, 78 passed |
+| `brokkr-protocol` | `cargo test -p brokkr-protocol --all-features --locked` | 0 | 4 result lines ok, 636 passed (lib 628), 1 ignored |
+| `brokkr-runtime` | `cargo test -p brokkr-runtime --all-features --locked` | 0 | 27 result lines ok, 882 passed (lib 699) |
+| `brokkr-view` | `cargo test -p brokkr-view --all-features --locked` | 0 | 2 result lines ok, 244 passed, 3 ignored |
+| `brokkr-bridge` | `cargo test -p brokkr-bridge --all-features --locked` | 0 | 2 result lines ok, 17 passed |
+| `brokkr-cli` | `cargo test -p brokkr-cli --all-features --locked` | 0 | 45 result lines ok, 1019 passed (lib 555), 1 ignored |
+| workspace | `cargo test --workspace` | 0 | 95 result lines ok, no `FAILED` or `panicked` line |
+| workspace, locked | `cargo test --workspace --all-features --locked` | 0 | 95 result lines ok, no `FAILED` or `panicked` line |
+| self | `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | 0 | digest `605c2d29057f5c4dbc5c69e6aad7405929d9d73c2997fecc84748d68a4b7eae0` |
+| verify | `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | 0 | digest `11aebe40d6bddc7bfb78670312832140691e478ae23bd7c416d938c92c806aef` |
+| OpenSpec | `openspec validate --all --strict --no-interactive` | 0 | 19 passed, 0 failed |
+| diff | `git diff --check` | 0 | clean |
+
+- Each crate suite was run on its own, under `timeout 590`, each well
+  inside it. The workspace suites have one result line more than the
+  seven crates' 94: the workspace run also plays
+  `tests/seatbelt_lifetime_probe.rs`.
+- The five ignored tests are the house's own: view's three
+  `transcript::tests::measure_*`, cli's
+  `an_added_suppression_of_a_ratcheted_lint_names_a_ruling` ("run by CI
+  on a pull request with BROKKR_SUPPRESSION_BASE set") and protocol's
+  `process::tests::role` ("played only when a test re-executes this
+  binary").
+- Issue #255's ETXTBSY flake was not observed in any run.
+- **Measured pins.** The runtime suite's `witness_digests` ran unblessed,
+  6 of 6 ok (`pinned_bundles_keep_their_recorded_digest` and
+  `every_bundle_in_the_tree_compiles` among them), so every pin equals
+  this head's compiles. No pin moved this visit, and no `quality/`
+  ledger was re-measured, because no count moved.
+- **Compiler pin agreement.** `rust-nightly-version.txt` is read by
+  `.github/workflows/ci.yml:293` and `:295`, `release.yml:70` and `:72`,
+  and `scripts/coverage-exact.sh:200` (`grep -n`).
+
+### Not observed, and so pending
+
+- **Exact coverage (27.4).** `scripts/coverage-exact.sh` needs a
+  namespace the box refuses to nest; the operator runs it outside on the
+  final head. The seat diagnostic was not re-run either. The last one
+  (unit 26c's second visit, 42761/42761, 6634/6634, 4515/4515) predates
+  the merges `43204ff2` and `5df5966c`, which bring main's code into the
+  measured tree (`git diff --stat 62424f3d HEAD`: 125 files, among them
+  the `tui/` split, `launch.rs`, `engine/sequence.rs` and
+  `policy/audit.rs`), so it is not evidence for this head. No count is
+  claimed.
+- **macOS and remote CI (27.2, 25.2).** `gh pr checks 319` and the
+  GitHub API both need an approval this seat does not have, so neither
+  CI on `5df5966c` nor any macOS result was read. Linux is not macOS
+  evidence.
+- jscpd, `quality/ratchet.sh`, CRAP and the public-API snapshots: the
+  operator's, on the final head's exact coverage.
+
+### Task 27.5's audit against 25.3
+
+25.3 stays ticked on its corrected record (the unit 25 review return):
+no gate this visit failed, so no matrix row, removal or restored pass is
+reopened by a result. What the audit leaves open is what no seat can
+observe: 25.2's macOS leg, 26b.1's exact gate, 27.2's macOS and remote
+CI, 27.4's external counts, and so 27.5 itself, which needs all three
+fresh counts on the final committed head. 28.1 stays open, and the
+security hold awaits the council; nothing here clears it.
+
+**Admissions.** No production byte, no test byte, no fixture migration
+and no standing-admission line.
+
+The commit that carries this section is recorded, with the final-head
+re-checks, in run-local evidence (`.forge/u27/final-head.md`) and the
+run's result, not here, so recording it creates no new source head.
