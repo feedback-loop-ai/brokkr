@@ -68,12 +68,35 @@ impl fmt::Display for Fault {
     }
 }
 
-/// One stream a turn produced, stdout or a transcript: its events, where
-/// they were read from, each line no reader read and why, and whether it
-/// held no bytes at all.
+/// How a stream's lines are read (#484). Stdout and a transcript are
+/// event streams, where a line that is not one JSON object is unread.
+/// Stderr is text, read line by line, since a CLI prints its ordinary
+/// warnings there:
+///
+/// - (i) a line that is not UTF-8 is unread, named by stream and line,
+///   and refuses any admitting verdict;
+/// - (ii) a line that is one JSON object is read as an event, like a
+///   line of stdout;
+/// - (iii) any other line is read as text, and searched for a reach by
+///   `tools::user_mcp`: the planted server's name, or a tool named
+///   `mcp__<server>__…` of a server other than the hands server;
+/// - (iv) a line of text showing no reach is read: it is not an unread
+///   line, and leaves no listing unmeasured.
+#[derive(Clone, Copy, PartialEq)]
+enum Lines {
+    Events,
+    Text,
+}
+
+/// One stream a turn produced, stdout, a transcript or stderr: how its
+/// lines are read, its events, where they were read from, each line read
+/// as text, each line no reader read and why, and whether it held no
+/// bytes at all.
 struct Stream {
     source: String,
+    lines: Lines,
     events: Vec<Event>,
+    text: Vec<(usize, String)>,
     unread: Vec<(usize, Fault)>,
     empty: bool,
 }
@@ -85,34 +108,47 @@ pub(crate) enum TurnName {
     Boxed,
 }
 
-/// A line of a turn's stream that no reader read, which leaves the
-/// probe's evidence incomplete (#484).
+/// Something a turn captured that no reader read, which leaves the
+/// probe's evidence incomplete (#484): a line of one of its streams, or a
+/// value one of its listings holds.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct UnreadLine {
-    pub(crate) turn: TurnName,
-    pub(crate) source: String,
-    pub(crate) line: usize,
-    pub(crate) fault: Fault,
+pub(crate) enum Unread {
+    Line {
+        turn: TurnName,
+        source: String,
+        line: usize,
+        fault: Fault,
+    },
+    /// `what` names the value by its stream, event and pointer.
+    Value { turn: TurnName, what: String },
 }
 
-impl fmt::Display for UnreadLine {
+impl fmt::Display for Unread {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let turn = match self.turn {
-            TurnName::Plain => "the plain turn's",
-            TurnName::Boxed => "the boxed turn's",
+        let named = |turn: &TurnName| match turn {
+            TurnName::Plain => "the plain turn",
+            TurnName::Boxed => "the boxed turn",
         };
-        write!(
-            formatter,
-            "line {} of {turn} {} {}",
-            self.line, self.source, self.fault
-        )
+        match self {
+            Unread::Line {
+                turn,
+                source,
+                line,
+                fault,
+            } => write!(
+                formatter,
+                "line {line} of {}'s {source} {fault}",
+                named(turn)
+            ),
+            Unread::Value { turn, what } => write!(formatter, "in {}, {what}", named(turn)),
+        }
     }
 }
 
-/// Every fact, and every line of the turns' streams no reader read.
+/// Every fact, and everything the two turns captured that no reader read.
 pub(crate) struct Reading {
     pub(crate) facts: Facts,
-    pub(crate) unread: Vec<UnreadLine>,
+    pub(crate) unread: Vec<Unread>,
 }
 
 /// Every stream a turn produced, stdout first, and the one its events,
@@ -129,11 +165,23 @@ impl Streams {
 }
 
 /// A turn as the facts see it: its streams, why they could not be read,
-/// or the CLI's refusal of the launch itself.
+/// or the CLI's refusal of the launch itself. A turn that failed keeps
+/// every stream it captured beside the reason, since each of their lines
+/// is read whatever the exit (#484).
 enum Turn {
     Read(Streams),
-    Unread(String),
-    Refused(String),
+    Unread(String, Vec<Stream>),
+    Refused(String, Vec<Stream>),
+}
+
+impl Turn {
+    /// Every stream the turn captured, however it ended.
+    fn streams(&self) -> &[Stream] {
+        match self {
+            Turn::Read(streams) => &streams.all,
+            Turn::Unread(_, streams) | Turn::Refused(_, streams) => streams,
+        }
+    }
 }
 
 impl<T: serde::Serialize> Fact<T> {
@@ -155,8 +203,8 @@ impl<T: serde::Serialize> Fact<T> {
 fn on_turn<T: serde::Serialize>(turn: &Turn, read: impl FnOnce(&Streams) -> Fact<T>) -> Fact<T> {
     match turn {
         Turn::Read(streams) => read(streams),
-        Turn::Unread(why) => Fact::unmeasured(why.clone()),
-        Turn::Refused(evidence) => Fact::Unsupported {
+        Turn::Unread(why, _) => Fact::unmeasured(why.clone()),
+        Turn::Refused(evidence, _) => Fact::Unsupported {
             evidence: evidence.clone(),
         },
     }
@@ -204,9 +252,11 @@ pub(crate) fn version(observation: &Observation) -> Fact<String> {
 
 /// `captured` read as the stream `source`, its first line being line
 /// `first` of what it came from: a line that did not decode is unread,
-/// and never parsed.
-fn parse_lines(captured: &Captured, source: &str, first: usize) -> Stream {
+/// and never parsed, and one that is no event is unread or text, as
+/// `lines` says.
+fn parse_lines(captured: &Captured, source: &str, first: usize, lines: Lines) -> Stream {
     let mut events = Vec::new();
+    let mut text = Vec::new();
     let mut unread: Vec<(usize, Fault)> = captured
         .not_utf8
         .iter()
@@ -216,18 +266,21 @@ fn parse_lines(captured: &Captured, source: &str, first: usize) -> Stream {
         if captured.not_utf8.contains(&(index + 1)) {
             continue;
         }
-        match strict::object(line) {
-            Some(fields) => events.push(Event {
+        match (strict::object(line), lines) {
+            (Some(fields), _) => events.push(Event {
                 line: first + index,
                 fields,
             }),
-            None => unread.push((first + index, Fault::NotOneObject)),
+            (None, Lines::Events) => unread.push((first + index, Fault::NotOneObject)),
+            (None, Lines::Text) => text.push((first + index, line.to_string())),
         }
     }
     unread.sort_unstable_by_key(|(line, _)| *line);
     Stream {
         source: source.to_string(),
+        lines,
         events,
+        text,
         unread,
         empty: captured.text.is_empty() && captured.not_utf8.is_empty(),
     }
@@ -237,25 +290,27 @@ fn parse_lines(captured: &Captured, source: &str, first: usize) -> Stream {
 /// keep their numbers in the file, and a file it rewrote is named so.
 fn transcript_stream(transcript: &Transcript) -> Stream {
     match transcript.written {
-        Written::Created => parse_lines(&transcript.text, &transcript.path, 1),
+        Written::Created => parse_lines(&transcript.text, &transcript.path, 1, Lines::Events),
         Written::Appended { from_line } => {
-            parse_lines(&transcript.text, &transcript.path, from_line)
+            parse_lines(&transcript.text, &transcript.path, from_line, Lines::Events)
         }
         Written::Rewritten => parse_lines(
             &transcript.text,
             &format!("{}, which the turn rewrote,", transcript.path),
             1,
+            Lines::Events,
         ),
     }
 }
 
-/// Every stream the turn produced, stdout's and each transcript's, each
-/// named with this run's variable parts; its own events are stdout's, or,
-/// when stdout carried none, the first transcript's that holds some. Each
-/// line of any of them that no reader read is returned beside the turn,
-/// whether or not any event was read.
-fn read_stream(observation: &Observation, name: TurnName) -> (Turn, Vec<UnreadLine>) {
-    let mut all: Vec<Stream> = std::iter::once(parse_lines(&observation.stdout, "stdout", 1))
+/// Every stream a launch captured, read whatever its exit (#484):
+/// stdout's and each transcript's, each named with this run's variable
+/// parts, then stderr's when it holds any byte. With them, the one the
+/// turn's own events are read from: stdout, or, when stdout carried none,
+/// the first transcript that holds some. Stderr is never that one.
+fn captured(observation: &Observation) -> (Vec<Stream>, Option<usize>) {
+    let stdout = parse_lines(&observation.stdout, "stdout", 1, Lines::Events);
+    let mut all: Vec<Stream> = std::iter::once(stdout)
         .chain(observation.transcripts.iter().map(transcript_stream))
         .collect();
     let primary = all.iter().position(|stream| !stream.events.is_empty());
@@ -263,56 +318,86 @@ fn read_stream(observation: &Observation, name: TurnName) -> (Turn, Vec<UnreadLi
     for stream in &mut all {
         stream.source = normalise(&stream.source, id.as_deref());
     }
-    let unread = all
-        .iter()
-        .flat_map(|stream| {
-            stream.unread.iter().map(|(line, fault)| UnreadLine {
-                turn: name,
-                source: stream.source.clone(),
-                line: *line,
-                fault: *fault,
-            })
-        })
-        .collect();
-    let Some(primary) = primary else {
-        let none = "the turn printed no JSON event and wrote no .jsonl transcript under the \
-                    scratch HOME";
-        return (Turn::Unread(none.to_string()), unread);
-    };
-    (Turn::Read(Streams { all, primary }), unread)
+    let stderr = parse_lines(&observation.stderr, "stderr", 1, Lines::Text);
+    if !stderr.empty {
+        all.push(stderr);
+    }
+    (all, primary)
+}
+
+/// A turn that exited clean: read when any of its streams holds an event.
+fn read_stream((all, primary): (Vec<Stream>, Option<usize>)) -> Turn {
+    match primary {
+        Some(primary) => Turn::Read(Streams { all, primary }),
+        None => Turn::Unread(
+            "the turn printed no JSON event and wrote no .jsonl transcript under the scratch \
+             HOME"
+                .to_string(),
+            all,
+        ),
+    }
 }
 
 /// The plain turn: read when it exited clean, otherwise nothing it shows
-/// is a measurement.
-fn read_base(observation: &Observation) -> (Turn, Vec<UnreadLine>) {
+/// is a measurement, though every line it captured is still read.
+fn read_base(observation: &Observation) -> Turn {
+    let streams = captured(observation);
     if observation.exit == Some(0) {
-        read_stream(observation, TurnName::Plain)
+        read_stream(streams)
     } else {
         let why = format!(
             "the headless turn did not succeed: {}",
             exit_and_excerpt(observation)
         );
-        (Turn::Unread(why), Vec::new())
+        Turn::Unread(why, streams.0)
     }
 }
 
 /// The turn under the adapter's hands argv: a non-zero exit is the CLI
 /// refusing that argv, which is itself the measurement. A launch that
 /// ended with no exit code, by a signal or the deadline, refused nothing.
-fn read_boxed(trial: &Trial) -> (Turn, Vec<UnreadLine>) {
-    let turn = match trial {
-        Trial::Untried(why) => Turn::Unread(why.clone()),
-        Trial::Observed(observation) if observation.exit.is_none() => Turn::Unread(format!(
-            "the boxed turn did not finish: {}",
-            exit_and_excerpt(observation)
-        )),
-        Trial::Observed(observation) if observation.exit != Some(0) => Turn::Refused(format!(
-            "the CLI refused the adapter's hands argv: {}",
-            exit_and_excerpt(observation)
-        )),
-        Trial::Observed(observation) => return read_stream(observation, TurnName::Boxed),
+/// However it ended, every line it captured is read.
+fn read_boxed(trial: &Trial) -> Turn {
+    let observation = match trial {
+        Trial::Untried(why) => return Turn::Unread(why.clone(), Vec::new()),
+        Trial::Observed(observation) => observation,
     };
-    (turn, Vec::new())
+    let streams = captured(observation);
+    match observation.exit {
+        Some(0) => read_stream(streams),
+        None => Turn::Unread(
+            format!(
+                "the boxed turn did not finish: {}",
+                exit_and_excerpt(observation)
+            ),
+            streams.0,
+        ),
+        Some(_) => Turn::Refused(
+            format!(
+                "the CLI refused the adapter's hands argv: {}",
+                exit_and_excerpt(observation)
+            ),
+            streams.0,
+        ),
+    }
+}
+
+/// Everything `turn` captured that no reader read: each such line of
+/// each of its streams, and each value its listings hold that the
+/// listing reader could not name.
+fn unread_in(turn: &Turn, name: TurnName) -> Vec<Unread> {
+    let lines = turn.streams().iter().flat_map(|stream| {
+        stream.unread.iter().map(|(line, fault)| Unread::Line {
+            turn: name,
+            source: stream.source.clone(),
+            line: *line,
+            fault: *fault,
+        })
+    });
+    let values = tools::unread_values(turn)
+        .into_iter()
+        .map(|what| Unread::Value { turn: name, what });
+    lines.chain(values).collect()
 }
 
 fn event_type(event: &Map<String, Value>) -> String {
@@ -632,7 +717,7 @@ fn stream_facts(
 ) -> (Fact<Events>, Fact<Session>, Fact<Vec<String>>) {
     let announced = match base {
         Turn::Read(streams) => session_id(streams.primary()),
-        Turn::Unread(_) | Turn::Refused(_) => None,
+        Turn::Unread(..) | Turn::Refused(..) => None,
     };
     let id = announced.as_ref().map(|(_, _, id)| id.as_str());
     let events = on_turn(base, |streams| events(streams.primary()));
@@ -641,12 +726,13 @@ fn stream_facts(
     (events, session, transcripts)
 }
 
-/// Every fact, from every observation, and every line of the two turns'
-/// streams that no reader read.
+/// Every fact, from every observation, and everything the two turns
+/// captured that no reader read.
 pub(crate) fn reading(plan: &Plan, observed: &Observed, bound: &[&str]) -> Reading {
-    let (base, mut unread) = read_base(&observed.turn);
-    let (boxed, boxed_unread) = read_boxed(&observed.boxed);
-    unread.extend(boxed_unread);
+    let base = read_base(&observed.turn);
+    let boxed = read_boxed(&observed.boxed);
+    let mut unread = unread_in(&base, TurnName::Plain);
+    unread.extend(unread_in(&boxed, TurnName::Boxed));
     Reading {
         facts: facts(plan, observed, bound, &base, &boxed),
         unread,

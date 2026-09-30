@@ -1604,7 +1604,7 @@ fn an_unread_line_refuses_a_verdict_whose_every_fact_was_measured() {
         Fact::measured("connected".to_string(), "listed"),
         Fact::measured(true, "the plain turn listed no native egress tool"),
     );
-    let line = measure::UnreadLine {
+    let line = measure::Unread::Line {
         turn: measure::TurnName::Plain,
         source: "~/.cli/log.jsonl".to_string(),
         line: 4,
