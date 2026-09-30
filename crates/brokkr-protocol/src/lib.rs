@@ -12,6 +12,7 @@ pub mod fake;
 pub mod hands;
 pub mod oneshot;
 pub mod overrides;
+pub mod probe;
 pub mod process;
 pub mod secret;
 mod transcript;

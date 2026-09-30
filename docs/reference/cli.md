@@ -51,6 +51,8 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr hands`](#brokkr-hands): The model's hands are one tool, and the tool runs in an empty root (decision 0043): serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
 - [`brokkr hands serve`](#brokkr-hands-serve): Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
 - [`brokkr hands exec`](#brokkr-hands-exec): Run one command whole inside the box with stdio passed through — how a deterministic `exec` seat holds a gate. Exits with the command's own code
+- [`brokkr probe`](#brokkr-probe): Measure an agent CLI and write the facts its adapter must declare (proposed decision 0075 ruling 3). Launches the real CLI and spends the credentials bound to it: an operator host step, never CI
+- [`brokkr probe harness`](#brokkr-probe-harness): Run one agent CLI headless against a scratch repository and HOME, and report each fact its adapter must declare as measured, unmeasured or unsupported, beside the adapter's own fields and the seat eligibility the facts derive
 - [Exit codes](#exit-codes)
 
 ## brokkr init
@@ -706,6 +708,31 @@ Usage: brokkr hands exec [OPTIONS] --workdir <WORKDIR> <COMMAND>...
 | `--bundle-root <BUNDLE_ROOT>` |  |  | Strategy root, bound read-only at /runtime/bundle |
 | `--spec <SPEC>` | `"workspace"` |  | The box spec as JSON, as `serve` takes it |
 | `<COMMAND>...` |  |  | The command and its arguments, run inside the box |
+
+## brokkr probe
+
+Measure an agent CLI and write the facts its adapter must declare (proposed decision 0075 ruling 3). Launches the real CLI and spends the credentials bound to it: an operator host step, never CI
+
+```text
+Usage: brokkr probe <COMMAND>
+```
+
+## brokkr probe harness
+
+Run one agent CLI headless against a scratch repository and HOME, and report each fact its adapter must declare as measured, unmeasured or unsupported, beside the adapter's own fields and the seat eligibility the facts derive
+
+```text
+Usage: brokkr probe harness [OPTIONS] --adapter <ADAPTER>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--adapter <ADAPTER>` |  |  | The adapter whose harness is probed: claude, codex or dsh |
+| `--cli <CLI>` |  |  | The CLI to launch (default: the adapter's binary, found on PATH) |
+| `--out <OUT>` |  |  | Write the report here. A report already here is read first, and every reading that moved since it is reported as drift |
+| `--credential <CREDENTIALS>...` |  |  | A credential every credentialed launch is given, bound by name from the secrets store (decision 0012). Repeatable |
+| `--secrets-file <SECRETS_FILE>` | `.forge/secrets.env` |  | The secrets store each `--credential` is read from |
+| `--adapters-dir <ADAPTERS_DIR>` | `adapters` |  | The directory holding the adapter files `--adapter` names |
 
 ## Exit codes
 

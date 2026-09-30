@@ -1071,6 +1071,14 @@ fn resume_assessment(
     Ok(ResumeAssessment::new(assessed))
 }
 
+impl ResumeAssessment {
+    /// Every named shape, in name order: what `brokkr probe harness`
+    /// compares each shape's measured identity against (#484).
+    pub fn shapes(&self) -> impl Iterator<Item = (&String, &ResumeShape)> {
+        self.0.iter()
+    }
+}
+
 fn bounded_reason(text: &str, key: &str, what: &str) -> Result<(), LibraryError> {
     if text.is_empty() || text.chars().count() > RESUME_TEXT_LIMIT {
         return invalid(format!(
