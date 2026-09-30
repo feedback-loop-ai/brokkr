@@ -231,7 +231,7 @@ sequenceDiagram
   E->>D: hello
   D-->>E: capabilities
   E->>D: start — seat prompt, result path, deadline
-  D->>H: spawn, behind the realm's boundary
+  D->>H: spawn on the host
   D-->>E: accepted
   loop each turn
     H-->>D: session stream
@@ -248,10 +248,10 @@ NDJSON over stdio, stdout protocol-only, stderr captured as an artifact.
 The adapters for Claude Code, Codex, dsh and any
 prompt-in/result-file-out harness are built into the binary as
 `{brokkr} driver <kind>` (decision 0009), while the protocol stays
-language-neutral for third-party drivers. What stands around a seat is
-the realm's **boundary** (decision 0046): `namespace`, `seatbelt`,
-`container`, `harness` or `open`, pinned per site, rendered *unboxed*
-under `harness` or `open`. Decision 0008's `driver.confine` is refused
+language-neutral for third-party drivers. What stands around a seat's
+hands is the realm's **boundary** (decision 0046): `namespace`,
+`seatbelt`, `container`, `harness` or `open`, pinned per site, rendered
+*unboxed* under `harness` or `open`; hands-less seats get none. Decision 0008's `driver.confine` is refused
 (0046 ruling 5) until slice (iii) builds `container`.
 
 Built today: `namespace` (Linux/WSL2, bubblewrap), `harness` and `open`;

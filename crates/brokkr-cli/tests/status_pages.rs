@@ -14,7 +14,7 @@
 //! sources, is read for that wording, and each sentence this story
 //! reworded is held refused.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_runtime::agents::{
     Adapter, Agent, McpSupport, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape,
@@ -180,11 +180,32 @@ fn harness_sandbox(provider: &str, harness: &HarnessHands, gaps: &mut Vec<String
     words(&classes)
 }
 
+/// The resume shapes an adapter file names, by name alone: the engine's
+/// loader has already typed, and refused, what each one holds.
+#[derive(serde::Deserialize)]
+struct DeclaredShapes {
+    #[serde(default)]
+    resume: BTreeMap<String, serde::de::IgnoredAny>,
+}
+
 /// Every named resume shape with its status and measured version; the
-/// reason of each shape that is not supported goes to the gaps.
+/// reason of each shape that is not supported goes to the gaps. The
+/// names come from the adapter's file, and a name the loaded assessment
+/// does not hold panics.
 fn resume_shapes(provider: &str, resume: &ResumeAssessment, gaps: &mut Vec<String>) -> String {
+    let declared: DeclaredShapes =
+        serde_json::from_str(&read(&format!("adapters/{provider}.json")))
+            .unwrap_or_else(|error| panic!("adapters/{provider}.json: {error}"));
+    assert_eq!(
+        declared.resume.is_empty(),
+        resume.is_empty(),
+        "`{provider}`'s file and loaded assessment disagree on having shapes"
+    );
     let mut cells = Vec::new();
-    for (name, shape) in resume.shapes() {
+    for name in declared.resume.keys() {
+        let shape = resume
+            .shape(name)
+            .unwrap_or_else(|| panic!("`{provider}` names resume `{name}`, which did not load"));
         let ResumeShape {
             status,
             identity,
@@ -452,11 +473,18 @@ const OVERCLAIMS: [&str; 8] = [
 ];
 
 /// Wording refused wherever it stands: a tool list called a restriction
-/// or a narrowing, or the box said to bound more than a `workspace` call.
+/// or a narrowing or said to bound a stack's seats, the box said to bound
+/// more than a `workspace` call or an exec command, the harness said to
+/// be spawned behind it, a boundary said to stand around a seat without
+/// hands, or a hands fragment said to take the harness's own tools away.
 /// A boxed Codex seat keeps its native read-only shell outside the box,
-/// and a boxed claude seat's harness still loads the operator's own
-/// configuration on the host.
-const ANYWHERE: [&str; 11] = [
+/// a boxed claude seat's harness still loads the operator's own
+/// configuration on the host, and under `open` nothing is added.
+///
+/// A comparison that only implies a bound, such as one arm called no
+/// narrower than another, is outside the guard: its wording names no
+/// control a list could hold.
+const ANYWHERE: [&str; 21] = [
     "blast radius",
     "no tool restriction",
     "tools restriction",
@@ -468,6 +496,16 @@ const ANYWHERE: [&str; 11] = [
     "replaces the harness's own tools",
     "bounds what running anything can touch",
     "only through its workspace tool",
+    "seat's commands run inside",
+    "harness and open no box stands",
+    "spawn, behind the realm's boundary",
+    "around a seat is the realm's boundary",
+    "a model gate is judged under",
+    "disables the harness's own tools",
+    "swap its tool surface",
+    "prefixes the former inline seat named",
+    "stack's seats may run",
+    "on a restriction",
 ];
 
 /// The wording the guard refuses, as lists a test can take one word out of.
@@ -540,7 +578,7 @@ fn doc_text(source: &str) -> String {
 
 /// Excerpts of the pages this story reworded, word for word as they
 /// stood: each holds one paragraph the guard refuses.
-const OLD_PAGES: [&str; 13] = [
+const OLD_PAGES: [&str; 22] = [
     // docs/guides/agent-library.md
     "**The honesty rules are the point, and they are enforced rather than\n\
      documented.** A tool restriction the provider cannot express fails\n\
@@ -592,11 +630,35 @@ const OLD_PAGES: [&str; 13] = [
      tool (`hands` in the adapter file, or `\"unsupported\"` with the reason).",
     // docs/guides/starters/rust.md's fallback
     "(`\"names\": {}`), no `tools` restriction on any agent, and a README that",
+    // docs/guides/recipe-authoring.md's `hands` row
+    "a site or in this object is refused naming the realm as its home. Under \
+     `namespace` the seat's commands run inside an empty-root box holding the \
+     worktree; an exec seat also gets its bundle root read-only at `/runtime/bundle`",
+    "Under `harness` and `open` no box stands: a model seat runs under its \
+     harness's own sandbox as the adapter's `hands.harness` fragment addresses it",
+    // ARCHITECTURE.md's driver diagram and the paragraph below it
+    "  D->>H: spawn, behind the realm's boundary",
+    "language-neutral for third-party drivers. What stands around a seat is\n\
+     the realm's **boundary** (decision 0046): `namespace`, `seatbelt`,",
+    // docs/guides/driver-authoring.md
+    "`container` boundary, slice (iii) and decision 0046 ruling 5: what\n\
+     stands around a seat is the realm's `boundary`, declared in",
+    // docs/guides/quickstart.md
+    "`forge.realms/v4`, and then Brokkr builds no box at all: a model gate\n\
+     is judged under the harness's own sandbox as the adapter's\n\
+     `hands.harness` fragment addresses it, an exec gate runs the bundle's",
+    // docs/guides/provider-adapters.md's hands
+    "hands: the argv fragment that disables the harness's own tools and reaches\n\
+     `brokkr hands serve` over MCP.",
+    "`{\"unsupported\": \"<measured reason>\"}` declares that the\n\
+     harness cannot swap its tool surface, and a site with hands then refuses",
+    // recipes/night-shift/README.md
+    "harness permits, not the seven `Bash` prefixes the former inline seat named.",
 ];
 
 /// Excerpts of the doc comments this story reworded, as the sources
 /// carried them.
-const OLD_SOURCES: [&str; 12] = [
+const OLD_SOURCES: [&str; 14] = [
     // crates/brokkr-protocol/src/hands.rs
     "//! `/tmp`, no host home, no host credential, no other process, and no\n\
      //! network unless the spec grants it. A tool allow-list bounded what the\n\
@@ -642,6 +704,10 @@ const OLD_SOURCES: [&str; 12] = [
      /// harness's own tools with that one.",
     "/// How a provider expresses a tool-permission narrowing on its command",
     "/// would widen the agent's blast radius on fallback is a design-time",
+    "/// what makes \"optional on a restriction\" unrepresentable rather than\n\
+     /// merely forbidden.",
+    // crates/brokkr-cli/src/init.rs
+    "/// The tools one detected stack's seats may run, split by decision 0021",
 ];
 
 /// Every old excerpt as the guard reads it: a page as written, a source

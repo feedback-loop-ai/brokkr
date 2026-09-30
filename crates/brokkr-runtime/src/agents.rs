@@ -675,11 +675,6 @@ impl ResumeAssessment {
         self.0.is_empty()
     }
 
-    /// Every named shape and what is known about it, in name order.
-    pub fn shapes(&self) -> impl Iterator<Item = (&String, &ResumeShape)> {
-        self.0.iter()
-    }
-
     /// The closed data the driver reads out of its private start
     /// context. `Null` for an adapter that declares nothing, which the
     /// driver reads as unmeasured, never as implicit support.
@@ -687,7 +682,12 @@ impl ResumeAssessment {
         if self.0.is_empty() {
             return Value::Null;
         }
-        Value::Object(self.shapes().map(|(n, s)| (n.clone(), s.value())).collect())
+        Value::Object(
+            self.0
+                .iter()
+                .map(|(name, shape)| (name.clone(), shape.value()))
+                .collect(),
+        )
     }
 }
 

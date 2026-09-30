@@ -296,8 +296,12 @@ BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests
 ## Hands
 
 `hands` (decision 0043) is the adapter's answer to a site that boxes its
-hands: the argv fragment that disables the harness's own tools and reaches
-`brokkr hands serve` over MCP. Two tokens are expanded by the engine at
+hands: the argv fragment that hands the harness the `workspace` tool,
+served by `brokkr hands serve` over MCP. What else the model keeps is
+the harness's: claude's fragment removes Claude Code's own tools
+(`--tools ""`), while codex's sets Codex's native shell
+`--sandbox read-only` beside it, because Codex has no switch that
+removes that shell ([security model](../security-model.md)). Two tokens are expanded by the engine at
 spawn — `{hands_mcp_json}`, a Claude-style MCP config naming this binary,
 and `{hands_args_toml}`, the server's arguments as a TOML array for
 `codex -c`. The codex fragment also sets
@@ -309,7 +313,7 @@ without that key every workspace call — reads and the result write alike
 is never". The first two astra-judged gates died on exactly that
 (2026-09-05), and `auto` does not lift it; `approve` does, measured
 against `brokkr hands serve`. `{"unsupported": "<measured reason>"}` declares that the
-harness cannot swap its tool surface, and a site with hands then refuses
+harness cannot be handed that tool, and a site with hands then refuses
 to compile against it, exactly as an unexpressible tool list does.
 
 The `workspace` fragment is what a site with hands runs under the

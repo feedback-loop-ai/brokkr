@@ -97,8 +97,11 @@ WSL2. That boundary is never simulated: a run under it refuses at start
 when bubblewrap is unavailable, naming the seats that need it. A realm
 on macOS declares `"boundary": "harness"` today, under
 `forge.realms/v4`, and then Brokkr builds no box at all: a model gate
-is judged under the harness's own sandbox as the adapter's
-`hands.harness` fragment addresses it, an exec gate runs the bundle's
+with hands is judged under the harness's own sandbox as the adapter's
+`hands.harness` fragment addresses it, a model seat without hands —
+every model seat of the claude scaffold `brokkr init` writes — is
+launched with nothing of Brokkr's or its harness's added around it, an
+exec gate runs the bundle's
 own pinned script with the environment cleared, and every readout —
 the run header, `brokkr seats`, the TUI, the web console and the
 delivery gate's check summary on the pull request — renders such a run

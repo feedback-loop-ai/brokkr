@@ -803,8 +803,8 @@ expansion is machine-local.
 There is no per-driver confinement key. `driver.confine` (decision 0008's
 `image`, `network`, `mounts`) is refused by the compiler naming the
 `container` boundary, slice (iii) and decision 0046 ruling 5: what
-stands around a seat is the realm's `boundary`, declared in
-`realms.json` and never in a bundle, and a pinned image is that
+stands around a seat's hands is the realm's `boundary`, declared in
+`realms.json` and never in a bundle (a seat without hands has none), and a pinned image is that
 boundary's `container` form once the slice measures it. A driver that
 wants walls declares `hands` on its site and lets the realm say which
 boundary builds them.
