@@ -5417,7 +5417,10 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
     (3 ignored), `brokkr-bridge` 17 and `brokkr-cli` 1019 (45 result
     lines, 1 ignored);
   - `cargo test --workspace` and `cargo test --workspace --all-features
-    --locked`: 95 result lines each, no failure.
+    --locked`: 95 result lines each, no failure. **Corrected (C27-1):**
+    the 95th line is `brokkr-seatbelt-probe`'s, 99 passed and 2
+    ignored. The seven crates total 2990 passed and 5 ignored, and each
+    workspace run 3089 passed and 7 ignored.
   - Issue #255's flake was not observed. CI on `5df5966c` and macOS
     were not read: the seat has no approval for `gh` or the GitHub API.
 - **27.3, ticked.** self and verify compile (exit 0, digests in
@@ -5429,7 +5432,9 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
   host. The seat diagnostic was not re-run, and unit 26c's predates the
   two merges that brought main's code in, so no count is claimed.
 - **27.5, open.** The audit against 25.3 reopens nothing: no gate
-  failed. It closes only on the three fresh exact counts for the final
+  failed. **Corrected by the review return (SC27-1), below:** passing
+  gates are not removal controls, and merge `00c8833e` had outrun some.
+  It closes only on the three fresh exact counts for the final
   committed head. This commit changes this file and evidence.md only,
   so the validated source is `5df5966c`'s. Its SHA and the re-checks on
   it are recorded run-locally, outside tracked inputs.
@@ -5438,6 +5443,47 @@ CH23-1 to CH23-4 answered** (evidence.md, "Unit 23 — the review's return").
 - **Pending.** Exact coverage (27.4, 26b.1), macOS (27.2, 25.2), remote
   CI, jscpd, `ratchet.sh`, CRAP and public-API, and the council. 28.1
   stays open, and the security hold awaits the council.
+
+**Unit 27, review return, 2026-09-30 (same run, second visit, on `fb0d58be`)** (evidence.md, "Unit 27, review return").
+
+- **SC27-1, answered.** Unit 25's D1/D2 and S1/S1′ mutated
+  `verbs/delivery.rs` and `verbs/setup.rs`, and merge `00c8833e` moved
+  that code. So did the slice's four sequence-step edits, into
+  `engine/sequence.rs`. Each was re-run on the moved code as a compiling
+  removal and then restored:
+  - D1 (`launch.rs:230`) and D2 (`:232`) fail in `capability_verbs` at
+    `:661`/`:606` and `:273`/`:431`, unit 25's assertions.
+  - S1 and S1′ (`setup.rs:143`, `:148`) fail at `agent_readouts.rs:455`
+    and `:478`.
+  - SQ1 and SQ2 (`single_step`'s label and `mark_capabilities`, `:276`,
+    `:284`) fail at `capability_tests.rs:1301`, and SQ2 also at `:329`.
+  - `capability_launch`'s matrix passed under SQ1. It asserts the
+    compiled plan, not the engine's step dispatch.
+  - Once each was restored, all of them pass.
+- **SQ3 and SQ4 survived** (`dialect_step`'s label and
+  `mark_capabilities`, `sequence.rs:395`, `:405`). The runtime `--tests`
+  and the whole cli suite stayed green. Their equivalence is not
+  established. This unit admits no test byte, so they stay a **pending
+  local proof obligation for a scoped follow-up**: a binding test, or a
+  ruling of equivalence. They are recorded as a stated exception to 25.3,
+  and 27.5 stays open.
+- **C27-1, answered.** The workspace's extra line is the eighth
+  member's (above).
+- **Gates on this tree.** Only this file and evidence.md differ from
+  `fb0d58be`. `cargo fmt --all -- --check` is clean. Locked
+  all-target/all-feature clippy with `-D warnings` gives no warning or
+  error line. `openspec validate --all --strict --no-interactive`
+  passes 19, fails 0. `git diff --check` is clean.
+- **Admissions.** No committed production or test byte, no fixture
+  migration, no standing-admission line and no `quality/` ledger.
+- **Pending, unchanged:**
+  - exact coverage (27.4, 26b.1);
+  - macOS (27.2, 25.2);
+  - remote CI, jscpd, `ratchet.sh`, CRAP and public-API;
+  - SQ3/SQ4's proof;
+  - the council.
+
+  28.1 stays open, and the security hold awaits the council.
 
 ## 28. Later council judgment and final archive
 

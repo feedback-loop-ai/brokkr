@@ -24486,6 +24486,13 @@ production edit, restored with `git checkout --` and a clean
 After restore, both suites pass within the `brokkr-cli --tests` run
 below (44 result lines, all ok).
 
+**Outrun by merge `00c8833e`, and re-run by unit 27's review return.**
+These four removals mutated `verbs/delivery.rs` and `verbs/setup.rs` as
+they stood on `b385e4e4`. The merge moved the resume door into
+`launch.rs` and the agents verb onto `launch::capability_context`, so
+this table is not evidence for the moved code. The re-run on `fb0d58be`
+is under "Unit 27, review return".
+
 ### Measured pins
 
 - `quality/file-lines.txt`: `agents/tests.rs` 5847 → 5839;
@@ -25559,7 +25566,11 @@ that commit's source.
 - Each crate suite was run on its own, under `timeout 590`, each well
   inside it. The workspace suites have one result line more than the
   seven crates' 94: the workspace run also plays
-  `tests/seatbelt_lifetime_probe.rs`.
+  `tests/seatbelt_lifetime_probe.rs`. **Corrected by the review return
+  (C27-1), below:** that line is the eighth workspace member's,
+  `brokkr-seatbelt-probe`, and it carries 99 passed and 2 ignored. So
+  the seven crates total 2990 passed and 5 ignored, and each workspace
+  run 3089 passed and 7 ignored.
 - The five ignored tests are the house's own: view's three
   `transcript::tests::measure_*`, cli's
   `an_added_suppression_of_a_ratcheted_lint_names_a_ruling` ("run by CI
@@ -25596,6 +25607,13 @@ that commit's source.
 
 ### Task 27.5's audit against 25.3
 
+**Corrected by the review return (SC27-1), below.** As first written,
+this paragraph said the audit reopened nothing because no gate failed.
+That omitted the removals a later merge had outrun: unit 25's D1/D2
+mutated `verbs/delivery.rs` before `00c8833e` moved them, and the
+slice's sequence-step edits moved into `engine/sequence.rs`. Passing
+gates are not removal controls. The return re-runs them on this head.
+
 25.3 stays ticked on its corrected record (the unit 25 review return):
 no gate this visit failed, so no matrix row, removal or restored pass is
 reopened by a result. What the audit leaves open is what no seat can
@@ -25610,3 +25628,87 @@ and no standing-admission line.
 The commit that carries this section is recorded, with the final-head
 re-checks, in run-local evidence (`.forge/u27/final-head.md`) and the
 run's result, not here, so recording it creates no new source head.
+
+## Unit 27, review return — the removals the merge outran, re-run on the merged head (2026-09-30)
+
+Run `0065-rebuild-unit-27-see-the-uni-e053b0b8`, second visit, on
+`fb0d58be`. The council returned `residual` at a medium floor. This
+visit answers SC27-1 and C27-1. Each removal below was a compiling
+production edit. Each was restored with `git checkout --`, and then
+`git status --short` was empty. No production, test, pin or ledger byte
+is committed. Diffs and logs are in `.forge/u27r/`.
+
+**C27-1, the eighth member.** The workspace's 95th result line is
+`brokkr-seatbelt-probe`'s `tests/seatbelt_lifetime_probe.rs`, with 99
+passed and 2 ignored (`.forge/u27/ws-plain.log`). Unit 27's first visit
+recorded these logs. Summed with `jq`, the seven crates give 94 lines,
+2990 passed and 5 ignored. Each workspace log gives 95 lines, 3089
+passed and 7 ignored. The first visit's bullet is corrected in place.
+
+**SC27-1, what the merge outran.** Merge `00c8833e` moved code that
+earlier removals had proved at its old place:
+
+- Unit 25's D1/D2 (`verbs/delivery.rs`). The operated-root choice and
+  the `unreproducible` door are now in `launch.rs:230` and `:232`.
+- S1/S1′ (`verbs/setup.rs`). The agents verb now reads its operator
+  root from `launch::capability_context` (`setup.rs:141`).
+- The slice's four sequence-step edits, moved from `engine.rs` into
+  `engine/sequence.rs` (`git diff 1be0f11b HEAD`):
+  - `single_step` composes at its own label (`:276`) and runs
+    `mark_capabilities` (`:284`);
+  - `dialect_step` does the same (`:395`, `:405`).
+
+These edits are affected at the 25.3 matrix row "gate / work, … /
+sequence / select" and the row for the actual eligible resume. That row
+credits `capability_launch.rs`. Under SQ1 below, `capability_launch`
+still passed 68/68. Its matrix asserts the compiled plan, not the
+engine's dispatch of a step. This matches 25.3's own limit on
+`dispatched`. The engine's step dispatch is bound in
+`engine/capability_tests.rs`.
+
+**Baselines on `fb0d58be`, before any edit.** `capability_verbs` 7/7,
+`capability_launch` 68/68 and `--lib engine::` 256/256.
+
+| # | Removal (on `fb0d58be`) | Run | Observed |
+|---|---|---|---|
+| D1 | `launch.rs:230` `resume` compiles against `request.workspace`, not `repo.unwrap_or(workspace)` | `capability_verbs` | 5/2. `an_unmapped_run_reads_and_keeps_the_operated_repository_as_its_root` (`:622`) panicked at `:661` with "pins a different bundle: capabilities differ: … capability 'web-search' has no abstract definition at 'capabilities/web-search.json' …". `a_resume_over_a_retargeted_or_missing_charter_is_refused_mapped_or_not` (`:519`) panicked at `:606`. These are unit 25's two failures. `--lib launch::` 10/10 did not bind it |
+| D2 | `launch.rs:232` `map_err(std::convert::identity)`, with the `unreproducible` door dropped | `capability_verbs` | 5/2. `a_resume_that_cannot_reproduce_its_pinned_inputs_is_a_capability_mismatch` (`:261`) panicked at `:273` on the bare "bundle: realm 'app': capability 'web-search': tool dialect 'codex-native-search' is not at …". `a_pinned_resume_refuses_a_typed_lanetally_allow_on_its_unmeasured_plan` (`:327`) panicked at `:431`. These are unit 25's two failures |
+| S1 | `setup.rs:143` `agents list` lints against `agents_dir` | `agent_readouts` | 5/1. `the_agents_verbs_lint_every_ask_against_the_operators_definitions` panicked at `:455` |
+| S1′ | `setup.rs:148` `agents show` lints against `agents_dir` | `agent_readouts` | 5/1. The same test panicked at `:478` |
+| SQ1 | `sequence.rs:276` `single_step` composes at `None` | `--lib engine::`; `capability_launch` | 245/11. `every_dispatch_composes_the_lowered_allow_of_its_own_site` (`capability_tests.rs:1233`) failed at `:1301`: `work:draft`'s argv is `["sh"]` with no segments, where `["--allowedTools", "Bash(git:*)"]` is expected. The other ten failed away from a capability assertion: four `notice_tests` failed on a missing capture at `:302`, `capability_tests.rs:1848` failed in an `unwrap`, and five `engine::tests` failed on compiled-sequence commit spans (`:1184`, `:1235`, `:1262` among them). `capability_launch` passed 68/68 |
+| SQ2 | `sequence.rs:284` `single_step`'s `mark_capabilities` removed | `--lib engine::` | 254/2. `:1301`: `work:draft`'s `local` and `segments` are `Null`. `every_nested_dispatch_hands_its_driver_the_selected_links_own_controls` (`:228`) failed at `:329`: the step's `launch_arguments.authored` is not an array |
+| SQ3 | `sequence.rs:395` `dialect_step` composes at `None` | runtime `--tests`; whole `brokkr-cli` | **Survived.** Runtime 26/26 result lines ok, and cli 45/45 |
+| SQ4 | `sequence.rs:405` `dialect_step`'s `mark_capabilities` removed | runtime `--tests`; whole `brokkr-cli` | **Survived.** Runtime 26/26 ok, and cli 45/45 |
+
+**Restored.** After every removal was restored, `git diff --stat HEAD`
+was empty. `capability_verbs` passed 7/7, `agent_readouts` 6/6 and
+`--lib engine::` 256/256.
+
+**What this establishes.**
+
+- On the moved code, D1, D2, S1, S1′, SQ1 and SQ2 each fail at their
+  intended assertion and pass once restored. For D1/D2 and S1/S1′ these
+  are the same assertions unit 25 recorded.
+- SQ3 and SQ4 have no removal control on this head. Before the move,
+  the dialect step's `compose_at` label and its `mark_capabilities` call
+  sat in `engine.rs`. No ledger row names a removal of either, and this
+  seat did not establish whether one survived there too.
+- This seat also did not establish that either removal is equivalent.
+  `compose_site_at` reads the site's `charter`, `inline_local`,
+  `inline_sandbox`, `inline_hands` and `inline_template`. Whether the
+  generated validator's site holds none of them was not checked.
+- Unit 27 admits no test byte. So both are a **pending local proof
+  obligation**, left open for a scoped follow-up: a test that binds the
+  validator step's label and its "holds nothing" notice, or a ruling
+  that they are equivalent. They are added here to 25.3's stated
+  exceptions. 25.3 stays ticked on that stated exception. 27.5 stays
+  open, and names them.
+
+**Gates on this visit's tree** (only `tasks.md` and `evidence.md`
+differ from `fb0d58be`) are listed in the tasks.md note. The earlier
+pending items are all still pending: exact coverage (27.4, 26b.1),
+macOS (27.2, 25.2), remote CI, jscpd, `ratchet.sh`, CRAP, public-API
+and the council.
+
+**Admissions.** No committed production byte, test byte, fixture
+migration, standing-admission line or `quality/` ledger.
