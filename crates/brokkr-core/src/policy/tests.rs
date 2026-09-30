@@ -1,6 +1,17 @@
 use super::*;
 use serde_json::json;
 
+impl PolicyError {
+    /// The parse error's text: every table these tests refuse is
+    /// malformed, not refused for a decision 0050 finding.
+    fn malformed(self) -> String {
+        match self {
+            PolicyError::Malformed(text) => text,
+            PolicyError::Refused(refusal) => panic!("refused, not malformed: {refusal}"),
+        }
+    }
+}
+
 fn table(rule: Value) -> Value {
     json!({
         "phases": ["work", "done"],
@@ -50,7 +61,7 @@ fn change_identifiers_are_typed_data_and_never_condition_keys() {
         value["rules"][0]["when"] = condition;
         assert!(Machine::from_table(&value)
             .unwrap_err()
-            .0
+            .malformed()
             .contains("never used as a condition key"));
     }
 }
@@ -59,84 +70,84 @@ fn change_identifiers_are_typed_data_and_never_condition_keys() {
 fn loader_refuses_unreachable_phase_and_required_field_defects() {
     assert!(Machine::from_table(&Value::Null)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("table must be an object"));
 
     let mut value = table(rule());
     value["initial"] = json!(2);
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("initial must be a string"));
 
     let mut value = table(rule());
     value["rules"] = json!({});
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("rules must be an array"));
 
     let mut value = table(rule());
     value["phases"] = json!(["work", 2]);
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("entries must be strings"));
 
     let mut value = table(rule());
     value["rules"] = json!([2]);
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("rule must be an object"));
 
     let mut value = table(rule());
     value["initial"] = json!("elsewhere");
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("initial phase"));
 
     let mut value = table(rule());
     value["terminal"] = json!(["elsewhere"]);
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("terminal phase"));
 
     let mut value = table(rule());
     value["rules"][0].as_object_mut().unwrap().remove("reason");
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("missing 'reason'"));
 
     let mut value = table(rule());
     value["rules"][0]["next"] = json!("elsewhere");
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("unknown phase"));
 
     let mut value = table(rule());
     value["rules"][0]["from"] = json!("elsewhere");
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("unknown phase"));
 
     let mut value = table(rule());
     value["rules"][0]["severity"] = json!(2);
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("severity must be a string"));
 
     let mut value = table(rule());
     value["rules"][0]["when"] = json!(2);
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("'when' must be an object"));
 }
 
@@ -149,7 +160,7 @@ fn loader_refuses_unreachable_phase_and_required_field_defects() {
 fn the_phase_visit_predicate_is_closed_over_the_tables_own_phases() {
     let mut value = table(rule());
     value["rules"][0]["when"] = json!({"visits_nowhere_gte": 2});
-    let error = Machine::from_table(&value).unwrap_err().0;
+    let error = Machine::from_table(&value).unwrap_err().malformed();
     assert!(
         error.contains("unknown counter 'visits_nowhere'"),
         "{error}"
@@ -160,7 +171,7 @@ fn the_phase_visit_predicate_is_closed_over_the_tables_own_phases() {
     value["rules"][0]["when"] = json!({"visits_work_gte": "twice"});
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("needs a numeric threshold"));
 
     let mut value = table(rule());
@@ -331,11 +342,11 @@ fn a_rule_may_rule_a_park_and_only_a_v2_table_may_hold_one() {
     };
 
     // The version string is load-bearing, not decoration.
-    let error = Machine::from_table(&table(park())).unwrap_err().0;
+    let error = Machine::from_table(&table(park())).unwrap_err().malformed();
     assert!(error.contains("no schema"), "{error}");
     let mut v1 = table(park());
     v1["schema"] = json!(TABLE_SCHEMA_V1);
-    let error = Machine::from_table(&v1).unwrap_err().0;
+    let error = Machine::from_table(&v1).unwrap_err().malformed();
     assert!(error.contains(TABLE_SCHEMA_V1), "{error}");
     assert!(error.contains(TABLE_SCHEMA_V2), "{error}");
 
@@ -344,13 +355,13 @@ fn a_rule_may_rule_a_park_and_only_a_v2_table_may_hold_one() {
     both["next"] = json!("done");
     assert!(Machine::from_table(&v2(both))
         .unwrap_err()
-        .0
+        .malformed()
         .contains("both parks and names a next phase"));
     let mut off = park();
     off["park"] = json!(false);
     assert!(Machine::from_table(&v2(off))
         .unwrap_err()
-        .0
+        .malformed()
         .contains("'park' must be true when present"));
 
     // A park takes no transition, so it has neither a ruling severity
@@ -358,7 +369,7 @@ fn a_rule_may_rule_a_park_and_only_a_v2_table_may_hold_one() {
     for forbidden in ["severity", "requires_artifacts"] {
         let mut rule = park();
         rule[forbidden] = json!("hard");
-        let error = Machine::from_table(&v2(rule)).unwrap_err().0;
+        let error = Machine::from_table(&v2(rule)).unwrap_err().malformed();
         assert!(
             error.contains(&format!("parks and declares '{forbidden}'")),
             "{error}"
@@ -392,7 +403,7 @@ fn a_v2_rule_refuses_a_key_outside_its_vocabulary_and_v1_stays_open() {
         let mut v2 = table(misspelt_rule.clone());
         v2["schema"] = json!(TABLE_SCHEMA_V2);
         assert_eq!(
-            Machine::from_table(&v2).unwrap_err().0,
+            Machine::from_table(&v2).unwrap_err().malformed(),
             format!(
                 "rule WORK-DONE declares '{misspelt}', which is not \
                  forge.phase-machine/v2 rule vocabulary"
@@ -811,14 +822,14 @@ fn the_at_most_predicate_is_strict_in_every_arm() {
     value["rules"][0]["when"] = json!({"something_at_most": "low"});
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("unknown severity axis 'something'"));
 
     let mut value = table(rule());
     value["rules"][0]["when"] = json!({"max_residual_severity_at_most": "sideways"});
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("not in"));
 
     let mut value = table(rule());
@@ -858,6 +869,6 @@ fn the_at_most_predicate_is_strict_in_every_arm() {
     value["rules"][0]["park"] = json!(false);
     assert!(Machine::from_table(&value)
         .unwrap_err()
-        .0
+        .malformed()
         .contains("'park' must be true when present"));
 }

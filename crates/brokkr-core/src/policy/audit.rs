@@ -169,8 +169,8 @@ impl Machine {
             Ok(audit) => audit.findings,
             Err(AuditError::Budget { .. }) => self.unswept(&self.groups(), &is_engine_owned),
         };
-        match findings.iter().find_map(|finding| finding.refusal(v2)) {
-            Some(refusal) => Err(PolicyError(refusal)),
+        match findings.into_iter().find_map(|finding| finding.refusal(v2)) {
+            Some(refusal) => Err(PolicyError::Refused(refusal)),
             None => Ok(()),
         }
     }
@@ -419,21 +419,41 @@ impl Finding {
     /// The load's refusal of this finding, or `None` where it is only
     /// reported: an unread input in a `v1` table, and every unruled
     /// valuation.
-    fn refusal(&self, v2: bool) -> Option<String> {
+    fn refusal(self, v2: bool) -> Option<Refusal> {
         match self {
             Finding::Shadowed { .. } | Finding::Covered { .. } | Finding::Unsatisfiable { .. } => {
-                Some(format!(
-                    "{self}; it fires on no present valuation (decision 0050, ruling 2)"
-                ))
+                Some(Refusal::Order(self))
             }
-            Finding::Unreachable { .. } | Finding::DeadEnd { .. } => {
-                Some(format!("{self} (decision 0050, ruling 3)"))
-            }
-            Finding::Unread { .. } if v2 => Some(format!(
-                "{self} (decision 0050, ruling 1, {TABLE_SCHEMA_V2})"
-            )),
+            Finding::Unreachable { .. } | Finding::DeadEnd { .. } => Some(Refusal::Liveness(self)),
+            Finding::Unread { .. } if v2 => Some(Refusal::Presence(self)),
             Finding::Unread { .. } | Finding::Unruled { .. } => None,
         }
+    }
+}
+
+/// A finding the load refuses (#429), by the decision 0050 ruling that
+/// refuses it. `Finding::refusal` is its one derivation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    /// Ruling 1, in a `v2` table only: an unread hard input.
+    Presence(Finding),
+    /// Ruling 2: a rule that fires on no present valuation.
+    Order(Finding),
+    /// Ruling 3: an unreachable phase or a dead end.
+    Liveness(Finding),
+}
+
+impl fmt::Display for Refusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&match self {
+            Refusal::Presence(finding) => {
+                format!("{finding} (decision 0050, ruling 1, {TABLE_SCHEMA_V2})")
+            }
+            Refusal::Order(finding) => {
+                format!("{finding}; it fires on no present valuation (decision 0050, ruling 2)")
+            }
+            Refusal::Liveness(finding) => format!("{finding} (decision 0050, ruling 3)"),
+        })
     }
 }
 

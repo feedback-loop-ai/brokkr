@@ -80,11 +80,11 @@ fn the_swapped_self_arms_are_refused_and_the_audit_names_both_rules() {
     assert_eq!(ids[above + 1], "\"REVIEW-REFORGE-EXHAUSTED-MEDIUM\"");
     rules.swap(above, above + 1);
     assert_eq!(
-        Machine::from_table(&swapped).unwrap_err().to_string(),
-        "malformed phase machine table: REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM is dead \
-         behind REVIEW-REFORGE-EXHAUSTED-MEDIUM: its guard holds wherever \
-         REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM's does, and first match wins; it fires on \
-         no present valuation (decision 0050, ruling 2)"
+        Machine::from_table(&swapped).unwrap_err(),
+        PolicyError::Refused(Refusal::Order(Finding::Shadowed {
+            rule: "REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM".into(),
+            behind: "REVIEW-REFORGE-EXHAUSTED-MEDIUM".into(),
+        }))
     );
     let machine = Machine::parse(&swapped).unwrap();
     let bound = json!({"max_residual_severity": "high", "visits_implement": 3,
@@ -525,8 +525,41 @@ fn the_sweep_is_measured_before_it_runs_and_refuses_past_its_budget() {
     let mut unentered = wide;
     unentered["phases"] = json!(["work", "review", "loop", "done", "stop"]);
     assert_eq!(
-        Machine::from_table(&unentered).unwrap_err().to_string(),
-        "malformed phase machine table: phase 'loop' is unreachable from the initial \
-         phase (decision 0050, ruling 3)"
+        Machine::from_table(&unentered).unwrap_err(),
+        PolicyError::Refused(Refusal::Liveness(Finding::Unreachable {
+            phase: "loop".into()
+        }))
+    );
+}
+
+/// The operator's text of each refusal, pinned once: the finding, then
+/// the ruling that refuses it.
+#[test]
+fn a_refusal_reads_as_its_finding_and_its_ruling() {
+    let read = |refusal| PolicyError::Refused(refusal).to_string();
+    assert_eq!(
+        read(Refusal::Presence(Finding::Unread {
+            rule: "SHIP".into(),
+            inputs: vec!["has_security_residual".into()],
+        })),
+        "malformed phase machine table: SHIP lets the run go on without reading \
+         has_security_residual, which a hard rule of its group reads (decision 0050, \
+         ruling 1, forge.phase-machine/v2)"
+    );
+    assert_eq!(
+        read(Refusal::Order(Finding::Covered {
+            rule: "EXHAUSTED".into(),
+            by: vec!["VERIFIED".into(), "UNVERIFIED".into()],
+        })),
+        "malformed phase machine table: EXHAUSTED is dead behind VERIFIED, UNVERIFIED: \
+         together their guards hold wherever EXHAUSTED's does, and first match wins; it \
+         fires on no present valuation (decision 0050, ruling 2)"
+    );
+    assert_eq!(
+        read(Refusal::Liveness(Finding::DeadEnd {
+            phase: "loop".into()
+        })),
+        "malformed phase machine table: phase 'loop' reaches no terminal phase and no \
+         parking rule (decision 0050, ruling 3)"
     );
 }

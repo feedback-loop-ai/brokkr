@@ -33,8 +33,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use brokkr_core::policy::audit::{Finding, Setting, SWEEP_BUDGET};
-use brokkr_core::policy::{Machine, Outcome};
+use brokkr_core::policy::audit::{Finding, Refusal, Setting, SWEEP_BUDGET};
+use brokkr_core::policy::{Machine, Outcome, PolicyError};
 use brokkr_runtime::bundle::compose::resolve;
 use brokkr_runtime::bundle::is_engine_owned;
 use serde_json::{json, Value};
@@ -437,11 +437,11 @@ fn the_exchanged_self_table_is_refused_behind_its_weaker_arm() {
     let medium = position(&json, "REVIEW-REFORGE-EXHAUSTED-MEDIUM");
     json["rules"].as_array_mut().unwrap().swap(above, medium);
     assert_eq!(
-        Machine::from_table(&json).unwrap_err().to_string(),
-        "malformed phase machine table: REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM is dead \
-         behind REVIEW-REFORGE-EXHAUSTED-MEDIUM: its guard holds wherever \
-         REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM's does, and first match wins; it fires on \
-         no present valuation (decision 0050, ruling 2)"
+        Machine::from_table(&json).unwrap_err(),
+        PolicyError::Refused(Refusal::Order(Finding::Shadowed {
+            rule: "REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM".into(),
+            behind: "REVIEW-REFORGE-EXHAUSTED-MEDIUM".into(),
+        }))
     );
 }
 
@@ -458,9 +458,10 @@ fn the_0022_era_permissive_arms_are_refused() {
         }
     }
     assert_eq!(
-        Machine::from_table(&json).unwrap_err().to_string(),
-        "malformed phase machine table: REVIEW-REFORGE-EXHAUSTED-DEBT lets the run go on \
-         without reading max_residual_severity, which a hard rule of its group reads \
-         (decision 0050, ruling 1, forge.phase-machine/v2)"
+        Machine::from_table(&json).unwrap_err(),
+        PolicyError::Refused(Refusal::Presence(Finding::Unread {
+            rule: "REVIEW-REFORGE-EXHAUSTED-DEBT".into(),
+            inputs: vec!["max_residual_severity".into()],
+        }))
     );
 }

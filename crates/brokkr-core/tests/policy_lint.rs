@@ -3,7 +3,8 @@
 //! refuses to LOAD; it never degrades into rules that silently stop
 //! matching (the heritage control-script typo incident, twice removed).
 
-use brokkr_core::policy::{Machine, TABLE_SCHEMA_V1, TABLE_SCHEMA_V2};
+use brokkr_core::policy::audit::{Finding, Refusal};
+use brokkr_core::policy::{Machine, PolicyError, TABLE_SCHEMA_V1, TABLE_SCHEMA_V2};
 use serde_json::{json, Value};
 
 /// A live table (decision 0050, ruling 3) around `rules`, so each case
@@ -89,8 +90,23 @@ fn residual(id: &str, when: Value, next: &str, severity: &str) -> Value {
            "severity": severity, "reason": "r"})
 }
 
-fn refusal(table: &Value) -> String {
-    Machine::from_table(table).unwrap_err().to_string()
+fn refusal(table: &Value) -> PolicyError {
+    Machine::from_table(table).unwrap_err()
+}
+
+/// Ruling 2's refusal of `rule`, dead behind `by`.
+fn dead_behind(rule: &str, by: &[&str]) -> PolicyError {
+    let rule = rule.to_string();
+    PolicyError::Refused(Refusal::Order(match by {
+        [behind] => Finding::Shadowed {
+            rule,
+            behind: (*behind).to_string(),
+        },
+        _ => Finding::Covered {
+            rule,
+            by: by.iter().map(ToString::to_string).collect(),
+        },
+    }))
 }
 
 /// The arms that partition `skip_verify`: together they rule every
@@ -118,9 +134,7 @@ fn a_vacuous_ceiling_ahead_of_a_hard_floor_is_refused() {
     );
     assert_eq!(
         refusal(&delivery(TABLE_SCHEMA_V2, json!([permit, deny]))),
-        "malformed phase machine table: DENY is dead behind PERMIT: its guard holds \
-         wherever DENY's does, and first match wins; it fires on no present valuation \
-         (decision 0050, ruling 2)"
+        dead_behind("DENY", &["PERMIT"])
     );
     Machine::from_table(&delivery(TABLE_SCHEMA_V2, json!([deny, permit]))).unwrap();
 }
@@ -139,9 +153,7 @@ fn two_flag_arms_that_partition_an_axis_ahead_of_a_hard_rule_are_refused() {
             TABLE_SCHEMA_V2,
             json!([verified, unverified, exhausted])
         )),
-        "malformed phase machine table: EXHAUSTED is dead behind VERIFIED, UNVERIFIED: \
-         together their guards hold wherever EXHAUSTED's does, and first match wins; it \
-         fires on no present valuation (decision 0050, ruling 2)"
+        dead_behind("EXHAUSTED", &["VERIFIED", "UNVERIFIED"])
     );
     Machine::from_table(&delivery(
         TABLE_SCHEMA_V2,
@@ -163,9 +175,7 @@ fn a_fallback_behind_complementary_flag_arms_fires_on_no_present_valuation() {
             TABLE_SCHEMA_V2,
             json!([verified, unverified, fallback])
         )),
-        "malformed phase machine table: FALLBACK is dead behind VERIFIED, UNVERIFIED: \
-         together their guards hold wherever FALLBACK's does, and first match wins; it \
-         fires on no present valuation (decision 0050, ruling 2)"
+        dead_behind("FALLBACK", &["VERIFIED", "UNVERIFIED"])
     );
     Machine::from_table(&delivery(TABLE_SCHEMA_V2, json!([verified, fallback]))).unwrap();
 }
@@ -190,8 +200,9 @@ fn into_loop() -> Value {
 fn an_unreachable_phase_is_refused() {
     assert_eq!(
         refusal(&looped(json!([]))),
-        "malformed phase machine table: phase 'loop' is unreachable from the initial \
-         phase (decision 0050, ruling 3)"
+        PolicyError::Refused(Refusal::Liveness(Finding::Unreachable {
+            phase: "loop".into()
+        }))
     );
     Machine::from_table(&looped(json!([into_loop()]))).unwrap();
 }
@@ -203,8 +214,9 @@ fn a_dead_end_is_refused() {
                               "next": "loop", "reason": "r"});
     assert_eq!(
         refusal(&spin),
-        "malformed phase machine table: phase 'loop' reaches no terminal phase and no \
-         parking rule (decision 0050, ruling 3)"
+        PolicyError::Refused(Refusal::Liveness(Finding::DeadEnd {
+            phase: "loop".into()
+        }))
     );
     spin["rules"].as_array_mut().unwrap().push(
         json!({"id": "STUCK", "from": "loop", "result": "stuck", "park": true, "reason": "r"}),
@@ -229,9 +241,10 @@ fn a_v2_table_with_an_unread_hard_input_is_refused_and_the_same_v1_table_loads()
     };
     assert_eq!(
         refusal(&delivery(TABLE_SCHEMA_V2, arms())),
-        "malformed phase machine table: SHIP lets the run go on without reading \
-         has_security_residual, which a hard rule of its group reads (decision 0050, \
-         ruling 1, forge.phase-machine/v2)"
+        PolicyError::Refused(Refusal::Presence(Finding::Unread {
+            rule: "SHIP".into(),
+            inputs: vec!["has_security_residual".into()],
+        }))
     );
     Machine::from_table(&delivery(TABLE_SCHEMA_V1, arms())).unwrap();
     // An engine-owned input is always supplied, so presence exempts it.

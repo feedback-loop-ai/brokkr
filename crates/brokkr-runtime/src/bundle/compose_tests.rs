@@ -803,7 +803,7 @@ fn an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_t
     // Decision 0050 reads a composed table as the flat table `compose`
     // produces. Its first enactment (#429) refuses the dead rule at load;
     // the hole stays reported until totality is enacted.
-    use brokkr_core::policy::audit::{Finding, Setting, SWEEP_BUDGET};
+    use brokkr_core::policy::audit::{Finding, Refusal, Setting, SWEEP_BUDGET};
     let findings = |leaf: &Path| {
         let machine = Machine::from_table(&resolve(leaf).unwrap().table).unwrap();
         machine
@@ -829,12 +829,11 @@ fn an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_t
         ]})),
     );
     assert_eq!(
-        Machine::from_table(&resolve(&shadow).unwrap().table)
-            .unwrap_err()
-            .to_string(),
-        "malformed phase machine table: REVIEW-FIXED is dead behind REVIEW-ANY-FIX: its \
-         guard holds wherever REVIEW-FIXED's does, and first match wins; it fires on no \
-         present valuation (decision 0050, ruling 2)"
+        Machine::from_table(&resolve(&shadow).unwrap().table).unwrap_err(),
+        brokkr_core::PolicyError::Refused(Refusal::Order(Finding::Shadowed {
+            rule: "REVIEW-FIXED".into(),
+            behind: "REVIEW-ANY-FIX".into(),
+        }))
     );
     // An override narrows the base's fallback and leaves a valuation.
     library.recipe("base", &base_bundle(), Some(&base_policy()));
