@@ -74,8 +74,9 @@ fn runs_footer(tui: &Tui, views: &Views) -> Vec<Part> {
         .skip_while(|(column, _)| *column != focus)
         .nth(1);
     let tab = next.filter(|_| columns.len() > 1);
-    parts.extend(tab.map(|(column, _)| (format!("Tab {}", name_of(*column, row)), None)));
-    parts.extend(toggle_parts(tui, row, &columns));
+    let now = views.now.as_str();
+    parts.extend(tab.map(|(column, _)| (format!("Tab {}", name_of(*column, row, now)), None)));
+    parts.extend(toggle_parts(tui, third(row, now), &columns));
     parts.extend([
         (all.to_string(), None),
         ("g/G top/bottom".to_string(), Some(7)),
@@ -90,7 +91,7 @@ fn runs_footer(tui: &Tui, views: &Views) -> Vec<Part> {
 /// `d` and `f` show or hide their columns, and say how wide a frame a
 /// column they asked for needs; `c` opens or folds the commission while
 /// the dashboard is drawn (#503). `f` gives way first on a narrow footer.
-fn toggle_parts(tui: &Tui, row: Option<&RunRow>, columns: &[(FleetColumn, u16)]) -> Vec<Part> {
+fn toggle_parts(tui: &Tui, third: &str, columns: &[(FleetColumn, u16)]) -> Vec<Part> {
     let say = |key: char, name: &str, on: bool, from: u16| match (on, tui.width >= from) {
         (false, _) => format!("{key} {name}"),
         (true, true) => format!("{key} hide {name}"),
@@ -102,10 +103,7 @@ fn toggle_parts(tui: &Tui, row: Option<&RunRow>, columns: &[(FleetColumn, u16)])
             say('d', "dashboard", toggles.dashboard, DASHBOARD_FROM),
             None,
         ),
-        (
-            say('f', third(row), toggles.live, live_from(toggles)),
-            Some(0),
-        ),
+        (say('f', third, toggles.live, live_from(toggles)), Some(0)),
     ];
     let dashboard = columns
         .iter()

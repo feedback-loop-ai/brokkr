@@ -117,27 +117,48 @@ pub(super) fn width_of_column(tui: &Tui, views: &Views, column: FleetColumn) -> 
     found.map(|(_, width)| inside(width))
 }
 
-/// What the third column is called for `row`: what its seat is doing
-/// while it runs, and what it found once it has stopped.
-pub(super) fn third(row: Option<&RunRow>) -> &'static str {
-    match row.map(|row| row.verdict.standing) {
-        Some(Standing::Running) | None => "live",
-        Some(
+/// What the third column shows for a run.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Third {
+    /// What its seat is doing, as it does it.
+    Live,
+    /// What its seats left: its findings, or its last notes.
+    Findings,
+}
+
+/// What the third column shows for `row` at `now`: a running run's seat
+/// at work, and what a run found once it has stopped. A run `need` calls
+/// stale has nothing driving it, so its seat's old checkpoints are never
+/// streamed as live (#503 item 3): it shows what its seats left.
+fn third_of(row: &RunRow, now: &str) -> Third {
+    match (row.verdict.standing, brokkr_view::need(row, now)) {
+        (Standing::Running, None) => Third::Live,
+        (Standing::Running, Some(Need::Stale { .. } | Need::Parked | Need::Quarantined))
+        | (
             Standing::Quarantined
             | Standing::Parked
             | Standing::Shipped
             | Standing::Stopped
             | Standing::OperatorStopped,
-        ) => "findings",
+            _,
+        ) => Third::Findings,
+    }
+}
+
+/// What the third column is called for `row` at `now`.
+pub(super) fn third(row: Option<&RunRow>, now: &str) -> &'static str {
+    match row.map(|row| third_of(row, now)) {
+        Some(Third::Live) | None => "live",
+        Some(Third::Findings) => "findings",
     }
 }
 
 /// What a column is called in the footer.
-pub(super) fn name_of(column: FleetColumn, row: Option<&RunRow>) -> &'static str {
+pub(super) fn name_of(column: FleetColumn, row: Option<&RunRow>, now: &str) -> &'static str {
     match column {
         FleetColumn::List => "list",
         FleetColumn::Dashboard => "dashboard",
-        FleetColumn::Live => third(row),
+        FleetColumn::Live => third(row, now),
     }
 }
 
@@ -182,17 +203,17 @@ fn heading_of(title: &str) -> Texts {
     ]
 }
 
-/// `text`'s first `count` lines at `columns`, and how many it has. Each
-/// of its own lines is sanitized apart, so the sanitizer never joins
-/// two, and a blank one stays one line.
+/// `text` with each of its own lines sanitized apart, so the sanitizer,
+/// which drops a newline, never joins two.
+pub(super) fn safe_lines(text: &str) -> String {
+    let lines: Vec<String> = text.lines().map(|line| safe(line).to_string()).collect();
+    lines.join("\n")
+}
+
+/// `text`'s first `count` lines at `columns`, and how many it has, its
+/// own lines sanitized apart and a blank one kept as one line.
 fn first_lines(text: &str, columns: usize, count: usize) -> (Texts, usize) {
-    let lines: Vec<String> = text
-        .lines()
-        .flat_map(|line| match brokkr_view::wrap(&safe(line), columns) {
-            parts if parts.is_empty() => vec![String::new()],
-            parts => parts,
-        })
-        .collect();
+    let lines = brokkr_view::wrap(&safe_lines(text), columns);
     let total = lines.len();
     let kept = lines.into_iter().take(count).map(|text| (text, plain()));
     (kept.collect(), total)
@@ -389,21 +410,17 @@ fn commission(tui: &Tui, row: &RunRow, columns: usize) -> Texts {
 
 /// The live or findings column for `row`: its title and its lines,
 /// wrapped at `columns`. A running run streams the checkpoints of the
-/// seat the fold names, newest first; a finished one shows its last
-/// review's findings, or else its last seat's notes, whole.
+/// seat the fold names, newest first; a finished or stale one shows its
+/// last review's findings, or else its last seat's notes, whole.
 pub(super) fn live_column(
     views: &Views,
     row: &RunRow,
     columns: usize,
 ) -> (String, Vec<Line<'static>>) {
     let view = view_of(views, row);
-    let (title, texts) = match row.verdict.standing {
-        Standing::Running => streamed(view, row),
-        Standing::Quarantined
-        | Standing::Parked
-        | Standing::Shipped
-        | Standing::Stopped
-        | Standing::OperatorStopped => found(view, row),
+    let (title, texts) = match third_of(row, &views.now) {
+        Third::Live => streamed(view, row),
+        Third::Findings => found(view, row),
     };
     (title, wrapped(texts, columns))
 }
@@ -476,8 +493,7 @@ pub(super) fn draw_dashboard(
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let lines = dashboard_lines(tui, views, row, usize::from(inner.width));
-    let lines: Vec<Line> = lines.into_iter().skip(tui.offset).collect();
-    frame.render_widget(Paragraph::new(lines), inner);
+    frame.render_widget(Paragraph::new(scrolled(lines, tui.offset)), inner);
 }
 
 /// The live or findings column, scrolled to `tui.live_offset`.
@@ -486,6 +502,13 @@ pub(super) fn draw_live(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views,
     let (title, lines) = live_column(views, row, usize::from(inner.width));
     let block = pane(&title, focused(tui, views) == FleetColumn::Live);
     frame.render_widget(block, area);
-    let lines: Vec<Line> = lines.into_iter().skip(tui.live_offset).collect();
-    frame.render_widget(Paragraph::new(lines), inner);
+    frame.render_widget(Paragraph::new(scrolled(lines, tui.live_offset)), inner);
+}
+
+/// `lines` from `offset`, held to the last of them: a column whose text
+/// shrank under its scroll (a commission folded by `c`, a run that
+/// stopped streaming) still draws its end, never an empty border.
+fn scrolled(lines: Vec<Line<'static>>, offset: usize) -> Vec<Line<'static>> {
+    let from = offset.min(lines.len().saturating_sub(1));
+    lines.into_iter().skip(from).collect()
 }

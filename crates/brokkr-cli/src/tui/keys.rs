@@ -139,7 +139,8 @@ pub(super) fn enter(tui: &mut Tui, views: &Views) {
             };
             match notes_of(views, row).filter(|_| focused(tui, views) == FleetColumn::Dashboard) {
                 Some((seat, notes)) => {
-                    tui.reading = Some(format!("{} · notes\n\n{}", safe(&seat), safe(&notes)));
+                    let notes = safe_lines(&notes);
+                    tui.reading = Some(format!("{} · notes\n\n{notes}", safe(&seat)));
                     tui.reading_transcript = false;
                     tui.read_offset = 0;
                 }

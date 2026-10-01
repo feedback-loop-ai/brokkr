@@ -731,6 +731,17 @@ fn the_live_column_follows_the_working_seat_newest_first() {
     assert!(dashboard.contains(&"at work   seat reviewer · attempt 2".to_string()));
 }
 
+/// The one seat of a run that only implemented, reporting nothing spent.
+fn implementer() -> Hired {
+    Hired {
+        effect: "e1",
+        seat: "implementer",
+        phase: "implement",
+        spent: json!({}),
+        span: (T0, "2026-01-01T00:01:00Z"),
+    }
+}
+
 /// A finished run's third column: its last review's findings whole —
 /// the residuals its ruling recorded, then the reviewer's notes — or
 /// else its last seat's notes; and the absence marks where there are none.
@@ -762,16 +773,9 @@ fn the_findings_column_shows_the_last_review_whole_or_else_the_last_seats_notes(
     );
     let implemented =
         |steps| fleet_reading(brokkr_view::run_view(&journal_of(SHIPPED, steps), None));
-    let only = Hired {
-        effect: "e1",
-        seat: "implementer",
-        phase: "implement",
-        spent: json!({}),
-        span: (T0, "2026-01-01T00:01:00Z"),
-    };
     let views = implemented(vec![
         started("a"),
-        visit("implement", &only, json!({"result": "complete"})),
+        visit("implement", &implementer(), json!({"result": "complete"})),
     ]);
     let (title, lines) = live_text(&views, SHIPPED, 111);
     assert_eq!(
@@ -839,6 +843,108 @@ fn enter_on_the_dashboard_reads_the_whole_notes() {
         (Level::Runs, None),
         "nothing to open"
     );
+}
+
+/// The frame at the operator's terminal, a row per line.
+fn operator_rows(tui: &Tui, views: &Views) -> Vec<String> {
+    let terminal = drawn(tui, views, OPERATOR.0, OPERATOR.1);
+    lines_of(terminal.backend().buffer())
+}
+
+/// Notes taller than the operator's frame, one paragraph among them
+/// wrapping to more rows than it holds: `Enter` reads them line by line,
+/// and the reader scrolls a drawn row at a time to their last line.
+#[test]
+fn the_reader_scrolls_long_notes_line_by_line_to_their_last_line() {
+    // 74 words to a row of 373 columns: 203 rows of the paragraph.
+    let paragraph = vec!["word"; 15_000].join(" ");
+    let short: Vec<String> = (1..=10).map(|line| format!("short line {line}")).collect();
+    let notes = format!("{paragraph}\n{}\nthe last line", short.join("\n"));
+    let result = json!({"result": "complete", "notes": notes});
+    let steps = vec![started("a"), visit("implement", &implementer(), result)];
+    let views = fleet_reading(brokkr_view::run_view(&journal_of(SHIPPED, steps), None));
+    let mut tui = selecting(SHIPPED);
+    apply(&mut tui, &views, Key::Tab);
+    apply(&mut tui, &views, Key::Enter);
+    let whole = format!("implementer · notes\n\n{notes}");
+    assert_eq!(tui.reading.as_deref(), Some(whole.as_str()));
+    // The seat line, a blank, 203 rows of the paragraph: "short line 6"
+    // is the 211th row drawn.
+    for _ in 0..21 {
+        apply(&mut tui, &views, Key::PageDown);
+    }
+    // The reader's first six rows, inside its border.
+    let rows = |tui: &Tui| {
+        let lines = operator_rows(tui, &views);
+        let inside = lines[1..7].iter().map(|line| line.trim_matches([' ', '│']));
+        inside.map(str::to_string).collect::<Vec<_>>()
+    };
+    let last = [
+        "short line 6",
+        "short line 7",
+        "short line 8",
+        "short line 9",
+        "short line 10",
+        "the last line",
+    ];
+    assert_eq!(rows(&tui), last);
+    for _ in 0..6 {
+        apply(&mut tui, &views, Key::Down);
+    }
+    assert_eq!(
+        rows(&tui)[..2],
+        ["the last line", ""],
+        "held to the last line"
+    );
+}
+
+/// `run`'s journal last moved when [`DEAD`]'s did, days past the
+/// staleness bound, while its fold still calls it running.
+fn fall_silent(views: &mut Views, run: &str) {
+    let row = views.runs.runs.iter_mut().find(|row| row.run_id == run);
+    row.unwrap().last_recorded_at = Some("2025-12-27T04:00:00Z".to_string());
+}
+
+/// A run its fold calls running, with a seat still in flight, that
+/// `need` calls stale has nothing at work: the third column shows what
+/// its seats left, never that seat's old checkpoints as live, and the
+/// footer calls it so (#503 item 3).
+#[test]
+fn a_stale_run_with_a_seat_in_flight_is_never_streamed_as_live() {
+    let mut views = fleet_reading(reviewing_view());
+    let tui = selecting(REVIEWING);
+    assert!(footer_for(&tui, &views).contains("· f hide live ·"));
+    fall_silent(&mut views, REVIEWING);
+    let (title, lines) = live_text(&views, REVIEWING, 111);
+    let left = ["reviewer · failed · result —", "", "the attempt timed out"];
+    assert_eq!(
+        (title.as_str(), lines),
+        ("findings · reviewer", left.map(String::from).to_vec())
+    );
+    assert!(footer_for(&tui, &views).contains("· f hide findings ·"));
+}
+
+/// A column whose text shrinks under its scroll still draws its end: `G`
+/// down an opened commission then `c` to fold it, or a streamed run that
+/// stops streaming, never leaves an empty border.
+#[test]
+fn a_column_that_shrinks_under_its_scroll_still_draws_its_end() {
+    let views = fleet_reading(held_view());
+    let mut tui = selecting(HELD);
+    for key in [Key::Tab, Key::Char('c'), Key::Char('G'), Key::Char('c')] {
+        apply(&mut tui, &views, key);
+    }
+    let top = operator_rows(&tui, &views)[1].clone();
+    assert!(top.contains("││… 6 more lines · c shows them"), "{top}");
+    let mut views = fleet_reading(reviewing_view());
+    let mut tui = selecting(REVIEWING);
+    for key in [Key::Tab, Key::Tab, Key::Char('G')] {
+        apply(&mut tui, &views, key);
+    }
+    assert_eq!(tui.live_offset, 3, "the fourth checkpoint");
+    fall_silent(&mut views, REVIEWING);
+    let top = operator_rows(&tui, &views)[1].clone();
+    assert!(top.contains("││the attempt timed out"), "{top}");
 }
 
 /// At the fleet the shell asks for the selected run's view while a

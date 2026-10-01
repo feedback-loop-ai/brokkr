@@ -48,18 +48,22 @@ pub(crate) fn draw(frame: &mut Frame, tui: &Tui, views: &Views) {
 
 /// A row opened for reading: the full text, wrapped and scrollable, over
 /// the whole frame. Every line is already sanitized at the call site
-/// that filled `reading`.
+/// that filled `reading`. It is wrapped here, so the scroll counts the
+/// lines it draws and a paragraph taller than the frame reads to its end
+/// (#503).
 pub(super) fn draw_reader(frame: &mut Frame, area: Rect, text: &str, offset: usize) {
-    let lines: Vec<Line> = text.lines().map(|text| line(text, plain())).collect();
+    let block = pane("row · Esc closes", true);
+    let columns = usize::from(block.inner(area).width);
+    let wrapped = brokkr_view::wrap(text, columns);
+    let lines: Vec<Line> = wrapped.iter().map(|text| line(text, plain())).collect();
     // Clamp so scrolling past the end cannot leave an empty frame with
     // no way back.
     let last = lines.len().saturating_sub(1);
     frame.render_widget(Clear, area);
     frame.render_widget(
         Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
             .scroll((u16::try_from(offset.min(last)).unwrap_or(u16::MAX), 0))
-            .block(pane("row · Esc closes", true)),
+            .block(block),
         area,
     );
 }

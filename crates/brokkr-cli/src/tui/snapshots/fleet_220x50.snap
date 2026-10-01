@@ -50,4 +50,4 @@ source: crates/brokkr-cli/src/tui/snapshot_tests.rs
 "│                                                                                                                         ││                                                                                               │"
 "└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────────────────────────────────────────────────┘"
 "runs                                                                                                                                                                                                                        "
-"↑↓/jk move · Enter open run · → expand · Tab dashboard · d hide dashboard · f live ≥257 · c commission · a all runs · g/G top/bottom · / filter · r refresh · ? help · q quit                                               "
+"↑↓/jk move · Enter open run · → expand · Tab dashboard · d hide dashboard · f findings ≥257 · c commission · a all runs · g/G top/bottom · / filter · r refresh · ? help · q quit                                           "
