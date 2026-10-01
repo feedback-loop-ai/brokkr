@@ -33,7 +33,8 @@
 //! and the selection; [`keys`] translates a keypress and runs the pure
 //! state machine over [`movement`]; [`footer`] says which keys are live;
 //! [`style`] holds the sanitized constructors; [`panes`] lays out the
-//! frame and draws the fleet and run panes; [`glyphs`], [`layout`] and
+//! frame and draws the fleet and run panes; [`columns`] are the fleet's
+//! dashboard and live columns beside its list; [`glyphs`], [`layout`] and
 //! [`painter`] are the graph's vocabulary, its geometry and its painter;
 //! [`seats`] and [`participant`] are the remaining panes; and
 //! [`terminal`] is the shell. This root holds the module's one import
@@ -98,9 +99,9 @@ const FLEET_COLUMNS: [u16; 6] = [
     ID_COLUMNS as u16,
 ];
 
-/// The fleet list's width once the detail pane stands beside it: its two
+/// The narrowest the fleet list stands beside another column: its two
 /// borders, the five gaps between its columns, and the columns, so the
-/// title's is a whole title wide.
+/// title's is a whole title wide. A wider list gives its titles the rest.
 const LIST_COLUMNS: u16 = 2
     + 5
     + FLEET_COLUMNS[0]
@@ -114,15 +115,13 @@ const LIST_COLUMNS: u16 = 2
 /// residual folded, the list is exactly [`MIN_WIDTH`] wide at it.
 const TITLE_MIN_COLUMNS: u16 = 12;
 
-/// The narrowest frame that holds the fleet's detail pane: the list, and
-/// a pane that wraps the feature at its full [`DETAIL_TEXT_COLUMNS`].
-/// Below it the list keeps the frame and `Enter` opens the run, as it
-/// always did.
-const DETAIL_MIN_WIDTH: u16 = LIST_COLUMNS + 2 + DETAIL_TEXT_COLUMNS;
+/// The narrowest the fleet's run dashboard is drawn (#503), borders
+/// included: below it the dashboard is not on the frame and the footer
+/// says how wide the frame must be. It wraps at whatever it is given.
+const DASHBOARD_MIN: u16 = 72;
 
-/// The width the detail pane wraps its text at, however wide the
-/// terminal: a line longer than this is not read, it is scanned.
-const DETAIL_TEXT_COLUMNS: u16 = 100;
+/// The narrowest the fleet's live or findings column is drawn (#503).
+const LIVE_MIN: u16 = 62;
 
 /// The width of a run id in the fleet list. An id longer than this is
 /// shortened in the middle, and its minted hash — the last
@@ -141,6 +140,7 @@ const ID_HASH_CHARS: usize = 8;
 const PULSE_TICKS: usize = 2;
 const PULSE_FRAMES: usize = 4;
 
+mod columns;
 mod footer;
 mod glyphs;
 mod keys;
@@ -154,6 +154,7 @@ mod state;
 mod style;
 mod terminal;
 
+use self::columns::*;
 use self::footer::*;
 use self::glyphs::*;
 use self::keys::*;
@@ -165,11 +166,12 @@ use self::seats::*;
 use self::state::*;
 use self::style::*;
 // No sibling reads the frame's panes or the shell beyond the entries
-// re-exported below and the detail pane's lines, which its scroll
-// counts; the tests reach the rest through the root.
-use self::panes::detail_lines;
+// re-exported below and a fleet row's title lines, which the list's
+// room for its older runs counts; the tests reach the rest through the
+// root.
 #[cfg(test)]
 use self::panes::*;
+use self::panes::{title_lines, tone_of};
 #[cfg(test)]
 use self::terminal::*;
 
@@ -179,6 +181,9 @@ pub(crate) use self::panes::draw;
 pub use self::participant::transcript_surfaces_for_test;
 pub(crate) use self::state::{Ask, Refreshed, Subject, Tui, Views};
 pub(crate) use self::terminal::{production_ops, start};
+
+#[cfg(test)]
+mod columns_tests;
 
 #[cfg(test)]
 mod fleet_tests;

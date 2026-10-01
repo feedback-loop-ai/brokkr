@@ -17,7 +17,10 @@
 //! `INSTA_UPDATE=no`. A new or changed frame is written locally with
 //! `INSTA_UPDATE=always`, read in its `.snap` file, and committed.
 
-use super::fleet_tests::{fleet_to_act_on, fleet_with_a_dead_run, opened_on};
+use super::columns_tests::{
+    fleet_reading, held_view, reviewing_view, selecting, shipped_view, OPERATOR, REVIEWING, SHIPPED,
+};
+use super::fleet_tests::{fleet_to_act_on, fleet_with_a_dead_run, opened_on, HELD};
 use super::tests::{
     adopting_views, at_run, at_seats, at_transcript, boxed_views, cell_at, claude_reference, drawn,
     lines_of, panel_views, read_of, refused_read, state_of, turns_of, views, NOW, T0,
@@ -126,7 +129,7 @@ fn the_fleet_list_is_pinned() {
 }
 
 /// #491's fleet: every section, the count line, and on a 4K-class frame
-/// the list alone and the list beside the selected run's detail pane.
+/// the list alone and the list beside the selected run's columns (#503).
 #[test]
 fn the_fleet_by_who_must_act_is_pinned() {
     let views = fleet_to_act_on();
@@ -144,9 +147,9 @@ fn the_fleet_by_who_must_act_is_pinned() {
 
 /// #503 on the operator's terminal: the frame `brokkr tui` opens on with
 /// no key pressed, the first run that needs the operator selected — at
-/// 330x60 and 420x110 its detail beside the list, at 220x50 the list
-/// alone, its age and id beside its titles; and a running run opened in
-/// place.
+/// 330x60 and 420x110 its dashboard and live column beside the list, at
+/// 220x50 its dashboard alone, the age and id beside the titles; and a
+/// running run opened in place.
 #[test]
 fn the_fleet_on_the_operators_terminal_is_pinned() {
     let (_, frame) = opened_on(fleet_with_a_dead_run, 330, 60);
@@ -161,6 +164,42 @@ fn the_fleet_on_the_operators_terminal_is_pinned() {
     tui.cursor[0] = Some("fix-403-on-macos-round-9-3c1f9a02".to_string());
     apply(&mut tui, &views, Key::Right);
     snapshot("fleet_opened_in_place", &tui, &views);
+}
+
+/// #503's second round on the operator's terminal: the fleet in three
+/// columns four ways — both, `d`'s dashboard only, `f`'s column only, and
+/// neither — over a run parked on its review; and the third column of a
+/// running run and of a finished one.
+#[test]
+fn the_fleet_in_three_columns_is_pinned() {
+    let (width, height) = OPERATOR;
+    let views = fleet_reading(held_view());
+    let ways = [
+        ("both", true, true),
+        ("d_only", true, false),
+        ("f_only", false, true),
+        ("neither", false, false),
+    ];
+    for (way, dashboard, live) in ways {
+        let mut tui = selecting(HELD);
+        tui.toggles = Toggles { dashboard, live };
+        let frame = drawn(&tui, &views, width, height).backend().to_string();
+        let name = format!("fleet_{way}_{width}x{height}");
+        settings().bind(|| insta::assert_snapshot!(name, frame));
+    }
+    let thirds = [
+        ("fleet_live", REVIEWING, reviewing_view()),
+        ("fleet_findings", SHIPPED, shipped_view()),
+    ];
+    for (name, run, view) in thirds {
+        let views = fleet_reading(view);
+        let frame = drawn(&selecting(run), &views, width, height);
+        let (name, frame) = (
+            format!("{name}_{width}x{height}"),
+            frame.backend().to_string(),
+        );
+        settings().bind(|| insta::assert_snapshot!(name, frame));
+    }
 }
 
 // ------------------------------------------------------- the run level

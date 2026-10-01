@@ -43,32 +43,40 @@ pub(crate) fn footer_within(tui: &Tui, views: &Views, width: usize) -> String {
 type Part = (String, Option<u8>);
 
 /// The fleet's footer, at every width (#503): it always names `Enter`,
-/// `Tab`, `a` and `/`. The list's, or the detail pane's while it has
-/// the focus. `Tab` says where the pane is when the frame is too narrow
-/// for it. The tab keys are said where they are bound, and only there:
-/// a one-hearth world's footer never names them.
+/// `d`, `a` and `/`, and `Tab` wherever a column stands beside the list.
+/// The list's, or a column's while it has the focus. `d` and `f` say how
+/// wide the frame must be for a column they asked for that it cannot
+/// hold. The tab keys are said where they are bound, and only there: a
+/// one-hearth world's footer never names them.
 fn runs_footer(tui: &Tui, views: &Views) -> Vec<Part> {
     let all = match tui.all {
         true => "a recent only",
         false => "a all runs",
     };
-    let tab = match (detail_focused(tui, views), tui.width >= DETAIL_MIN_WIDTH) {
-        (true, _) => "Tab list".to_string(),
-        (false, true) => "Tab detail".to_string(),
-        (false, false) => format!("Tab detail ≥{DETAIL_MIN_WIDTH}"),
+    let row = selected_run(tui, views);
+    let columns = fleet_columns(tui, views);
+    let focus = focused(tui, views);
+    let movement = match focus {
+        FleetColumn::List => "↑↓/jk move",
+        FleetColumn::Dashboard | FleetColumn::Live => "↑↓/jk scroll",
     };
-    let movement = match detail_focused(tui, views) {
-        true => "↑↓/jk scroll",
-        false => "↑↓/jk move",
+    let notes = row.and_then(|row| notes_of(views, row));
+    let enter = match notes.filter(|_| focus == FleetColumn::Dashboard) {
+        Some(_) => "Enter read notes",
+        None => "Enter open run",
     };
-    let mut parts: Vec<Part> = vec![
-        (movement.to_string(), Some(3)),
-        ("Enter open run".to_string(), None),
-    ];
+    let mut parts: Vec<Part> = vec![(movement.to_string(), Some(3)), (enter.to_string(), None)];
     parts.extend(in_place(tui, views).map(|keys| (keys.to_string(), Some(2))));
     parts.extend(tabbed(tui).then(|| ("[ ] 1-9 realm".to_string(), Some(5))));
+    let next = columns
+        .iter()
+        .cycle()
+        .skip_while(|(column, _)| *column != focus)
+        .nth(1);
+    let tab = next.filter(|_| columns.len() > 1);
+    parts.extend(tab.map(|(column, _)| (format!("Tab {}", name_of(*column, row)), None)));
+    parts.extend(toggle_parts(tui, row, &columns));
     parts.extend([
-        (tab, None),
         (all.to_string(), None),
         ("g/G top/bottom".to_string(), Some(7)),
         ("/ filter".to_string(), None),
@@ -76,6 +84,33 @@ fn runs_footer(tui: &Tui, views: &Views) -> Vec<Part> {
         ("? help".to_string(), Some(1)),
         ("q quit".to_string(), Some(4)),
     ]);
+    parts
+}
+
+/// `d` and `f` show or hide their columns, and say how wide a frame a
+/// column they asked for needs; `c` opens or folds the commission while
+/// the dashboard is drawn (#503). `f` gives way first on a narrow footer.
+fn toggle_parts(tui: &Tui, row: Option<&RunRow>, columns: &[(FleetColumn, u16)]) -> Vec<Part> {
+    let say = |key: char, name: &str, on: bool, from: u16| match (on, tui.width >= from) {
+        (false, _) => format!("{key} {name}"),
+        (true, true) => format!("{key} hide {name}"),
+        (true, false) => format!("{key} {name} ≥{from}"),
+    };
+    let toggles = tui.toggles;
+    let mut parts = vec![
+        (
+            say('d', "dashboard", toggles.dashboard, DASHBOARD_FROM),
+            None,
+        ),
+        (
+            say('f', third(row), toggles.live, live_from(toggles)),
+            Some(0),
+        ),
+    ];
+    let dashboard = columns
+        .iter()
+        .any(|(column, _)| *column == FleetColumn::Dashboard);
+    parts.extend(dashboard.then(|| ("c commission".to_string(), Some(2))));
     parts
 }
 

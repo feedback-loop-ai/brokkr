@@ -468,11 +468,12 @@ is how a run stands, the ruling that settled it, its worst open
 residual, its title (its feature's first line, as wide as the frame
 lets it be), its age and its id, shortened in the middle and never
 inside its hash. A stale or quarantined run says under its title what
-to do. Older runs fold into one line; `a` lists them, and `/` searches
-every run by title and id. `→`, `l` or Space open a running run in place
-to its phase, seat, attempt, elapsed time and last event, and `←` or `h`
-fold it. The footer always names `Enter`, `Tab`, `a` and `/`, dropping
-lesser keys on a narrow frame:
+to do. The list draws as many older runs as its height holds and folds
+only the rest into one line; `a` lists them all, and `/` searches every
+run by title and id. `→`, `l` or Space open a running run in place to its
+phase, seat, attempt, elapsed time and last event, and `←` or `h` fold
+it. The footer always names `Enter`, `d`, `a` and `/`, dropping lesser
+keys on a narrow frame:
 
 ```
 ┌runs──────────────────────────────────────────────────────────────────────────┐
@@ -488,15 +489,24 @@ lesser keys on a narrow frame:
 │2 older runs: press a to show                                                 │
 └──────────────────────────────────────────────────────────────────────────────┘
 runs
-↑↓/jk move · Enter open run · Tab detail ≥225 · a all runs · / filter · ? help
+Enter open run · d dashboard ≥195 · f live ≥257 · a all runs · / filter · ? help
 ```
 
-The fleet opens on its first row, so from 225 columns the selected run
-stands beside the list at once, which keeps 123 columns, a whole title
-wide: its full id, how it stands, its rule, residual and findings, for a
-run that needs you the commands that answer it, and the whole feature
-wrapped at 100 columns. `Tab` moves to that pane, where `↑↓`/`jk` scroll
-it a drawn line at a time; `Enter` opens the run from either pane.
+The fleet opens on its first row, and a wide frame draws the selected
+run beside the list at once, in up to two more columns that share the
+whole width, each wrapping its text at its own width. The run dashboard
+(`d`, from 195 columns) holds its title, full id and how it stands; why
+it ended or what it needs (the last ruling's rule, severity and reason,
+the last seat's result and its notes' first lines, which `Enter` there
+reads whole); its path, phase by phase, with each visit's ruling, worst
+residual, duration and model; its seats; the commands that answer a run
+that needs you; and its commission, folded to three lines until `c`
+opens it. The live column (`f`, from 257 columns beside the dashboard)
+streams, newest first, the checkpoints of the seat at work on a running
+run, and shows a finished run's last review's findings, or else its last
+seat's notes, whole. `d` and `f` show or hide their columns, `Tab` moves
+between the columns drawn, and `↑↓`/`jk` scroll the focused one a drawn
+line at a time; `Enter` on the list opens the run.
 
 `Enter` on a run — the phase rail, the seats, the trail, all three panes
 of the same derivation, and the brand mark riding the graph pane's

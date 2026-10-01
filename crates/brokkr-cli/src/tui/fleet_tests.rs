@@ -13,12 +13,12 @@ use ratatui::backend::TestBackend;
 use serde_json::{json, Value};
 
 /// Two days before the fixture clock: a run the fleet folds away.
-const OLDER: &str = "2025-12-30T00:07:03Z";
+pub(super) const OLDER: &str = "2025-12-30T00:07:03Z";
 
 /// The run the detail tests select: parked on a ruling, with a residual.
-const HELD: &str = "cargo-exemption-hold-5b6c7d8e";
+pub(super) const HELD: &str = "cargo-exemption-hold-5b6c7d8e";
 
-fn ruled(status: Status, phase: &str, decision: Value) -> RunState {
+pub(super) fn ruled(status: Status, phase: &str, decision: Value) -> RunState {
     let mut state = state_of(status);
     state.phase = Some(phase.to_string());
     state.last_decision = Some(decision);
@@ -40,7 +40,7 @@ fn finding(run_id: &str, value: &str) -> ResidualFinding {
 
 /// The feature the held run was commissioned with: a title line, a
 /// paragraph longer than the pane wraps at, and a list.
-const HELD_FEATURE: &str = "#362 cargo exemption\n\
+pub(super) const HELD_FEATURE: &str ="#362 cargo exemption\n\
 \n\
 The review held the change on an unverified security residual: the exemption lets cargo deny pass a crate whose licence nobody read, and the reviewer could not verify the audit the implementer cited.\n\
 \n\
@@ -149,7 +149,7 @@ pub(super) fn fleet_to_act_on() -> Views {
 
 /// The run the operator found (#503): its journal folds to running and
 /// has not moved for 116 hours, so nothing drives it.
-const DEAD: &str = "landing-pr-420-of-the-fleet-9d8c7b6a";
+pub(super) const DEAD: &str = "landing-pr-420-of-the-fleet-9d8c7b6a";
 
 /// [`fleet_to_act_on`] with [`DEAD`] newest, as a fleet read lists it.
 pub(super) fn fleet_with_a_dead_run() -> Views {
@@ -181,6 +181,19 @@ fn row_of(lines: &[String], text: &str) -> usize {
 /// The fleet's own list, in the order `j` walks it.
 fn listed(tui: &Tui, views: &Views) -> Vec<String> {
     keys_for(tui, views)
+}
+
+/// The dashboard's lines for `row`, at a width that wraps none of them.
+fn dashboard_of(views: &Views, row: &RunRow) -> Vec<String> {
+    let lines = dashboard_lines(&Tui::new(None), views, row, 200);
+    lines.iter().map(Line::to_string).collect()
+}
+
+/// The dashboard lines under `heading`, to the blank line that ends them.
+pub(super) fn under(lines: &[String], heading: &str) -> Vec<String> {
+    let start = lines.iter().position(|line| line == heading).unwrap() + 1;
+    let section = lines[start..].iter().take_while(|line| !line.is_empty());
+    section.cloned().collect()
 }
 
 // ----------------------------------------------------------- the sections
@@ -374,8 +387,8 @@ fn a_long_id_is_shortened_in_its_head_and_never_in_its_hash() {
 
 // ---------------------------------------------------------- the detail pane
 
-/// Acceptance 5's frame, asked of its cells: the detail pane stands
-/// beside the list from [`DETAIL_MIN_WIDTH`] columns, and only over a
+/// Acceptance 5's frame, asked of its cells: the dashboard stands
+/// beside the list from [`DASHBOARD_FROM`] columns, and only over a
 /// selection; the list keeps the frame below it and with nothing
 /// selected. Each frame is drawn at the width the shell measured for it.
 #[test]
@@ -385,24 +398,12 @@ fn the_detail_pane_needs_the_width_and_a_selection() {
     tui.width = 320;
     assert!(!frame_of(&tui, &views, 320, 80).contains("rule      "));
     tui.cursor[0] = Some(HELD.to_string());
-    tui.width = DETAIL_MIN_WIDTH - 1;
-    assert!(!frame_of(&tui, &views, DETAIL_MIN_WIDTH - 1, 30).contains(HELD));
-    tui.width = DETAIL_MIN_WIDTH;
-    let frame = frame_of(&tui, &views, DETAIL_MIN_WIDTH, 30);
-    let wanted = [
-        HELD,
-        "parked · review · 7m03s",
-        "verdict   UNVERIFIED-SE…",
-        "rule      REVIEW-UNVERIFIED-SECURITY",
-        "residual  high",
-        "parked    REVIEW-UNVERIFIED-SECURITY for (review, clean)",
-        "cargo-exemption-hold-5b6c7d8e seq 40 · review · max_residual_severity: high",
-        "What was asked:",
-    ];
-    for text in wanted {
-        assert!(frame.contains(text), "{text}:\n{frame}");
-    }
-    // The list beside the pane holds a whole title, sixty columns of it.
+    tui.width = DASHBOARD_FROM - 1;
+    assert!(!frame_of(&tui, &views, DASHBOARD_FROM - 1, 30).contains(HELD));
+    tui.width = DASHBOARD_FROM;
+    let frame = frame_of(&tui, &views, DASHBOARD_FROM, 30);
+    assert!(frame.contains(&format!("│{HELD}")), "{frame}");
+    // The list beside the dashboard holds a whole title, sixty columns of it.
     let title = "#403 macOS fix, round 9: PR #483's test (macos-latest) job…";
     assert!(frame.contains(&format!("{title}  ")), "{frame}");
     let top = frame.lines().next().unwrap();
@@ -412,6 +413,20 @@ fn the_detail_pane_needs_the_width_and_a_selection() {
         Some(list_edge),
         "{frame}"
     );
+    tui.width = 320;
+    let frame = frame_of(&tui, &views, 320, 80);
+    let wanted = [
+        HELD,
+        "parked · review · 7m03s",
+        "verdict   UNVERIFIED-SE… · residual high",
+        "rule      REVIEW-UNVERIFIED-SECURITY",
+        "reason    REVIEW-UNVERIFIED-SECURITY for (review, clean)",
+        "cargo-exemption-hold-5b6c7d8e seq 40 · review · max_residual_severity: high",
+        "#362 cargo exemption",
+    ];
+    for text in wanted {
+        assert!(frame.contains(text), "{text}:\n{frame}");
+    }
     tui.cursor[0] = Some("journal-that-broke-7f8e9d0c".to_string());
     tui.width = 320;
     let frame = frame_of(&tui, &views, 320, 80);
@@ -423,42 +438,47 @@ fn the_detail_pane_needs_the_width_and_a_selection() {
     assert!(frame.contains("verdict   does not fold"), "{frame}");
 }
 
-/// `Tab` reaches the detail pane only while it is on the frame; there
-/// the list keys scroll it a drawn line at a time, the run's own lines
-/// first, `Enter` still opens the run, and moving the list reads the
-/// next run from the top.
+/// `Tab` reaches the dashboard only while it is on the frame; there the
+/// list keys scroll it a drawn line at a time, the run's own lines first,
+/// `Enter` still opens a run whose view holds no notes, and moving the
+/// list reads the next run from the top.
 #[test]
 fn tab_focuses_the_detail_pane_which_scrolls_and_enter_still_opens_the_run() {
     let views = fleet_to_act_on();
     let mut tui = Tui::new(None);
     tui.cursor[0] = Some(HELD.to_string());
-    tui.width = DETAIL_MIN_WIDTH - 1;
+    tui.width = DASHBOARD_FROM - 1;
     apply(&mut tui, &views, Key::Tab);
-    assert_eq!(tui.pane, 0, "no detail pane, nothing to tab to");
-    tui.width = DETAIL_MIN_WIDTH;
-    assert!(footer_for(&tui, &views).contains("Enter open run · Tab detail · a all runs"));
+    assert_eq!(tui.pane, 0, "no dashboard, nothing to tab to");
+    tui.width = DASHBOARD_FROM;
+    let footer = footer_for(&tui, &views);
+    assert!(
+        footer.contains("Enter open run · Tab dashboard · d hide dashboard"),
+        "{footer}"
+    );
     apply(&mut tui, &views, Key::Tab);
     assert_eq!(tui.pane, 1);
     assert!(footer_for(&tui, &views).starts_with("↑↓/jk scroll · Enter open run · Tab list"));
-    // Nine lines of the run's own, then the feature's first line.
-    for _ in 0..10 {
+    // The title, the id, how it stands, and its ending's heading.
+    for _ in 0..5 {
         apply(&mut tui, &views, Key::Char('j'));
     }
-    assert_eq!((tui.offset, tui.cursor[0].as_deref()), (10, Some(HELD)));
-    // The title stays on the list's row and the pane's border; the body
-    // has scrolled past the run's lines and the feature's first line.
-    let frame = frame_of(&tui, &views, DETAIL_MIN_WIDTH, 30);
-    assert!(frame.contains("The review held"), "{frame}");
-    assert!(!frame.contains("verdict   "), "{frame}");
+    assert_eq!((tui.offset, tui.cursor[0].as_deref()), (5, Some(HELD)));
+    // The title stays on the list's row; the body has scrolled past the
+    // run's own lines to its verdict.
+    let frame = frame_of(&tui, &views, DASHBOARD_FROM, 30);
+    assert!(frame.contains("│verdict   UNVERIFIED-SE…"), "{frame}");
+    assert!(!frame.contains(&format!("││{HELD}  ")), "{frame}");
     assert_eq!(frame.matches("#362 cargo exemption").count(), 2, "{frame}");
     apply(&mut tui, &views, Key::Char('G'));
-    assert_eq!(tui.offset, 17, "nine lines, and the feature's nine drawn");
-    tui.width = DETAIL_MIN_WIDTH - 1;
+    // Twenty-two lines of the run's, and its commission folded to four.
+    assert_eq!(tui.offset, 25, "the last line drawn");
+    tui.width = DASHBOARD_FROM - 1;
     assert!(
         footer_for(&tui, &views).starts_with("↑↓/jk move"),
         "narrowed, the list's"
     );
-    tui.width = DETAIL_MIN_WIDTH;
+    tui.width = DASHBOARD_FROM;
     apply(&mut tui, &views, Key::Tab);
     apply(&mut tui, &views, Key::Char('j'));
     assert_eq!(
@@ -502,13 +522,13 @@ fn the_focused_fleet_pane_wears_the_bold_border() {
 #[test]
 fn the_shell_tells_the_keys_how_wide_its_frame_was() {
     let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
-    let mut terminal = Terminal::new(TestBackend::new(DETAIL_MIN_WIDTH, 30)).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(DASHBOARD_FROM, 30)).unwrap();
     // The fleet opens on its first row (#503); one `Down` is the second.
     script(&[Key::Down, Key::Tab, Key::Quit]);
     let mut source = |_: Ask| Ok(Some(fleet_to_act_on()));
     let mut tui = Tui::new(None);
     drive(&mut terminal, &test_ops(), &mut source, &mut tui, 9).unwrap();
-    assert_eq!((tui.width, tui.pane), (DETAIL_MIN_WIDTH, 1));
+    assert_eq!((tui.width, tui.pane), (DASHBOARD_FROM, 1));
     assert_eq!(tui.cursor[0].as_deref(), Some(HELD));
 }
 
@@ -518,7 +538,7 @@ fn the_shell_tells_the_keys_how_wide_its_frame_was() {
 #[test]
 fn the_first_wide_frame_and_its_footer_agree_on_the_detail_pane() {
     let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
-    let mut terminal = Terminal::new(TestBackend::new(DETAIL_MIN_WIDTH, 30)).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(DASHBOARD_FROM, 30)).unwrap();
     script(&[]);
     let mut source = |_: Ask| Ok(Some(fleet_to_act_on()));
     let mut tui = Tui::new(None);
@@ -526,7 +546,7 @@ fn the_first_wide_frame_and_its_footer_agree_on_the_detail_pane() {
     drive(&mut terminal, &test_ops(), &mut source, &mut tui, 1).unwrap();
     let frame = lines_of(terminal.backend().buffer()).join("\n");
     assert!(frame.contains(&format!("│{HELD}")), "{frame}");
-    assert!(frame.contains("· Tab detail ·"), "{frame}");
+    assert!(frame.contains("· Tab dashboard ·"), "{frame}");
 }
 
 /// Review finding 1: the pane scrolls by the lines it draws, so a feature
@@ -551,14 +571,23 @@ fn the_detail_pane_scrolls_a_one_paragraph_feature_to_its_last_line() {
     }]);
     let mut tui = Tui::new(None);
     tui.cursor[0] = Some("one-paragraph-0a1b2c3d".to_string());
-    tui.width = DETAIL_MIN_WIDTH;
+    tui.width = DASHBOARD_FROM;
     tui.pane = 1;
-    let frame = frame_of(&tui, &views, DETAIL_MIN_WIDTH, 30);
+    // `c` opens the commission the dashboard folds to its first lines.
+    apply(&mut tui, &views, Key::Char('c'));
+    let frame = frame_of(&tui, &views, DASHBOARD_FROM, 30);
     assert!(!frame.contains("the last words"), "{frame}");
     apply(&mut tui, &views, Key::Char('G'));
-    assert_eq!(tui.offset, 37, "seven lines of the run's, then 31 drawn");
-    let frame = frame_of(&tui, &views, DETAIL_MIN_WIDTH, 30);
+    // Nineteen lines of the run's, the 44 its commission draws, and the
+    // key that folds it.
+    assert_eq!(
+        tui.offset, 63,
+        "the run's lines, then the commission's drawn"
+    );
+    apply(&mut tui, &views, Key::Char('k'));
+    let frame = frame_of(&tui, &views, DASHBOARD_FROM, 30);
     assert!(frame.contains("the last words"), "{frame}");
+    assert!(frame.contains("│c folds it"), "{frame}");
 }
 
 /// Review finding 3: a stopped or parked run shows its worst open
@@ -624,7 +653,7 @@ fn the_fleet_opens_on_the_first_run_that_needs_you_with_its_detail_drawn() {
     let (tui, frame) = opened_on(fleet_with_a_dead_run, 330, 60);
     assert_eq!(tui.cursor[0].as_deref(), Some(DEAD));
     assert!(frame.contains(&format!("││{DEAD}")), "{frame}");
-    assert!(frame.contains("· Tab detail ·"), "{frame}");
+    assert!(frame.contains("· Tab dashboard ·"), "{frame}");
     let mut views = fleet_to_act_on();
     views
         .runs
@@ -659,11 +688,8 @@ fn a_dead_running_run_needs_you_as_stale_and_never_reads_as_live() {
     let prompt = "stale: no event since 116h07m; resume or conclude";
     assert!(lines[row + 1].contains(prompt), "{}", lines[row + 1]);
     assert!(row < row_of(&lines, "│running"), "{}", lines.join("\n"));
-    let detail: Vec<String> = detail_lines(&views.runs.runs[0], &views.now)
-        .iter()
-        .map(Line::to_string)
-        .collect();
-    assert_eq!(detail[1], "stale · land · 168h07m");
+    let detail = dashboard_of(&views, &views.runs.runs[0]);
+    assert_eq!(detail[2], "stale · land · 168h07m");
     let wanted = [
         "stale     no event since 116h07m, past the 3h bound: an attempt's 2h deadline and a 1h \
          margin"
@@ -672,7 +698,7 @@ fn a_dead_running_run_needs_you_as_stale_and_never_reads_as_live() {
         "          drives it again under its pinned bundle (or --recipe <name>);".to_string(),
         format!("          or brokkr conclude --run {DEAD} --reason <why> closes it"),
     ];
-    assert_eq!(detail[6..10], wanted, "{detail:#?}");
+    assert_eq!(under(&detail, "WAY OUT"), wanted, "{detail:#?}");
     let mut dead_only = fleet_with_a_dead_run();
     dead_only.runs.runs.truncate(1);
     assert!(!fleet_live(&dead_only), "a stale run is not forging");
@@ -780,18 +806,19 @@ fn a_quarantined_run_says_conclude_or_inspect_and_how() {
     let prompt = "quarantined: conclude or inspect";
     assert!(lines[row + 1].contains(prompt), "{}", lines[row + 1]);
     let broken = views.runs.runs.iter().find(|row| row.detail.is_some());
-    let detail: Vec<String> = detail_lines(broken.unwrap(), &views.now)
-        .iter()
-        .map(Line::to_string)
-        .collect();
+    let detail = dashboard_of(&views, broken.unwrap());
+    let refusal = "journal   event 12: event after terminal status".to_string();
+    assert!(
+        under(&detail, "WHAT IT NEEDS").contains(&refusal),
+        "{detail:#?}"
+    );
     let run = "journal-that-broke-7f8e9d0c";
     let wanted = [
-        "journal   event 12: event after terminal status".to_string(),
         format!("way out   brokkr conclude --run {run} --reason <why>"),
         format!("          where its journal folds; or brokkr export --run {run}"),
         "          and inspect the journal it writes".to_string(),
     ];
-    assert_eq!(detail[6..10], wanted, "{detail:#?}");
+    assert_eq!(under(&detail, "WAY OUT"), wanted, "{detail:#?}");
 }
 
 /// Item 6: `→`, `l` and Space open a running row in place — its phase,
@@ -866,36 +893,37 @@ fn an_opened_row_marks_what_it_lacks_and_belongs_to_its_hearth() {
     assert_eq!(tui.expanded.len(), 1, "alpha's opened run is returned");
 }
 
-/// Item 5: the fleet's footer names `Enter`, `Tab`, `a` and `/` at every
-/// width the TUI draws, and drops its lesser keys to fit; a frame too
-/// narrow for the detail pane says how wide it needs to be.
+/// Item 5: the fleet's footer names `Enter`, `a` and `/` at every width
+/// the TUI draws, `Tab` wherever a column stands beside the list, and
+/// drops its lesser keys to fit; a frame too narrow for the dashboard
+/// says how wide it needs to be (#503).
 #[test]
 fn the_footer_names_enter_tab_a_and_filter_at_every_width() {
     let views = fleet_to_act_on();
     let mut tui = Tui::new(None);
     tui.cursor[0] = Some(HELD.to_string());
-    for width in MIN_WIDTH..=330 {
+    for width in MIN_WIDTH..=400 {
         tui.width = width;
         let lines = lines_of(drawn(&tui, &views, width, 30).backend().buffer());
         let footer = lines.last().unwrap().trim_end();
-        let tab = match width >= DETAIL_MIN_WIDTH {
-            true => "Tab detail ·",
-            false => "Tab detail ≥225 ·",
+        let (tab, d) = match width >= DASHBOARD_FROM {
+            true => ("Tab dashboard ·", "d hide dashboard ·"),
+            false => ("Enter open run ·", "d dashboard ≥195 ·"),
         };
-        for key in ["Enter open run ·", tab, "a all runs ·", "/ filter"] {
+        for key in ["Enter open run ·", tab, d, "a all runs ·", "/ filter"] {
             assert!(footer.contains(key), "at {width}: {footer}");
         }
         let whole = footer_within(&tui, &views, usize::from(width));
         assert_eq!(footer, whole, "at {width}, nothing is cut");
     }
-    assert_eq!(
-        footer_within(&tui, &views, 60),
-        "Enter open run · Tab detail · a all runs · / filter · ? help"
-    );
     tui.width = 0;
     assert_eq!(
-        footer_within(&tui, &views, 70),
-        "Enter open run · Tab detail ≥225 · a all runs · / filter · ? help"
+        footer_within(&tui, &views, 60),
+        "Enter open run · d dashboard ≥195 · a all runs · / filter"
+    );
+    assert_eq!(
+        footer_within(&tui, &views, 80),
+        "Enter open run · d dashboard ≥195 · f findings ≥257 · a all runs · / filter"
     );
 }
 

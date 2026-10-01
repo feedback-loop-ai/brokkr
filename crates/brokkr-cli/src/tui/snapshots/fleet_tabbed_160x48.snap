@@ -48,4 +48,4 @@ source: crates/brokkr-cli/src/tui/snapshot_tests.rs
 "│                                                                                                                                                              │"
 "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
 "runs · realm beta                                                                                                                                               "
-"↑↓/jk move · Enter open run · [ ] 1-9 realm · Tab detail ≥225 · a all runs · g/G top/bottom · / filter · r refresh · ? help · q quit                            "
+"↑↓/jk move · Enter open run · [ ] 1-9 realm · d dashboard ≥195 · f live ≥257 · a all runs · g/G top/bottom · / filter · r refresh · ? help · q quit             "

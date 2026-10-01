@@ -97,6 +97,31 @@ on, so this file names them.
    `Need::commands`, the commands a way out names), `Hire` and
    `title_within`.
 
+8. **Three columns, the whole width (#503, second round).** The detail
+   pane of item 5 gives way to two columns beside the list, which share
+   the whole frame, about 35/35/30 for three and 45/55 for two, the list
+   never narrower than its 123 columns, and each wraps its text at its own
+   width rather than at a fixed 100. The *run dashboard*, `d`, from 195
+   columns, holds how the run stands, why it ended or what it needs (the
+   last ruling's rule, severity and reason, the last seat's result and its
+   notes' first lines, which `Enter` there reads whole), its path visit by
+   visit with each ruling, residual, duration and model, its seats, the
+   way out `need()` names, and its commission folded to three lines, which
+   `c` opens and folds. The *live or findings* column, `f`, from 257
+   columns beside the dashboard or 185 without it, streams newest first
+   the checkpoints of the seat the fold names at work on a running run,
+   and shows a finished run's last review's findings, or else its last
+   seat's notes, whole. Both are on by default and kept per hearth; a
+   column the width cannot hold is not drawn, and the footer names its key
+   and the width it needs. `Tab` cycles the columns drawn and the list
+   keys scroll the focused one. The list draws its older runs until it is
+   full and folds only the rest (`<n> more older runs: press a`). The
+   shell reads the selected run's view through the run level's own
+   question, and `brokkr-view` derives the path, the last ruling and the
+   last seats' notes once, as `RunView::dashboard`, with
+   `working_checkpoints` and `seat_summary` beside it; `VIEW_VERSION`
+   moves 13 to 14, additively.
+
 ## Consequences
 
 - One derivation (decision 0013): the TUI paints these fields and derives

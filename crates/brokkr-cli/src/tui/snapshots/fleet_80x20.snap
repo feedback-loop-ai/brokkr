@@ -20,4 +20,4 @@ source: crates/brokkr-cli/src/tui/snapshot_tests.rs
 "│                                                                              │"
 "└──────────────────────────────────────────────────────────────────────────────┘"
 "runs                                                                            "
-"Enter open run · → expand · Tab detail ≥225 · a all runs · / filter · ? help    "
+"Enter open run · d dashboard ≥195 · f live ≥257 · a all runs · / filter · ? help"

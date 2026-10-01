@@ -130,10 +130,20 @@ pub(super) fn enter(tui: &mut Tui, views: &Views) {
                 }
             }
         }
-        // The list's run, whether the list or its detail pane has focus.
+        // The list's run, whichever column has the focus — except that
+        // the dashboard's `Enter` reads its last seat's notes whole, where
+        // it holds any (#503).
         Level::Runs => {
-            if let Some(row) = selected_run(tui, views) {
-                tui.assign_run(row.run_id.clone());
+            let Some(row) = selected_run(tui, views) else {
+                return;
+            };
+            match notes_of(views, row).filter(|_| focused(tui, views) == FleetColumn::Dashboard) {
+                Some((seat, notes)) => {
+                    tui.reading = Some(format!("{} · notes\n\n{}", safe(&seat), safe(&notes)));
+                    tui.reading_transcript = false;
+                    tui.read_offset = 0;
+                }
+                None => tui.assign_run(row.run_id.clone()),
             }
         }
         Level::Run => {
@@ -234,9 +244,10 @@ pub(super) fn ascend(tui: &mut Tui) {
             // draws its detail again (#503): the rail's phase is no
             // fleet row, and a cursor that names one selects nothing.
             tui.cursor[0] = tui.run.clone();
-            // The checkpoint pane's scroll is not the detail pane's: the
+            // The checkpoint pane's scroll is not the dashboard's: the
             // fleet reads its selection from the top.
             tui.offset = 0;
+            tui.live_offset = 0;
             tui.force = true;
         }
         Level::Runs => {}
@@ -279,6 +290,11 @@ pub(super) fn typed(tui: &mut Tui, views: &Views, character: char) -> Flow {
         'a' if tui.level == Level::Runs => tui.all = !tui.all,
         'l' | ' ' if tui.level == Level::Runs => open_in_place(tui, views, true),
         'h' if tui.level == Level::Runs => open_in_place(tui, views, false),
+        // The fleet's columns (#503): each toggles its own, or the
+        // dashboard's whole commission.
+        'd' if tui.level == Level::Runs => tui.toggles.dashboard = !tui.toggles.dashboard,
+        'f' if tui.level == Level::Runs => tui.toggles.live = !tui.toggles.live,
+        'c' if tui.level == Level::Runs => tui.commission = !tui.commission,
         _ => {}
     }
     Flow::Continue

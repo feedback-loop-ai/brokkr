@@ -70,16 +70,44 @@ pub(super) fn run_labels(
 
 /// The fleet's sections as the list shows them (#491), in the model's
 /// order, and how many runs the list folds into its count line: the
-/// older ones, listed only when `a` asked for them or a filter is
-/// searching every run.
+/// older ones, listed whole when `a` asked for them or a filter is
+/// searching every run, and otherwise as many as the list has room for
+/// in the frame the shell measured (#503).
 pub(super) type Listed<'a> = (Vec<(Section, Vec<&'a RunRow>)>, usize);
 
 pub(super) fn fleet_sections<'a>(tui: &Tui, views: &'a Views) -> Listed<'a> {
     let every = tui.all || !tui.filter.is_empty();
-    let (kept, folded): (Vec<_>, Vec<_>) = brokkr_view::sections(&views.runs.runs, &views.now)
+    let (mut kept, folded): (Vec<_>, Vec<_>) = brokkr_view::sections(&views.runs.runs, &views.now)
         .into_iter()
         .partition(|(section, _)| every || *section != Section::Older);
-    (kept, folded.iter().map(|(_, rows)| rows.len()).sum())
+    let older: Vec<&RunRow> = folded.into_iter().flat_map(|(_, rows)| rows).collect();
+    let room = older_room(tui, views, &kept, older.len());
+    let (drawn, rest) = older.split_at(room);
+    if !drawn.is_empty() {
+        kept.push((Section::Older, drawn.to_vec()));
+    }
+    (kept, rest.len())
+}
+
+/// How many of `older` runs the list draws below the sections it keeps:
+/// its height inside its borders and under the tab bar, less each kept
+/// section's heading and lines, the older runs' heading, and the count
+/// line when some still fold.
+fn older_room(tui: &Tui, views: &Views, kept: &[(Section, Vec<&RunRow>)], older: usize) -> usize {
+    let inside = usize::from(tui.height).saturating_sub(4 + usize::from(tabbed(tui)));
+    let lines = |rows: &[&RunRow]| -> usize {
+        let drawn: usize = rows
+            .iter()
+            .map(|row| title_lines(tui, views, row).len())
+            .sum();
+        usize::from(!rows.is_empty()) + drawn
+    };
+    let used: usize = kept.iter().map(|(_, rows)| lines(rows)).sum();
+    let left = inside.saturating_sub(used + 1);
+    match older <= left {
+        true => older,
+        false => left.saturating_sub(1),
+    }
 }
 
 /// A run's title line as the fleet lists it, sanitized and whole: the
@@ -97,22 +125,13 @@ pub(super) fn selected_run<'a>(tui: &Tui, views: &'a Views) -> Option<&'a RunRow
     views.runs.runs.iter().find(|row| row.run_id == keys[index])
 }
 
-/// The run the detail pane shows: the fleet's selection, once the frame
-/// the shell measured holds the pane beside the list. The one answer to
-/// whether the pane is on the frame, which the frame, its footer and the
-/// keys all read.
+/// The run the columns beside the list show: the fleet's selection, once
+/// the frame the shell measured holds a column beside the list (#503).
+/// The one answer to whether one is on the frame, which the frame, its
+/// footer, the keys and the shell's question all read.
 pub(super) fn detail_row<'a>(tui: &Tui, views: &'a Views) -> Option<&'a RunRow> {
-    match tui.width >= DETAIL_MIN_WIDTH {
-        true => selected_run(tui, views),
-        false => None,
-    }
-}
-
-/// At the fleet level: the detail pane is on the frame, and focused. A
-/// terminal narrowed under a focused pane hands the keys back to the
-/// list.
-pub(super) fn detail_focused(tui: &Tui, views: &Views) -> bool {
-    tui.pane == 1 && detail_row(tui, views).is_some()
+    let beside = layout(tui.toggles, tui.width).len() > 1;
+    selected_run(tui, views).filter(|_| beside)
 }
 
 pub(super) fn index_of(keys: &[String], cursor: &Option<String>) -> Option<usize> {
@@ -216,19 +235,27 @@ fn scroll(offset: &mut usize, len: usize, step: Step) {
     *offset = cursor.and_then(|line| line.parse().ok()).unwrap_or(0);
 }
 
-/// The fleet's keys move the list, or scroll the detail pane a drawn
-/// line at a time while it has the focus. A new selection is read from
-/// its first line.
+/// The fleet's keys move the list, or scroll the focused column a drawn
+/// line at a time (#503). A new selection is read from its first line,
+/// its commission folded.
 fn fleet_step(tui: &mut Tui, views: &Views, step: Step) {
-    match detail_row(tui, views).filter(|_| tui.pane == 1) {
-        Some(row) => {
-            let drawn = detail_lines(row, &views.now).len();
+    let column = focused(tui, views);
+    let width = width_of_column(tui, views, column).unwrap_or_default();
+    match detail_row(tui, views).map(|row| (column, row)) {
+        Some((FleetColumn::Dashboard, row)) => {
+            let drawn = dashboard_lines(tui, views, row, width).len();
             scroll(&mut tui.offset, drawn, step);
         }
-        None => {
+        Some((FleetColumn::Live, row)) => {
+            let drawn = live_column(views, row, width).1.len();
+            scroll(&mut tui.live_offset, drawn, step);
+        }
+        Some((FleetColumn::List, _)) | None => {
             let keys = keys_for(tui, views);
             move_to(&keys, &mut tui.cursor[0], step);
             tui.offset = 0;
+            tui.live_offset = 0;
+            tui.commission = false;
         }
     }
 }

@@ -25,10 +25,16 @@
 
 #![forbid(unsafe_code)]
 
+mod dashboard;
 mod fleet;
 pub mod js;
 pub mod transcript;
 
+use dashboard::dashboard;
+pub use dashboard::{
+    seat_summary, working_checkpoints, Concluded, Dashboard, Decision, Outcome, RuleSeverity,
+    Ruled, Visit,
+};
 pub use fleet::{
     fleet_rows, need, run_rows, sections, title, title_within, wrap, HearthEntries, Hire, Need,
     RunRow, Section, Standing, Verdict, TITLE_COLUMNS, VERDICT_COLUMNS,
@@ -73,7 +79,8 @@ use serde_json::Value;
 /// participants gained `last_attempt_cost` beside it.
 /// Bumped to 12 by #491: a run row gained its `title` and its `verdict`.
 /// Bumped to 13 by #503: a run row gained its `hire`.
-pub const VIEW_VERSION: u32 = 13;
+/// Bumped to 14 by #503's second round: the run view gained its `dashboard`.
+pub const VIEW_VERSION: u32 = 14;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -474,6 +481,8 @@ pub struct RunView {
     pub journal: Vec<JournalRow>,
     /// Every event, unfiltered: the console's `full journal · N events`.
     pub event_count: usize,
+    /// The path, the last ruling and the last seats' notes (#503).
+    pub dashboard: Dashboard,
 }
 
 // --------------------------------------------------------------- helpers
@@ -2750,6 +2759,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         boundary: run_boundary(events),
         journal: journal_rows(events, &scan, &buckets, &marks),
         event_count: events.len(),
+        dashboard: dashboard(events),
     }
 }
 
