@@ -537,9 +537,24 @@ fn each_need_says_what_the_operator_can_do() {
     );
     assert_eq!(
         stale.prompt().as_deref(),
-        Some("stale: no event since 116h00m; retry, resume or conclude")
+        Some("stale: no event since 116h00m; resume or conclude")
     );
     assert_eq!(Need::Parked.way_out("r1"), Vec::<String>::new());
+    assert_eq!(Need::Parked.commands("r1"), Vec::<String>::new());
+    assert_eq!(
+        Need::Quarantined.commands("r1"),
+        [
+            "brokkr conclude --run r1 --reason <why>",
+            "brokkr export --run r1",
+        ]
+    );
+    assert_eq!(
+        stale.commands("r1"),
+        [
+            "brokkr resume --run r1 --bundle <its-bundle>",
+            "brokkr conclude --run r1 --reason <why>",
+        ]
+    );
     assert_eq!(
         Need::Quarantined.way_out("r1"),
         [
@@ -553,9 +568,9 @@ fn each_need_says_what_the_operator_can_do() {
         [
             "stale     no event since 116h00m, past the 3h bound: an attempt's 2h deadline \
              and a 1h margin",
-            "way out   brokkr operator retry --run r1 --reason <why>,",
-            "          then brokkr resume --run r1;",
-            "          or brokkr conclude --run r1 --reason <why>",
+            "way out   brokkr resume --run r1 --bundle <its-bundle>",
+            "          drives it again under its pinned bundle (or --recipe <name>);",
+            "          or brokkr conclude --run r1 --reason <why> closes it",
         ]
     );
     let parked = settled(Status::AwaitingOperator, "review", None);

@@ -4,7 +4,7 @@ source: crates/brokkr-cli/src/tui/snapshot_tests.rs
 "┌runs──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐"
 "│needs you                                                                                                                                                     │"
 "│! stale                               LANDING PR #420: the fleet lists who must act first                                  168h07m landi…9d8c7b6a             │"
-"│                                      stale: no event since 116h07m; retry, resume or conclude                                                                │"
+"│                                      stale: no event since 116h07m; resume or conclude                                                                       │"
 "│? quarantined does not fold           A journal that does not fold                                                         7m03s   journ…7f8e9d0c             │"
 "│                                      quarantined: conclude or inspect                                                                                        │"
 "│● parked      UNVERIFIED-SE… high     #362 cargo exemption                                                                 7m03s   cargo…5b6c7d8e             │"

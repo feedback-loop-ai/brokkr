@@ -44,10 +44,14 @@ on, so this file names them.
    does not read never makes a run stale. `need(row, now)` derives what a
    run in *needs you* asks — parked, quarantined or stale — with the line a
    row prints under its title (`quarantined: conclude or inspect`, `stale:
-   no event since <age>; retry, resume or conclude`) and the detail's way
-   out: `brokkr conclude` where the journal folds, or `brokkr export` and
-   inspect, for a quarantined run; `brokkr operator retry` then `brokkr
-   resume`, or `brokkr conclude`, for a stale one.
+   no event since <age>; resume or conclude`) and the detail's way out:
+   `brokkr conclude` where the journal folds, or `brokkr export` and
+   inspect, for a quarantined run; `brokkr resume` under the run's pinned
+   bundle, or `brokkr conclude`, for a stale one. A stale run still folds
+   to running, and the fold admits `brokkr operator retry` only on a parked
+   run, so the way out does not name it, though #503 asked for it. A test
+   parses every command a way out names with the CLI's own parser and
+   checks the engine admits it on a run standing as that one does.
 4. **The verdict is two cells.** A row names the ruling that shipped, stopped
    or parked it, without its own phase's prefix and clamped to 14 columns,
    and, beside it, the worst open residual. A residual finding the operator
@@ -61,7 +65,8 @@ on, so this file names them.
    The shell measures the frame before it draws it, so the frame, its footer
    and the keys read one width. The fleet opens on its first row — the first
    run that needs you, or else the first running — so a wide frame draws the
-   pane before any key is pressed (#503). Below 225 columns the list keeps
+   pane before any key is pressed (#503); leaving a run lands back on it.
+   Below 225 columns the list keeps
    the frame and `Enter` opens the run as before. A list too narrow for every
    column and a 12-column title folds the age away, then the residual, and
    never cuts a cell, so from the TUI's 60-column minimum every row's verdict
@@ -70,7 +75,12 @@ on, so this file names them.
    `Enter`, `Tab`, `a` and `/` at every width, dropping lesser keys to fit;
    below 225 columns it says `Tab detail ≥225`. The older runs' line reads
    `<n> older runs: press a to show`, and their heading, once shown, says
-   `a folds them`. A running run wears `◐`, never a disclosure triangle;
+   `a folds them`. *Older* is the one section that folds, so its heading
+   alone names a key: *needs you*, *running* and *last 24h* are always
+   open, and a fold mark on them would look expandable and expand
+   nothing. The operator rules whether those three should fold too. `/`
+   matches a run's id and its whole title line, of which the list paints
+   as much as its column holds. A running run wears `◐`, never a disclosure triangle;
    `→`, `l` or Space open it in place to its phase, seat, attempt, elapsed
    time and last event, `←` or `h` fold it, and `Enter` still opens the run.
 7. **The wire and the crates.** `RunEntry` and `RunRow` gain
@@ -83,7 +93,8 @@ on, so this file names them.
    #503 adds `RunRow::hire` (`Hire`: the seat the fold's cursor names for the
    current effect, and the attempt) and moves `VIEW_VERSION` 12 to 13,
    additively; `RunRow` moves from `lib.rs` to the `fleet` module, its path
-   unchanged; `brokkr-view` exports `need`, `Need`, `Hire` and
+   unchanged; `brokkr-view` exports `need`, `Need` (with
+   `Need::commands`, the commands a way out names), `Hire` and
    `title_within`.
 
 ## Consequences
@@ -95,7 +106,9 @@ on, so this file names them.
   place. `→`, `l`, Space, `←` and `h` are bound at the fleet only.
 - The staleness bound holds only for seats this repository ships: a recipe
   outside it that grants an attempt more than two hours reads stale while
-  that attempt is still silent. Journaling each attempt's deadline would
-  make the bound exact.
+  that attempt is still silent: a false alarm, never a run hidden as live.
+  Journaling each attempt's deadline (a new contract version) would make
+  the bound exact; the operator rules whether the fixed bound stands until
+  then.
 - The decision 0050 enactment slice rebuilds `policy.rs`'s loader beside
   `SEVERITY_ORDER`; `Severity` is additive there, and the loader may adopt it.

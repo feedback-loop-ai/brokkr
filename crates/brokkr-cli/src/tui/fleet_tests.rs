@@ -656,7 +656,7 @@ fn a_dead_running_run_needs_you_as_stale_and_never_reads_as_live() {
     let (column, at) = cell_at(&lines, row, "! stale");
     let worn = terminal.backend().buffer()[(column, at)].modifier;
     assert_eq!(worn, Modifier::DIM, "quiet, never the running bold");
-    let prompt = "stale: no event since 116h07m; retry, resume or conclude";
+    let prompt = "stale: no event since 116h07m; resume or conclude";
     assert!(lines[row + 1].contains(prompt), "{}", lines[row + 1]);
     assert!(row < row_of(&lines, "│running"), "{}", lines.join("\n"));
     let detail: Vec<String> = detail_lines(&views.runs.runs[0], &views.now)
@@ -668,15 +668,106 @@ fn a_dead_running_run_needs_you_as_stale_and_never_reads_as_live() {
         "stale     no event since 116h07m, past the 3h bound: an attempt's 2h deadline and a 1h \
          margin"
             .to_string(),
-        format!("way out   brokkr operator retry --run {DEAD} --reason <why>,"),
-        format!("          then brokkr resume --run {DEAD};"),
-        format!("          or brokkr conclude --run {DEAD} --reason <why>"),
+        format!("way out   brokkr resume --run {DEAD} --bundle <its-bundle>"),
+        "          drives it again under its pinned bundle (or --recipe <name>);".to_string(),
+        format!("          or brokkr conclude --run {DEAD} --reason <why> closes it"),
     ];
     assert_eq!(detail[6..10], wanted, "{detail:#?}");
     let mut dead_only = fleet_with_a_dead_run();
     dead_only.runs.runs.truncate(1);
     assert!(!fleet_live(&dead_only), "a stale run is not forging");
     assert!(fleet_live(&views), "the other two are");
+}
+
+/// Review F3: every command a way out names is one `brokkr` parses once
+/// its placeholders are filled, and one the engine admits on a run that
+/// stands as that one does. A stale run folds to running, which
+/// `operator retry` refuses and `resume` and `conclude` admit.
+#[test]
+fn every_way_out_names_a_command_brokkr_parses_and_the_run_admits() {
+    use clap::Parser;
+    let views = fleet_with_a_dead_run();
+    let mut named = Vec::new();
+    for row in &views.runs.runs {
+        let Some(need) = brokkr_view::need(row, &views.now) else {
+            continue;
+        };
+        for command in need.commands(&row.run_id) {
+            let argv = command
+                .split(' ')
+                .map(|word| if word.starts_with('<') { "x" } else { word });
+            let cli = crate::Cli::try_parse_from(argv)
+                .unwrap_or_else(|error| panic!("{command}: {error}"));
+            let status = folds_to(row.verdict.standing);
+            assert!(admits(status, &cli.command), "{command} on {status:?}");
+            named.push(need.label());
+        }
+    }
+    assert_eq!(named, ["stale", "stale", "quarantined", "quarantined"]);
+}
+
+/// The status a run standing so folds to; a quarantined one folds to none.
+fn folds_to(standing: Standing) -> Option<Status> {
+    match standing {
+        Standing::Quarantined => None,
+        Standing::Parked => Some(Status::AwaitingOperator),
+        Standing::Running => Some(Status::Running),
+        Standing::Shipped => Some(Status::Completed),
+        Standing::Stopped | Standing::OperatorStopped => Some(Status::Stopped),
+    }
+}
+
+/// Whether the engine admits `command` on a run whose journal folds to
+/// `status`, by its own rules: `operator` by the fold's acceptance,
+/// `resume` drives a run that runs or waits, `conclude` refuses only one
+/// already ended (a quarantined run's way out names it where its journal
+/// folds), and `export` reads any journal as written.
+fn admits(status: Option<Status>, command: &crate::Cmd) -> bool {
+    use brokkr_core::fold::{acceptance_refusal, OperatorCommand};
+    match command {
+        crate::Cmd::Operator(args) => match (status, OperatorCommand::parse(&args.command)) {
+            (Some(status), Some(word)) => acceptance_refusal(&state_of(status), word).is_none(),
+            _ => false,
+        },
+        crate::Cmd::Resume(_) => matches!(status, Some(Status::Running | Status::AwaitingOperator)),
+        crate::Cmd::Conclude(_) => !matches!(status, Some(Status::Completed | Status::Stopped)),
+        crate::Cmd::Export(_) => true,
+        _ => panic!("a way out names a verb this test does not know"),
+    }
+}
+
+/// Review F1: a run opened from the fleet and left again is the fleet's
+/// selection, so a wide frame draws its detail beside the list again.
+#[test]
+fn leaving_a_run_lands_back_on_it_with_its_detail_drawn() {
+    let views = fleet_with_a_dead_run();
+    let (mut tui, _) = opened_on(fleet_with_a_dead_run, 330, 60);
+    apply(&mut tui, &views, Key::Char('j'));
+    apply(&mut tui, &views, Key::Enter);
+    assert_eq!(tui.run.as_deref(), Some("journal-that-broke-7f8e9d0c"));
+    tui.cursor[0] = Some("design".to_string());
+    apply(&mut tui, &views, Key::Escape);
+    assert_eq!(tui.level, Level::Runs);
+    let shown = detail_row(&tui, &views).map(|row| row.run_id.as_str());
+    assert_eq!(shown, Some("journal-that-broke-7f8e9d0c"));
+    let frame = frame_of(&tui, &views, 330, 60);
+    assert!(frame.contains("││journal-that-broke-7f8e9d0c"), "{frame}");
+}
+
+/// Review F2: `/` finds a run by a word its title paints past the
+/// sixtieth column, as wide a list as the frame gives it.
+#[test]
+fn the_filter_finds_a_word_painted_past_the_sixtieth_column() {
+    let views = fleet_with_a_dead_run();
+    let mut tui = Tui::new(None);
+    let frame = frame_of(&tui, &views, 220, 50);
+    assert!(frame.contains("job fails four protocol tests"), "{frame}");
+    apply(&mut tui, &views, Key::Char('/'));
+    for character in "protocol".chars() {
+        apply(&mut tui, &views, Key::Char(character));
+    }
+    apply(&mut tui, &views, Key::Enter);
+    assert_eq!(listed(&tui, &views), ["fix-403-on-macos-round-9-3c1f9a02"]);
 }
 
 /// Item 4: a quarantined run's row says what to do, and its detail

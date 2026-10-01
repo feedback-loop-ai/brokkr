@@ -130,6 +130,7 @@ pub brokkr_view::Need::Quarantined
 pub brokkr_view::Need::Stale
 pub brokkr_view::Need::Stale::silent: alloc::string::String
 impl brokkr_view::Need
+pub fn brokkr_view::Need::commands(&self, &str) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_view::Need::label(&self) -> &'static str
 pub fn brokkr_view::Need::prompt(&self) -> core::option::Option<alloc::string::String>
 pub fn brokkr_view::Need::way_out(&self, &str) -> alloc::vec::Vec<alloc::string::String>

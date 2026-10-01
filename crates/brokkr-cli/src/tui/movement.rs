@@ -20,16 +20,15 @@ pub(super) fn keys_for(tui: &Tui, views: &Views) -> Vec<String> {
 
 pub(super) fn labels_for(tui: &Tui, views: &Views) -> Vec<(String, String)> {
     match (tui.level, views.run.as_ref()) {
-        // The fleet in the order it is listed, found by id and title.
+        // The fleet in the order it is listed, found by id and by the
+        // title line the list paints as much of as its column holds.
         (Level::Runs, _) => fleet_sections(tui, views)
             .0
             .into_iter()
             .flat_map(|(_, rows)| rows)
             .map(|row| {
-                let mut label = row.run_id.clone();
-                label.push(' ');
-                label.push_str(&row.title);
-                (row.run_id.clone(), safe(&label))
+                let label = format!("{} {}", safe(&row.run_id), listed_title(row));
+                (row.run_id.clone(), label)
             })
             .collect(),
         (Level::Run, Some(view)) => run_labels(tui, view, lens_of(tui, views).as_ref()),
@@ -81,6 +80,13 @@ pub(super) fn fleet_sections<'a>(tui: &Tui, views: &'a Views) -> Listed<'a> {
         .into_iter()
         .partition(|(section, _)| every || *section != Section::Older);
     (kept, folded.iter().map(|(_, rows)| rows.len()).sum())
+}
+
+/// A run's title line as the fleet lists it, sanitized and whole: the
+/// list paints it clamped to its title column (#503), and the filter
+/// matches it, so the two read one line.
+pub(super) fn listed_title(row: &RunRow) -> String {
+    safe(&brokkr_view::title_within(&row.feature, usize::MAX))
 }
 
 /// The fleet's selection: the list cursor's run, whichever of the

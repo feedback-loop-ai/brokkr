@@ -252,12 +252,13 @@ fn fleet_widths(width: u16) -> [u16; 6] {
 /// measure and clamp: its title, what it needs of the operator (#503),
 /// and, opened in place, where a running run stands.
 fn title_lines(tui: &Tui, views: &Views, row: &RunRow) -> Vec<String> {
-    let mut lines = vec![brokkr_view::title_within(&row.feature, usize::MAX)];
+    let mut lines = Vec::new();
     lines.extend(brokkr_view::need(row, &views.now).and_then(|need| need.prompt()));
     if opened(tui, row) {
         lines.extend(opened_lines(row, &views.now));
     }
-    lines.iter().map(|text| safe(text)).collect()
+    let lines = lines.iter().map(|text| safe(text));
+    std::iter::once(listed_title(row)).chain(lines).collect()
 }
 
 /// A running run opened in place (#503): its phase, the seat at work

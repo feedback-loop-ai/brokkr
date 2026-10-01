@@ -142,22 +142,19 @@ fn the_fleet_by_who_must_act_is_pinned() {
     settings().bind(|| insta::assert_snapshot!("fleet_detail_320x80", frame));
 }
 
-/// #503 on the operator's terminal: the frame `brokkr tui` opens on at
-/// 330x60 with no key pressed, the first run that needs the operator
-/// selected and its detail beside the list; the list alone at 220x50 and
-/// 420x110, its age and id beside its titles; and a running run opened
-/// in place.
+/// #503 on the operator's terminal: the frame `brokkr tui` opens on with
+/// no key pressed, the first run that needs the operator selected — at
+/// 330x60 and 420x110 its detail beside the list, at 220x50 the list
+/// alone, its age and id beside its titles; and a running run opened in
+/// place.
 #[test]
 fn the_fleet_on_the_operators_terminal_is_pinned() {
     let (_, frame) = opened_on(fleet_with_a_dead_run, 330, 60);
     settings().bind(|| insta::assert_snapshot!("fleet_open_330x60", frame));
     let views = fleet_with_a_dead_run();
     for (width, height) in [(220, 50), (420, 110)] {
-        let frame = drawn(&Tui::new(None), &views, width, height);
-        let (frame, name) = (
-            frame.backend().to_string(),
-            format!("fleet_{width}x{height}"),
-        );
+        let (_, frame) = opened_on(fleet_with_a_dead_run, width, height);
+        let name = format!("fleet_{width}x{height}");
         settings().bind(|| insta::assert_snapshot!(name, frame));
     }
     let mut tui = Tui::new(None);

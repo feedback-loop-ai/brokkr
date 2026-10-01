@@ -246,22 +246,35 @@ impl Need {
             Need::Parked => None,
             Need::Quarantined => Some("quarantined: conclude or inspect".to_string()),
             Need::Stale { silent } => Some(format!(
-                "stale: no event since {silent}; retry, resume or conclude"
+                "stale: no event since {silent}; resume or conclude"
             )),
         }
     }
 
+    /// The commands that answer it for run `run_id`, each whole: a line
+    /// `brokkr` parses once its `<placeholder>` words are filled. A stale
+    /// run still folds to running, and the fold admits `operator retry`
+    /// only on a parked run, so a stale run is answered by `resume`, which
+    /// drives it again under its pinned bundle, or by `conclude`, which
+    /// closes a run believed dead.
+    pub fn commands(&self, run_id: &str) -> Vec<String> {
+        match self {
+            Need::Parked => Vec::new(),
+            Need::Quarantined => vec![conclude(run_id), export(run_id)],
+            Need::Stale { .. } => vec![resume(run_id), conclude(run_id)],
+        }
+    }
+
     /// The detail's lines for run `run_id`: why it needs the operator and
-    /// the commands that answer it. `conclude` folds the journal it
-    /// closes, so it is named for a quarantined run only where that
+    /// the [`Need::commands`] that answer it. `conclude` folds the journal
+    /// it closes, so it is named for a quarantined run only where that
     /// journal folds; `export` writes it for reading wherever it does not.
     pub fn way_out(&self, run_id: &str) -> Vec<String> {
-        let conclude = format!("brokkr conclude --run {run_id} --reason <why>");
         match self {
             Need::Parked => Vec::new(),
             Need::Quarantined => vec![
-                format!("way out   {conclude}"),
-                format!("          where its journal folds; or brokkr export --run {run_id}"),
+                format!("way out   {}", conclude(run_id)),
+                format!("          where its journal folds; or {}", export(run_id)),
                 "          and inspect the journal it writes".to_string(),
             ],
             Need::Stale { silent } => vec![
@@ -272,12 +285,25 @@ impl Need {
                     ATTEMPT_DEADLINE_SECONDS / 3600,
                     STALE_MARGIN_SECONDS / 3600,
                 ),
-                format!("way out   brokkr operator retry --run {run_id} --reason <why>,"),
-                format!("          then brokkr resume --run {run_id};"),
-                format!("          or {conclude}"),
+                format!("way out   {}", resume(run_id)),
+                "          drives it again under its pinned bundle (or --recipe <name>);"
+                    .to_string(),
+                format!("          or {} closes it", conclude(run_id)),
             ],
         }
     }
+}
+
+fn conclude(run_id: &str) -> String {
+    format!("brokkr conclude --run {run_id} --reason <why>")
+}
+
+fn export(run_id: &str) -> String {
+    format!("brokkr export --run {run_id}")
+}
+
+fn resume(run_id: &str) -> String {
+    format!("brokkr resume --run {run_id} --bundle <its-bundle>")
 }
 
 /// What run `row` needs of the operator at `now`, if anything: a park,

@@ -13,9 +13,9 @@ Escape -> Continue  level Run · pane 1 · cursor [None, Some("eff-i"), None] ·
 Escape -> Continue  level Run · pane 1 · cursor [None, Some("eff-i"), None] · turn None · reading None
     status  runs · run run-7
     footer  ↑↓/jk move · Enter scope seat · Tab pane · Esc back · / filter · r refresh · ? help · q quit
-Escape -> Continue  level Runs · pane 0 · cursor [None, Some("eff-i"), None] · turn None · reading None
+Escape -> Continue  level Runs · pane 0 · cursor [Some("run-7"), Some("eff-i"), None] · turn None · reading None
     status  runs · run run-7
-    footer  ↑↓/jk move · Enter open run · Tab detail ≥225 · a all runs · g/G top/bottom · / filter · r refresh · ? help · q quit
-Escape -> Continue  level Runs · pane 0 · cursor [None, Some("eff-i"), None] · turn None · reading None
+    footer  ↑↓/jk move · Enter open run · → expand · Tab detail ≥225 · a all runs · g/G top/bottom · / filter · r refresh · ? help · q quit
+Escape -> Continue  level Runs · pane 0 · cursor [Some("run-7"), Some("eff-i"), None] · turn None · reading None
     status  runs · run run-7
-    footer  ↑↓/jk move · Enter open run · Tab detail ≥225 · a all runs · g/G top/bottom · / filter · r refresh · ? help · q quit
+    footer  ↑↓/jk move · Enter open run · → expand · Tab detail ≥225 · a all runs · g/G top/bottom · / filter · r refresh · ? help · q quit

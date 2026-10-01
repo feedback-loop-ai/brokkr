@@ -230,6 +230,10 @@ pub(super) fn ascend(tui: &mut Tui) {
         Level::Run => {
             tui.level = Level::Runs;
             tui.pane = 0;
+            // Land back on the run you were reading, so a wide frame
+            // draws its detail again (#503): the rail's phase is no
+            // fleet row, and a cursor that names one selects nothing.
+            tui.cursor[0] = tui.run.clone();
             // The checkpoint pane's scroll is not the detail pane's: the
             // fleet reads its selection from the top.
             tui.offset = 0;
