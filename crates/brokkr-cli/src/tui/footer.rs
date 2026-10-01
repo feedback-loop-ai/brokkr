@@ -242,7 +242,7 @@ pub(super) fn status_line(tui: &Tui) -> String {
     line
 }
 
-pub(super) const HELP: [&str; 14] = [
+pub(super) const HELP: [&str; 15] = [
     "brokkr tui — a read-only console over the same models as",
     "brokkr inspect, brokkr watch and brokkr ui. It issues no",
     "operator commands and writes nothing to the journal.",
@@ -255,6 +255,7 @@ pub(super) const HELP: [&str; 14] = [
     "PgUp PgDn   page          /       filter this list",
     "r           refresh       ?       this help",
     "q Ctrl+C    quit          a       all runs, older ones too",
+    "d f         dashboard / live column    c  commission",
     "",
     "Selecting a phase or a seat scopes the run level; Esc clears it.",
 ];
