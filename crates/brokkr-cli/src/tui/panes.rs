@@ -33,7 +33,7 @@ pub(crate) fn draw(frame: &mut Frame, tui: &Tui, views: &Views) {
     frame.render_widget(Paragraph::new(line(&status_line(tui), plain())), status);
     frame.render_widget(
         Paragraph::new(line(
-            &footer_for(tui, views),
+            &footer_within(tui, views, usize::from(footer.width)),
             Style::new().add_modifier(Modifier::REVERSED),
         )),
         footer,
@@ -148,127 +148,222 @@ pub(super) fn short_id(id: &str) -> String {
     format!("{head}…{hash}")
 }
 
-/// The fleet list (#491): a heading over each section that lists a run,
-/// each run on one row by its title and never by its feature, and one
-/// line counting the older runs `a` would show. Every cell is a model
-/// field; the cursor's row is kept in view however long the list.
+/// The fleet list (#491, #503): a heading over each section that lists
+/// a run, each run by its title and never by its feature, and one line
+/// under the list saying how many older runs `a` would show. Every cell
+/// is a model field; the cursor's row is kept in view however long the
+/// list. The title column is as wide as the widest line it draws, up to
+/// what the list leaves it, so the age and the id stand beside the
+/// titles however wide the frame.
 fn draw_fleet(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, focused: bool) {
+    let block = pane("runs", focused);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
     let keys = keys_for(tui, views);
     let cursor = tui.cursor[0].as_deref();
     let (sections, folded) = fleet_sections(tui, views);
-    let mut rows: Vec<Row> = Vec::new();
-    let mut selected = None;
+    let mut listed: Vec<Drawn> = Vec::new();
     for (section, members) in sections {
-        let listed: Vec<&RunRow> = members
+        let members: Vec<_> = members
             .into_iter()
             .filter(|row| keys.contains(&row.run_id))
+            .map(|row| (row, title_lines(tui, views, row)))
             .collect();
-        if listed.is_empty() {
-            continue;
+        if !members.is_empty() {
+            listed.push((section, members));
         }
-        rows.push(Row::new([cell(section.label(), header_style())]));
-        for row in listed {
+    }
+    let mut widths = fleet_widths(area.width);
+    let drawn = listed.iter().flat_map(|(_, members)| members);
+    let widest = drawn
+        .flat_map(|(_, lines)| lines)
+        .map(|text| width_of(text));
+    let widest = u16::try_from(widest.max().unwrap_or(0)).unwrap_or(u16::MAX);
+    widths[3] = widest.clamp(TITLE_MIN_COLUMNS, widths[3].max(TITLE_MIN_COLUMNS));
+    let columns = usize::from(widths[3]);
+    let mut rows: Vec<Row> = Vec::new();
+    let mut selected = None;
+    let mut height = 0u16;
+    for (section, members) in listed {
+        rows.push(heading(tui, section));
+        height += 1;
+        for (row, lines) in members {
             let chosen = cursor == Some(row.run_id.as_str());
             if chosen {
                 selected = Some(rows.len());
             }
-            rows.push(fleet_row(row, &views.now).style(selected_style(chosen)));
+            let lines = lines
+                .iter()
+                .map(|text| brokkr_view::title_within(text, columns));
+            let lines: Vec<String> = lines.collect();
+            height += lines.len() as u16;
+            rows.push(fleet_row(row, &views.now, &lines).style(selected_style(chosen)));
         }
     }
-    // The count stands in the verdict's column and the key in the
-    // title's, the two that are whole at every width.
-    if folded > 0 {
-        let dim = Style::new().add_modifier(Modifier::DIM);
-        rows.push(Row::new([
-            cell(Section::Older.label(), header_style()),
-            cell(&format!("{folded} hidden"), dim),
-            cell("", plain()),
-            cell("a shows them", dim),
-        ]));
-    }
+    let count = u16::from(folded > 0);
+    let [list, below] = Layout::vertical([
+        Constraint::Length(height.min(inner.height.saturating_sub(count))),
+        Constraint::Length(count),
+    ])
+    .areas(inner);
     let mut state = TableState::default().with_selected(selected);
-    let table = Table::new(rows, fleet_widths(area.width)).block(pane("runs", focused));
-    frame.render_stateful_widget(table, area, &mut state);
+    let table = Table::new(rows, widths.map(Constraint::Length));
+    frame.render_stateful_widget(table, list, &mut state);
+    let older = format!("{folded} older runs: press a to show");
+    frame.render_widget(Paragraph::new(line(&older, header_style())), below);
 }
 
-/// The fleet list's columns in a list `width` wide (#491). A column is
-/// drawn whole or not at all: a list too narrow for every column and a
-/// title of [`TITLE_MIN_COLUMNS`] folds the age away, then the residual,
-/// so the standing, the verdict and the id's hash are whole from
-/// [`MIN_WIDTH`] up. The title takes the rest: a whole title in the list
-/// the detail pane stands beside, which is exactly that wide.
-fn fleet_widths(width: u16) -> [Constraint; 6] {
-    let [standing, verdict, mut residual, _, mut age, id] = FLEET_COLUMNS;
-    let needs = |residual: u16, age: u16| {
-        2 + 5 + standing + verdict + residual + TITLE_MIN_COLUMNS + age + id
+/// A section the list draws, each of its runs with its title cell's
+/// lines.
+type Drawn<'a> = (Section, Vec<(&'a RunRow, Vec<String>)>);
+
+/// A section's heading: its name, and over the older runs `a` showed,
+/// in the verdict's column, the key that folds them again (#503).
+fn heading(tui: &Tui, section: Section) -> Row<'static> {
+    let fold = match section == Section::Older && tui.all {
+        true => "a folds them",
+        false => "",
     };
-    if needs(residual, age) > width {
+    let dim = Style::new().add_modifier(Modifier::DIM);
+    Row::new([cell(section.label(), header_style()), cell(fold, dim)])
+}
+
+/// The fleet list's column widths in a list `width` wide (#491). A
+/// column is drawn whole or not at all: a list too narrow for every
+/// column and a title of [`TITLE_MIN_COLUMNS`] folds the age away, then
+/// the residual, so the standing, the verdict and the id's hash are
+/// whole from [`MIN_WIDTH`] up. The title's entry is what the rest
+/// leaves it: a whole title in the list the detail pane stands beside,
+/// which is exactly that wide.
+fn fleet_widths(width: u16) -> [u16; 6] {
+    let [standing, verdict, mut residual, _, mut age, id] = FLEET_COLUMNS;
+    let fixed = |residual: u16, age: u16| 2 + 5 + standing + verdict + residual + age + id;
+    if fixed(residual, age) + TITLE_MIN_COLUMNS > width {
         age = 0;
     }
-    if needs(residual, age) > width {
+    if fixed(residual, age) + TITLE_MIN_COLUMNS > width {
         residual = 0;
     }
+    let title = width.saturating_sub(fixed(residual, age));
+    [standing, verdict, residual, title, age, id]
+}
+
+/// What a run's title cell draws, sanitized and whole, for the list to
+/// measure and clamp: its title, what it needs of the operator (#503),
+/// and, opened in place, where a running run stands.
+fn title_lines(tui: &Tui, views: &Views, row: &RunRow) -> Vec<String> {
+    let mut lines = vec![brokkr_view::title_within(&row.feature, usize::MAX)];
+    lines.extend(brokkr_view::need(row, &views.now).and_then(|need| need.prompt()));
+    if opened(tui, row) {
+        lines.extend(opened_lines(row, &views.now));
+    }
+    lines.iter().map(|text| safe(text)).collect()
+}
+
+/// A running run opened in place (#503): its phase, the seat at work
+/// and which attempt, how long it has run, and when its journal last
+/// moved.
+fn opened_lines(row: &RunRow, now: &str) -> [String; 2] {
+    let absent = brokkr_view::ABSENT;
+    let phase = row.phase.as_deref().unwrap_or(absent);
+    let (seat, attempt) = match &row.hire {
+        Some(hire) => (hire.seat.as_str(), hire.attempt.to_string()),
+        None => (absent, absent.to_string()),
+    };
+    let elapsed = brokkr_view::age(&row.created_at, now).unwrap_or(absent.to_string());
+    let moved = row.last_recorded_at.as_deref();
+    let last = match (moved.and_then(|at| brokkr_view::age(at, now)), row.seq) {
+        (Some(ago), Some(seq)) => format!("{ago} ago, seq {seq}"),
+        _ => absent.to_string(),
+    };
     [
-        Constraint::Length(standing),
-        Constraint::Length(verdict),
-        Constraint::Length(residual),
-        Constraint::Min(TITLE_MIN_COLUMNS),
-        Constraint::Length(age),
-        Constraint::Length(id),
+        format!("phase {phase} · seat {seat} · attempt {attempt}"),
+        format!("elapsed {elapsed} · last event {last}"),
     ]
 }
 
 /// One run's row: how it stands (its phase while it runs), its verdict,
-/// its worst open residual, its title, its age and its id. A run whose
-/// journal does not fold keeps its row and its absence marks.
-fn fleet_row(row: &RunRow, now: &str) -> Row<'static> {
-    let standing = row.verdict.standing;
-    let word = match standing {
-        Standing::Running => row.phase.as_deref().unwrap_or(brokkr_view::ABSENT),
-        Standing::Quarantined
-        | Standing::Parked
-        | Standing::Shipped
-        | Standing::Stopped
-        | Standing::OperatorStopped => standing.label(),
-    };
-    let status = row.status.as_deref().unwrap_or("?");
+/// its worst open residual, its title lines, its age and its id. A run
+/// whose journal does not fold keeps its row and its absence marks.
+fn fleet_row(row: &RunRow, now: &str, lines: &[String]) -> Row<'static> {
+    let need = brokkr_view::need(row, now);
+    let word = standing_word(row, need.as_ref());
     let age = brokkr_view::age(&row.created_at, now).unwrap_or(brokkr_view::ABSENT.to_string());
     Row::new([
         cell(
-            &format!("{} {word}", standing_glyph(standing)),
-            tone_style(status),
+            &format!("{} {word}", glyph_of(row.verdict.standing, need.as_ref())),
+            tone_of(row, need.as_ref()),
         ),
         cell(&row.verdict.text, plain()),
         cell(row.verdict.residual.map_or("", Severity::name), plain()),
-        cell(&painted_title(row), plain()),
+        cell_lines(lines, plain()),
         cell(&age, plain()),
         cell(&short_id(&row.run_id), plain()),
     ])
+    .height(lines.len() as u16)
 }
 
-/// The run's title as the TUI paints it: sanitized, then clamped again,
-/// so the columns it measures are the columns it draws.
-fn painted_title(row: &RunRow) -> String {
-    brokkr_view::title(&safe(&row.title))
+/// The run's title as the TUI paints it in `columns`: sanitized, then
+/// clamped again, so the columns it measures are the columns it draws.
+fn painted_title(row: &RunRow, columns: usize) -> String {
+    let first = brokkr_view::title_within(&row.feature, columns);
+    brokkr_view::title_within(&safe(&first), columns)
 }
 
-/// The one glyph each standing wears, so a row reads without colour.
-fn standing_glyph(standing: Standing) -> &'static str {
+/// The one glyph each standing wears, so a row reads without colour. A
+/// running run's is not a disclosure triangle (#503): nothing about it
+/// says it opens. A stale one wears the alarm, never the running mark.
+fn glyph_of(standing: Standing, need: Option<&Need>) -> &'static str {
+    if let Some(Need::Stale { .. }) = need {
+        return "!";
+    }
     match standing {
         Standing::Quarantined => "?",
         Standing::Parked => "●",
-        Standing::Running => "▶",
+        Standing::Running => "◐",
         Standing::Shipped => "✓",
         Standing::Stopped => "✗",
         Standing::OperatorStopped => "■",
     }
 }
 
+/// The word a row's standing cell prints: a stale run's need, a running
+/// run's phase, and every other standing's own word.
+fn standing_word<'a>(row: &'a RunRow, need: Option<&Need>) -> &'a str {
+    match (need, row.verdict.standing) {
+        (Some(stale @ Need::Stale { .. }), _) => stale.label(),
+        (Some(Need::Parked | Need::Quarantined) | None, Standing::Running) => {
+            row.phase.as_deref().unwrap_or(brokkr_view::ABSENT)
+        }
+        (
+            Some(Need::Parked | Need::Quarantined) | None,
+            Standing::Quarantined
+            | Standing::Parked
+            | Standing::Shipped
+            | Standing::Stopped
+            | Standing::OperatorStopped,
+        ) => row.verdict.standing.label(),
+    }
+}
+
+/// The tone a run's standing wears: its status's, except that a stale
+/// run is quiet, never live.
+fn tone_of(row: &RunRow, need: Option<&Need>) -> Style {
+    let status = match need {
+        Some(stale @ Need::Stale { .. }) => stale.label(),
+        Some(Need::Parked | Need::Quarantined) | None => row.status.as_deref().unwrap_or("?"),
+    };
+    tone_style(status)
+}
+
 /// The selected run, whole (#491): its full id; how it stands, where
 /// and since when; its verdict and every residual finding; and the full
 /// feature. The pane scrolls from `offset` by the lines it draws.
 fn draw_detail(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, row: &RunRow) {
-    let block = pane(&painted_title(row), tui.pane == 1);
+    let block = pane(
+        &painted_title(row, brokkr_view::TITLE_COLUMNS),
+        tui.pane == 1,
+    );
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let lines: Vec<Line> = detail_lines(row, &views.now)
@@ -280,20 +375,25 @@ fn draw_detail(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, row: &Ru
 
 /// Every line the detail pane holds, each already wrapped at
 /// [`DETAIL_TEXT_COLUMNS`]: what the pane draws and what its scroll
-/// counts are one list.
+/// counts are one list. A run that needs the operator names the way out
+/// after its notes (#503).
 pub(super) fn detail_lines(row: &RunRow, now: &str) -> Vec<Line<'static>> {
     let verdict = &row.verdict;
     let absent = brokkr_view::ABSENT;
+    let need = brokkr_view::need(row, now);
     let phase = row.phase.as_deref().unwrap_or(absent);
     let age = brokkr_view::age(&row.created_at, now).unwrap_or(absent.to_string());
-    let standing = format!("{} · {phase} · {age}", verdict.standing.label());
-    let status = row.status.as_deref().unwrap_or("?");
+    let stands = match &need {
+        Some(stale @ Need::Stale { .. }) => stale.label(),
+        Some(Need::Parked | Need::Quarantined) | None => verdict.standing.label(),
+    };
+    let standing = format!("{stands} · {phase} · {age}");
     let text = Some(verdict.text.as_str()).filter(|text| !text.is_empty());
     let rule = verdict.rule.as_deref().unwrap_or(absent);
     let residual = verdict.residual.map_or("none", Severity::name);
     let mut texts = vec![
         (row.run_id.clone(), header_style()),
-        (standing, tone_style(status)),
+        (standing, tone_of(row, need.as_ref())),
         (String::new(), plain()),
         (format!("verdict   {}", text.unwrap_or(absent)), plain()),
         (format!("rule      {rule}"), plain()),
@@ -305,6 +405,8 @@ pub(super) fn detail_lines(row: &RunRow, now: &str) -> Vec<Line<'static>> {
             texts.push((format!("{label:<9} {note}"), plain()));
         }
     }
+    let way_out = need.map(|need| need.way_out(&row.run_id));
+    texts.extend(way_out.into_iter().flatten().map(|text| (text, plain())));
     let findings = row.residuals.iter().map(|finding| finding.line.clone());
     texts.extend(findings.map(|text| (text, plain())));
     texts.push((String::new(), plain()));

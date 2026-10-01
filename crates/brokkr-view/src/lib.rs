@@ -30,8 +30,8 @@ pub mod js;
 pub mod transcript;
 
 pub use fleet::{
-    fleet_rows, run_rows, sections, title, wrap, HearthEntries, Section, Standing, Verdict,
-    TITLE_COLUMNS, VERDICT_COLUMNS,
+    fleet_rows, need, run_rows, sections, title, title_within, wrap, HearthEntries, Hire, Need,
+    RunRow, Section, Standing, Verdict, TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 
 use std::collections::BTreeMap;
@@ -72,7 +72,8 @@ use serde_json::Value;
 /// [`reported_cost`] states), where it was the last attempt's alone, and
 /// participants gained `last_attempt_cost` beside it.
 /// Bumped to 12 by #491: a run row gained its `title` and its `verdict`.
-pub const VIEW_VERSION: u32 = 12;
+/// Bumped to 13 by #503: a run row gained its `hire`.
+pub const VIEW_VERSION: u32 = 13;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -126,39 +127,6 @@ pub struct RunEntry<'a> {
     /// that would not open at all — states none, which is exactly what
     /// a fleet listing said before decision 0047.
     pub residuals: &'a [ResidualFinding],
-}
-
-#[derive(Serialize)]
-pub struct RunRow {
-    pub run_id: String,
-    pub status: Option<String>,
-    /// The status is one of the four the surfaces have a colour for.
-    pub status_known: bool,
-    pub phase: Option<String>,
-    pub seq: Option<u64>,
-    pub created_at: String,
-    /// When the run's journal last moved, as its entry states it (#491).
-    pub last_recorded_at: Option<String>,
-    /// The **full** feature: the model stays terminal-agnostic and
-    /// `--json` stays lossless. Clamping is the renderer's job.
-    pub feature: String,
-    /// Why this row carries no status, when it carries none: the fold
-    /// error, verbatim. A quarantined run reads as `?` plus this line
-    /// on every surface instead of vanishing from the fleet.
-    pub detail: Option<String>,
-    /// This run's residual findings, each carrying the operator's
-    /// supersede annotation when one closes it (decision 0047 ruling
-    /// 3): `brokkr runs --json` is a surface that prints a residual
-    /// finding, so it prints the mark. The text table stays a digest —
-    /// clamping and omission are the renderer's job, losslessness is
-    /// the model's.
-    pub residuals: Vec<ResidualFinding>,
-    /// What the fleet calls the run: the feature's first line, clamped
-    /// at a word to 60 display columns (#491). `feature` stays whole
-    /// beside it.
-    pub title: String,
-    /// How the run stands and how it was last ruled (#491).
-    pub verdict: Verdict,
 }
 
 #[derive(Serialize)]

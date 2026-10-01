@@ -230,22 +230,49 @@ fn fleet_step(tui: &mut Tui, views: &Views, step: Step) {
 /// A graph that opens with nothing selected is a graph whose `Enter`
 /// does nothing, which reads as a broken key rather than as an empty
 /// selection. The rail cursor starts on the run's CURRENT phase — where
-/// an operator is already looking — and only when it has none.
+/// an operator is already looking — and only when it has none. The
+/// fleet opens on its first row (#503): the first run that needs the
+/// operator, or else the first running, so a wide frame draws the
+/// detail pane at once.
 pub(super) fn seed_cursor(tui: &mut Tui, views: &Views) {
-    if tui.level != Level::Run || tui.cursor[0].is_some() {
+    if tui.cursor[0].is_some() {
         return;
     }
-    let Some(view) = views.run.as_ref() else {
+    tui.cursor[0] = match (tui.level, views.run.as_ref()) {
+        (Level::Runs, _) => keys_for(tui, views).into_iter().next(),
+        (Level::Run, Some(view)) => view
+            .phases
+            .iter()
+            .find(|phase| phase.current)
+            // A journal that folds to no status has no current phase; the
+            // last phase entered is still where an operator is looking.
+            .or_else(|| view.phases.last())
+            .map(|phase| phase.name.clone()),
+        (Level::Run | Level::Participant, _) => None,
+    };
+}
+
+/// Whether the row is opened in place: a running run `→` opened.
+pub(super) fn opened(tui: &Tui, row: &RunRow) -> bool {
+    row.verdict.standing == Standing::Running && tui.expanded.contains(&row.run_id)
+}
+
+/// `→`, `l` and Space open the selected running run in place, and `←`
+/// and `h` fold it (#503). Only a running run has a place to show; on
+/// any other row opening changes nothing.
+pub(super) fn open_in_place(tui: &mut Tui, views: &Views, open: bool) {
+    let Some(row) = selected_run(tui, views) else {
         return;
     };
-    tui.cursor[0] = view
-        .phases
-        .iter()
-        .find(|phase| phase.current)
-        // A journal that folds to no status has no current phase; the
-        // last phase entered is still where an operator is looking.
-        .or_else(|| view.phases.last())
-        .map(|phase| phase.name.clone());
+    match open {
+        true if row.verdict.standing == Standing::Running => {
+            tui.expanded.insert(row.run_id.clone());
+        }
+        true => {}
+        false => {
+            tui.expanded.remove(&row.run_id);
+        }
+    }
 }
 
 /// The graph is the one pane whose primary axis is horizontal, so it is

@@ -40,13 +40,16 @@
 //! list and its constants, and every submodule reads them, and its
 //! siblings, through `use super::*`: the vocabulary is named once.
 
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::Result;
 use brokkr_core::policy::Severity;
-use brokkr_view::{Column, Node, Participant, Phase, RunRow, RunView, RunsView, Section, Standing};
+use brokkr_view::{
+    Column, Need, Node, Participant, Phase, RunRow, RunView, RunsView, Section, Standing,
+};
 use ratatui::backend::Backend;
 use ratatui::crossterm::cursor::{Hide, Show};
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -56,7 +59,7 @@ use ratatui::crossterm::terminal::{
 };
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap};
 use ratatui::{Frame, Terminal};
 
@@ -83,8 +86,9 @@ const PAGE: usize = 10;
 /// The fleet list's columns, left to right (#491): how the run stands (a
 /// glyph and its widest word, `quarantined`), its verdict, its residual
 /// (the widest, `critical`), its title, its age (`999h59m`) and its id.
-/// The title takes what the frame leaves, and a list too narrow for the
-/// rest folds the age and then the residual away (`fleet_widths`).
+/// The title may take what the frame leaves and takes no more than its
+/// widest line (#503), and a list too narrow for the rest folds the age
+/// and then the residual away (`fleet_widths`).
 const FLEET_COLUMNS: [u16; 6] = [
     13,
     brokkr_view::VERDICT_COLUMNS as u16,
@@ -106,9 +110,8 @@ const LIST_COLUMNS: u16 = 2
     + FLEET_COLUMNS[4]
     + FLEET_COLUMNS[5];
 
-/// The fewest columns the fleet's title is left, which is also the width
-/// of the count line's `a shows them`. With the age and the residual
-/// folded, the list is exactly [`MIN_WIDTH`] wide at it.
+/// The fewest columns the fleet's title is left. With the age and the
+/// residual folded, the list is exactly [`MIN_WIDTH`] wide at it.
 const TITLE_MIN_COLUMNS: u16 = 12;
 
 /// The narrowest frame that holds the fleet's detail pane: the list, and

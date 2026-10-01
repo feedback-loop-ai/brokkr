@@ -459,36 +459,44 @@ read-only exactly as every other readout is — no operator commands, no
 run starts, nothing written to the journal, and a missing database
 refuses rather than creating one.
 
-The fleet lists what to act on first: the runs that need you (parked, or
-quarantined because the journal does not fold), then the running ones,
-then those that finished in the last 24 hours, dated by when their
-journal last moved. Each row is how a run stands, the ruling that
-settled it, its worst open residual, its title (its feature's first
-line), its age and its id, shortened in the middle and never inside its
-hash. Older runs fold into one count line; `a` lists them, and `/`
-searches every run by title and id:
+The fleet lists what to act on first: the runs that need you (parked,
+quarantined because the journal does not fold, or stale: folding to
+running with no event for longer than an attempt's two-hour deadline
+and an hour's margin), then the running ones, then those that finished
+in the last 24 hours, dated by when their journal last moved. Each row
+is how a run stands, the ruling that settled it, its worst open
+residual, its title (its feature's first line, as wide as the frame
+lets it be), its age and its id, shortened in the middle and never
+inside its hash. A stale or quarantined run says under its title what
+to do. Older runs fold into one line; `a` lists them, and `/` searches
+every run by title and id. `→`, `l` or Space open a running run in place
+to its phase, seat, attempt, elapsed time and last event, and `←` or `h`
+fold it. The footer always names `Enter`, `Tab`, `a` and `/`, dropping
+lesser keys on a narrow frame:
 
 ```
 ┌runs──────────────────────────────────────────────────────────────────────────┐
 │needs you                                                                     │
-│? quarantined does not fold           A journal that do 7m03s   journ…7f8e9d0c│
-│● parked      UNVERIFIED-SE… high     #362 cargo exempt 7m03s   cargo…5b6c7d8e│
+│? quarantined does not fold           A journal that…   7m03s   journ…7f8e9d0c│
+│                                      quarantined:…                           │
+│● parked      UNVERIFIED-SE… high     #362 cargo…       7m03s   cargo…5b6c7d8e│
 │running                                                                       │
-│▶ review                              #403 macOS fix, r 7m03s   fix-4…3c1f9a02│
+│◐ review                              #403 macOS fix,…  7m03s   fix-4…3c1f9a02│
 │last 24h                                                                      │
-│✓ shipped     COMPLETE       low      Landing 4 of the  7m03s   landi…2a3b4c5d│
-│✗ stopped     FAIL-EXHAUSTED          0065 rebuild unit 7m03s   0065-…8c9d0e1f│
-│older         2 hidden                a shows them                            │
+│✓ shipped     COMPLETE       low      Landing 4 of the… 7m03s   landi…2a3b4c5d│
+│✗ stopped     FAIL-EXHAUSTED          0065 rebuild…     7m03s   0065-…8c9d0e1f│
+│2 older runs: press a to show                                                 │
 └──────────────────────────────────────────────────────────────────────────────┘
 runs
-↑↓/jk move · Enter open run · a all runs · g/G top/bottom · / filter · r refresh
+↑↓/jk move · Enter open run · Tab detail ≥225 · a all runs · / filter · ? help
 ```
 
-From 225 columns the list keeps 123, a whole title wide, and the
-selected run stands beside it: its full id, how it stands, its rule,
-residual and findings, and the whole feature wrapped at 100 columns.
-`Tab` moves to that pane, where `↑↓`/`jk` scroll it a drawn line at a
-time; `Enter` opens the run from either pane.
+The fleet opens on its first row, so from 225 columns the selected run
+stands beside the list at once, which keeps 123 columns, a whole title
+wide: its full id, how it stands, its rule, residual and findings, for a
+run that needs you the commands that answer it, and the whole feature
+wrapped at 100 columns. `Tab` moves to that pane, where `↑↓`/`jk` scroll
+it a drawn line at a time; `Enter` opens the run from either pane.
 
 `Enter` on a run — the phase rail, the seats, the trail, all three panes
 of the same derivation, and the brand mark riding the graph pane's

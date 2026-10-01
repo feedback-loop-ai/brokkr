@@ -452,7 +452,8 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         residuals: &residuals,
     }]);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 12);
+    assert_eq!(json["view_version"], 13);
+    assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);
     assert_eq!(json["runs"][0]["title"], "fleet titles");
     assert_eq!(json["runs"][0]["last_recorded_at"], JUST_UNDER_A_DAY);
@@ -461,4 +462,146 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         json!({"standing": "shipped", "rule": "SHIP-COMPLETE", "residual": "medium",
                "reason": null, "text": "COMPLETE"})
     );
+}
+
+// ------------------------------------------------------ what it needs
+
+/// A run listed under `state` with its journal's last event at `last`.
+fn silent_since(state: &RunState, last: Option<&str>) -> RunRow {
+    let mut entry = crate::tests::listed("quiet", "LANDING PR #420", DAY_BEFORE, Some(state));
+    entry.last_recorded_at = last;
+    run_rows(&[entry]).runs.remove(0)
+}
+
+/// #503 item 3: a running run whose journal has been silent for longer
+/// than an attempt's deadline and the margin past it — three hours — is
+/// stale and needs the operator; at exactly three hours it is still
+/// running. A stale run is never listed as running.
+#[test]
+fn a_running_run_silent_past_the_deadline_and_its_margin_is_stale() {
+    let running = settled(Status::Running, "land", None);
+    let at_bound = silent_since(&running, Some("2026-01-01T21:00:00Z"));
+    assert_eq!(need(&at_bound, NOW), None);
+    let listed = ids(sections(std::slice::from_ref(&at_bound), NOW));
+    assert_eq!(listed[1], (Section::Running, vec!["quiet"]));
+    let past = silent_since(&running, Some("2026-01-01T20:59:59Z"));
+    let stale = Need::Stale {
+        silent: "3h00m".to_string(),
+    };
+    assert_eq!(need(&past, NOW), Some(stale));
+    assert_eq!(
+        ids(sections(std::slice::from_ref(&past), NOW)),
+        [
+            (Section::NeedsYou, vec!["quiet"]),
+            (Section::Running, vec![]),
+            (Section::Recent, vec![]),
+            (Section::Older, vec![]),
+        ]
+    );
+    // Days silent, as the operator found one.
+    let dead = silent_since(&running, Some("2025-12-28T04:00:00Z"));
+    let silent = "116h00m".to_string();
+    assert_eq!(need(&dead, NOW), Some(Need::Stale { silent }));
+}
+
+/// A run is stale only on evidence: a journal that states no last
+/// event, a last event whose time does not read, and a clock that does
+/// not read leave a running run running. A finished run needs nothing
+/// however long it has been quiet.
+#[test]
+fn a_run_is_stale_only_when_its_silence_reads() {
+    let running = settled(Status::Running, "land", None);
+    let long_ago = Some("2025-12-01T00:00:00Z");
+    assert_eq!(need(&silent_since(&running, None), NOW), None);
+    assert_eq!(need(&silent_since(&running, Some("then")), NOW), None);
+    assert_eq!(need(&silent_since(&running, long_ago), "no clock"), None);
+    let shipped = settled(Status::Completed, "done", None);
+    assert_eq!(need(&silent_since(&shipped, long_ago), NOW), None);
+}
+
+/// #503 items 3 and 4: what each need prints on its row and names in
+/// the detail, the commands whole.
+#[test]
+fn each_need_says_what_the_operator_can_do() {
+    let stale = Need::Stale {
+        silent: "116h00m".to_string(),
+    };
+    assert_eq!(
+        [&Need::Parked, &Need::Quarantined, &stale].map(Need::label),
+        ["parked", "quarantined", "stale"]
+    );
+    assert_eq!(Need::Parked.prompt(), None);
+    assert_eq!(
+        Need::Quarantined.prompt().as_deref(),
+        Some("quarantined: conclude or inspect")
+    );
+    assert_eq!(
+        stale.prompt().as_deref(),
+        Some("stale: no event since 116h00m; retry, resume or conclude")
+    );
+    assert_eq!(Need::Parked.way_out("r1"), Vec::<String>::new());
+    assert_eq!(
+        Need::Quarantined.way_out("r1"),
+        [
+            "way out   brokkr conclude --run r1 --reason <why>",
+            "          where its journal folds; or brokkr export --run r1",
+            "          and inspect the journal it writes",
+        ]
+    );
+    assert_eq!(
+        stale.way_out("r1"),
+        [
+            "stale     no event since 116h00m, past the 3h bound: an attempt's 2h deadline \
+             and a 1h margin",
+            "way out   brokkr operator retry --run r1 --reason <why>,",
+            "          then brokkr resume --run r1;",
+            "          or brokkr conclude --run r1 --reason <why>",
+        ]
+    );
+    let parked = settled(Status::AwaitingOperator, "review", None);
+    assert_eq!(need(&silent_since(&parked, None), NOW), Some(Need::Parked));
+    let unfolded = run_rows(&[crate::tests::listed("q", "a run", NOW, None)]);
+    assert_eq!(need(&unfolded.runs[0], NOW), Some(Need::Quarantined));
+}
+
+/// #503 item 6: a row names the seat its current effect is hired to and
+/// which attempt, from the fold's cursor; a run between effects has none.
+#[test]
+fn a_run_row_names_the_seat_at_work_and_its_attempt() {
+    let mut running = settled(Status::Running, "review", None);
+    running.cursor = Cursor::EffectInFlight {
+        effect_id: "e1".to_string(),
+        attempt_id: "a2".to_string(),
+        seat: "reviewer".to_string(),
+        failed_attempts: 1,
+    };
+    let hire = |seat: &str, attempt| Hire {
+        seat: seat.to_string(),
+        attempt,
+    };
+    assert_eq!(silent_since(&running, None).hire, Some(hire("reviewer", 2)));
+    running.cursor = Cursor::ExecuteEffect {
+        effect_id: "e1".to_string(),
+        seat: "reviewer".to_string(),
+        failed_attempts: 0,
+    };
+    assert_eq!(silent_since(&running, None).hire, Some(hire("reviewer", 1)));
+    let json = serde_json::to_value(silent_since(&running, None)).unwrap();
+    assert_eq!(json["hire"], json!({"seat": "reviewer", "attempt": 1}));
+    for cursor in [Cursor::Idle, Cursor::RequestEffect, Cursor::Stop] {
+        running.cursor = cursor;
+        assert_eq!(silent_since(&running, None).hire, None);
+    }
+}
+
+/// #503 item 2: a title takes the columns it is given, clamped at a word.
+#[test]
+fn a_title_takes_the_columns_it_is_given() {
+    let first =
+        "#403 macOS fix, round 9: PR #483's test (macos-latest) job fails four protocol tests";
+    let feature = format!("{first}\nmore");
+    let feature = feature.as_str();
+    assert_eq!(title_within(feature, 200), first, "wider than sixty");
+    assert_eq!(title_within(feature, 30), "#403 macOS fix, round 9: PR…");
+    assert_eq!(title(feature), title_within(feature, TITLE_COLUMNS));
 }

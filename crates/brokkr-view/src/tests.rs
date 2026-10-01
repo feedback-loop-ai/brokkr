@@ -3280,16 +3280,16 @@ fn an_entry_outside_the_vocabulary_is_not_recorded() {
 /// null-bearing cell rather than a skipped key.
 #[test]
 fn the_wire_version_moves() {
-    assert_eq!(VIEW_VERSION, 12); // 12 (#491): run rows gained title and verdict.
+    assert_eq!(VIEW_VERSION, 13); // 13 (#503): run rows gained hire. 12 (#491): title, verdict.
                                   // 11 (#376): `cost` is every attempt's spend, and the last attempt's
                                   // own figure stands beside it on the wire.
     let retried = serde_json::to_value(run_view(&two_attempt_journal(), None)).unwrap();
-    assert_eq!(retried["view_version"], 12);
+    assert_eq!(retried["view_version"], 13);
     assert_eq!(retried["participants"][0]["cost"], json!(0.75));
     assert_eq!(retried["participants"][0]["last_attempt_cost"], json!(0.5));
     let view = run_view(&boxed_journal(plain_manifest(), Value::Null, None), None);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 12);
+    assert_eq!(json["view_version"], 13);
     let seat = &json["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["absent"], json!(true));

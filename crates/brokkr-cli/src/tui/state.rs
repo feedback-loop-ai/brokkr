@@ -119,6 +119,8 @@ pub(crate) struct TabState {
     pub offset: usize,
     /// Whether this hearth's fleet lists its older runs (`a`).
     pub all: bool,
+    /// The running runs this hearth's fleet has opened in place (`→`).
+    pub expanded: BTreeSet<String>,
 }
 
 /// Owned scalars only. Selection is by **stable key** — `RunRow.run_id`,
@@ -184,6 +186,9 @@ pub(crate) struct Tui {
     /// `a`: the fleet lists its older runs too, where it otherwise folds
     /// them into one count line (#491).
     pub all: bool,
+    /// The running runs the fleet has opened in place, by id (#503): `→`,
+    /// `l` or Space open the selected one, `←` or `h` fold it.
+    pub expanded: BTreeSet<String>,
     /// The width of the frame, measured by the shell before it draws, so
     /// the frame, its footer and the keys pressed against it agree on
     /// whether the fleet's detail pane is on it. Zero until the first
@@ -238,6 +243,7 @@ impl Tui {
             ticks: 0,
             force: true,
             all: false,
+            expanded: BTreeSet::new(),
             width: 0,
         }
     }
@@ -282,6 +288,7 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
         filter: tui.filter.clone(),
         offset: tui.offset,
         all: tui.all,
+        expanded: std::mem::take(&mut tui.expanded),
     };
     let resumed = tui.parked[index].clone();
     tui.tab = index;
@@ -289,6 +296,7 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
     tui.filter = resumed.filter;
     tui.offset = resumed.offset;
     tui.all = resumed.all;
+    tui.expanded = resumed.expanded;
     tui.level = Level::Runs;
     tui.pane = 0;
     tui.run = None;
@@ -306,13 +314,13 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
 }
 
 /// Any run in the fleet is running: the gate for the brand mark's
-/// pulse, refreshed on the fleet cadence the shell already keeps.
+/// pulse, refreshed on the fleet cadence the shell already keeps. A
+/// stale run is listed as needing the operator, not as running (#503),
+/// so it never makes the mark pulse.
 pub(super) fn fleet_live(views: &Views) -> bool {
-    views
-        .runs
-        .runs
-        .iter()
-        .any(|row| row.status.as_deref() == Some("running"))
+    views.runs.runs.iter().any(|row| {
+        row.status.as_deref() == Some("running") && brokkr_view::need(row, &views.now).is_none()
+    })
 }
 
 /// The panes `Tab` moves across: the fleet gains its detail pane while

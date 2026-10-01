@@ -124,6 +124,15 @@ pub fn brokkr_view::transcript::select_reference(core::option::Option<&brokkr_vi
 pub fn brokkr_view::transcript::valid_codex_id(&str) -> bool
 pub fn brokkr_view::transcript::valid_dsh_locator(&str) -> bool
 pub fn brokkr_view::transcript::validate_common(&brokkr_view::Transcript) -> core::result::Result<brokkr_view::transcript::ValidReference, brokkr_view::transcript::Unavailable>
+pub enum brokkr_view::Need
+pub brokkr_view::Need::Parked
+pub brokkr_view::Need::Quarantined
+pub brokkr_view::Need::Stale
+pub brokkr_view::Need::Stale::silent: alloc::string::String
+impl brokkr_view::Need
+pub fn brokkr_view::Need::label(&self) -> &'static str
+pub fn brokkr_view::Need::prompt(&self) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::Need::way_out(&self, &str) -> alloc::vec::Vec<alloc::string::String>
 pub enum brokkr_view::Section
 pub brokkr_view::Section::NeedsYou
 pub brokkr_view::Section::Older
@@ -173,6 +182,9 @@ pub brokkr_view::HearthEntries::detail: core::option::Option<&'a str>
 pub brokkr_view::HearthEntries::entries: &'a [brokkr_view::RunEntry<'a>]
 pub brokkr_view::HearthEntries::journal: &'a str
 pub brokkr_view::HearthEntries::realm: &'a str
+pub struct brokkr_view::Hire
+pub brokkr_view::Hire::attempt: u64
+pub brokkr_view::Hire::seat: alloc::string::String
 pub struct brokkr_view::JournalRow
 pub brokkr_view::JournalRow::causation_seq: core::option::Option<u64>
 pub brokkr_view::JournalRow::event_type: alloc::string::String
@@ -284,6 +296,7 @@ pub struct brokkr_view::RunRow
 pub brokkr_view::RunRow::created_at: alloc::string::String
 pub brokkr_view::RunRow::detail: core::option::Option<alloc::string::String>
 pub brokkr_view::RunRow::feature: alloc::string::String
+pub brokkr_view::RunRow::hire: core::option::Option<brokkr_view::Hire>
 pub brokkr_view::RunRow::last_recorded_at: core::option::Option<alloc::string::String>
 pub brokkr_view::RunRow::phase: core::option::Option<alloc::string::String>
 pub brokkr_view::RunRow::residuals: alloc::vec::Vec<brokkr_view::ResidualFinding>
@@ -364,6 +377,7 @@ pub fn brokkr_view::cited(&brokkr_view::SupersededBy) -> alloc::string::String
 pub fn brokkr_view::clamp(&str, usize) -> alloc::string::String
 pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>]) -> brokkr_view::FleetView
 pub fn brokkr_view::fmt_dur(&str, &str) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::need(&brokkr_view::RunRow, &str) -> core::option::Option<brokkr_view::Need>
 pub fn brokkr_view::operator_commands(&brokkr_core::fold::RunState) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_view::quarantine_finding(&str, u64, &str) -> brokkr_view::ResidualFinding
 pub fn brokkr_view::reported_cost(&serde_json::value::Value) -> core::option::Option<f64>
@@ -374,4 +388,5 @@ pub fn brokkr_view::sections<'a>(&'a [brokkr_view::RunRow], &str) -> alloc::vec:
 pub fn brokkr_view::short_target(&str) -> alloc::string::String
 pub fn brokkr_view::status_str(&brokkr_core::fold::Status) -> &'static str
 pub fn brokkr_view::title(&str) -> alloc::string::String
+pub fn brokkr_view::title_within(&str, usize) -> alloc::string::String
 pub fn brokkr_view::wrap(&str, usize) -> alloc::vec::Vec<alloc::string::String>

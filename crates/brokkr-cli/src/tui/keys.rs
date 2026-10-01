@@ -270,9 +270,11 @@ pub(super) fn typed(tui: &mut Tui, views: &Views, character: char) -> Flow {
         'r' => tui.force = true,
         '/' => tui.typing = true,
         '?' => tui.help = !tui.help,
-        // Bound where the fleet is the list; a character nothing binds
+        // Bound where the fleet is the list; characters nothing binds
         // anywhere else.
         'a' if tui.level == Level::Runs => tui.all = !tui.all,
+        'l' | ' ' if tui.level == Level::Runs => open_in_place(tui, views, true),
+        'h' if tui.level == Level::Runs => open_in_place(tui, views, false),
         _ => {}
     }
     Flow::Continue
@@ -319,6 +321,15 @@ fn read_key(tui: &mut Tui, key: Key) -> Flow {
     Flow::Continue
 }
 
+/// `←→`: at the fleet they fold and open the selected running run in
+/// place (#503); everywhere else they walk the rail, or nothing.
+fn sideways(tui: &mut Tui, views: &Views, direction: Step) {
+    match tui.level {
+        Level::Runs => open_in_place(tui, views, direction == Step::Down),
+        Level::Run | Level::Participant => rail_move(tui, views, direction),
+    }
+}
+
 /// The pure state machine: view models plus a key, in; a flow, out. No
 /// terminal, no store, no I/O.
 pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
@@ -334,8 +345,8 @@ pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
         Key::Tab => tui.pane = (tui.pane + 1) % panes_at(tui, views),
         Key::Up => arrow(tui, views, Step::Up),
         Key::Down => arrow(tui, views, Step::Down),
-        Key::Left => rail_move(tui, views, Step::Up),
-        Key::Right => rail_move(tui, views, Step::Down),
+        Key::Left => sideways(tui, views, Step::Up),
+        Key::Right => sideways(tui, views, Step::Down),
         Key::PageUp => step(tui, views, Step::PageUp),
         Key::PageDown => step(tui, views, Step::PageDown),
     }
