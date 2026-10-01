@@ -1,7 +1,7 @@
 {
   "schema": "brokkr.binary-size/v1",
-  "note": "Bytes of target/release/brokkr as CI's release-binary job builds it (x86_64-unknown-linux-gnu, rust 1.98.0, --locked, [profile.release] as the root Cargo.toml leaves it), read from PR #319's release-binary job at 5df5966c on 2026-09-30 (21,931,184). It was 20,152,912 from PR #483 at 0c9df16f on 2026-09-28. Decision 0065's first slice raises it by 8.8 per cent for capability resolution, native controls and the final launch check, the bound reads of charters and policy, the capability manifest and prompts, the whole-plan doctor, and rustix as a direct dependency of brokkr-runtime, as the operator ruled on 2026-09-30. scripts/binary-size.sh holds each build within one per cent of this number either way. A local build embeds different source paths and is not comparable.",
+  "note": "Bytes of target/release/brokkr as CI's release-binary job builds it (x86_64-unknown-linux-gnu, rust 1.98.0, --locked, [profile.release] as the root Cargo.toml leaves it), read from PR #510's release-binary job at abbea75d on 2026-10-01 (22,167,000). It was 21,931,184 from PR #319 at 5df5966c on 2026-09-30, and 20,152,912 from PR #483 at 0c9df16f on 2026-09-28. The TUI's fleet at 4K (#503: three columns, the run dashboard, need and the live or findings column) and one run view for brokkr run, resume and watch (#508) raise it by 1.08 per cent, as the operator ruled on 2026-10-01; decision 0065's first slice raised it by 8.8 per cent, as the operator ruled on 2026-09-30. scripts/binary-size.sh holds each build within one per cent of this number either way. A local build embeds different source paths and is not comparable.",
   "budgets": {
-    "bytes": 21931184
+    "bytes": 22167000
   }
 }
