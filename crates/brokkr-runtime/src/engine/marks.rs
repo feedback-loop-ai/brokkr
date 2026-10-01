@@ -22,11 +22,34 @@ pub struct SiteMarks<'a> {
 
 impl SiteMarks<'_> {
     /// Every spawn-time mark of one model site, in the engine's order:
-    /// hands, then the result door, then the discovery notice.
+    /// hands, then the result door, then the discovery notice, then what
+    /// the serving candidate holds (decision 0065).
     pub fn site(&self, label: &str, gate: bool, link: Option<&Candidate>, input: &mut Value) {
         self.hands(label, input);
         self.door(label, gate, link, input);
         self.notice(label, link, input);
+        self.capabilities(label, link, input);
+    }
+
+    /// Decision 0065: the native controls composed for the candidate
+    /// serving this attempt, and the prompt's statement of what it holds —
+    /// a fallback gets its own, never its primary's. Written here, the one
+    /// helper #342's prompt-byte budget renders through, so the budget
+    /// measures the capabilities text a seat is actually handed (operator
+    /// ruling 2026-09-29, decision 0071 ruling 5). A site with no computed
+    /// outcome gets an explicit `null`, which the model adapters refuse
+    /// rather than launching a harness on its own defaults.
+    pub fn capabilities(&self, label: &str, link: Option<&Candidate>, input: &mut Value) {
+        let outcome = self
+            .bundle
+            .sites
+            .get(label)
+            .and_then(|facts| facts.capabilities.as_ref())
+            .and_then(|site| {
+                site.serving(link.map(|link| (link.provider.as_str(), link.model.as_str())))
+            });
+        input["native_controls"] = outcome.map_or(Value::Null, |outcome| outcome.controls());
+        input["capabilities"] = outcome.map_or(Value::Null, |outcome| outcome.prompt());
     }
 
     /// Decision 0043: a boxed site is told that it is, because the one
@@ -74,7 +97,9 @@ impl SiteMarks<'_> {
     /// A spawn-time fact of the selected link, written after the
     /// requested digest was checked: a chain fallback moves the door, and
     /// a digest that moved with it would refuse the retry as a different
-    /// effect.
+    /// effect. Rebuild unit 5d (operator ruling of 2026-09-25): an inline
+    /// Codex gate whose read-only class the engine lowered is told so too;
+    /// [`super::result_door`] is the one answer for both.
     pub(super) fn door(
         &self,
         label: &str,
@@ -82,12 +107,8 @@ impl SiteMarks<'_> {
         link: Option<&Candidate>,
         input: &mut Value,
     ) {
-        let door = link.map(|link| link.harness.result);
-        if self.boundary == Boundary::Harness
-            && gate
-            && self.has_hands(label)
-            && door == Some(ResultDoor::LastMessage)
-        {
+        let facts = self.bundle.sites.get(label);
+        if super::result_door(self.boundary, gate, facts, link) == ResultDoor::LastMessage {
             input["result_delivery"] = json!("last-message");
         }
     }

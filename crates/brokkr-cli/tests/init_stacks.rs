@@ -339,6 +339,147 @@ fn the_scaffolded_adapter_declares_an_honest_unmeasured_resume_assessment() {
     compiles(&bundle);
 }
 
+/// Decision 0065 ruling 4: a scaffold carries the SAME native assessment
+/// the shipped Claude adapter does — word for word, evidence limits
+/// included — so a stranger's first workspace cannot drift into a weaker
+/// declaration. And it grants nothing: every model seat it compiles holds
+/// no capability and is composed with both native tools denied by name.
+#[test]
+fn the_scaffolded_adapter_carries_the_shipped_native_assessment_and_grants_nothing() {
+    let (_dir, bundle) = scaffold_from("rust");
+    let scaffolded = read_json(&bundle.join(DEFAULT_ADAPTERS_DIR).join("claude.json"));
+    let shipped =
+        read_json(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/claude.json"));
+    assert_eq!(
+        scaffolded["native_capabilities"],
+        shipped["native_capabilities"]
+    );
+
+    let compiled = compiles(&bundle);
+    assert_eq!(
+        compiled.manifest["capabilities"]["grants"],
+        serde_json::json!({})
+    );
+    let mut model_sites = 0;
+    for (label, facts) in &compiled.sites {
+        let site = facts.capabilities.as_ref().unwrap();
+        for outcome in &site.outcomes {
+            assert!(outcome.held.is_empty(), "{label} holds nothing");
+            if outcome.provider != "claude" {
+                continue;
+            }
+            model_sites += 1;
+            assert_eq!(
+                outcome.controls()["selection"]["deny"],
+                serde_json::json!(["WebFetch", "WebSearch"]),
+                "{label}"
+            );
+            assert_eq!(
+                outcome.controls()["selection"]["include"],
+                serde_json::json!([])
+            );
+        }
+    }
+    assert!(
+        model_sites > 0,
+        "the scaffold seats at least one claude site"
+    );
+}
+
+/// The runner names a scaffold may map that the shipped Claude adapter
+/// does not: the package managers and toolchains no shipped recipe runs.
+/// Every other name a scaffold writes is shipped vocabulary, and must mean
+/// byte for byte what it means there.
+const SCAFFOLD_ONLY: &[(&str, &[&str])] = &[
+    ("rust", &[]),
+    ("node-bun", &["bun"]),
+    ("node-pnpm", &["pnpm"]),
+    ("node-yarn", &["yarn"]),
+    ("node-npm", &[]),
+    ("python-uv", &["uv"]),
+    ("python", &["pytest", "python3"]),
+    ("go", &["go"]),
+    ("make", &["make"]),
+    ("turbo-pnpm", &["pnpm"]),
+    ("turbo-bun", &["bunx"]),
+    ("turbo-plain", &[]),
+    ("nx-yarn", &["yarn"]),
+    ("generic", &[]),
+];
+
+/// Decision 0065 rebuild unit 5 (tasks 5.1 and 5.2): every stack's
+/// generated typed restriction is local command data and nothing more.
+/// Its names are the shipped vocabulary where the shipped Claude adapter
+/// has them — `npm` and `npx` included since the migration names landed —
+/// with the same prefix, and only the rows' own runners outside it. It
+/// adds no grant: the manifest grants nothing, no outcome holds a
+/// capability, and every Claude seat is composed with both native tools
+/// denied by name. Every row is computed before any is judged.
+#[test]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn every_stacks_typed_restrictions_are_shipped_vocabulary_and_add_no_grant() {
+    let shipped =
+        read_json(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/claude.json"));
+    let shipped = shipped["tool_permissions"]["names"].as_object().unwrap();
+    let mut rows = Vec::new();
+    let mut expected = Vec::new();
+    for (fixture, only) in SCAFFOLD_ONLY {
+        let (_dir, bundle) = scaffold_from(fixture);
+        let names = names_map(&bundle);
+        let mut outside = Vec::new();
+        let mut differing = Vec::new();
+        for (name, pattern) in names.as_object().unwrap() {
+            match shipped.get(name) {
+                None => outside.push(name.clone()),
+                Some(theirs) if theirs != pattern => {
+                    differing.push((name.clone(), pattern.clone(), theirs.clone()))
+                }
+                Some(_) => {}
+            }
+        }
+        let compiled = compiles(&bundle);
+        let mut held = Vec::new();
+        let mut claude = Vec::new();
+        for (label, facts) in &compiled.sites {
+            for outcome in &facts.capabilities.as_ref().unwrap().outcomes {
+                if !outcome.held.is_empty() {
+                    held.push(label.clone());
+                }
+                if outcome.provider == "claude" {
+                    let selection = &outcome.controls()["selection"];
+                    let pair = (selection["include"].clone(), selection["deny"].clone());
+                    if !claude.contains(&pair) {
+                        claude.push(pair);
+                    }
+                }
+            }
+        }
+        rows.push((
+            *fixture,
+            outside,
+            differing,
+            compiled.manifest["capabilities"]["grants"].clone(),
+            held,
+            claude,
+        ));
+        expected.push((
+            *fixture,
+            only.iter().map(|name| name.to_string()).collect::<Vec<_>>(),
+            Vec::new(),
+            serde_json::json!({}),
+            Vec::new(),
+            vec![(
+                serde_json::json!([]),
+                serde_json::json!(["WebFetch", "WebSearch"]),
+            )],
+        ));
+    }
+    assert_eq!(rows, expected);
+}
+
 /// Compile the scaffold against ITS OWN roots — the property init proves
 /// when it prints its digest, asserted here from the outside.
 fn compiles(bundle: &Path) -> Bundle {

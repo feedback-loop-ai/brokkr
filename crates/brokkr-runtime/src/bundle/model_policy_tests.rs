@@ -265,6 +265,10 @@ impl Fixture {
 
 /// An inline seat driven by `provider`, classed and bound as given.
 fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
+    // Every known harness's passthrough is written in ITS OWN grammar: a
+    // token the harness has no option for — the trailing `true` these
+    // fixtures once carried — is refused at compile now, wherever it
+    // stands (decision 0066 ruling 6).
     let command = match provider {
         "claude" | "lanetally" => json!([
             "{brokkr}",
@@ -274,8 +278,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             "--model",
             "claude-fable-5-1",
             "--effort",
-            "high",
-            "true"
+            "high"
         ]),
         "codex" => json!([
             "{brokkr}",
@@ -285,8 +288,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             "--model",
             "gpt-6.1-sol",
             "--effort",
-            "medium",
-            "true"
+            "medium"
         ]),
         "dsh" => json!([
             "{brokkr}",
@@ -296,8 +298,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             "--model",
             "deepseek-v4-flash",
             "--effort",
-            "medium",
-            "true"
+            "medium"
         ]),
         "judge" => json!(["{brokkr}", "driver", provider, "--", "--model", "judge-1", "true"]),
         _ => json!(["{brokkr}", "driver", provider, "--", "true"]),
@@ -567,10 +568,13 @@ fn a_dsh_seat_is_refused_at_compile_for_the_model_words_its_driver_refuses_at_sp
     dsh["efforts"] = json!(["low", "medium", "high", "xhigh"]);
     dsh["effort_flag"] = json!("--effort");
     fixture.write_adapter(dsh);
+    // No trailing positional word: decision 0065's dsh command grammar
+    // places none, and would refuse the seat for that word before the
+    // model words under test were ever read (decision 0066 ruling 6).
     let dsh_seat = |pin: &[&str]| {
         let mut command = vec!["{brokkr}", "driver", "dsh", "--"];
         command.extend_from_slice(pin);
-        command.extend_from_slice(&["--effort", "medium", "true"]);
+        command.extend_from_slice(&["--effort", "medium"]);
         let mut work = seat("dsh", None, None);
         work["driver"]["command"] = json!(command);
         work
@@ -3515,9 +3519,13 @@ fn two_boxed_sites() -> Value {
     })
 }
 
+/// The v9 `hands`/`boundary` vocabulary, judged through the version a
+/// compiled manifest now claims: run-manifest/v11 is v9's clauses carried
+/// forward unchanged plus the required `capabilities` section (decision
+/// 0065), which every compiled bundle writes and v9 cannot admit.
 fn v9() -> jsonschema::Validator {
     let schema: Value = serde_json::from_slice(
-        &std::fs::read(workspace().join("contracts/run-manifest.v9.schema.json")).unwrap(),
+        &std::fs::read(workspace().join("contracts/run-manifest.v11.schema.json")).unwrap(),
     )
     .unwrap();
     jsonschema::draft7::new(&schema).unwrap()
@@ -3881,6 +3889,21 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
         // the same under both because both are `namespace`.
         theirs.as_object_mut().unwrap().remove("realms");
         ours.as_object_mut().unwrap().remove("realms");
+        // And since decision 0065 the capability authority NAMES the realm
+        // it was resolved in — in the section itself and in every notice
+        // for a want the realm does not grant. It is the same no-grant
+        // authority under two names, so the unmapped compile is read
+        // under the realm's name before the two are compared.
+        assert_eq!(theirs["capabilities"]["realm"], "brokkr", "{name}");
+        assert_eq!(ours["capabilities"]["realm"], "<unmapped>", "{name}");
+        assert_eq!(theirs["capabilities"]["grants"], json!({}), "{name}");
+        let ours: Value = serde_json::from_str(
+            &ours
+                .to_string()
+                .replace("realm '<unmapped>'", "realm 'brokkr'")
+                .replace("\"realm\":\"<unmapped>\"", "\"realm\":\"brokkr\""),
+        )
+        .unwrap();
         assert_eq!(theirs, ours, "{name} under namespace is today's bundle");
         if let Some(map) = today.manifest.get("boundary") {
             assert!(
@@ -3893,8 +3916,8 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     // First half: the members planted.
     let planted = scratch_adapters(|claude| {
         claude["hands"]["harness"] = json!({
-            "gate": ["--permission-mode", "plan", "--door", "{result_path}"],
-            "work": ["--permission-mode", "acceptEdits"],
+            "gate": ["--max-turns", "40"],
+            "work": ["--max-turns", "80"],
         });
     });
     let mut compiled = Vec::new();
@@ -4005,7 +4028,7 @@ fn a_measured_claude_gap_is_reported_not_papered_over() {
         .0;
     let measured = scratch_adapters(|claude| {
         claude["hands"]["harness"] = json!({
-            "gate": ["--permission-mode", "plan", "--door", "{result_path}"],
+            "gate": ["--max-turns", "40"],
             "work": {"unsupported": "claude 2.1.x: acceptEdits prompts on every shell call"},
         });
     });
@@ -4259,6 +4282,15 @@ fn smith_codex(tool_permissions: Value, hands: Option<Value>) -> Value {
     codex["efforts"] = json!(["low", "medium", "high"]);
     codex["effort_flag"] = json!("--effort");
     codex["tool_permissions"] = tool_permissions;
+    // Decision 0066 ruling 1: codex is known to carry web search, so the
+    // smith is launched only with a delivered denial — the shipped
+    // adapter's measured OFF switch.
+    codex["native_capabilities"] = json!({"known": {"web-search": {
+        "capability": "web-search", "tools": ["web_search"],
+        "on": {"default": "measured cold default"},
+        "off": {"argv": ["-c", "web_search=\"disabled\""]},
+        "restrictions": {"unsupported": "no native restriction transport is established"},
+        "evidence": {"source": "adapter data", "scope": "declared", "limitations": []}}}});
     if let Some(hands) = hands {
         codex["hands"] = hands;
     }

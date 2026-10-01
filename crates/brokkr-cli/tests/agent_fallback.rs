@@ -64,10 +64,13 @@ impl Workspace {
         let ws = Workspace {
             dir: tempfile::tempdir().unwrap(),
         };
-        for sub in ["bundle", "agents/charters", "adapters", "state"] {
+        for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
             std::fs::create_dir_all(ws.path().join(sub)).unwrap();
         }
         std::fs::write(ws.path().join("bundle/policy.json"), POLICY).unwrap();
+        // An inline seat's role stands inside its own bundle, where the
+        // file map pins it (decision 0066 ruling 5).
+        std::fs::write(ws.path().join("bundle/roles/work.md"), "# work\n").unwrap();
         std::fs::write(ws.path().join("agents/charters/work.md"), "# work\n").unwrap();
         // A provider whose binary does not exist: every attempt on it
         // fails to spawn, which satisfies the structural predicate
@@ -157,7 +160,7 @@ impl Workspace {
     fn inline_review(&self) -> Value {
         json!({
             "results": ["clean"],
-            "role": "../agents/charters/work.md",
+            "role": "roles/work.md",
             "driver": {"command": [
                 brokkr_bin(), "fake-driver",
                 "--script", self.path().join("script.json").to_string_lossy(),
@@ -444,7 +447,7 @@ fn a_sequence_reports_its_agent_step_and_its_inline_step_separately() {
             "limits": {"max_attempts": 1, "timeout_seconds": 60},
             "sequence": [
                 {"name": "think", "results": ["complete", "broken"], "agent": "thinker"},
-                {"name": "check", "role": "../agents/charters/work.md",
+                {"name": "check", "role": "roles/work.md",
                  "driver": {"command": [
                      brokkr_bin(), "driver", "exec", "--",
                      "sh", "./check.sh", "{result_path}",
@@ -528,19 +531,15 @@ fn a_seat_whose_charter_is_gone_is_journaled_as_a_failure_to_start() {
         "{events:#?}"
     );
     assert_eq!(failed[0]["payload"]["start_failure_sites"], json!([null]));
-    // The engine names the charter by its resolved path; a temporary
-    // directory reached through a symlink (macOS's /var -> /private/var)
-    // resolves too. The charter itself is gone, so its directory is.
-    let resolved = std::fs::canonicalize(charter.parent().unwrap())
-        .unwrap()
-        .join(charter.file_name().unwrap());
+    // Decision 0066 ruling 5 (merged with #372): the charter is part of
+    // the bundle's identity, so the dispatch door refuses the seat before
+    // the adapter's own unreadable-charter refusal is reached, naming the
+    // charter by its library path. It is still a failure to start.
     assert_eq!(
         failed[0]["payload"]["error"],
-        format!(
-            "seat refused to start: charter '{}' is unreadable: \
-             No such file or directory (os error 2); stderr tail: ",
-            resolved.display()
-        )
+        "driver did not spawn: dispatch refused: a charter of agent 'reviewer' moved since \
+         the compile (missing: review.md); what a seat is told must be the bytes the \
+         bundle's identity names (decision 0066 ruling 5)"
     );
 }
 
@@ -581,7 +580,7 @@ fn a_sequence_step_that_never_accepts_advances_its_own_chain_index() {
             "limits": {"max_attempts": 2, "timeout_seconds": 60},
             "sequence": [
                 {"name": "think", "results": ["complete", "broken"], "agent": "thinker"},
-                {"name": "echo", "role": "../agents/charters/work.md",
+                {"name": "echo", "role": "roles/work.md",
                  "driver": {"command": [
                      brokkr_bin(), "fake-driver",
                      "--script", ws.path().join("script.json").to_string_lossy(),

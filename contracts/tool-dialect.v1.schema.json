@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/tool-dialect.v1.json",
+  "title": "Brokkr tool dialect v1",
+  "description": "One file under dialects/tools/ that makes one abstract capability concrete (decision 0065 ruling 2). A tool dialect says which capability it serves and binds it to exactly one implementation kind: provider-native, a capability a harness already has, addressed through that provider's adapter; mcp, an MCP server and the named tools on it; or hands, reserved for decision 0043's workspace tool, which does not move. A dialect grants nothing: only a realm's capabilities map selects one (ruling 3). The capability's reads/writes/egress classes belong to the operator's abstract definition under capabilities/; a dialect's classes, when written, assert equality with that definition and never supply or override it. The dialect's egress class is decision 0036's separate vocabulary and absent reads uncontracted. Validating a dialect executes nothing and contacts nothing.",
+  "type": "object",
+  "required": ["schema", "name", "serves", "kind", "tools", "sends"],
+  "properties": {
+    "schema": { "const": "brokkr.tool-dialect/v1" },
+    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The dialect's identity, equal to its file's stem." },
+    "serves": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The abstract capability this dialect makes concrete." },
+    "kind": { "enum": ["provider-native", "mcp", "hands"] },
+    "tools": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "The named concrete tools that realise the capability." },
+    "classes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["reads", "writes", "egress"] }, "description": "An equality assertion against the operator's abstract definition; never its source." },
+    "egress": { "enum": ["local", "contracted", "uncontracted"], "description": "Decision 0036's class for where this dialect's traffic goes. Absent reads uncontracted." },
+    "sends": {
+      "type": "object",
+      "required": ["description", "seat_composed"],
+      "additionalProperties": false,
+      "description": "What this dialect discloses: a fetch of a named URL and a free-text query a model composes are different disclosures.",
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "seat_composed": { "type": "boolean" }
+      }
+    },
+    "restrictions": { "type": "object", "description": "An embedded draft-07 object schema for a grant's restriction keys — every grant key other than dialect, tools and offices, which this schema may not redefine. It references nothing outside itself. Absent admits no restriction key." }
+  },
+  "oneOf": [
+    {
+      "required": ["provider", "adapter_key"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {}, "name": {}, "serves": {}, "tools": {}, "classes": {}, "egress": {}, "sends": {}, "restrictions": {},
+        "kind": { "const": "provider-native" },
+        "provider": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The adapter whose harness already has this capability." },
+        "adapter_key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The entry of that adapter's native_capabilities saying how the capability is switched on and off." }
+      }
+    },
+    {
+      "required": ["connection", "version", "secrets"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {}, "name": {}, "serves": {}, "tools": {}, "classes": {}, "egress": {}, "sends": {}, "restrictions": {},
+        "kind": { "const": "mcp" },
+        "connection": {
+          "type": "object",
+          "description": "Exactly one connection form: a stdio launch, or a server URL. Neither carries a credential: a secret is named under secrets and reaches the server as decision 0012 rules.",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "argv": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "description": "The stdio launch." },
+            "url": { "type": "string", "pattern": "^https?://[^@/]+(/.*)?$", "description": "The server's URL, without userinfo." }
+          }
+        },
+        "version": { "type": "string", "minLength": 1, "description": "The pinned implementation version." },
+        "secrets": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }, "description": "Decision 0012 binding names this server needs; never values. Empty when it needs none." },
+        "retained": { "type": "boolean", "description": "Whether each response is kept as a content-addressed artifact (ruling 8). Declared here; built by a later slice." }
+      }
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {}, "name": {}, "classes": {}, "egress": {}, "sends": {}, "restrictions": {},
+        "kind": { "const": "hands" },
+        "serves": { "const": "workspace" },
+        "tools": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "const": "workspace" } }
+      }
+    }
+  ]
+}

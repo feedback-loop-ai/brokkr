@@ -11,14 +11,18 @@ fn error<T>(result: Result<T, CompileError>) -> String {
 
 struct Fixture {
     dir: tempfile::TempDir,
+    /// The temporary root, canonicalised once: on macOS the temp root is
+    /// /var -> /private/var, and the compiler records canonical paths.
+    root: PathBuf,
 }
 
 impl Fixture {
     fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join("roles")).unwrap();
-        std::fs::write(dir.path().join("roles/role.md"), "# role").unwrap();
-        Self { dir }
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir(root.join("roles")).unwrap();
+        std::fs::write(root.join("roles/role.md"), "# role").unwrap();
+        Self { dir, root }
     }
 
     fn policy() -> Value {
@@ -54,16 +58,16 @@ impl Fixture {
 
     fn compile(&self, config: &Value, policy: &Value) -> Result<Bundle, CompileError> {
         std::fs::write(
-            self.dir.path().join("bundle.json"),
+            self.root.join("bundle.json"),
             serde_json::to_vec(config).unwrap(),
         )
         .unwrap();
         std::fs::write(
-            self.dir.path().join("policy.json"),
+            self.root.join("policy.json"),
             serde_json::to_vec(policy).unwrap(),
         )
         .unwrap();
-        Bundle::compile(self.dir.path())
+        Bundle::compile(&self.root)
     }
 }
 
@@ -126,6 +130,102 @@ fn compile_dialect_fixture(
         dialect,
         Boundary::Namespace,
     )
+}
+
+/// Decision 0065 ruling 4 at the ONE site no author wrote: the dialect
+/// validator the wrapper injects runs through the `exec` driver, asks for
+/// nothing, and is still judged like every seat. Against adapters whose
+/// `exec` harness declares a native power it cannot switch off, the
+/// generated site refuses compilation by name — it is never given a quiet
+/// empty outcome because the engine wrote it.
+#[test]
+fn a_generated_validator_is_refused_on_a_harness_whose_native_power_cannot_be_switched_off() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let adapters = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(root.join("adapters")).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            std::fs::copy(&path, adapters.path().join(path.file_name().unwrap())).unwrap();
+        }
+    }
+    let exec = adapters.path().join("exec.json");
+    let mut declared: Value = serde_json::from_slice(&std::fs::read(&exec).unwrap()).unwrap();
+    declared["native_capabilities"] = json!({"known": {"ambient-net": {
+        "capability": "ambient-net", "tools": ["net"],
+        "on": {"default": "always on"},
+        "off": {"unsupported": "the child inherits the host network"},
+        "restrictions": {"unsupported": "none"},
+        "evidence": {"source": "a test", "scope": "a test", "limitations": []}}}});
+    std::fs::write(&exec, serde_json::to_vec(&declared).unwrap()).unwrap();
+
+    // No authored site touches `exec`: opaque custom drivers throughout,
+    // and no dialect step, so the first exec site is the generated one.
+    let plain = json!({"role":"roles/role.md","driver":{"command":["driver"]}});
+    let (mut config, policy) = dialect_config(json!({
+        "results":["pass","fail"],"role":"roles/role.md","driver":{"command":["driver"]}}));
+    config["seats"]["design"] = plain.clone();
+    config["seats"]["design"]["results"] = json!(["drafted", "fail"]);
+    std::fs::write(
+        fixture.dir.path().join("bundle.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.dir.path().join("policy.json"),
+        serde_json::to_vec(&policy).unwrap(),
+    )
+    .unwrap();
+    let compile = |adapters: &Path| {
+        Bundle::compile_with_realm(
+            fixture.dir.path(),
+            &root.join("agents"),
+            adapters,
+            None,
+            Some(&dialect),
+            Boundary::Namespace,
+        )
+    };
+    let refused = |site: &str| {
+        format!(
+            "bundle: seat '{site}' (office '{site}') in realm '<unmapped>': provider 'exec' \
+             cannot switch off its native capability 'ambient-net', which this seat does not \
+             hold (the child inherits the host network; evidence: a test, scope: a test); an \
+             ungranted native capability that cannot be disabled cannot be seated in this realm \
+             (decision 0065 ruling 4)"
+        )
+    };
+    assert_eq!(
+        compile(adapters.path()).unwrap_err().to_string(),
+        refused("verify:dialect-verify")
+    );
+    // The control: the same bundle under the shipped adapters compiles,
+    // and the generated site carries its explicit empty outcome.
+    let compiled = compile(&root.join("adapters")).unwrap();
+    let generated = compiled.sites["verify:dialect-verify"]
+        .capabilities
+        .as_ref()
+        .expect("the generated validator has an outcome");
+    assert_eq!(generated.asks.office, "verify:dialect-verify");
+    assert!(generated.outcomes[0].held.is_empty());
+    // An authored dialect step is the first exec site, and is refused by
+    // its own label (rebuild unit 26b).
+    let (stepped, _) = dialect_config(config["seats"]["verify"].clone());
+    std::fs::write(
+        fixture.dir.path().join("bundle.json"),
+        serde_json::to_vec(&stepped).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        compile(adapters.path()).unwrap_err().to_string(),
+        refused("design:validate")
+    );
 }
 
 #[test]
@@ -587,13 +687,23 @@ fn select_parses_every_case_and_refuses_closed_vocabulary_defects_by_case() {
     bad["seats"]["work"]["select"]["cases"]["feature"]["panel"] = json!({});
     let refusal = error(fixture.compile(&bad, &policy));
     assert!(refusal.contains("work:feature"), "{refusal}");
+    // A case that is a panel alone is parsed as one, and refused as one
+    // (rebuild unit 26b).
+    bad["seats"]["work"]["select"]["cases"]["feature"] = json!({"panel": {}});
+    assert_eq!(
+        error(fixture.compile(&bad, &policy)),
+        "bundle: seat 'work:feature' panel needs at least two members; a one-member panel is a \
+         single seat"
+    );
 }
 
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
     let fixture = Fixture::new();
-    let dir = fixture.dir.path();
+    // The parsers stand below the compile's entry, which hands them its
+    // canonical root (unit 27b; macOS's temporary root is a link).
+    let dir = fixture.root.as_path();
     let results = vec!["pass".to_string(), "fail".to_string()];
 
     for raw in [
@@ -611,6 +721,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             &mut None,
             &mut BTreeMap::new(),
             Boundary::Namespace,
+            &Default::default(),
         )
         .is_err());
     }
@@ -630,6 +741,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         &mut None,
         &mut BTreeMap::new(),
         Boundary::Namespace,
+        &Default::default(),
     ))
     .contains("does not declare"));
     assert_eq!(
@@ -642,11 +754,29 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             &mut None,
             &mut BTreeMap::new(),
             Boundary::Namespace,
+            &Default::default(),
         )
         .unwrap()
         .0
         .len(),
         2
+    );
+    // A member that is not an object declares no tools, and is refused
+    // for what it lacks (rebuild unit 26b).
+    let members = json!({"panel": {"a": 1, "b": 1}, "aggregate": "unanimous-pass"});
+    assert_eq!(
+        error(parse_panel(
+            dir,
+            "review",
+            &members,
+            &results,
+            &[],
+            &mut None,
+            &mut BTreeMap::new(),
+            Boundary::Namespace,
+            &Default::default(),
+        )),
+        "bundle: seat 'review:a' missing 'role'"
     );
 
     for raw in [
@@ -677,6 +807,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
                 secrets: &[],
                 dialect: None,
                 boundary: Boundary::Namespace,
+                charters: &Default::default(),
             }
         )
         .is_err());
@@ -701,6 +832,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             secrets: &[],
             dialect: None,
             boundary: Boundary::Namespace,
+            charters: &Default::default(),
         },
     ));
     assert!(refusal.contains("can emit 'pass'"), "{refusal}");
@@ -722,6 +854,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             secrets: &[],
             dialect: None,
             boundary: Boundary::Namespace,
+            charters: &Default::default(),
         },
     ));
     assert!(
@@ -745,6 +878,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             secrets: &[],
             dialect: None,
             boundary: Boundary::Namespace,
+            charters: &Default::default(),
         },
     )
     .unwrap();
@@ -757,7 +891,14 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
 fn role_secret_command_and_confinement_boundaries_are_explicit() {
     let fixture = Fixture::new();
     let dir = fixture.dir.path();
-    assert!(parse_role(dir, "work", &json!({"role":"missing.md"})).is_err());
+    assert!(parse_role(
+        dir,
+        "work",
+        &json!({"role":"missing.md"}),
+        &Default::default(),
+        &mut BTreeMap::new()
+    )
+    .is_err());
 
     for raw in [
         json!({"secrets": "bad"}),
@@ -955,6 +1096,133 @@ fn a_bundle_never_names_a_crossing() {
 
     // And a bundle that names neither compiles exactly as it always did.
     fixture.compile(&Fixture::config(), &policy).unwrap();
+}
+
+/// Rebuild unit 5e: the `driver` vocabulary is closed at every site a
+/// driver is written — a sequence step, a panel member and a selected case
+/// body, each named as its own site — not only at a seat. (A `tools` key
+/// anywhere already makes this adapter-less fixture's compile ask for
+/// adapter data, so the misplaced key here is `sandbox`.)
+#[test]
+fn a_misplaced_driver_key_is_refused_at_every_site_a_driver_is_written() {
+    let fixture = Fixture::new();
+    let inline = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
+    let mut misplaced = inline.clone();
+    misplaced["driver"]["sandbox"] = json!("read-only");
+    let expected = |site: &str| {
+        super::agent_tests::misplaced_in_driver(
+            site,
+            "'sandbox'",
+            " 'sandbox' is a typed tool field, written as 'tools.sandbox' on the seat.",
+        )
+    };
+
+    let mut step = misplaced.clone();
+    step["name"] = json!("first");
+    step["results"] = json!(["done"]);
+    let mut second = inline.clone();
+    second["name"] = json!("second");
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({"results": ["complete"], "sequence": [step, second]});
+    let mut rows = vec![(
+        "step",
+        error(fixture.compile(&config, &Fixture::policy())),
+        expected("work:first"),
+    )];
+
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({
+        "results": ["pass", "fail"],
+        "aggregate": "unanimous-pass",
+        "panel": {"one": misplaced.clone(), "two": inline.clone()},
+    });
+    let mut panel_policy = Fixture::policy();
+    panel_policy["rules"] = json!([
+        {"id":"WP", "from":"work", "result":"pass", "next":"review", "reason":"pass"},
+        {"id":"WF", "from":"work", "result":"fail", "next":"review", "reason":"fail"},
+        {"id":"REVIEW", "from":"review", "result":"clean", "next":"done", "reason":"review"},
+    ]);
+    rows.push((
+        "member",
+        error(fixture.compile(&config, &panel_policy)),
+        expected("work:one"),
+    ));
+
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({
+        "results": ["complete"],
+        "select": {"on": "strategy", "cases": {
+            "chore": misplaced,
+            "feature": inline.clone(),
+            "design": inline.clone(),
+            "engine": inline,
+        }},
+    });
+    rows.push((
+        "case",
+        error(fixture.compile(&config, &Fixture::policy())),
+        expected("work:chore"),
+    ));
+    for (site, observed, expected) in &rows {
+        assert_eq!(observed, expected, "{site}");
+    }
+}
+
+/// Rebuild unit 5e-fix (the chief's R2 on unit 5e): the site label in the
+/// driver refusal is built from an author-written member name, and nothing
+/// bounds it. A 100,000-character name is named by a 32-byte lead and its
+/// length, and a name carrying a newline cannot forge a line of the reason.
+#[test]
+fn a_driver_refusal_names_a_long_or_unsafe_site_boundedly() {
+    let fixture = Fixture::new();
+    let inline = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
+    let mut misplaced = inline.clone();
+    misplaced["driver"]["sandbox"] = json!("read-only");
+    let mut policy = Fixture::policy();
+    policy["rules"] = json!([
+        {"id":"WP", "from":"work", "result":"pass", "next":"review", "reason":"pass"},
+        {"id":"WF", "from":"work", "result":"fail", "next":"review", "reason":"fail"},
+        {"id":"REVIEW", "from":"review", "result":"clean", "next":"done", "reason":"review"},
+    ]);
+    let rows = [
+        (
+            "a".repeat(100_000),
+            format!(
+                "'work:{}…' (100005 bytes, not echoed in full)",
+                "a".repeat(27)
+            ),
+        ),
+        (
+            "evil\nforged".to_string(),
+            "'work:evil…' (16 bytes, not echoed in full)".to_string(),
+        ),
+    ];
+    for (member, named) in rows {
+        let mut config = Fixture::config();
+        config["seats"]["work"] = json!({
+            "results": ["pass", "fail"],
+            "aggregate": "unanimous-pass",
+            "panel": {member.clone(): misplaced.clone(), "two": inline.clone()},
+        });
+        let expected = super::agent_tests::misplaced_in_driver(
+            "SITE",
+            "'sandbox'",
+            " 'sandbox' is a typed tool field, written as 'tools.sandbox' on the seat.",
+        )
+        .replace("'SITE'", &named);
+        assert_eq!(error(fixture.compile(&config, &policy)), expected);
+        // The paired control (rebuild unit 5e-fix-b, the chief's R3): the
+        // same panel, its member's driver carrying only `command`, compiles
+        // and addresses the member under its whole name.
+        config["seats"]["work"]["panel"][member.as_str()] = inline.clone();
+        let compiled = fixture.compile(&config, &policy).unwrap();
+        let sites: Vec<&str> = compiled.sites.keys().map(String::as_str).collect();
+        let mut wanted = vec!["review", "work:two"];
+        let member_site = format!("work:{member}");
+        wanted.push(&member_site);
+        wanted.sort_unstable();
+        assert_eq!(sites, wanted);
+    }
 }
 
 /// Decision 0046 ruling 1: a bundle never names the boundary. A `boundary`
@@ -1173,6 +1441,8 @@ fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
             &BTreeMap::new(),
             &serde_json::Map::new(),
             Boundary::Namespace,
+            None,
+            &BTreeMap::new(),
         )
         .is_ok());
     }
@@ -1364,7 +1634,8 @@ fn a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused() {
 
 /// Design D10 F2: the injected deterministic validator's address is a
 /// wrapper-created coordinate too, so a literal phase that flattens to it
-/// is refused before the validator's facts are written there.
+/// is refused before the validator's facts are written there, and so is a
+/// wrapped panel member named for it.
 #[test]
 fn a_literal_phase_that_aliases_the_injected_validator_is_refused() {
     let fixture = Fixture::new();
@@ -1397,6 +1668,41 @@ fn a_literal_phase_that_aliases_the_injected_validator_is_refused() {
         message.contains("addresses two different sites as 'verify:dialect-verify'"),
         "{message}"
     );
+    // Operator ruling of 2026-09-30 (unit 26c): a wrapped panel member
+    // named for the validator owns that address until the wrapper moves it,
+    // and the validator's facts are written before the move. The whole
+    // census refuses it, where the drained one let the member carry the
+    // validator's facts away.
+    let member = json!({"role":"roles/role.md","driver":{"command":["driver"]}});
+    let panel = |name: &str| {
+        json!({
+            "results":["pass","fail"], "aggregate":"unanimous-pass",
+            "panel":{name: member.clone(), "other": member.clone()}
+        })
+    };
+    let (config, policy) = dialect_config(panel("dialect-verify"));
+    // The variant is asserted with its payload: `Capability` renders the
+    // same line and is handled differently by `brokkr resume`.
+    match compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)) {
+        Err(CompileError::Invalid(reason)) => assert_eq!(
+            reason,
+            "seat 'verify' addresses two different sites as 'verify:dialect-verify': panel \
+             member 'dialect-verify' of seat 'verify' and the injected dialect validator. The \
+             selection, the argv lookup, the hands map and the boundary map all key on that one \
+             string, so one site would answer for the other; rename one of them"
+        ),
+        other => panic!("an Invalid refusal, never {:?}", other.map(|_| ())),
+    }
+    // The control: any other member name compiles, and the validator keeps
+    // its own site beside the moved members'.
+    let (config, policy) = dialect_config(panel("alpha"));
+    let compiled = compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)).unwrap();
+    let verify: Vec<&str> = compiled
+        .sites
+        .keys()
+        .filter_map(|site| site.strip_prefix("verify:"))
+        .collect();
+    assert_eq!(verify, ["checks:alpha", "checks:other", "dialect-verify"]);
 }
 
 /// Design D10 F1/F2: relocation moves only the wrapped seat's OWN owners.
@@ -1565,5 +1871,93 @@ fn every_shipped_bundle_addresses_its_sites_unambiguously() {
                 );
             }
         }
+    }
+}
+
+/// Rebuild unit 27b (operator ruling 2026-09-30, point 1): A RECIPE REACHED
+/// THROUGH A LINKED ANCESTOR COMPILES, AND ITS OWNERS STILL BIND. macOS's
+/// temporary root is `/var` -> `/private/var`; here a realm is reached
+/// through a link to it, and every root the compile is given is spelled
+/// through that link. Each is resolved once at entry, so the recipe
+/// compiles, both owners are bound at their canonical directories, and a
+/// run starts and resumes. Each owner's directory, then the realm's above
+/// both, replaced by an equal-byte copy after the compile, refuses the start
+/// and the resume, by owner and cause, exactly as units 16–19 prove.
+#[cfg(unix)]
+#[test]
+fn a_recipe_reached_through_a_linked_ancestor_compiles_and_still_refuses_a_replacement() {
+    use crate::engine::{Engine, EngineError};
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let (realm, link) = (root.join("realm"), root.join("link"));
+    for (relative, body) in [
+        ("agents/charters/worker.md", "# work\n".to_string()),
+        (
+            "agents/worker.json",
+            json!({"description": "w", "charter": "charters/worker.md",
+            "models": ["opus"], "efforts": {"opus": "high"}})
+            .to_string(),
+        ),
+        (
+            "adapters/claude.json",
+            std::fs::read_to_string(workspace_root().join("adapters/claude.json")).unwrap(),
+        ),
+        ("recipe/roles/role.md", "# role\n".to_string()),
+        ("recipe/policy.json", Fixture::policy().to_string()),
+        (
+            "recipe/bundle.json",
+            json!({"name": "recipe", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "agent": "worker"},
+            "review": Fixture::config()["seats"]["review"]}})
+            .to_string(),
+        ),
+    ] {
+        std::fs::create_dir_all(realm.join(relative).parent().unwrap()).unwrap();
+        std::fs::write(realm.join(relative), body).unwrap();
+    }
+    std::os::unix::fs::symlink(&realm, &link).unwrap();
+    let (agents, adapters) = (link.join("agents"), link.join("adapters"));
+    let bundle = Bundle::compile_with(&link.join("recipe"), &agents, &adapters);
+    let bundle = bundle.expect("a recipe reached through a link compiles");
+    let owners = bundle.charters.values().flatten();
+    let owners: BTreeSet<_> = owners.map(|pin| pin.owner.root().to_path_buf()).collect();
+    assert_eq!(
+        owners,
+        BTreeSet::from([realm.join("agents"), realm.join("recipe")])
+    );
+    let store = || brokkr_store::Store::open(&root.join("forge.db")).unwrap();
+    let door = |door: Result<Engine, EngineError>| match door {
+        Ok(engine) => Ok(engine.run_id),
+        Err(EngineError::CharterMoved { owner, key }) => Err((owner, key)),
+        Err(other) => panic!("not a charter refusal: {other:?}"),
+    };
+    let run = door(Engine::start(store(), bundle.clone(), "f", None)).unwrap();
+    let doors = || {
+        let started = door(Engine::start(store(), bundle.clone(), "f", None));
+        let resumed = door(Engine::resume(store(), bundle.clone(), &run, None));
+        (started.map(|id| id != run), resumed)
+    };
+    assert_eq!(doors(), (Ok(true), Ok(run.clone())));
+    let moved = |owner: &str, key: &str| (owner.to_string(), format!("replaced: {key}"));
+    for (path, owner, key) in [
+        (realm.join("recipe"), "layer 'recipe'", "roles/role.md"),
+        (realm.join("agents"), "agent 'worker'", "worker.md"),
+        (realm.clone(), "agent 'worker'", "worker.md"),
+    ] {
+        let away = root.join("away");
+        std::fs::rename(&path, &away).unwrap();
+        let mut copy = std::process::Command::new("cp");
+        assert!(copy
+            .arg("-R")
+            .arg(&away)
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        let refused = moved(owner, key);
+        assert_eq!(doors(), (Err(refused.clone()), Err(refused)), "{path:?}");
+        std::fs::remove_dir_all(&path).unwrap();
+        std::fs::rename(&away, &path).unwrap();
+        assert_eq!(doors(), (Ok(true), Ok(run.clone())), "{path:?} restored");
     }
 }

@@ -305,7 +305,8 @@ fn a_dispatch_that_cannot_be_read_or_parsed_is_refused_before_a_journal_exists()
 
 /// An envelope sealed for the bundle but bounding fewer attempts than a
 /// seat may make is refused with the engine's own text before a journal
-/// exists; one that bounds it starts. And a bad envelope is refused ahead
+/// exists; one that bounds it passes, and meets the engine's lineage
+/// refusal (decision 0065 ruling 8). And a bad envelope is refused ahead
 /// of a peer's lock on the journal, which is never waited on for it.
 #[test]
 fn a_dispatch_that_does_not_bound_the_bundle_is_refused_before_a_journal_exists() {
@@ -344,9 +345,20 @@ fn a_dispatch_that_does_not_bound_the_bundle_is_refused_before_a_journal_exists(
 
     std::fs::write(&config, bounded).unwrap();
     seal(&compiled());
-    let engine = start(asked.clone(), dispatched(), &mut silent).unwrap();
-    assert_eq!(engine.run_id, "bound-run");
-    drop(engine);
+    // Bounded, it is past every check the launch makes, and meets decision
+    // 0065 ruling 8 (design D7) in the engine: every compiled bundle pins
+    // its capability authority, which the frozen v2 lineage cannot carry,
+    // so the start is refused by that key's name and writes no row.
+    let refusal = start(asked.clone(), dispatched(), &mut silent)
+        .err()
+        .expect("refused");
+    assert!(matches!(
+        refusal,
+        LaunchError::Engine(EngineError::Dispatch(
+            DispatchError::ManifestKeyUnsupportedByDispatchLineage(ref key)
+        )) if key == "capabilities"
+    ));
+    assert!(rows(&asked.journal).is_empty());
 
     // A peer mid-way through a journal's first open: its rollback-journal
     // file held exclusively, which an open waits out (its `ensure_wal`).
@@ -377,6 +389,28 @@ fn a_rerun_of_a_run_the_journal_does_not_hold_names_it() {
         .starts_with("loading source run 'absent'"));
 }
 
+/// Rebuild unit 12-fix-f, the council's A-E1 (design D6): a resume whose
+/// capability authority cannot be reproduced re-wraps the compiler's raw
+/// reason, so the whole line the engine renders is made through the one
+/// refusal sink — one line, its newline escaped, cut to 512 scalar values.
+#[test]
+fn an_unreproducible_resume_leaves_through_the_one_refusal_sink() {
+    let reason = format!("realm 'a\nb': {}", "x".repeat(600));
+    let line = unreproducible(
+        "run-1",
+        LaunchError::Compile(CompileError::Capability(reason)),
+    )
+    .to_string();
+    let head = "run 'run-1' pins a different bundle: capabilities differ: the capability \
+                authority the run was started under cannot be reproduced here — realm \
+                'a\\nb': ";
+    assert_eq!(
+        line,
+        format!("{head}{}…", "x".repeat(511 - head.chars().count()))
+    );
+    assert_eq!(line.chars().count(), 512);
+}
+
 #[test]
 fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let root = workspace();
@@ -384,6 +418,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
         &root,
         &root.join("recipes/triage"),
         &json!({"bundle_name":"unadopted"}),
+        &root,
     )
     .is_ok());
 
@@ -404,6 +439,20 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
         )
         .unwrap();
     }
+    // The pinned world is where the operator's abstract definitions are
+    // read from, and a compile that loads the shipped library resolves the
+    // asks of EVERY loaded agent (decision 0066 ruling 8) — the researcher's
+    // two wants included, though triage seats it nowhere. A map directory
+    // without them refuses the compile, so this world carries them.
+    std::fs::create_dir(dir.path().join("capabilities")).unwrap();
+    for entry in std::fs::read_dir(root.join("capabilities")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            dir.path().join("capabilities").join(entry.file_name()),
+        )
+        .unwrap();
+    }
     let map = json!({
         "schema":"forge.realms/v3",
         "realms":[{"name":"pinned","path":root,"default_branch":"main","dialect":"openspec"}],
@@ -414,13 +463,16 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let manifest = world
         .pinned(&json!({"bundle_name":"triage"}), Some(&root))
         .unwrap();
-    let bundle = compile_from_manifest(&root, &root.join("recipes/triage"), &manifest).unwrap();
+    let bundle =
+        compile_from_manifest(&root, &root.join("recipes/triage"), &manifest, &root).unwrap();
     assert_eq!(bundle.manifest["bundle_name"], "triage");
-    assert!(compile_from_manifest(&root, &dir.path().join("missing-bundle"), &manifest).is_err());
+    assert!(
+        compile_from_manifest(&root, &dir.path().join("missing-bundle"), &manifest, &root).is_err()
+    );
 
     let mut broken = manifest;
     broken["realms"]["sha256"] = json!("0".repeat(64));
-    assert!(compile_from_manifest(&root, &root.join("recipes/triage"), &broken).is_err());
+    assert!(compile_from_manifest(&root, &root.join("recipes/triage"), &broken, &root).is_err());
 }
 
 #[test]

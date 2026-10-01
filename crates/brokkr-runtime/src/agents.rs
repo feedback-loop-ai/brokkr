@@ -22,24 +22,26 @@
 //!   with MORE power than it declares. `optional` is structurally
 //!   unrepresentable on a restriction — `tools.allow` is a plain array,
 //!   there is no key to set.
-//! - A **grant** the provider cannot serve (an MCP server) is a hard
-//!   failure too, unless the agent marked that server `optional`, in
-//!   which case it becomes a notice that lands in the run manifest.
-//!   Never nothing.
-//! - Both checks run over **every** entry in the chain, not just the
-//!   chosen one: a chain whose second link cannot express the agent's
-//!   restrictions would silently widen its blast radius the moment it
-//!   fell back.
-//! - Matching is per NAMED item. "The provider supports MCP" does not
-//!   satisfy "the agent needs the `github` server"; otherwise the agent
-//!   runs, finds no tools, and reports a content failure for a
-//!   configuration cause — the machine diagnosing itself wrong, which
-//!   decision 0001 exists to prevent.
+//! - A **capability** an office asks for is asked for by ABSTRACT name,
+//!   `requires` or `wants` (decision 0065 ruling 1), and only a realm
+//!   grants one. An agent therefore names no MCP server: the `tools.mcp`
+//!   list this library once read is refused non-empty, because a server
+//!   an office could name would be a door a pulled bundle could open. A
+//!   `wants` the realm does not grant becomes a notice that lands in the
+//!   run manifest. Never nothing.
+//! - The restriction check runs over **every** entry in the chain, not
+//!   just the chosen one: a chain whose second link cannot express the
+//!   agent's restrictions would silently widen its blast radius the
+//!   moment it fell back.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use brokkr_core::canonical::sha256_hex;
+use brokkr_protocol::native_controls::{
+    flatten, AllowIntent, Application, HandsIntent, ListFlag, LocalExpectation, Origin,
+    SandboxIntent, Segment, TemplateExpectation,
+};
 use serde_json::{json, Value};
 use thiserror::Error;
 
@@ -92,15 +94,6 @@ impl Availability {
     }
 }
 
-/// One MCP server an agent needs. `optional` exists ONLY here — which is
-/// what makes "optional on a restriction" unrepresentable rather than
-/// merely forbidden.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct McpNeed {
-    pub server: String,
-    pub optional: bool,
-}
-
 /// One agent definition, as written plus the digests that pin it.
 #[derive(Debug, Clone)]
 pub struct Agent {
@@ -109,6 +102,13 @@ pub struct Agent {
     /// Absolute, canonicalised, proven contained within the library root.
     pub charter: PathBuf,
     pub charter_digest: String,
+    /// The `charter` reference as the definition wrote it, before it was
+    /// resolved to `charter` (rebuild unit 17; design D7).
+    pub charter_reference: String,
+    /// The canonical root of the library this definition was loaded from:
+    /// the tree that owns and contains its charter, wherever that tree
+    /// stands relative to any recipe (rebuild unit 17; design D7).
+    pub library: PathBuf,
     /// Ordered preference chain of abstract model names.
     pub models: Vec<String>,
     /// The effort hired with each candidate (decision 0035 ruling 5),
@@ -118,9 +118,19 @@ pub struct Agent {
     /// therefore the vocabulary — is known.
     pub efforts: BTreeMap<String, String>,
     /// `None` declares NO tool restriction; `Some` is ordered, and that
-    /// order is the provider flag's order.
+    /// order is the provider flag's order. `Some(vec![])` is an EXPLICIT
+    /// empty local allow set (decision 0065 slice one, design D5): it is
+    /// distinct from omission and is never rewritten to it.
     pub allow: Option<Vec<String>>,
-    pub mcp: Vec<McpNeed>,
+    /// The local sandbox class the office declares (design D5), `None`
+    /// where it declares no restriction. A requested local execution
+    /// restriction under the realm's boundary authority — never a
+    /// boundary, never a capability grant.
+    pub sandbox: Option<Sandbox>,
+    /// Decision 0065 ruling 1: the capabilities this office asks for, by
+    /// abstract name, each `requires` or `wants`. A request, never a
+    /// grant: it names no dialect, server, provider or tool.
+    pub capabilities: crate::capabilities::Requests,
     /// Decision 0043: the agent's hands are one boxed tool. When set, the
     /// tool allow-list is not consulted — the box bounds what running
     /// anything can touch — and the adapter must say how it replaces the
@@ -132,6 +142,179 @@ pub struct Agent {
     pub digest: String,
     /// The definition as written, for `brokkr agents show`.
     pub source: Value,
+}
+
+/// Where an office's charter was bound (rebuild unit 17; design D7): the
+/// library that owns it, the reference its definition wrote, the canonical
+/// target that reference resolved to inside that library, and the digest
+/// the library record already pins for the bytes read there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CharterSource {
+    pub library: PathBuf,
+    pub reference: String,
+    pub target: PathBuf,
+    pub digest: String,
+}
+
+impl Agent {
+    /// The binding of this office's charter, as its library loaded it.
+    pub fn charter_source(&self) -> CharterSource {
+        CharterSource {
+            library: self.library.clone(),
+            reference: self.charter_reference.clone(),
+            target: self.charter.clone(),
+            digest: self.charter_digest.clone(),
+        }
+    }
+
+    /// The office's local declaration as one value (design D5.2): the two
+    /// fields are stored where they were always stored, and this assembles
+    /// them for the narrower rather than keeping a duplicate beside them.
+    pub fn local(&self) -> LocalTools {
+        LocalTools {
+            allow: self.allow.clone(),
+            sandbox: self.sandbox,
+        }
+    }
+}
+
+/// The three local sandbox classes a typed `tools.sandbox` may name
+/// (decision 0065 slice one, design D5): Codex's own restriction axis, as
+/// an ABSTRACT request. A class is a requested local execution restriction
+/// checked against decision 0046's realm/boundary authority; it is never a
+/// boundary, never a capability grant, and never bypasses hands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sandbox {
+    ReadOnly,
+    WorkspaceWrite,
+    DangerFullAccess,
+}
+
+impl Sandbox {
+    /// The closed vocabulary, spelled once for every refusal.
+    pub const VOCABULARY: &'static str = "read-only, workspace-write, danger-full-access";
+
+    pub fn parse(word: &str) -> Option<Sandbox> {
+        Some(match word {
+            "read-only" => Sandbox::ReadOnly,
+            "workspace-write" => Sandbox::WorkspaceWrite,
+            "danger-full-access" => Sandbox::DangerFullAccess,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Sandbox::ReadOnly => "read-only",
+            Sandbox::WorkspaceWrite => "workspace-write",
+            Sandbox::DangerFullAccess => "danger-full-access",
+        }
+    }
+
+    /// How far the class lets a seat reach: read-only < workspace-write <
+    /// danger-full-access. Written out, never derived from the words'
+    /// spelling and never from the boundary vocabulary's order.
+    fn reach(self) -> u8 {
+        match self {
+            Sandbox::ReadOnly => 0,
+            Sandbox::WorkspaceWrite => 1,
+            Sandbox::DangerFullAccess => 2,
+        }
+    }
+
+    /// Does `self` reach wider than `office`? Equal is not wider.
+    pub fn widens(self, office: Sandbox) -> bool {
+        self.reach() > office.reach()
+    }
+
+    /// The class as the private launch record states it (design D5.7).
+    pub fn intent(self) -> SandboxIntent {
+        match self {
+            Sandbox::ReadOnly => SandboxIntent::ReadOnly,
+            Sandbox::WorkspaceWrite => SandboxIntent::WorkspaceWrite,
+            Sandbox::DangerFullAccess => SandboxIntent::DangerFullAccess,
+        }
+    }
+}
+
+/// One typed local declaration (design D5.2): an optional ordered allow
+/// list and an optional sandbox class. `None` in a field is "unspecified",
+/// which inherits; `Some(vec![])` is an explicit empty allow set. Private
+/// compile data, not a manifest field and not a grant.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LocalTools {
+    pub allow: Option<Vec<String>>,
+    pub sandbox: Option<Sandbox>,
+}
+
+impl LocalTools {
+    /// A declaration that leaves both fields unspecified — what a site that
+    /// writes no `tools`, or `tools: {}`, requests.
+    pub fn unspecified() -> LocalTools {
+        LocalTools::default()
+    }
+
+    pub fn is_unspecified(&self) -> bool {
+        self.allow.is_none() && self.sandbox.is_none()
+    }
+
+    /// Narrow this office's declaration by a site's `requested` one, field
+    /// by field (design D5.2). An unspecified requested field inherits the
+    /// office's. A requested allow list keeps its written order and names
+    /// and must be a subset of the office's list where the office declares
+    /// one; an unspecified office list may be restricted, and an empty
+    /// office list permits only empty. A requested class may equal or
+    /// reduce the office's reach; widening is refused, never clamped. The
+    /// refusal names the field and the exact addition or widening.
+    pub fn narrow(&self, requested: &LocalTools) -> Result<LocalTools, (String, String)> {
+        let allow = match (&self.allow, &requested.allow) {
+            (office, None) => office.clone(),
+            (None, Some(list)) => Some(list.clone()),
+            (Some(office), Some(list)) => {
+                if let Some(added) = list.iter().find(|name| !office.contains(name)) {
+                    return Err((
+                        "allow".to_string(),
+                        format!(
+                            "names '{added}', which the office's 'tools.allow' {office:?} does \
+                             not; a site subtracts from its office and never adds to it"
+                        ),
+                    ));
+                }
+                Some(list.clone())
+            }
+        };
+        let sandbox = match (self.sandbox, requested.sandbox) {
+            (office, None) => office,
+            (None, Some(class)) => Some(class),
+            (Some(office), Some(class)) => {
+                if class.widens(office) {
+                    return Err((
+                        "sandbox".to_string(),
+                        format!(
+                            "requests '{}', which reaches wider than the office's '{}'; the \
+                             classes reach read-only < workspace-write < danger-full-access, \
+                             and a site narrows its office rather than being clamped to it",
+                            class.name(),
+                            office.name()
+                        ),
+                    ));
+                }
+                Some(class)
+            }
+        };
+        Ok(LocalTools { allow, sandbox })
+    }
+}
+
+/// Decode one site's typed `tools` object (design D5.2) through the same
+/// strict decoder an agent's definition is read with, so a bundle and a
+/// library cannot drift over what the vocabulary means. `what` names the
+/// site the way every other refusal of that site does.
+pub(crate) fn decode_local_tools(
+    what: &str,
+    site: &serde_json::Map<String, Value>,
+) -> Result<LocalTools, String> {
+    load::parse_tools(site, what).map_err(|problem| problem.to_string())
 }
 
 /// How a provider expresses a tool-permission narrowing on its command
@@ -309,6 +492,13 @@ pub struct Adapter {
     /// `hands` already uses, and the reading every adapter written
     /// before this ruling gets.
     pub resume: ResumeAssessment,
+    /// Decision 0065 ruling 4: the powers this harness already has — a
+    /// server-side search, a built-in fetch — each with how it is switched
+    /// on and off, or `unsupported` with the measured reason, or
+    /// `unmeasured`. Absent reads as unmeasured, never as an empty
+    /// verified inventory: an adapter written before the ruling grants
+    /// nothing and claims no denial.
+    pub native: crate::capabilities::NativeInventory,
     pub digest: String,
 }
 
@@ -579,6 +769,27 @@ pub struct Candidate {
     /// decision 0069), carried for the same reason: the engine decides
     /// at spawn, per selected link, whether a boxed seat hears it.
     pub hands_notice: Option<HandsNotice>,
+    /// The entry's composition before flattening (design D5.7): who
+    /// supplied each token of `argv`, and the local and hands halves of the
+    /// expected state, carried from the resolver to dispatch. `argv` is its
+    /// flat projection; the record is never recovered from `argv`'s bytes
+    /// or from [`Candidate::parts`].
+    pub lowering: Lowering,
+}
+
+impl Candidate {
+    /// The composed argv in its two parts, by who wrote them (decision
+    /// 0066 ruling 4): what the agent's definition AUTHORED — driver, model,
+    /// effort, local tool permissions — and the adapter's `hands.workspace`
+    /// fragment the engine owns. `compose` appends the fragment LAST and
+    /// records it in `hands_fragment`, so the split is at the length it
+    /// recorded there: a fact carried from the one place the fragment is
+    /// appended, never recovered by searching the argv for its text. An
+    /// author who spells the same bytes is on the authored side of it.
+    pub fn parts(&self) -> (&[String], &[String]) {
+        self.argv
+            .split_at(self.argv.len().saturating_sub(self.hands_fragment.len()))
+    }
 }
 
 /// An optional-capability gap: a WARNING that lands in the run manifest.
@@ -639,6 +850,17 @@ pub enum ResolveError {
          [{chain}] resolves to a provider this machine reports as unavailable"
     )]
     NoneAvailable { agent: String, chain: String },
+    /// A site's typed local declaration would widen its office (design
+    /// D5.2): the field and the exact addition or widening are named.
+    #[error(
+        "the site's 'tools.{field}' {cause}; an agent-backed site only narrows the \
+         restrictions of agent '{agent}' (decision 0065 slice one, design D5)"
+    )]
+    LocalTools {
+        agent: String,
+        field: String,
+        cause: String,
+    },
 }
 
 /// One chain entry as the resolver sees it: the shared derivation behind
@@ -663,6 +885,161 @@ pub struct ChainEntry {
     pub harness: HarnessHands,
     pub gap: Option<ResolveError>,
     pub notices: Vec<Notice>,
+    /// The composition before flattening (design D5.7), of which `argv`,
+    /// `effort` and `hands_fragment` are projections.
+    pub lowering: Lowering,
+}
+
+/// The typed local and hands intent of one entry, read from the effective
+/// agent declaration BEFORE any emission can fail (design D5.7), so a
+/// declaration no serving path can express stays inspectable without
+/// becoming a runnable plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Intent {
+    pub allow: AllowIntent,
+    pub sandbox: SandboxIntent,
+    pub hands: HandsIntent,
+}
+
+impl Intent {
+    fn of(agent: &Agent) -> Intent {
+        Intent {
+            allow: match &agent.allow {
+                None => AllowIntent::Unspecified,
+                Some(names) => AllowIntent::Listed(names.clone()),
+            },
+            sandbox: agent
+                .sandbox
+                .map_or(SandboxIntent::Unspecified, Sandbox::intent),
+            hands: match agent.hands {
+                Some(_) => HandsIntent::Required,
+                None => HandsIntent::None,
+            },
+        }
+    }
+}
+
+/// One candidate's composition with every contribution's origin assigned
+/// where it was made (design D5.7): the adapter's driver and its model and
+/// effort emissions are `template`, the mapped allow list `local`, the
+/// workspace fragment `hands`. Nothing here is recovered from bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Composition {
+    pub segments: Vec<Segment>,
+    /// The effort pinned in it, `None` where none was emitted.
+    pub effort: Option<String>,
+    pub intent: Intent,
+    /// How the local declaration applies: its exact ordered limits where
+    /// lowered directly, dormant beside hands, or unrestricted.
+    pub application: Application,
+    /// The adapter's declared permission template (rebuild unit 5c-fix2;
+    /// operator ruling 2 of 2026-09-23): a typed fact read from the
+    /// adapter's declaration when the composition is made, carried beside
+    /// the segments and never read back from them, so the seal has an
+    /// expectation an emitted template can contradict.
+    pub template: TemplateExpectation,
+    /// What the final check rebuilds this composition's serving command
+    /// from beside its plan (rebuild unit 14a1), carried from where each
+    /// value was chosen and never read back from the segments. Boxed, so a
+    /// composed [`Lowering`] stays near the size of the others.
+    pub serving: Box<ServingInputs>,
+}
+
+/// The typed inputs one serving command is composed from beside its
+/// segments (rebuild unit 14a1, the first part of unit 14's split): the
+/// adapter's declared dialect, its model and effort pins apart from its
+/// template, and the typed hands the box's transport is bound to —
+/// everything `check_final`'s `Dialect`, `Serving::pins` and
+/// `Serving::hands` take. Each value is carried from where it is known,
+/// never recovered from argv text (decision 0066 ruling 4; design D5.7,
+/// D6).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ServingInputs {
+    pub dialect: DeclaredDialect,
+    /// The adapter's model and effort emissions: `model_flag` and the
+    /// concrete model, then `effort_flag` and the effort where one is
+    /// pinned. None at an inline site, whose recipe writes its own.
+    pub pins: Vec<String>,
+    /// The typed hands declaration, `None` where the site has none.
+    pub spec: Option<brokkr_protocol::hands::HandsSpec>,
+}
+
+/// An adapter's concrete values one serving command is composed from
+/// (rebuild unit 14a1). Every fragment is as the adapter declares it, its
+/// tokens unexpanded; one the engine does not append at this serving is
+/// empty.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DeclaredDialect {
+    /// The tool-permission flag and separator a typed local allow lowers
+    /// onto, `None` where the adapter maps none.
+    pub permissions: Option<ListFlag>,
+    /// The measured `hands.harness` fragment a typed local class lowers
+    /// onto at an inline Codex site. An agent's class rides its hands, so
+    /// an agent's composition lowers none.
+    pub sandbox: Vec<String>,
+    /// The measured `hands.workspace` fragment, where boxed hands compose.
+    pub hands: Vec<String>,
+    /// The fragments the engine appends behind a hands site's command
+    /// under the `harness` boundary, one per seat class.
+    pub boundary: BoundaryFragments,
+}
+
+/// An adapter's `hands.harness.gate` and `hands.harness.work` fragments,
+/// of which a launch's class selects one (decision 0046 ruling 4).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoundaryFragments {
+    pub gate: Vec<String>,
+    pub work: Vec<String>,
+}
+
+/// The tool-permission flag and separator `adapter` declares, `None` where
+/// it maps none (rebuild unit 14a1).
+pub(crate) fn declared_permissions(adapter: &Adapter) -> Option<ListFlag> {
+    adapter
+        .tool_permissions
+        .as_ref()
+        .map(|permissions| ListFlag {
+            flag: permissions.flag.clone(),
+            separator: permissions.separator.clone(),
+        })
+}
+
+impl Composition {
+    /// The flat argv today's serving consumers read.
+    pub fn argv(&self) -> Vec<String> {
+        flatten(&self.segments)
+    }
+
+    /// The hands tokens exactly as composed.
+    pub fn hands_fragment(&self) -> Vec<String> {
+        let hands: Vec<Segment> = self
+            .segments
+            .iter()
+            .filter(|segment| segment.origin == Origin::Hands)
+            .cloned()
+            .collect();
+        flatten(&hands)
+    }
+
+    /// The local half of the expected state, from typed inputs alone.
+    pub fn local(&self) -> LocalExpectation {
+        LocalExpectation {
+            allow: self.intent.allow.clone(),
+            sandbox: self.intent.sandbox,
+            application: self.application.clone(),
+        }
+    }
+}
+
+/// What became of one entry's composition. An unmapped or refused entry is
+/// never a valid empty composition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Lowering {
+    /// No adapter maps the model: nothing was composed.
+    Unavailable,
+    /// The entry's gap refused composition; its intent is kept.
+    Refused(Intent),
+    Composed(Composition),
 }
 
 /// The per-entry resolution picture, which never fails for a known agent
@@ -682,6 +1059,10 @@ pub struct Report {
 pub struct Resolution {
     pub agent: String,
     pub charter: PathBuf,
+    /// The charter's binding, selected with the office every candidate
+    /// below serves (rebuild unit 17): a fallback candidate is the same
+    /// office on another model, and is told the same charter.
+    pub charter_source: CharterSource,
     pub limits: Option<Limits>,
     pub inputs: Option<Vec<String>>,
     /// Ordered; `[0]` is the choice and the rest are the bounded
@@ -711,23 +1092,31 @@ fn capability_gap(
     }
 }
 
-/// One composed candidate: its argv, the effort pinned in it, and the
-/// adapter's `hands.workspace` fragment exactly as appended.
-type Composed = (Vec<String>, Option<String>, Vec<String>);
-
-/// Compose one candidate's argv, or refuse. A lookup and a join: there
-/// is no template language, so there is no substitution function whose
-/// branches could drift from the data.
+/// Compose one candidate, or refuse. A lookup and a join: there is no
+/// template language, so there is no substitution function whose branches
+/// could drift from the data. Each contribution is a segment labelled by
+/// who supplied it at the point it is made.
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compose(
     agent: &Agent,
     adapter: &Adapter,
     model: &str,
     concrete: &str,
-    notices: &mut Vec<Notice>,
-    boxed: bool,
-) -> Result<Composed, ResolveError> {
-    let mut argv = adapter.driver.clone();
+    boundary: brokkr_core::realms::Boundary,
+) -> Result<Composition, ResolveError> {
+    let boxed = boundary.is_boxed();
+    let intent = Intent::of(agent);
+    let mut segments = vec![driver_template(adapter)];
+    // The serving inputs are filled as each contribution is chosen
+    // (rebuild unit 14a1), never read back from the segments.
+    let mut serving = ServingInputs {
+        dialect: DeclaredDialect {
+            permissions: declared_permissions(adapter),
+            ..DeclaredDialect::default()
+        },
+        pins: Vec::new(),
+        spec: agent.hands.clone(),
+    };
     // A provider that serves the model but cannot be TOLD which model is
     // the silent-substitution case in its purest form: it would run its
     // own default and the run would claim the pinned one.
@@ -741,8 +1130,8 @@ fn compose(
                 .to_string(),
         )
     })?;
-    argv.push(flag.clone());
-    argv.push(concrete.to_string());
+    serving.pins = vec![flag.clone(), concrete.to_string()];
+    segments.push(Segment::new(Origin::Template, &serving.pins));
 
     // The other half of the hire (decision 0035 ruling 5). A model pin
     // without an effort pin is half a hire, and the half it withholds is
@@ -797,14 +1186,26 @@ fn compose(
                     ),
                 ));
             }
-            argv.push(effort_flag.clone());
-            argv.push(effort.clone());
+            let pinned = [effort_flag.clone(), effort.clone()];
+            segments.push(Segment::new(Origin::Template, &pinned));
+            serving.pins.extend(pinned);
             Some(effort.clone())
         }
     };
 
-    let mut hands_fragment = Vec::new();
-    if agent.hands.is_some() {
+    let gap = |cause: String| capability_gap(agent, adapter, model, cause);
+
+    let application = if agent.hands.is_some() {
+        // The list is dormant beside hands (decision 0043 ruling 2): no
+        // direct mapping is required for it and no direct flag is added.
+        // Only an entry the adapter DOES map onto a native tool is refused.
+        if let (Some(allow), Some(permissions)) = (&agent.allow, &adapter.tool_permissions) {
+            for tool in allow {
+                if let Some(name) = permissions.names.get(tool) {
+                    native_alias(adapter, tool, name).map_err(gap)?;
+                }
+            }
+        }
         if boxed {
             // Decision 0043 ruling 2: the box expresses the restriction. The
             // tool list is not consulted; what the provider must be able to
@@ -824,86 +1225,187 @@ fn compose(
                     ),
                 )
             })?;
-            argv.extend(fragment.iter().cloned());
-            hands_fragment = fragment.clone();
-        }
-    } else if let Some(allow) = &agent.allow {
-        let permissions = adapter.tool_permissions.as_ref().ok_or_else(|| {
-            // A measured gap names the axis the provider DOES have; a
-            // bare `"unsupported"` names nothing, because nothing was
-            // recorded. Either way the attempt refuses here.
-            let declared = match &adapter.tool_permissions_gap {
-                Some(reason) => {
-                    format!("the provider declares tool_permissions unsupported ({reason})")
-                }
-                None => "the provider declares tool_permissions unsupported".to_string(),
+            segments.push(Segment::new(Origin::Hands, fragment));
+            serving.dialect.hands = fragment.clone();
+        } else if boundary == brokkr_core::realms::Boundary::Harness {
+            // Decision 0046 ruling 4: unboxed under `harness`, the engine
+            // appends the fragment the seat's class selects behind the
+            // command, as the adapter declares it.
+            serving.dialect.boundary = BoundaryFragments {
+                gate: adapter.harness.gate.clone().unwrap_or_default(),
+                work: adapter.harness.work.clone().unwrap_or_default(),
             };
-            capability_gap(
-                agent,
-                adapter,
-                model,
-                format!(
-                    "{declared}, so the agent's restriction to {allow:?} cannot be \
-                     expressed and the agent would run with MORE power than it declares"
-                ),
-            )
-        })?;
-        let mut expressed = Vec::with_capacity(allow.len());
-        for tool in allow {
-            let name = permissions.names.get(tool).ok_or_else(|| {
-                capability_gap(
-                    agent,
-                    adapter,
-                    model,
-                    format!("the provider maps no tool permission named '{tool}'"),
-                )
-            })?;
-            expressed.push(name.clone());
         }
-        argv.push(permissions.flag.clone());
-        argv.push(expressed.join(&permissions.separator));
-    }
+        // Hands replace the harness's tools: a declared list is kept as
+        // intent, and its concrete mapping is inapplicable, not absent.
+        Application::Dormant
+    } else if let Some(allow) = &agent.allow {
+        let lowered = lower_allow(adapter, allow, "agent").map_err(gap)?;
+        segments.push(lowered.segment);
+        Application::Direct(lowered.limits)
+    } else {
+        Application::Unrestricted
+    };
 
-    for need in &agent.mcp {
-        let served = adapter
-            .mcp
-            .as_ref()
-            .and_then(|mcp| mcp.servers.get(&need.server).map(|value| (mcp, value)));
-        match served {
-            Some((mcp, value)) => {
-                argv.push(mcp.flag.clone());
-                argv.push(value.clone());
-            }
-            None => {
-                let capability = match adapter.mcp.as_ref() {
-                    Some(_) => format!(
-                        "the provider declares no MCP server named '{}'",
-                        need.server
-                    ),
-                    None => format!(
-                        "the provider declares mcp unsupported, so the MCP server \
-                         '{}' cannot be provided",
-                        need.server
-                    ),
-                };
-                if !need.optional {
-                    return Err(capability_gap(agent, adapter, model, capability));
-                }
-                notices.push(Notice {
-                    agent: agent.name.clone(),
-                    provider: adapter.provider.clone(),
-                    model: model.to_string(),
-                    capability: "mcp".to_string(),
-                    item: need.server.clone(),
-                    message: format!(
-                        "optional capability gap: {capability}; the agent runs with \
-                         less power than it declares"
-                    ),
-                });
-            }
-        }
+    // An agent names no MCP server (decision 0065 ruling 3): a server is
+    // the realm's to grant through a tool dialect, never an office's to
+    // ask for by name, so there is nothing of the kind to compose here.
+    Ok(Composition {
+        segments,
+        effort,
+        intent,
+        application,
+        template: declared_template(&adapter.driver),
+        serving: Box::new(serving),
+    })
+}
+
+/// The adapter's declared driver as the `template` segment that opens every
+/// command it composes (design D5.7). Its dispatch verb supplies no driver
+/// extra; what follows the verb — Claude's `--permission-mode acceptEdits`
+/// — is the adapter's permission template.
+fn driver_template(adapter: &Adapter) -> Segment {
+    Segment::new(Origin::Template, &adapter.driver)
+}
+
+/// The permission template an adapter's `driver` declaration declares for
+/// the seats it composes (rebuild unit 5c-fix2): what the driver hands the
+/// harness behind the dispatch verb, read from the declaration and never
+/// from a composed segment, or `none` where it declares nothing there.
+pub fn declared_template(driver: &[String]) -> TemplateExpectation {
+    match permission_template(driver) {
+        [] => TemplateExpectation::None,
+        declared => TemplateExpectation::Declared(declared.to_vec()),
     }
-    Ok((argv, effort, hands_fragment))
+}
+
+/// The permission template a driver emits (rebuild unit 5c): what it hands
+/// its harness behind the `<engine> driver <kind>` dispatch verb, less an
+/// escape `--` directly behind it. A driver that does not dispatch through
+/// that verb is opaque: the engine composes it whole as the adapter's own
+/// program, places nothing behind a verb and has no grammar for it, so it
+/// emits no permission template — the same reading that refuses to place
+/// an opaque driver's tail behind an inline command.
+pub fn permission_template(argv: &[String]) -> &[String] {
+    match argv {
+        [_, marker, _, rest @ ..] if marker == "driver" => match rest {
+            [escape, tail @ ..] if escape == "--" => tail,
+            _ => rest,
+        },
+        _ => &[],
+    }
+}
+
+/// Rebuild unit 5c (operator ruling of 2026-09-24, "the permission
+/// template at inline sites"): the part of [`driver_template`] an agent's
+/// composition hands its driver behind the verb, for an inline site whose
+/// command dispatches `kind` and whose typed allow lowers. It is the
+/// adapter's declaration, never the recipe's, in the engine's `template`
+/// origin; an adapter that declares nothing behind its verb contributes no
+/// segment. An adapter whose own driver does not dispatch `kind` declares
+/// no template that could stand behind that command, and is refused.
+pub fn inline_template(adapter: &Adapter, kind: &str) -> Result<Option<Segment>, String> {
+    let driver = driver_template(adapter);
+    match driver.argv.as_slice() {
+        [_, marker, dispatched, ..] if marker == "driver" && dispatched == kind => {
+            let template = brokkr_protocol::native_controls::harness_arguments(&driver.argv);
+            Ok((!template.is_empty()).then(|| Segment::new(driver.origin, template)))
+        }
+        _ => Err(format!(
+            "the '{kind}' adapter's own driver does not dispatch the '{kind}' driver, so the \
+             permission template it declares cannot be placed behind an inline '{kind}' command; \
+             the engine emits an adapter's template only as that adapter's agents receive it, \
+             and the site is refused rather than launched without it (operator ruling of \
+             2026-09-24, the permission template at inline sites)"
+        )),
+    }
+}
+
+/// A direct allow list lowered onto one adapter's tool permissions (design
+/// D5.7): the `local` segment the engine contributes, and the ordered
+/// concrete limits kept before they were joined, so an expectation never
+/// has to split a flag value. One lowering serves an agent's composition
+/// and an inline Claude or LaneTally site (rebuild unit 5b).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalLowering {
+    pub segment: Segment,
+    pub limits: Vec<String>,
+}
+
+/// Lower `allow` through `adapter`'s tool permissions, or name the cause
+/// that refuses it. `holder` names whose restriction it is — the agent's,
+/// or an inline site's — in the cause.
+pub fn lower_allow(
+    adapter: &Adapter,
+    allow: &[String],
+    holder: &str,
+) -> Result<LocalLowering, String> {
+    // Design D5.3: an explicit empty allow set is decoded exactly and
+    // stays refused here until the owning lowering delivers it — joining
+    // no names into an empty flag value is not proof of an empty tool
+    // surface, whatever the provider declares.
+    if allow.is_empty() {
+        return Err(
+            "the effective 'tools.allow' is explicitly empty, and no serving path yet \
+             expresses an empty local allow set as a delivered restriction (joining no \
+             names into an empty flag value proves nothing); the declaration is kept \
+             exactly and refused rather than run unrestricted, until decision 0065 slice \
+             one's lowering proves its delivery (design D5.3)"
+                .to_string(),
+        );
+    }
+    let permissions = adapter.tool_permissions.as_ref().ok_or_else(|| {
+        // A measured gap names the axis the provider DOES have; a bare
+        // `"unsupported"` names nothing, because nothing was recorded.
+        // Either way the attempt refuses here.
+        let declared = match &adapter.tool_permissions_gap {
+            Some(reason) => {
+                format!("the provider declares tool_permissions unsupported ({reason})")
+            }
+            None => "the provider declares tool_permissions unsupported".to_string(),
+        };
+        format!(
+            "{declared}, so the {holder}'s restriction to {allow:?} cannot be expressed and \
+             the {holder} would run with MORE power than it declares"
+        )
+    })?;
+    let mut limits = Vec::with_capacity(allow.len());
+    for tool in allow {
+        let name = permissions
+            .names
+            .get(tool)
+            .ok_or_else(|| format!("the provider maps no tool permission named '{tool}'"))?;
+        native_alias(adapter, tool, name)?;
+        limits.push(name.clone());
+    }
+    Ok(LocalLowering {
+        segment: Segment::new(
+            Origin::Local,
+            &[
+                permissions.flag.clone(),
+                limits.join(&permissions.separator),
+            ],
+        ),
+        limits,
+    })
+}
+
+/// Decision 0065, no grandfathering: an allow entry that maps to a tool of
+/// one of this harness's NATIVE capabilities was a second way to hold it,
+/// and only the realm grants one. It is refused by name with the way out,
+/// never composed and never silently dropped from the restriction — beside
+/// hands too (design D5.2), where the list is dormant but a mapped alias is
+/// still a claim on a power.
+fn native_alias(adapter: &Adapter, tool: &str, name: &str) -> Result<(), String> {
+    match adapter.native.capability_of(name) {
+        Some(capability) => Err(format!(
+            "tool permission '{tool}' maps to '{name}', a tool of the provider's native \
+             capability '{capability}'; a legacy allow entry cannot authorize a capability, so \
+             request '{capability}' by name under 'capabilities' and let the realm grant it \
+             through a tool dialect (decision 0065 ruling 3)"
+        )),
+        None => Ok(()),
+    }
 }
 
 fn entry_for(
@@ -911,7 +1413,7 @@ fn entry_for(
     adapters: &Adapters,
     availability: &Availability,
     model: &str,
-    boxed: bool,
+    boundary: brokkr_core::realms::Boundary,
 ) -> ChainEntry {
     let Some((adapter, concrete)) = adapters.serving(model) else {
         return ChainEntry {
@@ -924,16 +1426,28 @@ fn entry_for(
             harness: HarnessHands::default(),
             gap: None,
             notices: Vec::new(),
+            lowering: Lowering::Unavailable,
         };
     };
     let presence = availability.presence(&adapter.provider);
-    let mut notices = Vec::new();
-    let (argv, effort, hands_fragment, gap) =
-        match compose(agent, adapter, model, concrete, &mut notices, boxed) {
-            Ok((argv, effort, hands_fragment)) => (argv, effort, hands_fragment, None),
-            // A blocked entry contributes no notices: it contributes an
-            // error, and reporting both would double-count one gap.
-            Err(gap) => (Vec::new(), None, Vec::new(), Some(gap)),
+    // The flat fields are projections of the composition, never a second
+    // derivation beside it; a refused entry keeps only its typed intent.
+    let (argv, effort, hands_fragment, gap, lowering) =
+        match compose(agent, adapter, model, concrete, boundary) {
+            Ok(composition) => (
+                composition.argv(),
+                composition.effort.clone(),
+                composition.hands_fragment(),
+                None,
+                Lowering::Composed(composition),
+            ),
+            Err(gap) => (
+                Vec::new(),
+                None,
+                Vec::new(),
+                Some(gap),
+                Lowering::Refused(Intent::of(agent)),
+            ),
         };
     ChainEntry {
         model: model.to_string(),
@@ -944,7 +1458,10 @@ fn entry_for(
         hands_fragment,
         harness: adapter.harness.clone(),
         gap,
-        notices,
+        // Filled by the compiler, which knows the realm: a capability the
+        // office wants and the realm does not grant (decision 0065).
+        notices: Vec::new(),
+        lowering,
     }
 }
 
@@ -974,17 +1491,52 @@ pub(crate) fn report_under(
     name: &str,
     boundary: brokkr_core::realms::Boundary,
 ) -> Result<Report, ResolveError> {
-    let agent = library
+    report_narrowed(
+        library,
+        adapters,
+        availability,
+        name,
+        boundary,
+        &LocalTools::unspecified(),
+    )
+}
+
+/// [`report_under`] for one executable site's own typed `tools`
+/// declaration (design D5.2): `requested` is applied to a PRIVATE clone of
+/// the office before composition, so the report's chain is composed from
+/// the effective declaration and two sites hiring one office cannot affect
+/// one another. The clone's source and digest are the office's, untouched;
+/// `Report::agent` carries the effective local fields.
+pub(crate) fn report_narrowed(
+    library: &Library,
+    adapters: &Adapters,
+    availability: &Availability,
+    name: &str,
+    boundary: brokkr_core::realms::Boundary,
+    requested: &LocalTools,
+) -> Result<Report, ResolveError> {
+    let mut agent = library
         .agent(name)
         .ok_or_else(|| ResolveError::UnknownAgent {
             name: name.to_string(),
             known: library.names().join(", "),
         })?
         .clone();
+    let effective =
+        agent
+            .local()
+            .narrow(requested)
+            .map_err(|(field, cause)| ResolveError::LocalTools {
+                agent: agent.name.clone(),
+                field,
+                cause,
+            })?;
+    agent.allow = effective.allow;
+    agent.sandbox = effective.sandbox;
     let entries: Vec<ChainEntry> = agent
         .models
         .iter()
-        .map(|model| entry_for(&agent, adapters, availability, model, boundary.is_boxed()))
+        .map(|model| entry_for(&agent, adapters, availability, model, boundary))
         .collect();
     let chosen = entries
         .iter()
@@ -1032,6 +1584,9 @@ pub(crate) fn resolve_report(
         chain: agent.models.join(", "),
     })?;
 
+    // Each candidate carries its entry's composition itself (design D5.7,
+    // rebuild unit 4): the flat argv and hands fragment beside it are its
+    // projections, and dispatch reads the segments, never the bytes.
     let candidates: Vec<Candidate> = report.entries[chosen..]
         .iter()
         .filter(|entry| entry.presence != Presence::Unavailable)
@@ -1060,6 +1615,9 @@ pub(crate) fn resolve_report(
                 // The same provider's discovery declaration, read from
                 // the same adapter the consulted digest below pins.
                 hands_notice: adapter.and_then(|adapter| adapter.hands_notice.clone()),
+                // Every entry here composed: a gap or an unmapped model was
+                // refused above.
+                lowering: entry.lowering.clone(),
             }
         })
         .collect();
@@ -1100,6 +1658,7 @@ pub(crate) fn resolve_report(
         hands: agent.hands.clone(),
         agent: agent.name.clone(),
         charter: agent.charter.clone(),
+        charter_source: agent.charter_source(),
         limits: agent.limits,
         inputs: agent.inputs.clone(),
         candidates,

@@ -17,6 +17,11 @@ use brokkr_core::policy::Outcome;
 use brokkr_core::realms::{recorded_head, Boundary, LEGACY_REALM_KEY};
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
+use brokkr_protocol::native_controls::{
+    flatten, pin_fault, reassemble, AllowIntent, Application, Expected, HandsIntent, LaunchRecord,
+    LocalExpectation, Origin, SandboxIntent, SealedBoundary, SealedDialect, SealedServing, Segment,
+    TemplateExpectation, Transport, SERVING_INPUTS,
+};
 use brokkr_protocol::process::{DriverProcess, SpawnEnv};
 use brokkr_protocol::AttemptOutcome;
 use brokkr_store::{SeatRecordError, Store, StoreError};
@@ -24,14 +29,15 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::agents::Candidate;
-// The test modules reach these through `use super::*`.
+use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::bundle::{
-    layer_drift, Aggregate, Bundle, ExecutableBody, PanelMember, Seat, SeatBody, SeatClass,
+    charters_as_started, charters_intact, layer_drift, site_charter_text, Aggregate, Bundle,
+    CharterPin, ExecutableBody, HandsState, PanelMember, Seat, SeatBody, SeatClass, SiteFacts,
     StepBody, ENGINE_VERSION, REALM_FACTS,
 };
+// The test modules reach this through `use super::*`.
 #[cfg(test)]
-use crate::bundle::{HandsState, SequenceStep};
+use crate::bundle::SequenceStep;
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::{AttemptReport, Cleanup, CleanupEvidence};
 use serde::Serialize;
@@ -177,6 +183,44 @@ pub enum EngineError {
          one word (decision 0046 ruling 1)"
     )]
     BoundaryMismatch { compiled: Boundary, world: Boundary },
+    /// Decision 0065 ruling 3 at the same door: a bundle holds what the
+    /// realm it was COMPILED in grants, so it starts only in a world whose
+    /// operated realm grants exactly that. A different grant context is a
+    /// different authority, refused before any row is written.
+    #[error(
+        "this bundle was compiled under the capabilities realm '{compiled_realm}' grants \
+         ({compiled}), and the world it is started with resolves realm '{world_realm}' \
+         granting {world} for the operated repository; a seat holds only what the realm it \
+         runs in grants, so recompile in this world (decision 0065 ruling 3)"
+    )]
+    CapabilityMismatch {
+        compiled_realm: String,
+        compiled: String,
+        world_realm: String,
+        world: String,
+    },
+    /// The same door, for the bytes behind the grants (design D7): the
+    /// manifest pins every abstract definition and tool dialect the compile
+    /// consulted, by relative source and digest, and a resume must be able
+    /// to reproduce them. A run is not journaled against an input that has
+    /// already moved.
+    #[error(
+        "this bundle's capabilities were compiled against '{input}', which {problem} in the \
+         operator configuration this run is started with; a run pins the abstract definitions \
+         and tool dialects its holdings came from, so recompile in this world (decision 0065 \
+         ruling 8)"
+    )]
+    CapabilityInputMoved { input: String, problem: String },
+    /// Rebuild unit 19 (design D7; decision 0066 ruling 5): a charter the
+    /// bundle bound moved since its compile — its owner, its target or its
+    /// bytes. Checked at start before `create_run` and at resume before the
+    /// run is driven, by the same bound read as the dispatch door.
+    #[error(
+        "a charter of {owner} moved since the compile ({key}); a run is started or resumed only \
+         over the charters the bundle's identity names, so restore it, or recompile and start a \
+         new run (decision 0066 ruling 5)"
+    )]
+    CharterMoved { owner: String, key: String },
     /// Decision 0046 ruling 6: `seatbelt` and `container` are named, pinned
     /// and admitted at compile, and built by slices (ii) and (iii). This
     /// engine composes nothing for either, and never simulates a boundary,
@@ -232,6 +276,18 @@ fn refuse_unbuilt(bundle: &Bundle) -> Result<(), EngineError> {
         }),
         _ => Ok(()),
     }
+}
+
+/// Rebuild unit 19 (design D7): the start and resume doors' charter check.
+/// Every binding the compile selected, library and layer alike, is read
+/// again through its owner; a recompile is not what makes it pass. `Ok` is
+/// the bindings checked, which a start records in its `run/started` event.
+fn refuse_moved_charter(bundle: &Bundle) -> Result<Value, EngineError> {
+    charters_intact(bundle).map_err(charter_moved)
+}
+
+fn charter_moved((owner, key): (String, String)) -> EngineError {
+    EngineError::CharterMoved { owner, key }
 }
 
 impl EngineError {
@@ -430,6 +486,51 @@ impl Engine {
                 world: resolved,
             });
         }
+        // Decision 0065 ruling 3, fenced the same way and for the same
+        // reason: the grants the operated realm declares TODAY are what
+        // this run may hold, and a bundle compiled under any other grant
+        // context — a neighbouring realm's, an edited map's, none at all
+        // — is refused before `create_run`, so nothing is journaled and no
+        // seat spawns.
+        let operated_realm = world.as_ref().and_then(|world| world.realm_for(&operated));
+        let world_realm = operated_realm.map_or(crate::capabilities::UNMAPPED, |realm| &realm.name);
+        let world_grants: Map<String, Value> = operated_realm
+            .into_iter()
+            .flat_map(|realm| &realm.grants)
+            .map(|(capability, grant)| (capability.clone(), grant.value()))
+            .collect();
+        // What is compared is the realm and its GRANTS, which is the
+        // authority: a bundle that records none was compiled under none,
+        // and a neighbouring realm granting the very same map is still a
+        // different office-holder's permission, not this one's.
+        let compiled = &bundle.manifest["capabilities"];
+        let compiled_grants = compiled.get("grants").cloned().unwrap_or_else(|| json!({}));
+        let compiled_realm = compiled["realm"]
+            .as_str()
+            .unwrap_or(crate::capabilities::UNMAPPED);
+        if compiled_grants != json!(world_grants) || compiled_realm != world_realm {
+            return Err(EngineError::CapabilityMismatch {
+                compiled_realm: compiled_realm.to_string(),
+                compiled: compiled_grants.to_string(),
+                world_realm: world_realm.to_string(),
+                world: Value::Object(world_grants).to_string(),
+            });
+        }
+        // And the bytes those grants were judged against, read where the
+        // compile read them: beside the map, else under the operated
+        // repository (design D2).
+        let operator_root = match &world {
+            Some(world) => world.source.parent().map(PathBuf::from).unwrap_or_default(),
+            None => operated.clone(),
+        };
+        if let Some((input, problem)) = moved_capability_input(compiled, &operator_root) {
+            return Err(EngineError::CapabilityInputMoved { input, problem });
+        }
+        // And every charter the bundle bound, where its owner stands now
+        // (rebuild unit 19): no run is journaled over one that moved. The
+        // bindings checked are recorded with the run, so its resume, over a
+        // bundle compiled again, is held to them (review return F1).
+        let charters = refuse_moved_charter(&bundle)?;
         // Pinned for the same operated repository the fence judged, so a
         // run started from a mapped workspace with no `--repo` still
         // names its realm — and resumes under the word it was started
@@ -442,7 +543,7 @@ impl Engine {
         store.append_next(
             &run_id,
             EventType::RunStarted,
-            json!({"feature": feature, "manifest": manifest}),
+            json!({"feature": feature, "manifest": manifest, "charters": charters}),
             None,
             None,
         )?;
@@ -477,12 +578,13 @@ impl Engine {
         refuse_unbuilt(&bundle)?;
         dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
         verify_dispatch_bundle_bounds(&dispatch, &bundle)?;
+        let charters = refuse_moved_charter(&bundle)?;
         let manifest = build_run_manifest_v2(&bundle.manifest, dispatch)?;
         store.create_run(&run_id, feature, &bundle.name, &manifest)?;
         store.append_next(
             &run_id,
             EventType::RunStarted,
-            json!({"feature": feature, "manifest": manifest}),
+            json!({"feature": feature, "manifest": manifest, "charters": charters}),
             None,
             None,
         )?;
@@ -531,8 +633,22 @@ impl Engine {
                 detail,
             });
         }
+        // An equal manifest is the pinned identity, not the pinned bytes:
+        // each charter it names is read again through its owner, whether the
+        // run pinned a world or none (rebuild unit 19), and must be the
+        // binding the run STARTED over: the bundle here may be compiled
+        // again, and a recompile binds an equal-byte retarget afresh without
+        // moving the manifest (review return F1). A pin that does not answer
+        // for itself is tampering, and refuses before any charter is read.
+        let world = crate::realms::World::from_manifest(&pinned)?;
         let mut replay = replay::Replay::default();
         let feature = replay.caught_up(&store, run_id)?.feature;
+        let started = replay
+            .events
+            .first()
+            .filter(|event| event.event_type == EventType::RunStarted)
+            .and_then(|event| event.payload.get("charters"));
+        charters_as_started(&bundle, started).map_err(charter_moved)?;
         Ok(Engine {
             store,
             boundary: bundle.boundary,
@@ -546,7 +662,7 @@ impl Engine {
             // a disk that may have moved on. Without this a resumed run
             // would silently stop keying its facts by realm, changing
             // fact-shape mid-run depending on which verb was typed.
-            world: crate::realms::World::from_manifest(&pinned)?,
+            world,
             current_cause: None,
             secrets_file: None,
             active_gate_head: None,
@@ -1279,8 +1395,9 @@ impl Engine {
         // instance this attempt resolves to is part of what decides
         // whether a prior session may be handed back to it.
         let runtime_hands = self.runtime_hands(&site_name);
-        let single = match body {
-            ExecutableBody::Single { command, .. } => Some(self.compose(
+        let mut single = match body {
+            ExecutableBody::Single { command, .. } => Some(self.compose_at(
+                Some(&site_name),
                 &attempt_id,
                 gate,
                 argv_for(&selection, &None, command).to_vec(),
@@ -1307,6 +1424,12 @@ impl Engine {
         // as a different effect.
         self.marks()
             .site(&site_name, gate, selection.get(&None), &mut input);
+        self.mark_capabilities(
+            &site_name,
+            selection.get(&None),
+            single.as_mut(),
+            &mut input,
+        );
         let mut started = json!({
             "effect_id": effect_id,
             "attempt_id": attempt_id,
@@ -1409,6 +1532,107 @@ impl Engine {
     /// The hands and boundary markers (see [`SiteMarks`]).
     fn mark_hands(&self, label: &str, input: &mut Value) {
         self.marks().hands(label, input);
+    }
+
+    /// Decision 0065 rulings 4 and 5: what the serving candidate of this
+    /// site holds, and the native controls its launch is composed with —
+    /// both read from the ONE outcome compiled for that candidate, so the
+    /// prompt, the argv and the manifest cannot disagree. A fallback link
+    /// gets its own outcome, never its primary's.
+    ///
+    /// `native_controls` is ALWAYS written: the plan, or `null` where no
+    /// outcome was computed for the site — which the model adapters refuse
+    /// before any provider work rather than launching a harness on its
+    /// own defaults. Written beside the result door ([`SiteMarks`]), outside
+    /// the requested digest, for the same reason: a chain fallback moves it.
+    ///
+    /// `launch_arguments` rides beside them (decision 0066 ruling 4): the
+    /// composed spawn's arguments in their two parts, what the recipe or
+    /// its agent authored and what the engine appended for the boundary.
+    /// All three are written LAST, after every merge of seat, context and
+    /// member input, so nothing a recipe, a result or a returned capability
+    /// response carries can mint or overwrite them; a fallback link brings
+    /// its own plan AND its own parts.
+    /// A panel or a sequence is no launch of its own — each member and step
+    /// is marked with its own spawn — so its seat-level input carries none.
+    ///
+    /// The private launch record is sealed onto the spawn here and written
+    /// beside them (decision 0065 slice one, design D5.7): the spawn's
+    /// segments with the serving outcome's expected state. An input that
+    /// already carries one refuses the spawn rather than being overwritten
+    /// into looking sealed; a site no outcome serves carries none; and a
+    /// site whose expected state cannot be sealed refuses its spawn. The
+    /// typed serving inputs are sealed with it and written beside it under
+    /// the same three rules (rebuild unit 14a2), with the boundary this
+    /// engine stands under (rebuild unit 14a4c).
+    pub fn mark_capabilities(
+        &self,
+        label: &str,
+        link: Option<&Candidate>,
+        spawn: Option<&mut SiteSpawn>,
+        input: &mut Value,
+    ) {
+        let facts = self.bundle.sites.get(label);
+        let outcome = facts
+            .and_then(|facts| facts.capabilities.as_ref())
+            .and_then(|site| {
+                site.serving(link.map(|link| (link.provider.as_str(), link.model.as_str())))
+            });
+        self.marks().capabilities(label, link, input);
+        let Some(spawn) = spawn else {
+            input["launch_arguments"] = Value::Null;
+            return;
+        };
+        input["launch_arguments"] = spawn.launch_arguments();
+        if input.get(LAUNCH_RECORD).is_some() {
+            spawn.refusal.get_or_insert_with(|| {
+                format!(
+                    "dispatch refused: the input arrived carrying a private launch record \
+                     ('{LAUNCH_RECORD}') before the engine sealed one; a recipe, a result or a \
+                     context cannot supply the record, even one equal to the engine's (decision \
+                     0065 slice one, design D5.7)"
+                )
+            });
+        }
+        // Rebuild unit 14a2: the typed serving inputs are sealed beside the
+        // record and arrive no other way.
+        if input.get(SERVING_INPUTS).is_some() {
+            spawn.refusal.get_or_insert_with(|| {
+                format!(
+                    "dispatch refused: the input arrived carrying sealed serving inputs \
+                     ('{SERVING_INPUTS}') before the engine sealed any; a recipe, a result or a \
+                     context cannot supply them, even ones equal to the engine's (rebuild unit \
+                     14a2; design D5.7)"
+                )
+            });
+        }
+        spawn.record = None;
+        spawn.serving = None;
+        let Some(outcome) = outcome else {
+            return;
+        };
+        let sealed = expected_state(outcome, link, facts)
+            .and_then(|expected| {
+                let serving = serving_inputs(link, facts, spawn.class, self.boundary)?;
+                Ok((expected, serving))
+            })
+            .and_then(|(expected, serving)| {
+                spawn.seal(expected)?;
+                spawn.serving = Some(serving);
+                Ok(())
+            });
+        match sealed {
+            Ok(()) => {
+                input[LAUNCH_RECORD] = spawn.launch_record();
+                input[SERVING_INPUTS] = spawn
+                    .serving
+                    .as_ref()
+                    .map_or(Value::Null, SealedServing::value);
+            }
+            Err(reason) => {
+                spawn.refusal.get_or_insert(reason);
+            }
+        }
     }
 
     /// The marks this engine writes into a site's driver input, under the
@@ -1587,9 +1811,13 @@ impl Engine {
     /// over the facts the engine holds, with the unboxed exec dispatch's
     /// fixed environment and network prefix prepared here — the two
     /// private directories created under the run's scratch, the probe
-    /// asked once per engine process and remembered.
-    fn compose(
+    /// asked once per engine process and remembered. `label` names the
+    /// compiled site whose facts the composition reads — an inline site's
+    /// lowered allow among them (rebuild unit 5b).
+    #[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
+    fn compose_at(
         &mut self,
+        label: Option<&str>,
         attempt_id: &str,
         gate: bool,
         command: Vec<String>,
@@ -1613,17 +1841,39 @@ impl Engine {
         } else {
             SeatClass::Work
         };
-        compose_site(
-            boundary,
-            class,
-            command,
-            hands,
-            link,
-            &workdir,
-            &self.bundle.roots,
-            result_path,
-            unboxed.as_ref(),
-        )
+        let facts = label.and_then(|label| self.bundle.sites.get(label));
+        SiteSpawn {
+            // Rebuild unit 18: the site's own charter binding rides its
+            // spawn to the dispatch door.
+            charter: facts.and_then(|facts| facts.charter.clone()),
+            ..compose_site_at(
+                facts,
+                boundary,
+                class,
+                command,
+                hands,
+                link,
+                &workdir,
+                &self.bundle.roots,
+                result_path,
+                unboxed.as_ref(),
+            )
+        }
+    }
+
+    /// [`Self::compose_at`] over argv no compiled site owns: the boundary
+    /// tests' door, which composes a command for the boundary alone.
+    #[cfg(test)]
+    fn compose(
+        &mut self,
+        attempt_id: &str,
+        gate: bool,
+        command: Vec<String>,
+        hands: Option<&HandsSpec>,
+        link: Option<&Candidate>,
+        result_path: &str,
+    ) -> SiteSpawn {
+        self.compose_at(None, attempt_id, gate, command, hands, link, result_path)
     }
 
     /// What an unboxed exec dispatch starts in (design DD10, DD15): the
@@ -1813,9 +2063,11 @@ impl Engine {
             );
         }
         let stamp = plan.map(|plan| plan.context.clone());
-        let process = match spawn_site(&self.bundle, spawn, &workdir, deadline) {
+        // The door returns the input the driver is actually sent: the same
+        // object, with the charter text it verified carried in it.
+        let (process, input) = match spawn_site(&self.bundle, spawn, &input, &workdir, deadline) {
             Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
-            Ok(process) => process,
+            Ok(started) => started,
         };
         // A checkpoint the journal refused under the seat-record fence
         // (decision 0034, ruling 6) does not stop the driver — nothing
@@ -2012,7 +2264,8 @@ impl Engine {
                 self.marks()
                     .site(&label, gate, selection.get(&site), &mut input);
                 let hands = self.hands_for(&label);
-                let spawn = self.compose(
+                let mut spawn = self.compose_at(
+                    Some(&label),
                     attempt_id,
                     gate,
                     argv_for(selection, &site, &member.command).to_vec(),
@@ -2020,6 +2273,7 @@ impl Engine {
                     selection.get(&site),
                     input["result_path"].as_str().unwrap_or_default(),
                 );
+                self.mark_capabilities(&label, selection.get(&site), Some(&mut spawn), &mut input);
                 // Each member's OWN offer and stamps, never the panel's:
                 // selection is per site, not per aggregate (proposed
                 // decision 0056 ruling 1).
@@ -2084,44 +2338,48 @@ impl Engine {
                     let workdir = workdir.clone();
                     let sender = sender.clone();
                     scope.spawn(move || {
-                        let report = match spawn_site(bundle, &run.spawn, &workdir, deadline) {
-                            Err(e) => AttemptReport {
-                                outcome: AttemptOutcome::Failed {
-                                    error: format!("member driver did not spawn: {e}"),
+                        let report =
+                            match spawn_site(bundle, &run.spawn, &run.input, &workdir, deadline) {
+                                Err(e) => AttemptReport {
+                                    outcome: AttemptOutcome::Failed {
+                                        error: format!("member driver did not spawn: {e}"),
+                                    },
+                                    refused: None,
+                                    // Nothing was spawned, so nothing is left.
+                                    cleanup: Cleanup::Settled,
+                                    session_ref: None,
+                                    checkpoints: Vec::new(),
+                                    stderr: String::new(),
+                                    // Nothing ran, so nothing was
+                                    // accepted: the structural
+                                    // fail-to-start predicate holds.
+                                    accepted: false,
+                                    // No process existed for a watchdog to
+                                    // kill.
+                                    deadline_killed: false,
                                 },
-                                refused: None,
-                                // Nothing was spawned, so nothing is left.
-                                cleanup: Cleanup::Settled,
-                                session_ref: None,
-                                checkpoints: Vec::new(),
-                                stderr: String::new(),
-                                // Nothing ran, so nothing was
-                                // accepted: the structural
-                                // fail-to-start predicate holds.
-                                accepted: false,
-                                // No process existed for a watchdog to
-                                // kill.
-                                deadline_killed: false,
-                            },
-                            Ok(process) => process.run_attempt_resuming(
-                                ENGINE_VERSION,
-                                effect_id,
-                                attempt_id,
-                                &run.driver_seat,
-                                run.input.clone(),
-                                // This member's own offer, decided in
-                                // `site_plans` before anything spawned.
-                                // Only its provider ID crosses the wire;
-                                // the locator rides the member's private
-                                // `resume_context`.
-                                run.offer.as_ref().map(|offer| offer.provider_id.clone()),
-                                // Live telemetry: hand each checkpoint to the
-                                // main thread — the store has one writer.
-                                |data| {
-                                    let _ = sender.send((checkpoint_name.clone(), data.clone()));
-                                },
-                            ),
-                        };
+                                // The door's own input, carrying the charter
+                                // text it verified for this member.
+                                Ok((process, input)) => process.run_attempt_resuming(
+                                    ENGINE_VERSION,
+                                    effect_id,
+                                    attempt_id,
+                                    &run.driver_seat,
+                                    input,
+                                    // This member's own offer, decided in
+                                    // `site_plans` before anything spawned.
+                                    // Only its provider ID crosses the wire;
+                                    // the locator rides the member's private
+                                    // `resume_context`.
+                                    run.offer.as_ref().map(|offer| offer.provider_id.clone()),
+                                    // Live telemetry: hand each checkpoint to the
+                                    // main thread — the store has one writer.
+                                    |data| {
+                                        let _ =
+                                            sender.send((checkpoint_name.clone(), data.clone()));
+                                    },
+                                ),
+                            };
                         (name, report)
                     })
                 })
@@ -2937,9 +3195,59 @@ struct MemberRun {
 fn spawn_site(
     bundle: &Bundle,
     spawn: &SiteSpawn,
+    input: &Value,
     workdir: &Path,
     deadline: std::time::Duration,
-) -> Result<DriverProcess, String> {
+) -> Result<(DriverProcess, Value), String> {
+    if let Some(reason) = &spawn.refusal {
+        return Err(reason.clone());
+    }
+    // The input arrives here after its last merge: the launch record in it
+    // must be the one sealed for this spawn, and reassemble the argv about
+    // to be launched (design D5.7).
+    verify_record(spawn, input)?;
+    // Decision 0066 ruling 5: the driver renders the prompt from the role
+    // file it is handed, so the file is judged here, against the pin the
+    // compile took, immediately before the driver that will read it.
+    //
+    // Second council H6: and the TEXT that read produced rides the input
+    // from here, because a driver that reopened the path would read
+    // whatever it said by then. An exec site has no charter to load into
+    // a prompt; everything else answers to a pin, the layer's file map or
+    // the library record.
+    //
+    // Rebuild unit 18 (design D7): the charter checked is the one the
+    // compile bound to THIS site, carried on its spawn, through its owner's
+    // bound read — owner, target and bytes — and the text handed over is
+    // that read's buffer, written here after every merge. An input that
+    // arrives already carrying charter text refuses rather than being
+    // overwritten into looking verified: a recipe, a result or a context
+    // cannot supply what the seat is told.
+    if input
+        .get(brokkr_protocol::native_controls::ROLE_TEXT)
+        .is_some()
+    {
+        return Err(format!(
+            "dispatch refused: the input arrived carrying charter text ('{}') before the \
+             dispatch door read one; what a seat is told is read only here, from the charter \
+             the compile bound to its site (decision 0066 ruling 5)",
+            brokkr_protocol::native_controls::ROLE_TEXT
+        ));
+    }
+    let mut input = input.clone();
+    let role = input["role_path"].as_str().unwrap_or_default().to_string();
+    if !role.is_empty() || spawn.charter.is_some() {
+        match site_charter_text(bundle, spawn.charter.as_ref(), Path::new(&role)) {
+            Err((owner, key)) => {
+                return Err(format!(
+                    "dispatch refused: a charter of {owner} moved since the compile ({key}); \
+                     what a seat is told must be the bytes the bundle's identity names \
+                     (decision 0066 ruling 5)"
+                ))
+            }
+            Ok(text) => input[brokkr_protocol::native_controls::ROLE_TEXT] = Value::String(text),
+        }
+    }
     if let Some(layer) = &spawn.rewalk {
         if let Some((layer, key)) = layer_drift(bundle, layer) {
             return Err(format!(
@@ -2949,6 +3257,7 @@ fn spawn_site(
         }
     }
     DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
+        .map(|process| (process, input))
         .map_err(|error| error.to_string())
 }
 
@@ -2960,17 +3269,675 @@ pub struct SiteSpawn {
     pub argv: Vec<String>,
     pub env: SpawnEnv,
     pub rewalk: Option<PathBuf>,
+    pub refusal: Option<String>,
+    /// Who supplied each token of `argv`, in order (decision 0065 slice
+    /// one, design D5.7): the selected candidate's own segments, or an
+    /// inline site's authored command, and what the engine composed for the
+    /// boundary as `hands`. Carried from where each contribution is made,
+    /// because the flattened argv has lost the difference and an author can
+    /// spell whatever the engine can. Its concatenation is `argv`.
+    pub segments: Vec<Segment>,
+    /// The private launch record sealed for this spawn — its driver
+    /// extras' segments beside the serving candidate's expected state —
+    /// or `None` where no capability outcome serves the site. The dispatch
+    /// door admits exactly this record and nothing else.
+    pub record: Option<LaunchRecord>,
+    /// The typed serving inputs sealed beside `record` (rebuild unit
+    /// 14a2): what the final check rebuilds the command from, carried from
+    /// the selected candidate's composition or the inline site's facts.
+    /// `Some` exactly where `record` is, and the dispatch door admits
+    /// exactly these inputs and nothing else.
+    pub serving: Option<SealedServing>,
+    /// The seat class this spawn was composed for, which selects the
+    /// boundary fragment appended behind hands and so the one the serving
+    /// inputs seal (rebuild unit 14a2); `None` for a spawn no composition
+    /// classed.
+    pub class: Option<SeatClass>,
+    /// Rebuild unit 18 (design D7): the charter the compile bound to the
+    /// site this spawn was composed for — its owner, reference, target and
+    /// digest — carried from that site's facts so the dispatch door checks
+    /// this site's own binding and no other. `None` for a spawn no compiled
+    /// site owns, or a site without a charter.
+    pub charter: Option<CharterPin>,
 }
+
+/// The engine-private input key the sealed launch record rides under,
+/// written after every merge of seat, context and member input.
+pub const LAUNCH_RECORD: &str = "launch_record";
 
 impl SiteSpawn {
     /// An argv in the engine's own environment with no re-walk: what
-    /// every site without hands, and every boxed site, spawns as.
+    /// every site without hands, and every boxed site, spawns as. Every
+    /// token is the author's: nothing here was composed by the engine.
     pub fn inherit(argv: Vec<String>) -> SiteSpawn {
+        SiteSpawn::of(vec![Segment::new(Origin::Authored, &argv)])
+    }
+
+    /// A spawn of exactly these segments, their concatenation its argv.
+    fn of(segments: Vec<Segment>) -> SiteSpawn {
         SiteSpawn {
-            argv,
+            argv: flatten(&segments),
             env: SpawnEnv::Inherit,
             rewalk: None,
+            refusal: None,
+            segments,
+            record: None,
+            serving: None,
+            class: None,
+            charter: None,
         }
+    }
+
+    /// Where the driver's extras begin, exactly as the driver will read
+    /// them. The driver's launch starts behind whatever the engine put in
+    /// front of it for the boundary — the box's exec prefix, the network
+    /// prefix — which composition carries as the leading `hands` segments,
+    /// never found by searching the flattened argv. Its extras follow the
+    /// three-token `<engine> driver <kind>` verb, less an escape `--`
+    /// directly behind the verb, which the driver's trailing-argument
+    /// parser drops; any later `--` is an argument. An argv that ends at
+    /// the verb has none.
+    fn extras_start(&self) -> usize {
+        let launch: usize = self
+            .segments
+            .iter()
+            .take_while(|segment| segment.origin == Origin::Hands)
+            .map(|segment| segment.argv.len())
+            .sum();
+        let verb = launch + 3;
+        match self.argv.get(verb) {
+            None => self.argv.len(),
+            Some(escape) if escape == "--" => verb + 1,
+            Some(_) => verb,
+        }
+    }
+
+    /// The segments of the driver's extras, cut at [`Self::extras_start`]
+    /// by position: a segment that ends at or before the cut supplied only
+    /// the verb and is dropped, one that straddles it keeps its tail, and
+    /// every later one — an empty one included — is kept whole.
+    pub fn extras(&self) -> Vec<Segment> {
+        let cut = self.extras_start();
+        let mut start = 0;
+        let mut extras = Vec::new();
+        for segment in &self.segments {
+            let end = start + segment.argv.len();
+            if start >= cut {
+                extras.push(segment.clone());
+            } else if end > cut {
+                extras.push(Segment::new(segment.origin, &segment.argv[cut - start..]));
+            }
+            start = end;
+        }
+        extras
+    }
+
+    /// The driver's private `launch_arguments`: the extras in their two
+    /// legacy parts, the trailing run of `hands` segments the engine
+    /// composed for the boundary and everything before it. A projection of
+    /// the segments, never a count recovered from the flattened argv. The
+    /// driver refuses a launch whose parts do not reassemble what it was
+    /// handed.
+    pub fn launch_arguments(&self) -> Value {
+        let extras = self.extras();
+        let managed_from = extras
+            .iter()
+            .rposition(|segment| segment.origin != Origin::Hands)
+            .map_or(0, |last| last + 1);
+        json!({
+            "authored": flatten(&extras[..managed_from]),
+            "managed": flatten(&extras[managed_from..]),
+        })
+    }
+
+    /// Seal this spawn's private launch record: its extras' segments
+    /// beside the expected state the serving outcome was resolved to.
+    ///
+    /// Rebuild unit 5c-fix (operator ruling of 2026-09-24, item 2): the
+    /// permission template the spawn emits must be exactly the one the
+    /// expected state records, or nothing is sealed. A template omitted,
+    /// altered, added or relabelled on its way into the command is refused
+    /// here, not copied into the record as if it were the engine's.
+    pub fn seal(&mut self, expected: Expected) -> Result<(), String> {
+        let recorded: &[String] = match &expected.template {
+            TemplateExpectation::None => &[],
+            TemplateExpectation::Declared(argv) => argv,
+        };
+        if self.emitted_template() != recorded {
+            self.record = None;
+            return Err(
+                "dispatch refused: the permission template this spawn emits is not the one its \
+                 expected state records from the adapter's declaration; a template omitted, \
+                 altered or added on its way into the command is never sealed as the engine's \
+                 (operator ruling of 2026-09-24, the permission template at inline sites; \
+                 rebuild unit 5c-fix)"
+                    .to_string(),
+            );
+        }
+        if let Err(reason) = self.local_sandbox_agrees(&expected) {
+            self.record = None;
+            return Err(reason);
+        }
+        self.record = Some(LaunchRecord {
+            segments: self.extras(),
+            expected,
+        });
+        Ok(())
+    }
+
+    /// Rebuild unit 5d (operator ruling 2 of 2026-09-23; ruling of
+    /// 2026-09-25): the engine's own `local` segments are parsed back under
+    /// the harness's grammar, and the sandbox class they express must be
+    /// exactly the one the expected state records for a local emission —
+    /// the site's typed class where no hands carry it, and none where hands
+    /// do, because an agent's class rides its hands fragment (design D5.3)
+    /// and a site with hands and an inline class is refused at compile. A
+    /// harness whose grammar models no `--sandbox` option — or that has no
+    /// modelled grammar — has no option to express a class, so it expresses
+    /// none, and a recorded class there is refused.
+    fn local_sandbox_agrees(&self, expected: &Expected) -> Result<(), String> {
+        let recorded = local_class(expected);
+        let local = flatten(
+            &self
+                .extras()
+                .into_iter()
+                .filter(|segment| segment.origin == Origin::Local)
+                .collect::<Vec<_>>(),
+        );
+        let grammar = brokkr_protocol::native_controls::grammar::grammar(
+            &expected.identity.harness,
+        )
+        .filter(|grammar| {
+            grammar
+                .options
+                .iter()
+                .any(|spec| spec.canonical == "--sandbox")
+        });
+        let emitted = match grammar.map(|grammar| (grammar, grammar.parse(&local))) {
+            None => Some(SandboxIntent::Unspecified),
+            // The grammar admits `--sandbox` once, with one value: a second
+            // is a parse problem, refused below, never a class to pick from.
+            Some((_, Ok(command))) => match command
+                .nodes
+                .iter()
+                .find(|node| node.name() == "--sandbox")
+                .and_then(|node| node.values.first())
+            {
+                None => Some(SandboxIntent::Unspecified),
+                Some(class) => {
+                    crate::agents::Sandbox::parse(class).map(crate::agents::Sandbox::intent)
+                }
+            },
+            Some((grammar, Err(problem))) => {
+                return Err(format!(
+                    "dispatch refused: the engine's own `local` segments of this spawn cannot be \
+                     read under the '{}' grammar (argument {}: it {}), so the sandbox class they \
+                     express cannot be checked against its expected state; an unreadable \
+                     contribution is never sealed as the engine's (operator ruling 2 of \
+                     2026-09-23; rebuild unit 5d)",
+                    grammar.harness,
+                    problem.at + 1,
+                    problem.cause
+                ))
+            }
+        };
+        // The whole launch, the native plan the input hands the driver
+        // included, is judged at the dispatch door (`verify_record`;
+        // rebuild unit 5d-fix-b).
+        match emitted == Some(recorded) {
+            true => Ok(()),
+            false => Err(
+                "dispatch refused: the sandbox class this spawn's own `local` segments express \
+                 is not the one its expected state records from the site's typed declaration; a \
+                 class omitted, altered or added on its way into the command is never sealed as \
+                 the engine's (operator ruling 2 of 2026-09-23; ruling of 2026-09-25, inline \
+                 Codex sandbox classes; rebuild unit 5d)"
+                    .to_string(),
+            ),
+        }
+    }
+
+    /// The permission template this spawn emits behind its driver verb, by
+    /// carried origin and never by its bytes. Where an agent's driver
+    /// template supplies the verb — the first segment behind the engine's
+    /// boundary prefix — it is that segment's tail behind the verb, followed
+    /// by every later `template` segment that is not a model or effort pin
+    /// ([`pin_fault`]; rebuild unit 5c-fix-b): a pin is template-origin but
+    /// is not the permission template, and anything else of that origin is
+    /// emitted as one. Where the author supplies the verb — an inline site —
+    /// every `template` segment of the extras is the engine's permission
+    /// template, in order.
+    fn emitted_template(&self) -> Vec<String> {
+        let verb = self
+            .segments
+            .iter()
+            .position(|segment| segment.origin != Origin::Hands);
+        match verb.map(|at| (&self.segments[at], &self.segments[at + 1..])) {
+            Some((driver, later)) if driver.origin == Origin::Template => {
+                crate::agents::permission_template(&driver.argv)
+                    .iter()
+                    .chain(
+                        later
+                            .iter()
+                            .filter(|segment| {
+                                segment.origin == Origin::Template
+                                    && pin_fault(&driver.argv, &segment.argv).is_some()
+                            })
+                            .flat_map(|segment| segment.argv.iter()),
+                    )
+                    .cloned()
+                    .collect()
+            }
+            _ => flatten(
+                &self
+                    .extras()
+                    .into_iter()
+                    .filter(|segment| segment.origin == Origin::Template)
+                    .collect::<Vec<_>>(),
+            ),
+        }
+    }
+
+    /// The sealed record as the driver input carries it, `null` where none.
+    pub fn launch_record(&self) -> Value {
+        self.record
+            .as_ref()
+            .map_or(Value::Null, LaunchRecord::value)
+    }
+}
+
+/// The dispatch door's judgment of the launch record an input carries
+/// (decision 0065 slice one, design D5.7): exactly the record sealed for
+/// this spawn, decoded strictly and reassembling the extras the driver is
+/// about to be handed. A record where none was sealed, a missing or
+/// malformed one, one whose segments were reordered or relabelled, and one
+/// whose argv no longer reassembles each refuse before any provider work.
+/// Equal bytes prove nothing here: the record is compared with the one the
+/// engine sealed, not recognised by its contents.
+pub fn verify_record(spawn: &SiteSpawn, input: &Value) -> Result<(), String> {
+    let handed = input.get(LAUNCH_RECORD);
+    let Some(sealed) = &spawn.record else {
+        return match handed {
+            None => verify_serving(spawn, input),
+            Some(_) => Err(format!(
+                "dispatch refused: the input carries a private launch record ('{LAUNCH_RECORD}') \
+                 the engine sealed no record for, and a record is never accepted from anything \
+                 but the dispatch that sealed it (decision 0065 slice one, design D5.7)"
+            )),
+        };
+    };
+    let record = LaunchRecord::decode(handed)?;
+    if &record != sealed {
+        return Err(
+            "dispatch refused: the private launch record handed over is not the one the engine \
+             sealed for this spawn; a record whose segments, origins or expected state differ is \
+             never trusted by its shape (decision 0065 slice one, design D5.7)"
+                .to_string(),
+        );
+    }
+    reassemble(&record.segments, &spawn.argv[spawn.extras_start()..])?;
+    verify_serving(spawn, input)?;
+    inline_codex_door(&record, input)
+}
+
+/// The dispatch door's judgment of the serving inputs an input carries
+/// (rebuild unit 14a2): exactly the inputs sealed beside this spawn's
+/// record, decoded strictly — or none, where none were sealed. Inputs
+/// handed where none were sealed, missing or malformed ones, and ones that
+/// decode but differ from the sealed each refuse before any provider work.
+fn verify_serving(spawn: &SiteSpawn, input: &Value) -> Result<(), String> {
+    let handed = input.get(SERVING_INPUTS);
+    let Some(sealed) = &spawn.serving else {
+        return match handed {
+            None => Ok(()),
+            Some(_) => Err(format!(
+                "dispatch refused: the input carries sealed serving inputs ('{SERVING_INPUTS}') \
+                 the engine sealed none for, and they are never accepted from anything but the \
+                 dispatch that sealed them (rebuild unit 14a2; design D5.7)"
+            )),
+        };
+    };
+    if &SealedServing::decode(handed)? != sealed {
+        return Err(
+            "dispatch refused: the serving inputs handed over are not the ones the engine sealed \
+             beside this spawn's record; a dialect, pin or hands declaration that differs is never \
+             trusted by its shape (rebuild unit 14a2; design D5.7, D6)"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// The composition a candidate carries, or none for one that never
+/// composed: read once, for the expected state, the serving inputs and the
+/// compile's pin check alike (unit 26c).
+pub(crate) fn composed(link: &Candidate) -> Option<&crate::agents::Composition> {
+    match &link.lowering {
+        Lowering::Composed(composition) => Some(composition),
+        Lowering::Unavailable | Lowering::Refused(_) => None,
+    }
+}
+
+/// The typed serving inputs of the site a spawn serves (rebuild unit
+/// 14a2), carried from where they were chosen (rebuild unit 14a1) and
+/// never read back from any argv: the selected candidate's composition, or
+/// an inline site's recorded dialect and hands. Of the two boundary
+/// fragments a composition carries, the spawn's class selects the one
+/// sealed, as [`compose_segments`] selects the one appended; a spawn with
+/// no class refuses, as every composition classes its own (operator ruling
+/// of 2026-09-30, unit 26c). The run's `boundary` is
+/// sealed beside them as the typed fact the site stood under, and none for
+/// a site without hands (rebuild unit 14a4c), so a declared-empty fragment
+/// pair under `harness` never reads as no boundary.
+pub fn serving_inputs(
+    link: Option<&Candidate>,
+    facts: Option<&SiteFacts>,
+    class: Option<SeatClass>,
+    boundary: Boundary,
+) -> Result<SealedServing, String> {
+    let stands = facts
+        .filter(|facts| matches!(facts.hands, HandsState::Hands(_)))
+        .and_then(|_| SealedBoundary::named(boundary.word()));
+    let carried = match link {
+        Some(link) => composed(link).map(|composition| (*composition.serving).clone()),
+        None => facts.and_then(SiteFacts::inline_serving),
+    };
+    let crate::agents::ServingInputs {
+        dialect,
+        pins,
+        spec,
+    } = carried.ok_or_else(|| {
+        "dispatch refused: the site's typed serving inputs were never recorded, so none can be \
+         sealed beside its launch record; they are carried from the composition and never \
+         recovered from its argv (rebuild unit 14a2; design D5.7, D6)"
+            .to_string()
+    })?;
+    let boundary = match class {
+        Some(SeatClass::Gate) => dialect.boundary.gate,
+        Some(SeatClass::Work) => dialect.boundary.work,
+        None => {
+            return Err(
+                "dispatch refused: the spawn was composed for no seat class, so none of the \
+                 boundary fragments its serving inputs carry can be selected and sealed; a \
+                 fragment is never chosen by default (decision 0046 ruling 4; rebuild unit 14a2)"
+                    .to_string(),
+            )
+        }
+    };
+    Ok(SealedServing {
+        dialect: SealedDialect {
+            permissions: dialect.permissions,
+            sandbox: dialect.sandbox,
+            hands: dialect.hands,
+            boundary,
+            stands,
+        },
+        pins,
+        spec,
+    })
+}
+
+/// Rebuild unit 5d-fix-b (chief F1, F2, F4 and F5; decision 0046 ruling 4;
+/// operator ruling 2 of 2026-09-23 and the ruling of 2026-09-25): where the
+/// sealed class is the engine's own `local` emission, the whole launch the
+/// driver is handed — the sealed extras and, last, the native plan the
+/// input carries, as composition appends it — is judged by the same
+/// [`judge_inline_codex_launch`] admission ran (rebuild unit 5d-fix-c1). The
+/// door and the capture follow the admitted class, never the recorded door
+/// alone: a `read-only` class is a gate's, so the input must name the
+/// last-message door and the launch must capture into exactly the result
+/// path the input hands over, and a `workspace-write` class is a work
+/// seat's, which names no such door and captures nothing.
+///
+/// Rebuild unit 5d-fix-c1 (chief F1, F3 and F4 of run
+/// `0065-rebuild-unit-5d-fix-b-see-t-8067eebc`): where the sealed
+/// expectation denies a native power, the engine's plan is required — a
+/// missing `native_controls` key or a plan with no argv refuses — and the
+/// delivered launch must itself express each sealed denial, read by the
+/// grammar ([`inline_codex_denials`]), never taken from the plan's own
+/// claim. An unreadable plan refuses with a fixed cause: the decoder's text
+/// can carry the plan's own strings and is never echoed. The seat is named
+/// in the one bounded representation admission uses.
+///
+/// [`judge_inline_codex_launch`]: brokkr_protocol::native_controls::grammar::judge_inline_codex_launch
+/// [`inline_codex_denials`]: brokkr_protocol::native_controls::grammar::inline_codex_denials
+fn inline_codex_door(record: &LaunchRecord, input: &Value) -> Result<(), String> {
+    use crate::agents::Sandbox;
+    use brokkr_protocol::native_controls::{grammar, NativeExpectation};
+    let intent = local_class(&record.expected);
+    let Some(class) = [
+        Sandbox::ReadOnly,
+        Sandbox::WorkspaceWrite,
+        Sandbox::DangerFullAccess,
+    ]
+    .into_iter()
+    .find(|class| class.intent() == intent) else {
+        return Ok(());
+    };
+    // Engine-written, but read from an input, so it is named bounded.
+    let seat = input["seat"].as_str().unwrap_or_default();
+    let named = crate::bundle::bounded_site(seat);
+    let refuse = |cause: String| {
+        format!(
+            "dispatch refused: {cause} (decision 0046 ruling 4; operator ruling 2 of 2026-09-23; \
+             ruling of 2026-09-25; rebuild unit 5d-fix-b)"
+        )
+    };
+    let gate = class == Sandbox::ReadOnly;
+    let door = input.get("result_delivery") == Some(&json!(ResultDoor::LastMessage.word()));
+    if door != gate {
+        return Err(refuse(format!(
+            "the inline Codex launch of seat {named} is admitted '{}', a {}, but its input names \
+             the {} result door; the door follows the admitted class, a gate's result reaching \
+             the engine only through the last-message door and a work seat's only through the \
+             file it writes",
+            class.name(),
+            if gate { "gate" } else { "work seat" },
+            if door { "last-message" } else { "file" }
+        )));
+    }
+    let plan = brokkr_protocol::native_controls::managed(input).map_err(|_| {
+        refuse(format!(
+            "the native plan of seat {named} is null or cannot be read, so the launch has no \
+             capability authority; the reader's cause is not echoed, because it can carry the \
+             plan's own text (rebuild unit 5d-fix-c1)"
+        ))
+    })?;
+    let denied: &[String] = match &record.expected.native {
+        NativeExpectation::Known { denied, .. } => denied,
+        NativeExpectation::Unmeasured(_) => &[],
+    };
+    let unplanned = match &plan {
+        None => Some("carries no native plan"),
+        Some(plan) if plan.argv.is_empty() => Some("carries a native plan with no argv"),
+        Some(_) => None,
+    };
+    if let (Some(unplanned), false) = (unplanned, denied.is_empty()) {
+        return Err(refuse(format!(
+            "the inline Codex launch of seat {named} {unplanned}, while its sealed expectation \
+             denies {} native power(s); only the plan's OFF argv expresses a denial, so without \
+             it the harness would run at its own defaults (decision 0065 ruling 4; rebuild unit \
+             5d-fix-c1)",
+            denied.len()
+        )));
+    }
+    let native = plan.map(|plan| Segment::new(Origin::Native, &plan.argv));
+    let segments: Vec<Segment> = record.segments.iter().cloned().chain(native).collect();
+    let capture = gate.then(|| input["result_path"].as_str().unwrap_or_default());
+    grammar::judge_inline_codex_launch(class.intent(), &segments, capture)
+        .map_err(|cause| refuse(crate::bundle::inline_codex_refusal(seat, &cause)))?;
+    let expressed = grammar::inline_codex_denials(&flatten(&segments));
+    match denied
+        .iter()
+        .find(|power| !expressed.contains(&power.as_str()))
+    {
+        Some(power) => Err(refuse(format!(
+            "the inline Codex launch of seat {named} does not express its sealed native denial \
+             of {}; a denial is something the launch proves, so a plan whose OFF argv was \
+             removed or changed is refused, never trusted by its claim (decision 0066; rebuild \
+             unit 5d-fix-c1)",
+            crate::bundle::bounded_site(power)
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// The sandbox class an expected state records for the engine's own
+/// `local` emission (rebuild unit 5d): the site's typed class where no
+/// hands carry it, and none where hands do, because an agent's class rides
+/// its hands fragment (design D5.3).
+fn local_class(expected: &Expected) -> SandboxIntent {
+    match expected.hands {
+        HandsIntent::Required => SandboxIntent::Unspecified,
+        HandsIntent::None => expected.local.sandbox,
+    }
+}
+
+/// The expected state of the site a spawn serves (design D5.7), sealed from
+/// typed facts alone and never read back from any argv: the serving
+/// outcome's identity and native expectation, and the local and hands
+/// halves of the selected candidate's own composition — or, at an inline
+/// site, of the site's judged local declaration and hands. A candidate that
+/// never composed, and an inline site whose local declaration was never
+/// judged or declares what no inline command lowers, has no expected state.
+pub fn expected_state(
+    outcome: &crate::capabilities::Outcome,
+    link: Option<&Candidate>,
+    facts: Option<&SiteFacts>,
+) -> Result<Expected, String> {
+    let refused = |problem: &str| {
+        format!(
+            "dispatch refused: {problem}, so no launch record can be sealed for this site; a \
+             record is sealed from typed facts and never repaired into a default one (decision \
+             0065 slice one, design D5.7)"
+        )
+    };
+    let (local, hands, template) = match link {
+        Some(link) => {
+            let composition = composed(link)
+                .ok_or_else(|| refused("the selected candidate carries no composition"))?;
+            // Rebuild unit 5c-fix2: the adapter's declared template, the
+            // composition's typed fact, and never the segment it emitted,
+            // which the seal checks against it.
+            (
+                composition.local(),
+                composition.intent.hands,
+                composition.template.clone(),
+            )
+        }
+        None => {
+            let local = facts
+                .and_then(|facts| facts.local.as_ref())
+                .ok_or_else(|| refused("the site's local declaration was never judged"))?;
+            // Rebuild unit 5b: an allow the compiler lowered is expected
+            // as its declared names and the limits kept before they were
+            // joined — never read back from the segment it produced.
+            let lowered = facts.and_then(|facts| facts.inline_local.as_ref());
+            // Rebuild unit 5d: a sandbox class the compiler lowered is
+            // expected as the class the site declared — and only where the
+            // lowering recorded that same class.
+            let sandboxed = facts.and_then(|facts| facts.inline_sandbox.as_ref());
+            // A lowered class beside no declared one is no arm's, and falls
+            // to the refusal with every other mismatch (unit 26c).
+            let declared = (&local.allow, lowered, local.sandbox, sandboxed);
+            let (allow, application, sandbox) = match declared {
+                (None, None, None, None) => (
+                    AllowIntent::Unspecified,
+                    Application::Unrestricted,
+                    SandboxIntent::Unspecified,
+                ),
+                (Some(names), Some(lowered), None, None) => (
+                    AllowIntent::Listed(names.clone()),
+                    Application::Direct(lowered.limits.clone()),
+                    SandboxIntent::Unspecified,
+                ),
+                (None, None, Some(class), _)
+                    if sandboxed.is_some_and(|sandboxed| sandboxed.class == class) =>
+                {
+                    (
+                        AllowIntent::Unspecified,
+                        Application::Unrestricted,
+                        class.intent(),
+                    )
+                }
+                _ => {
+                    return Err(refused(
+                        "the inline site declares a typed local restriction no inline command \
+                         lowers",
+                    ))
+                }
+            };
+            let lowers = lowered.is_some() || sandboxed.is_some();
+            let template = inline_template(lowers, facts).map_err(refused)?;
+            let hands = match facts.map(|facts| &facts.hands) {
+                Some(HandsState::Hands(_)) => HandsIntent::Required,
+                _ => HandsIntent::None,
+            };
+            let local = LocalExpectation {
+                allow,
+                sandbox,
+                application,
+            };
+            (local, hands, template)
+        }
+    };
+    Ok(Expected {
+        identity: outcome.identity(),
+        native: outcome.native.expected(),
+        local,
+        hands,
+        template,
+    })
+}
+
+/// The template an inline site is expected to emit (rebuild unit 5c-fix):
+/// where its allow or (rebuild unit 5d) its sandbox lowers, the adapter's
+/// declaration the compiler recorded beside the lowering — never the
+/// segment emitted, which the seal checks against it; where nothing lowers,
+/// none, as nothing is emitted.
+fn inline_template(
+    lowered: bool,
+    facts: Option<&SiteFacts>,
+) -> Result<TemplateExpectation, &'static str> {
+    match (
+        lowered,
+        facts.and_then(|facts| facts.declared_template.as_ref()),
+    ) {
+        (false, _) => Ok(TemplateExpectation::None),
+        (true, Some(declared)) => Ok(declared.clone()),
+        (true, None) => Err(
+            "the inline site's lowered restriction carries no recorded declaration \
+             of its adapter's permission template",
+        ),
+    }
+}
+
+/// The judge's door at one site (decision 0046 ruling 4; design D23): the
+/// harness's capture of the final message, `last-message`, or the file the
+/// seat writes. A gate takes the capture where the selected link declares
+/// `hands.harness.result` as `last-message` under `harness` with hands, or
+/// — rebuild unit 5d, operator ruling of 2026-09-25 — where it is an inline
+/// Codex gate whose read-only class the engine lowered onto the adapter's
+/// gate fragment, which opens the door that fragment's adapter declares.
+/// Every other site writes its file.
+pub fn result_door(
+    boundary: Boundary,
+    gate: bool,
+    facts: Option<&SiteFacts>,
+    link: Option<&Candidate>,
+) -> ResultDoor {
+    let hands = matches!(facts.map(|facts| &facts.hands), Some(HandsState::Hands(_)));
+    let harness = boundary == Boundary::Harness
+        && hands
+        && link.map(|link| link.harness.result) == Some(ResultDoor::LastMessage);
+    let inline = link.is_none()
+        && facts
+            .and_then(|facts| facts.inline_sandbox.as_ref())
+            .map(|sandboxed| sandboxed.door)
+            == Some(ResultDoor::LastMessage);
+    match gate && (harness || inline) {
+        true => ResultDoor::LastMessage,
+        false => ResultDoor::File,
     }
 }
 
@@ -3009,15 +3976,75 @@ fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
     })
 }
 
+/// [`exec_segments`] over one authored segment: the argv the tests
+/// compose an exec dispatch from.
+#[cfg(test)]
+fn exec_spawn(command: Vec<String>, roots: &[PathBuf]) -> SiteSpawn {
+    exec_segments(vec![Segment::new(Origin::Authored, &command)], roots)
+}
+
 /// The pin and the interpreter argument have different jobs (0048): the
 /// canonical script directory is what the spawn re-walks, and the argv
-/// stays exactly as compile spelled it. Later arguments are not judged
-/// paths, and filename bytes, backslashes included, stay exact. `command`
-/// is an exec dispatch: its one caller, compose_site, checks that first.
-fn exec_spawn(command: Vec<String>, roots: &[PathBuf]) -> SiteSpawn {
-    let mut spawn = SiteSpawn::inherit(command);
+/// stays exactly as compile spelled it, each segment keeping its origin.
+/// Later arguments are not judged paths, and filename bytes, backslashes
+/// included, stay exact. `segments` are an exec dispatch: their one
+/// caller, compose_segments, checks that first.
+fn exec_segments(segments: Vec<Segment>, roots: &[PathBuf]) -> SiteSpawn {
+    let mut spawn = SiteSpawn::of(segments);
     spawn.rewalk = script_directory(&spawn.argv, roots);
     spawn
+}
+
+/// Who supplied each token of the command a site is composed from: the
+/// selected candidate's own segments, carried from the resolver — which
+/// must be exactly the command handed over, or the spawn is refused — or,
+/// at an inline site, the author, token for token. Bytes that equal an
+/// engine composition stay authored: origin is carried, never recognised.
+fn supplied(command: &[String], candidate: Option<&Candidate>) -> Result<Vec<Segment>, String> {
+    let Some(candidate) = candidate else {
+        return Ok(vec![Segment::new(Origin::Authored, command)]);
+    };
+    match &candidate.lowering {
+        Lowering::Composed(composition) if flatten(&composition.segments) == command => {
+            Ok(composition.segments.clone())
+        }
+        Lowering::Composed(_) => Err(
+            "dispatch refused: the command handed to composition is not the selected \
+             candidate's own composition, and an argument whose origin is not carried is never \
+             trusted by its bytes (decision 0065 slice one, design D5.7)"
+                .to_string(),
+        ),
+        Lowering::Unavailable | Lowering::Refused(_) => Err(
+            "dispatch refused: the selected candidate carries no composition, so who supplied \
+             its arguments is unknown (decision 0065 slice one, design D5.7)"
+                .to_string(),
+        ),
+    }
+}
+
+/// `mapped`, whose trailing tokens map `segments` token for token behind
+/// an engine-built prefix, as segments: the prefix `hands`, where there is
+/// one, then each supplied segment over its own mapped tokens, by the
+/// lengths it was supplied with.
+fn behind(mapped: Vec<String>, segments: &[Segment]) -> Vec<Segment> {
+    let prefix = mapped.len() - flatten(segments).len();
+    let mut out = engine_hands(&mapped[..prefix]);
+    let mut start = prefix;
+    for segment in segments {
+        let end = start + segment.argv.len();
+        out.push(Segment::new(segment.origin, &mapped[start..end]));
+        start = end;
+    }
+    out
+}
+
+/// What the engine composed for the boundary, as a `hands` segment — none
+/// where it composed nothing.
+fn engine_hands(tokens: &[String]) -> Vec<Segment> {
+    match tokens.is_empty() {
+        true => Vec::new(),
+        false => vec![Segment::new(Origin::Hands, tokens)],
+    }
 }
 
 /// Compose one site's argv and environment from the boundary the run
@@ -3052,22 +4079,150 @@ pub fn compose_site(
     result_path: &str,
     unboxed: Option<&Unboxed>,
 ) -> SiteSpawn {
-    let Some(spec) = hands else {
-        return SiteSpawn::inherit(command);
+    // Every arm carries these segments through its own composition, so the
+    // spawn says who supplied each token it will launch (design D5.7). A
+    // command that is not the selected candidate's composition keeps its
+    // argv, all of it authored, and is refused at the door.
+    let (segments, refusal) = match supplied(&command, candidate) {
+        Ok(segments) => (segments, None),
+        Err(reason) => (vec![Segment::new(Origin::Authored, &command)], Some(reason)),
     };
+    let mut spawn = compose_segments(
+        boundary,
+        class,
+        segments,
+        hands,
+        candidate,
+        workdir,
+        roots,
+        result_path,
+        unboxed,
+    );
+    spawn.refusal = spawn.refusal.or(refusal);
+    spawn.class = Some(class);
+    spawn
+}
+
+/// [`compose_site`] at a compiled site, with its facts: an inline site
+/// whose typed allow the compiler lowered (rebuild unit 5b; design D5.3,
+/// D5.7) is composed from its authored command and, behind it, the
+/// adapter's declared permission template as the engine's own `template`
+/// segment where the adapter declares one (rebuild unit 5c), then the
+/// engine's own `local` segment — the order an agent's composition gives
+/// them — each carried as the compiler recorded it and never recognised in
+/// the argv. Rebuild unit 5d: an inline Codex seat's lowered sandbox class
+/// is the engine's own `local` segment in the same place, the result path
+/// filled into it as it is into a harness fragment. Rebuild unit 14a4a
+/// (operator ruling (B) of 2026-09-27): an inline site with hands is served
+/// like an agent — its recorded `hands.workspace` fragment follows every
+/// other segment as the engine's own `hands` segment, as `agents::compose`
+/// appends an agent's last, and [`hands_command`] expands its tokens. Every
+/// other site is [`compose_site`] exactly.
+#[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
+pub fn compose_site_at(
+    facts: Option<&SiteFacts>,
+    boundary: BuiltBoundary,
+    class: SeatClass,
+    command: Vec<String>,
+    hands: Option<&HandsSpec>,
+    candidate: Option<&Candidate>,
+    workdir: &Path,
+    roots: &[PathBuf],
+    result_path: &str,
+    unboxed: Option<&Unboxed>,
+) -> SiteSpawn {
+    let lowered = facts.and_then(|facts| facts.inline_local.as_ref());
+    let sandboxed = facts.and_then(|facts| facts.inline_sandbox.as_ref());
+    let handed = facts.and_then(|facts| facts.inline_hands.as_ref());
+    match candidate {
+        None if lowered.is_some() || sandboxed.is_some() || handed.is_some() => SiteSpawn {
+            class: Some(class),
+            ..compose_segments(
+                boundary,
+                class,
+                std::iter::once(Segment::new(Origin::Authored, &command))
+                    .chain(facts.and_then(|facts| facts.inline_template.clone()))
+                    .chain(lowered.map(|lowered| lowered.segment.clone()))
+                    .chain(sandboxed.map(|sandboxed| {
+                        Segment {
+                            origin: sandboxed.segment.origin,
+                            argv: sandboxed
+                                .segment
+                                .argv
+                                .iter()
+                                .map(|token| token.replace("{result_path}", result_path))
+                                .collect(),
+                        }
+                    }))
+                    .chain(handed.cloned())
+                    .collect(),
+                hands,
+                None,
+                workdir,
+                roots,
+                result_path,
+                unboxed,
+            )
+        },
+        _ => compose_site(
+            boundary,
+            class,
+            command,
+            hands,
+            candidate,
+            workdir,
+            roots,
+            result_path,
+            unboxed,
+        ),
+    }
+}
+
+#[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
+fn compose_segments(
+    boundary: BuiltBoundary,
+    class: SeatClass,
+    segments: Vec<Segment>,
+    hands: Option<&HandsSpec>,
+    candidate: Option<&Candidate>,
+    workdir: &Path,
+    roots: &[PathBuf],
+    result_path: &str,
+    unboxed: Option<&Unboxed>,
+) -> SiteSpawn {
+    let Some(spec) = hands else {
+        return SiteSpawn::of(segments);
+    };
+    let command = flatten(&segments);
     if boundary != BuiltBoundary::Namespace && is_exec_dispatch(&command) {
         let unboxed = unboxed.cloned().unwrap_or_default();
-        let mut spawn = exec_spawn(command, roots);
+        let mut spawn = exec_segments(segments, roots);
+        // The network prefix is the engine's, composed for the boundary.
+        let mut prefixed = engine_hands(&unboxed.prefix);
+        prefixed.append(&mut spawn.segments);
+        spawn.segments = prefixed;
         spawn.argv.splice(..0, unboxed.prefix);
         spawn.env = SpawnEnv::Exactly(unboxed.env);
         return spawn;
     }
     match boundary {
-        BuiltBoundary::Namespace => {
-            SiteSpawn::inherit(hands_command(command, Some(spec), workdir, roots))
-        }
+        // A model seat's workspace fragment is already in its segments —
+        // `agents::compose` appended it last, as `hands` — and
+        // `hands_command` expands every token in place, behind the box's
+        // own prefix for an exec dispatch, so each segment maps onto its
+        // own tokens. An inline site — an exec dispatch included — has no
+        // candidate: its argv is the author's, and a model site's hands are
+        // the recorded fragment `compose_site_at` appended last (rebuild
+        // unit 14a4a).
+        BuiltBoundary::Namespace => match hands_command(command, Some(spec), workdir, roots) {
+            Ok(mapped) => SiteSpawn::of(behind(mapped, &segments)),
+            Err(reason) => {
+                let mut spawn = SiteSpawn::of(segments);
+                spawn.refusal = Some(reason);
+                spawn
+            }
+        },
         BuiltBoundary::Harness => {
-            let mut argv = command;
             let brokkr = std::env::current_exe()
                 .unwrap_or_default()
                 .to_string_lossy()
@@ -3076,16 +4231,20 @@ pub fn compose_site(
                 SeatClass::Gate => candidate.harness.gate.as_deref(),
                 SeatClass::Work => candidate.harness.work.as_deref(),
             });
-            for token in fragment.unwrap_or(&[]) {
-                argv.push(
+            let fragment: Vec<String> = fragment
+                .unwrap_or(&[])
+                .iter()
+                .map(|token| {
                     token
                         .replace("{result_path}", result_path)
-                        .replace("{brokkr}", &brokkr),
-                );
-            }
-            SiteSpawn::inherit(argv)
+                        .replace("{brokkr}", &brokkr)
+                })
+                .collect();
+            let mut segments = segments;
+            segments.extend(engine_hands(&fragment));
+            SiteSpawn::of(segments)
         }
-        BuiltBoundary::Open => SiteSpawn::inherit(command),
+        BuiltBoundary::Open => SiteSpawn::of(segments),
     }
 }
 
@@ -3279,14 +4438,20 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
 /// `exec` dispatch is boxed whole instead: `brokkr hands exec` builds the
 /// namespace at run time and passes the driver's stdio straight through.
 /// A site without hands gets its command back untouched.
+///
+/// Rebuild unit 14a2: a model seat's tokens are expanded by
+/// [`Transport::expand`], the one TOML-safe encoder the final check
+/// expects them from, so the spawn and the check cannot disagree on an
+/// escape. An executable or workdir that is not UTF-8 has no exact
+/// provider value and refuses rather than binding a lossy one.
 pub(crate) fn hands_command(
     command: Vec<String>,
     hands: Option<&brokkr_protocol::hands::HandsSpec>,
     workdir: &std::path::Path,
     roots: &[PathBuf],
-) -> Vec<String> {
+) -> Result<Vec<String>, String> {
     let Some(spec) = hands else {
-        return command;
+        return Ok(command);
     };
     let brokkr = std::env::current_exe().unwrap_or_default();
     let is_exec = command.len() >= 3 && command[1] == "driver" && command[2] == "exec";
@@ -3330,25 +4495,45 @@ pub(crate) fn hands_command(
         }
         boxed.push("--".to_string());
         boxed.extend(command);
-        return boxed;
+        return Ok(boxed);
     }
-    let mcp_json = brokkr_protocol::hands::mcp_config(&brokkr, workdir, spec).to_string();
-    let args_toml = format!(
-        "[{}]",
-        brokkr_protocol::hands::serve_args(workdir, spec)
-            .iter()
-            .map(|arg| format!("\"{}\"", arg.replace('\\', "\\\\").replace('"', "\\\"")))
-            .collect::<Vec<_>>()
-            .join(",")
-    );
-    command
+    Transport {
+        brokkr: &brokkr,
+        workdir,
+        spec,
+    }
+    .expand(&command)
+    .ok_or_else(|| {
+        "dispatch refused: the engine's executable or the site's workdir is not UTF-8, so no \
+         provider value names it exactly and the box's hands cannot be bound to it; a lossy \
+         path would bind another (rebuild unit 13-fix-c, R2; rebuild unit 14a2)"
+            .to_string()
+    })
+}
+
+/// The first abstract definition or tool dialect a compiled `capabilities`
+/// section pins that `root` no longer reproduces: its relative source, and
+/// whether it is missing or changed. The digest is over the file's raw
+/// bytes, exactly as the compile took it. `None` where every pin holds —
+/// which a section that consulted nothing trivially does.
+fn moved_capability_input(compiled: &Value, root: &Path) -> Option<(String, String)> {
+    ["definitions", "dialects"]
         .into_iter()
-        .map(|part| {
-            part.replace("{hands_mcp_json}", &mcp_json)
-                .replace("{hands_args_toml}", &args_toml)
-                .replace("{brokkr}", &brokkr.to_string_lossy())
+        .filter_map(|records| compiled.get(records)?.as_object())
+        .flat_map(Map::values)
+        .find_map(|record| {
+            let source = record["source"].as_str().unwrap_or_default();
+            let problem = match std::fs::read(root.join(source)) {
+                Ok(bytes)
+                    if record["sha256"] == json!(brokkr_core::canonical::sha256_bytes(&bytes)) =>
+                {
+                    None
+                }
+                Ok(_) => Some("has changed since"),
+                Err(_) => Some("is missing"),
+            };
+            Some((source.to_string(), problem?.to_string()))
         })
-        .collect()
 }
 
 fn manifest_diff(pinned: &Value, current: &Value) -> String {
@@ -3389,6 +4574,30 @@ fn manifest_diff(pinned: &Value, current: &Value) -> String {
             current
                 .get("boundary")
                 .map_or("no boundary".to_string(), Value::to_string)
+        );
+    }
+    // So is capability authority (decision 0065 ruling 8): a run resumes
+    // only under the grants, definitions, dialects and native declarations
+    // it was started with, and the refusal names capabilities and says
+    // which record moved. A run pinned before the ruling carries no such
+    // section, and is never rewritten to resume under authority it was not
+    // started with.
+    if pinned.get("capabilities") != current.get("capabilities") {
+        let Some(was) = pinned.get("capabilities") else {
+            return "capabilities differ: the run was pinned before decision 0065 and records no \
+                    capability authority, which every bundle compiled now carries; a historical \
+                    run is never rewritten to resume under authority it was not started with"
+                .to_string();
+        };
+        let moved: Vec<&str> = ["realm", "grants", "definitions", "dialects", "sites"]
+            .into_iter()
+            .filter(|record| was.get(record) != current.pointer(&format!("/capabilities/{record}")))
+            .collect();
+        return format!(
+            "capabilities differ: the run's pinned {} no longer match what the bundle compiles \
+             to here — a grant, an abstract definition, a tool dialect or an adapter's native \
+             declaration was added, removed or edited since the run started",
+            moved.join(", ")
         );
     }
     "non-file manifest fields differ (engine or contract version)".to_string()
@@ -3621,6 +4830,9 @@ mod agent_tests;
 
 #[cfg(test)]
 mod artifact_gate_tests;
+
+#[cfg(test)]
+mod capability_tests;
 
 #[cfg(test)]
 mod cleanup_tests;

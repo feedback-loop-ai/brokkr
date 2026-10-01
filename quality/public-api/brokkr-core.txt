@@ -3,6 +3,7 @@ pub mod brokkr_core
 pub mod brokkr_core::canonical
 pub const brokkr_core::canonical::ZERO_HASH: &str
 pub fn brokkr_core::canonical::is_sha256_hex(&str) -> bool
+pub fn brokkr_core::canonical::parse_strict(&str) -> core::result::Result<serde_json::value::Value, alloc::string::String>
 pub fn brokkr_core::canonical::sha256_bytes(&[u8]) -> alloc::string::String
 pub fn brokkr_core::canonical::sha256_hex(&serde_json::value::Value) -> alloc::string::String
 pub fn brokkr_core::canonical::to_bytes(&serde_json::value::Value) -> alloc::vec::Vec<u8>
@@ -387,6 +388,14 @@ pub brokkr_core::realms::RealmsError::Malformed
 pub brokkr_core::realms::RealmsError::Malformed::detail: alloc::string::String
 pub brokkr_core::realms::RealmsError::Malformed::path: alloc::string::String
 pub struct brokkr_core::realms::BoundaryError(pub alloc::string::String)
+pub struct brokkr_core::realms::CapabilityGrant
+pub brokkr_core::realms::CapabilityGrant::dialect: alloc::string::String
+pub brokkr_core::realms::CapabilityGrant::offices: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub brokkr_core::realms::CapabilityGrant::restrictions: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub brokkr_core::realms::CapabilityGrant::tools: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+impl brokkr_core::realms::CapabilityGrant
+pub fn brokkr_core::realms::CapabilityGrant::reaches(&self, &str) -> bool
+pub fn brokkr_core::realms::CapabilityGrant::value(&self) -> serde_json::value::Value
 pub struct brokkr_core::realms::ConsumedCrossing
 pub brokkr_core::realms::ConsumedCrossing::name: alloc::string::String
 pub brokkr_core::realms::ConsumedCrossing::realm: alloc::string::String
@@ -396,9 +405,11 @@ pub brokkr_core::realms::PublishedCrossing::name: alloc::string::String
 pub brokkr_core::realms::PublishedCrossing::path: alloc::string::String
 pub struct brokkr_core::realms::Realm
 pub brokkr_core::realms::Realm::boundary: core::option::Option<brokkr_core::realms::Boundary>
+pub brokkr_core::realms::Realm::capabilities: core::option::Option<serde_json::value::Value>
 pub brokkr_core::realms::Realm::consumes: brokkr_core::realms::CrossingList<brokkr_core::realms::ConsumedCrossing>
 pub brokkr_core::realms::Realm::default_branch: alloc::string::String
 pub brokkr_core::realms::Realm::dialect: core::option::Option<alloc::string::String>
+pub brokkr_core::realms::Realm::grants: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::realms::CapabilityGrant>
 pub brokkr_core::realms::Realm::house: core::option::Option<alloc::string::String>
 pub brokkr_core::realms::Realm::journal: core::option::Option<alloc::string::String>
 pub brokkr_core::realms::Realm::name: alloc::string::String
@@ -418,14 +429,17 @@ pub fn brokkr_core::realms::RealmMap::of(&str, serde_json::value::Value) -> core
 pub fn brokkr_core::realms::RealmMap::parse(&str, &str) -> core::result::Result<(brokkr_core::realms::RealmMap, serde_json::value::Value), brokkr_core::realms::RealmsError>
 pub const brokkr_core::realms::BOUNDARIES: [brokkr_core::realms::Boundary; 5]
 pub const brokkr_core::realms::DEFAULT_MAP_FILE: &str
+pub const brokkr_core::realms::GRANT_KEYS: [&str; 3]
 pub const brokkr_core::realms::LEGACY_REALM_KEY: &str
 pub const brokkr_core::realms::NOT_APPLICABLE: &str
-pub const brokkr_core::realms::SCHEMAS: [&str; 5]
+pub const brokkr_core::realms::SCHEMAS: [&str; 6]
 pub const brokkr_core::realms::SCHEMA_V1: &str
 pub const brokkr_core::realms::SCHEMA_V2: &str
 pub const brokkr_core::realms::SCHEMA_V3: &str
 pub const brokkr_core::realms::SCHEMA_V4: &str
 pub const brokkr_core::realms::SCHEMA_V5: &str
+pub const brokkr_core::realms::SCHEMA_V6: &str
+pub fn brokkr_core::realms::is_name(&str) -> bool
 pub fn brokkr_core::realms::recorded_head<'a>(&'a serde_json::value::Value, core::option::Option<&str>) -> core::option::Option<&'a str>
 pub enum brokkr_core::Cursor
 pub brokkr_core::Cursor::Decide

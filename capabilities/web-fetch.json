@@ -1,0 +1,4 @@
+{
+  "name": "web-fetch",
+  "classes": ["reads", "egress"]
+}

@@ -18,6 +18,17 @@
         "max_attempts": 2,
         "timeout_seconds": 4800
       },
+      "tools": {
+        "allow": [
+          "npm",
+          "npx",
+          "node",
+          "git",
+          "ls",
+          "rg",
+          "mkdir"
+        ]
+      },
       "driver": {
         "command": [
           "{brokkr}",
@@ -27,11 +38,7 @@
           "--model",
           "claude-fable-5-1",
           "--effort",
-          "high",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+          "high"
         ]
       }
     },
@@ -76,6 +83,17 @@
         "max_attempts": 2,
         "timeout_seconds": 3000
       },
+      "tools": {
+        "allow": [
+          "npm",
+          "npx",
+          "node",
+          "git",
+          "ls",
+          "rg",
+          "mkdir"
+        ]
+      },
       "driver": {
         "command": [
           "{brokkr}",
@@ -85,11 +103,7 @@
           "--model",
           "claude-fable-5-1",
           "--effort",
-          "high",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+          "high"
         ]
       }
     },

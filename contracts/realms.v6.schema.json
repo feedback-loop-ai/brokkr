@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/realms.v6.json",
+  "title": "Forge realms map v6",
+  "description": "The world an invocation opens, with the capabilities each realm grants (decision 0065 ruling 3). v1 through v5 remain frozen and grant nothing. This version adds exactly one optional property per realm: capabilities, a map from an abstract capability name to the grant that makes it concrete in this realm. A grant picks the tool dialect that serves the capability, may narrow that dialect's tools to a subset, may scope the grant to named offices, and may carry the dialect's own restriction keys, which the dialect's schema defines and the engine passes through without interpreting. Absent, or written as an empty map, a v6 realm grants nothing and reads exactly as a v5 realm does. Only a realm grants: a recipe and an agent request.",
+  "type": "object",
+  "required": ["schema", "realms", "journal"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "forge.realms/v6" },
+    "realms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "default_branch"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "path": { "type": "string", "minLength": 1 },
+          "default_branch": { "type": "string", "minLength": 1 },
+          "journal": { "type": "string", "minLength": 1 },
+          "house": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "Repository-relative Markdown rendered into every seat prompt." },
+          "dialect": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "A library dialect name or a repository-relative dialect path." },
+          "boundary": { "enum": ["namespace", "seatbelt", "container", "harness", "open"], "description": "What stands between a box's hands and this realm's machine (decision 0046 ruling 1): namespace is decision 0043's bubblewrap user namespace (Linux, WSL2); seatbelt the same box built by sandbox-exec (macOS); container a pinned image with the worktree mounted; harness nothing of Brokkr's, the harness's own sandbox as its adapter fragment addresses it; open nothing at all. Absent reads namespace." },
+          "publishes": {
+            "type": "array",
+            "description": "The crossings this realm publishes (decision 0057 ruling 1): files this realm owns and other realms may pin. A crossing name is unique within the realm that publishes it.",
+            "items": {
+              "type": "object",
+              "required": ["name", "path"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The crossing's name, in the realm-name grammar, unique within this realm." },
+                "path": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "Repository-relative path to the published file, on the same terms house and dialect are named." }
+              }
+            }
+          },
+          "consumes": {
+            "type": "array",
+            "description": "The crossings this realm depends on (decision 0057 ruling 2), each named by its publishing realm and pinned by digest. A crossing name is used once within this list.",
+            "items": {
+              "type": "object",
+              "required": ["name", "realm", "sha256"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The crossing's name, as the publishing realm publishes it." },
+                "realm": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The realm that publishes this crossing; never this realm itself." },
+                "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Lowercase hex sha256 over the published file's RAW bytes, never over a canonical form: a crossing may be a schema, a .proto or Markdown, and only the publisher's format knows what canonicalising would mean." }
+              }
+            }
+          },
+          "capabilities": {
+            "type": "object",
+            "description": "The capabilities this realm grants (decision 0065 ruling 3), keyed by abstract capability name. Absent and empty both grant nothing; everything is off until it is listed here (ruling 4).",
+            "propertyNames": { "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+            "additionalProperties": {
+              "type": "object",
+              "required": ["dialect"],
+              "description": "One grant. Every key other than dialect, tools and offices is a restriction the selected tool dialect's own schema defines; the engine validates it against that schema and passes it through without interpreting it.",
+              "properties": {
+                "dialect": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The tool dialect under dialects/tools/ that serves the capability in this realm; its serves must equal the capability's name." },
+                "tools": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "A subset of the dialect's named tools. Absent admits the dialect's whole set; an empty list admits no tool and makes no usable holding." },
+                "offices": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "The offices this grant reaches: an agent's name, or an inline site's label. Absent reaches every requesting office; an empty list reaches none." }
+              }
+            }
+          }
+        }
+      }
+    },
+    "journal": { "type": "string", "minLength": 1 }
+  }
+}

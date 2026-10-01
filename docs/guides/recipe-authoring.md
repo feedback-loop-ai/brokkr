@@ -190,9 +190,10 @@ so it cannot smuggle a route around review.
   "inputs": ["fixes_applied"],
   "limits": { "max_attempts": 2, "timeout_seconds": 5400 },
   "secrets": ["GITHUB_TOKEN"],
+  "tools": { "allow": ["cargo", "git"] },
   "driver": {
     "command": ["{brokkr}", "driver", "claude", "--", "--model",
-                "claude-fable-5-1", "--permission-mode", "acceptEdits"]
+                "claude-fable-5-1", "--effort", "high"]
   }
 }
 ```
@@ -204,6 +205,8 @@ so it cannot smuggle a route around review.
 | `agent` | The library form (decision 0016): `"agent": "implementer"` resolves charter, driver, limits and declared inputs from `agents/`. Mutually exclusive with the inline form. |
 | `inputs` | The typed facts this seat may supply (decision 0007). Defaults to the non-engine-owned inputs this phase's own rules reference. Anything undeclared is dropped before evaluation and never enters the journal record. |
 | `limits` | `max_attempts` and `timeout_seconds`. Defaults: one attempt, 3600 seconds. |
+| `tools` | The seat's typed local tools (decision 0065, slice one): `allow`, the local commands a Claude seat may run, and `sandbox`, a Codex seat's class. The engine lowers them onto the harness as its own contribution; a recipe never writes the flags. See [the tools a seat is given](#the-tools-a-seat-is-given). |
+| `capabilities` | What the seat's office asks for, by abstract name, `requires` or `wants`; only the realm grants. See [capabilities](agent-library.md#capabilities). |
 | `secrets` | Secret **names** this seat binds (decision 0012). Values live in an operator-side store outside version control; bundles and journals carry names only. The seat's driver must reach a route whose egress class meets the bundle's `egress_minimum`, or compilation refuses (decision 0036 ruling 4). |
 | `driver.confine` | **Refused.** Decision 0008's container confinement (`image`, `network`, `mounts`) never had a shipped user; the compiler refuses the key naming the `container` boundary, slice (iii) and decision [0046](../decisions/0046-the-boundary-is-named.md) ruling 5, so a bundle still carrying it fails loudly rather than running a wrapper nobody exercised. Its image, network and mounts return as the `container` boundary's declaration in the realm once that slice measures it. |
 | `hands` | Decision 0043: `"workspace"` or `{"kind":"workspace","network":bool,"binds":[{path,mode,mask}]}` with mode `ro`, `rw` or `overlay` (the host path as a read-only lower layer, writes kept in a per-seat upper layer that never touches the host — the mode for a toolchain cache). `hands` is the **policy** — what the seat may reach; the **boundary** that enforces it is the realm's, never the bundle's (decision 0046 ruling 1): `realms.json` declares `boundary` beside `house` and `dialect`, absent reads `namespace`, and a `boundary` key in a site or in this object is refused naming the realm as its home. Under `namespace` the seat's commands run inside an empty-root box holding the worktree; an exec seat also gets its bundle root read-only at `/runtime/bundle`, so its `./` script travels with the strategy. A tool allow-list is not consulted, and a boxed `exec` command may hold a gate. Under `harness` and `open` no box stands: a model seat runs under its harness's own sandbox as the adapter's `hands.harness` fragment addresses it, an exec seat holds its site only when its command is the bundle's own pinned `./` script, and it runs with the environment cleared to a fixed table — `CARGO_HOME`, `RUSTUP_HOME` and `NPM_CONFIG_CACHE` set only where `binds` name `~/.cargo`, `~/.rustup` or `~/.npm`, and a bind's `mask` **declared and not enforced**. Clearing the environment confines nothing on disk: an unboxed script may open any host path the operator's uid may read, so under `harness` the shipped verify script can read `~/.cargo/credentials.toml` — which is the fact every readout renders as *unboxed*. Refused beside secret bindings and beside `agent:` (the agent declares its own). |
@@ -231,6 +234,51 @@ non-empty `--model <concrete-model-id>` (decision 0031). Compilation
 refuses the complete set of unpinned invocation sites and names this
 same fix. Agent-backed seats satisfy the rule through their resolved
 candidate argv. Exec is model-free and needs no pin.
+
+### The tools a seat is given
+
+**A recipe authors no capability-bearing option** for a harness brokkr
+drives: claude, codex and dsh, and LaneTally's claude path (decision 0065;
+operator ruling 1 of 2026-09-23). A tool list of any polarity
+(`--tools`, `--allowedTools`, `--disallowedTools`), a permission mode or
+sandbox (`--permission-mode`, `--sandbox`), a loaded document
+(`--mcp-config`, `--settings`, `--plugin-dir`), a web or search switch,
+and a Codex `-c` assignment into a capability table are refused at
+compile, in every spelling and at every site, whatever the value and
+whatever the realm grants. An empty or narrowing list refuses exactly as a
+widening one does. Nothing is merged. The refusal names the option and
+its position and never echoes the value; the full list and the refusal's
+text are in [provider adapters](provider-adapters.md#native-capabilities).
+
+Tools come from typed data instead, composed by the engine alone:
+
+- **`tools.allow`** on an inline Claude seat lists local commands. The
+  engine lowers them through the adapter's map, for example `cargo` to
+  `--allowedTools Bash(cargo:*)`, and emits the adapter's declared
+  permission template (`--permission-mode acceptEdits`) beside them as its
+  own segment. It is refused beside `hands`, on a driver whose adapter
+  cannot deliver it, and on LaneTally, whose native controls are
+  unmeasured.
+- **`tools.sandbox`** on an inline Codex seat is `read-only` at a gate,
+  which delivers its result through the last-message door, and
+  `workspace-write` at a work seat. `danger-full-access` is admitted
+  nowhere.
+- **`hands`** replaces the harness's tools with the boxed workspace tool,
+  and **`capabilities`** asks for a power only the realm can grant.
+
+What reaches the harness is then proved at the launch: the final command
+is parsed back and its capability state compared with the plan, or the
+launch refuses (operator ruling 2). What that proves is bounded by what
+the adapter models: a power no typed declaration or grant expresses is
+never composed into the command, and a native power the adapter knows
+is switched off unless held. It is not a measurement of what the
+provider can reach on its own. A harness whose adapter declares its
+native capabilities `unmeasured` (dsh, lanetally and exec today) is
+seated with no local restriction composed: the seat is told nothing is
+claimed about its native reach, and a typed `tools.allow` on it refuses
+at compile (ruling R5 of 2026-09-29). What each shipped adapter has
+measured live, and what it has not, is in
+[provider-adapters.md](provider-adapters.md#what-the-five-shipped-adapters-say-today).
 
 **Engine-owned inputs are never seat-declarable.** `strategy`,
 `drift_detected`, `dirty_worktrees`, `reviewed_heads`, `realm_facts`,
@@ -551,6 +599,48 @@ Three consequences worth internalising:
 3. **Resume refuses a digest mismatch** with a diagnostic; it never
    picks up edited files. Editing a recipe mid-run means the run is no
    longer resumable under it — start a new one.
+4. **Nothing a seat is told, and nothing that rules a run, stands
+   outside the map.** The walk skips the top-level names that hold
+   operator configuration — `realms.json`, `capabilities/`, `dialects/`
+   — so a role or a `policy` declared under one of them, by any spelling
+   or through a link, and one written out of its own layer
+   (`../shared/role.md`), is refused at the layer that declares it,
+   ancestors included (decision 0066 ruling 5); move it under `roles/`
+   or beside `bundle.json`. A charter whose bytes moved after the
+   compile is refused at dispatch as well, before the seat is told
+   anything under the old identity.
+5. **A role or policy stays inside its layer's tree.** Its path is
+   resolved on the filesystem, links followed, and the file it lands on
+   must lie under the declaring layer's own directory (decision 0065,
+   operator ruling 3 of 2026-09-23). A link that stays inside is pinned
+   and consumed as the file it reaches. A link that resolves outside is
+   refused, however its bytes are pinned and whatever its lexical path
+   looks like: it is not pinned and admitted. A reference that goes back
+   UP (`alias/../charter.md`) is refused too. The file must be a regular
+   file: a FIFO, a device or a directory never supplies a charter or a
+   policy. Keep the file in the recipe, beside `bundle.json` or under
+   `roles/`.
+6. **What the seat is told is read once.** The dispatch door compares
+   the charter against its pin and hands the driver the bytes it read;
+   the driver does not reopen the file. The read is bound to the file
+   the containment check resolved, so a path or ancestor replaced between
+   the check and the read is refused, even with equal bytes. An agent's charter answers to
+   its library record's `charter_digest`, wherever the library lives, so
+   editing `agents/charters/<name>.md` after a compile refuses the
+   dispatch until you recompile — it does not quietly reach the seat.
+7. **A resume answers to the charters the run started over.** A run's
+   `run/started` records every charter binding it began with, and a
+   pinned resume checks each binding against that record, not against a
+   recompile. A run whose `run/started` records no bindings — every run
+   started before decision 0065's slice one — is refused with the cause
+   `unrecorded`, even when its bytes are intact and even when its bundle
+   binds no charter at all: `a charter of bundle '<name>' moved since
+   the compile (unrecorded: the run started with no charter record)`;
+   a bundle that binds charters names the first one's owner and key
+   instead, `a charter of <owner> moved since the compile (unrecorded:
+   <key>)` (operator ruling of 2026-09-29, point 1). There is no digest-only
+   fallback. Close such a run with
+   `brokkr conclude --run <id> --reason "…"` and fire it again.
 
 ## The policy table
 
@@ -732,7 +822,11 @@ form; use `brokkr recipes show` for a library name. Compilation is where
 every structural law above is enforced, so a bundle that compiles is a
 bundle whose review gate is unavoidable, whose aggregates match their
 declared results, whose conditions are all in the vocabulary, and whose
-composition markers all describe something real.
+composition markers all describe something real. It is also where every
+seat's capability plan is judged whole, by the composer the launch uses;
+`brokkr doctor --bundle` compiles the bundle in its realm and reports
+that result, and never promises a combination the composer would refuse
+([provider adapters](provider-adapters.md#native-capabilities)).
 
 ## See also
 

@@ -2774,11 +2774,10 @@ fn assert_paired_override(parts: &[String], key: &str, expected: &str, case: &st
 /// The class is the one THAT coordinate declares and is passed in, never
 /// normalised to a single literal across both: the harness lane composes
 /// `--sandbox workspace-write` out of the shipped `adapters/codex.json`
-/// `hands.harness.work` fragment, while the inline lane declares
-/// `--sandbox danger-full-access` in the argv `recipes/standby` and
-/// `recipes/wager-harness` ship. Prescribing one class for both would
-/// assert a class one coordinate never declares, and the cheapest way to
-/// make that pass would be to edit what ships.
+/// `hands.harness.work` fragment, while the inline lane's class is the
+/// typed `tools.sandbox` its site declares (fixture migration of
+/// 2026-09-26). Prescribing one class for both would assert a class one
+/// coordinate never declares.
 ///
 /// The effort literal genuinely is shared, and for two separate reasons:
 /// the harness lane's `high` comes from the shipped `agents/reviewer.json`
@@ -2905,6 +2904,11 @@ fn proof_root() -> PathBuf {
         .to_path_buf()
 }
 
+/// The inline Codex pins, with no authored sandbox: a recipe authors no
+/// `--sandbox` (operator ruling 1 of 2026-09-23), so a no-hands site
+/// declares its class as typed `tools.sandbox`, which the engine lowers as
+/// its own segment, and `danger-full-access` is admitted nowhere (ruling of
+/// 2026-09-25, "narrow"; fixture migration of 2026-09-26).
 fn proof_codex_argv() -> Value {
     json!([
         "{brokkr}",
@@ -2914,11 +2918,12 @@ fn proof_codex_argv() -> Value {
         "--model",
         "gpt-6.1-sol",
         "--effort",
-        "high",
-        "--sandbox",
-        "danger-full-access"
+        "high"
     ])
 }
+
+/// The class a no-hands proof site declares: a work seat's.
+const PROOF_CLASS: &str = "workspace-write";
 
 fn proof_codex_driver() -> Vec<String> {
     [
@@ -2929,8 +2934,6 @@ fn proof_codex_driver() -> Vec<String> {
         "gpt-6.1-sol",
         "--effort",
         "high",
-        "--sandbox",
-        "danger-full-access",
     ]
     .iter()
     .map(|part| part.to_string())
@@ -2942,6 +2945,8 @@ fn proof_member(hands: Option<&str>) -> Value {
         "role": "roles/role.md",
         "driver": {"command": proof_codex_argv()},
     });
+    // A panel member declares no class: unit 5d lowers a typed sandbox only
+    // at a seat, never at a member.
     if let Some(hands) = hands {
         member["hands"] = json!(hands);
     }
@@ -2956,6 +2961,7 @@ fn proof_verify(shape: ProofShape) -> Value {
             "class": "work",
             "limits": limits,
             "role": "roles/role.md",
+            "tools": {"sandbox": PROOF_CLASS},
             "driver": {"command": proof_codex_argv()},
         }),
         // A panel carries no seat-level class: its members carry their own
@@ -3221,7 +3227,12 @@ fn capture_proof_input(run_dir: &Path, bundle: Bundle, label: &str) -> Value {
         let value: Value = serde_json::from_str(line)
             .unwrap_or_else(|error| panic!("{}: {error}: {line:?}", entry.path().display()));
         if value["seat"] == label {
-            return value["input"].clone();
+            // The engine here is this test binary, so the hands it binds
+            // name it; the brokkr driver binds itself (rebuild unit 14).
+            let exe = std::env::current_exe().unwrap();
+            let text = value["input"].to_string();
+            return serde_json::from_str(&text.replace(exe.to_str().unwrap(), brokkr_bin()))
+                .unwrap();
         }
         seen.push(value["seat"].clone());
     }
@@ -3234,6 +3245,14 @@ fn capture_proof_input(run_dir: &Path, bundle: Bundle, label: &str) -> Value {
 /// engine records it and offers exactly that root back on its own retry,
 /// which the real adapter confirms as `resumed` with the current sandbox
 /// re-expressed and no refusal.
+///
+/// Fixture migration of 2026-09-26: a recipe authors no `--sandbox`
+/// (operator ruling 1 of 2026-09-23), and unit 5d lowers a typed class only
+/// at a seat. The single seat declares its class and rejoins as before; a
+/// no-hands panel member can express no class at all, so the adapter's
+/// gate refuses its rejoin as `sandbox-unavailable` — its OWN refusal, not
+/// its hands-bearing sibling's `restrictions-unavailable` — and the retry
+/// runs cold, never resumed without its confinement re-expressed.
 #[test]
 fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() {
     let mut env = EnvGuard::lock();
@@ -3279,6 +3298,25 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
         engine.drive().unwrap();
         let events = engine.store.load(&run_id).unwrap();
         let retry = proof_launch_rows(&events, member);
+        let log = std::fs::read_to_string(run_dir.path().join("argv.log")).unwrap_or_default();
+        if let ProofShape::NoHandsMember = shape {
+            let last = retry.last().unwrap();
+            assert_eq!(
+                (&last["launch"], &last["resume_refusal"]),
+                (&json!("cold"), &json!("sandbox-unavailable")),
+                "{shape:?} wrapped={wrapped}: a member with no class does not rejoin: {retry:#?}"
+            );
+            assert!(
+                retry.iter().all(|row| row["launch"] != "resumed"),
+                "{shape:?} wrapped={wrapped}: {retry:#?}"
+            );
+            assert!(
+                !log.contains("exec resume"),
+                "{shape:?} wrapped={wrapped}: the provider saw no resume: {log:?}"
+            );
+            drop(recipe);
+            continue;
+        }
         let resumed = retry
             .iter()
             .find(|row| row["launch"] == "resumed")
@@ -3294,7 +3332,6 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
             "{shape:?} wrapped={wrapped}: a live rejoin carries no refusal: {resumed}"
         );
 
-        let log = std::fs::read_to_string(run_dir.path().join("argv.log")).unwrap_or_default();
         let resume_line = log
             .lines()
             .find(|line| line.contains("exec resume") && line.contains(PROOF_OFFER))
@@ -3302,7 +3339,7 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
                 panic!("{shape:?} wrapped={wrapped}: the provider saw a resume argv: {log:?}")
             });
         assert!(
-            resume_line.contains("sandbox_mode=\"danger-full-access\""),
+            resume_line.contains(&format!("sandbox_mode=\"{PROOF_CLASS}\"")),
             "{shape:?} wrapped={wrapped}: the class is re-expressed: {resume_line}"
         );
         assert!(
@@ -3310,11 +3347,11 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
             "{shape:?} wrapped={wrapped}: the effort is re-expressed: {resume_line}"
         );
         // The same argv over element boundaries, at all four compiled
-        // shapes. These are inline coordinates, so the class is the
-        // `danger-full-access` the recipe declares.
+        // shapes. These are inline coordinates, so the class is the typed
+        // one the recipe declares and the engine lowered.
         assert_resume_argv(
             &resume_parts(run_dir.path()),
-            "danger-full-access",
+            PROOF_CLASS,
             "high",
             PROOF_OFFER,
             &format!("compiled live inline {shape:?} wrapped={wrapped}"),
@@ -3347,7 +3384,16 @@ fn the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement() {
         patch_proof_bundle(&mut bundle, &from, &recorder.to_string_lossy());
         let input = capture_proof_input(run_dir.path(), bundle, proof_seat_label(shape, wrapped));
 
-        let driver = proof_codex_driver();
+        // The member's hands are served like an agent's (rebuild unit
+        // 14a4a): the driver is handed the extras the engine composed.
+        let driver: Vec<String> = proof_codex_driver()[..3]
+            .iter()
+            .cloned()
+            .chain(["authored", "managed"].iter().flat_map(|part| {
+                let parts = input["launch_arguments"][part].as_array().unwrap();
+                parts.iter().map(|part| part.as_str().unwrap().to_string())
+            }))
+            .collect();
         let shim = make_shim(
             run_dir.path(),
             &proof_shim_body(run_dir.path(), PROOF_OFFER),

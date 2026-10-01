@@ -35,7 +35,9 @@ const POLICY: &str = r#"{
 /// keys in sorted order. Recorded from this tree before the agent
 /// library existed.
 const GOLDEN: [(&str, &[&str]); 11] = [
-    ("run/started", &["feature", "manifest"]),
+    // `charters`: the bindings a start checked, which its resume is held
+    // to (rebuild unit 19; operator ruling 2026-09-29, admission 2a).
+    ("run/started", &["charters", "feature", "manifest"]),
     ("phase/entered", &["phase"]),
     (
         "effect/requested",
