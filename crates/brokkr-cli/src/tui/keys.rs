@@ -274,7 +274,7 @@ pub(super) fn typed(tui: &mut Tui, views: &Views, character: char) -> Flow {
         tui.filter.push_str(safe(&character.to_string()).as_str());
         return Flow::Continue;
     }
-    if hearth_key(tui, character) {
+    if hearth_key(tui, character) || fleet_key(tui, views, character) {
         return Flow::Continue;
     }
     match character {
@@ -286,19 +286,29 @@ pub(super) fn typed(tui: &mut Tui, views: &Views, character: char) -> Flow {
         'r' => tui.force = true,
         '/' => tui.typing = true,
         '?' => tui.help = !tui.help,
-        // Bound where the fleet is the list; characters nothing binds
-        // anywhere else.
-        'a' if tui.level == Level::Runs => tui.all = !tui.all,
-        'l' | ' ' if tui.level == Level::Runs => open_in_place(tui, views, true),
-        'h' if tui.level == Level::Runs => open_in_place(tui, views, false),
-        // The fleet's columns (#503): each toggles its own, or the
-        // dashboard's whole commission.
-        'd' if tui.level == Level::Runs => tui.toggles.dashboard = !tui.toggles.dashboard,
-        'f' if tui.level == Level::Runs => tui.toggles.live = !tui.toggles.live,
-        'c' if tui.level == Level::Runs => tui.commission = !tui.commission,
         _ => {}
     }
     Flow::Continue
+}
+
+/// The keys bound where the fleet is the list: characters nothing binds
+/// anywhere else. True when the key was one of them at that level.
+fn fleet_key(tui: &mut Tui, views: &Views, character: char) -> bool {
+    if tui.level != Level::Runs {
+        return false;
+    }
+    match character {
+        'a' => tui.all = !tui.all,
+        'l' | ' ' => open_in_place(tui, views, true),
+        'h' => open_in_place(tui, views, false),
+        // The fleet's columns (#503): each toggles its own, or the
+        // dashboard's whole commission.
+        'd' => tui.toggles.dashboard = !tui.toggles.dashboard,
+        'f' => tui.toggles.live = !tui.toggles.live,
+        'c' => tui.commission = !tui.commission,
+        _ => return false,
+    }
+    true
 }
 
 /// The hearth keys, bound only where there are hearths to move between
