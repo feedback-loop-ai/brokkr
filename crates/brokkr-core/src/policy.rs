@@ -244,62 +244,13 @@ impl Machine {
         let obj = table
             .as_object()
             .ok_or_else(|| PolicyError::Malformed("table must be an object".into()))?;
-        for key in ["phases", "initial", "terminal", "rules"] {
-            if !obj.contains_key(key) {
-                return Err(PolicyError::Malformed(format!("table missing '{key}'")));
-            }
-        }
-        let phases = string_array(&obj["phases"], "phases")?;
-        let initial = obj["initial"]
-            .as_str()
-            .ok_or_else(|| PolicyError::Malformed("initial must be a string".into()))?
-            .to_string();
-        if !phases.contains(&initial) {
-            return Err(PolicyError::Malformed("initial phase not in phases".into()));
-        }
-        let terminal = string_array(&obj["terminal"], "terminal")?;
-        for t in &terminal {
-            if !phases.contains(t) {
-                return Err(PolicyError::Malformed(format!(
-                    "terminal phase '{t}' not in phases"
-                )));
-            }
-        }
+        let (phases, initial, terminal) = parse_header(obj)?;
         let shippable_from = match obj.get("shippable_from") {
             Some(v) => string_array(v, "shippable_from")?,
             None => Vec::new(),
         };
-
         let schema = obj.get("schema").and_then(Value::as_str);
-
-        let raw_rules = obj["rules"]
-            .as_array()
-            .ok_or_else(|| PolicyError::Malformed("rules must be an array".into()))?;
-        let mut rules = Vec::with_capacity(raw_rules.len());
-        let mut seen_ids: Vec<String> = Vec::new();
-        let mut ruled_unconditionally: Vec<(String, String)> = Vec::new();
-        for raw in raw_rules {
-            let rule = parse_rule(raw, &phases, &terminal, schema)?;
-            if seen_ids.contains(&rule.id) {
-                return Err(PolicyError::Malformed(format!(
-                    "duplicate rule id {}",
-                    rule.id
-                )));
-            }
-            seen_ids.push(rule.id.clone());
-            let group = (rule.from.clone(), rule.result.clone());
-            if ruled_unconditionally.contains(&group) {
-                return Err(PolicyError::Malformed(format!(
-                    "rule {} is unreachable: an unconditional rule for \
-                     ({}, {}) precedes it and first match wins",
-                    rule.id, rule.from, rule.result
-                )));
-            }
-            if rule.when.is_empty() {
-                ruled_unconditionally.push(group);
-            }
-            rules.push(rule);
-        }
+        let rules = parse_rules(&obj["rules"], &phases, &terminal, schema)?;
         Ok(Machine {
             phases,
             initial,
@@ -393,6 +344,74 @@ fn string_array(value: &Value, what: &str) -> Result<Vec<String>, PolicyError> {
                 .ok_or_else(|| PolicyError::Malformed(format!("{what} entries must be strings")))
         })
         .collect()
+}
+
+/// A table's header: the four keys it must hold, its phases, the initial
+/// phase among them and its terminal phases among them.
+fn parse_header(
+    obj: &Map<String, Value>,
+) -> Result<(Vec<String>, String, Vec<String>), PolicyError> {
+    for key in ["phases", "initial", "terminal", "rules"] {
+        if !obj.contains_key(key) {
+            return Err(PolicyError::Malformed(format!("table missing '{key}'")));
+        }
+    }
+    let phases = string_array(&obj["phases"], "phases")?;
+    let initial = obj["initial"]
+        .as_str()
+        .ok_or_else(|| PolicyError::Malformed("initial must be a string".into()))?
+        .to_string();
+    if !phases.contains(&initial) {
+        return Err(PolicyError::Malformed("initial phase not in phases".into()));
+    }
+    let terminal = string_array(&obj["terminal"], "terminal")?;
+    for t in &terminal {
+        if !phases.contains(t) {
+            return Err(PolicyError::Malformed(format!(
+                "terminal phase '{t}' not in phases"
+            )));
+        }
+    }
+    Ok((phases, initial, terminal))
+}
+
+/// A table's rules, in order: each parsed, no id twice, and none behind an
+/// unconditional rule of its own group, since first match wins.
+fn parse_rules(
+    raw_rules: &Value,
+    phases: &[String],
+    terminal: &[String],
+    schema: Option<&str>,
+) -> Result<Vec<Rule>, PolicyError> {
+    let raw_rules = raw_rules
+        .as_array()
+        .ok_or_else(|| PolicyError::Malformed("rules must be an array".into()))?;
+    let mut rules = Vec::with_capacity(raw_rules.len());
+    let mut seen_ids: Vec<String> = Vec::new();
+    let mut ruled_unconditionally: Vec<(String, String)> = Vec::new();
+    for raw in raw_rules {
+        let rule = parse_rule(raw, phases, terminal, schema)?;
+        if seen_ids.contains(&rule.id) {
+            return Err(PolicyError::Malformed(format!(
+                "duplicate rule id {}",
+                rule.id
+            )));
+        }
+        seen_ids.push(rule.id.clone());
+        let group = (rule.from.clone(), rule.result.clone());
+        if ruled_unconditionally.contains(&group) {
+            return Err(PolicyError::Malformed(format!(
+                "rule {} is unreachable: an unconditional rule for \
+                 ({}, {}) precedes it and first match wins",
+                rule.id, rule.from, rule.result
+            )));
+        }
+        if rule.when.is_empty() {
+            ruled_unconditionally.push(group);
+        }
+        rules.push(rule);
+    }
+    Ok(rules)
 }
 
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
