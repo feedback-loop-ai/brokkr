@@ -226,8 +226,8 @@
    481 crates/brokkr-runtime/src/dialect/tests.rs
    545 crates/brokkr-runtime/src/engine/agent_tests.rs
    152 crates/brokkr-runtime/src/engine/artifact_gate_tests.rs
-  4610 crates/brokkr-runtime/src/engine/boundary_tests.rs
-  2228 crates/brokkr-runtime/src/engine/capability_tests.rs
+  4620 crates/brokkr-runtime/src/engine/boundary_tests.rs
+  2231 crates/brokkr-runtime/src/engine/capability_tests.rs
    222 crates/brokkr-runtime/src/engine/cleanup_tests.rs
    669 crates/brokkr-runtime/src/engine/conclude_tests.rs
   1306 crates/brokkr-runtime/src/engine/contention_tests.rs
@@ -236,7 +236,7 @@
     85 crates/brokkr-runtime/src/engine/replay/tests.rs
   4089 crates/brokkr-runtime/src/engine/resume_tests.rs
    121 crates/brokkr-runtime/src/engine/secret_threading_tests.rs
-  6642 crates/brokkr-runtime/src/engine/tests.rs
+  6675 crates/brokkr-runtime/src/engine/tests.rs
    427 crates/brokkr-runtime/src/keep_refs/tests.rs
    494 crates/brokkr-runtime/src/launch/tests.rs
   1371 crates/brokkr-runtime/src/realms/tests.rs

@@ -3354,6 +3354,11 @@ fn effect_started_carries_the_boundary_beside_provenance() {
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_stamp_rides_beside_the_model_and_replaces_a_drivers_word() {
+    if !super::tests::in_its_own_engine(
+        "engine::boundary_tests::the_stamp_rides_beside_the_model_and_replaces_a_drivers_word",
+    ) {
+        return;
+    }
     // The rule itself.
     assert_eq!(
         stamp_boundary(
@@ -3487,6 +3492,11 @@ fn site_boundary_of(spec: &HandsSpec) -> Option<()> {
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
+    if !super::tests::in_its_own_engine(
+        "engine::boundary_tests::a_panels_members_and_a_sequences_steps_carry_their_own_word",
+    ) {
+        return;
+    }
     // Panel members under `harness`: each member's checkpoints and the
     // engine's own `panel-member-finished` marker carry the member's
     // word; a member without hands carries the sentinel; the panel's
