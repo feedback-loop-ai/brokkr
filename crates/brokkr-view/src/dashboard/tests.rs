@@ -1,6 +1,6 @@
 //! The dashboard's derivations (#503): the path a run took, the ruling it
 //! last earned, its last seat's and its last review's notes, the
-//! checkpoints of the seat at work, and the seats as listed.
+//! checkpoints of the seat at work.
 
 use super::*;
 use crate::run_view;
@@ -130,10 +130,45 @@ fn reviewed() -> Vec<EventEnvelope> {
 fn the_path_names_every_visit_its_ruling_residual_duration_and_model() {
     let board = dashboard(&reviewed());
     assert_eq!(board.run_id.as_deref(), Some("r1"));
+    let visits: Vec<_> = board
+        .path
+        .iter()
+        .map(|visit| {
+            (
+                visit.phase.as_str(),
+                visit.ruled,
+                visit.residual,
+                visit.duration.as_deref(),
+                visit.model.as_deref(),
+            )
+        })
+        .collect();
     assert_eq!(
-        board.path_text(),
-        "intake ✓ 2m03s (claude-opus-5-5) → implement ✓ 42m02s (gpt-6.1-sol) → \
-         review ◆ medium 15m03s (claude-fable-5-1) → regression ✗ 52s"
+        visits,
+        [
+            (
+                "intake",
+                Ruled::Passed,
+                None,
+                Some("2m03s"),
+                Some("claude-opus-5-5")
+            ),
+            (
+                "implement",
+                Ruled::Passed,
+                None,
+                Some("42m02s"),
+                Some("gpt-6.1-sol")
+            ),
+            (
+                "review",
+                Ruled::Flagged,
+                Some(Severity::Medium),
+                Some("15m03s"),
+                Some("claude-fable-5-1")
+            ),
+            ("regression", Ruled::Stopped, None, Some("52s"), None),
+        ]
     );
     let rules: Vec<_> = board
         .path
@@ -254,19 +289,8 @@ fn each_ruling_marks_its_visit() {
         ruled,
         [Ruled::Returned, Ruled::Parked, Ruled::Passed, Ruled::Open]
     );
-    let glyphs: Vec<&str> = [
-        Ruled::Open,
-        Ruled::Passed,
-        Ruled::Flagged,
-        Ruled::Returned,
-        Ruled::Parked,
-        Ruled::Stopped,
-    ]
-    .map(Ruled::glyph)
-    .to_vec();
-    assert_eq!(glyphs, ["◐", "✓", "◆", "↺", "●", "✗"]);
     assert_eq!(board.decision.unwrap().severity, None);
-    assert_eq!(board.path[3].text(), "regression ◐ 0s");
+    assert_eq!(board.path[3].duration.as_deref(), Some("0s"));
 }
 
 /// A terminal for an attempt that is not the open one says nothing; a
@@ -409,25 +433,5 @@ fn the_seat_at_work_streams_its_checkpoints_newest_first() {
         working_checkpoints(&view, "reviewer").len(),
         0,
         "a concluded seat streams nothing"
-    );
-}
-
-#[test]
-fn a_seat_is_listed_by_its_model_attempts_and_spend() {
-    let mut journal = Journal::default();
-    journal
-        .enter("review", "2026-01-01T00:00:00Z")
-        .hire("e1", "reviewer", "review", "2026-01-01T00:00:00Z")
-        .push(
-            EventType::EffectStarted,
-            json!({"effect_id": "e1", "attempt_id": "a2"}),
-            "2026-01-01T00:00:01Z",
-        )
-        .hire("e2", "chief", "review", "2026-01-01T00:00:02Z");
-    let view = run_view(&journal.0, None);
-    let listed: Vec<String> = view.participants.iter().map(seat_summary).collect();
-    assert_eq!(
-        listed,
-        ["reviewer · — · 2 attempts · —", "chief · — · 1 attempt · —",]
     );
 }

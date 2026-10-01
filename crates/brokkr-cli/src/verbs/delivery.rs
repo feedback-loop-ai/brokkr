@@ -10,15 +10,17 @@ use anyhow::Result;
 use brokkr_core::fold::OperatorCommand;
 use brokkr_runtime::launch::{self, LaunchRequest, NewRun, RunMap};
 use brokkr_runtime::realms::World;
-use brokkr_runtime::FencedCommandOutcome;
 use brokkr_runtime::{conclude as conclude_run, operator_command};
+use brokkr_runtime::{Engine, FencedCommandOutcome};
 
 use crate::cli_args::{ConcludeArgs, DeliveryArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs};
+use crate::run_view::{self, Viewer};
 use crate::Invocation;
 use crate::{drive_to_end, finish, open_journal, recipes, selector, supersede, Access, Exit};
 
-/// `brokkr run`: start a new run and drive it until it parks or finishes.
-pub(crate) fn run(workspace: &Path, args: RunArgs) -> Result<ExitCode> {
+/// `brokkr run`: start a new run and drive it until it parks or finishes,
+/// beside its run view on a terminal (#508).
+pub(crate) fn run(workspace: &Path, args: RunArgs, viewer: &Viewer) -> Result<ExitCode> {
     // The map is read BEFORE anything is compiled, opened or spawned: a
     // named map that is missing or malformed ends the invocation here.
     let Invocation {
@@ -27,7 +29,7 @@ pub(crate) fn run(workspace: &Path, args: RunArgs) -> Result<ExitCode> {
         journal,
         ..
     } = Invocation::resolve(workspace, args.realms, args.db)?.announce();
-    let request = request(workspace, args.delivery, journal, args.repo);
+    let request = request(workspace, args.delivery, journal.clone(), args.repo);
     let new = NewRun {
         feature: args.feature,
         map: run_map(world, named),
@@ -35,7 +37,7 @@ pub(crate) fn run(workspace: &Path, args: RunArgs) -> Result<ExitCode> {
     };
     let mut engine = launch::start(request, new, &mut |note| eprintln!("{note}"))?;
     eprintln!("run started: {}", engine.run_id);
-    drive_to_end(&mut engine)
+    run_view::drive(&mut engine, &journal, args.no_view, viewer)
 }
 
 /// The map an invocation read, as the launch weighs it: a map `--realms`
@@ -78,13 +80,14 @@ fn resolve_run(journal: &Path, requested: &str) -> Result<String> {
     selector::resolve_run(&open_journal(journal, Access::Append)?, requested)
 }
 
-/// `brokkr resume`: continue a run under its exact pinned bundle.
-pub(crate) fn resume(workspace: &Path, args: ResumeArgs) -> Result<ExitCode> {
+/// `brokkr resume`: continue a run under its exact pinned bundle, beside
+/// its run view on a terminal (#508).
+pub(crate) fn resume(workspace: &Path, args: ResumeArgs, viewer: &Viewer) -> Result<ExitCode> {
     let journal = args.journal.journal(workspace)?;
     let run = resolve_run(&journal, &args.run)?;
-    let request = request(workspace, args.delivery, journal, args.repo);
+    let request = request(workspace, args.delivery, journal.clone(), args.repo);
     let mut engine = launch::resume(request, &run)?;
-    drive_to_end(&mut engine)
+    run_view::drive(&mut engine, &journal, args.no_view, viewer)
 }
 
 /// `brokkr rerun`: a past run's feature as a NEW run. It stands where
@@ -99,7 +102,7 @@ pub(crate) fn rerun(workspace: &Path, args: RerunArgs) -> Result<ExitCode> {
     let mut engine = launch::rerun(request, &run, world)?;
     let name = &engine.bundle.name;
     eprintln!("rerun of {run} as {} under {name}", engine.run_id);
-    drive_to_end(&mut engine)
+    drive_to_end(&mut engine, Engine::drive)
 }
 
 /// `brokkr conclude`: close a stopped or parked run from its journal alone.

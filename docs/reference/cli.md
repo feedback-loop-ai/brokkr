@@ -238,6 +238,7 @@ Usage: brokkr run [OPTIONS] --feature <FEATURE> <--bundle <BUNDLE>|--recipe <REC
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
 | `--repo <REPO>` |  |  | The repository the run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
 | `--dispatch <DISPATCH>` |  |  | Canonical forge-dispatch/v2 JSON. When present the run id, Looper/grant correlation, recipe, repository, budget, and producer bounds are pinned into an immutable run-manifest/v2 |
+| `--no-view` |  |  | On a terminal, print the plain lines and the summary instead of opening the run view. Off a terminal they always print |
 
 ## brokkr resume
 
@@ -257,6 +258,7 @@ Usage: brokkr resume [OPTIONS] --run <RUN> <--bundle <BUNDLE>|--recipe <RECIPE>>
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
 | `--repo <REPO>` |  |  | The repository the resumed run operates on. Without it, the engine gets no repository override and works in the current directory |
+| `--no-view` |  |  | On a terminal, print the plain lines and the summary instead of opening the run view. Off a terminal they always print |
 
 ## brokkr rerun
 
@@ -555,6 +557,7 @@ Usage: brokkr watch [OPTIONS] --run <RUN>
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
 | `--once` |  |  | Print one frame and exit |
 | `--interval <INTERVAL_MS>` | `750` |  | Poll interval in milliseconds (floored at 100) |
+| `--no-view` |  |  | On a terminal, redraw the text frames instead of opening the run view. Off a terminal, and with `--once`, they always print |
 
 ## brokkr replay
 

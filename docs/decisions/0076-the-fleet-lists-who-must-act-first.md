@@ -135,6 +135,48 @@ on, so this file names them.
    `working_checkpoints` and `seat_summary` beside it; `VIEW_VERSION`
    moves 13 to 14, additively.
 
+9. **The dashboard draws the run's graph (#508).** The dashboard's path
+   and seats are no longer text: in their place it draws the run level's
+   graph, the boxed rail the TUI draws after `Enter` on a run, with its
+   phases and their `×N` visits, a panel's positions forking and joining,
+   the road back on a return, each seat's status dot and the current
+   phase boxed and pulsing. It is the run level's own painter
+   (`graph_lines`) over the run view the fleet already reads and re-folds
+   when the journal head moves, so it is live with no new source and one
+   picture drawn at two widths (decision 0013). It stands below how the
+   run stands and why it ended or what it needs, as tall as its drawing
+   (`graph_rows`, the run level's arithmetic) and never more than the run
+   level's 45% share of the column, and above the way out and the folded
+   commission. A narrow or short column degrades as the graph pane does,
+   to elision marks and then to its compressed line, and never back to
+   text. `brokkr-view` drops `Dashboard::path_text` and `seat_summary`,
+   which nothing else read; `RunView::dashboard.path` stays on the wire,
+   so `VIEW_VERSION` does not move.
+10. **One run, one view (#508).** On a terminal — stdin and stdout both —
+    `brokkr run`, `brokkr resume` and `brokkr watch --run <id>` open the
+    console at their run's level, live, through the session `brokkr tui
+    --run <id>` opens, with every key the run level has. Off a terminal
+    nothing changes, byte for byte, and `--no-view` keeps today's output
+    on one; `watch --once` keeps its frame. For `run` and `resume` the
+    engine drives in the same process while the view reads the journal
+    read-only on a thread of its own. The operator ruled both of the
+    issue's readings on 2026-10-01: `q` closes the view and the run keeps
+    driving with its plain output, the closing line naming `brokkr tui
+    --run <id>`; and `watch` on a terminal is this view. Ctrl+C, which raw
+    mode delivers as a key, restores the terminal and raises SIGINT at
+    the process, so the engine's stop path (decision 0006's addendum) meets
+    it as it meets the operator's own; it never detaches silently, and its
+    closing line, said before the signal, names a process that ignores
+    SIGINT as one that keeps driving. A run
+    that ends holds its final frame until any key pressed, one the view
+    binds nothing to included, and then its summary prints and its exit
+    code returns as before. A drive that panics has unwound, which its
+    view tells from a return: the panic hook has already left the
+    terminal, so the view closes at once, drawing nothing more and
+    awaiting no key, and the panic carries on. `watch`'s view
+    exits with the code its frames would have. The CLI's `rustix` edge gains its
+    `process` feature, already built for the engine, to raise the signal.
+
 ## Consequences
 
 - One derivation (decision 0013): the TUI paints these fields and derives
@@ -148,5 +190,17 @@ on, so this file names them.
   Journaling each attempt's deadline (a new contract version) would make
   the bound exact; the operator rules whether the fixed bound stands until
   then.
+- A run view is restored on a normal end, `q`, Ctrl+C, an error and a
+  panic; a drive that panics while the view reads its journal or draws a
+  frame can leave that one frame on the restored screen, since the view
+  reads the drive's end once per frame, before the draw. A SIGTERM or
+  SIGHUP sent from outside while it is open still
+  ends the process through the engine's handler, which exits without
+  leaving raw mode, and what a seat's driver writes to stderr during the
+  drive lands on the view until the next redraw of those cells. No
+  pseudo-terminal crate is in the lockfile, so the terminal is tested at
+  its seams: the rule that opens the view, a real drive beside a view
+  however it closes, the shell's keys under `TestBackend`, SIGINT raised
+  in a child, and the off-terminal bytes against a golden.
 - The decision 0050 enactment slice rebuilds `policy.rs`'s loader beside
   `SEVERITY_ORDER`; `Severity` is additive there, and the loader may adopt it.

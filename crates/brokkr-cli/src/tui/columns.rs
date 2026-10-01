@@ -2,7 +2,8 @@
 //! dashboard (`d`) and the live or findings column (`f`) a frame holds,
 //! how they share its whole width, and what each draws about the selected
 //! run. Every fact is `brokkr-view`'s (decision 0013); this lays it out,
-//! each column wrapping its text at its own width.
+//! each column wrapping its text at its own width, and the dashboard
+//! draws the run level's graph (#508).
 
 use super::*;
 
@@ -224,8 +225,8 @@ const FOLDED_LINES: usize = 3;
 
 /// Every line the dashboard holds for `row`, wrapped at `columns`: what
 /// it draws and what its scroll counts are one list (#503). How the run
-/// stands; why it ended or what it needs; its path, its seats and its way
-/// out; and its commission, folded to its first lines until `c`.
+/// stands; why it ended or what it needs; its graph (#508); its way out;
+/// and its commission, folded to its first lines until `c`.
 pub(super) fn dashboard_lines(
     tui: &Tui,
     views: &Views,
@@ -236,27 +237,42 @@ pub(super) fn dashboard_lines(
     let need = brokkr_view::need(row, &views.now);
     let mut texts = standing_texts(row, need.as_ref(), &views.now, columns);
     texts.extend(ending_texts(row, view, &views.now, columns));
-    texts.extend(heading_of("PATH"));
-    let path = view.map(|view| view.dashboard.path_text());
-    texts.push((
-        path.filter(|path| !path.is_empty()).unwrap_or(absent()),
-        plain(),
-    ));
-    texts.extend(heading_of("SEATS"));
-    let seats: Vec<String> = view
-        .map(|view| view.participants.iter().map(brokkr_view::seat_summary))
-        .into_iter()
-        .flatten()
-        .collect();
-    texts.extend(or_absent(seats).into_iter().map(|text| (text, plain())));
-    texts.extend(heading_of("WAY OUT"));
+    texts.extend(heading_of("GRAPH"));
+    let mut lines = wrapped(texts, columns);
+    lines.extend(graph_of(tui, view, columns));
+    let mut texts = heading_of("WAY OUT");
     let way_out = need
         .map(|need| need.way_out(&row.run_id))
         .unwrap_or_default();
     texts.extend(or_absent(way_out).into_iter().map(|text| (text, plain())));
     texts.extend(heading_of("COMMISSION"));
     texts.extend(commission(tui, row, columns));
-    wrapped(texts, columns)
+    lines.extend(wrapped(texts, columns));
+    lines
+}
+
+/// The run's graph (#508): the run level's own drawing, its current phase
+/// boxed, `columns` wide and as tall as the drawing needs, capped at the
+/// share of the column the run level caps its graph pane at. A narrow or
+/// short column degrades the way that pane does. Before the shell has
+/// read the run, the absence mark.
+fn graph_of(tui: &Tui, view: Option<&RunView>, columns: usize) -> Vec<Line<'static>> {
+    let Some(view) = view else {
+        return vec![line(&absent(), plain())];
+    };
+    let rows = graph_rows(view).min(column_rows(tui) * GRAPH_SHARE_MAX / 100);
+    let rail = Rail {
+        phase: current_phase(view),
+        node: None,
+    };
+    graph_lines(tui, view, None, &rail, (columns, rows))
+}
+
+/// The rows inside a fleet column's borders on the frame the shell
+/// measured: the frame less its status line, its footer, the column's
+/// two borders and, in a world of hearths, the tab bar.
+fn column_rows(tui: &Tui) -> usize {
+    usize::from(tui.height).saturating_sub(4 + usize::from(tabbed(tui)))
 }
 
 fn absent() -> String {

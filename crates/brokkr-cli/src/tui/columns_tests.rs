@@ -341,6 +341,70 @@ pub(super) fn shipped_view() -> RunView {
     brokkr_view::run_view(&journal_of(SHIPPED, steps), None)
 }
 
+/// [`SHIPPED`] as it would have shipped had its first review sent it back
+/// to implement: the road back its graph draws as the loop-back arrow
+/// (#508).
+pub(super) fn returned_view() -> RunView {
+    let seat = |effect, seat, phase, span| Hired {
+        effect,
+        seat,
+        phase,
+        spent: json!({"model": "claude-opus-5-5"}),
+        span,
+    };
+    let at = |minute: usize| {
+        [
+            T0,
+            "2026-01-01T00:01:00Z",
+            "2026-01-01T00:02:00Z",
+            "2026-01-01T00:03:00Z",
+            "2026-01-01T00:04:00Z",
+            "2026-01-01T00:05:00Z",
+        ][minute]
+    };
+    let found = json!({"result": "findings", "notes": "One branch is untested."});
+    let steps = vec![
+        started("Landing 4 of the fleet view"),
+        visit(
+            "implement",
+            &seat("e1", "implementer", "implement", (at(0), at(1))),
+            json!({"result": "complete"}),
+        ),
+        rule("IMPL-OK", "implement", Some("review"), json!({}), at(1)),
+        visit(
+            "review",
+            &seat("e2", "reviewer", "review", (at(1), at(2))),
+            found,
+        ),
+        rule(
+            "REVIEW-FINDINGS",
+            "review",
+            Some("implement"),
+            json!({}),
+            at(2),
+        ),
+        visit(
+            "implement",
+            &seat("e3", "implementer", "implement", (at(2), at(3))),
+            json!({"result": "complete"}),
+        ),
+        rule("IMPL-OK", "implement", Some("review"), json!({}), at(3)),
+        visit(
+            "review",
+            &seat("e4", "reviewer", "review", (at(3), at(4))),
+            json!({"result": "clean"}),
+        ),
+        rule("REVIEW-CLEAN", "review", Some("ship"), json!({}), at(4)),
+        visit(
+            "ship",
+            &seat("e5", "shipper", "ship", (at(4), at(5))),
+            json!({"result": "complete", "notes": "Merged."}),
+        ),
+        rule("SHIP-COMPLETE", "ship", Some("done"), json!({}), at(5)),
+    ];
+    brokkr_view::run_view(&journal_of(SHIPPED, steps), None)
+}
+
 /// The fleet the operator found, holding `view` as the shell's read of
 /// the selected run.
 pub(super) fn fleet_reading(view: RunView) -> Views {
@@ -666,8 +730,9 @@ fn the_list_fills_its_height_with_older_runs_and_folds_only_the_rest() {
 }
 
 /// What the dashboard answers for a run parked on a review: how it
-/// stands, what it needs, the path it took, its seats and its notes'
-/// first lines, each wrapped at the column's own width.
+/// stands, what it needs, the path it took and its seats as the run's
+/// graph (#508), and its notes' first lines, each at the column's own
+/// width.
 #[test]
 fn the_dashboard_answers_how_it_stands_what_it_needs_its_path_and_seats() {
     let views = fleet_reading(held_view());
@@ -691,20 +756,47 @@ fn the_dashboard_answers_how_it_stands_what_it_needs_its_path_and_seats() {
         "cargo-exemption-hold-5b6c7d8e seq 40 · review · max_residual_severity: high",
     ];
     assert_eq!(under(&lines, "WHAT IT NEEDS"), needs);
-    let path = [
-        "intake ✓ 40s (claude-opus-5-5) → implement ✓ 2m30s (gpt-6.1-sol) → verify ✓ 45s \
-         (claude-sonnet-5-5) → review ● high 2m35s",
-        "(claude-fable-5-1)",
+    let graph = [
+        "                                         ╭────────────╮",
+        "   ⏺ intake──ᐳ⏺ implementer──ᐳ⏺ verifier─┼ᐳ⏺ reviewer │",
+        "   intake       implement      verify    │  review    │",
+        "                                         ╰────────────╯",
     ];
-    assert_eq!(under(&lines, "PATH"), path);
-    let seats = [
-        "intake · claude-opus-5-5 · 1 attempt · $0.4200",
-        "implementer · gpt-6.1-sol · 1 attempt · 853k tok",
-        "verifier · claude-sonnet-5-5 · 1 attempt · $0.1100",
-        "reviewer · claude-fable-5-1 · 1 attempt · $1.2500",
-    ];
-    assert_eq!(under(&lines, "SEATS"), seats);
+    assert_eq!(graph_text(&lines), graph);
     assert_eq!(under(&lines, "WAY OUT"), ["—"]);
+}
+
+/// The rows under the dashboard's GRAPH, as a frame shows them.
+fn graph_text(lines: &[String]) -> Vec<String> {
+    let rows = under(lines, "GRAPH");
+    rows.iter().map(|row| row.trim_end().to_string()).collect()
+}
+
+/// One row of the run level's graph pane, inside its border.
+fn within_border(row: &str) -> String {
+    let inner = row.trim_end().strip_prefix('│').unwrap();
+    inner.strip_suffix('│').unwrap().trim_end().to_string()
+}
+
+/// The dashboard draws the run level's graph, not one of its own (#508):
+/// the rows the graph pane draws for the run opened at its level, its
+/// rail cursor where it opens, are the rows under the dashboard's GRAPH,
+/// for a running run's current phase and a finished run's road back.
+#[test]
+fn the_dashboards_graph_is_the_run_levels_at_its_own_width() {
+    let (width, height) = OPERATOR;
+    for (run, view) in [(REVIEWING, reviewing_view()), (SHIPPED, returned_view())] {
+        let views = fleet_reading(view);
+        let dashboard = graph_text(&dashboard_text(&selecting(run), &views, run));
+        let mut opened = Tui::new(Some(run.to_string()));
+        seed_cursor(&mut opened, &views);
+        let frame = lines_of(drawn(&opened, &views, width, height).backend().buffer());
+        let pane: Vec<String> = frame[1..=dashboard.len()]
+            .iter()
+            .map(|row| within_border(row))
+            .collect();
+        assert_eq!(pane, dashboard, "{run}");
+    }
 }
 
 /// A running run's third column follows the seat the fold names at

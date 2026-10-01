@@ -142,7 +142,7 @@ pub(crate) fn stopped_mid_flight_run(db: &std::path::Path, run_id: &str, manifes
 
 /// The same copy, its `run/started` recording `charters` as a start now
 /// records the bindings it checked (rebuild unit 19), when given.
-fn stopped_mid_flight_copy(
+pub(crate) fn stopped_mid_flight_copy(
     db: &std::path::Path,
     run_id: &str,
     manifest: &Value,
@@ -235,7 +235,7 @@ fn stage_adapters(workspace_dir: &std::path::Path) {
 /// review gate (which needs no hands) when a test needs the resulting
 /// `drivers` witness; otherwise every seat is work-class and the bundle
 /// can ride the Looper-bound v2 lineage.
-fn stage_hands_free_fast(
+pub(crate) fn stage_hands_free_fast(
     workspace_dir: &std::path::Path,
     name: &str,
     keep_review_gate: bool,
@@ -362,6 +362,19 @@ fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd
         by_realm: None,
         journal: at(db),
     })
+}
+
+/// `brokkr watch --run <run> --db <db> --no-view`, one frame or a poll
+/// every `interval_ms`: the frames, however the test is launched.
+pub(crate) fn watching(run: &str, db: &std::path::Path, once: bool, interval_ms: u64) -> WatchArgs {
+    WatchArgs {
+        run: run.into(),
+        realms: None,
+        db: Some(db.to_path_buf()),
+        once,
+        interval_ms,
+        no_view: true,
+    }
 }
 
 /// `--db <path>` and no `--realms`: the journal a test names outright.
@@ -760,7 +773,7 @@ fn ui_and_tui_open_the_journal_the_map_names() {
         None,
         |hearths, _, _| {
             opened = Some(hearths.into_iter().map(|hearth| hearth.journal).collect());
-            Ok(ExitCode::SUCCESS)
+            Ok(tui::Closed::Quit)
         },
     )
     .unwrap();
@@ -801,7 +814,7 @@ fn ui_refuses_a_world_of_two_hearths_that_tui_reads_whole() {
         None,
         |hearths, _, _| {
             opened = Some(hearths.into_iter().map(|hearth| hearth.journal).collect());
-            Ok(ExitCode::SUCCESS)
+            Ok(tui::Closed::Quit)
         },
     )
     .unwrap();
@@ -1009,6 +1022,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
             db: Some(dir.path().join("dispatch.db")),
             repo: None,
             dispatch,
+            no_view: true,
         })
     };
 
@@ -1078,6 +1092,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
             db: Some(dir.path().join("dispatch.db")),
             repo: None,
             dispatch,
+            no_view: true,
         })
     };
     let refusal = run_in(&unmapped, cli(gated(Some(gated_dispatch_path))))
@@ -1760,16 +1775,7 @@ fn every_reading_verb_in_an_empty_directory_refuses_and_creates_nothing() {
                 json: false,
             }),
         ),
-        (
-            "watch",
-            Cmd::Watch(WatchArgs {
-                run: "x".into(),
-                realms: None,
-                db: Some(db.clone()),
-                once: true,
-                interval_ms: 750,
-            }),
-        ),
+        ("watch", Cmd::Watch(watching("x", &db, true, 750))),
         (
             "replay",
             Cmd::Replay(ReplayArgs {
@@ -1892,7 +1898,7 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         None,
         |hearths, run, tab| {
             seen = Some((hearths[0].journal.clone(), run, tab));
-            Ok(ExitCode::SUCCESS)
+            Ok(tui::Closed::Quit)
         },
     )
     .unwrap();
@@ -1919,7 +1925,7 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         None,
         |hearths, run, tab| {
             seen = Some((hearths[0].journal.clone(), run, tab));
-            Ok(ExitCode::SUCCESS)
+            Ok(tui::Closed::Quit)
         },
     )
     .unwrap();
@@ -1941,7 +1947,7 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         None,
         |hearths, run, tab| {
             seen = Some((hearths[0].journal.clone(), run, tab));
-            Ok(ExitCode::SUCCESS)
+            Ok(tui::Closed::Quit)
         },
     )
     .unwrap();
@@ -2874,13 +2880,7 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     // operator's Ctrl-C in the looping form.
     assert_eq!(
         run_with(
-            cli(Cmd::Watch(WatchArgs {
-                run: "r1".into(),
-                realms: None,
-                db: Some(db.clone()),
-                once: true,
-                interval_ms: 100,
-            })),
+            cli(Cmd::Watch(watching("r1", &db, true, 100))),
             unmapped(),
             ui::serve,
             None,
@@ -2893,13 +2893,7 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     );
     assert_eq!(
         run_with(
-            cli(Cmd::Watch(WatchArgs {
-                run: "r1".into(),
-                realms: None,
-                db: Some(db),
-                once: false,
-                interval_ms: 100,
-            })),
+            cli(Cmd::Watch(watching("r1", &db, false, 100))),
             unmapped(),
             ui::serve,
             None,
@@ -3023,6 +3017,7 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
                 run: run.into(),
                 journal: at(&db),
                 repo: Some(dir.path().to_path_buf()),
+                no_view: true,
             })),
         )
     };
@@ -3150,14 +3145,7 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     // `watch` keeps the console's own unchanged behaviour: it renders
     // the absence rather than a status, and never exits success on it.
     assert_eq!(
-        run(cli(Cmd::Watch(WatchArgs {
-            run: "poisoned".into(),
-            realms: None,
-            db: Some(db.clone()),
-            once: true,
-            interval_ms: 100,
-        })))
-        .unwrap(),
+        run(cli(Cmd::Watch(watching("poisoned", &db, true, 100)))).unwrap(),
         ExitCode::from(1)
     );
 }
@@ -4175,6 +4163,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
             db: Some(dir.path().join("never-created.db")),
             repo: Some(root.clone()),
             dispatch: None,
+            no_view: true,
         })),
     )
     .unwrap_err()
@@ -4190,6 +4179,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
             run: "resume-missing-bundle".into(),
             journal: at(&resume_db),
             repo: None,
+            no_view: true,
         })),
     )
     .is_err());

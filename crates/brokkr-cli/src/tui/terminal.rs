@@ -172,6 +172,78 @@ fn arrive(
     fresh
 }
 
+/// How a session of the console closed (#508).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Closed {
+    /// `q`, or Ctrl+C wherever it stops no run.
+    Quit,
+    /// Ctrl+C over a run this process drives: the run is to stop as
+    /// SIGINT stops it (decision 0006's addendum).
+    Interrupted,
+    /// A key after the run the session watched had ended, or at once
+    /// after the drive beside it panicked.
+    Ended,
+}
+
+/// Whether the run a session watches has ended: the flag its engine
+/// raises, or its own row in the frame's fleet.
+pub(super) fn has_ended(watched: &Watched, views: &Views) -> bool {
+    match watched {
+        Watched::Console => false,
+        Watched::Driven(end) => end.get().is_some(),
+        Watched::Journal(run) => views
+            .runs
+            .runs
+            .iter()
+            .any(|row| row.run_id == *run && settled(row.verdict.standing)),
+    }
+}
+
+/// Whether a run standing so has stopped running, as watch's frames end
+/// on it. A row whose journal does not fold keeps the watch going, as
+/// the frames keep polling a journal that does not fold.
+fn settled(standing: Standing) -> bool {
+    match standing {
+        Standing::Running | Standing::Quarantined => false,
+        Standing::Parked | Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => {
+            true
+        }
+    }
+}
+
+/// Whether the drive beside the session panicked. The panic hook has
+/// already left the terminal, so a frame drawn now would land on the
+/// restored screen in cooked mode, and a wait for a key would hold the
+/// panic, and the process, until one.
+fn unwound(watched: &Watched) -> bool {
+    matches!(watched, Watched::Driven(end) if end.get() == Some(&DriveEnd::Unwound))
+}
+
+/// An event the shell read: how it closes the session, if it does. Once
+/// the run watched has ended any key pressed closes it, bound or not. The
+/// end is ruled again at the key: a drive can return while the frame
+/// draws or the poll waits, after the frame was ruled.
+pub(super) fn closed_by(tui: &mut Tui, views: &Views, event: Event) -> Option<Closed> {
+    let press = matches!(&event, Event::Key(key) if key.kind == KeyEventKind::Press);
+    if press && (tui.ended || has_ended(&tui.watched, views)) {
+        return Some(Closed::Ended);
+    }
+    from_crossterm(event).and_then(|key| pressed(tui, views, key))
+}
+
+/// A key the shell read, applied: how it closes the session, if it does.
+/// Ctrl+C stops a run this process drives where elsewhere it quits.
+fn pressed(tui: &mut Tui, views: &Views, key: Key) -> Option<Closed> {
+    if apply(tui, views, key) == Flow::Continue {
+        return None;
+    }
+    let stops = matches!(tui.watched, Watched::Driven(_)) && key == Key::Quit;
+    Some(match stops {
+        true => Closed::Interrupted,
+        false => Closed::Quit,
+    })
+}
+
 /// The bounded shell: draw, poll, apply, repeat. Everything impure it
 /// touches arrives as a parameter, so the whole loop — its quit arm, its
 /// error arm and its transient-busy arms — runs under `TestBackend`.
@@ -181,7 +253,7 @@ pub(super) fn drive<B: Backend>(
     source: &mut dyn FnMut(Ask) -> Result<Refreshed>,
     tui: &mut Tui,
     max_iterations: usize,
-) -> Result<ExitCode>
+) -> Result<Closed>
 where
     // A backend's own error reaches the operator through `anyhow`.
     B::Error: std::error::Error + Send + Sync + 'static,
@@ -225,21 +297,61 @@ where
             }
         }
         settle(tui, &views);
+        // Ruled over the frame just read, so the frame that first shows
+        // the run settled is drawn, and keyed, as ended. The next frame
+        // reads the journal as the run left it, and stays until a key
+        // (#508).
+        if !tui.ended && has_ended(&tui.watched, &views) {
+            tui.ended = true;
+            tui.force = true;
+        }
+        // Checked just before the draw: a drive that panicked closes the
+        // view at once, with nothing more drawn and no key awaited.
+        if unwound(&tui.watched) {
+            return Ok(Closed::Ended);
+        }
         // Measured before the draw, so the frame, its footer and the keys
         // below are pressed against one size.
         let size = terminal.size()?;
         (tui.width, tui.height) = (size.width, size.height);
         terminal.draw(|frame| draw(frame, tui, &views))?;
         if (ops.poll)(TICK)? {
-            if let Some(key) = from_crossterm((ops.read)()?) {
-                if apply(tui, &views, key) == Flow::Quit {
-                    return Ok(crate::Exit::Completed.into());
-                }
+            if let Some(closed) = closed_by(tui, &views, (ops.read)()?) {
+                return Ok(closed);
             }
         }
         tui.ticks += 1;
     }
-    Ok(crate::Exit::Completed.into())
+    // Only a test bounds the loop; one that ran out closes as `q` would.
+    Ok(Closed::Quit)
+}
+
+/// One session of the console on a terminal: every environment fact and
+/// every terminal call arrives here as a field, so the whole of [`start`]
+/// executes in tests as well as in production.
+pub(crate) struct Session<'a, B, R> {
+    /// Whether the journal is on disk: a read never creates one.
+    pub db_is_file: bool,
+    /// The run `--run` named, opened at its level; `Esc` then walks the
+    /// ladder to the full fleet.
+    pub run: Option<String>,
+    /// The world's hearths as realm names (decision 0026 ruling 2).
+    /// Empty or one-long draws no tab bar.
+    pub tabs: Vec<String>,
+    /// The hearth to open on: the one a named `--run` was found in.
+    pub tab: usize,
+    pub ops: TerminalOps,
+    pub is_tty: bool,
+    /// Animation is enabled exactly when colour is: the same line kind
+    /// as `is_tty`, read once at the call site and injected here, so a
+    /// test sets it directly and touches no environment.
+    pub animate: bool,
+    pub backend: B,
+    pub restore: R,
+    pub source: &'a mut dyn FnMut(Ask) -> Result<Refreshed>,
+    pub max_iterations: usize,
+    /// What the session watches besides its keys (#508).
+    pub watched: Watched,
 }
 
 /// Enter the terminal, run the console, leave the terminal — with every
@@ -247,30 +359,25 @@ where
 /// the whole of this function executes in tests as well as in
 /// production. Nothing here exits the process outright — that would run
 /// past the guard's `Drop` and leave a terminal in raw mode — so the TUI
-/// returns an `ExitCode` like every other arm.
-#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
-pub(crate) fn start<B: Backend, R: Write>(
-    db_is_file: bool,
-    run: Option<String>,
-    // The world's hearths as realm names (decision 0026 ruling 2).
-    // Empty or one-long draws no tab bar. `tab` is the one to open on:
-    // the hearth a named `--run` was found in.
-    tabs: Vec<String>,
-    tab: usize,
-    ops: TerminalOps,
-    is_tty: bool,
-    // Animation is enabled exactly when colour is: the same line kind
-    // as `is_tty`, read once at the call site and injected here, so a
-    // test sets it directly and touches no environment.
-    animate: bool,
-    backend: B,
-    restore: R,
-    source: &mut dyn FnMut(Ask) -> Result<Refreshed>,
-    max_iterations: usize,
-) -> Result<ExitCode>
+/// returns how it closed, and its caller what that means.
+pub(crate) fn start<B: Backend, R: Write>(session: Session<'_, B, R>) -> Result<Closed>
 where
     B::Error: std::error::Error + Send + Sync + 'static,
 {
+    let Session {
+        db_is_file,
+        run,
+        tabs,
+        tab,
+        ops,
+        is_tty,
+        animate,
+        backend,
+        restore,
+        source,
+        max_iterations,
+        watched,
+    } = session;
     let size = (ops.size)().unwrap_or((0, 0));
     if let Some(message) = refuse(is_tty, size, db_is_file) {
         anyhow::bail!("{message}");
@@ -285,6 +392,7 @@ where
     let mut terminal = Terminal::new(backend)?;
     let mut state = Tui::over(run, tabs, tab);
     state.animate = animate;
+    state.watched = watched;
     let code = drive(&mut terminal, &ops, source, &mut state, max_iterations);
     // Uninstalled on the normal path: a panic later in this process must
     // not restore a terminal this function has already left.

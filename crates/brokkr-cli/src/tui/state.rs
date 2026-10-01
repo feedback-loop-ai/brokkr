@@ -100,6 +100,32 @@ pub(crate) struct Ask<'a> {
 
 // -------------------------------------------------------------- the state
 
+/// What a session of the console watches besides its keys (#508): one
+/// run view, whichever verb opened it.
+#[derive(Clone, Debug)]
+pub(crate) enum Watched {
+    /// `brokkr tui`: nothing, and only a key ends it.
+    Console,
+    /// `brokkr run` and `resume`: the engine driving the run in the same
+    /// process sets how its drive ended once it has returned or unwound,
+    /// and Ctrl+C stops the run as it does without the view.
+    // Spelled out: the graph's own `Arc` is the road back.
+    Driven(std::sync::Arc<std::sync::OnceLock<DriveEnd>>),
+    /// `brokkr watch`: the run named, which has ended once its journal
+    /// folds to a status other than running, as watch's frames end then.
+    Journal(String),
+}
+
+/// How the drive beside a run view ended (#508).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum DriveEnd {
+    /// The drive returned: the view holds its final frame until a key.
+    Returned,
+    /// The drive panicked: the panic hook has already left the terminal,
+    /// so the view closes at once and draws nothing more.
+    Unwound,
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum Level {
     Runs,
@@ -208,6 +234,10 @@ pub(crate) struct Tui {
     pub commission: bool,
     /// The live or findings column's scroll, in drawn lines.
     pub live_offset: usize,
+    /// What this session watches besides its keys (#508).
+    pub watched: Watched,
+    /// The run it watched has ended: the frame stays until any key.
+    pub ended: bool,
 }
 
 impl Tui {
@@ -263,6 +293,8 @@ impl Tui {
             toggles: Toggles::default(),
             commission: false,
             live_offset: 0,
+            watched: Watched::Console,
+            ended: false,
         }
     }
 

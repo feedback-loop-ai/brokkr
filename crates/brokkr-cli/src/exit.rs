@@ -84,6 +84,16 @@ impl Exit {
         }
     }
 
+    /// The code a watch of a run ends with once the run has stopped
+    /// running: `None` while it runs, or while its journal does not fold,
+    /// which keeps the watch going.
+    pub(crate) fn of_settled(status: Option<&Status>) -> Option<Exit> {
+        match status {
+            Some(Status::Running) | None => None,
+            Some(status) => Some(Exit::of_status(status)),
+        }
+    }
+
     /// How a command line that clap refused leaves: its message printed
     /// the way `Cli::parse` would print it, and `--help` or `--version`,
     /// which clap also reports as an error, still a success.

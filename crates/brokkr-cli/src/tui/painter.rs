@@ -313,18 +313,29 @@ pub(super) fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static
     cells.iter().map(|row| row_line(row)).collect()
 }
 
-pub(super) fn draw_graph(
-    frame: &mut Frame,
-    area: Rect,
+/// Where the rail's cursor stands on a graph: the selected phase, and
+/// the lane node inside it.
+pub(super) struct Rail<'a> {
+    pub(super) phase: Option<&'a str>,
+    pub(super) node: Option<&'a str>,
+}
+
+/// The graph of `view` in `cells`, columns by rows: the run-level
+/// notices, then the rail planned into whatever rows remain. The run
+/// level's graph pane and the fleet's dashboard (#508) both draw these
+/// lines, so one picture is drawn at two widths by one renderer
+/// (decision 0013).
+pub(super) fn graph_lines(
     tui: &Tui,
-    views: &Views,
     view: &RunView,
     lens: Option<&render::Lens>,
-) {
+    rail: &Rail,
+    (width, height): (usize, usize),
+) -> Vec<Line<'static>> {
     // Run-level notices first — a fallback selection or an optional
     // capability gap is a fact an operator must SEE, not find (decision
     // 0016) — then the graph, planned into whatever rows remain.
-    let mut lines: Vec<Line> = Vec::new();
+    let mut lines: Vec<Line<'static>> = Vec::new();
     // The run header's boundary line (decision 0046 ruling 3): the
     // model's rendered text, adjective included, printed and never
     // composed. A run that boxes nothing carries no line at all.
@@ -345,12 +356,32 @@ pub(super) fn draw_graph(
         &view.phases,
         lens,
         status,
-        tui.cursor[0].as_deref(),
-        tui.node.as_deref(),
-        usize::from(area.width.saturating_sub(2)),
-        usize::from(area.height.saturating_sub(2)).saturating_sub(lines.len()),
+        rail.phase,
+        rail.node,
+        width,
+        height.saturating_sub(lines.len()),
     );
     lines.extend(paint(&plan, tui.ticks, tui.animate));
+    lines
+}
+
+pub(super) fn draw_graph(
+    frame: &mut Frame,
+    area: Rect,
+    tui: &Tui,
+    views: &Views,
+    view: &RunView,
+    lens: Option<&render::Lens>,
+) {
+    let rail = Rail {
+        phase: tui.cursor[0].as_deref(),
+        node: tui.node.as_deref(),
+    };
+    let cells = (
+        usize::from(area.width.saturating_sub(2)),
+        usize::from(area.height.saturating_sub(2)),
+    );
+    let lines = graph_lines(tui, view, lens, &rail, cells);
     frame.render_widget(
         Paragraph::new(lines).block(
             pane("graph", tui.pane == 0)

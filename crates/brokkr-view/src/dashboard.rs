@@ -14,8 +14,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::{
-    display_or_mark, field, fmt_dur, joined, js, result_token, truthy, CheckpointRow, Participant,
-    RunView,
+    display_or_mark, field, fmt_dur, joined, js, result_token, truthy, CheckpointRow, RunView,
 };
 
 /// The phase whose seat reports a run's findings.
@@ -69,37 +68,6 @@ pub enum Ruled {
     Parked,
     /// Ruled with a hard severity.
     Stopped,
-}
-
-impl Ruled {
-    /// The mark the path prints for it.
-    pub(crate) fn glyph(self) -> &'static str {
-        match self {
-            Ruled::Open => "◐",
-            Ruled::Passed => "✓",
-            Ruled::Flagged => "◆",
-            Ruled::Returned => "↺",
-            Ruled::Parked => "●",
-            Ruled::Stopped => "✗",
-        }
-    }
-}
-
-impl Visit {
-    /// The visit as the path prints it: `review ◆ medium 15m03s
-    /// (claude-fable-5-1)`.
-    pub(crate) fn text(&self) -> String {
-        let mut text = format!("{} {}", self.phase, self.ruled.glyph());
-        let parts = [self.residual.map(Severity::name), self.duration.as_deref()];
-        for part in parts.into_iter().flatten() {
-            text.push(' ');
-            text.push_str(part);
-        }
-        if let Some(model) = &self.model {
-            text.push_str(&format!(" ({model})"));
-        }
-        text
-    }
 }
 
 /// The ruling severity a `transition/decided` names: phase-event/v1's
@@ -197,14 +165,6 @@ pub struct Concluded {
     /// The seat's notes: a panel's as one line per member, a failed
     /// attempt's error where it wrote no notes.
     pub notes: Option<String>,
-}
-
-impl Dashboard {
-    /// The whole path on one line, visit by visit.
-    pub fn path_text(&self) -> String {
-        let visits: Vec<String> = self.path.iter().map(Visit::text).collect();
-        visits.join(" → ")
-    }
 }
 
 /// A visit under construction.
@@ -423,19 +383,6 @@ pub fn working_checkpoints<'a>(view: &'a RunView, seat: &str) -> Vec<(&'a str, &
     rows.sort_by(|(_, a), (_, b)| a.recorded_at.cmp(&b.recorded_at));
     rows.reverse();
     rows
-}
-
-/// A seat as the dashboard lists it: its label, the model it reported,
-/// its attempts and its spend, each the participant's own cell.
-pub fn seat_summary(part: &Participant) -> String {
-    let attempts = match part.attempts {
-        1 => "1 attempt".to_string(),
-        count => format!("{count} attempts"),
-    };
-    format!(
-        "{} · {} · {attempts} · {}",
-        part.label, part.served.model.text, part.cost_cell.text
-    )
 }
 
 #[cfg(test)]

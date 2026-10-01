@@ -18,6 +18,9 @@ pub(crate) fn footer_for(tui: &Tui, views: &Views) -> String {
 /// its lesser keys until it fits (#503), and every other level's is
 /// drawn as it stands.
 pub(crate) fn footer_within(tui: &Tui, views: &Views, width: usize) -> String {
+    if tui.ended {
+        return "the run has ended · any key closes the view".to_string();
+    }
     if tui.help {
         return "? or Esc close help · q quit".to_string();
     }

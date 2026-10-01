@@ -189,6 +189,22 @@ impl Workspace {
             .to_string()
     }
 
+    /// `brokkr run` of the fixture bundle with `extra` arguments, off a
+    /// terminal as `Command::output` always is: the run it started, and
+    /// what it printed on stdout and on stderr.
+    fn run_printing(&self, extra: &[&str]) -> (String, String, String) {
+        let (bundle, db) = (self.path().join("bundle"), self.db());
+        let mut args = vec!["run", "--bundle", bundle.to_str().unwrap()];
+        args.extend(["--feature", "readouts", "--db", db.to_str().unwrap()]);
+        args.extend_from_slice(extra);
+        let (stdout, stderr) = self.brokkr(&args);
+        let started = stderr
+            .lines()
+            .find_map(|line| line.strip_prefix("run started: "));
+        let run = started.expect("the run id on stderr").trim().to_string();
+        (run, stdout, stderr)
+    }
+
     fn inspect_json(&self, run_id: &str) -> Value {
         let (stdout, _) = self.brokkr(&[
             "inspect",
@@ -211,6 +227,59 @@ impl Workspace {
         ])
         .0
     }
+}
+
+/// #508: off a terminal `brokkr run` prints what it printed before the
+/// run view existed, byte for byte, with the minted run id standing for
+/// itself: the pipeline's lanes and other sessions run it so, and must
+/// not notice the view. `--no-view` prints the same bytes; on a terminal
+/// it is what keeps them.
+#[test]
+fn a_run_off_a_terminal_prints_what_it_always_has() {
+    let ws = Workspace::new(json!(["first", "second"]));
+    // A repository with an identity of its own, so the run anchors and
+    // prints no host's git refusal: a CI runner has no global identity,
+    // and the anchor's commit-tree needs one.
+    for args in [
+        &["init", "-q"][..],
+        &["config", "user.name", "Readouts Test"],
+        &["config", "user.email", "readouts@example.invalid"],
+    ] {
+        let mut git = Command::new("git");
+        let git = git.args(args).current_dir(ws.path());
+        assert!(git.status().unwrap().success());
+    }
+    let printed = |extra: &[&str]| {
+        let (run, stdout, stderr) = ws.run_printing(extra);
+        (stdout.replace(&run, "<run>"), stderr.replace(&run, "<run>"))
+    };
+    let summary = r#"{
+  "consecutive_failures": {
+    "implement": 0,
+    "review": 0
+  },
+  "cursor": "Idle",
+  "feature": "readouts",
+  "last_decision": {
+    "from": "review",
+    "inputs": {},
+    "next": "done",
+    "problem": null,
+    "result": "clean",
+    "rule_id": "REVIEW-CLEAN",
+    "severity": "normal"
+  },
+  "park_reason": null,
+  "phase": "done",
+  "run_id": "<run>",
+  "seq": 19,
+  "status": "completed",
+  "strategy": null
+}
+"#;
+    let golden = (summary.to_string(), "run started: <run>\n".to_string());
+    assert_eq!(printed(&[]), golden);
+    assert_eq!(printed(&["--no-view"]), golden);
 }
 
 /// AC-8 and AC-17: the fallback and its provenance reach the JSON view
