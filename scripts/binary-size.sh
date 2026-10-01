@@ -10,10 +10,20 @@ set -euo pipefail
 binary="$1"
 budget_file="$2"
 
-# The file is read whole (-s) and must hold exactly one document whose
-# budgets.bytes is one whole positive number: two concatenated documents
-# would print two lines, and a comparison against them would be a bash
-# arithmetic error that an `if` reads as false, which is a pass.
+# The file must declare one budget and nothing ambiguous: an ambiguous
+# budget that reaches the comparison is a pass, so every check fails
+# closed. A parse keeps only the last of a repeated key, so a file that
+# declares the budget twice (a merge that kept both lines) would be read
+# as the later one; --stream sees every declaration, and budgets.bytes
+# must be written exactly once in the whole file.
+declared="$(jq -n --stream '[inputs | select(length == 2 and .[0] == ["budgets", "bytes"])] | length' "$budget_file")" || declared=0
+[[ $declared == 1 ]] || {
+  printf 'binary size refusal: %s holds no whole positive budgets.bytes\n' "$budget_file" >&2
+  exit 1
+}
+# Read whole (-s), it must be exactly one document whose budgets.bytes is
+# one whole positive number: two documents would print two lines, and a
+# comparison against them is a bash arithmetic error an `if` reads as false.
 budget="$(jq -ser 'if length == 1 then .[0].budgets.bytes | select(type == "number" and . == floor and . > 0) else empty end' "$budget_file")" || {
   printf 'binary size refusal: %s holds no whole positive budgets.bytes\n' "$budget_file" >&2
   exit 1
