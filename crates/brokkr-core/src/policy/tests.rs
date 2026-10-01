@@ -20,6 +20,23 @@ fn rule() -> Value {
     })
 }
 
+/// The typed severity is the table's vocabulary: each variant at its
+/// rank, named and serialized by the one word the table writes.
+#[test]
+fn a_severity_is_named_ranked_and_serialized_as_the_table_names_it() {
+    for (rank, severity) in Severity::ALL.into_iter().enumerate() {
+        assert_eq!(severity.name(), SEVERITY_ORDER[rank]);
+        assert_eq!(Severity::named(SEVERITY_ORDER[rank]), Some(severity));
+        assert_eq!(
+            serde_json::to_value(severity).unwrap(),
+            json!(SEVERITY_ORDER[rank])
+        );
+    }
+    assert!(Severity::Low < Severity::Medium && Severity::High < Severity::Critical);
+    assert_eq!(Severity::named("severe"), None);
+    assert_eq!(Severity::named("High"), None);
+}
+
 #[test]
 fn change_identifiers_are_typed_data_and_never_condition_keys() {
     for accepted in ["a", "0", "change-42", "a.b_c-9"] {

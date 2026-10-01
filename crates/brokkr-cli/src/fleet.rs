@@ -46,6 +46,7 @@ impl ListedRun {
             run_id: &self.run_id,
             feature: &self.feature,
             created_at: &self.created_at,
+            last_recorded_at: self.events.last().map(|event| event.recorded_at.as_str()),
             state: self.state.as_ref().ok(),
             detail: self
                 .state

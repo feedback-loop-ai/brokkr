@@ -5,9 +5,9 @@
 //! ruling, participants, live seat lines, the phase rail with each
 //! phase's inner topology, and the decision trail. There is no I/O, no
 //! rendering, and no terminal or DOM concept here — the manifest depends
-//! on exactly `brokkr-core`, `serde` and `serde_json`, so that property is
-//! a compile error rather than a review convention, and the absence of a
-//! clock is what forces `now` to be a parameter.
+//! on exactly `brokkr-core`, `serde`, `serde_json` and `unicode-width`,
+//! so that property is a compile error rather than a review convention,
+//! and the absence of a clock is what forces `now` to be a parameter.
 //!
 //! Every displayed scalar reaches a caller as a **(structured value,
 //! rendered text) pair**. The console's renderer is JavaScript and
@@ -25,8 +25,14 @@
 
 #![forbid(unsafe_code)]
 
+mod fleet;
 pub mod js;
 pub mod transcript;
+
+pub use fleet::{
+    fleet_rows, run_rows, sections, title, wrap, HearthEntries, Section, Standing, Verdict,
+    TITLE_COLUMNS, VERDICT_COLUMNS,
+};
 
 use std::collections::BTreeMap;
 
@@ -65,7 +71,8 @@ use serde_json::Value;
 /// `cost` became every attempt's reported cost summed (the rule
 /// [`reported_cost`] states), where it was the last attempt's alone, and
 /// participants gained `last_attempt_cost` beside it.
-pub const VIEW_VERSION: u32 = 11;
+/// Bumped to 12 by #491: a run row gained its `title` and its `verdict`.
+pub const VIEW_VERSION: u32 = 12;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -105,6 +112,9 @@ pub struct RunEntry<'a> {
     pub run_id: &'a str,
     pub feature: &'a str,
     pub created_at: &'a str,
+    /// When the journal last moved: its last event's `recorded_at`, or
+    /// none when it would not load. The fleet dates a finished run by it.
+    pub last_recorded_at: Option<&'a str>,
     pub state: Option<&'a RunState>,
     /// Why the state is absent: a fleet read quarantines a run whose
     /// journal does not fold rather than losing the whole fleet with it,
@@ -127,6 +137,8 @@ pub struct RunRow {
     pub phase: Option<String>,
     pub seq: Option<u64>,
     pub created_at: String,
+    /// When the run's journal last moved, as its entry states it (#491).
+    pub last_recorded_at: Option<String>,
     /// The **full** feature: the model stays terminal-agnostic and
     /// `--json` stays lossless. Clamping is the renderer's job.
     pub feature: String,
@@ -141,6 +153,12 @@ pub struct RunRow {
     /// clamping and omission are the renderer's job, losslessness is
     /// the model's.
     pub residuals: Vec<ResidualFinding>,
+    /// What the fleet calls the run: the feature's first line, clamped
+    /// at a word to 60 display columns (#491). `feature` stays whole
+    /// beside it.
+    pub title: String,
+    /// How the run stands and how it was last ruled (#491).
+    pub verdict: Verdict,
 }
 
 #[derive(Serialize)]
@@ -922,78 +940,6 @@ pub fn quarantine_finding(run_id: &str, seq: u64, error: &str) -> ResidualFindin
         // derived rather than the evaluator: `--findings` names a
         // ruling's seq, and this one names the seq the fold refused at.
         superseded: None,
-    }
-}
-
-// ------------------------------------------------------- run rows
-
-fn run_row(entry: &RunEntry) -> RunRow {
-    let status = entry
-        .state
-        .map(|state| status_str(&state.status).to_string());
-    let status_known = match &status {
-        Some(status) => KNOWN_STATUS.contains(&status.as_str()),
-        None => false,
-    };
-    RunRow {
-        run_id: entry.run_id.to_string(),
-        status,
-        status_known,
-        phase: entry.state.and_then(|state| state.phase.clone()),
-        seq: entry.state.map(|state| state.seq),
-        created_at: entry.created_at.to_string(),
-        feature: entry.feature.to_string(),
-        detail: entry.detail.map(str::to_string),
-        residuals: entry.residuals.to_vec(),
-    }
-}
-
-/// Run rows, newest first. Ordering is a derivation rule, not something
-/// each surface reverses for itself.
-pub fn run_rows(entries: &[RunEntry]) -> RunsView {
-    let mut runs: Vec<RunRow> = entries.iter().map(run_row).collect();
-    runs.reverse();
-    let count = runs.len();
-    RunsView {
-        view_version: VIEW_VERSION,
-        runs,
-        count,
-    }
-}
-
-/// One hearth as a fleet reader hands it over: the realm it belongs to,
-/// the journal it was read from, and either that journal's entries or
-/// the words of the refusal that stopped it being read.
-pub struct HearthEntries<'a> {
-    pub realm: &'a str,
-    pub journal: &'a str,
-    pub entries: &'a [RunEntry<'a>],
-    pub detail: Option<&'a str>,
-}
-
-/// The world's fleet, grouped by realm. Each hearth's rows are derived
-/// by exactly the same [`run_rows`] a one-journal world uses — the
-/// grouping is an arrangement of that derivation, never a second one,
-/// and no fold ever crosses a journal boundary (decision 0026 ruling 5).
-pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
-    let realms: Vec<RealmRuns> = hearths
-        .iter()
-        .map(|hearth| {
-            let view = run_rows(hearth.entries);
-            RealmRuns {
-                realm: hearth.realm.to_string(),
-                journal: hearth.journal.to_string(),
-                runs: view.runs,
-                count: view.count,
-                detail: hearth.detail.map(str::to_string),
-            }
-        })
-        .collect();
-    let count = realms.iter().map(|realm| realm.count).sum();
-    FleetView {
-        view_version: VIEW_VERSION,
-        realms,
-        count,
     }
 }
 
@@ -2751,10 +2697,35 @@ fn summary_of(state: &RunState) -> Summary {
     }
 }
 
+/// A ruling's routing facts, read by key in this one place for every
+/// reader in this crate: the rule, the phase that ruled it, and where it
+/// routed, beside the object they were read from.
+pub(crate) struct Decided<'a> {
+    pub(crate) object: &'a serde_json::Map<String, Value>,
+    pub(crate) rule: &'a Value,
+    pub(crate) from: Option<&'a Value>,
+    pub(crate) next: Option<&'a Value>,
+}
+
+/// `decision` read as a ruling, when it is an object that names a rule.
+pub(crate) fn decided(decision: &Value) -> Option<Decided<'_>> {
+    let object = decision.as_object()?;
+    Some(Decided {
+        object,
+        rule: object.get("rule_id")?,
+        from: object.get("from"),
+        next: object.get("next"),
+    })
+}
+
 fn ruling_of(decision: Option<&Value>, superseded: Option<Superseded>) -> Option<Ruling> {
     let decision = decision?;
-    let object = decision.as_object()?;
-    let rule = object.get("rule_id")?;
+    let Decided {
+        object,
+        rule,
+        from,
+        next,
+    } = decided(decision)?;
     let inputs = match object.get("inputs").and_then(Value::as_object) {
         Some(map) => map
             .iter()
@@ -2765,8 +2736,8 @@ fn ruling_of(decision: Option<&Value>, superseded: Option<Superseded>) -> Option
     Some(Ruling {
         rule_id: display_or_mark(Some(rule)),
         severity_class: severity_class(decision).to_string(),
-        from: display_or_mark(object.get("from")),
-        next: display_or_mark(object.get("next")),
+        from: display_or_mark(from),
+        next: display_or_mark(next),
         result: match object.get("result") {
             Some(result) if truthy(Some(result)) => Some(js::to_display(Some(result))),
             _ => None,

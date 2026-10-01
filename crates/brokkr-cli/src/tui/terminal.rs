@@ -224,6 +224,9 @@ where
             }
         }
         settle(tui, &views);
+        // Measured before the draw, so the frame, its footer and the keys
+        // below are pressed against one width.
+        tui.width = terminal.size()?.width;
         terminal.draw(|frame| draw(frame, tui, &views))?;
         if (ops.poll)(TICK)? {
             if let Some(key) = from_crossterm((ops.read)()?) {

@@ -121,63 +121,208 @@ pub(super) fn draw_runs(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views)
             rest
         }
     };
+    // A frame wide enough holds the selected run beside the list; any
+    // other draws the list alone, exactly where it always stood. Wide
+    // enough is the width the shell measured for this frame, the one the
+    // footer and the keys read too.
+    match detail_row(tui, views) {
+        Some(row) => {
+            let [list, detail] =
+                Layout::horizontal([Constraint::Length(LIST_COLUMNS), Constraint::Min(1)])
+                    .areas(area);
+            draw_fleet(frame, list, tui, views, tui.pane == 0);
+            draw_detail(frame, detail, tui, views, row);
+        }
+        None => draw_fleet(frame, area, tui, views, true),
+    }
+}
+
+/// A run id in [`ID_COLUMNS`], its head shortened and its hash whole.
+pub(super) fn short_id(id: &str) -> String {
+    let count = id.chars().count();
+    if count <= ID_COLUMNS {
+        return id.to_string();
+    }
+    let head: String = id.chars().take(ID_COLUMNS - ID_HASH_CHARS - 1).collect();
+    let hash: String = id.chars().skip(count - ID_HASH_CHARS).collect();
+    format!("{head}…{hash}")
+}
+
+/// The fleet list (#491): a heading over each section that lists a run,
+/// each run on one row by its title and never by its feature, and one
+/// line counting the older runs `a` would show. Every cell is a model
+/// field; the cursor's row is kept in view however long the list.
+fn draw_fleet(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, focused: bool) {
     let keys = keys_for(tui, views);
     let cursor = tui.cursor[0].as_deref();
-    let header = Row::new(
-        ["id", "status", "phase", "seq", "age", "feature"]
-            .iter()
-            .map(|name| cell(name, header_style()))
-            .collect::<Vec<Cell>>(),
-    );
+    let (sections, folded) = fleet_sections(tui, views);
     let mut rows: Vec<Row> = Vec::new();
-    for row in &views.runs.runs {
-        if !keys.iter().any(|key| key == &row.run_id) {
+    let mut selected = None;
+    for (section, members) in sections {
+        let listed: Vec<&RunRow> = members
+            .into_iter()
+            .filter(|row| keys.contains(&row.run_id))
+            .collect();
+        if listed.is_empty() {
             continue;
         }
-        // Every cell is a model field; the absence marks are the
-        // model's, and a run whose journal does not fold keeps its row.
-        let status = match &row.status {
-            Some(status) => status.clone(),
-            None => "?".to_string(),
-        };
-        let phase = match &row.phase {
-            Some(phase) => phase.clone(),
-            None => "-".to_string(),
-        };
-        let seq = match row.seq {
-            Some(seq) => seq.to_string(),
-            None => "-".to_string(),
-        };
-        let age = match brokkr_view::age(&row.created_at, &views.now) {
-            Some(age) => age,
-            None => brokkr_view::ABSENT.to_string(),
-        };
-        rows.push(
-            Row::new(vec![
-                cell(&row.run_id, plain()),
-                cell(&status, tone_style(&status)),
-                cell(&phase, plain()),
-                cell(&seq, plain()),
-                cell(&age, plain()),
-                cell(&row.feature, plain()),
-            ])
-            .style(selected_style(cursor == Some(row.run_id.as_str()))),
-        );
+        rows.push(Row::new([cell(section.label(), header_style())]));
+        for row in listed {
+            let chosen = cursor == Some(row.run_id.as_str());
+            if chosen {
+                selected = Some(rows.len());
+            }
+            rows.push(fleet_row(row, &views.now).style(selected_style(chosen)));
+        }
     }
-    let widths = [
-        Constraint::Length(24),
-        Constraint::Length(9),
-        Constraint::Length(12),
-        Constraint::Length(6),
-        Constraint::Length(8),
-        Constraint::Min(10),
+    // The count stands in the verdict's column and the key in the
+    // title's, the two that are whole at every width.
+    if folded > 0 {
+        let dim = Style::new().add_modifier(Modifier::DIM);
+        rows.push(Row::new([
+            cell(Section::Older.label(), header_style()),
+            cell(&format!("{folded} hidden"), dim),
+            cell("", plain()),
+            cell("a shows them", dim),
+        ]));
+    }
+    let mut state = TableState::default().with_selected(selected);
+    let table = Table::new(rows, fleet_widths(area.width)).block(pane("runs", focused));
+    frame.render_stateful_widget(table, area, &mut state);
+}
+
+/// The fleet list's columns in a list `width` wide (#491). A column is
+/// drawn whole or not at all: a list too narrow for every column and a
+/// title of [`TITLE_MIN_COLUMNS`] folds the age away, then the residual,
+/// so the standing, the verdict and the id's hash are whole from
+/// [`MIN_WIDTH`] up. The title takes the rest: a whole title in the list
+/// the detail pane stands beside, which is exactly that wide.
+fn fleet_widths(width: u16) -> [Constraint; 6] {
+    let [standing, verdict, mut residual, _, mut age, id] = FLEET_COLUMNS;
+    let needs = |residual: u16, age: u16| {
+        2 + 5 + standing + verdict + residual + TITLE_MIN_COLUMNS + age + id
+    };
+    if needs(residual, age) > width {
+        age = 0;
+    }
+    if needs(residual, age) > width {
+        residual = 0;
+    }
+    [
+        Constraint::Length(standing),
+        Constraint::Length(verdict),
+        Constraint::Length(residual),
+        Constraint::Min(TITLE_MIN_COLUMNS),
+        Constraint::Length(age),
+        Constraint::Length(id),
+    ]
+}
+
+/// One run's row: how it stands (its phase while it runs), its verdict,
+/// its worst open residual, its title, its age and its id. A run whose
+/// journal does not fold keeps its row and its absence marks.
+fn fleet_row(row: &RunRow, now: &str) -> Row<'static> {
+    let standing = row.verdict.standing;
+    let word = match standing {
+        Standing::Running => row.phase.as_deref().unwrap_or(brokkr_view::ABSENT),
+        Standing::Quarantined
+        | Standing::Parked
+        | Standing::Shipped
+        | Standing::Stopped
+        | Standing::OperatorStopped => standing.label(),
+    };
+    let status = row.status.as_deref().unwrap_or("?");
+    let age = brokkr_view::age(&row.created_at, now).unwrap_or(brokkr_view::ABSENT.to_string());
+    Row::new([
+        cell(
+            &format!("{} {word}", standing_glyph(standing)),
+            tone_style(status),
+        ),
+        cell(&row.verdict.text, plain()),
+        cell(row.verdict.residual.map_or("", Severity::name), plain()),
+        cell(&painted_title(row), plain()),
+        cell(&age, plain()),
+        cell(&short_id(&row.run_id), plain()),
+    ])
+}
+
+/// The run's title as the TUI paints it: sanitized, then clamped again,
+/// so the columns it measures are the columns it draws.
+fn painted_title(row: &RunRow) -> String {
+    brokkr_view::title(&safe(&row.title))
+}
+
+/// The one glyph each standing wears, so a row reads without colour.
+fn standing_glyph(standing: Standing) -> &'static str {
+    match standing {
+        Standing::Quarantined => "?",
+        Standing::Parked => "●",
+        Standing::Running => "▶",
+        Standing::Shipped => "✓",
+        Standing::Stopped => "✗",
+        Standing::OperatorStopped => "■",
+    }
+}
+
+/// The selected run, whole (#491): its full id; how it stands, where
+/// and since when; its verdict and every residual finding; and the full
+/// feature. The pane scrolls from `offset` by the lines it draws.
+fn draw_detail(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, row: &RunRow) {
+    let block = pane(&painted_title(row), tui.pane == 1);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let lines: Vec<Line> = detail_lines(row, &views.now)
+        .into_iter()
+        .skip(tui.offset)
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Every line the detail pane holds, each already wrapped at
+/// [`DETAIL_TEXT_COLUMNS`]: what the pane draws and what its scroll
+/// counts are one list.
+pub(super) fn detail_lines(row: &RunRow, now: &str) -> Vec<Line<'static>> {
+    let verdict = &row.verdict;
+    let absent = brokkr_view::ABSENT;
+    let phase = row.phase.as_deref().unwrap_or(absent);
+    let age = brokkr_view::age(&row.created_at, now).unwrap_or(absent.to_string());
+    let standing = format!("{} · {phase} · {age}", verdict.standing.label());
+    let status = row.status.as_deref().unwrap_or("?");
+    let text = Some(verdict.text.as_str()).filter(|text| !text.is_empty());
+    let rule = verdict.rule.as_deref().unwrap_or(absent);
+    let residual = verdict.residual.map_or("none", Severity::name);
+    let mut texts = vec![
+        (row.run_id.clone(), header_style()),
+        (standing, tone_style(status)),
+        (String::new(), plain()),
+        (format!("verdict   {}", text.unwrap_or(absent)), plain()),
+        (format!("rule      {rule}"), plain()),
+        (format!("residual  {residual}"), plain()),
     ];
-    frame.render_widget(
-        Table::new(rows, widths)
-            .header(header)
-            .block(pane("runs", true)),
-        area,
-    );
+    let notes = [("parked", &verdict.reason), ("journal", &row.detail)];
+    for (label, note) in notes {
+        if let Some(note) = note {
+            texts.push((format!("{label:<9} {note}"), plain()));
+        }
+    }
+    let findings = row.residuals.iter().map(|finding| finding.line.clone());
+    texts.extend(findings.map(|text| (text, plain())));
+    texts.push((String::new(), plain()));
+    texts.extend(row.feature.lines().map(|text| (text.to_string(), plain())));
+    let columns = usize::from(DETAIL_TEXT_COLUMNS);
+    texts
+        .into_iter()
+        .flat_map(|(text, style)| {
+            // Sanitized before it is measured, so a line is as wide as
+            // what it draws; a blank line stays one line.
+            let parts = brokkr_view::wrap(&safe(&text), columns);
+            let blank = parts.is_empty().then(String::new);
+            parts
+                .into_iter()
+                .chain(blank)
+                .map(move |part| line(&part, style))
+        })
+        .collect()
 }
 
 pub(super) fn draw_run(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, view: &RunView) {

@@ -117,6 +117,8 @@ pub(crate) struct TabState {
     pub cursor: Option<String>,
     pub filter: String,
     pub offset: usize,
+    /// Whether this hearth's fleet lists its older runs (`a`).
+    pub all: bool,
 }
 
 /// Owned scalars only. Selection is by **stable key** — `RunRow.run_id`,
@@ -179,6 +181,14 @@ pub(crate) struct Tui {
     /// One parked [`TabState`] per tab, so switching away and back is a
     /// return rather than a reset.
     pub parked: Vec<TabState>,
+    /// `a`: the fleet lists its older runs too, where it otherwise folds
+    /// them into one count line (#491).
+    pub all: bool,
+    /// The width of the frame, measured by the shell before it draws, so
+    /// the frame, its footer and the keys pressed against it agree on
+    /// whether the fleet's detail pane is on it. Zero until the first
+    /// frame.
+    pub width: u16,
 }
 
 impl Tui {
@@ -227,6 +237,8 @@ impl Tui {
             status: None,
             ticks: 0,
             force: true,
+            all: false,
+            width: 0,
         }
     }
 
@@ -269,12 +281,14 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
         cursor: tui.cursor[0].clone(),
         filter: tui.filter.clone(),
         offset: tui.offset,
+        all: tui.all,
     };
     let resumed = tui.parked[index].clone();
     tui.tab = index;
     tui.cursor = [resumed.cursor, None, None];
     tui.filter = resumed.filter;
     tui.offset = resumed.offset;
+    tui.all = resumed.all;
     tui.level = Level::Runs;
     tui.pane = 0;
     tui.run = None;
@@ -301,9 +315,11 @@ pub(super) fn fleet_live(views: &Views) -> bool {
         .any(|row| row.status.as_deref() == Some("running"))
 }
 
-pub(super) fn panes_at(level: Level) -> usize {
-    match level {
-        Level::Runs => 1,
+/// The panes `Tab` moves across: the fleet gains its detail pane while
+/// one is on the frame.
+pub(super) fn panes_at(tui: &Tui, views: &Views) -> usize {
+    match tui.level {
+        Level::Runs => 1 + usize::from(detail_row(tui, views).is_some()),
         Level::Run => 3,
         Level::Participant => 2,
     }

@@ -370,17 +370,36 @@ read-only exactly as every other readout is — no operator commands, no
 run starts, nothing written to the journal, and a missing database
 refuses rather than creating one.
 
-The fleet:
+The fleet lists what to act on first: the runs that need you (parked, or
+quarantined because the journal does not fold), then the running ones,
+then those that finished in the last 24 hours, dated by when their
+journal last moved. Each row is how a run stands, the ruling that
+settled it, its worst open residual, its title (its feature's first
+line), its age and its id, shortened in the middle and never inside its
+hash. Older runs fold into one count line; `a` lists them, and `/`
+searches every run by title and id:
 
 ```
-┌runs──────────────────────────────────────────────────────────────────────────────────────────┐
-│id                       status    phase        seq    age      feature                       │
-│prefix-selectors-for-the completed done         38     1m20s    prefix selectors for the read │
-│                                                                                              │
-└──────────────────────────────────────────────────────────────────────────────────────────────┘
+┌runs──────────────────────────────────────────────────────────────────────────┐
+│needs you                                                                     │
+│? quarantined does not fold           A journal that do 7m03s   journ…7f8e9d0c│
+│● parked      UNVERIFIED-SE… high     #362 cargo exempt 7m03s   cargo…5b6c7d8e│
+│running                                                                       │
+│▶ review                              #403 macOS fix, r 7m03s   fix-4…3c1f9a02│
+│last 24h                                                                      │
+│✓ shipped     COMPLETE       low      Landing 4 of the  7m03s   landi…2a3b4c5d│
+│✗ stopped     FAIL-EXHAUSTED          0065 rebuild unit 7m03s   0065-…8c9d0e1f│
+│older         2 hidden                a shows them                            │
+└──────────────────────────────────────────────────────────────────────────────┘
 runs
-↑↓/jk move · Enter open run · g/G top/bottom · / filter · r refresh · ? help · q quit
+↑↓/jk move · Enter open run · a all runs · g/G top/bottom · / filter · r refresh
 ```
+
+From 225 columns the list keeps 123, a whole title wide, and the
+selected run stands beside it: its full id, how it stands, its rule,
+residual and findings, and the whole feature wrapped at 100 columns.
+`Tab` moves to that pane, where `↑↓`/`jk` scroll it a drawn line at a
+time; `Enter` opens the run from either pane.
 
 `Enter` on a run — the phase rail, the seats, the trail, all three panes
 of the same derivation, and the brand mark riding the graph pane's

@@ -130,9 +130,10 @@ pub(super) fn enter(tui: &mut Tui, views: &Views) {
                 }
             }
         }
+        // The list's run, whether the list or its detail pane has focus.
         Level::Runs => {
-            if let Some(key) = selected(tui, views) {
-                tui.assign_run(key);
+            if let Some(row) = selected_run(tui, views) {
+                tui.assign_run(row.run_id.clone());
             }
         }
         Level::Run => {
@@ -229,6 +230,9 @@ pub(super) fn ascend(tui: &mut Tui) {
         Level::Run => {
             tui.level = Level::Runs;
             tui.pane = 0;
+            // The checkpoint pane's scroll is not the detail pane's: the
+            // fleet reads its selection from the top.
+            tui.offset = 0;
             tui.force = true;
         }
         Level::Runs => {}
@@ -266,6 +270,9 @@ pub(super) fn typed(tui: &mut Tui, views: &Views, character: char) -> Flow {
         'r' => tui.force = true,
         '/' => tui.typing = true,
         '?' => tui.help = !tui.help,
+        // Bound where the fleet is the list; a character nothing binds
+        // anywhere else.
+        'a' if tui.level == Level::Runs => tui.all = !tui.all,
         _ => {}
     }
     Flow::Continue
@@ -324,7 +331,7 @@ pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
         Key::Enter => enter(tui, views),
         Key::Escape => escape(tui),
         Key::Backspace => backspace(tui),
-        Key::Tab => tui.pane = (tui.pane + 1) % panes_at(tui.level),
+        Key::Tab => tui.pane = (tui.pane + 1) % panes_at(tui, views),
         Key::Up => arrow(tui, views, Step::Up),
         Key::Down => arrow(tui, views, Step::Down),
         Key::Left => rail_move(tui, views, Step::Up),

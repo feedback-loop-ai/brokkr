@@ -45,7 +45,8 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::Result;
-use brokkr_view::{Column, Node, Participant, Phase, RunView, RunsView};
+use brokkr_core::policy::Severity;
+use brokkr_view::{Column, Node, Participant, Phase, RunRow, RunView, RunsView, Section, Standing};
 use ratatui::backend::Backend;
 use ratatui::crossterm::cursor::{Hide, Show};
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -56,7 +57,7 @@ use ratatui::crossterm::terminal::{
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap};
+use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap};
 use ratatui::{Frame, Terminal};
 
 use crate::render::{self, Safe, Tone};
@@ -78,6 +79,56 @@ const RUNS_REFRESH_TICKS: usize = 8;
 
 /// One `PageUp`/`PageDown` in list rows.
 const PAGE: usize = 10;
+
+/// The fleet list's columns, left to right (#491): how the run stands (a
+/// glyph and its widest word, `quarantined`), its verdict, its residual
+/// (the widest, `critical`), its title, its age (`999h59m`) and its id.
+/// The title takes what the frame leaves, and a list too narrow for the
+/// rest folds the age and then the residual away (`fleet_widths`).
+const FLEET_COLUMNS: [u16; 6] = [
+    13,
+    brokkr_view::VERDICT_COLUMNS as u16,
+    8,
+    brokkr_view::TITLE_COLUMNS as u16,
+    7,
+    ID_COLUMNS as u16,
+];
+
+/// The fleet list's width once the detail pane stands beside it: its two
+/// borders, the five gaps between its columns, and the columns, so the
+/// title's is a whole title wide.
+const LIST_COLUMNS: u16 = 2
+    + 5
+    + FLEET_COLUMNS[0]
+    + FLEET_COLUMNS[1]
+    + FLEET_COLUMNS[2]
+    + FLEET_COLUMNS[3]
+    + FLEET_COLUMNS[4]
+    + FLEET_COLUMNS[5];
+
+/// The fewest columns the fleet's title is left, which is also the width
+/// of the count line's `a shows them`. With the age and the residual
+/// folded, the list is exactly [`MIN_WIDTH`] wide at it.
+const TITLE_MIN_COLUMNS: u16 = 12;
+
+/// The narrowest frame that holds the fleet's detail pane: the list, and
+/// a pane that wraps the feature at its full [`DETAIL_TEXT_COLUMNS`].
+/// Below it the list keeps the frame and `Enter` opens the run, as it
+/// always did.
+const DETAIL_MIN_WIDTH: u16 = LIST_COLUMNS + 2 + DETAIL_TEXT_COLUMNS;
+
+/// The width the detail pane wraps its text at, however wide the
+/// terminal: a line longer than this is not read, it is scanned.
+const DETAIL_TEXT_COLUMNS: u16 = 100;
+
+/// The width of a run id in the fleet list. An id longer than this is
+/// shortened in the middle, and its minted hash — the last
+/// [`ID_HASH_CHARS`] characters — is never cut: it is the only part
+/// that tells two runs of one commission apart.
+const ID_COLUMNS: usize = 14;
+
+/// The hash the engine mints at the end of every run id.
+const ID_HASH_CHARS: usize = 8;
 
 /// One pulse frame per this many shell ticks: four frames × 2 × `TICK`
 /// ≈ a two-second breath, the terminal's answer to the console's 1.8s
@@ -111,7 +162,9 @@ use self::seats::*;
 use self::state::*;
 use self::style::*;
 // No sibling reads the frame's panes or the shell beyond the entries
-// re-exported below; the tests reach the rest through the root.
+// re-exported below and the detail pane's lines, which its scroll
+// counts; the tests reach the rest through the root.
+use self::panes::detail_lines;
 #[cfg(test)]
 use self::panes::*;
 #[cfg(test)]
@@ -123,6 +176,9 @@ pub(crate) use self::panes::draw;
 pub use self::participant::transcript_surfaces_for_test;
 pub(crate) use self::state::{Ask, Refreshed, Subject, Tui, Views};
 pub(crate) use self::terminal::{production_ops, start};
+
+#[cfg(test)]
+mod fleet_tests;
 
 #[cfg(test)]
 mod snapshot_tests;

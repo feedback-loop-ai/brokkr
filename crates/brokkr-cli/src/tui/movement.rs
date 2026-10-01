@@ -20,14 +20,15 @@ pub(super) fn keys_for(tui: &Tui, views: &Views) -> Vec<String> {
 
 pub(super) fn labels_for(tui: &Tui, views: &Views) -> Vec<(String, String)> {
     match (tui.level, views.run.as_ref()) {
-        (Level::Runs, _) => views
-            .runs
-            .runs
-            .iter()
+        // The fleet in the order it is listed, found by id and title.
+        (Level::Runs, _) => fleet_sections(tui, views)
+            .0
+            .into_iter()
+            .flat_map(|(_, rows)| rows)
             .map(|row| {
                 let mut label = row.run_id.clone();
                 label.push(' ');
-                label.push_str(&row.feature);
+                label.push_str(&row.title);
                 (row.run_id.clone(), safe(&label))
             })
             .collect(),
@@ -66,6 +67,46 @@ pub(super) fn run_labels(
             .map(|row| (row.seq.to_string(), safe(&row.what.text)))
             .collect(),
     }
+}
+
+/// The fleet's sections as the list shows them (#491), in the model's
+/// order, and how many runs the list folds into its count line: the
+/// older ones, listed only when `a` asked for them or a filter is
+/// searching every run.
+pub(super) type Listed<'a> = (Vec<(Section, Vec<&'a RunRow>)>, usize);
+
+pub(super) fn fleet_sections<'a>(tui: &Tui, views: &'a Views) -> Listed<'a> {
+    let every = tui.all || !tui.filter.is_empty();
+    let (kept, folded): (Vec<_>, Vec<_>) = brokkr_view::sections(&views.runs.runs, &views.now)
+        .into_iter()
+        .partition(|(section, _)| every || *section != Section::Older);
+    (kept, folded.iter().map(|(_, rows)| rows.len()).sum())
+}
+
+/// The fleet's selection: the list cursor's run, whichever of the
+/// fleet's panes has the focus.
+pub(super) fn selected_run<'a>(tui: &Tui, views: &'a Views) -> Option<&'a RunRow> {
+    let keys = keys_for(tui, views);
+    let index = index_of(&keys, &tui.cursor[0])?;
+    views.runs.runs.iter().find(|row| row.run_id == keys[index])
+}
+
+/// The run the detail pane shows: the fleet's selection, once the frame
+/// the shell measured holds the pane beside the list. The one answer to
+/// whether the pane is on the frame, which the frame, its footer and the
+/// keys all read.
+pub(super) fn detail_row<'a>(tui: &Tui, views: &'a Views) -> Option<&'a RunRow> {
+    match tui.width >= DETAIL_MIN_WIDTH {
+        true => selected_run(tui, views),
+        false => None,
+    }
+}
+
+/// At the fleet level: the detail pane is on the frame, and focused. A
+/// terminal narrowed under a focused pane hands the keys back to the
+/// list.
+pub(super) fn detail_focused(tui: &Tui, views: &Views) -> bool {
+    tui.pane == 1 && detail_row(tui, views).is_some()
 }
 
 pub(super) fn index_of(keys: &[String], cursor: &Option<String>) -> Option<usize> {
@@ -141,14 +182,12 @@ pub(super) fn step(tui: &mut Tui, views: &Views, step: Step) {
             move_to(&keys, &mut tui.turn, step);
             return;
         }
-        // A paragraph pane's offset moves through the SAME function, so
-        // wrap-around and paging have exactly one implementation.
-        let keys: Vec<String> = (0..stream_len(tui, views))
-            .map(|line| line.to_string())
-            .collect();
-        let mut cursor = Some(tui.offset.to_string());
-        move_to(&keys, &mut cursor, step);
-        tui.offset = cursor.and_then(|line| line.parse().ok()).unwrap_or(0);
+        let len = stream_len(tui, views);
+        scroll(&mut tui.offset, len, step);
+        return;
+    }
+    if tui.level == Level::Runs {
+        fleet_step(tui, views, step);
         return;
     }
     let keys = keys_for(tui, views);
@@ -159,6 +198,32 @@ pub(super) fn step(tui: &mut Tui, views: &Views, step: Step) {
     // said which phase they mean. Enter then descends; Esc clears.
     if in_graph(tui) {
         tui.scope = tui.cursor[0].clone().map(render::Scope::Phase);
+    }
+}
+
+/// A paragraph pane's offset moves through the SAME function as every
+/// list, so wrap-around and paging have exactly one implementation.
+fn scroll(offset: &mut usize, len: usize, step: Step) {
+    let keys: Vec<String> = (0..len).map(|line| line.to_string()).collect();
+    let mut cursor = Some(offset.to_string());
+    move_to(&keys, &mut cursor, step);
+    *offset = cursor.and_then(|line| line.parse().ok()).unwrap_or(0);
+}
+
+/// The fleet's keys move the list, or scroll the detail pane a drawn
+/// line at a time while it has the focus. A new selection is read from
+/// its first line.
+fn fleet_step(tui: &mut Tui, views: &Views, step: Step) {
+    match detail_row(tui, views).filter(|_| tui.pane == 1) {
+        Some(row) => {
+            let drawn = detail_lines(row, &views.now).len();
+            scroll(&mut tui.offset, drawn, step);
+        }
+        None => {
+            let keys = keys_for(tui, views);
+            move_to(&keys, &mut tui.cursor[0], step);
+            tui.offset = 0;
+        }
     }
 }
 

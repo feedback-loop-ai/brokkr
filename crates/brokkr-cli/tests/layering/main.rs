@@ -132,7 +132,10 @@ const PURE: [(&str, &[&str]); 2] = [
             "url",
         ],
     ),
-    ("brokkr-view", &["brokkr-core", "serde", "serde_json"]),
+    (
+        "brokkr-view",
+        &["brokkr-core", "serde", "serde_json", "unicode-width"],
+    ),
 ];
 
 /// The `deny.toml` wrappers the tests alone take: each is a dev edge that
@@ -677,7 +680,7 @@ fn the_pure_crates_compile_only_what_the_scan_reads() {
 /// [`the_dependency_surface_table_matches_the_lockfile`] until its row is
 /// read again. Each item is refused by its last segment wherever the scan
 /// meets it, and by its path in both `clippy.toml`s.
-const EFFECTS: [(&str, &str, &[&str]); 7] = [
+const EFFECTS: [(&str, &str, &[&str]); 8] = [
     ("hex", "0.4.3", &[]),
     ("serde", "1.0.229", &[]),
     ("serde_json", "1.0.151", &[]),
@@ -703,6 +706,7 @@ const EFFECTS: [(&str, &str, &[&str]); 7] = [
             "time::util::refresh_tz_unchecked",
         ],
     ),
+    ("unicode-width", "0.2.2", &[]),
     ("url", "2.5.8", &["url::Url::socket_addrs"]),
 ];
 
