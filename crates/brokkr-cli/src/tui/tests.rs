@@ -180,17 +180,17 @@ fn run_view_for(seat: &str) -> RunView {
     brokkr_view::run_view(&journal(seat), Some(&state()))
 }
 
-/// Two runs plus one whose journal does not fold and whose stamp does
-/// not parse: the absence marks have a row to live in.
+/// Two runs, and one whose journal does not fold and whose stamp does not parse.
 fn fleet() -> RunsView {
     let folded = state();
+    let refused = brokkr_view::Quarantine::DoesNotFold.in_words("event 4: refused");
     let entry = |run_id, feature, created_at, state| brokkr_view::RunEntry {
         run_id,
         feature,
         created_at,
         last_recorded_at: None,
         state,
-        detail: None,
+        detail: state.map_or(Some(refused), |_| None),
         residuals: &[],
     };
     let entries = [
@@ -834,7 +834,7 @@ fn the_runs_table_is_a_bordered_navigable_table_of_model_fields() {
     let frame = frame_of(&tui, &views, 100, 20);
 
     assert!(frame.contains("┌"), "bordered: {frame}");
-    for cell in ["needs you", "? quarantined", "does not fold", "▶ design"] {
+    for cell in ["needs you", "? quarantined", "does not fold", "◐ design"] {
         assert!(frame.contains(cell), "the fleet names {cell}: {frame}");
     }
     assert!(frame.contains("run-7"));
@@ -1392,7 +1392,7 @@ fn the_shell_redraws_keeps_keys_live_through_a_bad_journal_and_gives_up_at_last(
     let mut tui = Tui::new(None);
     let code = drive(&mut terminal, &test_ops(), &mut source, &mut tui, 9).unwrap();
     assert_eq!(code, ExitCode::SUCCESS);
-    assert_eq!(tui.cursor[0].as_deref(), Some("run-unfoldable")); // the key arrived
+    assert_eq!(tui.cursor[0].as_deref(), Some("run-7")); // the key left the first row (#503)
     assert_eq!(
         forced,
         vec![true, false, true],

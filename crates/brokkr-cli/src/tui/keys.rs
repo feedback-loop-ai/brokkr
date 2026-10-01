@@ -130,10 +130,21 @@ pub(super) fn enter(tui: &mut Tui, views: &Views) {
                 }
             }
         }
-        // The list's run, whether the list or its detail pane has focus.
+        // The list's run, whichever column has the focus — except that
+        // the dashboard's `Enter` reads its last seat's notes whole, where
+        // it holds any (#503).
         Level::Runs => {
-            if let Some(row) = selected_run(tui, views) {
-                tui.assign_run(row.run_id.clone());
+            let Some(row) = selected_run(tui, views) else {
+                return;
+            };
+            match notes_of(views, row).filter(|_| focused(tui, views) == FleetColumn::Dashboard) {
+                Some((seat, notes)) => {
+                    let notes = safe_lines(&notes);
+                    tui.reading = Some(format!("{} · notes\n\n{notes}", safe(&seat)));
+                    tui.reading_transcript = false;
+                    tui.read_offset = 0;
+                }
+                None => tui.assign_run(row.run_id.clone()),
             }
         }
         Level::Run => {
@@ -230,9 +241,14 @@ pub(super) fn ascend(tui: &mut Tui) {
         Level::Run => {
             tui.level = Level::Runs;
             tui.pane = 0;
-            // The checkpoint pane's scroll is not the detail pane's: the
+            // Land back on the run you were reading, so a wide frame
+            // draws its detail again (#503): the rail's phase is no
+            // fleet row, and a cursor that names one selects nothing.
+            tui.cursor[0] = tui.run.clone();
+            // The checkpoint pane's scroll is not the dashboard's: the
             // fleet reads its selection from the top.
             tui.offset = 0;
+            tui.live_offset = 0;
             tui.force = true;
         }
         Level::Runs => {}
@@ -258,7 +274,7 @@ pub(super) fn typed(tui: &mut Tui, views: &Views, character: char) -> Flow {
         tui.filter.push_str(safe(&character.to_string()).as_str());
         return Flow::Continue;
     }
-    if hearth_key(tui, character) {
+    if hearth_key(tui, character) || fleet_key(tui, views, character) {
         return Flow::Continue;
     }
     match character {
@@ -270,12 +286,29 @@ pub(super) fn typed(tui: &mut Tui, views: &Views, character: char) -> Flow {
         'r' => tui.force = true,
         '/' => tui.typing = true,
         '?' => tui.help = !tui.help,
-        // Bound where the fleet is the list; a character nothing binds
-        // anywhere else.
-        'a' if tui.level == Level::Runs => tui.all = !tui.all,
         _ => {}
     }
     Flow::Continue
+}
+
+/// The keys bound where the fleet is the list: characters nothing binds
+/// anywhere else. True when the key was one of them at that level.
+fn fleet_key(tui: &mut Tui, views: &Views, character: char) -> bool {
+    if tui.level != Level::Runs {
+        return false;
+    }
+    match character {
+        'a' => tui.all = !tui.all,
+        'l' | ' ' => open_in_place(tui, views, true),
+        'h' => open_in_place(tui, views, false),
+        // The fleet's columns (#503): each toggles its own, or the
+        // dashboard's whole commission.
+        'd' => tui.toggles.dashboard = !tui.toggles.dashboard,
+        'f' => tui.toggles.live = !tui.toggles.live,
+        'c' => tui.commission = !tui.commission,
+        _ => return false,
+    }
+    true
 }
 
 /// The hearth keys, bound only where there are hearths to move between
@@ -319,6 +352,15 @@ fn read_key(tui: &mut Tui, key: Key) -> Flow {
     Flow::Continue
 }
 
+/// `←→`: at the fleet they fold and open the selected running run in
+/// place (#503); everywhere else they walk the rail, or nothing.
+fn sideways(tui: &mut Tui, views: &Views, direction: Step) {
+    match tui.level {
+        Level::Runs => open_in_place(tui, views, direction == Step::Down),
+        Level::Run | Level::Participant => rail_move(tui, views, direction),
+    }
+}
+
 /// The pure state machine: view models plus a key, in; a flow, out. No
 /// terminal, no store, no I/O.
 pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
@@ -334,8 +376,8 @@ pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
         Key::Tab => tui.pane = (tui.pane + 1) % panes_at(tui, views),
         Key::Up => arrow(tui, views, Step::Up),
         Key::Down => arrow(tui, views, Step::Down),
-        Key::Left => rail_move(tui, views, Step::Up),
-        Key::Right => rail_move(tui, views, Step::Down),
+        Key::Left => sideways(tui, views, Step::Up),
+        Key::Right => sideways(tui, views, Step::Down),
         Key::PageUp => step(tui, views, Step::PageUp),
         Key::PageDown => step(tui, views, Step::PageDown),
     }

@@ -119,6 +119,12 @@ pub(crate) struct TabState {
     pub offset: usize,
     /// Whether this hearth's fleet lists its older runs (`a`).
     pub all: bool,
+    /// The running runs this hearth's fleet has opened in place (`→`).
+    pub expanded: BTreeSet<String>,
+    /// The columns this hearth's fleet shows beside its list (`d`, `f`).
+    pub toggles: Toggles,
+    /// Whether its dashboard shows the whole commission (`c`).
+    pub commission: bool,
 }
 
 /// Owned scalars only. Selection is by **stable key** — `RunRow.run_id`,
@@ -184,11 +190,24 @@ pub(crate) struct Tui {
     /// `a`: the fleet lists its older runs too, where it otherwise folds
     /// them into one count line (#491).
     pub all: bool,
+    /// The running runs the fleet has opened in place, by id (#503): `→`,
+    /// `l` or Space open the selected one, `←` or `h` fold it.
+    pub expanded: BTreeSet<String>,
     /// The width of the frame, measured by the shell before it draws, so
     /// the frame, its footer and the keys pressed against it agree on
-    /// whether the fleet's detail pane is on it. Zero until the first
+    /// which of the fleet's columns are on it. Zero until the first
     /// frame.
     pub width: u16,
+    /// The frame's height, measured with its width: how many older runs
+    /// the fleet's list has room to draw (#503). Zero until the first
+    /// frame, when the list draws none of them.
+    pub height: u16,
+    /// The columns the fleet shows beside its list, `d` and `f` (#503).
+    pub toggles: Toggles,
+    /// `c`: the dashboard shows the selected run's whole commission.
+    pub commission: bool,
+    /// The live or findings column's scroll, in drawn lines.
+    pub live_offset: usize,
 }
 
 impl Tui {
@@ -238,7 +257,12 @@ impl Tui {
             ticks: 0,
             force: true,
             all: false,
+            expanded: BTreeSet::new(),
             width: 0,
+            height: 0,
+            toggles: Toggles::default(),
+            commission: false,
+            live_offset: 0,
         }
     }
 
@@ -282,6 +306,9 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
         filter: tui.filter.clone(),
         offset: tui.offset,
         all: tui.all,
+        expanded: std::mem::take(&mut tui.expanded),
+        toggles: tui.toggles,
+        commission: tui.commission,
     };
     let resumed = tui.parked[index].clone();
     tui.tab = index;
@@ -289,6 +316,10 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
     tui.filter = resumed.filter;
     tui.offset = resumed.offset;
     tui.all = resumed.all;
+    tui.expanded = resumed.expanded;
+    tui.toggles = resumed.toggles;
+    tui.commission = resumed.commission;
+    tui.live_offset = 0;
     tui.level = Level::Runs;
     tui.pane = 0;
     tui.run = None;
@@ -306,22 +337,32 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
 }
 
 /// Any run in the fleet is running: the gate for the brand mark's
-/// pulse, refreshed on the fleet cadence the shell already keeps.
+/// pulse, refreshed on the fleet cadence the shell already keeps. A
+/// stale run is listed as needing the operator, not as running (#503),
+/// so it never makes the mark pulse.
 pub(super) fn fleet_live(views: &Views) -> bool {
-    views
-        .runs
-        .runs
-        .iter()
-        .any(|row| row.status.as_deref() == Some("running"))
+    views.runs.runs.iter().any(|row| {
+        row.status.as_deref() == Some("running") && brokkr_view::need(row, &views.now).is_none()
+    })
 }
 
-/// The panes `Tab` moves across: the fleet gains its detail pane while
-/// one is on the frame.
+/// The panes `Tab` moves across: the fleet's are the columns on its
+/// frame (#503).
 pub(super) fn panes_at(tui: &Tui, views: &Views) -> usize {
     match tui.level {
-        Level::Runs => 1 + usize::from(detail_row(tui, views).is_some()),
+        Level::Runs => fleet_columns(tui, views).len(),
         Level::Run => 3,
         Level::Participant => 2,
+    }
+}
+
+/// The run the shell reads a view of: the open run, or at the fleet the
+/// selected one while a column beside the list shows it (#503), through
+/// the same question the run level asks.
+pub(super) fn asked_run(tui: &Tui, views: &Views) -> Option<String> {
+    match tui.level {
+        Level::Runs => detail_row(tui, views).map(|row| row.run_id.clone()),
+        Level::Run | Level::Participant => tui.run.clone(),
     }
 }
 

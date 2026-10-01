@@ -15,7 +15,18 @@ pub(super) fn safe(text: &str) -> String {
 /// `Safe` at the call site — and ratatui then measures exactly the text
 /// it draws.
 pub(super) fn cell(text: &str, style: Style) -> Cell<'static> {
-    Cell::from(span(text, style))
+    cell_lines(&[text.to_string()], style)
+}
+
+/// A cell of several lines, each through [`span`]: the one constructor
+/// a cell is made by.
+pub(super) fn cell_lines(texts: &[String], style: Style) -> Cell<'static> {
+    Cell::from(Text::from(
+        texts
+            .iter()
+            .map(|text| line(text, style))
+            .collect::<Vec<_>>(),
+    ))
 }
 
 pub(super) fn span(text: &str, style: Style) -> Span<'static> {

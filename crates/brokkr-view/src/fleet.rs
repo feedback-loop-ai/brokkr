@@ -4,16 +4,99 @@
 //! the TUI, `brokkr runs` and the console can read them alike (decision
 //! 0013); a renderer lays them out and derives none of them.
 
-use brokkr_core::fold::{RunState, Status};
+use brokkr_core::fold::{Cursor, RunState, Status};
 use brokkr_core::policy::Severity;
 use serde::Serialize;
 use serde_json::Value;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    decided, js, status_str, FleetView, RealmRuns, ResidualFinding, RunEntry, RunRow, RunsView,
+    decided, fmt_dur, js, status_str, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView,
     ABSENT, KNOWN_STATUS, VIEW_VERSION,
 };
+
+#[derive(Serialize)]
+pub struct RunRow {
+    pub run_id: String,
+    pub status: Option<String>,
+    /// The status is one of the four the surfaces have a colour for.
+    pub status_known: bool,
+    pub phase: Option<String>,
+    pub seq: Option<u64>,
+    pub created_at: String,
+    /// When the run's journal last moved, as its entry states it (#491).
+    pub last_recorded_at: Option<String>,
+    /// The **full** feature: the model stays terminal-agnostic and
+    /// `--json` stays lossless. Clamping is the renderer's job.
+    pub feature: String,
+    /// Why this row carries no status, when it carries none: the fold
+    /// error, verbatim. A quarantined run reads as `?` plus this line
+    /// on every surface instead of vanishing from the fleet.
+    pub detail: Option<String>,
+    /// What refused the journal, when the row carries no status (#503):
+    /// a way out names `export` only for a journal the store loads.
+    pub quarantine: Option<Quarantine>,
+    /// This run's residual findings, each carrying the operator's
+    /// supersede annotation when one closes it (decision 0047 ruling
+    /// 3): `brokkr runs --json` is a surface that prints a residual
+    /// finding, so it prints the mark. The text table stays a digest —
+    /// clamping and omission are the renderer's job, losslessness is
+    /// the model's.
+    pub residuals: Vec<ResidualFinding>,
+    /// What the fleet calls the run: the feature's first line, clamped
+    /// at a word to 60 display columns (#491). `feature` stays whole
+    /// beside it.
+    pub title: String,
+    /// How the run stands and how it was last ruled (#491).
+    pub verdict: Verdict,
+    /// The seat the run's current effect is hired to, and which attempt
+    /// of it, while an effect is requested or in flight (#503).
+    pub hire: Option<Hire>,
+}
+
+/// A seat at work on a run's current effect, as the fold's cursor
+/// names it (#503).
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct Hire {
+    pub seat: String,
+    /// The attempt in flight, or the next one to start: one more than
+    /// the attempts that have failed.
+    pub attempt: u64,
+}
+
+/// What refused a quarantined run's journal (#503). The store verifies a
+/// journal's chain and records as it loads it, and every verb that reads
+/// a run loads it first, so a journal it refuses is refused by `export`
+/// too; one that loads and does not fold still exports as written.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Quarantine {
+    /// The store refuses the journal. A quarantine that names no refusal
+    /// is read as this one, the refusal no verb gets past, so no way out
+    /// names a command the journal would refuse.
+    #[default]
+    DoesNotLoad,
+    /// The journal loads, and the fold refuses it.
+    DoesNotFold,
+}
+
+impl Quarantine {
+    /// This refusal, in `words`.
+    pub fn in_words(self, words: &str) -> Refusal<'_> {
+        Refusal {
+            quarantine: self,
+            words,
+        }
+    }
+}
+
+/// Why a listed run carries no state: what refused its journal, and the
+/// refusal's own words.
+#[derive(Clone, Copy, Debug)]
+pub struct Refusal<'a> {
+    pub quarantine: Quarantine,
+    pub words: &'a str,
+}
 
 /// The widest a title may be, in display columns: a wide character
 /// counts two, a combining mark none. A renderer that sizes a column for
@@ -26,6 +109,23 @@ pub const VERDICT_COLUMNS: usize = 14;
 
 /// A finished run stays in the fleet's recent section for a day.
 const RECENT_MILLIS: i64 = 24 * 60 * 60 * 1000;
+
+/// The longest deadline a seat this repository ships gives one attempt,
+/// in seconds. The journal records no attempt's deadline, so the
+/// staleness bound is stated against the longest one, and brokkr-cli's
+/// `the_staleness_bound_is_the_longest_shipped_deadline_and_an_hour`
+/// holds every recipe, agent and bundle in the repository to it.
+const ATTEMPT_DEADLINE_SECONDS: i64 = 2 * 60 * 60;
+
+/// How long past that deadline a running run's journal may stay silent:
+/// time for the engine to end a timed-out attempt's process tree and
+/// journal its failure, and for the next attempt to start.
+const STALE_MARGIN_SECONDS: i64 = 60 * 60;
+
+/// A running run whose journal has not moved for longer than this has
+/// no engine at work on it (#503): a live attempt ends by its deadline,
+/// and the engine journals that ending.
+const STALE_AFTER_SECONDS: i64 = ATTEMPT_DEADLINE_SECONDS + STALE_MARGIN_SECONDS;
 
 /// The terminal phase the engine concludes a run from as `stopped` —
 /// the policy table's hard stop. A run stopped anywhere else was stopped
@@ -93,7 +193,8 @@ pub struct Verdict {
 /// Who must act on a run: the fleet's sections, listed in [`Section::ORDER`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Section {
-    /// Parked, or quarantined because the journal does not fold.
+    /// Parked, quarantined because the journal does not load or fold, or stale:
+    /// whatever [`need`] names.
     NeedsYou,
     Running,
     /// Finished within the last 24 hours, by when its journal last
@@ -137,16 +238,156 @@ pub fn sections<'a>(rows: &'a [RunRow], now: &str) -> Vec<(Section, Vec<&'a RunR
 }
 
 fn section_of(row: &RunRow, now: &str) -> Section {
-    match row.verdict.standing {
-        Standing::Quarantined | Standing::Parked => Section::NeedsYou,
-        Standing::Running => Section::Running,
-        Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => {
-            let moved = row.last_recorded_at.as_deref().unwrap_or(&row.created_at);
-            match (js::parse_millis(moved), js::parse_millis(now)) {
-                (Some(moved), Some(now)) if now - moved >= RECENT_MILLIS => Section::Older,
-                _ => Section::Recent,
-            }
+    if need(row, now).is_some() {
+        return Section::NeedsYou;
+    }
+    if row.verdict.standing == Standing::Running {
+        return Section::Running;
+    }
+    let moved = row.last_recorded_at.as_deref().unwrap_or(&row.created_at);
+    match (js::parse_millis(moved), js::parse_millis(now)) {
+        (Some(moved), Some(now)) if now - moved >= RECENT_MILLIS => Section::Older,
+        _ => Section::Recent,
+    }
+}
+
+// ------------------------------------------------------- what it needs
+
+/// What a run in "needs you" asks of the operator (#503).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Need {
+    /// Parked on a ruling or a limit; its verdict says which and why.
+    Parked,
+    /// Its journal does not load or does not fold; the row's `detail` is
+    /// the refusal.
+    Quarantined(Quarantine),
+    /// Its journal folds to running and has not moved for longer than
+    /// the staleness bound, so nothing drives it. `silent` is how long
+    /// it has been quiet, rendered.
+    Stale { silent: String },
+}
+
+impl Need {
+    /// The word a row's standing cell prints for it.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Need::Parked => Standing::Parked.label(),
+            Need::Quarantined(_) => Standing::Quarantined.label(),
+            Need::Stale { .. } => "stale",
         }
+    }
+
+    /// The line a row prints under its title: what to do, in a few
+    /// words. A park's verdict already says why it waits, so it has none.
+    pub fn prompt(&self) -> Option<String> {
+        match self {
+            Need::Parked => None,
+            Need::Quarantined(Quarantine::DoesNotFold) => {
+                Some("quarantined: export and inspect".to_string())
+            }
+            Need::Quarantined(Quarantine::DoesNotLoad) => {
+                Some("quarantined: the journal does not load; inspect it by hand".to_string())
+            }
+            Need::Stale { silent } => Some(format!(
+                "stale: no event since {silent}; resume or conclude"
+            )),
+        }
+    }
+
+    /// The commands that answer it for run `run_id`, each whole: a line
+    /// `brokkr` parses once its `<placeholder>` words are filled. A stale
+    /// run still folds to running, and the fold admits `operator retry`
+    /// only on a parked run, so a stale run is answered by `resume`, which
+    /// drives it again under its pinned bundle, or by `conclude`, which
+    /// closes a run believed dead. `conclude` folds a journal before it
+    /// appends, so it refuses a quarantined one. `export` writes one that
+    /// loads and does not fold as it stands, and refuses one the store
+    /// does not load, as every verb that reads it does: that one names
+    /// no command.
+    pub fn commands(&self, run_id: &str) -> Vec<String> {
+        match self {
+            Need::Parked | Need::Quarantined(Quarantine::DoesNotLoad) => Vec::new(),
+            Need::Quarantined(Quarantine::DoesNotFold) => vec![export(run_id)],
+            Need::Stale { .. } => vec![resume(run_id), conclude(run_id)],
+        }
+    }
+
+    /// The detail's lines for run `run_id`: why it needs the operator and
+    /// the [`Need::commands`] that answer it.
+    pub fn way_out(&self, run_id: &str) -> Vec<String> {
+        match self {
+            Need::Parked => Vec::new(),
+            Need::Quarantined(Quarantine::DoesNotFold) => vec![
+                format!("way out   {}", export(run_id)),
+                "          and inspect the journal it writes".to_string(),
+            ],
+            Need::Quarantined(Quarantine::DoesNotLoad) => vec![
+                "way out   none in brokkr: the store refuses this journal, export included;"
+                    .to_string(),
+                "          inspect the hearth's journal file by hand".to_string(),
+            ],
+            Need::Stale { silent } => vec![
+                format!(
+                    "stale     no event since {silent}, past the {}h bound: an attempt's {}h \
+                     deadline and a {}h margin",
+                    STALE_AFTER_SECONDS / 3600,
+                    ATTEMPT_DEADLINE_SECONDS / 3600,
+                    STALE_MARGIN_SECONDS / 3600,
+                ),
+                format!("way out   {}", resume(run_id)),
+                "          drives it again under its pinned bundle (or --recipe <name>);"
+                    .to_string(),
+                format!("          or {} closes it", conclude(run_id)),
+            ],
+        }
+    }
+}
+
+fn conclude(run_id: &str) -> String {
+    format!("brokkr conclude --run {run_id} --reason <why>")
+}
+
+fn export(run_id: &str) -> String {
+    format!("brokkr export --run {run_id}")
+}
+
+fn resume(run_id: &str) -> String {
+    format!("brokkr resume --run {run_id} --bundle <its-bundle>")
+}
+
+/// What run `row` needs of the operator at `now`, if anything: a park,
+/// a journal that does not load or fold, or a running journal silent for longer
+/// than the bound — the longest attempt deadline a shipped seat holds
+/// and a margin past it, against the time of the run's last event. A
+/// run is stale only on that evidence: a clock or a last event whose
+/// time does not read never makes one.
+pub fn need(row: &RunRow, now: &str) -> Option<Need> {
+    match row.verdict.standing {
+        Standing::Quarantined => Some(Need::Quarantined(row.quarantine.unwrap_or_default())),
+        Standing::Parked => Some(Need::Parked),
+        Standing::Running => silence(row, now).map(|silent| Need::Stale { silent }),
+        Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => None,
+    }
+}
+
+/// The seat at work on run `row` at `now`, as every surface shows it: the
+/// fold's hire, except on a run [`need`] calls stale, which nothing drives
+/// whatever effect its fold still holds in flight (#503 item 3).
+pub fn at_work<'a>(row: &'a RunRow, now: &str) -> Option<&'a Hire> {
+    match need(row, now) {
+        Some(Need::Stale { .. }) => None,
+        Some(Need::Parked | Need::Quarantined(_)) | None => row.hire.as_ref(),
+    }
+}
+
+/// How long the run's journal has been silent, rendered, when that is
+/// past the staleness bound.
+fn silence(row: &RunRow, now: &str) -> Option<String> {
+    let last = row.last_recorded_at.as_deref()?;
+    let silent = js::parse_millis(now)? - js::parse_millis(last)?;
+    match silent > STALE_AFTER_SECONDS * 1000 {
+        true => fmt_dur(last, now),
+        false => None,
     }
 }
 
@@ -159,15 +400,21 @@ fn section_of(row: &RunRow, now: &str) -> Section {
 /// family emoji loses its joiners), so it clamps its sanitized title
 /// again with this, and paints what it measured.
 pub fn title(feature: &str) -> String {
+    title_within(feature, TITLE_COLUMNS)
+}
+
+/// [`title`] clamped to `columns` instead (#503): a list wider than the
+/// one beside the detail pane gives its titles the width it has.
+pub fn title_within(feature: &str, columns: usize) -> String {
     let first = feature
         .lines()
         .map(str::trim)
         .find(|line| !line.is_empty())
         .unwrap_or_default();
-    if first.width() <= TITLE_COLUMNS {
+    if first.width() <= columns {
         return first.to_string();
     }
-    let cut = break_at(first, TITLE_COLUMNS - 1);
+    let cut = break_at(first, columns.saturating_sub(1));
     format!("{}{ELLIPSIS}", first[..cut].trim_end())
 }
 
@@ -347,10 +594,43 @@ fn run_row(entry: &RunEntry) -> RunRow {
         created_at: entry.created_at.to_string(),
         last_recorded_at: entry.last_recorded_at.map(str::to_string),
         feature: entry.feature.to_string(),
-        detail: entry.detail.map(str::to_string),
+        detail: entry.detail.map(|refusal| refusal.words.to_string()),
+        quarantine: entry.state.is_none().then(|| {
+            entry
+                .detail
+                .map(|refusal| refusal.quarantine)
+                .unwrap_or_default()
+        }),
         residuals: entry.residuals.to_vec(),
         title: title(entry.feature),
         verdict: verdict(entry.state, entry.residuals),
+        hire: entry.state.and_then(hire),
+    }
+}
+
+/// The seat the fold's cursor has hired for the current effect.
+fn hire(state: &RunState) -> Option<Hire> {
+    match &state.cursor {
+        Cursor::ExecuteEffect {
+            seat,
+            failed_attempts,
+            ..
+        }
+        | Cursor::EffectInFlight {
+            seat,
+            failed_attempts,
+            ..
+        } => Some(Hire {
+            seat: seat.clone(),
+            attempt: failed_attempts + 1,
+        }),
+        Cursor::Start
+        | Cursor::EnterPhase { .. }
+        | Cursor::RequestEffect
+        | Cursor::Decide { .. }
+        | Cursor::Park { .. }
+        | Cursor::Stop
+        | Cursor::Idle => None,
     }
 }
 

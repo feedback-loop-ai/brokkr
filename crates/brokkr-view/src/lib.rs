@@ -25,13 +25,19 @@
 
 #![forbid(unsafe_code)]
 
+mod dashboard;
 mod fleet;
 pub mod js;
 pub mod transcript;
 
+use dashboard::dashboard;
+pub use dashboard::{
+    seat_summary, working_checkpoints, Concluded, Dashboard, Decision, Outcome, RuleSeverity,
+    Ruled, Visit,
+};
 pub use fleet::{
-    fleet_rows, run_rows, sections, title, wrap, HearthEntries, Section, Standing, Verdict,
-    TITLE_COLUMNS, VERDICT_COLUMNS,
+    at_work, fleet_rows, need, run_rows, sections, title, title_within, wrap, HearthEntries, Hire,
+    Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict, TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 
 use std::collections::BTreeMap;
@@ -72,7 +78,10 @@ use serde_json::Value;
 /// [`reported_cost`] states), where it was the last attempt's alone, and
 /// participants gained `last_attempt_cost` beside it.
 /// Bumped to 12 by #491: a run row gained its `title` and its `verdict`.
-pub const VIEW_VERSION: u32 = 12;
+/// Bumped to 13 by #503: a run row gained its `hire`.
+/// Bumped to 14 by #503's second round: the run view gained its `dashboard`.
+/// Bumped to 15 by #503's landing: a run row gained its `quarantine`.
+pub const VIEW_VERSION: u32 = 15;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -117,48 +126,15 @@ pub struct RunEntry<'a> {
     pub last_recorded_at: Option<&'a str>,
     pub state: Option<&'a RunState>,
     /// Why the state is absent: a fleet read quarantines a run whose
-    /// journal does not fold rather than losing the whole fleet with it,
-    /// and the error text is the row's whole account of itself. Nothing
-    /// is repaired here (README law 2) — the refusal is reported.
-    pub detail: Option<&'a str>,
+    /// journal does not load or fold rather than losing the whole fleet
+    /// with it, and the refusal is the row's whole account of itself.
+    /// Nothing is repaired here (README law 2) — the refusal is reported.
+    pub detail: Option<Refusal<'a>>,
     /// What [`residual_findings`] derived for this run, marks included.
     /// A caller that has not read the run's events — or read a journal
     /// that would not open at all — states none, which is exactly what
     /// a fleet listing said before decision 0047.
     pub residuals: &'a [ResidualFinding],
-}
-
-#[derive(Serialize)]
-pub struct RunRow {
-    pub run_id: String,
-    pub status: Option<String>,
-    /// The status is one of the four the surfaces have a colour for.
-    pub status_known: bool,
-    pub phase: Option<String>,
-    pub seq: Option<u64>,
-    pub created_at: String,
-    /// When the run's journal last moved, as its entry states it (#491).
-    pub last_recorded_at: Option<String>,
-    /// The **full** feature: the model stays terminal-agnostic and
-    /// `--json` stays lossless. Clamping is the renderer's job.
-    pub feature: String,
-    /// Why this row carries no status, when it carries none: the fold
-    /// error, verbatim. A quarantined run reads as `?` plus this line
-    /// on every surface instead of vanishing from the fleet.
-    pub detail: Option<String>,
-    /// This run's residual findings, each carrying the operator's
-    /// supersede annotation when one closes it (decision 0047 ruling
-    /// 3): `brokkr runs --json` is a surface that prints a residual
-    /// finding, so it prints the mark. The text table stays a digest —
-    /// clamping and omission are the renderer's job, losslessness is
-    /// the model's.
-    pub residuals: Vec<ResidualFinding>,
-    /// What the fleet calls the run: the feature's first line, clamped
-    /// at a word to 60 display columns (#491). `feature` stays whole
-    /// beside it.
-    pub title: String,
-    /// How the run stands and how it was last ruled (#491).
-    pub verdict: Verdict,
 }
 
 #[derive(Serialize)]
@@ -506,6 +482,8 @@ pub struct RunView {
     pub journal: Vec<JournalRow>,
     /// Every event, unfiltered: the console's `full journal · N events`.
     pub event_count: usize,
+    /// The path, the last ruling and the last seats' notes (#503).
+    pub dashboard: Dashboard,
 }
 
 // --------------------------------------------------------------- helpers
@@ -2782,6 +2760,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         boundary: run_boundary(events),
         journal: journal_rows(events, &scan, &buckets, &marks),
         event_count: events.len(),
+        dashboard: dashboard(events),
     }
 }
 

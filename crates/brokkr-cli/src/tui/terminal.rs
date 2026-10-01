@@ -191,8 +191,9 @@ where
     for _ in 0..max_iterations {
         let subject = subject_of(tui, &views);
         let vanishing_key = subject.as_ref().map(|subject| subject.key.clone());
+        let asked = asked_run(tui, &views);
         let ask = Ask {
-            run: tui.run.as_deref(),
+            run: asked.as_deref(),
             subject,
             force: std::mem::take(&mut tui.force),
             fleet: tui.ticks.is_multiple_of(RUNS_REFRESH_TICKS),
@@ -225,8 +226,9 @@ where
         }
         settle(tui, &views);
         // Measured before the draw, so the frame, its footer and the keys
-        // below are pressed against one width.
-        tui.width = terminal.size()?.width;
+        // below are pressed against one size.
+        let size = terminal.size()?;
+        (tui.width, tui.height) = (size.width, size.height);
         terminal.draw(|frame| draw(frame, tui, &views))?;
         if (ops.poll)(TICK)? {
             if let Some(key) = from_crossterm((ops.read)()?) {

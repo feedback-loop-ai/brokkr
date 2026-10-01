@@ -259,7 +259,7 @@ pub(crate) fn dossier_of(
         {
             let state = match state {
                 Ok(state) => state,
-                Err(crate::fleet::Quarantine { detail, seq }) => {
+                Err(crate::fleet::Quarantine { detail, seq, .. }) => {
                     // One corrupt journal must not blind the aide to the
                     // fleet. The run is quarantined — listed as `?` with the
                     // refusal's own words — and raised as a finding, because

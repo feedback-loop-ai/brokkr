@@ -124,6 +124,40 @@ pub fn brokkr_view::transcript::select_reference(core::option::Option<&brokkr_vi
 pub fn brokkr_view::transcript::valid_codex_id(&str) -> bool
 pub fn brokkr_view::transcript::valid_dsh_locator(&str) -> bool
 pub fn brokkr_view::transcript::validate_common(&brokkr_view::Transcript) -> core::result::Result<brokkr_view::transcript::ValidReference, brokkr_view::transcript::Unavailable>
+pub enum brokkr_view::Need
+pub brokkr_view::Need::Parked
+pub brokkr_view::Need::Quarantined(brokkr_view::Quarantine)
+pub brokkr_view::Need::Stale
+pub brokkr_view::Need::Stale::silent: alloc::string::String
+impl brokkr_view::Need
+pub fn brokkr_view::Need::commands(&self, &str) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_view::Need::label(&self) -> &'static str
+pub fn brokkr_view::Need::prompt(&self) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::Need::way_out(&self, &str) -> alloc::vec::Vec<alloc::string::String>
+pub enum brokkr_view::Outcome
+pub brokkr_view::Outcome::Failed
+pub brokkr_view::Outcome::Indeterminate
+pub brokkr_view::Outcome::Succeeded
+impl brokkr_view::Outcome
+pub fn brokkr_view::Outcome::label(self) -> &'static str
+pub enum brokkr_view::Quarantine
+pub brokkr_view::Quarantine::DoesNotFold
+pub brokkr_view::Quarantine::DoesNotLoad
+impl brokkr_view::Quarantine
+pub fn brokkr_view::Quarantine::in_words(self, &str) -> brokkr_view::Refusal<'_>
+pub enum brokkr_view::RuleSeverity
+pub brokkr_view::RuleSeverity::Flagged
+pub brokkr_view::RuleSeverity::Hard
+pub brokkr_view::RuleSeverity::Normal
+impl brokkr_view::RuleSeverity
+pub fn brokkr_view::RuleSeverity::label(self) -> &'static str
+pub enum brokkr_view::Ruled
+pub brokkr_view::Ruled::Flagged
+pub brokkr_view::Ruled::Open
+pub brokkr_view::Ruled::Parked
+pub brokkr_view::Ruled::Passed
+pub brokkr_view::Ruled::Returned
+pub brokkr_view::Ruled::Stopped
 pub enum brokkr_view::Section
 pub brokkr_view::Section::NeedsYou
 pub brokkr_view::Section::Older
@@ -164,6 +198,28 @@ pub brokkr_view::CheckpointRow::usage: brokkr_view::Cell
 pub struct brokkr_view::Column
 pub brokkr_view::Column::label: core::option::Option<alloc::string::String>
 pub brokkr_view::Column::nodes: alloc::vec::Vec<brokkr_view::Node>
+pub struct brokkr_view::Concluded
+pub brokkr_view::Concluded::notes: core::option::Option<alloc::string::String>
+pub brokkr_view::Concluded::outcome: brokkr_view::Outcome
+pub brokkr_view::Concluded::phase: core::option::Option<alloc::string::String>
+pub brokkr_view::Concluded::result: core::option::Option<alloc::string::String>
+pub brokkr_view::Concluded::seat: alloc::string::String
+pub struct brokkr_view::Dashboard
+pub brokkr_view::Dashboard::decision: core::option::Option<brokkr_view::Decision>
+pub brokkr_view::Dashboard::last_review: core::option::Option<brokkr_view::Concluded>
+pub brokkr_view::Dashboard::last_seat: core::option::Option<brokkr_view::Concluded>
+pub brokkr_view::Dashboard::path: alloc::vec::Vec<brokkr_view::Visit>
+pub brokkr_view::Dashboard::run_id: core::option::Option<alloc::string::String>
+impl brokkr_view::Dashboard
+pub fn brokkr_view::Dashboard::path_text(&self) -> alloc::string::String
+pub struct brokkr_view::Decision
+pub brokkr_view::Decision::from: core::option::Option<alloc::string::String>
+pub brokkr_view::Decision::next: core::option::Option<alloc::string::String>
+pub brokkr_view::Decision::problem: core::option::Option<alloc::string::String>
+pub brokkr_view::Decision::residual: core::option::Option<brokkr_core::policy::Severity>
+pub brokkr_view::Decision::result: core::option::Option<alloc::string::String>
+pub brokkr_view::Decision::rule: alloc::string::String
+pub brokkr_view::Decision::severity: core::option::Option<brokkr_view::RuleSeverity>
 pub struct brokkr_view::FleetView
 pub brokkr_view::FleetView::count: usize
 pub brokkr_view::FleetView::realms: alloc::vec::Vec<brokkr_view::RealmRuns>
@@ -173,6 +229,9 @@ pub brokkr_view::HearthEntries::detail: core::option::Option<&'a str>
 pub brokkr_view::HearthEntries::entries: &'a [brokkr_view::RunEntry<'a>]
 pub brokkr_view::HearthEntries::journal: &'a str
 pub brokkr_view::HearthEntries::realm: &'a str
+pub struct brokkr_view::Hire
+pub brokkr_view::Hire::attempt: u64
+pub brokkr_view::Hire::seat: alloc::string::String
 pub struct brokkr_view::JournalRow
 pub brokkr_view::JournalRow::causation_seq: core::option::Option<u64>
 pub brokkr_view::JournalRow::event_type: alloc::string::String
@@ -247,6 +306,9 @@ pub brokkr_view::RealmRuns::detail: core::option::Option<alloc::string::String>
 pub brokkr_view::RealmRuns::journal: alloc::string::String
 pub brokkr_view::RealmRuns::realm: alloc::string::String
 pub brokkr_view::RealmRuns::runs: alloc::vec::Vec<brokkr_view::RunRow>
+pub struct brokkr_view::Refusal<'a>
+pub brokkr_view::Refusal::quarantine: brokkr_view::Quarantine
+pub brokkr_view::Refusal::words: &'a str
 pub struct brokkr_view::ResidualFinding
 pub brokkr_view::ResidualFinding::input: alloc::string::String
 pub brokkr_view::ResidualFinding::line: alloc::string::String
@@ -271,7 +333,7 @@ pub brokkr_view::RunBoundary::unboxed: bool
 pub brokkr_view::RunBoundary::word: brokkr_view::Cell
 pub struct brokkr_view::RunEntry<'a>
 pub brokkr_view::RunEntry::created_at: &'a str
-pub brokkr_view::RunEntry::detail: core::option::Option<&'a str>
+pub brokkr_view::RunEntry::detail: core::option::Option<brokkr_view::Refusal<'a>>
 pub brokkr_view::RunEntry::feature: &'a str
 pub brokkr_view::RunEntry::last_recorded_at: core::option::Option<&'a str>
 pub brokkr_view::RunEntry::residuals: &'a [brokkr_view::ResidualFinding]
@@ -284,8 +346,10 @@ pub struct brokkr_view::RunRow
 pub brokkr_view::RunRow::created_at: alloc::string::String
 pub brokkr_view::RunRow::detail: core::option::Option<alloc::string::String>
 pub brokkr_view::RunRow::feature: alloc::string::String
+pub brokkr_view::RunRow::hire: core::option::Option<brokkr_view::Hire>
 pub brokkr_view::RunRow::last_recorded_at: core::option::Option<alloc::string::String>
 pub brokkr_view::RunRow::phase: core::option::Option<alloc::string::String>
+pub brokkr_view::RunRow::quarantine: core::option::Option<brokkr_view::Quarantine>
 pub brokkr_view::RunRow::residuals: alloc::vec::Vec<brokkr_view::ResidualFinding>
 pub brokkr_view::RunRow::run_id: alloc::string::String
 pub brokkr_view::RunRow::seq: core::option::Option<u64>
@@ -295,6 +359,7 @@ pub brokkr_view::RunRow::title: alloc::string::String
 pub brokkr_view::RunRow::verdict: brokkr_view::Verdict
 pub struct brokkr_view::RunView
 pub brokkr_view::RunView::boundary: brokkr_view::RunBoundary
+pub brokkr_view::RunView::dashboard: brokkr_view::Dashboard
 pub brokkr_view::RunView::event_count: usize
 pub brokkr_view::RunView::journal: alloc::vec::Vec<brokkr_view::JournalRow>
 pub brokkr_view::RunView::live: alloc::vec::Vec<brokkr_view::LiveLine>
@@ -346,6 +411,13 @@ pub brokkr_view::Verdict::residual: core::option::Option<brokkr_core::policy::Se
 pub brokkr_view::Verdict::rule: core::option::Option<alloc::string::String>
 pub brokkr_view::Verdict::standing: brokkr_view::Standing
 pub brokkr_view::Verdict::text: alloc::string::String
+pub struct brokkr_view::Visit
+pub brokkr_view::Visit::duration: core::option::Option<alloc::string::String>
+pub brokkr_view::Visit::model: core::option::Option<alloc::string::String>
+pub brokkr_view::Visit::phase: alloc::string::String
+pub brokkr_view::Visit::residual: core::option::Option<brokkr_core::policy::Severity>
+pub brokkr_view::Visit::rule: core::option::Option<alloc::string::String>
+pub brokkr_view::Visit::ruled: brokkr_view::Ruled
 pub struct brokkr_view::What
 pub brokkr_view::What::arrow: core::option::Option<alloc::string::String>
 pub brokkr_view::What::badge: core::option::Option<alloc::string::String>
@@ -360,18 +432,23 @@ pub const brokkr_view::TITLE_COLUMNS: usize
 pub const brokkr_view::VERDICT_COLUMNS: usize
 pub const brokkr_view::VIEW_VERSION: u32
 pub fn brokkr_view::age(&str, &str) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::at_work<'a>(&'a brokkr_view::RunRow, &str) -> core::option::Option<&'a brokkr_view::Hire>
 pub fn brokkr_view::cited(&brokkr_view::SupersededBy) -> alloc::string::String
 pub fn brokkr_view::clamp(&str, usize) -> alloc::string::String
 pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>]) -> brokkr_view::FleetView
 pub fn brokkr_view::fmt_dur(&str, &str) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::need(&brokkr_view::RunRow, &str) -> core::option::Option<brokkr_view::Need>
 pub fn brokkr_view::operator_commands(&brokkr_core::fold::RunState) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_view::quarantine_finding(&str, u64, &str) -> brokkr_view::ResidualFinding
 pub fn brokkr_view::reported_cost(&serde_json::value::Value) -> core::option::Option<f64>
 pub fn brokkr_view::residual_findings(&str, &[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_view::ResidualFinding>
 pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>]) -> brokkr_view::RunsView
 pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView
+pub fn brokkr_view::seat_summary(&brokkr_view::Participant) -> alloc::string::String
 pub fn brokkr_view::sections<'a>(&'a [brokkr_view::RunRow], &str) -> alloc::vec::Vec<(brokkr_view::Section, alloc::vec::Vec<&'a brokkr_view::RunRow>)>
 pub fn brokkr_view::short_target(&str) -> alloc::string::String
 pub fn brokkr_view::status_str(&brokkr_core::fold::Status) -> &'static str
 pub fn brokkr_view::title(&str) -> alloc::string::String
+pub fn brokkr_view::title_within(&str, usize) -> alloc::string::String
+pub fn brokkr_view::working_checkpoints<'a>(&'a brokkr_view::RunView, &str) -> alloc::vec::Vec<(&'a str, &'a brokkr_view::CheckpointRow)>
 pub fn brokkr_view::wrap(&str, usize) -> alloc::vec::Vec<alloc::string::String>

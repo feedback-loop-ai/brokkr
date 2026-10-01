@@ -7,8 +7,17 @@ use super::*;
 
 /// Discoverability is a requirement, not a nicety: the footer names the
 /// keys available in the CURRENT context, and differs per (level, pane,
-/// typing, help) so a constant footer cannot pass its test.
+/// typing, help) so a constant footer cannot pass its test. This is the
+/// footer however wide; a frame draws [`footer_within`] its width.
+#[cfg(test)]
 pub(crate) fn footer_for(tui: &Tui, views: &Views) -> String {
+    footer_within(tui, views, usize::MAX)
+}
+
+/// [`footer_for`] on a footer `width` columns wide: the fleet's drops
+/// its lesser keys until it fits (#503), and every other level's is
+/// drawn as it stands.
+pub(crate) fn footer_within(tui: &Tui, views: &Views, width: usize) -> String {
     if tui.help {
         return "? or Esc close help · q quit".to_string();
     }
@@ -23,32 +32,115 @@ pub(crate) fn footer_for(tui: &Tui, views: &Views) -> String {
     }
     let tail = "· / filter · r refresh · ? help · q quit";
     match tui.level {
-        Level::Runs => runs_footer(tui, views, tail),
+        Level::Runs => fit(runs_footer(tui, views), width),
         Level::Run => run_footer(tui, views, tail),
         Level::Participant => participant_footer(tui, views, tail),
     }
 }
 
-/// The fleet's footer: the list's, or the detail pane's while it has
-/// the focus. The tab keys are said where they are bound, and only
-/// there: a one-hearth world's footer never names them.
-fn runs_footer(tui: &Tui, views: &Views, tail: &str) -> String {
+/// One key a footer names, and how readily it gives way on a narrow
+/// frame: `None` never does, and a higher rank goes first.
+type Part = (String, Option<u8>);
+
+/// The fleet's footer, at every width (#503): it always names `Enter`,
+/// `d`, `a` and `/`, and `Tab` wherever a column stands beside the list.
+/// The list's, or a column's while it has the focus. `d` and `f` say how
+/// wide the frame must be for a column they asked for that it cannot
+/// hold. The tab keys are said where they are bound, and only there: a
+/// one-hearth world's footer never names them.
+fn runs_footer(tui: &Tui, views: &Views) -> Vec<Part> {
     let all = match tui.all {
         true => "a recent only",
         false => "a all runs",
     };
-    if detail_focused(tui, views) {
-        return format!("↑↓/jk scroll · Enter open run · Tab list · {all} {tail}");
+    let row = selected_run(tui, views);
+    let columns = fleet_columns(tui, views);
+    let focus = focused(tui, views);
+    let movement = match focus {
+        FleetColumn::List => "↑↓/jk move",
+        FleetColumn::Dashboard | FleetColumn::Live => "↑↓/jk scroll",
+    };
+    let notes = row.and_then(|row| notes_of(views, row));
+    let enter = match notes.filter(|_| focus == FleetColumn::Dashboard) {
+        Some(_) => "Enter read notes",
+        None => "Enter open run",
+    };
+    let mut parts: Vec<Part> = vec![(movement.to_string(), Some(3)), (enter.to_string(), None)];
+    parts.extend(in_place(tui, views).map(|keys| (keys.to_string(), Some(2))));
+    parts.extend(tabbed(tui).then(|| ("[ ] 1-9 realm".to_string(), Some(5))));
+    let next = columns
+        .iter()
+        .cycle()
+        .skip_while(|(column, _)| *column != focus)
+        .nth(1);
+    let tab = next.filter(|_| columns.len() > 1);
+    let now = views.now.as_str();
+    parts.extend(tab.map(|(column, _)| (format!("Tab {}", name_of(*column, row, now)), None)));
+    parts.extend(toggle_parts(tui, third(row, now), &columns));
+    parts.extend([
+        (all.to_string(), None),
+        ("g/G top/bottom".to_string(), Some(7)),
+        ("/ filter".to_string(), None),
+        ("r refresh".to_string(), Some(6)),
+        ("? help".to_string(), Some(1)),
+        ("q quit".to_string(), Some(4)),
+    ]);
+    parts
+}
+
+/// `d` and `f` show or hide their columns, and say how wide a frame a
+/// column they asked for needs; `c` opens or folds the commission while
+/// the dashboard is drawn (#503). `f` gives way first on a narrow footer.
+fn toggle_parts(tui: &Tui, third: &str, columns: &[(FleetColumn, u16)]) -> Vec<Part> {
+    let say = |key: char, name: &str, on: bool, from: u16| match (on, tui.width >= from) {
+        (false, _) => format!("{key} {name}"),
+        (true, true) => format!("{key} hide {name}"),
+        (true, false) => format!("{key} {name} ≥{from}"),
+    };
+    let toggles = tui.toggles;
+    let mut parts = vec![
+        (
+            say('d', "dashboard", toggles.dashboard, DASHBOARD_FROM),
+            None,
+        ),
+        (say('f', third, toggles.live, live_from(toggles)), Some(0)),
+    ];
+    let dashboard = columns
+        .iter()
+        .any(|(column, _)| *column == FleetColumn::Dashboard);
+    parts.extend(dashboard.then(|| ("c commission".to_string(), Some(2))));
+    parts
+}
+
+/// What `←→` do to the selected row, when it is a running run.
+fn in_place(tui: &Tui, views: &Views) -> Option<&'static str> {
+    let row = selected_run(tui, views)?;
+    match (row.verdict.standing, opened(tui, row)) {
+        (Standing::Running, true) => Some("← fold"),
+        (Standing::Running, false) => Some("→ expand"),
+        (
+            Standing::Quarantined
+            | Standing::Parked
+            | Standing::Shipped
+            | Standing::Stopped
+            | Standing::OperatorStopped,
+            _,
+        ) => None,
     }
-    let realm = match tabbed(tui) {
-        true => " · [ ] 1-9 realm",
-        false => "",
-    };
-    let detail = match detail_row(tui, views) {
-        Some(_) => " · Tab detail",
-        None => "",
-    };
-    format!("↑↓/jk move · Enter open run{realm}{detail} · {all} · g/G top/bottom {tail}")
+}
+
+/// `parts` joined, dropping the most readily dropped until the line
+/// fits `width`. The parts that never give way stay however narrow.
+fn fit(mut parts: Vec<Part>, width: usize) -> String {
+    loop {
+        let words: Vec<&str> = parts.iter().map(|(words, _)| words.as_str()).collect();
+        let joined = words.join(" · ");
+        let first = parts.iter().filter_map(|(_, rank)| *rank).max();
+        match first.filter(|_| width_of(&joined) > width) {
+            Some(first) => parts.retain(|(_, rank)| *rank != Some(first)),
+            None => return joined,
+        }
+    }
 }
 
 /// The run level's footer, one per pane.
@@ -150,18 +242,20 @@ pub(super) fn status_line(tui: &Tui) -> String {
     line
 }
 
-pub(super) const HELP: [&str; 13] = [
+pub(super) const HELP: [&str; 15] = [
     "brokkr tui — a read-only console over the same models as",
     "brokkr inspect, brokkr watch and brokkr ui. It issues no",
     "operator commands and writes nothing to the journal.",
     "",
     "↑ ↓ j k     move          Enter   descend / scope",
     "← →         the graph rail        ↑ ↓ its lanes",
+    "→ l Space   open a running run in the fleet    ← h  fold it",
     "Esc         back          ⌫       back (keeps the scope)",
     "Tab         next pane     g G     top / bottom",
     "PgUp PgDn   page          /       filter this list",
     "r           refresh       ?       this help",
     "q Ctrl+C    quit          a       all runs, older ones too",
+    "d f         dashboard / live column    c  commission",
     "",
     "Selecting a phase or a seat scopes the run level; Esc clears it.",
 ];

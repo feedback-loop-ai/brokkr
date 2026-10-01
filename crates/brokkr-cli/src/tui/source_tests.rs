@@ -10,6 +10,7 @@ use std::path::Path;
 /// sanitized constructors cannot be handed raw journal text.
 pub(super) const SOURCE: &str = concat!(
     include_str!("../tui.rs"),
+    include_str!("columns.rs"),
     include_str!("footer.rs"),
     include_str!("glyphs.rs"),
     include_str!("keys.rs"),
