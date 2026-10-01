@@ -180,7 +180,8 @@ pub(crate) enum Closed {
     /// Ctrl+C over a run this process drives: the run is to stop as
     /// SIGINT stops it (decision 0006's addendum).
     Interrupted,
-    /// A key after the run the session watched had ended.
+    /// A key after the run the session watched had ended, or at once
+    /// after the drive beside it panicked.
     Ended,
 }
 
@@ -189,7 +190,7 @@ pub(crate) enum Closed {
 pub(super) fn has_ended(watched: &Watched, views: &Views) -> bool {
     match watched {
         Watched::Console => false,
-        Watched::Driven(ended) => ended.load(Ordering::SeqCst),
+        Watched::Driven(end) => end.get().is_some(),
         Watched::Journal(run) => views
             .runs
             .runs
@@ -208,6 +209,14 @@ fn settled(standing: Standing) -> bool {
             true
         }
     }
+}
+
+/// Whether the drive beside the session panicked. The panic hook has
+/// already left the terminal, so a frame drawn now would land on the
+/// restored screen in cooked mode, and a wait for a key would hold the
+/// panic, and the process, until one.
+fn unwound(watched: &Watched) -> bool {
+    matches!(watched, Watched::Driven(end) if end.get() == Some(&DriveEnd::Unwound))
 }
 
 /// An event the shell read: how it closes the session, if it does. Once
@@ -292,6 +301,11 @@ where
             }
         }
         settle(tui, &views);
+        // Checked just before the draw: a drive that panicked closes the
+        // view at once, with nothing more drawn and no key awaited.
+        if unwound(&tui.watched) {
+            return Ok(Closed::Ended);
+        }
         // Measured before the draw, so the frame, its footer and the keys
         // below are pressed against one size.
         let size = terminal.size()?;

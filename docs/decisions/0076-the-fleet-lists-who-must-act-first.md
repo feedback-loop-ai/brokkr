@@ -165,11 +165,15 @@ on, so this file names them.
     --run <id>`; and `watch` on a terminal is this view. Ctrl+C, which raw
     mode delivers as a key, restores the terminal and raises SIGINT at
     the process, so the engine's stop path (decision 0006's addendum) meets
-    it as it meets the operator's own; it never detaches silently. A run
+    it as it meets the operator's own; it never detaches silently, and its
+    closing line, said before the signal, names a process that ignores
+    SIGINT as one that keeps driving. A run
     that ends holds its final frame until any key pressed, one the view
     binds nothing to included, and then its summary prints and its exit
-    code returns as before; a drive that panics has ended for its view
-    too, and its panic carries on once the view closes. `watch`'s view
+    code returns as before. A drive that panics has unwound, which its
+    view tells from a return: the panic hook has already left the
+    terminal, so the view closes at once, drawing nothing more and
+    awaiting no key, and the panic carries on. `watch`'s view
     exits with the code its frames would have. The CLI's `rustix` edge gains its
     `process` feature, already built for the engine, to raise the signal.
 
@@ -187,7 +191,10 @@ on, so this file names them.
   the bound exact; the operator rules whether the fixed bound stands until
   then.
 - A run view is restored on a normal end, `q`, Ctrl+C, an error and a
-  panic. A SIGTERM or SIGHUP sent from outside while it is open still
+  panic; a drive that panics while the view reads its journal or draws a
+  frame can leave that one frame on the restored screen, since the view
+  reads the drive's end once per frame, before the draw. A SIGTERM or
+  SIGHUP sent from outside while it is open still
   ends the process through the engine's handler, which exits without
   leaving raw mode, and what a seat's driver writes to stderr during the
   drive lands on the view until the next redraw of those cells. No

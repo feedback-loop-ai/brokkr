@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -45,9 +45,9 @@ fn raised() -> std::io::Result<()> {
 }
 
 /// What each close of a view over a driven run says on stderr: nothing
-/// once the run ended, how to open the view again after `q`, nothing
-/// once Ctrl+C has been handed to the engine and why not when it could
-/// not be, and why a view that did not stay open closed.
+/// once the run ended, how to open the view again after `q`, what Ctrl+C
+/// does before it is handed to the engine and why it was not when it
+/// could not be, and why a view that did not stay open closed.
 #[test]
 fn each_close_says_what_became_of_the_run() {
     let said_on = |closed: Result<Closed>, interrupt: fn() -> std::io::Result<()>| {
@@ -61,12 +61,16 @@ fn each_close_says_what_became_of_the_run() {
         "the view closed; run run-1 keeps driving here. Open it again with: \
          brokkr tui --run run-1\n"
     );
-    assert_eq!(said_on(Ok(Closed::Interrupted), raised), "");
+    let stopping =
+        "Ctrl+C: run run-1 stops here as SIGINT stops it, unless this process ignores SIGINT\n";
+    assert_eq!(said_on(Ok(Closed::Interrupted), raised), stopping);
     assert_eq!(RAISED.load(Ordering::SeqCst), 1, "Ctrl+C was handed on");
     assert_eq!(
         said_on(Ok(Closed::Interrupted), refused),
-        "Ctrl+C could not stop run run-1 (the signal was refused); it keeps driving \
-         here. Stop it with: brokkr operator stop --run run-1 --reason <why>\n"
+        format!(
+            "{stopping}Ctrl+C could not stop run run-1 (the signal was refused); it keeps \
+             driving here. Stop it with: brokkr operator stop --run run-1 --reason <why>\n"
+        )
     );
     let small = Err(anyhow::anyhow!("this terminal is 50×10"));
     assert_eq!(
@@ -79,8 +83,8 @@ fn each_close_says_what_became_of_the_run() {
 /// closed, and the view is told when the drive has returned: so a view
 /// holding its final frame holds the summary until its key. A view that
 /// panics does not take the run's ending with it, and a drive that
-/// panics has ended for its view too, its panic carried on once the view
-/// has closed.
+/// panics has unwound for its view, which closes at once, its panic
+/// carried on once the view has closed.
 #[test]
 fn the_drive_ends_before_its_view_and_the_summary_waits_for_it() {
     let order = Mutex::new(Vec::new());
@@ -91,8 +95,9 @@ fn the_drive_ends_before_its_view_and_the_summary_waits_for_it() {
         },
         |ended| {
             let closed = match awaited(&ended) {
-                true => "view closed on the end",
-                false => "view gave up waiting",
+                Some(DriveEnd::Returned) => "view closed on the end",
+                Some(DriveEnd::Unwound) => "view closed on a panic",
+                None => "view gave up waiting",
             };
             order.lock().unwrap().push(closed);
         },
@@ -103,16 +108,21 @@ fn the_drive_ends_before_its_view_and_the_summary_waits_for_it() {
     assert_eq!(*order.lock().unwrap(), wanted);
     let end = beside(|| 8, |_| panic!("a view that panics"));
     assert_eq!(end, 8);
-    let seen = AtomicBool::new(false);
+    let seen = Mutex::new(None);
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         beside(
             || -> u8 { panic!("a drive that panics") },
-            |ended| seen.store(awaited(&ended), Ordering::SeqCst),
+            |ended| *seen.lock().unwrap() = awaited(&ended),
         )
     }));
     let panic = unwound.unwrap_err();
     assert_eq!(panic.downcast_ref::<&str>(), Some(&"a drive that panics"));
-    assert!(seen.load(Ordering::SeqCst), "the view saw the drive end");
+    let seen = *seen.lock().unwrap();
+    assert_eq!(
+        seen,
+        Some(DriveEnd::Unwound),
+        "the view saw the drive unwind"
+    );
 }
 
 const ROLE: &str = "BROKKR_RUN_VIEW_TEST_ROLE";
@@ -162,25 +172,25 @@ fn on_a_terminal() -> (bool, bool) {
     (true, true)
 }
 
-/// A view opened on `run` over `hearths`, recorded with the flag a drive
-/// beside it raises.
+/// A view opened on `run` over `hearths`, recorded with whether the
+/// drive beside it had ended.
 fn record(hearths: &[Hearth], run: Option<String>, tab: usize, watched: &Watched) {
     let ended = match watched {
-        Watched::Driven(ended) => ended.load(Ordering::SeqCst),
+        Watched::Driven(ended) => ended.get().is_some(),
         Watched::Console | Watched::Journal(_) => false,
     };
     let opened = (hearths[0].journal.clone(), run, tab, ended);
     OPENED.lock().unwrap().push(opened);
 }
 
-/// Whether `ended` is raised within a bound every drive in these tests
-/// keeps: how a view holding its final frame waits for the drive.
-fn awaited(ended: &AtomicBool) -> bool {
+/// How the drive ended, once it has within a bound every drive in these
+/// tests keeps: how a view holding its final frame waits for the drive.
+fn awaited(ended: &OnceLock<DriveEnd>) -> Option<DriveEnd> {
     let deadline = Instant::now() + Duration::from_secs(30);
-    while !ended.load(Ordering::SeqCst) && Instant::now() < deadline {
+    while ended.get().is_none() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(5));
     }
-    ended.load(Ordering::SeqCst)
+    ended.get().copied()
 }
 
 /// The final frame held: the view closes on the operator's key once the

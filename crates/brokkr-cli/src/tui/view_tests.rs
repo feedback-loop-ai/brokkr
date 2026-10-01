@@ -50,9 +50,12 @@ fn opened(
     (closed, terminal.backend().clone(), tui)
 }
 
-/// A flag the drive beside the view raises once it has returned.
-fn driven(ended: bool) -> Watched {
-    Watched::Driven(std::sync::Arc::new(AtomicBool::new(ended)))
+/// What the drive beside the view sets once it has returned or unwound,
+/// set already as `ended` says.
+fn driven(ended: Option<DriveEnd>) -> Watched {
+    Watched::Driven(std::sync::Arc::new(
+        ended.map_or_else(std::sync::OnceLock::new, std::sync::OnceLock::from),
+    ))
 }
 
 /// The events the scripted terminal delivers next, as they are.
@@ -75,7 +78,7 @@ fn the_run_view_is_the_frame_tui_run_draws() {
     script(&[]);
     let mut source = |_: Ask| Ok(Some(views()));
     let (_, tui_run, _) = opened("run-7", Watched::Console, &mut source, 2);
-    let (_, run_view, _) = opened("run-7", driven(false), &mut source, 2);
+    let (_, run_view, _) = opened("run-7", driven(None), &mut source, 2);
     assert_eq!(run_view.buffer(), tui_run.buffer());
     let frame = run_view.to_string();
     settings().bind(|| insta::assert_snapshot!("run_view_160x48", frame));
@@ -87,7 +90,7 @@ fn the_run_view_is_the_frame_tui_run_draws() {
     let mut source =
         |ask: Ask| crate::tui_views(&db, true, ask, &mut head, &mut None, || NOW.to_string());
     let (_, tui_run, _) = opened("run-on-disk", Watched::Console, &mut source, 2);
-    let (_, run_view, _) = opened("run-on-disk", driven(false), &mut source, 2);
+    let (_, run_view, _) = opened("run-on-disk", driven(None), &mut source, 2);
     let drawn = tui_run.to_string();
     assert!(drawn.contains("run run-on-disk"), "{drawn}");
     assert_eq!(run_view.buffer(), tui_run.buffer());
@@ -101,7 +104,7 @@ fn ctrl_c_stops_a_driven_run_and_quits_everywhere_else() {
     let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
     let mut source = |_: Ask| Ok(Some(views()));
     let watching = [
-        (driven(false), Closed::Interrupted),
+        (driven(None), Closed::Interrupted),
         (Watched::Console, Closed::Quit),
         (Watched::Journal("run-7".to_string()), Closed::Quit),
     ];
@@ -111,7 +114,7 @@ fn ctrl_c_stops_a_driven_run_and_quits_everywhere_else() {
         assert_eq!(closed, wanted, "{watched:?}");
     }
     script(&[Key::Char('q')]);
-    let (closed, _, _) = opened("run-7", driven(false), &mut source, 4);
+    let (closed, _, _) = opened("run-7", driven(None), &mut source, 4);
     assert_eq!(closed, Closed::Quit);
 }
 
@@ -122,11 +125,11 @@ fn ctrl_c_stops_a_driven_run_and_quits_everywhere_else() {
 fn a_run_that_ended_holds_its_final_frame_until_any_key() {
     let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
     // The drive returns while the first frame is read.
-    let flag = std::sync::Arc::new(AtomicBool::new(false));
+    let flag = std::sync::Arc::new(std::sync::OnceLock::new());
     let mut forced: Vec<bool> = Vec::new();
     let mut asking = |ask: Ask| {
         forced.push(ask.force);
-        flag.store(true, Ordering::SeqCst);
+        let _ = flag.set(DriveEnd::Returned);
         Ok(Some(views()))
     };
     script(&[]);
@@ -142,7 +145,7 @@ fn a_run_that_ended_holds_its_final_frame_until_any_key() {
     assert_eq!(footer, "the run has ended · any key closes the view");
     let mut source = |_: Ask| Ok(Some(views()));
     script(&[Key::Char('?')]);
-    let (closed, _, tui) = opened("run-7", driven(true), &mut source, 4);
+    let (closed, _, tui) = opened("run-7", driven(Some(DriveEnd::Returned)), &mut source, 4);
     assert_eq!((closed, tui.help), (Closed::Ended, false));
     // A key the console binds nothing to closes it too; a resize and a
     // release, which are no key pressed, do not.
@@ -154,12 +157,28 @@ fn a_run_that_ended_holds_its_final_frame_until_any_key() {
         Event::Key(release),
         Event::Key(home),
     ]);
-    let (closed, _, _) = opened("run-7", driven(true), &mut source, 4);
+    let (closed, _, _) = opened("run-7", driven(Some(DriveEnd::Returned)), &mut source, 4);
     assert_eq!(closed, Closed::Ended);
     assert_eq!(SCRIPT.lock().unwrap().len(), 0, "the press closed it");
     script(&[Key::Char('?')]);
-    let (closed, _, tui) = opened("run-7", driven(false), &mut source, 2);
+    let (closed, _, tui) = opened("run-7", driven(None), &mut source, 2);
     assert_eq!((closed, tui.help, tui.ended), (Closed::Quit, true, false));
+}
+
+/// A drive that panicked closes its view at once: the panic hook has
+/// already left the terminal, so nothing more is drawn and no key is
+/// awaited, where a drive that returned holds its final frame for one.
+#[test]
+fn a_drive_that_unwound_closes_its_view_at_once() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let mut source = |_: Ask| Ok(Some(views()));
+    script(&[Key::Char('?')]);
+    let unwound = driven(Some(DriveEnd::Unwound));
+    let (closed, frame, tui) = opened("run-7", unwound, &mut source, 4);
+    assert_eq!((closed, tui.ended, tui.help), (Closed::Ended, true, false));
+    let blank = TestBackend::new(160, 48);
+    assert_eq!(frame.buffer(), blank.buffer(), "nothing was drawn");
+    assert_eq!(SCRIPT.lock().unwrap().len(), 1, "no key was awaited");
 }
 
 /// `brokkr watch`'s view ends when the run's own fleet row folds to a

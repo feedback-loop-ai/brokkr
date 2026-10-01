@@ -107,13 +107,23 @@ pub(crate) enum Watched {
     /// `brokkr tui`: nothing, and only a key ends it.
     Console,
     /// `brokkr run` and `resume`: the engine driving the run in the same
-    /// process raises the flag once its drive has returned, and Ctrl+C
-    /// stops the run as it does without the view.
+    /// process sets how its drive ended once it has returned or unwound,
+    /// and Ctrl+C stops the run as it does without the view.
     // Spelled out: the graph's own `Arc` is the road back.
-    Driven(std::sync::Arc<AtomicBool>),
+    Driven(std::sync::Arc<std::sync::OnceLock<DriveEnd>>),
     /// `brokkr watch`: the run named, which has ended once its journal
     /// folds to a status other than running, as watch's frames end then.
     Journal(String),
+}
+
+/// How the drive beside a run view ended (#508).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum DriveEnd {
+    /// The drive returned: the view holds its final frame until a key.
+    Returned,
+    /// The drive panicked: the panic hook has already left the terminal,
+    /// so the view closes at once and draws nothing more.
+    Unwound,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]

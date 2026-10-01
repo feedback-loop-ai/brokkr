@@ -43,7 +43,6 @@
 
 use std::collections::BTreeSet;
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -180,7 +179,7 @@ use self::terminal::*;
 // source builds, the draw path the budget frame measures, and the entry.
 pub(crate) use self::panes::draw;
 pub use self::participant::transcript_surfaces_for_test;
-pub(crate) use self::state::{Ask, Refreshed, Subject, Tui, Views, Watched};
+pub(crate) use self::state::{Ask, DriveEnd, Refreshed, Subject, Tui, Views, Watched};
 pub(crate) use self::terminal::{production_ops, start, Closed, Session};
 
 #[cfg(test)]

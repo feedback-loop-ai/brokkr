@@ -12,15 +12,14 @@
 use std::io::{IsTerminal, Write};
 use std::path::Path;
 use std::process::ExitCode;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use anyhow::Result;
 use brokkr_core::fold::fold;
 use brokkr_runtime::realms::Hearth;
 use brokkr_runtime::Engine;
 
-use crate::tui::{self, Closed, Watched};
+use crate::tui::{self, Closed, DriveEnd, Watched};
 use crate::{drive_to_end, open_journal, render, tui_source, Access, Exit};
 
 /// Whether a verb opens the run view: on a terminal, its stdin and its
@@ -141,25 +140,31 @@ pub(crate) fn drive(
 }
 
 /// The drive's end, told to its view when the drive returns and when it
-/// unwinds alike: a drive that panicked has ended too, and a view left
-/// waiting on it would hold the scope's join, and the process, open.
-struct Ends<'a>(&'a AtomicBool);
+/// unwinds, and which of the two: a drive that panicked has ended too,
+/// and a view left waiting on a key would hold the scope's join, and the
+/// process, open on a terminal the panic hook has already left.
+struct Ends<'a>(&'a OnceLock<DriveEnd>);
 
 impl Drop for Ends<'_> {
     fn drop(&mut self) {
-        self.0.store(true, Ordering::SeqCst);
+        let end = match std::thread::panicking() {
+            true => DriveEnd::Unwound,
+            false => DriveEnd::Returned,
+        };
+        // Set once, here: this guard is the only writer.
+        let _ = self.0.set(end);
     }
 }
 
-/// `drive` on this thread and `view` on its own, the view told through
-/// the flag once the drive has returned or unwound. What the drive
-/// returned comes back once the view has closed, so a view holding the
-/// final frame holds the summary until its key.
-fn beside<T>(drive: impl FnOnce() -> T, view: impl FnOnce(Arc<AtomicBool>) + Send) -> T {
-    let ended = Arc::new(AtomicBool::new(false));
-    let flag = Arc::clone(&ended);
+/// `drive` on this thread and `view` on its own, the view told how the
+/// drive ended once it has returned or unwound. What the drive returned
+/// comes back once the view has closed, so a view holding the final
+/// frame holds the summary until its key.
+fn beside<T>(drive: impl FnOnce() -> T, view: impl FnOnce(Arc<OnceLock<DriveEnd>>) + Send) -> T {
+    let ended = Arc::new(OnceLock::new());
+    let told = Arc::clone(&ended);
     std::thread::scope(|scope| {
-        let viewing = scope.spawn(move || view(flag));
+        let viewing = scope.spawn(move || view(told));
         let end = {
             let _ends = Ends(&ended);
             drive()
@@ -188,7 +193,7 @@ fn said(
             "the view closed; run {run} keeps driving here. Open it again with: \
              brokkr tui --run {run}"
         ),
-        Ok(Closed::Interrupted) => match interrupt() {
+        Ok(Closed::Interrupted) => match told(out, run, interrupt) {
             Ok(()) => return,
             Err(error) => format!(
                 "Ctrl+C could not stop run {run} ({error}); it keeps driving here. \
@@ -199,6 +204,21 @@ fn said(
     };
     // Stderr closed under a detached run has no reader to tell.
     let _ = writeln!(out, "{line}");
+}
+
+/// Ctrl+C said on `out`, then raised. Said first: the engine's handler
+/// exits the process, and a process that ignores SIGINT (`trap '' INT`)
+/// keeps the run driving, which the line already names.
+fn told(
+    out: &mut dyn Write,
+    run: &str,
+    interrupt: fn() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let _ = writeln!(
+        out,
+        "Ctrl+C: run {run} stops here as SIGINT stops it, unless this process ignores SIGINT"
+    );
+    interrupt()
 }
 
 /// `brokkr watch` on a terminal: the run view, watching the run's own
