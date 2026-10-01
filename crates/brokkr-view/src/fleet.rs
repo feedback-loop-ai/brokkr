@@ -244,7 +244,7 @@ impl Need {
     pub fn prompt(&self) -> Option<String> {
         match self {
             Need::Parked => None,
-            Need::Quarantined => Some("quarantined: conclude or inspect".to_string()),
+            Need::Quarantined => Some("quarantined: export and inspect".to_string()),
             Need::Stale { silent } => Some(format!(
                 "stale: no event since {silent}; resume or conclude"
             )),
@@ -256,25 +256,24 @@ impl Need {
     /// run still folds to running, and the fold admits `operator retry`
     /// only on a parked run, so a stale run is answered by `resume`, which
     /// drives it again under its pinned bundle, or by `conclude`, which
-    /// closes a run believed dead.
+    /// closes a run believed dead. A quarantined run's journal does not
+    /// load or does not fold, and `conclude` folds it before it appends,
+    /// so it refuses one: `export` writes that journal as it stands.
     pub fn commands(&self, run_id: &str) -> Vec<String> {
         match self {
             Need::Parked => Vec::new(),
-            Need::Quarantined => vec![conclude(run_id), export(run_id)],
+            Need::Quarantined => vec![export(run_id)],
             Need::Stale { .. } => vec![resume(run_id), conclude(run_id)],
         }
     }
 
     /// The detail's lines for run `run_id`: why it needs the operator and
-    /// the [`Need::commands`] that answer it. `conclude` folds the journal
-    /// it closes, so it is named for a quarantined run only where that
-    /// journal folds; `export` writes it for reading wherever it does not.
+    /// the [`Need::commands`] that answer it.
     pub fn way_out(&self, run_id: &str) -> Vec<String> {
         match self {
             Need::Parked => Vec::new(),
             Need::Quarantined => vec![
-                format!("way out   {}", conclude(run_id)),
-                format!("          where its journal folds; or {}", export(run_id)),
+                format!("way out   {}", export(run_id)),
                 "          and inspect the journal it writes".to_string(),
             ],
             Need::Stale { silent } => vec![

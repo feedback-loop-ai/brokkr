@@ -449,6 +449,36 @@ fn d_and_f_each_toggle_their_column_and_what_shows_shares_the_whole_frame() {
     assert_eq!((run.toggles, run.commission), (Toggles::default(), false));
 }
 
+/// On the operator's terminal, under every pair of toggles, no column
+/// leaves more than a quarter of its width empty on a run with long
+/// notes: its text reaches past three quarters of its interior.
+#[test]
+fn no_column_leaves_a_quarter_of_its_width_empty() {
+    let views = fleet_reading(held_view());
+    let (width, height) = OPERATOR;
+    for (dashboard, live) in [(true, true), (true, false), (false, true), (false, false)] {
+        let mut tui = selecting(HELD);
+        tui.toggles = Toggles { dashboard, live };
+        let terminal = drawn(&tui, &views, width, height);
+        let buffer = terminal.backend().buffer();
+        let mut left = 0;
+        for (column, drawn) in fleet_columns(&tui, &views) {
+            let body = (1..height).filter(|&y| buffer[(left, y)].symbol() == "│");
+            let cells = body.flat_map(|y| (left + 1..left + drawn - 1).map(move |x| (x, y)));
+            let reach = cells
+                .filter(|&at| buffer[at].symbol() != " ")
+                .map(|(x, _)| x - left);
+            let reach = reach.max().unwrap_or(0);
+            let inside = drawn - 2;
+            assert!(
+                4 * reach >= 3 * inside,
+                "{column:?} with d {dashboard} f {live}: {reach} of {inside}"
+            );
+            left += drawn;
+        }
+    }
+}
+
 /// At every width from the TUI's minimum, under every pair of toggles,
 /// the columns drawn fill the frame exactly, the list beside another is
 /// never narrower than a whole title, and each other column is drawn at
@@ -907,14 +937,24 @@ fn fall_silent(views: &mut Views, run: &str) {
 
 /// A run its fold calls running, with a seat still in flight, that
 /// `need` calls stale has nothing at work: the third column shows what
-/// its seats left, never that seat's old checkpoints as live, and the
-/// footer calls it so (#503 item 3).
+/// its seats left, never that seat's old checkpoints as live, the
+/// dashboard names no seat at work, and the footer calls it so (#503
+/// item 3).
 #[test]
 fn a_stale_run_with_a_seat_in_flight_is_never_streamed_as_live() {
     let mut views = fleet_reading(reviewing_view());
     let tui = selecting(REVIEWING);
     assert!(footer_for(&tui, &views).contains("· f hide live ·"));
     fall_silent(&mut views, REVIEWING);
+    let dashboard = dashboard_text(&tui, &views, REVIEWING);
+    let needs = [
+        "verdict   — · residual none",
+        "rule      IMPL-OK · normal · implement → review",
+        "seat      reviewer · failed · result —",
+        "notes",
+        "the attempt timed out",
+    ];
+    assert_eq!(under(&dashboard, "WHAT IT NEEDS"), needs, "{dashboard:#?}");
     let (title, lines) = live_text(&views, REVIEWING, 111);
     let left = ["reviewer · failed · result —", "", "the attempt timed out"];
     assert_eq!(

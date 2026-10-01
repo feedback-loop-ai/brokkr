@@ -148,7 +148,7 @@ fn the_fleet_by_who_must_act_is_pinned() {
 /// #503 on the operator's terminal: the frame `brokkr tui` opens on with
 /// no key pressed, the first run that needs the operator selected — at
 /// 330x60 and 420x110 its dashboard and live column beside the list, at
-/// 220x50 its dashboard alone, the age and id beside the titles; and a
+/// 220x50 its dashboard alone, the age and id at the list's edge; and a
 /// running run opened in place.
 #[test]
 fn the_fleet_on_the_operators_terminal_is_pinned() {

@@ -306,8 +306,10 @@ fn a_row_prints_its_title_and_an_id_whose_hash_is_whole() {
     let title =
         "#403 macOS fix, round 9: PR #483's test (macos-latest) job fails four protocol tests";
     assert!(frame.contains(title), "{frame}");
-    // The age stands beside the widest title, not at the frame's edge.
-    assert!(frame.contains(&format!("{title} 7m03s")), "{frame}");
+    // The title column takes what the other cells leave, so the age and
+    // the id stand at the list's right edge and it leaves no width empty.
+    let row = frame.lines().find(|line| line.contains(title)).unwrap();
+    assert!(row.ends_with("7m03s   fix-4…3c1f9a02│"), "{row}");
     for past in ["symlink", "second line", "What was asked"] {
         assert!(!frame.contains(past), "{past} is past a title:\n{frame}");
     }
@@ -729,7 +731,7 @@ fn every_way_out_names_a_command_brokkr_parses_and_the_run_admits() {
             named.push(need.label());
         }
     }
-    assert_eq!(named, ["stale", "stale", "quarantined", "quarantined"]);
+    assert_eq!(named, ["stale", "stale", "quarantined"]);
 }
 
 /// The status a run standing so folds to; a quarantined one folds to none.
@@ -745,9 +747,10 @@ fn folds_to(standing: Standing) -> Option<Status> {
 
 /// Whether the engine admits `command` on a run whose journal folds to
 /// `status`, by its own rules: `operator` by the fold's acceptance,
-/// `resume` drives a run that runs or waits, `conclude` refuses only one
-/// already ended (a quarantined run's way out names it where its journal
-/// folds), and `export` reads any journal as written.
+/// `resume` drives a run that runs or waits, `conclude` folds the journal
+/// before it appends, so it refuses one that does not fold
+/// (`a_broken_chain_refuses_the_whole_conclusion`) and one already
+/// ended, and `export` reads any journal as written.
 fn admits(status: Option<Status>, command: &crate::Cmd) -> bool {
     use brokkr_core::fold::{acceptance_refusal, OperatorCommand};
     match command {
@@ -756,7 +759,9 @@ fn admits(status: Option<Status>, command: &crate::Cmd) -> bool {
             _ => false,
         },
         crate::Cmd::Resume(_) => matches!(status, Some(Status::Running | Status::AwaitingOperator)),
-        crate::Cmd::Conclude(_) => !matches!(status, Some(Status::Completed | Status::Stopped)),
+        crate::Cmd::Conclude(_) => {
+            status.is_some_and(|status| !matches!(status, Status::Completed | Status::Stopped))
+        }
         crate::Cmd::Export(_) => true,
         _ => panic!("a way out names a verb this test does not know"),
     }
@@ -799,11 +804,11 @@ fn the_filter_finds_a_word_painted_past_the_sixtieth_column() {
 /// Item 4: a quarantined run's row says what to do, and its detail
 /// names the fold's refusal and the operator's way out.
 #[test]
-fn a_quarantined_run_says_conclude_or_inspect_and_how() {
+fn a_quarantined_run_says_export_and_inspect_and_how() {
     let views = fleet_to_act_on();
     let lines = lines_of(drawn(&Tui::new(None), &views, 160, 48).backend().buffer());
     let row = row_of(&lines, "journ…7f8e9d0c");
-    let prompt = "quarantined: conclude or inspect";
+    let prompt = "quarantined: export and inspect";
     assert!(lines[row + 1].contains(prompt), "{}", lines[row + 1]);
     let broken = views.runs.runs.iter().find(|row| row.detail.is_some());
     let detail = dashboard_of(&views, broken.unwrap());
@@ -814,8 +819,7 @@ fn a_quarantined_run_says_conclude_or_inspect_and_how() {
     );
     let run = "journal-that-broke-7f8e9d0c";
     let wanted = [
-        format!("way out   brokkr conclude --run {run} --reason <why>"),
-        format!("          where its journal folds; or brokkr export --run {run}"),
+        format!("way out   brokkr export --run {run}"),
         "          and inspect the journal it writes".to_string(),
     ];
     assert_eq!(under(&detail, "WAY OUT"), wanted, "{detail:#?}");

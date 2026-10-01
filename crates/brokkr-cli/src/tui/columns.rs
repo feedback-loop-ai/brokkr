@@ -327,7 +327,10 @@ fn ending_texts(
     if let Some(reason) = reason.or(verdict.reason.as_ref()) {
         texts.push((format!("reason    {reason}"), plain()));
     }
-    let facts = [("journal", row.detail.clone()), ("at work", hired(row))];
+    let facts = [
+        ("journal", row.detail.clone()),
+        ("at work", hired(row, need)),
+    ];
     for (label, fact) in facts {
         texts.extend(fact.map(|fact| (format!("{label:<9} {fact}"), plain())));
     }
@@ -356,8 +359,13 @@ fn rule_line(verdict: &brokkr_view::Verdict, decision: Option<&brokkr_view::Deci
 }
 
 /// The seat at work on a running run and its attempt, as the fold names it.
-fn hired(row: &RunRow) -> Option<String> {
-    let hire = row.hire.as_ref()?;
+/// A run `need` calls stale has nothing driving it, so none is at work
+/// (#503 item 3), whatever effect its fold still holds in flight.
+fn hired(row: &RunRow, need: Option<&Need>) -> Option<String> {
+    let hire = match need {
+        Some(Need::Stale { .. }) => None,
+        Some(Need::Parked | Need::Quarantined) | None => row.hire.as_ref(),
+    }?;
     Some(format!("seat {} · attempt {}", hire.seat, hire.attempt))
 }
 

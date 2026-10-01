@@ -32,8 +32,9 @@ on, so this file names them.
    an emoji sequence at two columns, so it clamps its sanitized title again
    by the same function and paints what it measured. A list with no detail
    pane beside it gives its titles the width it has (`title_within`), and
-   its title column is no wider than its widest line, so the age and the id
-   stand beside the titles (#503).
+   its title column takes what the other cells leave, so the age and the
+   id stand at the list's right edge and no column leaves more than a
+   quarter of its width empty (#503).
 3. **Stale is a need, by a stated bound (#503).** A run whose journal folds
    to running and has not moved for longer than three hours is *stale*: it
    is listed under *needs you*, never as running, and the brand mark does
@@ -43,13 +44,15 @@ on, so this file names them.
    measured from the run's last event. A clock or a last event whose time
    does not read never makes a run stale. `need(row, now)` derives what a
    run in *needs you* asks — parked, quarantined or stale — with the line a
-   row prints under its title (`quarantined: conclude or inspect`, `stale:
+   row prints under its title (`quarantined: export and inspect`, `stale:
    no event since <age>; resume or conclude`) and the detail's way out:
-   `brokkr conclude` where the journal folds, or `brokkr export` and
-   inspect, for a quarantined run; `brokkr resume` under the run's pinned
-   bundle, or `brokkr conclude`, for a stale one. A stale run still folds
-   to running, and the fold admits `brokkr operator retry` only on a parked
-   run, so the way out does not name it, though #503 asked for it. A test
+   `brokkr export` and inspect for a quarantined run, whose journal does
+   not load or fold, so `brokkr conclude`, which folds it first, refuses
+   it; `brokkr resume` under the run's pinned bundle, or `brokkr
+   conclude`, for a stale one. A stale run's dashboard names no seat at
+   work, whatever effect its fold still holds in flight. A stale run still
+   folds to running, and the fold admits `brokkr operator retry` only on a
+   parked run, so the way out does not name it, though #503 asked for it. A test
    parses every command a way out names with the CLI's own parser and
    checks the engine admits it on a run standing as that one does.
 4. **The verdict is two cells.** A row names the ruling that shipped, stopped

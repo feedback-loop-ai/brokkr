@@ -166,9 +166,9 @@ pub(super) fn short_id(id: &str) -> String {
 /// a run, each run by its title and never by its feature, the older runs
 /// it has room for, and one line under the list saying how many more `a`
 /// would show. Every cell is a model field; the cursor's row is kept in
-/// view however long the list. The title column is as wide as the widest
-/// line it draws, up to what the list leaves it, so the age and the id
-/// stand beside the titles however wide the frame.
+/// view however long the list. The title column takes what the other
+/// cells leave it, so the age and the id stand at the list's right edge
+/// and no width of the list is left empty beyond them.
 fn draw_fleet(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views) {
     let block = pane("runs", focused(tui, views) == FleetColumn::List);
     let inner = block.inner(area);
@@ -190,13 +190,7 @@ fn draw_fleet(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views) {
             listed.push((section, members));
         }
     }
-    let mut widths = fleet_widths(area.width);
-    let drawn = listed.iter().flat_map(|(_, members)| members);
-    let widest = drawn
-        .flat_map(|(_, lines)| lines)
-        .map(|text| width_of(text));
-    let widest = u16::try_from(widest.max().unwrap_or(0)).unwrap_or(u16::MAX);
-    widths[3] = widest.clamp(TITLE_MIN_COLUMNS, widths[3].max(TITLE_MIN_COLUMNS));
+    let widths = fleet_widths(area.width);
     let columns = usize::from(widths[3]);
     let mut rows: Vec<Row> = Vec::new();
     let mut selected = None;

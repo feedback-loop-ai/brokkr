@@ -533,7 +533,7 @@ fn each_need_says_what_the_operator_can_do() {
     assert_eq!(Need::Parked.prompt(), None);
     assert_eq!(
         Need::Quarantined.prompt().as_deref(),
-        Some("quarantined: conclude or inspect")
+        Some("quarantined: export and inspect")
     );
     assert_eq!(
         stale.prompt().as_deref(),
@@ -541,13 +541,7 @@ fn each_need_says_what_the_operator_can_do() {
     );
     assert_eq!(Need::Parked.way_out("r1"), Vec::<String>::new());
     assert_eq!(Need::Parked.commands("r1"), Vec::<String>::new());
-    assert_eq!(
-        Need::Quarantined.commands("r1"),
-        [
-            "brokkr conclude --run r1 --reason <why>",
-            "brokkr export --run r1",
-        ]
-    );
+    assert_eq!(Need::Quarantined.commands("r1"), ["brokkr export --run r1"]);
     assert_eq!(
         stale.commands("r1"),
         [
@@ -558,8 +552,7 @@ fn each_need_says_what_the_operator_can_do() {
     assert_eq!(
         Need::Quarantined.way_out("r1"),
         [
-            "way out   brokkr conclude --run r1 --reason <why>",
-            "          where its journal folds; or brokkr export --run r1",
+            "way out   brokkr export --run r1",
             "          and inspect the journal it writes",
         ]
     );
