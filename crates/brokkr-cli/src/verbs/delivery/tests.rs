@@ -7,6 +7,7 @@ use brokkr_store::StoreError;
 
 use super::{rerun, resume, run};
 use crate::cli_args::{DeliveryArgs, JournalArgs, RerunArgs, ResumeArgs, RunArgs};
+use crate::run_view::PRODUCTION;
 use crate::selector::{refusal_kind, Refusal};
 use crate::{contention, failure_line, report, Exit};
 
@@ -53,7 +54,9 @@ fn a_missing_recipe_never_masks_the_refusal_each_verb_met_first() {
             db: Some(db.clone()),
             repo: None,
             dispatch: Some(ws.join("d.json")),
+            no_view: true,
         },
+        &PRODUCTION,
     );
     assert_eq!(
         line(dispatched),
@@ -81,7 +84,9 @@ fn a_missing_recipe_never_masks_the_refusal_each_verb_met_first() {
             run: "absent".into(),
             journal: journal(),
             repo: None,
+            no_view: true,
         },
+        &PRODUCTION,
     );
     assert_eq!(selected(resumed), absent());
 }

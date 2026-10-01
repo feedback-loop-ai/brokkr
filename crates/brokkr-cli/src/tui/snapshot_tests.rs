@@ -18,7 +18,8 @@
 //! `INSTA_UPDATE=always`, read in its `.snap` file, and committed.
 
 use super::columns_tests::{
-    fleet_reading, held_view, reviewing_view, selecting, shipped_view, OPERATOR, REVIEWING, SHIPPED,
+    fleet_reading, held_view, returned_view, reviewing_view, selecting, shipped_view, OPERATOR,
+    REVIEWING, SHIPPED,
 };
 use super::fleet_tests::{fleet_to_act_on, fleet_with_a_dead_run, opened_on, HELD};
 use super::tests::{
@@ -42,7 +43,7 @@ const WIDE: (u16, u16) = (320, 80);
 /// The snapshot directory by the crate's own root and the bare names,
 /// so the split of #288 moving this file or its module path renames no
 /// snapshot.
-fn settings() -> insta::Settings {
+pub(super) fn settings() -> insta::Settings {
     let mut settings = insta::Settings::clone_current();
     settings.set_snapshot_path(concat!(env!("CARGO_MANIFEST_DIR"), "/src/tui/snapshots"));
     settings.set_prepend_module_to_snapshot(false);
@@ -187,11 +188,17 @@ fn the_fleet_in_three_columns_is_pinned() {
         let name = format!("fleet_{way}_{width}x{height}");
         settings().bind(|| insta::assert_snapshot!(name, frame));
     }
-    let thirds = [
+    selected_and_pinned([
         ("fleet_live", REVIEWING, reviewing_view()),
         ("fleet_findings", SHIPPED, shipped_view()),
-    ];
-    for (name, run, view) in thirds {
+    ]);
+}
+
+/// Each `(name, run, view)` pinned at the operator's terminal: the fleet
+/// with `run` selected and `view` as the shell's read of it.
+fn selected_and_pinned<const N: usize>(pins: [(&str, &str, RunView); N]) {
+    let (width, height) = OPERATOR;
+    for (name, run, view) in pins {
         let views = fleet_reading(view);
         let frame = drawn(&selecting(run), &views, width, height);
         let (name, frame) = (
@@ -200,6 +207,17 @@ fn the_fleet_in_three_columns_is_pinned() {
         );
         settings().bind(|| insta::assert_snapshot!(name, frame));
     }
+}
+
+/// #508 on the operator's terminal: the dashboard draws the run's graph
+/// in place of its path and seats — a running run's current phase boxed,
+/// and a finished run's road back drawn as the loop-back arrow.
+#[test]
+fn the_dashboards_graph_is_pinned() {
+    selected_and_pinned([
+        ("fleet_graph_running", REVIEWING, reviewing_view()),
+        ("fleet_graph_returned", SHIPPED, returned_view()),
+    ]);
 }
 
 // ------------------------------------------------------- the run level

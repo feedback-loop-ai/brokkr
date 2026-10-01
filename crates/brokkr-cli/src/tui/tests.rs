@@ -2,6 +2,7 @@
 //! terminal, the draw path runs through `TestBackend` into a buffer, and
 //! the shell runs over injected key and refresh sources.
 
+use super::view_tests::console;
 use super::*;
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use brokkr_core::fold::{Cursor, RunState, Status};
@@ -1135,7 +1136,7 @@ fn every_startup_refusal_names_both_of_the_other_readouts() {
 /// `set_hook`/`take_hook` and the recorders below are process-global, so every
 /// test that touches them takes this first; hook counters are per panicking thread.
 pub(super) static TERMINAL: Mutex<()> = Mutex::new(());
-static SCRIPT: Mutex<Vec<Event>> = Mutex::new(Vec::new());
+pub(super) static SCRIPT: Mutex<Vec<Event>> = Mutex::new(Vec::new());
 static ENTERED: AtomicUsize = AtomicUsize::new(0);
 static LEFT: AtomicUsize = AtomicUsize::new(0);
 thread_local!(static RESTORED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
@@ -1243,21 +1244,8 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
     let left = LEFT.load(Ordering::SeqCst);
     script(&[Key::Quit]);
     let mut source = |_: Ask| Ok(Some(views()));
-    let code = start(
-        true,
-        None,
-        Vec::new(),
-        0,
-        test_ops(),
-        true,
-        false,
-        TestBackend::new(100, 30),
-        Vec::new(),
-        &mut source,
-        8,
-    )
-    .unwrap();
-    assert_eq!(code, ExitCode::SUCCESS);
+    let code = start(console(true, test_ops(), Vec::new(), &mut source, 8)).unwrap();
+    assert_eq!(code, Closed::Quit);
     assert_eq!(ENTERED.load(Ordering::SeqCst), entered + 1);
     assert_eq!(
         LEFT.load(Ordering::SeqCst),
@@ -1269,20 +1257,7 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
     // still restores BEFORE the Err reaches the caller.
     let left = LEFT.load(Ordering::SeqCst);
     let mut source = |_: Ask| Ok(Some(views()));
-    let error = start(
-        true,
-        None,
-        Vec::new(),
-        0,
-        test_ops(),
-        true,
-        false,
-        TestBackend::new(100, 30),
-        ClosedPipe,
-        &mut source,
-        4,
-    )
-    .unwrap_err();
+    let error = start(console(true, test_ops(), ClosedPipe, &mut source, 4)).unwrap_err();
     assert!(error.to_string().contains("closed pipe"), "{error}");
     assert_eq!(
         LEFT.load(Ordering::SeqCst),
@@ -1294,38 +1269,12 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
     let mut ops = test_ops();
     ops.enter_raw = refuse_raw_mode;
     let mut source = |_: Ask| Ok(Some(views()));
-    let error = start(
-        true,
-        None,
-        Vec::new(),
-        0,
-        ops,
-        true,
-        false,
-        TestBackend::new(100, 30),
-        Vec::new(),
-        &mut source,
-        4,
-    )
-    .unwrap_err();
+    let error = start(console(true, ops, Vec::new(), &mut source, 4)).unwrap_err();
     assert!(error.to_string().contains("refuses raw mode"), "{error}");
 
     // And the startup refusal precedes every one of those effects.
     let mut source = |_: Ask| Ok(Some(views()));
-    let refused = start(
-        false,
-        None,
-        Vec::new(),
-        0,
-        test_ops(),
-        true,
-        false,
-        TestBackend::new(100, 30),
-        Vec::new(),
-        &mut source,
-        4,
-    )
-    .unwrap_err();
+    let refused = start(console(false, test_ops(), Vec::new(), &mut source, 4)).unwrap_err();
     assert!(refused.to_string().contains("brokkr watch"), "{refused}");
 
     std::panic::set_hook(saved);
@@ -1391,7 +1340,7 @@ fn the_shell_redraws_keeps_keys_live_through_a_bad_journal_and_gives_up_at_last(
     };
     let mut tui = Tui::new(None);
     let code = drive(&mut terminal, &test_ops(), &mut source, &mut tui, 9).unwrap();
-    assert_eq!(code, ExitCode::SUCCESS);
+    assert_eq!(code, Closed::Quit);
     assert_eq!(tui.cursor[0].as_deref(), Some("run-7")); // the key left the first row (#503)
     assert_eq!(
         forced,
@@ -1406,7 +1355,7 @@ fn the_shell_redraws_keeps_keys_live_through_a_bad_journal_and_gives_up_at_last(
     let mut source = |_: Ask| Err(anyhow::anyhow!("database is locked"));
     let mut tui = Tui::new(None);
     let code = drive(&mut terminal, &test_ops(), &mut source, &mut tui, 2).unwrap();
-    assert_eq!(code, ExitCode::SUCCESS, "q was handled while unreadable");
+    assert_eq!(code, Closed::Quit, "q was handled while unreadable");
     assert!(tui
         .status
         .as_deref()
@@ -2811,7 +2760,7 @@ fn the_tui_source_names_no_store_no_runtime_and_no_unsanitized_widget() {
             "tui.rs must not name {forbidden}: the console is read-only"
         );
     }
-    // The TUI returns an ExitCode like every other arm: a
+    // The TUI returns how it closed like every other arm: a
     // `process::exit` would run past the guard's Drop and leave the
     // operator's terminal in raw mode.
     assert!(!SOURCE.contains("process::exit"));
@@ -2954,7 +2903,7 @@ fn a_whole_tui_session_writes_nothing_at_all() {
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
     let mut tui = Tui::new(None);
     let code = drive(&mut terminal, &test_ops(), &mut source, &mut tui, 40).unwrap();
-    assert_eq!(code, ExitCode::SUCCESS);
+    assert_eq!(code, Closed::Quit);
 
     assert_eq!(
         Store::open(&db)

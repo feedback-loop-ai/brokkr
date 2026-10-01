@@ -54,6 +54,7 @@ fn resume_resolves_latest() {
         run: "latest".into(),
         journal: at(&empty_journal(dir.path())),
         repo: None,
+        no_view: true,
     });
     assert_eq!(refusal(resume), Some(Refusal::Empty));
 }

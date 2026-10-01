@@ -212,6 +212,10 @@ pub(super) struct RunArgs {
     /// bounds are pinned into an immutable run-manifest/v2.
     #[arg(long)]
     pub(super) dispatch: Option<PathBuf>,
+    /// On a terminal, print the plain lines and the summary instead of
+    /// opening the run view. Off a terminal they always print.
+    #[arg(long)]
+    pub(super) no_view: bool,
 }
 
 #[derive(clap::Args)]
@@ -229,6 +233,10 @@ pub(super) struct ResumeArgs {
     /// directory.
     #[arg(long)]
     pub(super) repo: Option<PathBuf>,
+    /// On a terminal, print the plain lines and the summary instead of
+    /// opening the run view. Off a terminal they always print.
+    #[arg(long)]
+    pub(super) no_view: bool,
 }
 
 #[derive(clap::Args)]
@@ -397,6 +405,10 @@ pub(super) struct WatchArgs {
     /// Poll interval in milliseconds (floored at 100).
     #[arg(long = "interval", default_value_t = 750)]
     pub(super) interval_ms: u64,
+    /// On a terminal, redraw the text frames instead of opening the run
+    /// view. Off a terminal, and with `--once`, they always print.
+    #[arg(long)]
+    pub(super) no_view: bool,
 }
 
 #[derive(clap::Args)]

@@ -474,8 +474,9 @@ fn tab_focuses_the_detail_pane_which_scrolls_and_enter_still_opens_the_run() {
     assert!(!frame.contains(&format!("││{HELD}  ")), "{frame}");
     assert_eq!(frame.matches("#362 cargo exemption").count(), 2, "{frame}");
     apply(&mut tui, &views, Key::Char('G'));
-    // Twenty-two lines of the run's, and its commission folded to four.
-    assert_eq!(tui.offset, 25, "the last line drawn");
+    // Nineteen lines of the run's, its graph unread (#508), and its
+    // commission folded to four.
+    assert_eq!(tui.offset, 22, "the last line drawn");
     tui.width = DASHBOARD_FROM - 1;
     assert!(
         footer_for(&tui, &views).starts_with("↑↓/jk move"),
@@ -581,10 +582,10 @@ fn the_detail_pane_scrolls_a_one_paragraph_feature_to_its_last_line() {
     let frame = frame_of(&tui, &views, DASHBOARD_FROM, 30);
     assert!(!frame.contains("the last words"), "{frame}");
     apply(&mut tui, &views, Key::Char('G'));
-    // Nineteen lines of the run's, the 44 its commission draws, and the
-    // key that folds it.
+    // Sixteen lines of the run's, its graph unread (#508), the 44 its
+    // commission draws, and the key that folds it.
     assert_eq!(
-        tui.offset, 63,
+        tui.offset, 60,
         "the run's lines, then the commission's drawn"
     );
     apply(&mut tui, &views, Key::Char('k'));

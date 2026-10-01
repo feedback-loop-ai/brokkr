@@ -25,6 +25,7 @@ mod muninn;
 mod realms;
 mod recipes;
 mod render;
+mod run_view;
 mod selector;
 mod tui;
 mod ui;
@@ -38,14 +39,13 @@ pub use crate::{budget_frame::run_frame_for_budget, tui::transcript_surfaces_for
 #[doc(hidden)]
 pub use ui::{handle, read_local, Response};
 
-use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
 use brokkr_core::fold::{fold, RunState, Status};
 use brokkr_runtime::realms::{Hearth, World, WorldError};
-use brokkr_runtime::Bundle;
+use brokkr_runtime::{Bundle, DriveEnd, EngineError};
 use brokkr_store::Store;
 use brokkr_view::transcript::{LegacyProvenance, TranscriptRead, Unavailable};
 use clap::{ArgGroup, Parser, Subcommand};
@@ -494,10 +494,14 @@ fn summarize(state: &RunState) -> Value {
 /// Drive a started run to its ending. The start first reaps the scratch
 /// trees of hands servers whose owners died and says each on stderr,
 /// journaling nothing (#415). Then the conclusion's anchor and keep-ref
-/// gaps on stderr, and the summary `finish` prints.
-fn drive_to_end(engine: &mut brokkr_runtime::Engine) -> Result<ExitCode> {
+/// gaps on stderr, and the summary `finish` prints. `drive` drives it:
+/// alone, or beside the run view (#508).
+fn drive_to_end(
+    engine: &mut brokkr_runtime::Engine,
+    drive: impl FnOnce(&mut brokkr_runtime::Engine) -> Result<DriveEnd, EngineError>,
+) -> Result<ExitCode> {
     eprint!("{}", brokkr_protocol::hands::reap_dead_sessions());
-    let end = engine.drive()?;
+    let end = drive(engine)?;
     for gap in &end.gaps {
         eprintln!("{gap}");
     }
@@ -1302,36 +1306,10 @@ fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)
     }
 }
 
-/// `brokkr tui`'s impure entry: the environment facts are read once here
-/// and everything else is injected. The refusals live inside
-/// `tui::start`, and the source above opens a store only when it is
-/// called — which is after that gate.
+/// `brokkr tui`'s impure entry: the console, watching nothing but its
+/// keys, through the session every run view opens (#508).
 fn run_tui(hearths: Vec<Hearth>, run: Option<String>, tab: usize) -> Result<ExitCode> {
-    let mut heads: Vec<Option<(u64, String)>> = vec![None; hearths.len()];
-    let mut seen: Option<SourceStamp> = None;
-    let db_is_file = hearths.iter().any(|hearth| hearth.journal.is_file());
-    // A world with one hearth names no tabs, and the console draws none.
-    let tabs: Vec<String> = match hearths.len() {
-        0 | 1 => Vec::new(),
-        _ => hearths.iter().map(Hearth::label).collect(),
-    };
-    let mut source = tui_source(&hearths, &mut heads, &mut seen);
-    tui::start(
-        db_is_file,
-        run,
-        tabs,
-        tab,
-        tui::production_ops(),
-        std::io::stdout().is_terminal(),
-        // Animation is enabled exactly when colour is, through the same
-        // pure rule `brokkr runs` uses: NO_COLOR, TERM=dumb and a
-        // non-tty all yield a still graph. No new flag, no new env var.
-        render::Style::detect().color,
-        ratatui::backend::CrosstermBackend::new(std::io::stdout()),
-        std::io::stdout(),
-        &mut source,
-        usize::MAX,
-    )
+    run_view::console(hearths, run, tab, tui::Watched::Console).map(|_| Exit::Completed.into())
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
@@ -1899,8 +1877,8 @@ fn run_with(
         Cmd::Tui(args) => readouts::tui(workspace, args, run_tui),
         Cmd::Doctor(args) => setup::doctor(args),
         Cmd::Compile(args) => setup::compile(workspace, args),
-        Cmd::Run(args) => delivery::run(workspace, args),
-        Cmd::Resume(args) => delivery::resume(workspace, args),
+        Cmd::Run(args) => delivery::run(workspace, args, &run_view::PRODUCTION),
+        Cmd::Resume(args) => delivery::resume(workspace, args, &run_view::PRODUCTION),
         Cmd::Rerun(args) => delivery::rerun(workspace, args),
         Cmd::Conclude(args) => delivery::conclude(workspace, args),
         Cmd::Operator(args) => delivery::operator(workspace, args),
@@ -1914,7 +1892,12 @@ fn run_with(
             db,
         }) => transcript_command(workspace, realms, db, run, seat, turn, json),
         Cmd::Seats(args) => readouts::seats(workspace, args),
-        Cmd::Watch(args) => readouts::watch(workspace, args, watch_iteration_limit),
+        Cmd::Watch(args) => readouts::watch(
+            workspace,
+            args,
+            watch_iteration_limit,
+            &run_view::PRODUCTION,
+        ),
         Cmd::Replay(args) => readouts::replay(workspace, args),
         Cmd::Export(args) => exchange::export(workspace, args),
         Cmd::Import(args) => exchange::import(workspace, args),

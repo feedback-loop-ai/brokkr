@@ -32,8 +32,7 @@ pub mod transcript;
 
 use dashboard::dashboard;
 pub use dashboard::{
-    seat_summary, working_checkpoints, Concluded, Dashboard, Decision, Outcome, RuleSeverity,
-    Ruled, Visit,
+    working_checkpoints, Concluded, Dashboard, Decision, Outcome, RuleSeverity, Ruled, Visit,
 };
 pub use fleet::{
     at_work, fleet_rows, need, run_rows, sections, title, title_within, wrap, HearthEntries, Hire,

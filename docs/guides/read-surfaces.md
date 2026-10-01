@@ -418,6 +418,9 @@ fragment.
 
 The same readout, redrawn whenever the journal head moves, exiting when
 the run reaches a terminal status. Read-only, like every other readout.
+On a terminal, `brokkr watch`, `brokkr run` and `brokkr resume` open
+`brokkr tui`'s run view for the run instead (decision 0076 item 10);
+these frames are what a pipe, `--once` or `--no-view` prints.
 
 ```
 $ brokkr watch --run latest

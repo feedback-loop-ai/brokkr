@@ -210,8 +210,6 @@ pub brokkr_view::Dashboard::last_review: core::option::Option<brokkr_view::Concl
 pub brokkr_view::Dashboard::last_seat: core::option::Option<brokkr_view::Concluded>
 pub brokkr_view::Dashboard::path: alloc::vec::Vec<brokkr_view::Visit>
 pub brokkr_view::Dashboard::run_id: core::option::Option<alloc::string::String>
-impl brokkr_view::Dashboard
-pub fn brokkr_view::Dashboard::path_text(&self) -> alloc::string::String
 pub struct brokkr_view::Decision
 pub brokkr_view::Decision::from: core::option::Option<alloc::string::String>
 pub brokkr_view::Decision::next: core::option::Option<alloc::string::String>
@@ -444,7 +442,6 @@ pub fn brokkr_view::reported_cost(&serde_json::value::Value) -> core::option::Op
 pub fn brokkr_view::residual_findings(&str, &[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_view::ResidualFinding>
 pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>]) -> brokkr_view::RunsView
 pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView
-pub fn brokkr_view::seat_summary(&brokkr_view::Participant) -> alloc::string::String
 pub fn brokkr_view::sections<'a>(&'a [brokkr_view::RunRow], &str) -> alloc::vec::Vec<(brokkr_view::Section, alloc::vec::Vec<&'a brokkr_view::RunRow>)>
 pub fn brokkr_view::short_target(&str) -> alloc::string::String
 pub fn brokkr_view::status_str(&brokkr_core::fold::Status) -> &'static str

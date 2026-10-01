@@ -43,7 +43,7 @@
 
 use std::collections::BTreeSet;
 use std::io::Write;
-use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -166,12 +166,13 @@ use self::seats::*;
 use self::state::*;
 use self::style::*;
 // No sibling reads the frame's panes or the shell beyond the entries
-// re-exported below and a fleet row's title lines, which the list's
-// room for its older runs counts; the tests reach the rest through the
-// root.
+// re-exported below, a fleet row's title lines, which the list's room
+// for its older runs counts, and the graph's rows, which the dashboard
+// deals as the run level does (#508); the tests reach the rest through
+// the root.
 #[cfg(test)]
 use self::panes::*;
-use self::panes::{title_lines, tone_of};
+use self::panes::{graph_rows, title_lines, tone_of, GRAPH_SHARE_MAX};
 #[cfg(test)]
 use self::terminal::*;
 
@@ -179,8 +180,8 @@ use self::terminal::*;
 // source builds, the draw path the budget frame measures, and the entry.
 pub(crate) use self::panes::draw;
 pub use self::participant::transcript_surfaces_for_test;
-pub(crate) use self::state::{Ask, Refreshed, Subject, Tui, Views};
-pub(crate) use self::terminal::{production_ops, start};
+pub(crate) use self::state::{Ask, Refreshed, Subject, Tui, Views, Watched};
+pub(crate) use self::terminal::{production_ops, start, Closed, Session};
 
 #[cfg(test)]
 mod columns_tests;
@@ -196,3 +197,6 @@ mod source_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod view_tests;

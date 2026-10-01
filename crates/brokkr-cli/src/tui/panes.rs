@@ -394,14 +394,22 @@ pub(super) fn estate(
     lens: Option<&render::Lens>,
     height: usize,
 ) -> [Constraint; 3] {
-    let head = usize::from(!view.boundary.text.is_empty()) + view.notices.len();
-    let graph = (2 + head + rows_wanted(&view.phases)).min(height * GRAPH_SHARE_MAX / 100);
+    let graph = (2 + graph_rows(view)).min(height * GRAPH_SHARE_MAX / 100);
     let seats = (3 + seat_lines(view, lens)).min(height.saturating_sub(graph) / 2);
     [
         Constraint::Length(u16::try_from(graph).unwrap_or(u16::MAX)),
         Constraint::Length(u16::try_from(seats).unwrap_or(u16::MAX)),
         Constraint::Min(0),
     ]
+}
+
+/// The rows [`graph_lines`] draws for `view` in full, borders aside: the
+/// boundary line and the notices over it, and the drawing itself. The
+/// run level's graph pane and the fleet's dashboard (#508) both take
+/// these, each capped at [`GRAPH_SHARE_MAX`] of its own height.
+pub(super) fn graph_rows(view: &RunView) -> usize {
+    let head = usize::from(!view.boundary.text.is_empty()) + view.notices.len();
+    head + rows_wanted(&view.phases)
 }
 
 /// The lines the seats pane lists under its header: one per seat the

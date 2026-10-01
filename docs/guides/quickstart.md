@@ -307,11 +307,12 @@ run started: prefix-selectors-for-the-read-su-8bf6d692
 the working directory explicit in the command someone reads six months
 later.
 
-The run drives real agent sessions to completion in the foreground.
-Watch it from a second terminal:
+The run drives real agent sessions to completion in the foreground, and on
+a terminal it shows the TUI's run view while it does: `q` closes the view
+and leaves the run driving. Watch it from a second terminal too:
 
 ```
-brokkr watch --run latest     # the same readout, redrawn as the journal head moves
+brokkr watch --run latest     # the same run view, live; frames off a terminal
 brokkr tui                    # the fleet, navigable with the keyboard
 brokkr ui --port 8383 --open  # loopback-only browser console
 ```

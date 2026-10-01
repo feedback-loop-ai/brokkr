@@ -14,7 +14,7 @@ use serde_json::json;
 
 use crate::cli_args::{CompareArgs, CostsArgs, InspectArgs, LedgerArgs, RealmsArgs};
 use crate::cli_args::{ReplayArgs, RunsArgs, SeatsArgs, TuiArgs, UiArgs, WatchArgs};
-use crate::{compare, fleet, ledger, realms, render, selector};
+use crate::{compare, fleet, ledger, realms, render, run_view, selector};
 use crate::{hearths_of, journal_of, now_rfc3339, open_journal, resolve_in_hearths};
 use crate::{summarize, ui_journal, watch_loop, Access, Exit, Invocation};
 
@@ -157,7 +157,8 @@ pub(crate) fn seats(
 }
 
 /// `brokkr watch`: redraw a run live until it reaches a terminal status,
-/// or for `watch_iteration_limit` frames when a test bounds it.
+/// or for `watch_iteration_limit` frames when a test bounds it. On a
+/// terminal, and not `--once`, it is the run view instead (#508).
 pub(crate) fn watch(
     workspace: &Path,
     WatchArgs {
@@ -166,14 +167,20 @@ pub(crate) fn watch(
         db,
         once,
         interval_ms,
+        no_view,
     }: WatchArgs,
     watch_iteration_limit: Option<usize>,
+    viewer: &run_view::Viewer,
 ) -> Result<ExitCode> {
     let db = journal_of(workspace, realms, db)?;
     // Selectors resolve once, before the loop: a prefix that is
     // unique now stays this frame's run even if another run is
     // started while we watch.
     let run = selector::resolve_run(&open_journal(&db, Access::Read)?, &run)?;
+    let (stdin, stdout) = (viewer.terminal)();
+    if !once && run_view::opens(stdin, stdout, no_view) {
+        return run_view::watch(&db, &run, viewer);
+    }
     let style = render::Style::detect();
     let is_tty = std::io::stdout().is_terminal();
     let iterations = if once {

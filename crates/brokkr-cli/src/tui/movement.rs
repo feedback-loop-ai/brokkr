@@ -273,16 +273,19 @@ pub(super) fn seed_cursor(tui: &mut Tui, views: &Views) {
     }
     tui.cursor[0] = match (tui.level, views.run.as_ref()) {
         (Level::Runs, _) => keys_for(tui, views).into_iter().next(),
-        (Level::Run, Some(view)) => view
-            .phases
-            .iter()
-            .find(|phase| phase.current)
-            // A journal that folds to no status has no current phase; the
-            // last phase entered is still where an operator is looking.
-            .or_else(|| view.phases.last())
-            .map(|phase| phase.name.clone()),
+        (Level::Run, Some(view)) => current_phase(view).map(str::to_string),
         (Level::Run | Level::Participant, _) => None,
     };
+}
+
+/// Where an operator is already looking on a run's rail: its current
+/// phase. A journal that folds to no status has none, and the last phase
+/// entered is still that place. The run level opens its cursor there and
+/// the fleet's dashboard boxes it (#508).
+pub(super) fn current_phase(view: &RunView) -> Option<&str> {
+    let phase = view.phases.iter().find(|phase| phase.current);
+    let phase = phase.or_else(|| view.phases.last());
+    phase.map(|phase| phase.name.as_str())
 }
 
 /// Whether the row is opened in place: a running run `→` opened.

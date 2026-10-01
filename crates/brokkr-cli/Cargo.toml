@@ -64,9 +64,12 @@ ratatui = { workspace = true }
 # default: the local transcript reader opens descendants below the
 # canonical recorded home through held directory handles, one component
 # at a time, without following symlinks. These extend direct edges to
-# versions already in Cargo.lock; no registry version moves.
+# versions already in Cargo.lock; no registry version moves. `process`
+# and `std` (#508) raise SIGINT when the run view reads Ctrl+C as a key
+# and report a refusal as an io::Error; the engine's process module
+# already builds rustix with both.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", default-features = false, features = ["fs"] }
+rustix = { version = "1.1.4", default-features = false, features = ["fs", "process", "std"] }
 
 [dev-dependencies]
 brokkr-store = { workspace = true, features = ["test-support"] }
