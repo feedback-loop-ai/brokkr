@@ -20,8 +20,8 @@ on, so this file names them.
 ## Decision
 
 1. **Sections by who must act.** `brokkr-view` deals the fleet's rows into
-   *needs you* (parked, quarantined because the journal does not fold, or
-   stale), *running*, *last 24h* and *older*, in that order. A finished run
+   *needs you* (parked, quarantined because the journal does not load or
+   fold, or stale), *running*, *last 24h* and *older*, in that order. A finished run
    is dated by when its journal last moved, its last event's `recorded_at`,
    so a run that waited days on a ruling and ended today is today's. A run
    whose date cannot be read is never hidden among the older ones.
@@ -44,13 +44,18 @@ on, so this file names them.
    measured from the run's last event. A clock or a last event whose time
    does not read never makes a run stale. `need(row, now)` derives what a
    run in *needs you* asks — parked, quarantined or stale — with the line a
-   row prints under its title (`quarantined: export and inspect`, `stale:
+   row prints under its title (`quarantined: export and inspect`,
+   `quarantined: the journal does not load; inspect it by hand`, `stale:
    no event since <age>; resume or conclude`) and the detail's way out:
-   `brokkr export` and inspect for a quarantined run, whose journal does
-   not load or fold, so `brokkr conclude`, which folds it first, refuses
-   it; `brokkr resume` under the run's pinned bundle, or `brokkr
-   conclude`, for a stale one. A stale run's dashboard names no seat at
-   work, whatever effect its fold still holds in flight. A stale run still
+   `brokkr export` and inspect for a quarantined run whose journal loads
+   and does not fold, since `brokkr conclude`, which folds it first,
+   refuses it; no command for one the store does not load, which every
+   verb that reads it refuses, `export` included, so its way out says to
+   inspect the hearth's journal file by hand; `brokkr resume` under the
+   run's pinned bundle, or `brokkr conclude`, for a stale one. A stale run
+   names no seat at work, on its dashboard or opened in place in the
+   list, whatever effect its fold still holds in flight: `at_work(row,
+   now)` derives it once for both. A stale run still
    folds to running, and the fold admits `brokkr operator retry` only on a
    parked run, so the way out does not name it, though #503 asked for it. A test
    parses every command a way out names with the CLI's own parser and
@@ -98,7 +103,12 @@ on, so this file names them.
    additively; `RunRow` moves from `lib.rs` to the `fleet` module, its path
    unchanged; `brokkr-view` exports `need`, `Need` (with
    `Need::commands`, the commands a way out names), `Hire` and
-   `title_within`.
+   `title_within`. #503's landing types what refused a quarantined
+   journal: `RunEntry::detail` becomes a `Refusal`, its words and its
+   `Quarantine` (`does_not_load` or `does_not_fold`), `RunRow` gains
+   `quarantine`, a quarantine that names none reads as `does_not_load`,
+   `brokkr-view` exports `at_work`, `Quarantine` and `Refusal`, and
+   `VIEW_VERSION` moves 14 to 15, additively.
 
 8. **Three columns, the whole width (#503, second round).** The detail
    pane of item 5 gives way to two columns beside the list, which share

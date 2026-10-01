@@ -275,13 +275,13 @@ pub(super) fn title_lines(tui: &Tui, views: &Views, row: &RunRow) -> Vec<String>
     std::iter::once(listed_title(row)).chain(lines).collect()
 }
 
-/// A running run opened in place (#503): its phase, the seat at work
-/// and which attempt, how long it has run, and when its journal last
-/// moved.
+/// A running run opened in place (#503): its phase, the seat
+/// [`brokkr_view::at_work`] names and which attempt, how long it has run,
+/// and when its journal last moved.
 fn opened_lines(row: &RunRow, now: &str) -> [String; 2] {
     let absent = brokkr_view::ABSENT;
     let phase = row.phase.as_deref().unwrap_or(absent);
-    let (seat, attempt) = match &row.hire {
+    let (seat, attempt) = match brokkr_view::at_work(row, now) {
         Some(hire) => (hire.seat.as_str(), hire.attempt.to_string()),
         None => (absent, absent.to_string()),
     };
@@ -340,11 +340,11 @@ fn glyph_of(standing: Standing, need: Option<&Need>) -> &'static str {
 fn standing_word<'a>(row: &'a RunRow, need: Option<&Need>) -> &'a str {
     match (need, row.verdict.standing) {
         (Some(stale @ Need::Stale { .. }), _) => stale.label(),
-        (Some(Need::Parked | Need::Quarantined) | None, Standing::Running) => {
+        (Some(Need::Parked | Need::Quarantined(_)) | None, Standing::Running) => {
             row.phase.as_deref().unwrap_or(brokkr_view::ABSENT)
         }
         (
-            Some(Need::Parked | Need::Quarantined) | None,
+            Some(Need::Parked | Need::Quarantined(_)) | None,
             Standing::Quarantined
             | Standing::Parked
             | Standing::Shipped
@@ -359,7 +359,7 @@ fn standing_word<'a>(row: &'a RunRow, need: Option<&Need>) -> &'a str {
 pub(super) fn tone_of(row: &RunRow, need: Option<&Need>) -> Style {
     let status = match need {
         Some(stale @ Need::Stale { .. }) => stale.label(),
-        Some(Need::Parked | Need::Quarantined) | None => row.status.as_deref().unwrap_or("?"),
+        Some(Need::Parked | Need::Quarantined(_)) | None => row.status.as_deref().unwrap_or("?"),
     };
     tone_style(status)
 }

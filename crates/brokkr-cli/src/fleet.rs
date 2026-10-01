@@ -17,6 +17,8 @@ use brokkr_store::Store;
 
 /// Why a listed run carries no state, and where its citation points.
 pub(crate) struct Quarantine {
+    /// Which refused it: the store, or the fold (#503).
+    pub kind: brokkr_view::Quarantine,
     /// The refusal's own words: the store's when the journal would not
     /// load, the fold's when it loaded and would not fold.
     pub detail: String,
@@ -52,7 +54,7 @@ impl ListedRun {
                 .state
                 .as_ref()
                 .err()
-                .map(|quarantine| quarantine.detail.as_str()),
+                .map(|quarantine| quarantine.kind.in_words(&quarantine.detail)),
             residuals: &self.residuals,
         }
     }
@@ -96,6 +98,7 @@ pub(crate) fn read_hearth(store: &Store) -> HearthRead {
             let (events, state) = match store.load(&run_id) {
                 Ok(events) => {
                     let state = fold(&events).map_err(|error| Quarantine {
+                        kind: brokkr_view::Quarantine::DoesNotFold,
                         detail: error.to_string(),
                         seq: error.seq(),
                     });
@@ -104,6 +107,7 @@ pub(crate) fn read_hearth(store: &Store) -> HearthRead {
                 Err(error) => (
                     Vec::new(),
                     Err(Quarantine {
+                        kind: brokkr_view::Quarantine::DoesNotLoad,
                         detail: error.to_string(),
                         seq: 0,
                     }),

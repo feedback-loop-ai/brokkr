@@ -133,7 +133,7 @@ enum Third {
 fn third_of(row: &RunRow, now: &str) -> Third {
     match (row.verdict.standing, brokkr_view::need(row, now)) {
         (Standing::Running, None) => Third::Live,
-        (Standing::Running, Some(Need::Stale { .. } | Need::Parked | Need::Quarantined))
+        (Standing::Running, Some(Need::Stale { .. } | Need::Parked | Need::Quarantined(_)))
         | (
             Standing::Quarantined
             | Standing::Parked
@@ -235,7 +235,7 @@ pub(super) fn dashboard_lines(
     let view = view_of(views, row);
     let need = brokkr_view::need(row, &views.now);
     let mut texts = standing_texts(row, need.as_ref(), &views.now, columns);
-    texts.extend(ending_texts(row, view, need.as_ref(), columns));
+    texts.extend(ending_texts(row, view, &views.now, columns));
     texts.extend(heading_of("PATH"));
     let path = view.map(|view| view.dashboard.path_text());
     texts.push((
@@ -278,7 +278,7 @@ fn standing_texts(row: &RunRow, need: Option<&Need>, now: &str, columns: usize) 
     let age = brokkr_view::age(&row.created_at, now).unwrap_or(absent());
     let stands = match need {
         Some(stale @ Need::Stale { .. }) => stale.label(),
-        Some(Need::Parked | Need::Quarantined) | None => row.verdict.standing.label(),
+        Some(Need::Parked | Need::Quarantined(_)) | None => row.verdict.standing.label(),
     };
     vec![
         (
@@ -293,13 +293,8 @@ fn standing_texts(row: &RunRow, need: Option<&Need>, now: &str, columns: usize) 
 /// Why the run ended, or what it needs, or where it stands: its verdict,
 /// its last ruling's rule, severity and reason, its last seat's result
 /// and its notes' first lines, and its residual findings.
-fn ending_texts(
-    row: &RunRow,
-    view: Option<&RunView>,
-    need: Option<&Need>,
-    columns: usize,
-) -> Texts {
-    let title = match (need, row.verdict.standing) {
+fn ending_texts(row: &RunRow, view: Option<&RunView>, now: &str, columns: usize) -> Texts {
+    let title = match (brokkr_view::need(row, now), row.verdict.standing) {
         (Some(_), _) => "WHAT IT NEEDS",
         (None, Standing::Running) => "WHERE IT STANDS",
         (
@@ -329,7 +324,7 @@ fn ending_texts(
     }
     let facts = [
         ("journal", row.detail.clone()),
-        ("at work", hired(row, need)),
+        ("at work", hired(row, now)),
     ];
     for (label, fact) in facts {
         texts.extend(fact.map(|fact| (format!("{label:<9} {fact}"), plain())));
@@ -358,14 +353,9 @@ fn rule_line(verdict: &brokkr_view::Verdict, decision: Option<&brokkr_view::Deci
     format!("rule      {} · {severity} · {from} → {next}", ruled.rule)
 }
 
-/// The seat at work on a running run and its attempt, as the fold names it.
-/// A run `need` calls stale has nothing driving it, so none is at work
-/// (#503 item 3), whatever effect its fold still holds in flight.
-fn hired(row: &RunRow, need: Option<&Need>) -> Option<String> {
-    let hire = match need {
-        Some(Need::Stale { .. }) => None,
-        Some(Need::Parked | Need::Quarantined) | None => row.hire.as_ref(),
-    }?;
+/// The seat [`brokkr_view::at_work`] names on the run, and its attempt.
+fn hired(row: &RunRow, now: &str) -> Option<String> {
+    let hire = brokkr_view::at_work(row, now)?;
     Some(format!("seat {} · attempt {}", hire.seat, hire.attempt))
 }
 
@@ -427,7 +417,7 @@ pub(super) fn live_column(
 ) -> (String, Vec<Line<'static>>) {
     let view = view_of(views, row);
     let (title, texts) = match third_of(row, &views.now) {
-        Third::Live => streamed(view, row),
+        Third::Live => streamed(view, row, &views.now),
         Third::Findings => found(view, row),
     };
     (title, wrapped(texts, columns))
@@ -436,8 +426,8 @@ pub(super) fn live_column(
 /// What the line says where the frame holds no view of the run yet.
 const UNREAD: &str = "— the run's journal is not read";
 
-fn streamed(view: Option<&RunView>, row: &RunRow) -> (String, Texts) {
-    let Some(hire) = &row.hire else {
+fn streamed(view: Option<&RunView>, row: &RunRow, now: &str) -> (String, Texts) {
+    let Some(hire) = brokkr_view::at_work(row, now) else {
         let none = "— no seat at work: the fold names none".to_string();
         return ("live".to_string(), vec![(none, plain())]);
     };

@@ -3094,9 +3094,8 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
         );
     }
 
-    // The rows that listing built, checked at the model rather than
-    // through the terminal: both runs present, one of them quarantined
-    // in the fold's own words.
+    // The rows that listing built, checked at the model: both runs
+    // present, one of them quarantined in the fold's own words.
     let read = fleet::read_hearth(&Store::open(&db).unwrap());
     let entries: Vec<brokkr_view::RunEntry> =
         read.runs.iter().map(fleet::ListedRun::entry).collect();
@@ -3114,6 +3113,7 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     let poisoned = row("poisoned");
     assert_eq!(poisoned["status"], Value::Null, "rendered as '?'");
     assert_eq!(poisoned["status_known"], false);
+    assert_eq!(poisoned["quarantine"], "does_not_fold");
     assert!(
         poisoned["detail"]
             .as_str()
@@ -3218,8 +3218,7 @@ fn one_broken_chain_is_one_quarantined_row_on_every_fleet_surface() {
         ExitCode::SUCCESS
     );
 
-    // `tui`: the forced fleet frame, with the refusal as the row's detail
-    // where it used to be a bare `?`.
+    // `tui`: the forced fleet frame, the refusal its row's detail, not a bare `?`.
     let ask = tui::Ask {
         tab: 0,
         run: None,
@@ -3233,6 +3232,7 @@ fn one_broken_chain_is_one_quarantined_row_on_every_fleet_surface() {
     let tui_rows = listing("tui", &serde_json::to_value(&views.runs).unwrap()["runs"]);
     assert_eq!(tui_rows[1]["status"], Value::Null, "printed as '?'");
     assert_eq!(tui_rows[1]["detail"], REFUSAL);
+    assert_eq!(tui_rows[1]["quarantine"], "does_not_load");
     assert_eq!(tui_rows[0]["detail"], Value::Null);
 
     // `ui`: the same rows over HTTP.

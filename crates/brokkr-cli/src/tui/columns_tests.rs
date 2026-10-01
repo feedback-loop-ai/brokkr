@@ -964,6 +964,25 @@ fn a_stale_run_with_a_seat_in_flight_is_never_streamed_as_live() {
     assert!(footer_for(&tui, &views).contains("· f hide findings ·"));
 }
 
+/// Review M2: a stale run opened in place names no seat at work in the
+/// list, as its dashboard names none: both paint `at_work`.
+#[test]
+fn a_stale_run_opened_in_place_names_no_seat_at_work() {
+    let mut views = fleet_reading(reviewing_view());
+    let mut tui = selecting(REVIEWING);
+    apply(&mut tui, &views, Key::Right);
+    let (width, height) = OPERATOR;
+    let at_work = "phase review · seat reviewer · attempt 2";
+    assert!(frame_of(&tui, &views, width, height).contains(at_work));
+    fall_silent(&mut views, REVIEWING);
+    let frame = frame_of(&tui, &views, width, height);
+    assert!(!frame.contains(at_work), "{frame}");
+    assert!(
+        frame.contains("phase review · seat — · attempt —"),
+        "{frame}"
+    );
+}
+
 /// A column whose text shrinks under its scroll still draws its end: `G`
 /// down an opened commission then `c` to fold it, or a streamed run that
 /// stops streaming, never leaves an empty border.

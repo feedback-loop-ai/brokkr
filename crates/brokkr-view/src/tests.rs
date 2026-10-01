@@ -294,7 +294,7 @@ fn run_rows_are_newest_first_and_carry_the_whole_feature() {
     let running = state(Some("design"), Status::Running, None);
     let entries = [
         RunEntry {
-            detail: Some("event 93: OperatorAccepted is impossible at cursor EffectInFlight"),
+            detail: Some(Quarantine::DoesNotFold.in_words("event 93: OperatorAccepted")),
             ..listed("old", "the older feature", T0, None)
         },
         listed("new", "the newer feature", T1, Some(&running)),
@@ -316,11 +316,10 @@ fn run_rows_are_newest_first_and_carry_the_whole_feature() {
     assert_eq!(json["runs"][1]["seq"], Value::Null);
     // …and it says why, in the fold's own words. A row that reads `?`
     // with no reason is the same blindness one row further in.
-    assert_eq!(
-        json["runs"][1]["detail"],
-        "event 93: OperatorAccepted is impossible at cursor EffectInFlight"
-    );
+    assert_eq!(json["runs"][1]["detail"], "event 93: OperatorAccepted");
+    assert_eq!(json["runs"][1]["quarantine"], "does_not_fold");
     assert_eq!(json["runs"][0]["detail"], Value::Null);
+    assert_eq!(json["runs"][0]["quarantine"], Value::Null);
 }
 
 /// A many-hearth world's fleet is grouped by realm and never merged
@@ -335,7 +334,7 @@ fn fleet_rows_group_by_realm_and_never_merge_two_journals() {
         listed("a-new", "alpha's newer feature", T1, Some(&running)),
     ];
     let beta = [RunEntry {
-        detail: Some("event 4: the journal does not fold"),
+        detail: Some(Quarantine::DoesNotFold.in_words("event 4: the journal does not fold")),
         ..listed("b-one", "beta's only feature", T1, None)
     }];
     let view = fleet_rows(&[
@@ -3280,16 +3279,16 @@ fn an_entry_outside_the_vocabulary_is_not_recorded() {
 /// null-bearing cell rather than a skipped key.
 #[test]
 fn the_wire_version_moves() {
-    assert_eq!(VIEW_VERSION, 14); // 14 (#503): the dashboard. 13: hire. 12 (#491): title, verdict.
+    assert_eq!(VIEW_VERSION, 15); // 15 (#503): quarantine. 14: dashboard. 13: hire. 12: title.
                                   // 11 (#376): `cost` is every attempt's spend, and the last attempt's
                                   // own figure stands beside it on the wire.
     let retried = serde_json::to_value(run_view(&two_attempt_journal(), None)).unwrap();
-    assert_eq!(retried["view_version"], 14);
+    assert_eq!(retried["view_version"], 15);
     assert_eq!(retried["participants"][0]["cost"], json!(0.75));
     assert_eq!(retried["participants"][0]["last_attempt_cost"], json!(0.5));
     let view = run_view(&boxed_journal(plain_manifest(), Value::Null, None), None);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 14);
+    assert_eq!(json["view_version"], 15);
     let seat = &json["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["absent"], json!(true));

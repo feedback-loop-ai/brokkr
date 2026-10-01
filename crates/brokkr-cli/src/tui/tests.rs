@@ -180,17 +180,17 @@ fn run_view_for(seat: &str) -> RunView {
     brokkr_view::run_view(&journal(seat), Some(&state()))
 }
 
-/// Two runs plus one whose journal does not fold and whose stamp does
-/// not parse: the absence marks have a row to live in.
+/// Two runs, and one whose journal does not fold and whose stamp does not parse.
 fn fleet() -> RunsView {
     let folded = state();
+    let refused = brokkr_view::Quarantine::DoesNotFold.in_words("event 4: refused");
     let entry = |run_id, feature, created_at, state| brokkr_view::RunEntry {
         run_id,
         feature,
         created_at,
         last_recorded_at: None,
         state,
-        detail: None,
+        detail: state.map_or(Some(refused), |_| None),
         residuals: &[],
     };
     let entries = [

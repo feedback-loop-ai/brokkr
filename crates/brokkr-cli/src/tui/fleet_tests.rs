@@ -8,7 +8,7 @@ use super::tests::{
 };
 use super::*;
 use brokkr_core::fold::{Cursor, RunState, Status};
-use brokkr_view::ResidualFinding;
+use brokkr_view::{Quarantine, ResidualFinding};
 use ratatui::backend::TestBackend;
 use serde_json::{json, Value};
 
@@ -113,7 +113,8 @@ pub(super) fn fleet_to_act_on() -> Views {
         None,
         &[],
     );
-    broken.detail = Some("event 12: event after terminal status");
+    let refusal = "event 12: event after terminal status";
+    broken.detail = Some(Quarantine::DoesNotFold.in_words(refusal));
     let mut entries = [
         entry("landing-2-of-the-fleet-0a1b2c3d", "Landing 2 of the fleet view", OLDER, Some(&shipped), &[]),
         entry(
@@ -710,11 +711,26 @@ fn a_dead_running_run_needs_you_as_stale_and_never_reads_as_live() {
 /// Review F3: every command a way out names is one `brokkr` parses once
 /// its placeholders are filled, and one the engine admits on a run that
 /// stands as that one does. A stale run folds to running, which
-/// `operator retry` refuses and `resume` and `conclude` admit.
+/// `operator retry` refuses and `resume` and `conclude` admit. Review M1:
+/// a run whose journal the store does not load names none, since the
+/// store refuses it to `export` too.
 #[test]
 fn every_way_out_names_a_command_brokkr_parses_and_the_run_admits() {
     use clap::Parser;
-    let views = fleet_with_a_dead_run();
+    let mut views = fleet_with_a_dead_run();
+    let unloaded = brokkr_view::RunEntry {
+        run_id: "journal-that-will-not-load-1a2b3c4d",
+        feature: "A journal whose chain does not verify",
+        created_at: T0,
+        last_recorded_at: None,
+        state: None,
+        detail: Some(Quarantine::DoesNotLoad.in_words("hash chain broken at seq 3")),
+        residuals: &[],
+    };
+    views
+        .runs
+        .runs
+        .extend(brokkr_view::run_rows(&[unloaded]).runs);
     let mut named = Vec::new();
     for row in &views.runs.runs {
         let Some(need) = brokkr_view::need(row, &views.now) else {
@@ -726,33 +742,36 @@ fn every_way_out_names_a_command_brokkr_parses_and_the_run_admits() {
                 .map(|word| if word.starts_with('<') { "x" } else { word });
             let cli = crate::Cli::try_parse_from(argv)
                 .unwrap_or_else(|error| panic!("{command}: {error}"));
-            let status = folds_to(row.verdict.standing);
-            assert!(admits(status, &cli.command), "{command} on {status:?}");
+            let read = read_as(row);
+            assert!(admits(read, &cli.command), "{command} on {read:?}");
             named.push(need.label());
         }
     }
     assert_eq!(named, ["stale", "stale", "quarantined"]);
 }
 
-/// The status a run standing so folds to; a quarantined one folds to none.
-fn folds_to(standing: Standing) -> Option<Status> {
-    match standing {
-        Standing::Quarantined => None,
-        Standing::Parked => Some(Status::AwaitingOperator),
-        Standing::Running => Some(Status::Running),
-        Standing::Shipped => Some(Status::Completed),
-        Standing::Stopped | Standing::OperatorStopped => Some(Status::Stopped),
+/// How the store and the fold read a run standing so: the status it
+/// folds to, or what refused its journal.
+fn read_as(row: &RunRow) -> Result<Status, Quarantine> {
+    match row.verdict.standing {
+        Standing::Quarantined => Err(row.quarantine.expect("a quarantined row names it")),
+        Standing::Parked => Ok(Status::AwaitingOperator),
+        Standing::Running => Ok(Status::Running),
+        Standing::Shipped => Ok(Status::Completed),
+        Standing::Stopped | Standing::OperatorStopped => Ok(Status::Stopped),
     }
 }
 
-/// Whether the engine admits `command` on a run whose journal folds to
-/// `status`, by its own rules: `operator` by the fold's acceptance,
+/// Whether the engine admits `command` on a run its journal reads as
+/// `read`, by its own rules: `operator` by the fold's acceptance,
 /// `resume` drives a run that runs or waits, `conclude` folds the journal
 /// before it appends, so it refuses one that does not fold
 /// (`a_broken_chain_refuses_the_whole_conclusion`) and one already
-/// ended, and `export` reads any journal as written.
-fn admits(status: Option<Status>, command: &crate::Cmd) -> bool {
+/// ended, and `export` loads the journal before it writes it, so it
+/// refuses one the store does not load and writes any other as written.
+fn admits(read: Result<Status, Quarantine>, command: &crate::Cmd) -> bool {
     use brokkr_core::fold::{acceptance_refusal, OperatorCommand};
+    let status = read.ok();
     match command {
         crate::Cmd::Operator(args) => match (status, OperatorCommand::parse(&args.command)) {
             (Some(status), Some(word)) => acceptance_refusal(&state_of(status), word).is_none(),
@@ -762,7 +781,7 @@ fn admits(status: Option<Status>, command: &crate::Cmd) -> bool {
         crate::Cmd::Conclude(_) => {
             status.is_some_and(|status| !matches!(status, Status::Completed | Status::Stopped))
         }
-        crate::Cmd::Export(_) => true,
+        crate::Cmd::Export(_) => read != Err(Quarantine::DoesNotLoad),
         _ => panic!("a way out names a verb this test does not know"),
     }
 }

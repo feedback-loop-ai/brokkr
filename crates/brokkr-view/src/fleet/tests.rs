@@ -452,7 +452,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         residuals: &residuals,
     }]);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 14);
+    assert_eq!(json["view_version"], 15);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);
     assert_eq!(json["runs"][0]["title"], "fleet titles");
@@ -526,14 +526,20 @@ fn each_need_says_what_the_operator_can_do() {
     let stale = Need::Stale {
         silent: "116h00m".to_string(),
     };
+    let unfolded = Need::Quarantined(Quarantine::DoesNotFold);
+    let unloaded = Need::Quarantined(Quarantine::DoesNotLoad);
     assert_eq!(
-        [&Need::Parked, &Need::Quarantined, &stale].map(Need::label),
-        ["parked", "quarantined", "stale"]
+        [&Need::Parked, &unfolded, &unloaded, &stale].map(Need::label),
+        ["parked", "quarantined", "quarantined", "stale"]
     );
     assert_eq!(Need::Parked.prompt(), None);
     assert_eq!(
-        Need::Quarantined.prompt().as_deref(),
+        unfolded.prompt().as_deref(),
         Some("quarantined: export and inspect")
+    );
+    assert_eq!(
+        unloaded.prompt().as_deref(),
+        Some("quarantined: the journal does not load; inspect it by hand")
     );
     assert_eq!(
         stale.prompt().as_deref(),
@@ -541,7 +547,10 @@ fn each_need_says_what_the_operator_can_do() {
     );
     assert_eq!(Need::Parked.way_out("r1"), Vec::<String>::new());
     assert_eq!(Need::Parked.commands("r1"), Vec::<String>::new());
-    assert_eq!(Need::Quarantined.commands("r1"), ["brokkr export --run r1"]);
+    assert_eq!(unfolded.commands("r1"), ["brokkr export --run r1"]);
+    // The store refuses a journal it does not load to every verb that
+    // reads it, export included: no command answers it (review M1).
+    assert_eq!(unloaded.commands("r1"), Vec::<String>::new());
     assert_eq!(
         stale.commands("r1"),
         [
@@ -550,10 +559,17 @@ fn each_need_says_what_the_operator_can_do() {
         ]
     );
     assert_eq!(
-        Need::Quarantined.way_out("r1"),
+        unfolded.way_out("r1"),
         [
             "way out   brokkr export --run r1",
             "          and inspect the journal it writes",
+        ]
+    );
+    assert_eq!(
+        unloaded.way_out("r1"),
+        [
+            "way out   none in brokkr: the store refuses this journal, export included;",
+            "          inspect the hearth's journal file by hand",
         ]
     );
     assert_eq!(
@@ -568,8 +584,49 @@ fn each_need_says_what_the_operator_can_do() {
     );
     let parked = settled(Status::AwaitingOperator, "review", None);
     assert_eq!(need(&silent_since(&parked, None), NOW), Some(Need::Parked));
-    let unfolded = run_rows(&[crate::tests::listed("q", "a run", NOW, None)]);
-    assert_eq!(need(&unfolded.runs[0], NOW), Some(Need::Quarantined));
+    let refused = |detail| RunEntry {
+        detail,
+        ..crate::tests::listed("q", "a run", NOW, None)
+    };
+    let fold = Quarantine::DoesNotFold.in_words("event 4: refused");
+    let load = Quarantine::DoesNotLoad.in_words("hash chain broken at seq 3");
+    let needs = [Some(fold), Some(load), None].map(|detail| {
+        let view = run_rows(&[refused(detail)]);
+        (need(&view.runs[0], NOW), view.runs[0].quarantine)
+    });
+    // A quarantine that names no refusal is read as the one no verb gets
+    // past, so it never names `export` on a journal the store refuses.
+    assert_eq!(
+        needs,
+        [
+            (Some(unfolded), Some(Quarantine::DoesNotFold)),
+            (Some(unloaded.clone()), Some(Quarantine::DoesNotLoad)),
+            (Some(unloaded), Some(Quarantine::DoesNotLoad)),
+        ]
+    );
+}
+
+/// Review M2: the seat at work is derived once. A stale run's fold still
+/// holds its effect in flight, and nothing drives it, so none is at work;
+/// a live run's seat is the fold's hire.
+#[test]
+fn a_stale_run_has_no_seat_at_work() {
+    let mut running = settled(Status::Running, "review", None);
+    running.cursor = Cursor::EffectInFlight {
+        effect_id: "e1".to_string(),
+        attempt_id: "a1".to_string(),
+        seat: "reviewer".to_string(),
+        failed_attempts: 0,
+    };
+    let live = silent_since(&running, Some(NOW));
+    let hire = Hire {
+        seat: "reviewer".to_string(),
+        attempt: 1,
+    };
+    assert_eq!(at_work(&live, NOW), Some(&hire));
+    let dead = silent_since(&running, Some("2025-12-27T04:00:00Z"));
+    assert_eq!(dead.hire, Some(hire), "the fold still names it");
+    assert_eq!(at_work(&dead, NOW), None);
 }
 
 /// #503 item 6: a row names the seat its current effect is hired to and

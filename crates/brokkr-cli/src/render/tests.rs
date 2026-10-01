@@ -536,10 +536,10 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
             created_at: T0,
             last_recorded_at: None,
             state: None,
-            detail: Some(
+            detail: Some(brokkr_view::Quarantine::DoesNotFold.in_words(
                 "event 93: OperatorAccepted is impossible at cursor \
                  EffectInFlight\r\x1b[2Jforged",
-            ),
+            )),
             residuals: &[],
         },
         brokkr_view::RunEntry {

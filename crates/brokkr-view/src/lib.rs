@@ -36,8 +36,8 @@ pub use dashboard::{
     Ruled, Visit,
 };
 pub use fleet::{
-    fleet_rows, need, run_rows, sections, title, title_within, wrap, HearthEntries, Hire, Need,
-    RunRow, Section, Standing, Verdict, TITLE_COLUMNS, VERDICT_COLUMNS,
+    at_work, fleet_rows, need, run_rows, sections, title, title_within, wrap, HearthEntries, Hire,
+    Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict, TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 
 use std::collections::BTreeMap;
@@ -80,7 +80,8 @@ use serde_json::Value;
 /// Bumped to 12 by #491: a run row gained its `title` and its `verdict`.
 /// Bumped to 13 by #503: a run row gained its `hire`.
 /// Bumped to 14 by #503's second round: the run view gained its `dashboard`.
-pub const VIEW_VERSION: u32 = 14;
+/// Bumped to 15 by #503's landing: a run row gained its `quarantine`.
+pub const VIEW_VERSION: u32 = 15;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -125,10 +126,10 @@ pub struct RunEntry<'a> {
     pub last_recorded_at: Option<&'a str>,
     pub state: Option<&'a RunState>,
     /// Why the state is absent: a fleet read quarantines a run whose
-    /// journal does not fold rather than losing the whole fleet with it,
-    /// and the error text is the row's whole account of itself. Nothing
-    /// is repaired here (README law 2) — the refusal is reported.
-    pub detail: Option<&'a str>,
+    /// journal does not load or fold rather than losing the whole fleet
+    /// with it, and the refusal is the row's whole account of itself.
+    /// Nothing is repaired here (README law 2) — the refusal is reported.
+    pub detail: Option<Refusal<'a>>,
     /// What [`residual_findings`] derived for this run, marks included.
     /// A caller that has not read the run's events — or read a journal
     /// that would not open at all — states none, which is exactly what
