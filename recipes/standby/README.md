@@ -1,6 +1,6 @@
 # standby — the crew that keeps working when an account does not
 
-`fast`'s shape, its contracts and its boxed gates, with both model seats
+`fast`'s shape, its contracts and its exec gates, with both model seats
 on the other vendor. Reach for it when the account behind the default
 crew is out of limit, or when a delivery must not touch that account at
 all.
@@ -14,7 +14,7 @@ role charter and the policy table itself are `fast`'s, inherited:
 |---|---|---|
 | implement | claude `fable` @ high | codex `sol` (`gpt-6.1-sol`) @ high, sandbox `danger-full-access` |
 | review | claude `fable` @ high | codex `sol` (`gpt-6.1-sol`) @ high, sandbox `workspace-write` |
-| verify, ship | boxed exec scripts | unchanged — no model, no vendor |
+| verify, ship | exec scripts, boxed under `namespace` only | unchanged — no model, no vendor |
 
 `sol` is a judge in `adapters/codex.json`, which is what lets it hold
 the review gate (decision 0041 ruling 3). Both seats were hired on
@@ -45,8 +45,8 @@ at its first fallback.
 It is inline for a second reason, and that one is a limitation rather
 than a law. Codex expresses no per-tool allow-list, so no office holding
 one can resolve on it (decision 0045 ruling 4), and the shipped smiths
-hold `cargo` and `git`. When an implementer's hands are boxed the way
-the review offices' already are, the allow-list is not consulted at all
+hold `cargo` and `git`. When an implementer declares hands, as the
+hands-bearing review offices already do, the allow-list is not consulted at all
 (decision 0043 ruling 2) and the smith becomes hireable on any provider
 that puts its hands in the box. On that day this recipe should retire
 into a library crew, and its README should say so rather than this.
@@ -59,8 +59,8 @@ into a library crew, and its README should say so rather than this.
   different question from which crew delivers better.
 - **Not a boxed smith.** The implement seat runs under codex's own
   sandbox class, not inside Brokkr's box, exactly as `fast`'s claude
-  smith runs under claude's permission mode. The gates that *are* boxed
-  stay boxed.
+  smith runs under claude's permission mode. The exec gates are `fast`'s:
+  boxed under `namespace`, unboxed under `harness`.
 - **No dsh arm.** dsh holds no judge (`adapters/dsh.json` declares an
   empty `judges` list), so it cannot hold this recipe's review gate. A
   dsh hedge would need a different shape and its own ruling.

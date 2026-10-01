@@ -141,7 +141,9 @@ time, and its manifest digest is pinned in
 `crates/brokkr-runtime/tests/witness_digests.rs`; that is the claim, and
 the only one.
 
-Its one-attempt verifier and shipper are boxed exec scripts. Cargo runs
+Its one-attempt verifier and shipper are boxed exec scripts: the dialect
+steps it inherits from `triage` compile only under `namespace` (decision
+0042 ruling 4), so a `harness` realm refuses this recipe. Cargo runs
 offline from the bound registry cache; an uncached dependency fails
 closed and the verifier quotes Cargo's decisive offline/cache line in
 its `fail` notes.

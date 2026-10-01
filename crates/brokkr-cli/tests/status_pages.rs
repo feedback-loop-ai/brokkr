@@ -497,10 +497,16 @@ const OVERCLAIMS: [&str; 8] = [
 /// bound; and a dead hands server's tree said to leak, where the next
 /// run's start reaps it.
 ///
+/// So are the recipes' gates said to be boxed, or to run with the network
+/// refused, with no boundary named: under `harness` a pinned exec script
+/// runs unboxed in a rebuilt environment and no network denial is
+/// reported. A recipe whose dialect steps compile only under `namespace`
+/// (`triage`, `night-shift`) may say boxed, and says why.
+///
 /// A comparison that only implies a bound, such as one arm called no
 /// narrower than another, is outside the guard: its wording names no
 /// control a list could hold.
-const ANYWHERE: [&str; 83] = [
+const ANYWHERE: [&str; 107] = [
     "blast radius",
     "no tool restriction",
     "tools restriction",
@@ -584,6 +590,30 @@ const ANYWHERE: [&str; 83] = [
     "every restriction expressible",
     "boxed verify seat and an unboxed review seat under",
     "policy and boxed exec gates",
+    "offline and inside the box",
+    "deterministic boxed exec gates",
+    "lint tool the box cannot reach",
+    "offline inside the box",
+    "network remains refused",
+    "boxed, no model",
+    "boxed exec verifier",
+    "boxed exec shipper",
+    "the gate is a boxed script",
+    "boxed, no network",
+    "declare boxed hands",
+    "verifier is a boxed exec script",
+    "network is refused",
+    "verify uses boxed exec",
+    "cannot reach the network",
+    "boxed registry gate",
+    "same boxed exec gate",
+    "own boxed exec script",
+    "boxed ship seat",
+    "its boxed gates",
+    "| boxed exec scripts |",
+    "the review offices' already are",
+    "that are boxed stay boxed",
+    "fast's boxed verifier",
 ];
 
 /// The wording the guard refuses, as lists a test can take one word out of.
@@ -741,7 +771,7 @@ fn literal(chars: &[char], from: usize, literals: &mut Vec<String>) -> usize {
 
 /// Excerpts of the pages this story reworded, word for word as they
 /// stood: each holds one paragraph the guard refuses.
-const OLD_PAGES: [&str; 90] = [
+const OLD_PAGES: [&str; 114] = [
     // docs/guides/agent-library.md
     "**The honesty rules are the point, and they are enforced rather than\n\
      documented.** A tool restriction the provider cannot express fails\n\
@@ -976,6 +1006,70 @@ const OLD_PAGES: [&str; 90] = [
      seat and an unboxed review seat under the operator's Claude Code permissions",
     "`recipes/release` combines the manager and library reviewer with `fast`'s policy\n\
      and boxed exec gates.",
+    // recipes/fast/README.md
+    "The default Rust delivery recipe. Its verifier runs, cheapest first,\n\
+     every check CI requires that works offline and inside the box (#427):",
+    "`bundles/self` compile. Its shipper renders the journal with `brokkr\n\
+     ledger`. Both are deterministic boxed exec gates, and every recipe that\n\
+     extends `fast` without its own verifier, `landing` among them, runs this\n\
+     one.",
+    "A lint tool the box cannot reach, because it is not on the box's `PATH`\n\
+     or does not report the version CI pins, is named in the verifier's notes\n\
+     as not run; the result is `pass` only if every check that did run passed.",
+    "Cargo runs offline inside the box from the bound registry cache.",
+    "If a\n\
+     dependency is not cached, network remains refused, the command fails\n\
+     closed, and the verifier's `fail` notes quote Cargo's decisive cache or\n\
+     offline error.",
+    // recipes/landing/README.md
+    "| `classify` | `gate` | `docs`, `code` | `scripts/classify-seat.sh`, boxed, no model: \
+     every path the branch changes against the default branch is read against the \
+     repository's own docs class",
+    "| `verify` | `gate` | `pass`, `fail` | `fast`'s boxed exec verifier, cheapest first: \
+     format,",
+    "| `ship` | `gate` | `ready`, `shipped` | `fast`'s boxed exec shipper: a clean tree, the \
+     head the engine gated on, the ledger, the anchor with the per-file patch map. |",
+    // recipes/research/README.md
+    "The work seat is the library's `researcher`\n\
+     office; the gate is a boxed script.",
+    "- **verify** (`roles/verify-seat.sh`, boxed, no network): the tree is\n  \
+     clean, nothing outside `docs/research/` changed,",
+    // recipes/node/README.md
+    "Decision 0043 permits the other two to\n\
+     hold that class only because their complete `exec` dispatches declare\n\
+     boxed hands; neither script seats a model.",
+    "The verifier is a boxed exec script beside this recipe's roles.",
+    "Network\n\
+     is refused: `npm ci --offline` can use only the bound `~/.npm` cache\n\
+     artifacts,",
+    // recipes/preflight/README.md
+    "Both\n\
+     seats here declare `\"class\": \"gate\"`: verify uses boxed `exec`, while\n\
+     review names the trusted model driver.",
+    "Cargo runs\n\
+     offline from the bound registry cache; an uncached dependency cannot\n\
+     reach the network, so the gate fails closed",
+    // recipes/research-dsh/README.md
+    "Everything else is\n\
+     inherited: the boxed registry gate, the ten-entry cap,",
+    // recipes/panel-review/README.md
+    "Its shipper is the same boxed exec gate as `fast`'s.",
+    // recipes/release/README.md
+    "or extend `release` and explicitly override\n\
+     `verify` with the stack's own boxed exec script and required toolchain binds.",
+    // recipes/review-first/README.md
+    "and a clean\n\
+     verified branch ships through the boxed ship seat.",
+    // recipes/standby/README.md
+    "`fast`'s shape, its contracts and its boxed gates, with both model seats\n\
+     on the other vendor.",
+    "| verify, ship | boxed exec scripts | unchanged — no model, no vendor |",
+    "When an implementer's hands are boxed the way\n\
+     the review offices' already are, the allow-list is not consulted at all",
+    "The gates that *are* boxed\n  \
+     stay boxed.",
+    // recipes/wager-harness/README.md and its two arms
+    "The harness inherits `fast`'s boxed verifier and shipper by construction.",
 ];
 
 /// Excerpts of the doc comments this story reworded, as the sources

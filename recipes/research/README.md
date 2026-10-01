@@ -2,7 +2,7 @@
 
 Two seats: `research` → `verify` → `done`/`stop`. No implement, no
 review of code, no ship. The work seat is the library's `researcher`
-office; the gate is a boxed script. What a run produces is a branch of
+office; the gate is a pinned exec script. What a run produces is a branch of
 proposed entries under `docs/research/`, each finding classified from
 the registry's closed vocabulary with a citation that the gate proves
 resolves. The classifications are proposals: the operator reads them,
@@ -28,7 +28,9 @@ in one run, and the gate refuses an eleventh entry.
   names. It is the only office in the library that holds the `webfetch` and
   `websearch` grants; the charter is the configurable prompt, and editing it
   moves this recipe's witness digest.
-- **verify** (`roles/verify-seat.sh`, boxed, no network): the tree is
+- **verify** (`roles/verify-seat.sh`, in Brokkr's box with no network
+  where the realm's boundary is `namespace`; under `harness` it runs
+  unboxed and no network denial is reported): the tree is
   clean, nothing outside `docs/research/` changed, at most ten entries
   were added, and `cargo test --test research_registry` passes: the
   index equals the entries, every class is in the vocabulary, every

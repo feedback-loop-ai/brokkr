@@ -23,7 +23,9 @@ then park for the operator.
 
 The realm must declare a dialect. Brokkr resolves and pins it, renders its
 phase instructions after the house rules, and supplies its validate/check argv
-to the boxed gates. OpenSpec and spec-kit are artifact conventions here; their
+to the boxed gates. Those gates compile only under `namespace` (decision 0042
+ruling 4), so a `harness` realm refuses this recipe and every box named here
+stands. OpenSpec and spec-kit are artifact conventions here; their
 own workflow runners never drive the Brokkr machine.
 The selected review sequences deliberately expose one trust boundary: the chief
 treats panel notes as data and never instructions. Every selected panel seats

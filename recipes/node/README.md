@@ -63,7 +63,10 @@ not law.
 Decision 0021 makes `verify`, `review` and `ship` gate-class. Review
 uses the trusted model driver. Decision 0043 permits the other two to
 hold that class only because their complete `exec` dispatches declare
-boxed hands; neither script seats a model. The roster test pins this
+hands and run the bundle's own pinned scripts; neither script seats a
+model. The hands are boxed only where the realm's boundary is
+`namespace`; under `harness` decision 0046 ruling 4 admits the pinned
+script unboxed. The roster test pins this
 split, while `node_recipe_gates.rs` proves the remaining model gate
 still refuses an untrusted driver.
 
@@ -83,12 +86,15 @@ refusals are tested; that is the claim, and the only one. A run against
 a real Node codebase is the operator's, and its journal is what gets to
 say so.
 
-The verifier is a boxed exec script beside this recipe's roles. Network
-is refused: `npm ci --offline` can use only the bound `~/.npm` cache
+The verifier is an exec script beside this recipe's roles. It runs
+`npm ci --offline`, which can use only the bound `~/.npm` cache
 artifacts, and a missing dependency fails closed with npm's decisive
-line quoted in the `fail` notes. The bundle itself is mounted read-only
-inside that box, so the command runs this recipe's script even when
+line quoted in the `fail` notes. Where the realm's boundary is
+`namespace`, Brokkr's box also refuses the network and mounts the bundle
+read-only inside it, so the command runs this recipe's script even when
 `--repo` names a different repository; no script-copying step is needed.
+Under `harness`, which `brokkr init` writes on macOS, the script runs
+unboxed in a rebuilt environment and no network denial is reported.
 
 It runs none of the checks #427 brought into `fast`'s verifier:
 `cargo fmt`, clippy and `scripts/lint-non-rust.sh` are this repository's
