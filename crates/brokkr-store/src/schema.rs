@@ -172,25 +172,31 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // re-asked inside the transaction. Second: a journal whose append
     // guards predate compare-and-append re-runs the idempotent migration
     // batch that carries them.
-    if sidecar_columns_missing(conn)? {
-        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        migrate_sidecar_columns(&tx)?;
-        tx.commit()?;
-    }
+    let missing = sidecar_columns_missing(conn)?;
+    repair_if(conn, missing, migrate_sidecar_columns)?;
     // Third: a journal from before the queue (decision 0068), or one that
     // lost a queue guard, gets the queue's tables and guards, on the same
     // terms. `DATABASE_SCHEMA` does not move for it, for the reason it
     // did not move for the sidecar columns.
-    if !queue_intact(conn)? {
-        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        migrate_queue(&tx)?;
-        tx.commit()?;
-    }
-    if guards_intact(conn)? {
+    let missing = !queue_intact(conn)?;
+    repair_if(conn, missing, migrate_queue)?;
+    let missing = !guards_intact(conn)?;
+    repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))
+}
+
+/// Apply `fix` under the immediate transaction, and only when `missing`:
+/// the steady path stays a read, and racing openers serialise on the
+/// lock rather than collide on the DDL.
+fn repair_if(
+    conn: &mut Connection,
+    missing: bool,
+    fix: impl FnOnce(&Connection) -> Result<(), StoreError>,
+) -> Result<(), StoreError> {
+    if !missing {
         return Ok(());
     }
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    tx.execute_batch(MIGRATION_V1)?;
+    fix(&tx)?;
     tx.commit()?;
     Ok(())
 }

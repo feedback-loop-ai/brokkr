@@ -567,29 +567,43 @@ fn command_once(
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     queue_present(&tx)?;
     admit(entry, standing(&tx, entry)?, command)?;
-    let mut position = None;
-    match command {
-        QueueCommand::Move { to } => {
-            let mut order = waiting(&tx)?;
-            let last = order.len() as u32;
-            if to == 0 || to > last {
-                return Err(QueueRefusal::PastTheEnds { entry, to, last }.into());
-            }
-            order.retain(|id| *id != entry);
-            order.insert(to as usize - 1, entry);
-            renumber(&tx, &order)?;
-            position = Some(to);
-        }
-        QueueCommand::Hold => set_standing(&tx, entry, Standing::Held)?,
-        QueueCommand::Release => set_standing(&tx, entry, Standing::Queued)?,
-        QueueCommand::Drop => {
-            set_standing(&tx, entry, Standing::Dropped)?;
-            leave_order(&tx, entry)?;
-        }
-    }
+    let position = apply(&tx, entry, command)?;
     record(&tx, entry, command.word(), position, by)?;
     tx.commit()?;
     Ok(())
+}
+
+/// Carry out an admitted command on `entry`, and say the place a move
+/// gave it.
+fn apply(
+    tx: &Transaction<'_>,
+    entry: EntryId,
+    command: QueueCommand,
+) -> Result<Option<u32>, StoreError> {
+    match command {
+        QueueCommand::Move { to } => move_entry(tx, entry, to).map(Some),
+        QueueCommand::Hold => set_standing(tx, entry, Standing::Held).map(|()| None),
+        QueueCommand::Release => set_standing(tx, entry, Standing::Queued).map(|()| None),
+        QueueCommand::Drop => {
+            set_standing(tx, entry, Standing::Dropped)?;
+            leave_order(tx, entry)?;
+            Ok(None)
+        }
+    }
+}
+
+/// Move `entry` to place `to` among the waiting entries, refusing a place
+/// past either end.
+fn move_entry(tx: &Transaction<'_>, entry: EntryId, to: u32) -> Result<u32, StoreError> {
+    let mut order = waiting(tx)?;
+    let last = order.len() as u32;
+    if to == 0 || to > last {
+        return Err(QueueRefusal::PastTheEnds { entry, to, last }.into());
+    }
+    order.retain(|id| *id != entry);
+    order.insert(to as usize - 1, entry);
+    renumber(tx, &order)?;
+    Ok(to)
 }
 
 fn claim_once(conn: &mut Connection, entry: EntryId, run: &str) -> Result<(), StoreError> {
