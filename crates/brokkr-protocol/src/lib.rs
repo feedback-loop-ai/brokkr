@@ -10,6 +10,7 @@ pub mod adapters;
 pub mod dsh_sandbox;
 pub mod fake;
 pub mod hands;
+pub mod native_controls;
 pub mod oneshot;
 pub mod overrides;
 pub mod process;

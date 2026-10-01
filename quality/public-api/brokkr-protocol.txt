@@ -79,8 +79,12 @@ pub const brokkr_protocol::adapters::EFFORT_NOT_REPORTED: &str
 pub const brokkr_protocol::adapters::MODEL_NOT_APPLICABLE: &str
 pub const brokkr_protocol::adapters::MODEL_NOT_REPORTED: &str
 pub const brokkr_protocol::adapters::TOOL_IDENTIFIER_LIMIT: usize
+pub fn brokkr_protocol::adapters::claude_command(&str, &[alloc::string::String], core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
+pub fn brokkr_protocol::adapters::codex_command(&str, &[alloc::string::String], &str, core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
+pub fn brokkr_protocol::adapters::dsh_cold_command(&str, &[alloc::string::String], &str, &str, &str, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::adapters::dsh_composite(&brokkr_protocol::adapters::DshSeams) -> core::result::Result<brokkr_protocol::adapters::DshComposite, brokkr_protocol::adapters::CompositeError>
 pub fn brokkr_protocol::adapters::dsh_composite_prepared(&brokkr_protocol::adapters::DshPrepared) -> core::result::Result<brokkr_protocol::adapters::DshComposite, brokkr_protocol::adapters::CompositeError>
+pub fn brokkr_protocol::adapters::lanetally_command(&str, &[alloc::string::String], core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::adapters::render_prompt(&serde_json::value::Value, brokkr_protocol::adapters::AdapterKind) -> core::result::Result<alloc::string::String, brokkr_protocol::adapters::StartRefusal>
 pub fn brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind, alloc::vec::Vec<alloc::string::String>) -> core::io::error::Result<()>
 pub mod brokkr_protocol::dsh_sandbox
@@ -191,6 +195,351 @@ pub fn brokkr_protocol::hands::skip_boundary_proof(bool, &str)
 pub fn brokkr_protocol::hands::tool_definition() -> serde_json::value::Value
 pub fn brokkr_protocol::hands::unboxed_environment(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &[(alloc::string::String, alloc::string::String)], &std::path::Path, &std::path::Path) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
 pub type brokkr_protocol::hands::Executor = dyn core::ops::function::Fn(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
+pub mod brokkr_protocol::native_controls
+pub mod brokkr_protocol::native_controls::grammar
+pub enum brokkr_protocol::native_controls::grammar::Arity
+pub brokkr_protocol::native_controls::grammar::Arity::Bare
+pub brokkr_protocol::native_controls::grammar::Arity::One
+pub brokkr_protocol::native_controls::grammar::Arity::Variadic
+pub enum brokkr_protocol::native_controls::grammar::Effect
+pub brokkr_protocol::native_controls::grammar::Effect::Config
+pub brokkr_protocol::native_controls::grammar::Effect::Control(brokkr_protocol::native_controls::grammar::Power)
+pub brokkr_protocol::native_controls::grammar::Effect::Inert
+pub brokkr_protocol::native_controls::grammar::Effect::List(brokkr_protocol::native_controls::grammar::ListKind)
+pub brokkr_protocol::native_controls::grammar::Effect::Load
+pub brokkr_protocol::native_controls::grammar::Effect::Route
+pub brokkr_protocol::native_controls::grammar::Effect::Session
+pub brokkr_protocol::native_controls::grammar::Effect::Switch
+pub enum brokkr_protocol::native_controls::grammar::ListKind
+pub brokkr_protocol::native_controls::grammar::ListKind::Allow
+pub brokkr_protocol::native_controls::grammar::ListKind::Deny
+pub brokkr_protocol::native_controls::grammar::ListKind::Include
+pub enum brokkr_protocol::native_controls::grammar::Power
+pub brokkr_protocol::native_controls::grammar::Power::Filesystem
+pub brokkr_protocol::native_controls::grammar::Power::Mcp
+pub brokkr_protocol::native_controls::grammar::Power::Permission
+pub brokkr_protocol::native_controls::grammar::Power::Tools
+pub brokkr_protocol::native_controls::grammar::Power::Web
+pub enum brokkr_protocol::native_controls::grammar::Setting
+pub brokkr_protocol::native_controls::grammar::Setting::Capability(&'static str)
+pub brokkr_protocol::native_controls::grammar::Setting::Inert(&'static str)
+pub struct brokkr_protocol::native_controls::grammar::Admitted
+pub brokkr_protocol::native_controls::grammar::Admitted::denies: core::option::Option<&'static str>
+pub brokkr_protocol::native_controls::grammar::Admitted::key: &'static str
+pub brokkr_protocol::native_controls::grammar::Admitted::source: &'static str
+pub brokkr_protocol::native_controls::grammar::Admitted::values: &'static [&'static str]
+pub struct brokkr_protocol::native_controls::grammar::BoundedCause(_)
+impl core::fmt::Display for brokkr_protocol::native_controls::grammar::BoundedCause
+pub fn brokkr_protocol::native_controls::grammar::BoundedCause::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_protocol::native_controls::grammar::Command
+pub brokkr_protocol::native_controls::grammar::Command::nodes: alloc::vec::Vec<brokkr_protocol::native_controls::grammar::Node>
+impl brokkr_protocol::native_controls::grammar::Command
+pub fn brokkr_protocol::native_controls::grammar::Command::lists(&self, brokkr_protocol::native_controls::grammar::ListKind) -> impl core::iter::traits::iterator::Iterator<Item = &brokkr_protocol::native_controls::grammar::Node>
+pub struct brokkr_protocol::native_controls::grammar::Final
+pub brokkr_protocol::native_controls::grammar::Final::command: brokkr_protocol::native_controls::grammar::Command
+pub brokkr_protocol::native_controls::grammar::Final::overlay: core::option::Option<alloc::string::String>
+pub brokkr_protocol::native_controls::grammar::Final::prompt: core::option::Option<alloc::string::String>
+pub brokkr_protocol::native_controls::grammar::Final::session: core::option::Option<alloc::string::String>
+pub brokkr_protocol::native_controls::grammar::Final::subcommands: alloc::vec::Vec<&'static str>
+pub struct brokkr_protocol::native_controls::grammar::Grammar
+pub brokkr_protocol::native_controls::grammar::Grammar::harness: &'static str
+pub brokkr_protocol::native_controls::grammar::Grammar::options: &'static [brokkr_protocol::native_controls::grammar::Spec]
+impl brokkr_protocol::native_controls::grammar::Grammar
+pub fn brokkr_protocol::native_controls::grammar::Grammar::label(&self, &str) -> alloc::string::String
+pub fn brokkr_protocol::native_controls::grammar::Grammar::parse(&self, &[alloc::string::String]) -> core::result::Result<brokkr_protocol::native_controls::grammar::Command, brokkr_protocol::native_controls::grammar::Problem>
+pub fn brokkr_protocol::native_controls::grammar::Grammar::parse_final(&self, &[alloc::string::String]) -> core::result::Result<brokkr_protocol::native_controls::grammar::Final, brokkr_protocol::native_controls::grammar::Problem>
+pub struct brokkr_protocol::native_controls::grammar::Node
+pub brokkr_protocol::native_controls::grammar::Node::at: usize
+pub brokkr_protocol::native_controls::grammar::Node::joined: bool
+pub brokkr_protocol::native_controls::grammar::Node::spec: &'static brokkr_protocol::native_controls::grammar::Spec
+pub brokkr_protocol::native_controls::grammar::Node::spelling: alloc::string::String
+pub brokkr_protocol::native_controls::grammar::Node::tokens: usize
+pub brokkr_protocol::native_controls::grammar::Node::values: alloc::vec::Vec<alloc::string::String>
+impl brokkr_protocol::native_controls::grammar::Node
+pub fn brokkr_protocol::native_controls::grammar::Node::bears_capability(&self) -> core::result::Result<bool, &'static str>
+pub fn brokkr_protocol::native_controls::grammar::Node::list(&self) -> core::option::Option<brokkr_protocol::native_controls::grammar::ListKind>
+pub fn brokkr_protocol::native_controls::grammar::Node::name(&self) -> &'static str
+pub struct brokkr_protocol::native_controls::grammar::Problem
+pub brokkr_protocol::native_controls::grammar::Problem::at: usize
+pub brokkr_protocol::native_controls::grammar::Problem::cause: alloc::string::String
+pub brokkr_protocol::native_controls::grammar::Problem::harness: alloc::string::String
+pub brokkr_protocol::native_controls::grammar::Problem::label: alloc::string::String
+pub brokkr_protocol::native_controls::grammar::Problem::token: alloc::string::String
+impl core::fmt::Display for brokkr_protocol::native_controls::grammar::Problem
+pub fn brokkr_protocol::native_controls::grammar::Problem::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_protocol::native_controls::grammar::Spec
+pub brokkr_protocol::native_controls::grammar::Spec::aliases: &'static [&'static str]
+pub brokkr_protocol::native_controls::grammar::Spec::arity: brokkr_protocol::native_controls::grammar::Arity
+pub brokkr_protocol::native_controls::grammar::Spec::attached: bool
+pub brokkr_protocol::native_controls::grammar::Spec::canonical: &'static str
+pub brokkr_protocol::native_controls::grammar::Spec::effect: brokkr_protocol::native_controls::grammar::Effect
+pub brokkr_protocol::native_controls::grammar::Spec::equals: bool
+pub brokkr_protocol::native_controls::grammar::Spec::repeat: bool
+pub const brokkr_protocol::native_controls::grammar::CAPABILITY_TABLES: [&str; 10]
+pub const brokkr_protocol::native_controls::grammar::LAUNCH_SETTINGS: [brokkr_protocol::native_controls::grammar::Admitted; 2]
+pub const brokkr_protocol::native_controls::grammar::POSITIONAL_LABEL: &str
+pub const brokkr_protocol::native_controls::grammar::TABLES: [&brokkr_protocol::native_controls::grammar::Grammar; 4]
+pub const brokkr_protocol::native_controls::grammar::UNMODELLED_LABEL: &str
+pub fn brokkr_protocol::native_controls::grammar::config_key(&str) -> alloc::string::String
+pub fn brokkr_protocol::native_controls::grammar::config_under(&str, &str) -> bool
+pub fn brokkr_protocol::native_controls::grammar::grammar(&str) -> core::option::Option<&'static brokkr_protocol::native_controls::grammar::Grammar>
+pub fn brokkr_protocol::native_controls::grammar::inline_codex_denials(&[alloc::string::String]) -> alloc::vec::Vec<&'static str>
+pub fn brokkr_protocol::native_controls::grammar::judge_inline_codex_command(brokkr_protocol::native_controls::SandboxIntent, &[alloc::string::String], &[brokkr_protocol::native_controls::Segment], core::option::Option<&str>, &str) -> core::result::Result<(), brokkr_protocol::native_controls::grammar::BoundedCause>
+pub fn brokkr_protocol::native_controls::grammar::judge_inline_codex_launch(brokkr_protocol::native_controls::SandboxIntent, &[brokkr_protocol::native_controls::Segment], core::option::Option<&str>) -> core::result::Result<(), brokkr_protocol::native_controls::grammar::BoundedCause>
+pub fn brokkr_protocol::native_controls::grammar::launch_setting(&str) -> core::result::Result<&'static str, alloc::string::String>
+pub fn brokkr_protocol::native_controls::grammar::list_of(&str, &str) -> core::option::Option<brokkr_protocol::native_controls::grammar::ListKind>
+pub fn brokkr_protocol::native_controls::grammar::managed_patterns(&str) -> core::result::Result<alloc::vec::Vec<&str>, &'static str>
+pub fn brokkr_protocol::native_controls::grammar::managed_separator(&str) -> core::result::Result<char, &'static str>
+pub fn brokkr_protocol::native_controls::grammar::node_patterns(&brokkr_protocol::native_controls::grammar::Node) -> alloc::vec::Vec<&str>
+pub fn brokkr_protocol::native_controls::grammar::parse(&str, &[alloc::string::String]) -> core::option::Option<core::result::Result<brokkr_protocol::native_controls::grammar::Command, brokkr_protocol::native_controls::grammar::Problem>>
+pub fn brokkr_protocol::native_controls::grammar::parse_final(&str, &[alloc::string::String]) -> core::option::Option<core::result::Result<brokkr_protocol::native_controls::grammar::Final, brokkr_protocol::native_controls::grammar::Problem>>
+pub fn brokkr_protocol::native_controls::grammar::rejoin_class(brokkr_protocol::native_controls::SandboxIntent) -> alloc::string::String
+pub fn brokkr_protocol::native_controls::grammar::setting(&str) -> core::result::Result<brokkr_protocol::native_controls::grammar::Setting, &'static str>
+pub fn brokkr_protocol::native_controls::grammar::tool_name(&str) -> &str
+pub fn brokkr_protocol::native_controls::grammar::tool_patterns(&str) -> alloc::vec::Vec<&str>
+pub enum brokkr_protocol::native_controls::AllowIntent
+pub brokkr_protocol::native_controls::AllowIntent::Listed(alloc::vec::Vec<alloc::string::String>)
+pub brokkr_protocol::native_controls::AllowIntent::Unspecified
+pub enum brokkr_protocol::native_controls::Application
+pub brokkr_protocol::native_controls::Application::Direct(alloc::vec::Vec<alloc::string::String>)
+pub brokkr_protocol::native_controls::Application::Dormant
+pub brokkr_protocol::native_controls::Application::Unrestricted
+pub enum brokkr_protocol::native_controls::Conflict
+pub brokkr_protocol::native_controls::Conflict::Carried(alloc::string::String)
+pub brokkr_protocol::native_controls::Conflict::Excluded
+pub brokkr_protocol::native_controls::Conflict::Excluded::capability: alloc::string::String
+pub brokkr_protocol::native_controls::Conflict::Excluded::limit: usize
+pub brokkr_protocol::native_controls::Conflict::Excluded::tool: alloc::string::String
+pub brokkr_protocol::native_controls::Conflict::Outside
+pub brokkr_protocol::native_controls::Conflict::Outside::by: brokkr_protocol::native_controls::Typed
+pub brokkr_protocol::native_controls::Conflict::Outside::limit: usize
+pub brokkr_protocol::native_controls::Conflict::Outside::tool: alloc::string::String
+pub brokkr_protocol::native_controls::Conflict::Unheld(alloc::string::String)
+pub enum brokkr_protocol::native_controls::Expressed
+pub brokkr_protocol::native_controls::Expressed::Class(&'static str)
+pub brokkr_protocol::native_controls::Expressed::Control(&'static str, alloc::vec::Vec<alloc::string::String>)
+pub brokkr_protocol::native_controls::Expressed::List(brokkr_protocol::native_controls::grammar::ListKind, alloc::vec::Vec<alloc::string::String>)
+pub brokkr_protocol::native_controls::Expressed::Off(&'static str)
+pub enum brokkr_protocol::native_controls::Failure
+pub brokkr_protocol::native_controls::Failure::Excluded(brokkr_protocol::native_controls::Exclusion)
+pub brokkr_protocol::native_controls::Failure::Refused(brokkr_protocol::native_controls::Refusal)
+impl brokkr_protocol::native_controls::Failure
+pub fn brokkr_protocol::native_controls::Failure::refusal(self) -> brokkr_protocol::native_controls::Refusal
+impl core::convert::From<brokkr_protocol::native_controls::Refusal> for brokkr_protocol::native_controls::Failure
+pub fn brokkr_protocol::native_controls::Failure::from(brokkr_protocol::native_controls::Refusal) -> brokkr_protocol::native_controls::Failure
+pub enum brokkr_protocol::native_controls::HandsIntent
+pub brokkr_protocol::native_controls::HandsIntent::None
+pub brokkr_protocol::native_controls::HandsIntent::Required
+pub enum brokkr_protocol::native_controls::Inventory
+pub brokkr_protocol::native_controls::Inventory::Known
+pub brokkr_protocol::native_controls::Inventory::Unmeasured(alloc::string::String)
+pub enum brokkr_protocol::native_controls::LimitOrigin
+pub brokkr_protocol::native_controls::LimitOrigin::Hands
+pub brokkr_protocol::native_controls::LimitOrigin::Managed
+pub brokkr_protocol::native_controls::LimitOrigin::Plan
+pub brokkr_protocol::native_controls::LimitOrigin::Template
+pub enum brokkr_protocol::native_controls::NativeExpectation
+pub brokkr_protocol::native_controls::NativeExpectation::Known
+pub brokkr_protocol::native_controls::NativeExpectation::Known::denied: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::NativeExpectation::Known::held: alloc::vec::Vec<brokkr_protocol::native_controls::HeldPower>
+pub brokkr_protocol::native_controls::NativeExpectation::Unmeasured(alloc::string::String)
+impl brokkr_protocol::native_controls::NativeExpectation
+pub fn brokkr_protocol::native_controls::NativeExpectation::admits(&self) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::vec::Vec<alloc::string::String>>
+pub enum brokkr_protocol::native_controls::Origin
+pub brokkr_protocol::native_controls::Origin::Authored
+pub brokkr_protocol::native_controls::Origin::Hands
+pub brokkr_protocol::native_controls::Origin::Local
+pub brokkr_protocol::native_controls::Origin::Native
+pub brokkr_protocol::native_controls::Origin::Template
+impl brokkr_protocol::native_controls::Origin
+pub const brokkr_protocol::native_controls::Origin::VOCABULARY: &'static str
+pub fn brokkr_protocol::native_controls::Origin::word(self) -> &'static str
+pub enum brokkr_protocol::native_controls::SandboxIntent
+pub brokkr_protocol::native_controls::SandboxIntent::DangerFullAccess
+pub brokkr_protocol::native_controls::SandboxIntent::ReadOnly
+pub brokkr_protocol::native_controls::SandboxIntent::Unspecified
+pub brokkr_protocol::native_controls::SandboxIntent::WorkspaceWrite
+pub enum brokkr_protocol::native_controls::SealedBoundary
+pub brokkr_protocol::native_controls::SealedBoundary::Container
+pub brokkr_protocol::native_controls::SealedBoundary::Harness
+pub brokkr_protocol::native_controls::SealedBoundary::Namespace
+pub brokkr_protocol::native_controls::SealedBoundary::Open
+pub brokkr_protocol::native_controls::SealedBoundary::Seatbelt
+impl brokkr_protocol::native_controls::SealedBoundary
+pub fn brokkr_protocol::native_controls::SealedBoundary::named(&str) -> core::option::Option<brokkr_protocol::native_controls::SealedBoundary>
+pub enum brokkr_protocol::native_controls::TemplateExpectation
+pub brokkr_protocol::native_controls::TemplateExpectation::Declared(alloc::vec::Vec<alloc::string::String>)
+pub brokkr_protocol::native_controls::TemplateExpectation::None
+pub enum brokkr_protocol::native_controls::Typed
+pub brokkr_protocol::native_controls::Typed::Hands
+pub brokkr_protocol::native_controls::Typed::Local
+pub struct brokkr_protocol::native_controls::Checked
+impl brokkr_protocol::native_controls::Checked
+pub fn brokkr_protocol::native_controls::Checked::argv(&self) -> &[alloc::string::String]
+pub fn brokkr_protocol::native_controls::Checked::into_argv(self) -> alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_protocol::native_controls::Composed
+pub brokkr_protocol::native_controls::Composed::extra: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Composed::managed: alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_protocol::native_controls::Controls
+pub brokkr_protocol::native_controls::Controls::admits: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::vec::Vec<alloc::string::String>>
+pub brokkr_protocol::native_controls::Controls::argv: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Controls::denied: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Controls::guards: alloc::vec::Vec<brokkr_protocol::native_controls::Guard>
+pub brokkr_protocol::native_controls::Controls::harness: alloc::string::String
+pub brokkr_protocol::native_controls::Controls::held: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Controls::inventory: brokkr_protocol::native_controls::Inventory
+pub brokkr_protocol::native_controls::Controls::provenance: brokkr_protocol::native_controls::Provenance
+pub brokkr_protocol::native_controls::Controls::provider: alloc::string::String
+pub brokkr_protocol::native_controls::Controls::selection: brokkr_protocol::native_controls::Selection
+pub struct brokkr_protocol::native_controls::Dialect<'a>
+pub brokkr_protocol::native_controls::Dialect::boundary: &'a [alloc::string::String]
+pub brokkr_protocol::native_controls::Dialect::hands: &'a [alloc::string::String]
+pub brokkr_protocol::native_controls::Dialect::permissions: core::option::Option<&'a brokkr_protocol::native_controls::ListFlag>
+pub brokkr_protocol::native_controls::Dialect::sandbox: &'a [alloc::string::String]
+pub brokkr_protocol::native_controls::Dialect::stands: core::option::Option<brokkr_protocol::native_controls::SealedBoundary>
+pub struct brokkr_protocol::native_controls::Exclusion
+pub brokkr_protocol::native_controls::Exclusion::capability: alloc::string::String
+pub brokkr_protocol::native_controls::Exclusion::clause: alloc::string::String
+pub brokkr_protocol::native_controls::Exclusion::refusal: brokkr_protocol::native_controls::Refusal
+pub struct brokkr_protocol::native_controls::Expected
+pub brokkr_protocol::native_controls::Expected::hands: brokkr_protocol::native_controls::HandsIntent
+pub brokkr_protocol::native_controls::Expected::identity: brokkr_protocol::native_controls::Identity
+pub brokkr_protocol::native_controls::Expected::local: brokkr_protocol::native_controls::LocalExpectation
+pub brokkr_protocol::native_controls::Expected::native: brokkr_protocol::native_controls::NativeExpectation
+pub brokkr_protocol::native_controls::Expected::template: brokkr_protocol::native_controls::TemplateExpectation
+pub struct brokkr_protocol::native_controls::Guard
+pub brokkr_protocol::native_controls::Guard::capability: alloc::string::String
+pub brokkr_protocol::native_controls::Guard::config_flags: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Guard::config_keys: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Guard::feature_flags: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Guard::features: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Guard::flags: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Guard::list_flags: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Guard::tools: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Guard::value_flags: alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_protocol::native_controls::HeldPower
+pub brokkr_protocol::native_controls::HeldPower::capability: alloc::string::String
+pub brokkr_protocol::native_controls::HeldPower::restrictions: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub brokkr_protocol::native_controls::HeldPower::tools: alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_protocol::native_controls::Identity
+pub brokkr_protocol::native_controls::Identity::harness: alloc::string::String
+pub brokkr_protocol::native_controls::Identity::model: core::option::Option<alloc::string::String>
+pub brokkr_protocol::native_controls::Identity::provider: alloc::string::String
+pub struct brokkr_protocol::native_controls::LaunchRecord
+pub brokkr_protocol::native_controls::LaunchRecord::expected: brokkr_protocol::native_controls::Expected
+pub brokkr_protocol::native_controls::LaunchRecord::segments: alloc::vec::Vec<brokkr_protocol::native_controls::Segment>
+impl brokkr_protocol::native_controls::LaunchRecord
+pub fn brokkr_protocol::native_controls::LaunchRecord::decode(core::option::Option<&serde_json::value::Value>) -> core::result::Result<brokkr_protocol::native_controls::LaunchRecord, alloc::string::String>
+pub fn brokkr_protocol::native_controls::LaunchRecord::value(&self) -> serde_json::value::Value
+pub struct brokkr_protocol::native_controls::Limit
+pub brokkr_protocol::native_controls::Limit::flag: alloc::string::String
+pub brokkr_protocol::native_controls::Limit::names: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Limit::origin: brokkr_protocol::native_controls::LimitOrigin
+pub struct brokkr_protocol::native_controls::ListFlag
+pub brokkr_protocol::native_controls::ListFlag::flag: alloc::string::String
+pub brokkr_protocol::native_controls::ListFlag::separator: alloc::string::String
+pub struct brokkr_protocol::native_controls::LocalExpectation
+pub brokkr_protocol::native_controls::LocalExpectation::allow: brokkr_protocol::native_controls::AllowIntent
+pub brokkr_protocol::native_controls::LocalExpectation::application: brokkr_protocol::native_controls::Application
+pub brokkr_protocol::native_controls::LocalExpectation::sandbox: brokkr_protocol::native_controls::SandboxIntent
+pub struct brokkr_protocol::native_controls::Provenance
+pub brokkr_protocol::native_controls::Provenance::hands: usize
+pub brokkr_protocol::native_controls::Provenance::local: alloc::vec::Vec<alloc::string::String>
+impl brokkr_protocol::native_controls::Provenance
+pub const brokkr_protocol::native_controls::Provenance::NONE: &'static brokkr_protocol::native_controls::Provenance
+pub struct brokkr_protocol::native_controls::Refusal
+pub brokkr_protocol::native_controls::Refusal::authored: bool
+pub brokkr_protocol::native_controls::Refusal::cause: alloc::string::String
+impl brokkr_protocol::native_controls::Refusal
+pub fn brokkr_protocol::native_controls::Refusal::at_compile(&self, &brokkr_protocol::native_controls::Site<'_>) -> alloc::string::String
+pub fn brokkr_protocol::native_controls::Refusal::at_launch(&self, &serde_json::value::Value) -> alloc::string::String
+impl core::convert::From<brokkr_protocol::native_controls::Refusal> for brokkr_protocol::native_controls::Failure
+pub fn brokkr_protocol::native_controls::Failure::from(brokkr_protocol::native_controls::Refusal) -> brokkr_protocol::native_controls::Failure
+pub struct brokkr_protocol::native_controls::SealedDialect
+pub brokkr_protocol::native_controls::SealedDialect::boundary: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::SealedDialect::hands: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::SealedDialect::permissions: core::option::Option<brokkr_protocol::native_controls::ListFlag>
+pub brokkr_protocol::native_controls::SealedDialect::sandbox: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::SealedDialect::stands: core::option::Option<brokkr_protocol::native_controls::SealedBoundary>
+pub struct brokkr_protocol::native_controls::SealedServing
+pub brokkr_protocol::native_controls::SealedServing::dialect: brokkr_protocol::native_controls::SealedDialect
+pub brokkr_protocol::native_controls::SealedServing::pins: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::SealedServing::spec: core::option::Option<brokkr_protocol::hands::HandsSpec>
+impl brokkr_protocol::native_controls::SealedServing
+pub fn brokkr_protocol::native_controls::SealedServing::decode(core::option::Option<&serde_json::value::Value>) -> core::result::Result<brokkr_protocol::native_controls::SealedServing, alloc::string::String>
+pub fn brokkr_protocol::native_controls::SealedServing::value(&self) -> serde_json::value::Value
+pub struct brokkr_protocol::native_controls::Segment
+pub brokkr_protocol::native_controls::Segment::argv: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Segment::origin: brokkr_protocol::native_controls::Origin
+impl brokkr_protocol::native_controls::Segment
+pub fn brokkr_protocol::native_controls::Segment::new(brokkr_protocol::native_controls::Origin, &[alloc::string::String]) -> brokkr_protocol::native_controls::Segment
+pub struct brokkr_protocol::native_controls::Selection
+pub brokkr_protocol::native_controls::Selection::allow: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Selection::deny: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Selection::flags: core::option::Option<[brokkr_protocol::native_controls::ListFlag; 3]>
+pub brokkr_protocol::native_controls::Selection::include: alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_protocol::native_controls::Serving<'a>
+pub brokkr_protocol::native_controls::Serving::authored: &'a [alloc::string::String]
+pub brokkr_protocol::native_controls::Serving::hands: core::option::Option<brokkr_protocol::native_controls::Transport<'a>>
+pub brokkr_protocol::native_controls::Serving::output: core::option::Option<&'a str>
+pub brokkr_protocol::native_controls::Serving::overlay: core::option::Option<&'a str>
+pub brokkr_protocol::native_controls::Serving::pins: &'a [alloc::string::String]
+pub brokkr_protocol::native_controls::Serving::program: &'a str
+pub brokkr_protocol::native_controls::Serving::prompt: core::option::Option<&'a str>
+pub brokkr_protocol::native_controls::Serving::session: core::option::Option<&'a str>
+pub brokkr_protocol::native_controls::Serving::stream: bool
+pub brokkr_protocol::native_controls::Serving::workdir: &'a str
+pub struct brokkr_protocol::native_controls::Site<'a>
+pub brokkr_protocol::native_controls::Site::office: &'a str
+pub brokkr_protocol::native_controls::Site::realm: &'a str
+pub brokkr_protocol::native_controls::Site::seat: &'a str
+impl core::fmt::Display for brokkr_protocol::native_controls::Site<'_>
+pub fn brokkr_protocol::native_controls::Site<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_protocol::native_controls::Sources<'a>
+pub brokkr_protocol::native_controls::Sources::allow: &'a [alloc::string::String]
+pub brokkr_protocol::native_controls::Sources::carried: &'a [alloc::string::String]
+pub brokkr_protocol::native_controls::Sources::hands: &'a [alloc::string::String]
+pub brokkr_protocol::native_controls::Sources::include: &'a [alloc::string::String]
+pub brokkr_protocol::native_controls::Sources::local: &'a [alloc::string::String]
+pub struct brokkr_protocol::native_controls::State
+pub brokkr_protocol::native_controls::State::effects: alloc::vec::Vec<brokkr_protocol::native_controls::Expressed>
+pub brokkr_protocol::native_controls::State::prompt: core::option::Option<alloc::string::String>
+pub brokkr_protocol::native_controls::State::session: core::option::Option<alloc::string::String>
+pub struct brokkr_protocol::native_controls::Toolset
+pub brokkr_protocol::native_controls::Toolset::allow: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::native_controls::Toolset::include: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub struct brokkr_protocol::native_controls::Transport<'a>
+pub brokkr_protocol::native_controls::Transport::brokkr: &'a std::path::Path
+pub brokkr_protocol::native_controls::Transport::spec: &'a brokkr_protocol::hands::HandsSpec
+pub brokkr_protocol::native_controls::Transport::workdir: &'a std::path::Path
+impl brokkr_protocol::native_controls::Transport<'_>
+pub fn brokkr_protocol::native_controls::Transport<'_>::expand(&self, &[alloc::string::String]) -> core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub const brokkr_protocol::native_controls::LINE: usize
+pub const brokkr_protocol::native_controls::ROLE_TEXT: &str
+pub const brokkr_protocol::native_controls::SERVING_INPUTS: &str
+pub fn brokkr_protocol::native_controls::authored_conflict(&str, &[alloc::string::String], &[brokkr_protocol::native_controls::Guard]) -> core::result::Result<core::option::Option<(alloc::string::String, alloc::string::String)>, brokkr_protocol::native_controls::Refusal>
+pub fn brokkr_protocol::native_controls::authored_refusal(&str, &[alloc::string::String]) -> core::result::Result<(), brokkr_protocol::native_controls::Refusal>
+pub fn brokkr_protocol::native_controls::authored_server_conflict(&brokkr_protocol::native_controls::grammar::Command) -> core::option::Option<alloc::string::String>
+pub fn brokkr_protocol::native_controls::bounded_line(&str) -> alloc::string::String
+pub fn brokkr_protocol::native_controls::capabilities_paragraph(&serde_json::value::Value) -> alloc::string::String
+pub fn brokkr_protocol::native_controls::check_final(&str, alloc::vec::Vec<alloc::string::String>, &brokkr_protocol::native_controls::Controls, &brokkr_protocol::native_controls::Expected, brokkr_protocol::native_controls::Dialect<'_>, brokkr_protocol::native_controls::Serving<'_>) -> core::result::Result<brokkr_protocol::native_controls::Checked, brokkr_protocol::native_controls::Refusal>
+pub fn brokkr_protocol::native_controls::compose_for_provider(&str, &[alloc::string::String], &[alloc::string::String], &brokkr_protocol::native_controls::Controls) -> core::result::Result<brokkr_protocol::native_controls::Composed, brokkr_protocol::native_controls::Refusal>
+pub fn brokkr_protocol::native_controls::compose_or_exclude(&str, &[alloc::string::String], &[alloc::string::String], &brokkr_protocol::native_controls::Controls) -> core::result::Result<brokkr_protocol::native_controls::Composed, brokkr_protocol::native_controls::Failure>
+pub fn brokkr_protocol::native_controls::conflict_refusal(&serde_json::value::Value, &(alloc::string::String, alloc::string::String)) -> alloc::string::String
+pub fn brokkr_protocol::native_controls::declared_values(&str, &brokkr_protocol::native_controls::grammar::Node) -> core::result::Result<(), alloc::string::String>
+pub fn brokkr_protocol::native_controls::final_tools(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::vec::Vec<alloc::string::String>>, brokkr_protocol::native_controls::Sources<'_>, &[brokkr_protocol::native_controls::Limit], bool) -> core::result::Result<brokkr_protocol::native_controls::Toolset, brokkr_protocol::native_controls::Conflict>
+pub fn brokkr_protocol::native_controls::flatten(&[brokkr_protocol::native_controls::Segment]) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_protocol::native_controls::harness_arguments(&[alloc::string::String]) -> &[alloc::string::String]
+pub fn brokkr_protocol::native_controls::known_powers(&str) -> &'static [&'static str]
+pub fn brokkr_protocol::native_controls::launch_arguments(&serde_json::value::Value, &[alloc::string::String]) -> core::result::Result<(alloc::vec::Vec<alloc::string::String>, alloc::vec::Vec<alloc::string::String>), alloc::string::String>
+pub fn brokkr_protocol::native_controls::managed(&serde_json::value::Value) -> core::result::Result<core::option::Option<brokkr_protocol::native_controls::Controls>, alloc::string::String>
+pub fn brokkr_protocol::native_controls::native_segment(&str, &brokkr_protocol::native_controls::Controls) -> core::result::Result<brokkr_protocol::native_controls::Segment, brokkr_protocol::native_controls::Refusal>
+pub fn brokkr_protocol::native_controls::opaque_conflict(&[alloc::string::String], &[brokkr_protocol::native_controls::Guard]) -> core::option::Option<(alloc::string::String, alloc::string::String)>
+pub fn brokkr_protocol::native_controls::parse_origin(&str, &[alloc::string::String], bool) -> core::result::Result<core::option::Option<brokkr_protocol::native_controls::grammar::Command>, brokkr_protocol::native_controls::Refusal>
+pub fn brokkr_protocol::native_controls::permission_control(&str) -> core::option::Option<&'static str>
+pub fn brokkr_protocol::native_controls::pin_fault(&[alloc::string::String], &[alloc::string::String]) -> core::option::Option<&'static str>
+pub fn brokkr_protocol::native_controls::reassemble(&[brokkr_protocol::native_controls::Segment], &[alloc::string::String]) -> core::result::Result<(), alloc::string::String>
+pub fn brokkr_protocol::native_controls::verified_role(&serde_json::value::Value) -> core::result::Result<(), alloc::string::String>
 pub mod brokkr_protocol::oneshot
 pub enum brokkr_protocol::oneshot::OneShot
 pub brokkr_protocol::oneshot::OneShot::Produced

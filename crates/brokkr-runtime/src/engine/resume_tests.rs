@@ -6,6 +6,7 @@
 //! id of its own per invocation, and answers. What the engine offered is
 //! therefore read off the wire the driver actually saw, never inferred.
 
+use super::tests::templated;
 use super::*;
 use crate::agents::{Candidate, HarnessHands};
 use crate::bundle::{Limits, Seat};
@@ -266,13 +267,119 @@ fn single(command: Vec<String>, candidates: Vec<Candidate>) -> SeatBody {
 }
 
 /// `single` over a readable, empty charter, for a seat the REAL adapter
-/// drives: it refuses to start on a charter it cannot read (#372).
-fn chartered(command: Vec<String>, candidates: Vec<Candidate>) -> SeatBody {
+/// drives: it refuses to start on a charter it cannot read (#372). Under
+/// decision 0065 the dispatch door reads the charter the compile bound to
+/// the site and hands its driver that text, so the charter is `charter`,
+/// the one [`dsh_served`] binds.
+fn chartered(command: Vec<String>, candidates: Vec<Candidate>, charter: &Path) -> SeatBody {
     SeatBody::Single {
-        role_path: PathBuf::from("/dev/null"),
+        role_path: charter.to_path_buf(),
         command,
         candidates,
     }
+}
+
+/// The empty charter of the layer `layer` that [`dsh_served`] binds.
+#[cfg(unix)]
+const DSH_CHARTER: &str = "roles/dsh.md";
+
+/// A DSH link whose driver verb is `script`: `sh -c <script> --` stands
+/// where `<engine> driver dsh --` would, so the arguments behind it are the
+/// driver's extras and reach the script as `$@`. Its composition (design
+/// D5.7) carries that verb as the template and the extras as the recipe's
+/// own words, which the adapter's final check recomposes the DSH command
+/// from; nothing is lowered and no hands are composed.
+#[cfg(unix)]
+fn dsh_link(script: &str, extras: &[&str], resume: crate::agents::ResumeAssessment) -> Candidate {
+    let words = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()
+    };
+    let segments = vec![
+        Segment::new(Origin::Template, &words(&["sh", "-c", script, "--"])),
+        Segment::new(Origin::Authored, &words(extras)),
+    ];
+    Candidate {
+        agent: "implementer".into(),
+        model: "deepseek/deepseek-v4-flash".into(),
+        effort: None,
+        provider: "dsh".into(),
+        argv: flatten(&segments),
+        hands_fragment: Vec::new(),
+        harness: HarnessHands::default(),
+        resume,
+        hands_notice: None,
+        lowering: Lowering::Composed(crate::agents::Composition {
+            template: crate::agents::declared_template(&segments[0].argv),
+            segments,
+            effort: None,
+            intent: crate::agents::Intent {
+                allow: AllowIntent::Unspecified,
+                sandbox: SandboxIntent::Unspecified,
+                hands: HandsIntent::None,
+            },
+            application: Application::Unrestricted,
+            serving: Default::default(),
+        }),
+    }
+}
+
+/// Decision 0065 at the one site of `bundle` the REAL DSH adapter serves
+/// through `link`. Dispatch seals a launch, and hands its driver a native
+/// plan, only where the site's capability outcome was computed; it hands
+/// over the text of the charter the compile bound to the site; and the
+/// adapter refuses a launch sealed without either. So the site carries
+/// both, as a compile writes them: its charter, the empty [`DSH_CHARTER`]
+/// of the bundle's own layer bound to that layer, and the outcome the
+/// SHIPPED DSH declaration resolves to in a realm that grants nothing —
+/// an unmeasured native inventory, so nothing is held and nothing denied.
+/// Returns the charter's path, which the seat names as its role.
+#[cfg(unix)]
+fn dsh_served(bundle: &mut Bundle, label: &str, link: &Candidate) -> PathBuf {
+    use crate::capabilities::{Authority, Serving, SiteAsks, SiteCapabilities};
+    let dir = bundle.dir.clone();
+    let path = dir.join(DSH_CHARTER);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "").unwrap();
+    let bound = crate::bundle::owned_input(&dir, DSH_CHARTER).ok().unwrap();
+    let owner = crate::bundle::CharterOwner::Layer {
+        dir: dir.clone(),
+        key: DSH_CHARTER.into(),
+    };
+    let shipped = crate::Adapters::load(&workspace_root().join("adapters"))
+        .expect("the shipped adapters load");
+    let dsh = shipped.adapter("dsh").expect("the shipped dsh adapter");
+    let asks = SiteAsks::of(label, None, None).unwrap();
+    let outcome = Authority::nothing(crate::capabilities::UNMAPPED, &dir)
+        .resolve(
+            &asks,
+            &Serving {
+                provider: "dsh",
+                harness: "dsh",
+                model: Some(&link.model),
+                native: Some((&dsh.native, &dsh.digest)),
+                unloaded: None,
+                authored: &[],
+                fragment: &[],
+                provenance: brokkr_protocol::native_controls::Provenance::NONE,
+                written: &[],
+            },
+        )
+        .expect("the shipped dsh declaration resolves in a realm that grants nothing");
+    let site = bundle.sites.entry(label.into()).or_default();
+    site.charter = Some(crate::bundle::CharterPin::of(
+        owner,
+        DSH_CHARTER,
+        path.clone(),
+        &bound,
+    ));
+    site.capabilities = Some(SiteCapabilities {
+        asks,
+        outcomes: vec![outcome],
+    });
+    path
 }
 
 fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
@@ -296,6 +403,7 @@ fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
         hands: std::collections::BTreeMap::new(),
         inline_resume: std::collections::BTreeMap::new(),
         sites: Default::default(),
+        charters: Default::default(),
     }
 }
 
@@ -402,16 +510,19 @@ fn a_retry_and_a_re_entry_both_resume_the_thread_the_seat_last_held() {
 #[test]
 fn a_chain_fallback_is_handed_no_session_at_all() {
     let dir = tempfile::tempdir().unwrap();
-    let candidate = |model: &str, command: Vec<String>| Candidate {
-        agent: "implementer".into(),
-        model: model.into(),
-        effort: Some("medium".into()),
-        provider: "codex".into(),
-        argv: command,
-        hands_fragment: Vec::new(),
-        harness: HarnessHands::default(),
-        resume: Default::default(),
-        hands_notice: None,
+    let candidate = |model: &str, command: Vec<String>| {
+        templated(Candidate {
+            agent: "implementer".into(),
+            model: model.into(),
+            effort: Some("medium".into()),
+            provider: "codex".into(),
+            argv: command,
+            hands_fragment: Vec::new(),
+            harness: HarnessHands::default(),
+            resume: Default::default(),
+            hands_notice: None,
+            lowering: Lowering::Unavailable,
+        })
     };
     // The first link fails to START on its first invocation and behaves
     // on every one after it: that is what lets the second link open a
@@ -1470,7 +1581,7 @@ fn the_site_key_is_structural_and_the_owner_key_moves_on_every_axis() {
     assert_ne!(left.digest(), right.digest());
 
     // Every owner axis, one at a time.
-    let candidate = Candidate {
+    let candidate = templated(Candidate {
         agent: "implementer".into(),
         model: "opus".into(),
         effort: Some("high".into()),
@@ -1480,7 +1591,8 @@ fn the_site_key_is_structural_and_the_owner_key_moves_on_every_axis() {
         harness: HarnessHands::default(),
         resume: Default::default(),
         hands_notice: None,
-    };
+        lowering: Lowering::Unavailable,
+    });
     let manifest = json!({"engine":"0.10.0", "files":{}, "hands":{"work":{}}});
     let owner = |candidate: &Candidate,
                  chain: Option<usize>,
@@ -2282,7 +2394,7 @@ fn a_valid_route_overlay_binds_on_an_offered_start_too() {
         model_driver(dir.path(), "work", &["fail", "complete"]),
         "recipe/route.yml",
     );
-    let candidate = Candidate {
+    let candidate = templated(Candidate {
         agent: "implementer".into(),
         model: "deepseek-v4-flash".into(),
         effort: Some("medium".into()),
@@ -2292,7 +2404,8 @@ fn a_valid_route_overlay_binds_on_an_offered_start_too() {
         harness: HarnessHands::default(),
         resume: Default::default(),
         hands_notice: None,
-    };
+        lowering: Lowering::Unavailable,
+    });
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
@@ -2564,7 +2677,7 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
         dsh_model_driver(&root, "work", &["fail", "complete"], locator, &home_text, 2),
         "recipe/route.yml",
     );
-    let candidate = Candidate {
+    let candidate = templated(Candidate {
         agent: "implementer".into(),
         model: "deepseek-v4-flash".into(),
         effort: Some("medium".into()),
@@ -2577,7 +2690,8 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
         // it on the real single-site path beside the owned target.
         resume: dsh_assessment_declaring(Some(&"c".repeat(64))),
         hands_notice: None,
-    };
+        lowering: Lowering::Unavailable,
+    });
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
@@ -2682,7 +2796,7 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
     let mut alpha = member("alpha", argv.clone());
     // Task 8.8(a): the panel member's own SELECTED declaration, so the
     // second production `start_context` call site is read too.
-    alpha.candidates = vec![Candidate {
+    alpha.candidates = vec![templated(Candidate {
         agent: "implementer".into(),
         model: "deepseek-v4-flash".into(),
         effort: Some("medium".into()),
@@ -2692,7 +2806,8 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
         harness: HarnessHands::default(),
         resume: dsh_assessment_declaring(Some(&"d".repeat(64))),
         hands_notice: None,
-    }];
+        lowering: Lowering::Unavailable,
+    })];
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
@@ -2881,18 +2996,6 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
         dsh = dsh.display(),
         exe = std::env::current_exe().unwrap().display(),
     );
-    let argv: Vec<String> = [
-        "sh",
-        "-c",
-        &script,
-        "sh",
-        "--model",
-        "deepseek/deepseek-v4-flash",
-        "--patch",
-        "recipe/route.yml",
-    ]
-    .map(str::to_string)
-    .to_vec();
     // The shipped declaration, read by the production loader: `unmeasured`,
     // so the adapter's gate is closed and it runs the shipped cold route.
     let shipped = crate::Adapters::load(&workspace_root().join("adapters"))
@@ -2901,21 +3004,25 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
         .expect("the shipped dsh adapter")
         .resume
         .clone();
-    let candidate = Candidate {
-        agent: "implementer".into(),
-        model: "deepseek/deepseek-v4-flash".into(),
-        effort: None,
-        provider: "dsh".into(),
-        argv: argv.clone(),
-        hands_fragment: Vec::new(),
-        harness: HarnessHands::default(),
-        resume: shipped,
-        hands_notice: None,
-    };
+    let candidate = dsh_link(
+        &script,
+        &[
+            "--model",
+            "deepseek/deepseek-v4-flash",
+            "--patch",
+            "recipe/route.yml",
+        ],
+        shipped,
+    );
+    let argv = candidate.argv.clone();
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
-        seat(chartered(argv, vec![candidate]), &["complete"], 2),
+        seat(
+            chartered(argv, vec![candidate.clone()], &layer.join(DSH_CHARTER)),
+            &["complete"],
+            2,
+        ),
     );
     seats.insert(
         "review".into(),
@@ -2927,6 +3034,7 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
     );
     let mut bundle = bundle(&layer, seats);
     bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+    dsh_served(&mut bundle, "work", &candidate);
     let events = run(&root, bundle);
 
     // The journal first, before any assertion that presumes the attempts
@@ -3318,33 +3426,25 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
         bin = install.bin.display(),
         exe = exe.display(),
     );
-    let argv: Vec<String> = [
-        "sh",
-        "-c",
+    let candidate = dsh_link(
         &script,
-        "sh",
-        "--model",
-        "deepseek/deepseek-v4-flash",
-        "--patch",
-        "recipe/route.yml",
-    ]
-    .map(str::to_string)
-    .to_vec();
-    let candidate = Candidate {
-        agent: "implementer".into(),
-        model: "deepseek/deepseek-v4-flash".into(),
-        effort: None,
-        provider: "dsh".into(),
-        argv: argv.clone(),
-        hands_fragment: Vec::new(),
-        harness: HarnessHands::default(),
-        resume: dsh_assessment_measuring(&measured),
-        hands_notice: None,
-    };
+        &[
+            "--model",
+            "deepseek/deepseek-v4-flash",
+            "--patch",
+            "recipe/route.yml",
+        ],
+        dsh_assessment_measuring(&measured),
+    );
+    let argv = candidate.argv.clone();
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
-        seat(chartered(argv, vec![candidate]), &["complete"], 4),
+        seat(
+            chartered(argv, vec![candidate.clone()], &layer.join(DSH_CHARTER)),
+            &["complete"],
+            4,
+        ),
     );
     seats.insert(
         "review".into(),
@@ -3365,6 +3465,7 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
             ..Default::default()
         },
     );
+    dsh_served(&mut bundle, "work", &candidate);
     let events = run(&root, bundle);
 
     // The journal first, before any assertion that presumes the attempts
@@ -3790,7 +3891,7 @@ fn a_declared_wrapper_digest_reaches_the_private_start_context() {
     let carried = |resume: crate::agents::ResumeAssessment| {
         let dir = tempfile::tempdir().unwrap();
         let argv = driver(dir.path(), "work", &["complete"]);
-        let candidate = Candidate {
+        let candidate = templated(Candidate {
             agent: "implementer".into(),
             model: "deepseek-v4-flash".into(),
             effort: Some("medium".into()),
@@ -3800,7 +3901,8 @@ fn a_declared_wrapper_digest_reaches_the_private_start_context() {
             harness: HarnessHands::default(),
             resume,
             hands_notice: None,
-        };
+            lowering: Lowering::Unavailable,
+        });
         let mut seats = BTreeMap::new();
         seats.insert(
             "work".into(),

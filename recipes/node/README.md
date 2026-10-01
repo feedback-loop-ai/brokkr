@@ -32,11 +32,20 @@ and change these, and only these:
 
 | Where | npm (shipped) | pnpm | yarn (berry) |
 |---|---|---|---|
-| `bundle.json` — every seat's `--allowedTools` | `Bash(npm:*),Bash(npx:*),Bash(node:*),…` | `Bash(pnpm:*),Bash(node:*),…` | `Bash(yarn:*),Bash(node:*),…` |
+| `bundle.json` — each model seat's `tools.allow` | `"npm", "npx", "node", …` | `"pnpm", "node", …` | `"yarn", "node", …` |
+| Claude adapter data — `tool_permissions.names` | `npm`, `npx`, `node` mapped | add `"pnpm": "Bash(pnpm:*)"` | add `"yarn": "Bash(yarn:*)"` |
 | House rules and verifier — install | `npm ci` | `pnpm install --frozen-lockfile` | `yarn install --immutable` |
 | House rules and verifier — types | `npx tsc --noEmit` | `pnpm exec tsc --noEmit` | `yarn tsc --noEmit` |
 | House rules and verifier — tests | `npm test` | `pnpm test` | `yarn test` |
 | House rules and verifier — lockfile named | `package-lock.json` | `pnpm-lock.yaml` | `yarn.lock` |
+
+A seat's tool list is typed data, not a flag. The engine lowers each
+name through the adapter's mapping to the `--allowedTools` entry the
+harness reads, and adds the permission mode itself (decision 0065). A
+seat's `driver.command` names only the driver, model and effort. A name
+the adapter does not map is refused at compile, for example `seat
+'implement': the provider maps no tool permission named 'pnpm'`. It is
+never dropped or widened.
 
 Two parallel bundles are deliberately not shipped: a fork you can read
 in one table beats two files that drift apart.

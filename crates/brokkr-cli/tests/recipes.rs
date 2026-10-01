@@ -534,10 +534,22 @@ fn compile_and_show_print_the_resolved_result_and_its_provenance() {
     let chain = view["composed_from"].as_array().unwrap();
     assert_eq!(chain.len(), 1);
     assert_eq!(chain[0]["recipe"], "recipe-proof");
-    assert_eq!(chain[0]["digest"], base["digest"]);
+    // A layer's digest is the base's manifest WITHOUT its `capabilities`
+    // section (decision 0065): authority belongs to the bundle compiled in
+    // a realm, never to an ancestor, so the standalone base — which says
+    // what its realm grants — and the layer differ by exactly that section.
+    assert_ne!(chain[0]["digest"], base["digest"]);
+    let mut layer = base["manifest"].clone();
+    assert!(layer
+        .as_object_mut()
+        .unwrap()
+        .remove("capabilities")
+        .is_some());
+    let layer_digest = json!(brokkr_core::canonical::sha256_hex(&layer));
+    assert_eq!(chain[0]["digest"], layer_digest);
     assert!(chain[0]["dir"].as_str().unwrap().ends_with("good"));
     assert_eq!(
-        view["manifest"]["files"]["@compose/0000/recipe-proof@good"], base["digest"],
+        view["manifest"]["files"]["@compose/0000/recipe-proof@good"], layer_digest,
         "the chain pins the run through the digested manifest, naming BOTH the \
          declared name and the library directory it was extended by — recording \
          only one lets a directory answer to a name it does not declare"
@@ -672,6 +684,16 @@ fn show_and_compile_agree_for_every_recipe_under_every_realm_map() {
     let ws = Ws::new();
     for tree in ["agents", "adapters", "dialects"] {
         std::os::unix::fs::symlink(root.join(tree), ws.path().join(tree)).unwrap();
+    }
+    // The operator's abstract definitions, which the library's agents ask
+    // for, are read from the map's directory or the operated repository —
+    // here both this workspace — and only through a handle rooted there, so
+    // they are copied in, never linked (decision 0065; design D2).
+    std::fs::create_dir(ws.path().join("capabilities")).unwrap();
+    for entry in std::fs::read_dir(root.join("capabilities")).unwrap() {
+        let entry = entry.unwrap();
+        let to = ws.path().join("capabilities").join(entry.file_name());
+        std::fs::copy(entry.path(), to).unwrap();
     }
     let realm = |path: &str, boundary: &str| {
         json!({"schema": "forge.realms/v4", "journal": "forge.db", "realms": [{

@@ -99,6 +99,7 @@ impl Fixture {
             if provider == "claude" {
                 shipped.push(provider.to_string());
                 command[at] = json!(provider_for(seat));
+                body.as_object_mut().unwrap().remove("tools");
             }
         }
         // Not WHICH provider ships — that is `adapters/` data and a

@@ -3,14 +3,29 @@ use std::path::Path;
 
 /// A throwaway library + adapters tree. Every test writes exactly the
 /// data it is about, so a rejection message can be asserted verbatim.
+///
+/// The tree is REACHED THROUGH A SYMLINK on every host, and `root` is that
+/// alias canonicalised once, here. The loaders canonicalise what they are
+/// given, so a diagnostic names the canonical place; macOS hands out
+/// temporary directories under `/var`, itself a link to `/private/var`,
+/// and an expectation glued from the lexical path passes on Linux and
+/// fails there. With the alias the same habit fails on Linux too. Every
+/// write and every expected path is derived from `root`.
 struct Tree {
-    dir: tempfile::TempDir,
+    /// Held for its drop: the directory lives as long as the fixture.
+    _guard: tempfile::TempDir,
+    root: PathBuf,
 }
 
 impl Tree {
     fn new() -> Tree {
+        let guard = tempfile::tempdir().unwrap();
+        std::fs::create_dir(guard.path().join("real")).unwrap();
+        let alias = guard.path().join("alias");
+        std::os::unix::fs::symlink("real", &alias).unwrap();
         let tree = Tree {
-            dir: tempfile::tempdir().unwrap(),
+            root: alias.canonicalize().unwrap(),
+            _guard: guard,
         };
         std::fs::create_dir_all(tree.library_root().join("charters")).unwrap();
         std::fs::create_dir_all(tree.adapters_root()).unwrap();
@@ -19,23 +34,23 @@ impl Tree {
     }
 
     fn library_root(&self) -> PathBuf {
-        self.dir.path().join("agents")
+        self.root.join("agents")
     }
 
     fn adapters_root(&self) -> PathBuf {
-        self.dir.path().join("adapters")
+        self.root.join("adapters")
     }
 
     fn write(&self, relative: &str, body: &Value) {
         std::fs::write(
-            self.dir.path().join(relative),
+            self.root.join(relative),
             serde_json::to_vec_pretty(body).unwrap(),
         )
         .unwrap();
     }
 
     fn raw(&self, relative: &str, body: &str) {
-        std::fs::write(self.dir.path().join(relative), body).unwrap();
+        std::fs::write(self.root.join(relative), body).unwrap();
     }
 
     fn library(&self) -> Library {
@@ -48,6 +63,16 @@ impl Tree {
 
     fn library_error(&self) -> String {
         Library::load(&self.library_root()).unwrap_err().to_string()
+    }
+
+    /// The load's outcome as one string, whichever way it went, so a
+    /// table row that unexpectedly LOADS is reported beside its expected
+    /// refusal rather than aborting the table at that row.
+    fn library_outcome(&self) -> String {
+        match Library::load(&self.library_root()) {
+            Ok(library) => format!("loaded: {:?}", library.agent("tester").map(Agent::local)),
+            Err(error) => error.to_string(),
+        }
     }
 
     fn adapters_error(&self) -> String {
@@ -107,6 +132,24 @@ fn refusal(tree: &Tree, name: &str) -> String {
     )
     .unwrap_err()
     .to_string()
+}
+
+/// A resolution's outcome as one string, whichever way it went: a chain
+/// that unexpectedly RESOLVES is reported beside the expected refusal —
+/// as its candidates' providers and models — rather than aborting at an
+/// `unwrap_err` before the exact assertion (SC8).
+fn resolution_outcome(tree: &Tree, availability: &Availability) -> String {
+    match resolve(&tree.library(), &tree.adapters(), availability, "tester") {
+        Ok(resolution) => format!(
+            "resolved: {:?}",
+            resolution
+                .candidates
+                .iter()
+                .map(|candidate| format!("{}/{}", candidate.provider, candidate.model))
+                .collect::<Vec<_>>()
+        ),
+        Err(error) => error.to_string(),
+    }
 }
 
 // ------------------------------------------------------------- purity
@@ -236,20 +279,157 @@ fn an_agent_without_tools_allow_declares_no_restriction() {
     );
 }
 
-/// A named MCP server the provider declares is composed onto the command
-/// line; matching is per named item.
+/// Decision 0065 ruling 3: an agent requests and only a realm grants, so
+/// an agent no longer NAMES an MCP server — required or optional, served
+/// by its adapter or not. The legacy list is refused with the migration,
+/// and no server reaches a command line from agent data; the empty list
+/// every shipped agent writes stays valid and composes nothing.
 #[test]
-fn a_declared_mcp_server_reaches_the_command_line() {
+fn an_agent_naming_an_mcp_server_is_refused_and_never_reaches_a_command_line() {
+    for need in [
+        json!([{"server": "github"}]),
+        json!([{"server": "github", "optional": true}]),
+        json!("github"),
+    ] {
+        let tree = Tree::new();
+        let mut body = agent_body();
+        body["tools"]["mcp"] = need;
+        tree.write("agents/tester.json", &body);
+        // The adapter DOES map the server: the legacy map is no authority.
+        tree.write("adapters/claude.json", &claude_body());
+        // The WHOLE migration reason, agent and file named (SC7): a suffix
+        // would pass on a refusal that blamed the wrong definition.
+        let file = tree.library_root().join("tester.json");
+        assert_eq!(
+            tree.library_error(),
+            format!(
+                "agent 'tester' ({}) 'tools.mcp' names an MCP server; an agent no longer names \
+                 one, because a server an office could name would be a door a pulled bundle \
+                 could open. Request the capability by abstract name under 'capabilities' \
+                 (\"requires\" or \"wants\") and let realms.json grant it through a tool dialect \
+                 (decision 0065 rulings 1 and 3)",
+                file.display()
+            )
+        );
+    }
+    let tree = ready();
+    let resolution = resolved(&tree, &Availability::unspecified());
+    assert!(!resolution.candidates[0]
+        .argv
+        .iter()
+        .any(|part| part == "--mcp-config"));
+    assert!(resolution.notices.is_empty());
+    assert_eq!(resolution.record["notices"], json!([]));
+}
+
+/// An agent asks for capabilities by ABSTRACT name, and the loader holds
+/// the map to its two-word vocabulary; an absent map asks for nothing.
+#[test]
+fn an_agent_requests_capabilities_by_abstract_name() {
     let tree = Tree::new();
     let mut body = agent_body();
-    body["tools"]["mcp"] = json!([{"server": "github"}]);
+    body["capabilities"] = json!({"web-fetch": "wants", "library-docs": "requires"});
     tree.write("agents/tester.json", &body);
-    tree.write("adapters/claude.json", &claude_body());
-    let resolution = resolved(&tree, &Availability::unspecified());
-    assert!(resolution.candidates[0]
-        .argv
-        .windows(2)
-        .any(|pair| pair == ["--mcp-config", "/etc/github.json"]));
+    let library = tree.library();
+    let asks = &library.agent("tester").unwrap().capabilities;
+    assert_eq!(asks["web-fetch"], crate::capabilities::Strength::Wants);
+    assert_eq!(
+        asks["library-docs"],
+        crate::capabilities::Strength::Requires
+    );
+
+    body["capabilities"] = json!({"web-fetch": {"dialect": "fetch-mcp"}});
+    tree.write("agents/tester.json", &body);
+    assert_eq!(
+        tree.library_error(),
+        "agent 'tester' requests capability 'web-fetch' as {\"dialect\":\"fetch-mcp\"}; a \
+         request is \"requires\" or \"wants\" and nothing else — a dialect, a tool list, a \
+         class or a grant belongs to realms.json and the operator's definitions (decision 0065 \
+         ruling 3)"
+    );
+    assert!(ready()
+        .library()
+        .agent("tester")
+        .unwrap()
+        .capabilities
+        .is_empty());
+}
+
+/// Finding M2: an agent's requests are read from its SOURCE BYTES. An
+/// ordinary JSON map keeps the last copy of a repeated key, so
+/// `"web-search": "requires"` followed by `"web-search": "wants"` loaded as
+/// a want — a requirement weakened before any validation saw it. Every
+/// repetition is refused where the file is read: either strength order, an
+/// equal repetition, and a second `capabilities` field, a later `{}`
+/// included. The fixtures are raw text, because `json!` would erase the
+/// duplicate before the reader met it.
+#[test]
+fn a_request_key_written_twice_in_an_agent_source_is_refused_from_its_bytes() {
+    let tree = Tree::new();
+    let path = tree.library_root().join("tester.json");
+    let agent = |capabilities: &str| {
+        format!(
+            "{{\"description\": \"a test agent\", \"charter\": \"charters/c.md\", \
+             \"models\": [\"opus\"], \"efforts\": {{\"opus\": \"high\"}}, {capabilities}}}"
+        )
+    };
+    // The control: the same document with each key once loads, and the
+    // requirement is a requirement.
+    tree.raw(
+        "agents/tester.json",
+        &agent(r#""capabilities": {"web-search": "requires"}"#),
+    );
+    assert_eq!(
+        tree.library().agent("tester").unwrap().capabilities["web-search"],
+        crate::capabilities::Strength::Requires
+    );
+    for (capabilities, key) in [
+        (
+            r#""capabilities": {"web-search": "requires", "web-search": "wants"}"#,
+            "web-search",
+        ),
+        (
+            r#""capabilities": {"web-search": "wants", "web-search": "requires"}"#,
+            "web-search",
+        ),
+        (
+            r#""capabilities": {"web-search": "requires", "web-search": "requires"}"#,
+            "web-search",
+        ),
+        (
+            r#""capabilities": {"web-search": "requires"}, "capabilities": {}"#,
+            "capabilities",
+        ),
+        (
+            r#""capabilities": {}, "capabilities": {"web-search": "requires"}"#,
+            "capabilities",
+        ),
+    ] {
+        let text = agent(capabilities);
+        tree.raw("agents/tester.json", &text);
+        // Each second copy is the LAST entry of its object, and the parser
+        // closes that object before it reports: it stands past the inner
+        // map's brace for a repeated name, past the document's own for a
+        // repeated field.
+        let column = match key {
+            "capabilities" => text.len(),
+            _ => text.len() - 1,
+        };
+        // What loading said, or what it loaded: a reader that keeps the last
+        // copy fails HERE, showing the strength it kept.
+        let said = match Library::load(&tree.library_root()) {
+            Ok(library) => format!("loaded {:?}", library.agent("tester").unwrap().capabilities),
+            Err(refusal) => refusal.to_string(),
+        };
+        assert_eq!(
+            said,
+            format!(
+                "{}: key '{key}' is written twice at line 1 column {column}",
+                path.display()
+            ),
+            "{capabilities}"
+        );
+    }
 }
 
 // ------------------------------------------------------- honesty rules
@@ -336,7 +516,9 @@ fn a_declared_gap_needs_an_actual_reason() {
 }
 
 /// Per named item, never per class: the provider expresses tool
-/// permissions, just not this one.
+/// permissions, just not this one. The whole refusal is the contract —
+/// agent, provider, model and the unmapped name (task 2.1.3; review
+/// return P1).
 #[test]
 fn a_tool_the_provider_does_not_name_is_a_hard_failure() {
     let tree = Tree::new();
@@ -344,11 +526,623 @@ fn a_tool_the_provider_does_not_name_is_a_hard_failure() {
     let mut adapter = claude_body();
     adapter["tool_permissions"]["names"] = json!({"cargo": "Bash(cargo:*)"});
     tree.write("adapters/claude.json", &adapter);
-    let message = refusal(&tree, "tester");
-    assert!(
-        message.contains("maps no tool permission named 'git'"),
-        "{message}"
+    assert_eq!(
+        resolution_outcome(&tree, &Availability::unspecified()),
+        "agent 'tester' cannot be served by provider 'claude' on model 'opus': the provider \
+         maps no tool permission named 'git'. A capability the provider cannot express fails \
+         compilation here rather than degrading silently at run time"
     );
+}
+
+/// Decision 0065, no grandfathering (SC7): `websearch` in `tools.allow`
+/// used to put `WebSearch` on the harness's allowed list — a second way to
+/// hold a capability only the realm grants. An allow entry that maps to a
+/// tool of one of the provider's NATIVE capabilities is refused with the
+/// way out, never composed and never dropped in silence; the local command
+/// entries beside it keep their meaning, and so does the same alias on a
+/// provider whose inventory does not own the tool.
+#[test]
+fn a_legacy_allow_entry_cannot_authorize_a_native_capability() {
+    let tree = Tree::new();
+    let mut agent = agent_body();
+    agent["tools"]["allow"] = json!(["cargo", "websearch"]);
+    tree.write("agents/tester.json", &agent);
+    let mut adapter = claude_body();
+    adapter["tool_permissions"]["names"]["websearch"] = json!("WebSearch");
+    tree.write("adapters/claude.json", &adapter);
+
+    // An unmeasured inventory owns no tool name: the mapping is an
+    // ordinary permission, exactly as before.
+    let plain = resolved(&tree, &Availability::unspecified());
+    assert!(
+        plain.candidates[0]
+            .argv
+            .contains(&"Bash(cargo:*),WebSearch".to_string()),
+        "{:?}",
+        plain.candidates[0].argv
+    );
+
+    adapter["native_capabilities"] = json!({"known": {"web-search": {
+        "capability": "web-search", "tools": ["WebSearch"],
+        "on": {"selection": {"include": ["WebSearch"], "allow": ["WebSearch"], "deny": []}},
+        "off": {"selection": {"include": [], "allow": [], "deny": ["WebSearch"]}},
+        "restrictions": {"unsupported": "no native restriction transport is established"},
+        "evidence": {"source": "adapter data", "scope": "declared", "limitations": []}}},
+        "selection": {"include": {"flag": "--tools", "separator": ","},
+                      "allow": {"flag": "--allowedTools", "separator": ","},
+                      "deny": {"flag": "--disallowedTools", "separator": ","}}});
+    tree.write("adapters/claude.json", &adapter);
+    assert_eq!(
+        refusal(&tree, "tester"),
+        "agent 'tester' cannot be served by provider 'claude' on model 'opus': tool permission \
+         'websearch' maps to 'WebSearch', a tool of the provider's native capability \
+         'web-search'; a legacy allow entry cannot authorize a capability, so request \
+         'web-search' by name under 'capabilities' and let the realm grant it through a tool \
+         dialect (decision 0065 ruling 3). A capability the provider cannot express fails \
+         compilation here rather than degrading silently at run time"
+    );
+
+    // The local entries alone still compose.
+    agent["tools"]["allow"] = json!(["cargo"]);
+    tree.write("agents/tester.json", &agent);
+    let local = resolved(&tree, &Availability::unspecified());
+    assert!(local.candidates[0]
+        .argv
+        .contains(&"Bash(cargo:*)".to_string()));
+}
+
+/// An adapter that declares native capabilities is authority data
+/// (decision 0065 ruling 4): a key written twice anywhere in the file is
+/// refused rather than read as its second copy, and a selection mapping
+/// that cannot be composed is refused where the adapter loads — each
+/// naming the adapter file and the place.
+#[test]
+fn a_native_declaration_with_a_repeated_key_or_an_uncomposable_selection_is_refused() {
+    let tree = Tree::new();
+    let native = |selection: Value| {
+        let mut adapter = claude_body();
+        adapter["native_capabilities"] = json!({"known": {"web-search": {
+            "capability": "web-search", "tools": ["WebSearch"],
+            "on": {"selection": {"include": ["WebSearch"], "allow": ["WebSearch"], "deny": []}},
+            "off": {"selection": {"include": [], "allow": [], "deny": ["WebSearch"]}},
+            "restrictions": {"unsupported": "no native restriction transport is established"},
+            "evidence": {"source": "adapter data", "scope": "declared", "limitations": []}}},
+            "selection": selection});
+        adapter
+    };
+    let flags = json!({"include": {"flag": "--tools", "separator": ","},
+                       "allow": {"flag": "--allowedTools", "separator": ","},
+                       "deny": {"flag": "--disallowedTools", "separator": ","}});
+    // Sound as written; then the same bytes with ONE key repeated, deep
+    // inside the declaration. `serde_json` alone would keep the second.
+    let sound = serde_json::to_string(&native(flags.clone())).unwrap();
+    tree.raw("adapters/claude.json", &sound);
+    tree.adapters();
+    let repeated = sound.replacen(
+        r#""scope":"declared""#,
+        r#""scope":"declared","scope":"measured live""#,
+        1,
+    );
+    assert_ne!(repeated, sound, "the fixture repeats a key");
+    tree.raw("adapters/claude.json", &repeated);
+    let what = format!(
+        "adapter 'claude' ({})",
+        tree.adapters_root().join("claude.json").display()
+    );
+    // The parser stands just past the second copy's value.
+    let second = r#""scope":"measured live""#;
+    let column = repeated.rfind(second).unwrap() + second.len();
+    assert_eq!(
+        tree.adapters_error(),
+        format!("{what}: key 'scope' is written twice at line 1 column {column}")
+    );
+    // A list flag with no separator cannot be composed into one argument.
+    let mut no_separator = flags.clone();
+    no_separator["deny"]
+        .as_object_mut()
+        .unwrap()
+        .remove("separator");
+    tree.write("adapters/claude.json", &native(no_separator));
+    assert_eq!(
+        tree.adapters_error(),
+        format!(
+            "{what} 'native_capabilities' at '/selection/deny': it does not satisfy \
+             '/definitions/list/required'"
+        )
+    );
+    // Nor can a mapping that names a list the harness does not have.
+    let mut unknown_list = flags;
+    unknown_list["exclude"] = json!({"flag": "--exclude", "separator": ","});
+    tree.write("adapters/claude.json", &native(unknown_list));
+    assert_eq!(
+        tree.adapters_error(),
+        format!(
+            "{what} 'native_capabilities' at '/selection': it does not satisfy \
+             '/properties/selection/additionalProperties'"
+        )
+    );
+}
+
+/// Rebuild unit 11 (NC1; operator ruling 2; design D6 and D11): every
+/// declared control parses under its harness's grammar where the adapter
+/// loads, the half no realm uses included. A dangling `-c`, a misplaced
+/// terminator, a bare word, an unmodelled option or an unclassified
+/// assignment refuses the load, as does a selection mapped onto a flag the
+/// grammar reads as another list, a separator other than `,` or an entry
+/// that is not one managed pattern. A managed list argv's value must be
+/// managed patterns, and a permission control's value must be one of its
+/// recorded bounded set, in either half and in a substituted transport
+/// (the review's F1). A configuration assignment is read by the bounded
+/// reader a Codex launch applies, so an unmeasured value, a malformed one,
+/// a quoted key and a key off the allowlist refuse (the second review's
+/// F1). A declared restriction transport parses with the empty restriction
+/// in its slot. Each refusal names the adapter file, the key and the half,
+/// never the offending token.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
+    let tree = Tree::new();
+    let codex = |on: Value, off: Value, restrictions: Value| {
+        json!({
+            "provider": "codex", "binary": "codex",
+            "driver": ["{brokkr}", "driver", "codex", "--"],
+            "models": {"sonnet": "gpt-x"}, "model_flag": "--model",
+            "efforts": ["low", "medium", "high"], "effort_flag": "--effort",
+            "tool_permissions": "unsupported", "mcp": "unsupported",
+            "native_capabilities": {"known": {"web-search": {
+                "capability": "web-search", "tools": ["web_search"],
+                "on": on, "off": off, "restrictions": restrictions,
+                "evidence": {"source": "a test", "scope": "a test", "limitations": []}}}}
+        })
+    };
+    let claude = |on: Value, off: Value, deny: Value, include: Value| {
+        let mut adapter = claude_body();
+        adapter["native_capabilities"] = json!({"known": {"web-search": {
+            "capability": "web-search", "tools": ["WebSearch"],
+            "on": on, "off": off,
+            "restrictions": {"unsupported": "none"},
+            "evidence": {"source": "a test", "scope": "a test", "limitations": []}}},
+            "selection": {"include": include,
+                          "allow": {"flag": "--allowedTools", "separator": ","},
+                          "deny": deny}});
+        adapter
+    };
+    let default = json!({"default": "measured on by default"});
+    let disabled = json!({"argv": ["-c", "web_search=\"disabled\""]});
+    let unsupported = json!({"unsupported": "none"});
+    let on = json!({"selection": {"include": ["WebSearch"], "allow": ["WebSearch"], "deny": []}});
+    let off = json!({"selection": {"include": [], "allow": [], "deny": ["WebSearch"]}});
+    let list = |flag: &str, separator: &str| json!({"flag": flag, "separator": separator});
+    let rows: Vec<(&str, &str, Value)> = vec![
+        (
+            "codex dangling -c",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["-c"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex terminator",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["-c", "web_search=\"disabled\"", "--"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex bare word",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["hello"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex unknown option",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["--unknown-off=synthetic"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex unused ON",
+            "codex",
+            codex(
+                json!({"argv": ["-c", "web_search=\"live\"", "hello"]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex unclassified",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["-c", "unmodelled=1"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex transport",
+            "codex",
+            codex(
+                default.clone(),
+                disabled.clone(),
+                json!({"argv": ["--restrict", "{restrictions_json}"]}),
+            ),
+        ),
+        (
+            "codex config transport",
+            "codex",
+            codex(
+                default.clone(),
+                disabled.clone(),
+                json!({"argv": ["-c", "web_search={restrictions_json}"]}),
+            ),
+        ),
+        (
+            "claude separator",
+            "claude",
+            claude(
+                on.clone(),
+                off.clone(),
+                list("--disallowedTools", ":"),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "claude mapping",
+            "claude",
+            claude(
+                on.clone(),
+                off.clone(),
+                list("--disallowedTools", ","),
+                list("--allowedTools", ","),
+            ),
+        ),
+        (
+            "claude unused ON entry",
+            "claude",
+            claude(
+                json!({"selection": {"include": ["WebFetch,WebSearch"], "allow": [], "deny": []}}),
+                off.clone(),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "codex unused ON sandbox",
+            "codex",
+            codex(
+                json!({"argv": ["--sandbox", "nonsense"]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex unused ON approval",
+            "codex",
+            codex(
+                json!({"argv": ["--ask-for-approval", "never"]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex substituted transport",
+            "codex",
+            codex(
+                default.clone(),
+                disabled.clone(),
+                json!({"argv": ["--sandbox", "{restrictions_json}"]}),
+            ),
+        ),
+        (
+            "codex sound sandbox",
+            "codex",
+            codex(
+                json!({"argv": ["--sandbox", "read-only"]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "claude unused ON argv",
+            "claude",
+            claude(
+                json!({"argv": ["--allowedTools", "WebSearch("]}),
+                off.clone(),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "claude OFF nested specifier",
+            "claude",
+            claude(
+                on.clone(),
+                json!({"argv": ["--disallowedTools", "Bash(foo(bar))"]}),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "claude OFF separator only",
+            "claude",
+            claude(
+                on.clone(),
+                json!({"argv": ["--disallowedTools", ","]}),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "claude sound argv",
+            "claude",
+            claude(
+                json!({"argv": ["--allowedTools", "WebSearch"]}),
+                json!({"argv": ["--disallowedTools", "WebSearch,WebFetch(domain:example.org)"]}),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "claude sound",
+            "claude",
+            claude(
+                on,
+                off,
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "codex unused ON config table",
+            "codex",
+            codex(
+                json!({"argv": ["-c", "sandbox_mode=\"nonsense\""]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex unused ON config value",
+            "codex",
+            codex(
+                json!({"argv": ["-c", "web_search=\"nonsense\""]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex OFF malformed config value",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["-c", "web_search={"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex OFF quoted config key",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["-c", "\"web_search\"=\"disabled\""]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex substituted config transport",
+            "codex",
+            codex(
+                default.clone(),
+                disabled.clone(),
+                json!({"argv": ["-c", "web_search={restrictions_json}["]}),
+            ),
+        ),
+        (
+            "codex sound config",
+            "codex",
+            codex(
+                json!({"argv": ["-c", "model_reasoning_effort=\"high\""]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex sound transport",
+            "codex",
+            codex(
+                default,
+                disabled,
+                json!({"argv": ["--image", "{restrictions_json}"]}),
+            ),
+        ),
+        (
+            "claude OFF malformed selection entry",
+            "claude",
+            claude(
+                json!({"default": "measured on by default"}),
+                json!({"selection": {"include": [], "allow": [], "deny": ["WebSearch("]}}),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+    ];
+    let what = |provider: &str| {
+        format!(
+            "adapter '{provider}' ({}) 'native_capabilities'",
+            tree.adapters_root()
+                .join(format!("{provider}.json"))
+                .display()
+        )
+    };
+    let placed = |at: usize, label: &str, cause: &str| {
+        format!(
+            "cannot be composed: the 'codex' command grammar cannot place argument {at} \
+             ({label}): it {cause}. A harness brokkr launches is parsed against a model of its \
+             options, and a token that grammar cannot place is refused rather than passed \
+             through, because a control nobody can read is a control nobody can rule on \
+             (decision 0066 ruling 6)"
+        )
+    };
+    let codex_key = format!("{} key 'web-search'", what("codex"));
+    let claude_selection = format!("{} selection", what("claude"));
+    let claude_key = format!("{} key 'web-search'", what("claude"));
+    // The bounded reader a Codex launch applies: only measured values load.
+    let outside = "cannot be composed: '--config' value 1 assigns 'web_search' a value outside \
+                   the bounded ones its declaration admits";
+    let expected = [
+        format!(
+            "{codex_key} OFF argv {}",
+            placed(
+                1,
+                "'--config'",
+                "takes a value and is the last argument, so it has none"
+            )
+        ),
+        format!(
+            "{codex_key} OFF argv {}",
+            placed(3, "the terminator '--'", "names no option")
+        ),
+        format!(
+            "{codex_key} OFF argv {}",
+            placed(
+                1,
+                grammar_positional(),
+                "is a bare word, and no positional argument is part of the supported shape"
+            )
+        ),
+        format!(
+            "{codex_key} OFF argv {}",
+            placed(
+                1,
+                "'--unknown-off'",
+                "names no option, or names one that has no equals-joined spelling"
+            )
+        ),
+        format!(
+            "{codex_key} ON argv {}",
+            placed(
+                3,
+                grammar_positional(),
+                "is a bare word, and no positional argument is part of the supported shape"
+            )
+        ),
+        format!(
+            "{codex_key} OFF argv cannot be composed: '--config' assigns a key no bounded \
+             meaning is modelled for, so it is refused rather than passed through as opaque \
+             configuration"
+        ),
+        format!(
+            "{codex_key} restriction transport, with the empty restriction in its slot, {}",
+            placed(1, "'--restrict'", "names no option")
+        ),
+        format!(
+            "{codex_key} restriction transport, with the empty restriction in its slot, {outside}"
+        ),
+        format!(
+            "{claude_selection} 'deny' separator is not the one separator a managed tool list \
+             is joined with, ','"
+        ),
+        format!(
+            "{claude_selection} 'include' flag '--allowedTools' is not what the 'claude' \
+             grammar reads as the 'include' tool list"
+        ),
+        format!(
+            "{} key 'web-search' ON selection 'include' entry 1 joins more than one pattern; \
+             a selection entry is one managed tool pattern",
+            what("claude")
+        ),
+        format!(
+            "{codex_key} ON argv cannot be composed: '--sandbox' names a value outside its \
+             bounded set: read-only, workspace-write, danger-full-access"
+        ),
+        format!(
+            "{codex_key} ON argv cannot be composed: '--ask-for-approval' is a permission \
+             control whose values the engine records no bounded set for, so no declared value \
+             of it can be read"
+        ),
+        format!(
+            "{codex_key} restriction transport, with the empty restriction in its slot, cannot \
+             be composed: '--sandbox' names a value outside its bounded set: read-only, \
+             workspace-write, danger-full-access"
+        ),
+        "loaded".to_string(),
+        format!(
+            "{claude_key} ON argv cannot be composed: '--allowedTools' value 1 carries a \
+             specifier that is not one parenthesized, nonempty run within 256 bytes without a \
+             parenthesis, comma, quote, backslash or control character"
+        ),
+        format!(
+            "{claude_key} OFF argv cannot be composed: '--disallowedTools' value 1 carries a \
+             specifier that is not one parenthesized, nonempty run within 256 bytes without a \
+             parenthesis, comma, quote, backslash or control character"
+        ),
+        format!(
+            "{claude_key} OFF argv cannot be composed: '--disallowedTools' value 1 joins an \
+             empty pattern: a doubled, leading or trailing separator"
+        ),
+        "loaded".to_string(),
+        "loaded".to_string(),
+        format!(
+            "{codex_key} ON argv cannot be composed: '--config' value 1 assigns into the \
+             'sandbox_mode' configuration, which is outside the closed set of keys an inline \
+             Codex launch admits"
+        ),
+        format!("{codex_key} ON argv {outside}"),
+        format!("{codex_key} OFF argv {outside}"),
+        format!(
+            "{codex_key} OFF argv cannot be composed: '--config' value 1 assigns through a key \
+             not spelled canonically: the harness splits an assignment at its first '=', trims \
+             it and splits the key at every '.', reading a quote or an escape as part of the \
+             name (codex-cli rust-v0.154.0, codex-rs/utils/cli/src/config_override.rs and \
+             codex-rs/config/src/overrides.rs), so only dot-separated bare names of ASCII \
+             letters, digits, '_' and '-', with nothing around the '=', are read as the key \
+             they spell"
+        ),
+        format!(
+            "{codex_key} restriction transport, with the empty restriction in its slot, {outside}"
+        ),
+        "loaded".to_string(),
+        "loaded".to_string(),
+        format!(
+            "{claude_key} OFF selection 'deny' entry 1 carries a specifier that is not one \
+             parenthesized, nonempty run within 256 bytes without a parenthesis, comma, quote, \
+             backslash or control character"
+        ),
+    ];
+    let mut observed = Vec::new();
+    for (label, provider, adapter) in rows {
+        for stale in ["codex", "claude"] {
+            let _ = std::fs::remove_file(tree.adapters_root().join(format!("{stale}.json")));
+        }
+        tree.write(&format!("adapters/{provider}.json"), &adapter);
+        let outcome = match Adapters::load(&tree.adapters_root()) {
+            Ok(_) => "loaded".to_string(),
+            Err(error) => error.to_string(),
+        };
+        observed.push((label, outcome));
+    }
+    let labels: Vec<&str> = observed.iter().map(|(label, _)| *label).collect();
+    assert_eq!(
+        observed,
+        labels.into_iter().zip(expected).collect::<Vec<_>>()
+    );
+}
+
+fn grammar_positional() -> &'static str {
+    brokkr_protocol::native_controls::grammar::POSITIONAL_LABEL
 }
 
 /// A provider that serves the model but cannot be told which model would
@@ -365,63 +1159,11 @@ fn a_provider_that_cannot_pin_the_model_is_a_hard_failure() {
     assert!(message.contains("default would run"), "{message}");
 }
 
-/// A REQUIRED MCP server the provider cannot serve fails, whether the
-/// provider lacks MCP entirely or merely lacks that server.
-#[test]
-fn a_required_mcp_grant_the_provider_cannot_serve_is_a_hard_failure() {
-    for (adapter_mcp, expected) in [
-        (json!("unsupported"), "declares mcp unsupported"),
-        (
-            json!({"flag": "--mcp-config", "servers": {}}),
-            "declares no MCP server named 'github'",
-        ),
-    ] {
-        let tree = Tree::new();
-        let mut body = agent_body();
-        body["tools"]["mcp"] = json!([{"server": "github"}]);
-        tree.write("agents/tester.json", &body);
-        let mut adapter = claude_body();
-        adapter["mcp"] = adapter_mcp;
-        tree.write("adapters/claude.json", &adapter);
-        let message = refusal(&tree, "tester");
-        assert!(message.contains(expected), "{message}");
-    }
-}
-
-/// AC-3: an OPTIONAL grant gap warns rather than failing, and the
-/// warning is a value that reaches the manifest record — never a print.
-#[test]
-fn an_optional_mcp_grant_gap_becomes_a_notice_in_the_record() {
-    for adapter_mcp in [
-        json!("unsupported"),
-        json!({"flag": "--mcp-config", "servers": {}}),
-    ] {
-        let tree = Tree::new();
-        let mut body = agent_body();
-        body["tools"]["mcp"] = json!([{"server": "github", "optional": true}]);
-        tree.write("agents/tester.json", &body);
-        let mut adapter = claude_body();
-        adapter["mcp"] = adapter_mcp;
-        tree.write("adapters/claude.json", &adapter);
-        let resolution = resolved(&tree, &Availability::unspecified());
-        // Two chain entries, both on the same gapped provider.
-        assert_eq!(resolution.notices.len(), 2);
-        let notice = &resolution.notices[0];
-        assert_eq!(notice.capability, "mcp");
-        assert_eq!(notice.item, "github");
-        assert!(notice.message.contains("less power"), "{notice:?}");
-        let recorded = resolution.record["notices"].as_array().unwrap();
-        assert_eq!(recorded.len(), 2);
-        assert_eq!(recorded[0]["item"], "github");
-        assert_eq!(recorded[0]["agent"], "tester");
-        assert_eq!(recorded[0]["provider"], "claude");
-    }
-}
-
 /// The pinch of salt made mechanical: a gap on a NON-CHOSEN entry fails
 /// exactly as loudly as one on the chosen entry, because a chain that
 /// would widen the agent's blast radius on fallback is a design-time
-/// error, not a 2am surprise.
+/// error, not a 2am surprise. The whole refusal names the later link's
+/// provider and model and the gap itself (task 2.1.3; review return P1).
 #[test]
 fn a_capability_gap_on_a_later_chain_entry_fails_just_as_loudly() {
     let tree = Tree::new();
@@ -443,9 +1185,56 @@ fn a_capability_gap_on_a_later_chain_entry_fails_just_as_loudly() {
             "mcp": "unsupported",
         }),
     );
-    let message = refusal(&tree, "tester");
-    assert!(message.contains("provider 'codex'"), "{message}");
-    assert!(message.contains("model 'sonnet'"), "{message}");
+    assert_eq!(
+        resolution_outcome(&tree, &Availability::unspecified()),
+        "agent 'tester' cannot be served by provider 'codex' on model 'sonnet': the provider \
+         declares tool_permissions unsupported, so the agent's restriction to [\"cargo\", \
+         \"git\"] cannot be expressed and the agent would run with MORE power than it \
+         declares. A capability the provider cannot express fails compilation here rather \
+         than degrading silently at run time"
+    );
+}
+
+/// SCM "Every candidate is validated": an otherwise-valid primary does not
+/// carry a fallback that this machine reports UNAVAILABLE and that is
+/// locally incompatible — the fallback maps no permission for a name the
+/// office allows — because the chain is judged whole before availability
+/// filters it (task 2.1.3; review return P1). The same chain with the
+/// fallback's mapping complete resolves to the primary alone, the
+/// unavailable link skipped and recorded.
+#[test]
+fn an_unavailable_fallback_with_a_local_gap_still_refuses_the_whole_chain() {
+    let tree = Tree::new();
+    tree.write("agents/tester.json", &agent_body());
+    let mut claude = claude_body();
+    claude["models"] = json!({"opus": "claude-opus-5"});
+    tree.write("adapters/claude.json", &claude);
+    let mut second = claude_body();
+    second["provider"] = json!("second");
+    second["binary"] = json!("second");
+    second["models"] = json!({"sonnet": "second-sonnet"});
+    second["tool_permissions"]["names"] = json!({"cargo": "Bash(cargo:*)"});
+    tree.write("adapters/second.json", &second);
+    let mut availability = Availability::unspecified();
+    availability.record("claude", Presence::Available);
+    availability.record("second", Presence::Unavailable);
+    assert_eq!(
+        resolution_outcome(&tree, &availability),
+        "agent 'tester' cannot be served by provider 'second' on model 'sonnet': the provider \
+         maps no tool permission named 'git'. A capability the provider cannot express fails \
+         compilation here rather than degrading silently at run time"
+    );
+    // The control: the fallback made compatible resolves to the primary
+    // alone; unavailability skips a link, it never forgives one.
+    second["tool_permissions"]["names"]["git"] = json!("Bash(git:*)");
+    tree.write("adapters/second.json", &second);
+    assert_eq!(
+        resolution_outcome(&tree, &availability),
+        "resolved: [\"claude/opus\"]"
+    );
+    let resolution = resolved(&tree, &availability);
+    assert_eq!(resolution.record["chosen_index"], 0);
+    assert_eq!(resolution.record["skipped"], json!([]));
 }
 
 /// Decision 0035 ruling 5's three refusals, each tripped on its own. A
@@ -726,6 +1515,53 @@ fn the_record_carries_names_and_digests_and_moves_with_its_inputs() {
     );
 }
 
+/// Rebuild unit 17 (design D7; task 17.1): the resolution carries its
+/// charter's binding as the library loaded it — the library's canonical
+/// root however it was reached, the reference as the definition wrote it,
+/// the canonical target inside that root and the digest the record pins —
+/// and every fallback candidate is the same office, told the same charter.
+#[test]
+fn a_resolution_carries_its_charter_owner_reference_target_and_digest() {
+    let tree = ready();
+    std::os::unix::fs::symlink("c.md", tree.library_root().join("charters/linked.md")).unwrap();
+    let mut body = agent_body();
+    body["charter"] = json!("charters/linked.md");
+    tree.write("agents/tester.json", &body);
+    // Loaded through the fixture's alias, as an operator's path may be.
+    let alias = tree._guard.path().join("alias/agents");
+    let library = Library::load(&alias).unwrap();
+    let resolution = resolve(
+        &library,
+        &tree.adapters(),
+        &Availability::unspecified(),
+        "tester",
+    )
+    .unwrap();
+    let target = tree.library_root().join("charters/c.md");
+    assert_eq!(
+        resolution.charter_source,
+        CharterSource {
+            library: tree.library_root(),
+            reference: "charters/linked.md".to_string(),
+            target: target.clone(),
+            digest: brokkr_core::canonical::sha256_bytes(b"# charter\n"),
+        }
+    );
+    assert_eq!(resolution.charter, target);
+    assert_eq!(
+        resolution.record["charter_digest"],
+        json!(resolution.charter_source.digest)
+    );
+    assert_eq!(
+        resolution
+            .candidates
+            .iter()
+            .map(|candidate| (candidate.agent.as_str(), candidate.model.as_str()))
+            .collect::<Vec<_>>(),
+        [("tester", "opus"), ("tester", "sonnet")]
+    );
+}
+
 // ------------------------------------------------------- strict parsing
 
 /// T5/AC-20: every rejection names the file and the key, so an operator
@@ -764,8 +1600,18 @@ fn the_library_loader_names_the_file_and_the_key_it_refuses() {
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
-                   "tools": {"allow": []}}),
-            "ambiguous between 'no restriction' and 'restrict to nothing'",
+                   "tools": {"allow": null}}),
+            "'tools' needs 'allow' as an array of strings",
+        ),
+        (
+            json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
+                   "tools": {"allow": ["cargo", "cargo"]}}),
+            "'tools.allow' names 'cargo' twice",
+        ),
+        (
+            json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
+                   "tools": {"sandbox": "loose"}}),
+            "'tools.sandbox' is 'loose'",
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
@@ -775,17 +1621,17 @@ fn the_library_loader_names_the_file_and_the_key_it_refuses() {
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
                    "tools": {"mcp": "no"}}),
-            "'tools.mcp' must be an array",
+            "'tools.mcp' names an MCP server",
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
                    "tools": {"mcp": [{"invented": 1}]}}),
-            "'tools.mcp' entry has unknown key",
+            "'tools.mcp' names an MCP server",
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
-                   "tools": {"mcp": [{"server": "GitHub"}]}}),
-            "'tools.mcp.server' names 'GitHub'",
+                   "capabilities": ["web-search"]}),
+            "'capabilities' must be an object",
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
@@ -829,7 +1675,7 @@ fn the_library_loader_names_the_file_and_the_key_it_refuses() {
 #[test]
 fn a_charter_outside_the_library_root_is_refused() {
     let tree = Tree::new();
-    std::fs::write(tree.dir.path().join("escape.md"), "# outside\n").unwrap();
+    std::fs::write(tree.root.join("escape.md"), "# outside\n").unwrap();
     let mut body = agent_body();
     body["charter"] = json!("../escape.md");
     tree.write("agents/tester.json", &body);
@@ -861,11 +1707,11 @@ fn unparseable_and_missing_trees_are_refused_by_name() {
     assert!(tree.library_error().contains("tester.json"));
 
     let missing = Tree::new();
-    let message = Library::load(&missing.dir.path().join("absent"))
+    let message = Library::load(&missing.root.join("absent"))
         .unwrap_err()
         .to_string();
     assert!(message.contains("agent library"), "{message}");
-    let message = Adapters::load(&missing.dir.path().join("absent"))
+    let message = Adapters::load(&missing.root.join("absent"))
         .unwrap_err()
         .to_string();
     assert!(message.contains("adapters"), "{message}");
@@ -1740,13 +2586,13 @@ fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment(
         "the control retains the harness work fragment"
     );
 
+    use brokkr_core::realms::Boundary;
     let refusal = compose(
         agent,
         &adapter,
         "opus",
         "claude-opus-5",
-        &mut Vec::new(),
-        true,
+        Boundary::Namespace,
     )
     .expect_err("a boxed seat needs the workspace fragment")
     .to_string();
@@ -1759,15 +2605,13 @@ fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment(
     );
     // Unboxed, the same adapter composes and carries neither fragment nor
     // tool list: the workspace requirement is the boxed path's alone.
-    let (argv, effort, hands_fragment) = compose(
-        agent,
-        &adapter,
-        "opus",
-        "claude-opus-5",
-        &mut Vec::new(),
-        false,
-    )
-    .expect("unboxed composition asks for no workspace fragment");
+    let composition = compose(agent, &adapter, "opus", "claude-opus-5", Boundary::Harness)
+        .expect("unboxed composition asks for no workspace fragment");
+    let (argv, effort, hands_fragment) = (
+        composition.argv(),
+        composition.effort.clone(),
+        composition.hands_fragment(),
+    );
     assert_eq!(
         argv,
         [
@@ -2599,6 +3443,2039 @@ fn an_edited_resume_assessment_moves_the_adapter_digest() {
     );
 }
 
+// ------------------------------------------- typed local declarations (D5)
+
+/// The file an agent refusal names, derived from the canonical root.
+fn tester_file(tree: &Tree) -> String {
+    tree.library_root()
+        .join("tester.json")
+        .display()
+        .to_string()
+}
+
+/// Decision 0065 slice one, design D5.2 (SCM "Strict typed decoding
+/// preserves exact local values"): `tools.allow` keeps its written order
+/// and names, `tools.sandbox` keeps exactly the class it names, and an
+/// explicit empty allow list is a value of its own — never rewritten to
+/// omission, and omission never rewritten to it.
+#[test]
+fn typed_tools_decode_exactly_and_keep_empty_distinct_from_omission() {
+    let decode = |tools: Option<Value>| -> Agent {
+        let tree = Tree::new();
+        let mut body = agent_body();
+        match tools {
+            Some(tools) => body["tools"] = tools,
+            None => {
+                body.as_object_mut().unwrap().remove("tools");
+            }
+        }
+        tree.write("agents/tester.json", &body);
+        tree.library().agent("tester").unwrap().clone()
+    };
+    let declared = decode(Some(
+        json!({"allow": ["git", "cargo"], "sandbox": "read-only"}),
+    ));
+    // The two stored fields and their assembly are one value.
+    let mut rows: Vec<Row<LocalTools>> = vec![
+        (
+            "declared fields".to_string(),
+            LocalTools {
+                allow: declared.allow.clone(),
+                sandbox: declared.sandbox,
+            },
+            local(Some(&["git", "cargo"]), Some(Sandbox::ReadOnly)),
+        ),
+        (
+            "declared local()".to_string(),
+            declared.local(),
+            local(Some(&["git", "cargo"]), Some(Sandbox::ReadOnly)),
+        ),
+    ];
+    // Each class independently, exactly as named, and its name and parse
+    // are each other's inverse.
+    for (word, class) in [
+        ("read-only", Sandbox::ReadOnly),
+        ("workspace-write", Sandbox::WorkspaceWrite),
+        ("danger-full-access", Sandbox::DangerFullAccess),
+    ] {
+        rows.push((
+            format!("class {word}"),
+            decode(Some(json!({"allow": ["git", "cargo"], "sandbox": word}))).local(),
+            local(Some(&["git", "cargo"]), Some(class)),
+        ));
+        rows.push((
+            format!("parse {word}"),
+            local(None, Sandbox::parse(word)),
+            local(None, Some(class)),
+        ));
+        assert_eq!(class.name(), word);
+    }
+    // Explicit empty is `Some([])`; omission and `{}` are `None`.
+    rows.push((
+        "explicit empty allow".to_string(),
+        decode(Some(json!({"allow": []}))).local(),
+        local(Some(&[]), None),
+    ));
+    rows.push((
+        "tools omitted".to_string(),
+        decode(None).local(),
+        LocalTools::unspecified(),
+    ));
+    rows.push((
+        "tools {}".to_string(),
+        decode(Some(json!({}))).local(),
+        LocalTools::unspecified(),
+    ));
+    // The harmless legacy `mcp: []` stays admitted beside both fields.
+    rows.push((
+        "legacy mcp []".to_string(),
+        decode(Some(
+            json!({"allow": ["cargo"], "sandbox": "workspace-write", "mcp": []}),
+        ))
+        .local(),
+        local(Some(&["cargo"]), Some(Sandbox::WorkspaceWrite)),
+    ));
+    each_row(rows);
+    assert!(decode(None).local().is_unspecified());
+    assert!(!decode(Some(json!({"allow": []}))).local().is_unspecified());
+}
+
+/// SCM "Malformed tools cannot become defaults": every malformed field
+/// refuses with its complete cause, naming the agent and the file, and a
+/// valid sibling never substitutes for the broken field.
+#[test]
+fn typed_tools_decoding_refuses_each_malformed_field_with_its_full_cause() {
+    let cases: Vec<(Value, String)> = vec![
+        (json!(null), "'tools' must be a JSON object".to_string()),
+        (json!([]), "'tools' must be a JSON object".to_string()),
+        (
+            json!({"invented": 1}),
+            "'tools' has unknown key 'invented'; known keys: allow, sandbox, mcp".to_string(),
+        ),
+        (
+            json!({"allow": null}),
+            "'tools' needs 'allow' as an array of strings".to_string(),
+        ),
+        (
+            json!({"allow": "cargo"}),
+            "'tools' needs 'allow' as an array of strings".to_string(),
+        ),
+        (
+            json!({"allow": [1]}),
+            "'tools' 'allow' must hold strings only".to_string(),
+        ),
+        (
+            json!({"allow": ["cargo", "git", "cargo"]}),
+            "'tools.allow' names 'cargo' twice; a local allow list is duplicate-free".to_string(),
+        ),
+        (
+            json!({"allow": ["Bash(cargo:*)"]}),
+            "'tools.allow' names 'Bash(cargo:*)', which does not match ^[a-z][a-z0-9-]*$"
+                .to_string(),
+        ),
+        (
+            json!({"sandbox": null}),
+            "'tools.sandbox' must be a string naming one of read-only, workspace-write, \
+             danger-full-access, got null"
+                .to_string(),
+        ),
+        (
+            json!({"sandbox": 1}),
+            "'tools.sandbox' must be a string naming one of read-only, workspace-write, \
+             danger-full-access, got 1"
+                .to_string(),
+        ),
+        (
+            json!({"sandbox": {"kind": "read-only"}}),
+            "'tools.sandbox' must be a string naming one of read-only, workspace-write, \
+             danger-full-access, got {\"kind\":\"read-only\"}"
+                .to_string(),
+        ),
+        (
+            json!({"sandbox": "loose"}),
+            "'tools.sandbox' is 'loose', which is not one of read-only, workspace-write, \
+             danger-full-access"
+                .to_string(),
+        ),
+        // A valid sibling does not stand in for the broken field.
+        (
+            json!({"allow": ["cargo"], "sandbox": "loose"}),
+            "'tools.sandbox' is 'loose', which is not one of read-only, workspace-write, \
+             danger-full-access"
+                .to_string(),
+        ),
+        (
+            json!({"allow": null, "sandbox": "read-only"}),
+            "'tools' needs 'allow' as an array of strings".to_string(),
+        ),
+        // Nonempty legacy MCP still refuses with the migration reason.
+        (
+            json!({"allow": ["cargo"], "sandbox": "read-only", "mcp": [{"server": "github"}]}),
+            "'tools.mcp' names an MCP server; an agent no longer names one, because a server \
+             an office could name would be a door a pulled bundle could open. Request the \
+             capability by abstract name under 'capabilities' (\"requires\" or \"wants\") and \
+             let realms.json grant it through a tool dialect (decision 0065 rulings 1 and 3)"
+                .to_string(),
+        ),
+    ];
+    let rows: Vec<Row<String>> = cases
+        .into_iter()
+        .map(|(tools, cause)| {
+            let tree = Tree::new();
+            let mut body = agent_body();
+            body["tools"] = tools.clone();
+            tree.write("agents/tester.json", &body);
+            (
+                tools.to_string(),
+                tree.library_outcome(),
+                format!("agent 'tester' ({}) {cause}", tester_file(&tree)),
+            )
+        })
+        .collect();
+    each_row(rows);
+}
+
+/// SCM "Malformed tools cannot become defaults", last clause: a `tools`,
+/// `allow` or `sandbox` key written twice in the ORIGINAL bytes refuses
+/// from the strict reader, even when both copies are equal — an ordinary
+/// map would keep the second and say nothing. The position is the byte the
+/// parser stood on when it saw the repeat, derived from the fixture text.
+#[test]
+fn repeated_tools_keys_refuse_from_the_original_source_even_when_equal() {
+    let head = r#"{"description":"d","charter":"charters/c.md","models":["opus"],"#;
+    // The parser reports the column one past the token that closed the
+    // repeated value: it has consumed that token and stands after it.
+    type Column = fn(&str) -> usize;
+    let cases: [(String, &str, Column); 3] = [
+        (
+            format!(r#"{head}"tools":{{"allow":["cargo"],"allow":["cargo"]}}}}"#),
+            "allow",
+            // The second `["cargo"]` closes at the last `]`.
+            |text| text.rfind(']').unwrap() + 2,
+        ),
+        (
+            format!(r#"{head}"tools":{{"allow":["cargo"]}},"tools":{{"allow":["cargo"]}}}}"#),
+            "tools",
+            // The second `{...}` closes at the inner `}` before the last.
+            |text| text.len(),
+        ),
+        (
+            format!(r#"{head}"tools":{{"sandbox":"read-only","sandbox":"read-only"}}}}"#),
+            "sandbox",
+            // The second `"read-only"` closes at its quote before `}}`.
+            |text| text.len() - 1,
+        ),
+    ];
+    let rows: Vec<Row<String>> = cases
+        .into_iter()
+        .map(|(text, key, column)| {
+            let tree = Tree::new();
+            tree.raw("agents/tester.json", &text);
+            (
+                format!("repeated '{key}'"),
+                tree.library_outcome(),
+                format!(
+                    "{}: key '{key}' is written twice at line 1 column {}",
+                    tester_file(&tree),
+                    column(&text)
+                ),
+            )
+        })
+        .collect();
+    each_row(rows);
+    // The control: the same document with each key once loads.
+    let tree = Tree::new();
+    tree.raw(
+        "agents/tester.json",
+        &format!(r#"{head}"tools":{{"allow":["cargo"],"sandbox":"read-only"}}}}"#),
+    );
+    assert_eq!(
+        tree.library().agent("tester").unwrap().local(),
+        LocalTools {
+            allow: Some(vec!["cargo".to_string()]),
+            sandbox: Some(Sandbox::ReadOnly),
+        }
+    );
+}
+
+fn local(allow: Option<&[&str]>, sandbox: Option<Sandbox>) -> LocalTools {
+    LocalTools {
+        allow: allow.map(|names| names.iter().map(|name| name.to_string()).collect()),
+        sandbox,
+    }
+}
+
+/// One table row: a label, what was observed and what was expected.
+type Row<T> = (String, T, T);
+
+/// Every row of a table reaches its own exact assertion: the rows are all
+/// computed first, then every mismatch is reported together, so a mutation
+/// that touches several rows names each of them, and a first failing row
+/// hides no later one (SC8; tasks 2.1.2 and 2.1.6).
+#[track_caller]
+fn each_row<T: PartialEq + std::fmt::Debug>(rows: Vec<Row<T>>) {
+    let failures: Vec<String> = rows
+        .iter()
+        .filter(|(_, observed, expected)| observed != expected)
+        .map(|(label, observed, expected)| {
+            format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}")
+        })
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "{} of {} rows failed:\n{}",
+        failures.len(),
+        rows.len(),
+        failures.join("\n")
+    );
+}
+
+/// SCM "Field omission inherits while an explicit empty list subtracts"
+/// and "A local override cannot widen its agent", as the pure narrower
+/// alone: each field inherits when unspecified, an explicit list keeps its
+/// written order and must be a subset, an explicit empty list stays
+/// empty, and a class may equal or reduce the office's reach — never
+/// exceed it, never be clamped.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn narrowing_inherits_per_field_and_refuses_each_widening_exactly() {
+    let office = local(Some(&["cargo", "git"]), Some(Sandbox::WorkspaceWrite));
+    let ok: Vec<(LocalTools, LocalTools)> = vec![
+        (local(None, None), office.clone()),
+        (
+            local(None, Some(Sandbox::ReadOnly)),
+            local(Some(&["cargo", "git"]), Some(Sandbox::ReadOnly)),
+        ),
+        (
+            local(Some(&[]), None),
+            local(Some(&[]), Some(Sandbox::WorkspaceWrite)),
+        ),
+        (
+            local(Some(&["git"]), None),
+            local(Some(&["git"]), Some(Sandbox::WorkspaceWrite)),
+        ),
+        // Written order is kept; nothing is sorted or intersected.
+        (
+            local(Some(&["git", "cargo"]), None),
+            local(Some(&["git", "cargo"]), Some(Sandbox::WorkspaceWrite)),
+        ),
+        // The same class is not wider.
+        (
+            local(Some(&["cargo"]), Some(Sandbox::WorkspaceWrite)),
+            local(Some(&["cargo"]), Some(Sandbox::WorkspaceWrite)),
+        ),
+    ];
+    type Narrowed = Result<LocalTools, (String, String)>;
+    let mut rows: Vec<Row<Narrowed>> = ok
+        .into_iter()
+        .map(|(requested, expected)| {
+            (
+                format!("inherits {requested:?}"),
+                office.narrow(&requested),
+                Ok(expected),
+            )
+        })
+        .collect();
+    // The complete refusal, written out: the field, the exact addition or
+    // widening, and the rule.
+    let added = |name: &str, office: &str| {
+        Err((
+            "allow".to_string(),
+            format!(
+                "names '{name}', which the office's 'tools.allow' {office} does not; a site \
+                 subtracts from its office and never adds to it"
+            ),
+        ))
+    };
+    let wider = |requested: Sandbox, office: Sandbox| {
+        Err((
+            "sandbox".to_string(),
+            format!(
+                "requests '{}', which reaches wider than the office's '{}'; the classes reach \
+                 read-only < workspace-write < danger-full-access, and a site narrows its \
+                 office rather than being clamped to it",
+                requested.name(),
+                office.name()
+            ),
+        ))
+    };
+    rows.push((
+        "adds a name".to_string(),
+        office.narrow(&local(Some(&["cargo", "make"]), None)),
+        added("make", "[\"cargo\", \"git\"]"),
+    ));
+    rows.push((
+        "widens the class".to_string(),
+        office.narrow(&local(None, Some(Sandbox::DangerFullAccess))),
+        wider(Sandbox::DangerFullAccess, Sandbox::WorkspaceWrite),
+    ));
+    // Each field is judged independently: a valid sandbox does not
+    // forgive an added name, and a valid list does not forgive a widening.
+    rows.push((
+        "valid class beside an added name".to_string(),
+        office.narrow(&local(Some(&["make"]), Some(Sandbox::ReadOnly))),
+        added("make", "[\"cargo\", \"git\"]"),
+    ));
+    rows.push((
+        "valid subset beside a widened class".to_string(),
+        office.narrow(&local(Some(&["git"]), Some(Sandbox::DangerFullAccess))),
+        wider(Sandbox::DangerFullAccess, Sandbox::WorkspaceWrite),
+    ));
+    // An empty office list permits only empty.
+    let empty = local(Some(&[]), Some(Sandbox::ReadOnly));
+    rows.push((
+        "empty office, empty request".to_string(),
+        empty.narrow(&local(Some(&[]), None)),
+        Ok(local(Some(&[]), Some(Sandbox::ReadOnly))),
+    ));
+    rows.push((
+        "empty office, a name".to_string(),
+        empty.narrow(&local(Some(&["git"]), None)),
+        added("git", "[]"),
+    ));
+    // An unrestricted office may be narrowed by either field.
+    let unrestricted = local(None, None);
+    rows.push((
+        "unrestricted office, both fields".to_string(),
+        unrestricted.narrow(&local(Some(&["git"]), Some(Sandbox::DangerFullAccess))),
+        Ok(local(Some(&["git"]), Some(Sandbox::DangerFullAccess))),
+    ));
+    // Every ordered pair of classes: reach read-only < workspace-write <
+    // danger-full-access, compared by that order alone. Equal or narrower
+    // keeps the exact requested class; wider refuses with the full cause.
+    let classes = [
+        Sandbox::ReadOnly,
+        Sandbox::WorkspaceWrite,
+        Sandbox::DangerFullAccess,
+    ];
+    for (i, requested) in classes.iter().enumerate() {
+        for (j, office_class) in classes.iter().enumerate() {
+            let office = local(None, Some(*office_class));
+            rows.push((
+                format!("{} under {}", requested.name(), office_class.name()),
+                office.narrow(&local(None, Some(*requested))),
+                if i <= j {
+                    Ok(local(None, Some(*requested)))
+                } else {
+                    wider(*requested, *office_class)
+                },
+            ));
+        }
+    }
+    assert_eq!(rows.len(), 22);
+    each_row(rows);
+}
+
+/// D5.2: a site's declaration narrows a PRIVATE clone of the office before
+/// composition. The report's chain is composed from the effective value,
+/// the office in the library keeps its own, and its source and digest are
+/// untouched; a widening refuses with the site's field, the addition and
+/// the agent named.
+#[test]
+fn report_narrowed_composes_from_a_private_clone_and_leaves_the_office_untouched() {
+    let tree = ready();
+    let library = tree.library();
+    let adapters = tree.adapters();
+    let report = report_narrowed(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "tester",
+        brokkr_core::realms::Boundary::Namespace,
+        &local(Some(&["git"]), None),
+    )
+    .unwrap();
+    assert_eq!(report.agent.local(), local(Some(&["git"]), None));
+    assert_eq!(
+        report.entries[0].argv,
+        vec![
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5",
+            "--effort",
+            "high",
+            "--allowedTools",
+            "Bash(git:*)"
+        ]
+    );
+    let office = library.agent("tester").unwrap();
+    assert_eq!(
+        office.allow,
+        Some(vec!["cargo".to_string(), "git".to_string()])
+    );
+    assert_eq!(report.agent.digest, office.digest);
+    assert_eq!(report.agent.source, office.source);
+    // The plain report is the unnarrowed one.
+    let plain = report_under(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "tester",
+        brokkr_core::realms::Boundary::Namespace,
+    )
+    .unwrap();
+    assert_eq!(plain.agent.local(), office.local());
+
+    let widened = report_narrowed(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "tester",
+        brokkr_core::realms::Boundary::Namespace,
+        &local(Some(&["git", "make"]), None),
+    )
+    .unwrap_err();
+    assert_eq!(
+        widened.to_string(),
+        "the site's 'tools.allow' names 'make', which the office's 'tools.allow' [\"cargo\", \
+         \"git\"] does not; a site subtracts from its office and never adds to it; an \
+         agent-backed site only narrows the restrictions of agent 'tester' (decision 0065 \
+         slice one, design D5)"
+    );
+    // The office declares no class, so a class may be introduced: the
+    // clone carries it and composition, which lowers no class yet, is
+    // unchanged. Whether a site may RUN with it is the bundle's question.
+    let classed = report_narrowed(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "tester",
+        brokkr_core::realms::Boundary::Namespace,
+        &local(None, Some(Sandbox::ReadOnly)),
+    )
+    .unwrap();
+    assert_eq!(
+        classed.agent.local(),
+        local(Some(&["cargo", "git"]), Some(Sandbox::ReadOnly))
+    );
+    assert_eq!(classed.entries[0].argv, plain.entries[0].argv);
+}
+
+/// SCM "Decoding cannot admit a runnable unrestricted command", the direct
+/// explicit-empty row of D5.3: `allow: []` is kept exactly and refused at
+/// composition with the full cause, on the primary and on a later link
+/// alike; it is never joined into an empty flag value.
+#[test]
+fn an_explicit_empty_allow_set_is_kept_and_refused_until_lowering_delivers_it() {
+    let tree = Tree::new();
+    let mut body = agent_body();
+    body["tools"] = json!({"allow": []});
+    tree.write("agents/tester.json", &body);
+    tree.write("adapters/claude.json", &claude_body());
+    assert_eq!(
+        tree.library().agent("tester").unwrap().allow,
+        Some(Vec::new())
+    );
+    let empty_refusal = |provider: &str, model: &str| {
+        format!(
+            "agent 'tester' cannot be served by provider '{provider}' on model '{model}': the \
+             effective 'tools.allow' is explicitly empty, and no serving path yet expresses an \
+             empty local allow set as a delivered restriction (joining no names into an empty \
+             flag value proves nothing); the declaration is kept exactly and refused rather \
+             than run unrestricted, until decision 0065 slice one's lowering proves its \
+             delivery (design D5.3). A capability the provider cannot express fails \
+             compilation here rather than degrading silently at run time"
+        )
+    };
+    assert_eq!(refusal(&tree, "tester"), empty_refusal("claude", "opus"));
+    // The same through a site's narrowing of a nonempty office: the
+    // effective value is empty, and the later link refuses even though the
+    // primary would too — every link is judged, and the first gap names
+    // itself.
+    let tree = ready();
+    let report = report_narrowed(
+        &tree.library(),
+        &tree.adapters(),
+        &Availability::unspecified(),
+        "tester",
+        brokkr_core::realms::Boundary::Namespace,
+        &local(Some(&[]), None),
+    )
+    .unwrap();
+    assert_eq!(report.agent.allow, Some(Vec::new()));
+    assert_eq!(
+        report.entries[1].gap.as_ref().map(ToString::to_string),
+        Some(empty_refusal("claude", "sonnet"))
+    );
+    assert_eq!(
+        resolve_report(report, &tree.adapters())
+            .unwrap_err()
+            .to_string(),
+        empty_refusal("claude", "opus")
+    );
+}
+
+/// D5.2: an optional want forgives nothing local. Beside
+/// `capabilities: {"web-fetch": "wants"}`, a malformed declaration still
+/// refuses at load, a widening still refuses at narrowing and an explicit
+/// empty allow set still refuses at composition, each with the complete
+/// cause it has without the want.
+#[test]
+fn an_optional_want_does_not_forgive_a_local_error() {
+    let tree = Tree::new();
+    let mut body = agent_body();
+    body["capabilities"] = json!({"web-fetch": "wants"});
+    body["tools"] = json!({"allow": ["cargo", "git", "cargo"]});
+    tree.write("agents/tester.json", &body);
+    tree.write("adapters/claude.json", &claude_body());
+    assert_eq!(
+        tree.library_error(),
+        format!(
+            "agent 'tester' ({}) 'tools.allow' names 'cargo' twice; a local allow list is \
+             duplicate-free",
+            tester_file(&tree)
+        )
+    );
+    body["tools"] = json!({"allow": ["cargo", "git"]});
+    tree.write("agents/tester.json", &body);
+    let library = tree.library();
+    assert_eq!(
+        library.agent("tester").unwrap().capabilities["web-fetch"],
+        crate::capabilities::Strength::Wants
+    );
+    let narrowed = |requested: LocalTools| {
+        report_narrowed(
+            &library,
+            &tree.adapters(),
+            &Availability::unspecified(),
+            "tester",
+            brokkr_core::realms::Boundary::Namespace,
+            &requested,
+        )
+    };
+    assert_eq!(
+        narrowed(local(Some(&["make"]), None))
+            .unwrap_err()
+            .to_string(),
+        "the site's 'tools.allow' names 'make', which the office's 'tools.allow' [\"cargo\", \
+         \"git\"] does not; a site subtracts from its office and never adds to it; an \
+         agent-backed site only narrows the restrictions of agent 'tester' (decision 0065 \
+         slice one, design D5)"
+    );
+    let emptied = narrowed(local(Some(&[]), None)).unwrap();
+    assert_eq!(emptied.agent.allow, Some(Vec::new()));
+    assert_eq!(
+        resolve_report(emptied, &tree.adapters())
+            .unwrap_err()
+            .to_string(),
+        "agent 'tester' cannot be served by provider 'claude' on model 'opus': the effective \
+         'tools.allow' is explicitly empty, and no serving path yet expresses an empty local \
+         allow set as a delivered restriction (joining no names into an empty flag value \
+         proves nothing); the declaration is kept exactly and refused rather than run \
+         unrestricted, until decision 0065 slice one's lowering proves its delivery (design \
+         D5.3). A capability the provider cannot express fails compilation here rather than \
+         degrading silently at run time"
+    );
+}
+
+/// SCM "Existing hands semantics do not require direct-tool support": with
+/// hands, the list is dormant — no direct mapping is required, no direct
+/// flag is added, an empty list does not disable hands — while a mapped
+/// native alias still refuses with its migration cause, on whichever link
+/// maps it (whole-chain, SC8).
+#[test]
+fn hands_keep_their_replacement_and_still_refuse_a_mapped_native_alias() {
+    let fragment = json!({"workspace": ["--tools", "", "--mcp-config", "{hands_mcp_json}"]});
+    // A dormant list needs no mapping: `make` is mapped nowhere.
+    let tree = Tree::new();
+    let mut agent = boxed_agent();
+    agent["tools"] = json!({"allow": ["cargo", "make"]});
+    tree.write("agents/tester.json", &agent);
+    let mut claude = claude_body();
+    claude["hands"] = fragment.clone();
+    tree.write("adapters/claude.json", &claude);
+    let resolution = resolved(&tree, &Availability::unspecified());
+    assert_eq!(
+        resolution.candidates[0].argv,
+        vec![
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5",
+            "--effort",
+            "high",
+            "--tools",
+            "",
+            "--mcp-config",
+            "{hands_mcp_json}"
+        ]
+    );
+    assert_eq!(
+        resolution.candidates[0].hands_fragment,
+        vec!["--tools", "", "--mcp-config", "{hands_mcp_json}"]
+    );
+    // An empty list beside hands composes the same fragment.
+    agent["tools"] = json!({"allow": []});
+    tree.write("agents/tester.json", &agent);
+    let emptied = resolved(&tree, &Availability::unspecified());
+    assert_eq!(emptied.candidates[0].argv, resolution.candidates[0].argv);
+    assert!(emptied.hands.is_some());
+    // The syntax check still runs beside hands.
+    agent["tools"] = json!({"allow": ["cargo", "cargo"]});
+    tree.write("agents/tester.json", &agent);
+    assert_eq!(
+        tree.library_error(),
+        format!(
+            "agent 'tester' ({}) 'tools.allow' names 'cargo' twice; a local allow list is \
+             duplicate-free",
+            tester_file(&tree)
+        )
+    );
+    // A mapped native alias refuses even beside hands — on the fallback
+    // link only, so the primary's clean composition hides nothing.
+    agent["tools"] = json!({"allow": ["cargo", "websearch"]});
+    tree.write("agents/tester.json", &agent);
+    claude["models"] = json!({"opus": "claude-opus-5"});
+    tree.write("adapters/claude.json", &claude);
+    let mut second = claude_body();
+    second["provider"] = json!("second");
+    second["binary"] = json!("second");
+    second["models"] = json!({"sonnet": "second-sonnet"});
+    second["hands"] = fragment;
+    second["tool_permissions"]["names"]["websearch"] = json!("WebSearch");
+    second["native_capabilities"] = json!({"known": {"web-search": {
+        "capability": "web-search", "tools": ["WebSearch"],
+        "on": {"selection": {"include": ["WebSearch"], "allow": ["WebSearch"], "deny": []}},
+        "off": {"selection": {"include": [], "allow": [], "deny": ["WebSearch"]}},
+        "restrictions": {"unsupported": "no native restriction transport is established"},
+        "evidence": {"source": "adapter data", "scope": "declared", "limitations": []}}},
+        "selection": {"include": {"flag": "--tools", "separator": ","},
+                      "allow": {"flag": "--allowedTools", "separator": ","},
+                      "deny": {"flag": "--disallowedTools", "separator": ","}}});
+    tree.write("adapters/second.json", &second);
+    let chain = report(
+        &tree.library(),
+        &tree.adapters(),
+        &Availability::unspecified(),
+        "tester",
+    )
+    .unwrap();
+    assert!(chain.entries[0].gap.is_none(), "{:?}", chain.entries[0].gap);
+    assert_eq!(
+        refusal(&tree, "tester"),
+        "agent 'tester' cannot be served by provider 'second' on model 'sonnet': tool permission \
+         'websearch' maps to 'WebSearch', a tool of the provider's native capability \
+         'web-search'; a legacy allow entry cannot authorize a capability, so request \
+         'web-search' by name under 'capabilities' and let the realm grant it through a tool \
+         dialect (decision 0065 ruling 3). A capability the provider cannot express fails \
+         compilation here rather than degrading silently at run time"
+    );
+}
+
+// ------------- decision 0065 slice one, unit 3: typed lowering and origins
+
+use brokkr_protocol::native_controls::{
+    reassemble, AllowIntent, Application, Expected, HandsIntent, HeldPower, LaunchRecord,
+    NativeExpectation, Origin, SandboxIntent, Segment, TemplateExpectation,
+};
+
+fn seg(origin: Origin, parts: &[&str]) -> Segment {
+    Segment {
+        origin,
+        argv: parts.iter().map(|part| part.to_string()).collect(),
+    }
+}
+
+fn strings(parts: &[&str]) -> Vec<String> {
+    parts.iter().map(|part| part.to_string()).collect()
+}
+
+/// The composition an entry retained, or a label for what it retained
+/// instead, so a row that unexpectedly refuses reports its gap.
+fn composition_of(entry: &ChainEntry) -> Result<Composition, String> {
+    match &entry.lowering {
+        Lowering::Composed(composition) => Ok(composition.clone()),
+        other => Err(format!("{other:?}; gap {:?}", entry.gap)),
+    }
+}
+
+/// A Claude-shaped adapter whose driver template carries its own
+/// `--permission-mode acceptEdits`, mapping narrow local names.
+fn mapping_adapter() -> Value {
+    let mut claude = claude_body();
+    claude["driver"] = json!([
+        "{brokkr}",
+        "driver",
+        "claude",
+        "--",
+        "--permission-mode",
+        "acceptEdits"
+    ]);
+    claude["tool_permissions"]["names"] = json!({
+        "pytest": "Bash(.venv/bin/pytest:*)",
+        "cargo": "Bash(cargo:*)",
+        "gh-pr-view": "Bash(gh pr view:*)",
+        "gh-run-view": "Bash(gh run view:*)",
+    });
+    claude
+}
+
+/// SCM "Unit 3 lowering preserves exact mapped limits": the local
+/// contribution is exactly the mapped flag and the joined limits in the
+/// declared order; the typed expectation retains the ordered names and the
+/// unjoined limits; the adapter's driver — its `acceptEdits` included — and
+/// the model and effort emissions are template contributions apart from
+/// it; nothing is authored and no native capability is granted. The
+/// segments reassemble the entry's full argv exactly.
+#[test]
+fn unit3_lowering_preserves_exact_mapped_limits_as_separate_origins() {
+    let tree = Tree::new();
+    tree.write("adapters/claude.json", &mapping_adapter());
+    let template = [
+        seg(
+            Origin::Template,
+            &[
+                "{brokkr}",
+                "driver",
+                "claude",
+                "--",
+                "--permission-mode",
+                "acceptEdits",
+            ],
+        ),
+        seg(Origin::Template, &["--model", "claude-opus-5"]),
+        seg(Origin::Template, &["--effort", "high"]),
+    ];
+    // Every row is computed before any is judged, so a mutation that breaks
+    // the first row cannot hide what it does to the second.
+    type Lowered = (
+        Result<Vec<Segment>, String>,
+        Option<Application>,
+        Option<Intent>,
+        Option<Result<(), String>>,
+        Vec<String>,
+    );
+    let mut rows: Vec<Row<Lowered>> = Vec::new();
+    for (label, allow, local, limits) in [
+        (
+            "pytest and cargo",
+            ["pytest", "cargo"],
+            "Bash(.venv/bin/pytest:*),Bash(cargo:*)",
+            ["Bash(.venv/bin/pytest:*)", "Bash(cargo:*)"],
+        ),
+        (
+            "gh-run-view and gh-pr-view",
+            ["gh-run-view", "gh-pr-view"],
+            "Bash(gh run view:*),Bash(gh pr view:*)",
+            ["Bash(gh run view:*)", "Bash(gh pr view:*)"],
+        ),
+    ] {
+        let mut body = agent_body();
+        body["tools"] = json!({"allow": allow});
+        tree.write("agents/tester.json", &body);
+        let chain = report(
+            &tree.library(),
+            &tree.adapters(),
+            &Availability::unspecified(),
+            "tester",
+        )
+        .unwrap();
+        let entry = &chain.entries[0];
+        let composition = composition_of(entry);
+        let composed = composition.as_ref().ok();
+        let mut expected = template.to_vec();
+        expected.push(seg(Origin::Local, &["--allowedTools", local]));
+        rows.push((
+            label.into(),
+            (
+                composition.clone().map(|composition| composition.segments),
+                composed.map(|composition| composition.application.clone()),
+                composed.map(|composition| composition.intent.clone()),
+                composed.map(|composition| reassemble(&composition.segments, &entry.argv)),
+                resolved(&tree, &Availability::unspecified()).candidates[0]
+                    .argv
+                    .clone(),
+            ),
+            (
+                Ok(expected.clone()),
+                Some(Application::Direct(strings(&limits))),
+                Some(Intent {
+                    allow: AllowIntent::Listed(strings(&allow)),
+                    sandbox: SandboxIntent::Unspecified,
+                    hands: HandsIntent::None,
+                }),
+                Some(Ok(())),
+                brokkr_protocol::native_controls::flatten(&expected),
+            ),
+        ));
+    }
+    each_row(rows);
+}
+
+/// Rebuild unit 5c-fix2 (operator ruling 2 of 2026-09-23; the ruling of
+/// 2026-09-24, item 2): a composition carries its adapter's declared
+/// permission template as a typed fact beside its segments — what the
+/// driver declares behind its `<engine> driver <kind>` verb, less a
+/// terminator directly behind it — while its driver segment stays the
+/// declaration whole. The shipped Claude and LaneTally shapes declare
+/// `acceptEdits`; a driver ending at the terminator or at the verb, and an
+/// opaque driver the engine never parses, declare `none`.
+#[test]
+fn unit5c_fix2_a_composition_carries_its_adapters_declared_template() {
+    let shipped = |kind: &str| {
+        json!([
+            "{brokkr}",
+            "driver",
+            kind,
+            "--",
+            "--permission-mode",
+            "acceptEdits"
+        ])
+    };
+    let acceptance = TemplateExpectation::Declared(strings(&["--permission-mode", "acceptEdits"]));
+    let rows: Vec<Row<Result<(TemplateExpectation, Segment), String>>> = [
+        (
+            "the shipped claude shape",
+            "claude",
+            shipped("claude"),
+            acceptance.clone(),
+        ),
+        (
+            "the shipped lanetally shape",
+            "lanetally",
+            shipped("lanetally"),
+            acceptance.clone(),
+        ),
+        (
+            "a template directly behind the verb",
+            "claude",
+            json!(["{brokkr}", "driver", "claude", "--permission-mode", "plan"]),
+            TemplateExpectation::Declared(strings(&["--permission-mode", "plan"])),
+        ),
+        (
+            "nothing behind the terminator",
+            "claude",
+            json!(["{brokkr}", "driver", "claude", "--"]),
+            TemplateExpectation::None,
+        ),
+        (
+            "nothing behind the verb",
+            "claude",
+            json!(["{brokkr}", "driver", "claude"]),
+            TemplateExpectation::None,
+        ),
+        (
+            "an opaque driver",
+            "claude",
+            json!(["claude-wrapper", "--permission-mode", "acceptEdits"]),
+            TemplateExpectation::None,
+        ),
+    ]
+    .into_iter()
+    .map(|(label, provider, driver, template)| {
+        let tree = Tree::new();
+        let mut body = agent_body();
+        body.as_object_mut().unwrap().remove("tools");
+        tree.write("agents/tester.json", &body);
+        let mut adapter = claude_body();
+        adapter["provider"] = json!(provider);
+        adapter["binary"] = json!(provider);
+        adapter["driver"] = driver.clone();
+        tree.write(&format!("adapters/{provider}.json"), &adapter);
+        let observed = report(
+            &tree.library(),
+            &tree.adapters(),
+            &Availability::unspecified(),
+            "tester",
+        )
+        .map_err(|error| error.to_string())
+        .and_then(|chain| composition_of(&chain.entries[0]))
+        .map(|composition| (composition.template, composition.segments[0].clone()));
+        let declared: Vec<String> = serde_json::from_value(driver).unwrap();
+        (
+            label.to_string(),
+            observed,
+            Ok((template, Segment::new(Origin::Template, &declared))),
+        )
+    })
+    .collect();
+    assert_eq!(rows.len(), 6);
+    each_row(rows);
+}
+
+/// SCM "Unit 3 lowering retains absence empty and sandbox intent": every
+/// allow state and every sandbox class stays distinct in the retained
+/// intent. Omitted allow lowers nothing and is unrestricted; a nonempty
+/// subset lowers its exact limits; each class is kept exactly where it was
+/// requested and nowhere else. An explicit empty list is not joined into
+/// an empty flag value: it keeps its full refusal, and its intent is kept
+/// beside the refusal rather than becoming a successful empty plan.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn unit3_lowering_retains_absence_empty_and_sandbox_intent() {
+    let tree = Tree::new();
+    let mut body = agent_body();
+    body.as_object_mut().unwrap().remove("tools");
+    tree.write("agents/tester.json", &body);
+    tree.write("adapters/claude.json", &claude_body());
+    let base = [
+        "{brokkr}",
+        "driver",
+        "claude",
+        "--",
+        "--model",
+        "claude-opus-5",
+        "--effort",
+        "high",
+    ];
+    let intent = |allow: AllowIntent, sandbox: SandboxIntent| Intent {
+        allow,
+        sandbox,
+        hands: HandsIntent::None,
+    };
+    type Lowered = (Lowering, Option<String>);
+    let lowered = |requested: LocalTools| -> Lowered {
+        let entry = report_narrowed(
+            &tree.library(),
+            &tree.adapters(),
+            &Availability::unspecified(),
+            "tester",
+            brokkr_core::realms::Boundary::Namespace,
+            &requested,
+        )
+        .unwrap()
+        .entries
+        .remove(0);
+        (entry.lowering, entry.gap.map(|gap| gap.to_string()))
+    };
+    let composed = |allow: AllowIntent, sandbox: SandboxIntent, local: &[&str]| -> Lowered {
+        let mut segments = vec![
+            seg(Origin::Template, &base[..4]),
+            seg(Origin::Template, &base[4..6]),
+            seg(Origin::Template, &base[6..]),
+        ];
+        let application = match local {
+            [] => Application::Unrestricted,
+            [flag, value] => {
+                segments.push(seg(Origin::Local, &[flag, value]));
+                Application::Direct(vec![value.to_string()])
+            }
+            _ => unreachable!("one mapped name per row"),
+        };
+        (
+            Lowering::Composed(Composition {
+                segments,
+                effort: Some("high".into()),
+                intent: intent(allow, sandbox),
+                application,
+                template: TemplateExpectation::None,
+                serving: Box::new(ServingInputs {
+                    dialect: DeclaredDialect {
+                        permissions: Some(ListFlag {
+                            flag: "--allowedTools".into(),
+                            separator: ",".into(),
+                        }),
+                        ..DeclaredDialect::default()
+                    },
+                    pins: strings(&base[4..]),
+                    spec: None,
+                }),
+            }),
+            None,
+        )
+    };
+    let listed = |names: &[&str]| AllowIntent::Listed(strings(names));
+    let rows: Vec<Row<Lowered>> = vec![
+        (
+            "omitted allow, unspecified class".into(),
+            lowered(local(None, None)),
+            composed(AllowIntent::Unspecified, SandboxIntent::Unspecified, &[]),
+        ),
+        (
+            "nonempty subset, read-only".into(),
+            lowered(local(Some(&["cargo"]), Some(Sandbox::ReadOnly))),
+            composed(
+                listed(&["cargo"]),
+                SandboxIntent::ReadOnly,
+                &["--allowedTools", "Bash(cargo:*)"],
+            ),
+        ),
+        (
+            "omitted allow, workspace-write".into(),
+            lowered(local(None, Some(Sandbox::WorkspaceWrite))),
+            composed(AllowIntent::Unspecified, SandboxIntent::WorkspaceWrite, &[]),
+        ),
+        (
+            "omitted allow, danger-full-access".into(),
+            lowered(local(None, Some(Sandbox::DangerFullAccess))),
+            composed(
+                AllowIntent::Unspecified,
+                SandboxIntent::DangerFullAccess,
+                &[],
+            ),
+        ),
+        (
+            "explicit empty, read-only".into(),
+            lowered(local(Some(&[]), Some(Sandbox::ReadOnly))),
+            (
+                Lowering::Refused(intent(listed(&[]), SandboxIntent::ReadOnly)),
+                Some(
+                    "agent 'tester' cannot be served by provider 'claude' on model 'opus': the \
+                     effective 'tools.allow' is explicitly empty, and no serving path yet \
+                     expresses an empty local allow set as a delivered restriction (joining no \
+                     names into an empty flag value proves nothing); the declaration is kept \
+                     exactly and refused rather than run unrestricted, until decision 0065 \
+                     slice one's lowering proves its delivery (design D5.3). A capability the \
+                     provider cannot express fails compilation here rather than degrading \
+                     silently at run time"
+                        .to_string(),
+                ),
+            ),
+        ),
+    ];
+    each_row(rows);
+}
+
+/// SCM "Unit 3 primitives cannot bypass the delivery handoff": beside
+/// hands the list is dormant — no local segment, no direct flag, its intent
+/// kept whether nonempty, unmapped or empty — and the workspace fragment is
+/// one hands segment, boxed only. Required hands is read from the agent's
+/// declaration, not from any native grant. A Codex-shaped fragment keeps
+/// its one exact sandbox control and gains no second local one; a mapped
+/// native alias still refuses, its intent kept beside the refusal.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn unit3_primitives_cannot_bypass_the_delivery_handoff() {
+    let fragment = [
+        "--sandbox",
+        "read-only",
+        "-c",
+        "mcp_servers.brokkr.command=\"{brokkr}\"",
+    ];
+    let tree = Tree::new();
+    let mut claude = claude_body();
+    claude["hands"] = json!({"workspace": fragment});
+    claude["tool_permissions"]["names"]["websearch"] = json!("WebSearch");
+    claude["native_capabilities"] = json!({"known": {"web-search": {
+        "capability": "web-search", "tools": ["WebSearch"],
+        "on": {"argv": ["--allowedTools", "WebSearch"]},
+        "off": {"argv": ["--disallowedTools", "WebSearch"]},
+        "restrictions": {"unsupported": "none"},
+        "evidence": {"source": "a test", "scope": "a test", "limitations": []}}}});
+    tree.write("adapters/claude.json", &claude);
+    let template = vec![
+        seg(Origin::Template, &["{brokkr}", "driver", "claude", "--"]),
+        seg(Origin::Template, &["--model", "claude-opus-5"]),
+        seg(Origin::Template, &["--effort", "high"]),
+    ];
+    let boxed = [template.clone(), vec![seg(Origin::Hands, &fragment)]].concat();
+    let lowered = |allow: Value, sandbox: Option<&str>, boundary| {
+        let mut agent = boxed_agent();
+        agent["tools"] = json!({"allow": allow});
+        if let Some(class) = sandbox {
+            agent["tools"]["sandbox"] = json!(class);
+        }
+        tree.write("agents/tester.json", &agent);
+        let entry = report_under(
+            &tree.library(),
+            &tree.adapters(),
+            &Availability::unspecified(),
+            "tester",
+            boundary,
+        )
+        .unwrap()
+        .entries
+        .remove(0);
+        (entry.lowering, entry.gap.map(|gap| gap.to_string()))
+    };
+    // The serving inputs beside the segments (rebuild unit 14a1): the
+    // workspace fragment only where it was composed.
+    let spec = brokkr_protocol::hands::HandsSpec::parse(&boxed_agent()["hands"]).unwrap();
+    let dormant = |allow: &[&str], sandbox: SandboxIntent, segments: &[Segment]| {
+        let workspace = match segments == boxed.as_slice() {
+            true => strings(&fragment),
+            false => Vec::new(),
+        };
+        (
+            Lowering::Composed(Composition {
+                segments: segments.to_vec(),
+                effort: Some("high".into()),
+                intent: Intent {
+                    allow: AllowIntent::Listed(strings(allow)),
+                    sandbox,
+                    hands: HandsIntent::Required,
+                },
+                application: Application::Dormant,
+                template: TemplateExpectation::None,
+                serving: Box::new(ServingInputs {
+                    dialect: DeclaredDialect {
+                        permissions: Some(ListFlag {
+                            flag: "--allowedTools".into(),
+                            separator: ",".into(),
+                        }),
+                        hands: workspace,
+                        ..DeclaredDialect::default()
+                    },
+                    pins: strings(&["--model", "claude-opus-5", "--effort", "high"]),
+                    spec: Some(spec.clone()),
+                }),
+            }),
+            None,
+        )
+    };
+    use brokkr_core::realms::Boundary;
+    let rows: Vec<Row<(Lowering, Option<String>)>> = vec![
+        (
+            "mapped and unmapped names beside boxed hands".into(),
+            lowered(json!(["cargo", "make"]), None, Boundary::Namespace),
+            dormant(&["cargo", "make"], SandboxIntent::Unspecified, &boxed),
+        ),
+        (
+            "an empty list beside boxed hands".into(),
+            lowered(json!([]), None, Boundary::Namespace),
+            dormant(&[], SandboxIntent::Unspecified, &boxed),
+        ),
+        (
+            "the matching class beside the Codex-shaped fragment".into(),
+            lowered(json!(["cargo"]), Some("read-only"), Boundary::Namespace),
+            dormant(&["cargo"], SandboxIntent::ReadOnly, &boxed),
+        ),
+        (
+            "unboxed hands: required, no fragment yet".into(),
+            lowered(json!(["cargo"]), None, Boundary::Harness),
+            dormant(&["cargo"], SandboxIntent::Unspecified, &template),
+        ),
+        (
+            "a mapped native alias beside hands".into(),
+            lowered(json!(["websearch"]), None, Boundary::Namespace),
+            (
+                Lowering::Refused(Intent {
+                    allow: AllowIntent::Listed(strings(&["websearch"])),
+                    sandbox: SandboxIntent::Unspecified,
+                    hands: HandsIntent::Required,
+                }),
+                Some(
+                    "agent 'tester' cannot be served by provider 'claude' on model 'opus': tool \
+                     permission 'websearch' maps to 'WebSearch', a tool of the provider's native \
+                     capability 'web-search'; a legacy allow entry cannot authorize a \
+                     capability, so request 'web-search' by name under 'capabilities' and let \
+                     the realm grant it through a tool dialect (decision 0065 ruling 3). A \
+                     capability the provider cannot express fails compilation here rather than \
+                     degrading silently at run time"
+                        .to_string(),
+                ),
+            ),
+        ),
+    ];
+    each_row(rows);
+    // One sandbox control in the whole composed argv, the fragment's own.
+    let (lowering, _) = lowered(json!(["cargo"]), Some("read-only"), Boundary::Namespace);
+    let Lowering::Composed(composition) = lowering else {
+        panic!("{lowering:?}")
+    };
+    let argv = composition.argv();
+    assert_eq!(
+        argv.iter().filter(|part| *part == "--sandbox").count(),
+        1,
+        "{argv:?}"
+    );
+    assert_eq!(composition.hands_fragment(), strings(&fragment));
+}
+
+/// Rebuild unit 14a1: a composition carries, beside its segments, every
+/// typed input the final check rebuilds its command from, each equal to
+/// its adapter's declaration with its tokens unexpanded: the permission
+/// flag and separator, the `hands.workspace` fragment where boxed hands
+/// compose, the `hands.harness` gate and work fragments where the harness
+/// boundary appends one behind hands, the model and effort pins apart from
+/// the template, and the agent's typed hands. An agent lowers no local
+/// class fragment, and a fragment the boundary does not append is empty.
+#[test]
+fn a_composition_carries_each_serving_input_as_its_adapter_declares_it() {
+    use brokkr_core::realms::Boundary;
+    let (workspace, gate, work) = (
+        ["--strict-mcp-config", "--mcp-config", "{hands_mcp_json}"],
+        ["--gate-fragment", "{brokkr}", "{result_path}"],
+        ["--work-fragment", "{brokkr}"],
+    );
+    let tree = Tree::new();
+    let mut claude = claude_body();
+    claude["hands"] = json!({
+        "workspace": workspace,
+        "harness": {"gate": gate, "work": work, "result": "last-message"},
+    });
+    tree.write("adapters/claude.json", &claude);
+    let serving = |agent: Value, boundary| {
+        tree.write("agents/tester.json", &agent);
+        let report = report_under(
+            &tree.library(),
+            &tree.adapters(),
+            &Availability::unspecified(),
+            "tester",
+            boundary,
+        )
+        .unwrap();
+        composition_of(&report.entries[0]).map(|composition| *composition.serving)
+    };
+    let spec = brokkr_protocol::hands::HandsSpec::parse(&boxed_agent()["hands"]).unwrap();
+    let expected = |hands: &[&str], boundary: BoundaryFragments, spec: &Option<_>| {
+        Ok(ServingInputs {
+            dialect: DeclaredDialect {
+                permissions: Some(ListFlag {
+                    flag: "--allowedTools".into(),
+                    separator: ",".into(),
+                }),
+                sandbox: Vec::new(),
+                hands: strings(hands),
+                boundary,
+            },
+            pins: strings(&["--model", "claude-opus-5", "--effort", "high"]),
+            spec: spec.clone(),
+        })
+    };
+    let declared = BoundaryFragments {
+        gate: strings(&gate),
+        work: strings(&work),
+    };
+    let none = BoundaryFragments::default();
+    let (boxed, unboxed) = (Some(spec), None);
+    let rows: Vec<Row<Result<ServingInputs, String>>> = vec![
+        (
+            "boxed hands".into(),
+            serving(boxed_agent(), Boundary::Namespace),
+            expected(&workspace, none.clone(), &boxed),
+        ),
+        (
+            "hands under harness".into(),
+            serving(boxed_agent(), Boundary::Harness),
+            expected(&[], declared.clone(), &boxed),
+        ),
+        (
+            "hands under open".into(),
+            serving(boxed_agent(), Boundary::Open),
+            expected(&[], none.clone(), &boxed),
+        ),
+        (
+            "no hands under harness".into(),
+            serving(agent_body(), Boundary::Harness),
+            expected(&[], none.clone(), &unboxed),
+        ),
+    ];
+    each_row(rows);
+
+    // An adapter that maps no tool permission carries none, and a route
+    // measured as effortless pins its model alone.
+    claude["tool_permissions"] = json!("unsupported");
+    claude["models"]["opus"] = json!("fast/claude-opus-5");
+    claude["effortless_routes"] = json!({"fast": "measured: the route refuses every level"});
+    tree.write("adapters/claude.json", &claude);
+    let mut agent = boxed_agent();
+    agent["efforts"] = json!({});
+    assert_eq!(
+        serving(agent, Boundary::Namespace),
+        Ok(ServingInputs {
+            dialect: DeclaredDialect {
+                hands: strings(&workspace),
+                ..DeclaredDialect::default()
+            },
+            pins: strings(&["--model", "fast/claude-opus-5"]),
+            spec: boxed,
+        })
+    );
+}
+
+/// The native side of D5.7's world, on the fixture's canonical root: two
+/// definitions, their provider-native dialects for `test-native`, and an
+/// Authority granting whatever the row passes.
+mod native {
+    use super::*;
+    use crate::capabilities::{
+        parse_requests, Authority, CapabilityContext, Definition, NativeInventory, Outcome,
+        Serving, SiteAsks, ToolDialect, OPAQUE_HARNESS,
+    };
+    use brokkr_core::realms::CapabilityGrant;
+
+    pub(super) fn operator(tree: &Tree) -> PathBuf {
+        operator_for(
+            tree,
+            "test-native",
+            [json!(["lookup", "search"]), json!(["fetch"])],
+        )
+    }
+
+    /// The same two definitions and dialects, for `provider`'s own tools.
+    pub(super) fn operator_for(tree: &Tree, provider: &str, tools: [Value; 2]) -> PathBuf {
+        let root = tree.root.join("operator");
+        let [search, fetch] = tools;
+        for (name, tools, restrictions) in [
+            (
+                "web-search",
+                search,
+                json!({"type": "object", "additionalProperties": false,
+                   "properties": {"allow": {"type": "object", "additionalProperties": false,
+                   "properties": {"hosts": {"type": "array", "items": {"type": "string"}}}}}}),
+            ),
+            ("web-fetch", fetch, Value::Null),
+        ] {
+            let mut dialect = json!({
+                "schema": "brokkr.tool-dialect/v1", "name": name, "serves": name,
+                "kind": "provider-native", "provider": provider, "adapter_key": name,
+                "tools": tools, "classes": ["egress", "reads"],
+                "sends": {"description": "a query the model composes", "seat_composed": true}
+            });
+            if !restrictions.is_null() {
+                dialect["restrictions"] = restrictions;
+            }
+            for (relative, body) in [
+                (
+                    Definition::source_of(name),
+                    json!({"name": name, "classes": ["reads", "egress"]}),
+                ),
+                (ToolDialect::source_of(name), dialect),
+            ] {
+                let path = root.join(relative);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, serde_json::to_vec_pretty(&body).unwrap()).unwrap();
+            }
+        }
+        root
+    }
+
+    /// `web-search` switched on by selection over its two tools and off by
+    /// argv, with a restriction transport; `web-fetch` on by its measured
+    /// default and off by argv.
+    pub(super) fn inventory() -> NativeInventory {
+        NativeInventory::parse(
+            "adapter 'test-native'",
+            Some(&json!({
+                "known": {
+                    "web-search": {
+                        "capability": "web-search", "tools": ["lookup", "search"],
+                        "on": {"selection": {"include": ["lookup", "search"],
+                                             "allow": ["lookup", "search"], "deny": []}},
+                        "off": {"argv": ["--search-off"]},
+                        "restrictions": {"argv": ["--search-restrict", "{restrictions_json}"]},
+                        "evidence": {"source": "a test", "scope": "a test", "limitations": []}},
+                    "web-fetch": {
+                        "capability": "web-fetch", "tools": ["fetch"],
+                        "on": {"default": "measured on by default"},
+                        "off": {"argv": ["--fetch-off"]},
+                        "restrictions": {"unsupported": "none"},
+                        "evidence": {"source": "a test", "scope": "a test", "limitations": []}}},
+                "selection": {"include": {"flag": "--tools", "separator": ","},
+                              "allow": {"flag": "--allow", "separator": ","},
+                              "deny": {"flag": "--deny", "separator": ","}}
+            })),
+        )
+        .unwrap()
+    }
+
+    pub(super) fn resolve(
+        root: &Path,
+        grants: Value,
+        asks: Value,
+        provider: &str,
+        native: &NativeInventory,
+    ) -> Outcome {
+        resolve_on(root, grants, asks, provider, OPAQUE_HARNESS, native)
+    }
+
+    /// [`resolve`] for a candidate served by `harness`.
+    pub(super) fn resolve_on(
+        root: &Path,
+        grants: Value,
+        asks: Value,
+        provider: &str,
+        harness: &str,
+        native: &NativeInventory,
+    ) -> Outcome {
+        try_resolve_on(root, grants, asks, provider, harness, native).unwrap()
+    }
+
+    /// [`resolve_on`], its refusal returned rather than unwrapped.
+    pub(super) fn try_resolve_on(
+        root: &Path,
+        grants: Value,
+        asks: Value,
+        provider: &str,
+        harness: &str,
+        native: &NativeInventory,
+    ) -> Result<Outcome, String> {
+        let grants: BTreeMap<String, CapabilityGrant> = grants
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(name, grant)| {
+                let mut restrictions = grant.as_object().unwrap().clone();
+                let dialect = restrictions.remove("dialect").unwrap();
+                let tools = restrictions
+                    .remove("tools")
+                    .map(|tools| serde_json::from_value(tools).unwrap());
+                (
+                    name.clone(),
+                    CapabilityGrant {
+                        dialect: dialect.as_str().unwrap().to_string(),
+                        tools,
+                        offices: None,
+                        restrictions,
+                    },
+                )
+            })
+            .collect();
+        let authority = Authority::load(CapabilityContext {
+            realm: "private".into(),
+            grants,
+            root: root.to_path_buf(),
+        })
+        .unwrap();
+        let requests = parse_requests("agent 'tester'", &asks).unwrap();
+        let site = SiteAsks::of("work", Some(("tester", &requests)), None).unwrap();
+        authority.resolve(
+            &site,
+            &Serving {
+                provider,
+                harness,
+                model: Some("tn-1"),
+                native: Some((native, "d1ge57")),
+                unloaded: None,
+                authored: &[],
+                fragment: &[],
+                provenance: brokkr_protocol::native_controls::Provenance::NONE,
+                written: &[],
+            },
+        )
+    }
+}
+
+/// NCC "Unit 3 expected state is independent of emission", through the
+/// real Authority producer: the expectation is the literal the typed
+/// inputs imply — a held subset with the empty restriction, the only one
+/// slice one carries (operator ruling of 2026-09-25; design D11), a
+/// measured default ON held with no argument, every other known power
+/// denied, a candidate that cannot carry the binding holding nothing, and
+/// an unmeasured inventory kept with its exact reason rather than read as
+/// known and empty. The contribution is asserted apart: what it switches
+/// ON and OFF, raw argv with no transport argument, the pending selection
+/// with the adapter's list flags, and its materialization — which an
+/// opaque custom driver cannot give a pending selection, so that row
+/// refuses instead of claiming complete argv. A nonempty restriction over
+/// the declared transport refuses with the deferral reason.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
+    use crate::capabilities::{NativeContribution, NativeInventory, NativePlan};
+    use brokkr_protocol::native_controls::{ListFlag, Refusal, Selection};
+    let tree = Tree::new();
+    let root = native::operator(&tree);
+    let inventory = native::inventory();
+    let grants = json!({
+        "web-search": {"dialect": "web-search", "tools": ["lookup"],
+                       "allow": {"hosts": ["yaml.org", "sourceware.org"]}},
+        "web-fetch": {"dialect": "web-fetch"},
+    });
+    let unrestricted = json!({
+        "web-search": {"dialect": "web-search", "tools": ["lookup"]},
+        "web-fetch": {"dialect": "web-fetch"},
+    });
+    let held = |capability: &str, tools: &[&str], restrictions: &Value| HeldPower {
+        capability: capability.into(),
+        tools: strings(tools),
+        restrictions: restrictions.as_object().unwrap().clone(),
+    };
+    let flag = |flag: &str| ListFlag {
+        flag: flag.into(),
+        separator: ",".into(),
+    };
+    let lists = |include: &[&str], allow: &[&str], deny: &[&str]| Selection {
+        include: strings(include),
+        allow: strings(allow),
+        deny: strings(deny),
+        flags: Some([flag("--tools"), flag("--allow"), flag("--deny")]),
+    };
+    let contribution =
+        |on: &[&str], off: &[&str], argv: &[&str], selection: Selection| NativeContribution {
+            held: strings(on),
+            denied: strings(off),
+            argv: strings(argv),
+            selection,
+        };
+    type Sealed = (
+        NativeExpectation,
+        Option<NativeContribution>,
+        Option<Result<Segment, Refusal>>,
+    );
+    let sealed = |outcome: &Outcome| -> Sealed {
+        let contribution = match &outcome.native {
+            NativePlan::Known { contribution, .. } => Some((**contribution).clone()),
+            NativePlan::Unmeasured { .. } => None,
+        };
+        let segment = contribution.as_ref().map(|native| {
+            native.segment(
+                &outcome.provider,
+                &outcome.harness,
+                &outcome.native.expected(),
+            )
+        });
+        (outcome.native.expected(), contribution, segment)
+    };
+    use crate::capabilities::Outcome;
+    let resolve = |asks: Value, provider: &str, inventory: &NativeInventory| {
+        native::resolve(&root, grants.clone(), asks, provider, inventory)
+    };
+    let subset = native::resolve(
+        &root,
+        unrestricted,
+        json!({"web-search": "requires"}),
+        "test-native",
+        &inventory,
+    );
+    let rows: Vec<Row<Sealed>> = vec![
+        (
+            "a held subset under the empty restriction".into(),
+            sealed(&subset),
+            (
+                NativeExpectation::Known {
+                    held: vec![held("web-search", &["lookup"], &json!({}))],
+                    denied: strings(&["web-fetch"]),
+                },
+                Some(contribution(
+                    &["web-search"],
+                    &["web-fetch"],
+                    &["--fetch-off"],
+                    lists(&["lookup"], &["lookup"], &["search"]),
+                )),
+                Some(Err(Refusal {
+                    authored: false,
+                    cause: "the capability plan carries a tool selection for provider \
+                            '<custom>', which its launch does not consume; a control that \
+                            cannot reach the final command is refused rather than recorded and \
+                            dropped (decision 0066 ruling 3)"
+                        .into(),
+                })),
+            ),
+        ),
+        (
+            "a measured default ON with no argument".into(),
+            sealed(&resolve(
+                json!({"web-fetch": "requires"}),
+                "test-native",
+                &inventory,
+            )),
+            (
+                NativeExpectation::Known {
+                    held: vec![held("web-fetch", &["fetch"], &json!({}))],
+                    denied: strings(&["web-search"]),
+                },
+                Some(contribution(
+                    &["web-fetch"],
+                    &["web-search"],
+                    &["--search-off"],
+                    lists(&[], &[], &[]),
+                )),
+                Some(Ok(seg(Origin::Native, &["--search-off"]))),
+            ),
+        ),
+        (
+            "no ask: every known power denied".into(),
+            sealed(&resolve(json!({}), "test-native", &inventory)),
+            (
+                NativeExpectation::Known {
+                    held: Vec::new(),
+                    denied: strings(&["web-fetch", "web-search"]),
+                },
+                Some(contribution(
+                    &[],
+                    &["web-fetch", "web-search"],
+                    &["--fetch-off", "--search-off"],
+                    lists(&[], &[], &[]),
+                )),
+                Some(Ok(seg(Origin::Native, &["--fetch-off", "--search-off"]))),
+            ),
+        ),
+        (
+            "another candidate borrows no holding".into(),
+            sealed(&resolve(
+                json!({"web-search": "wants", "web-fetch": "wants"}),
+                "other-native",
+                &inventory,
+            )),
+            (
+                NativeExpectation::Known {
+                    held: Vec::new(),
+                    denied: strings(&["web-fetch", "web-search"]),
+                },
+                Some(contribution(
+                    &[],
+                    &["web-fetch", "web-search"],
+                    &["--fetch-off", "--search-off"],
+                    lists(&[], &[], &[]),
+                )),
+                Some(Ok(seg(Origin::Native, &["--fetch-off", "--search-off"]))),
+            ),
+        ),
+        (
+            "an unmeasured inventory".into(),
+            sealed(&resolve(
+                json!({"web-search": "wants"}),
+                "test-native",
+                &NativeInventory::Unmeasured("nobody measured test-native".into()),
+            )),
+            (
+                NativeExpectation::Unmeasured("nobody measured test-native".into()),
+                None,
+                None,
+            ),
+        ),
+    ];
+    each_row(rows);
+    assert_eq!(
+        subset.identity(),
+        brokkr_protocol::native_controls::Identity {
+            provider: "test-native".into(),
+            harness: "<custom>".into(),
+            model: Some("tn-1".into()),
+        }
+    );
+    // The nonempty restriction the row held before the deferral.
+    assert_eq!(
+        native::try_resolve_on(
+            &root,
+            grants,
+            json!({"web-search": "requires"}),
+            "test-native",
+            crate::capabilities::OPAQUE_HARNESS,
+            &inventory,
+        )
+        .unwrap_err(),
+        "seat 'work' (office 'tester') in realm 'private': requires capability 'web-search' \
+         through dialect 'web-search', but provider 'test-native' cannot express restriction \
+         'allow.hosts' through its declared transport, which carries only the empty \
+         restriction until a provider restriction transport is measured (operator ruling of \
+         2026-09-25); the capability cannot be held under this grant"
+    );
+}
+
+/// D5.7, end to end over the real producers: the local composition and a
+/// complete native segment make one private record whose expected state
+/// comes from typed inputs; it round-trips through the strict reader and
+/// reassembles the flat argv those producers emitted, exactly.
+#[test]
+fn unit3_a_record_from_the_real_producers_round_trips_and_reassembles() {
+    let tree = ready();
+    let root = native::operator(&tree);
+    let entry = report(
+        &tree.library(),
+        &tree.adapters(),
+        &Availability::unspecified(),
+        "tester",
+    )
+    .unwrap()
+    .entries
+    .remove(0);
+    let composition = composition_of(&entry).unwrap();
+    let outcome = native::resolve(
+        &root,
+        json!({"web-fetch": {"dialect": "web-fetch"}}),
+        json!({"web-fetch": "requires"}),
+        "test-native",
+        &native::inventory(),
+    );
+    let crate::capabilities::NativePlan::Known { contribution, .. } = &outcome.native else {
+        panic!("{:?}", outcome.native)
+    };
+    let native = contribution
+        .segment(
+            &outcome.provider,
+            &outcome.harness,
+            &outcome.native.expected(),
+        )
+        .unwrap();
+    // The fixture's driver ends at its verb, so it emits no permission
+    // template and `none` is the truthful expectation (rebuild unit 5c-fix).
+    assert_eq!(composition.segments[0].argv[3..], strings(&["--"]));
+    let record = LaunchRecord {
+        segments: [composition.segments.clone(), vec![native]].concat(),
+        expected: Expected {
+            identity: outcome.identity(),
+            native: outcome.native.expected(),
+            local: composition.local(),
+            hands: composition.intent.hands,
+            template: TemplateExpectation::None,
+        },
+    };
+    let decoded = LaunchRecord::decode(Some(&record.value())).unwrap();
+    assert_eq!(decoded, record);
+    assert_eq!(decoded.expected.template, TemplateExpectation::None);
+    let flat = [entry.argv.clone(), strings(&["--search-off"])].concat();
+    assert_eq!(reassemble(&decoded.segments, &flat), Ok(()));
+    assert_eq!(
+        decoded
+            .segments
+            .iter()
+            .map(|segment| segment.origin.word())
+            .collect::<Vec<_>>(),
+        ["template", "template", "template", "local", "native"]
+    );
+    assert_eq!(
+        decoded.expected.local.application,
+        Application::Direct(strings(&["Bash(cargo:*)", "Bash(git:*)"]))
+    );
+}
+
+/// NCC "Unit 3 expected state is independent of emission", for a pending
+/// selection (review return R1): two Claude-shaped inventories that differ
+/// ONLY in the deny list's flag and separator yield two different typed
+/// contributions, each materializing through the launch's own lowering to
+/// its own literal native segment, while the expected state — sealed from
+/// the typed holdings — is the same for both. A record built from the real
+/// producers with that materialized selection round-trips and reassembles.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn unit3_a_pending_selection_keeps_its_own_mappings_through_materialization() {
+    use crate::capabilities::{NativeContribution, NativeInventory, NativePlan};
+    use brokkr_protocol::native_controls::{ListFlag, Refusal, Selection};
+    let tree = Tree::new();
+    let root = native::operator_for(&tree, "claude", [json!(["WebSearch"]), json!(["WebFetch"])]);
+    let power = |capability: &str, tool: &str| {
+        json!({
+            "capability": capability, "tools": [tool],
+            "on": {"selection": {"include": [tool], "allow": [tool], "deny": []}},
+            "off": {"selection": {"include": [], "allow": [], "deny": [tool]}},
+            "restrictions": {"unsupported": "none"},
+            "evidence": {"source": "a test", "scope": "a test", "limitations": []}})
+    };
+    let claude = |deny: (&str, &str)| {
+        NativeInventory::parse(
+            "adapter 'claude'",
+            Some(&json!({
+                "known": {"web-search": power("web-search", "WebSearch"),
+                          "web-fetch": power("web-fetch", "WebFetch")},
+                "selection": {"include": {"flag": "--tools", "separator": ","},
+                              "allow": {"flag": "--allowedTools", "separator": ","},
+                              "deny": {"flag": deny.0, "separator": deny.1}}})),
+        )
+        .unwrap()
+    };
+    let canonical = ("--disallowedTools", ",");
+    let spaced = ("--disallowed-tools", " ");
+    let flag = |(flag, separator): (&str, &str)| ListFlag {
+        flag: flag.into(),
+        separator: separator.into(),
+    };
+    type Seen = (
+        NativeExpectation,
+        NativeContribution,
+        Result<Segment, Refusal>,
+    );
+    let seen = |deny: (&str, &str), asks: Value| -> Seen {
+        let outcome = native::resolve_on(
+            &root,
+            json!({"web-search": {"dialect": "web-search"}}),
+            asks,
+            "claude",
+            "claude",
+            &claude(deny),
+        );
+        let NativePlan::Known { contribution, .. } = &outcome.native else {
+            panic!("{:?}", outcome.native)
+        };
+        (
+            outcome.native.expected(),
+            (**contribution).clone(),
+            contribution.segment(
+                &outcome.provider,
+                &outcome.harness,
+                &outcome.native.expected(),
+            ),
+        )
+    };
+    let expected = |deny: (&str, &str),
+                    on: &[&str],
+                    off: &[&str],
+                    lists: [&[&str]; 3],
+                    native: &[&str]|
+     -> Seen {
+        (
+            NativeExpectation::Known {
+                held: on
+                    .iter()
+                    .map(|_| HeldPower {
+                        capability: "web-search".into(),
+                        tools: strings(&["WebSearch"]),
+                        restrictions: Default::default(),
+                    })
+                    .collect(),
+                denied: strings(off),
+            },
+            NativeContribution {
+                held: strings(on),
+                denied: strings(off),
+                argv: Vec::new(),
+                selection: Selection {
+                    include: strings(lists[0]),
+                    allow: strings(lists[1]),
+                    deny: strings(lists[2]),
+                    flags: Some([
+                        flag(("--tools", ",")),
+                        flag(("--allowedTools", ",")),
+                        flag(deny),
+                    ]),
+                },
+            },
+            Ok(seg(Origin::Native, native)),
+        )
+    };
+    let holds = json!({"web-search": "requires"});
+    each_row(vec![
+        (
+            "web-search held, canonical deny mapping".into(),
+            seen(canonical, holds.clone()),
+            expected(
+                canonical,
+                &["web-search"],
+                &["web-fetch"],
+                [&["WebSearch"], &["WebSearch"], &["WebFetch"]],
+                &[
+                    "--allowedTools",
+                    "WebSearch",
+                    "--disallowedTools",
+                    "WebFetch",
+                ],
+            ),
+        ),
+        (
+            "web-search held, spaced deny alias".into(),
+            seen(spaced, holds.clone()),
+            expected(
+                spaced,
+                &["web-search"],
+                &["web-fetch"],
+                [&["WebSearch"], &["WebSearch"], &["WebFetch"]],
+                &[
+                    "--allowedTools",
+                    "WebSearch",
+                    "--disallowed-tools",
+                    "WebFetch",
+                ],
+            ),
+        ),
+        (
+            "nothing held, canonical deny mapping".into(),
+            seen(canonical, json!({})),
+            expected(
+                canonical,
+                &[],
+                &["web-fetch", "web-search"],
+                [&[], &[], &["WebFetch", "WebSearch"]],
+                &["--disallowedTools", "WebFetch,WebSearch"],
+            ),
+        ),
+        (
+            "nothing held, spaced deny alias".into(),
+            seen(spaced, json!({})),
+            expected(
+                spaced,
+                &[],
+                &["web-fetch", "web-search"],
+                [&[], &[], &["WebFetch", "WebSearch"]],
+                &["--disallowed-tools", "WebFetch WebSearch"],
+            ),
+        ),
+    ]);
+    // The materialized selection in a record beside the real local
+    // producer's composition: it round-trips and reassembles exactly.
+    let mut body = agent_body();
+    body.as_object_mut().unwrap().remove("tools");
+    tree.write("agents/tester.json", &body);
+    tree.write("adapters/claude.json", &claude_body());
+    let entry = report(
+        &tree.library(),
+        &tree.adapters(),
+        &Availability::unspecified(),
+        "tester",
+    )
+    .unwrap()
+    .entries
+    .remove(0);
+    let composition = composition_of(&entry).unwrap();
+    let outcome = native::resolve_on(
+        &root,
+        json!({"web-search": {"dialect": "web-search"}}),
+        holds,
+        "claude",
+        "claude",
+        &claude(spaced),
+    );
+    let NativePlan::Known { contribution, .. } = &outcome.native else {
+        panic!("{:?}", outcome.native)
+    };
+    let record = LaunchRecord {
+        segments: [
+            composition.segments.clone(),
+            vec![contribution
+                .segment(
+                    &outcome.provider,
+                    &outcome.harness,
+                    &outcome.native.expected(),
+                )
+                .unwrap()],
+        ]
+        .concat(),
+        expected: Expected {
+            identity: outcome.identity(),
+            native: outcome.native.expected(),
+            local: composition.local(),
+            hands: composition.intent.hands,
+            template: TemplateExpectation::None,
+        },
+    };
+    let decoded = LaunchRecord::decode(Some(&record.value())).unwrap();
+    assert_eq!(decoded, record);
+    assert_eq!(decoded.expected.template, TemplateExpectation::None);
+    assert_eq!(
+        reassemble(
+            &decoded.segments,
+            &strings(&[
+                "{brokkr}",
+                "driver",
+                "claude",
+                "--",
+                "--model",
+                "claude-opus-5",
+                "--effort",
+                "high",
+                "--allowedTools",
+                "WebSearch",
+                "--disallowed-tools",
+                "WebFetch",
+            ])
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        decoded
+            .segments
+            .iter()
+            .map(|segment| segment.origin.word())
+            .collect::<Vec<_>>(),
+        ["template", "template", "template", "native"]
+    );
+    assert_eq!(
+        decoded.expected.local.application,
+        Application::Unrestricted
+    );
+}
+
 // ------------------------------- decision 0069: hands.notice
 
 /// A Claude-shaped adapter whose `hands` is the given object.
@@ -2613,11 +5490,7 @@ fn hands_adapter(hands: Value) -> Tree {
 
 /// The loader's refusal, whole: provider, file, field and rule.
 fn notice_refusal(tree: &Tree, rule: &str) -> String {
-    let path = tree
-        .adapters_root()
-        .canonicalize()
-        .unwrap()
-        .join("claude.json");
+    let path = tree.adapters_root().join("claude.json");
     format!(
         "adapter 'claude' ({}) 'hands.notice' {rule}",
         path.display()

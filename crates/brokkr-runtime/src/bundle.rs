@@ -6,7 +6,8 @@
 //! missing role never loads at all.
 
 use brokkr_protocol::hands::HandsSpec;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::sha256_bytes;
@@ -20,10 +21,11 @@ pub mod compose;
 use compose::{Ancestor, COMPOSE_PREFIX};
 
 use crate::agents::{
-    resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, EgressClass,
-    HandsNotice, Library, TrustTier,
+    resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition,
+    EgressClass, HandsNotice, Library, Lowering, Sandbox, TrustTier,
 };
 use crate::dialect::{Dialect, DIALECT_PHASES};
+use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const EVENT_SCHEMA: u32 = 1;
@@ -33,12 +35,28 @@ pub const DRIVER_PROTOCOL: u32 = 1;
 pub enum CompileError {
     #[error("bundle: {0}")]
     Invalid(String),
+    /// A refusal by capability authority (decision 0065): a grant, an
+    /// abstract definition, a tool dialect or a seat's resolution. It
+    /// reads exactly as `Invalid` does; it is a variant of its own so that
+    /// `brokkr resume` can tell "the pinned authority cannot be
+    /// reproduced here" from any other compile failure and refuse through
+    /// the manifest-mismatch door with capabilities named (design D7).
+    /// The whole line, `bundle: ` and any composition-chain note included,
+    /// renders through the protocol's one refusal sink: one line, at most
+    /// 512 scalar values (rebuild unit 12-fix-e; design D6).
+    #[error("{}", capability_line(.0))]
+    Capability(String),
     #[error("bundle io: {0}")]
     Io(#[from] std::io::Error),
     #[error("bundle json: {0}")]
     Json(#[from] serde_json::Error),
     #[error("bundle policy: {0}")]
     Policy(#[from] brokkr_core::PolicyError),
+}
+
+/// How [`CompileError::Capability`] renders.
+fn capability_line(reason: &str) -> String {
+    brokkr_protocol::native_controls::bounded_line(&format!("bundle: {reason}"))
 }
 
 /// Inputs the engine owns. A seat may never supply or declare these:
@@ -385,12 +403,190 @@ pub struct SiteFacts {
     pub hands: HandsState,
     pub record: Option<Value>,
     pub driver: Option<DriverDigests>,
+    /// The resolved chain of an agent-backed site, kept beside its record
+    /// so the capability pass judges exactly the candidates the site will
+    /// run (decision 0065). Empty for an inline site.
+    pub chain: Vec<Candidate>,
+    /// Decision 0065 ruling 5: what this site asks for and, per provider
+    /// candidate, what it holds. `None` only until the capability pass has
+    /// run; the engine refuses to launch a model site that still has none.
+    pub capabilities: Option<crate::capabilities::SiteCapabilities>,
+    /// Second council H6: the charter this site's AGENT was resolved with,
+    /// bound to the pin its library record carries. An agent's charter
+    /// stands outside every layer's file map, so nothing at the dispatch
+    /// door used to compare it — `charter_drift` answered `None` and the
+    /// launch went ahead on whatever the file said by then. The binding is
+    /// carried outside the manifest, because the path is the host's and
+    /// bundle identity is not.
+    /// Rebuild unit 17: every site with a charter carries it, an inline
+    /// site's bound to the layer that declared its role, so its owner is
+    /// selected where the site is compiled and never guessed from a path.
+    /// `None` at an exec site, which has no charter.
+    pub charter: Option<CharterPin>,
+    /// Decision 0065 slice one (design D5.2): the EFFECTIVE typed local
+    /// declaration of this executable site — the office's narrowed by the
+    /// site's, or the inline site's own. `None` is a site the local pass
+    /// never visited; `Some` with both fields unspecified is a visited site
+    /// that declared nothing. Containers never own one. Private compile
+    /// data: not a manifest field and not a grant.
+    pub local: Option<crate::agents::LocalTools>,
+    /// Rebuild unit 5b (design D5.3, D5.7): an inline Claude or LaneTally
+    /// site's typed allow, lowered by the engine onto its adapter's tool
+    /// permissions. The engine appends it behind the authored command as
+    /// its own `local` segment at dispatch; the authored command never
+    /// carries it. `None` at every other site.
+    pub inline_local: Option<crate::agents::LocalLowering>,
+    /// Rebuild unit 5c (operator ruling of 2026-09-24): the permission
+    /// template the site's adapter declares behind its driver verb, taken
+    /// where `inline_local` is and nowhere else. The engine appends it as
+    /// its own `template` segment between the authored command and the
+    /// lowered list. `None` where the allow does not lower or the adapter
+    /// declares no template.
+    pub inline_template: Option<Segment>,
+    /// Rebuild unit 5c-fix (operator ruling of 2026-09-24, item 2): the
+    /// adapter's declaration of that template as a typed fact, separate
+    /// from the segment above, which is what is emitted. The engine fills
+    /// the expected state from this fact alone, so a template omitted or
+    /// altered on its way into the command has something to contradict.
+    /// Recorded exactly where `inline_local` is — `Declared` with the
+    /// expanded argv, or `None` for an adapter that declares no template —
+    /// and `None` (unrecorded) at every other site.
+    pub declared_template: Option<TemplateExpectation>,
+    /// Rebuild unit 5d (operator ruling of 2026-09-25, "narrow"): an inline
+    /// Codex seat's typed sandbox class, lowered onto the fragment its
+    /// adapter declares for the seat's class. The engine appends it behind
+    /// the authored command as its own `local` segment at dispatch, as it
+    /// appends `inline_local`. `None` at every other site.
+    pub inline_sandbox: Option<InlineSandbox>,
+    /// Rebuild unit 14a1: the adapter's declared dialect an inline site's
+    /// command is composed from, recorded where its typed declaration was
+    /// lowered — the permission flag its allow lowered onto, and the
+    /// fragment its class lowered onto as declared, tokens unexpanded, and
+    /// (operator ruling (B) of 2026-09-27) where the site has hands, the
+    /// `hands.workspace` fragment its driver's adapter declares.
+    /// `Some` at every inline site [`record_inline_tools`] visited, `None`
+    /// at every other; read through [`SiteFacts::inline_serving`].
+    pub inline_dialect: Option<crate::agents::DeclaredDialect>,
+    /// Rebuild unit 14a4a (operator ruling (B) of 2026-09-27): an inline
+    /// site's hands, served like an agent's — the `hands.workspace` fragment
+    /// its dialect carries, through the compile's expansion as an agent's
+    /// `hands` segment is. The engine appends it behind every other segment
+    /// of the site's command at dispatch, and the box expands its tokens.
+    /// `None` at a site whose dialect carries no hands fragment.
+    pub inline_hands: Option<Segment>,
     /// The discovery notice the adapter an INLINE built-in model driver
     /// names declares (decision 0069). An agent-resolved site
     /// carries its notice on each `Candidate` instead, and the engine
     /// reads this only when no candidate serves the site. The adapter it
     /// was read from is witnessed through `pin_drivers`.
     pub inline_hands_notice: Option<HandsNotice>,
+}
+
+/// One inline Codex seat's lowered sandbox (rebuild unit 5d): the class
+/// its typed declaration names, the engine's `local` segment expressing
+/// it — the adapter's `hands.harness` fragment for the seat's class, whose
+/// `{result_path}` the engine fills at dispatch — and the result door that
+/// fragment opens: `last-message` at a gate, `file` at a work seat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineSandbox {
+    pub class: Sandbox,
+    pub segment: Segment,
+    pub door: crate::agents::ResultDoor,
+}
+
+/// Every charter one compile bound, keyed by the path the seat will be told
+/// from, with every binding a site selected for that path. Held on the
+/// [`Bundle`] rather than only per site, so the pin survives every
+/// projection of the site facts (second council H6; rebuild unit 17).
+pub type CharterPins = BTreeMap<PathBuf, BTreeSet<CharterPin>>;
+
+/// One charter as the compile bound it (second council H6; rebuild unit 17,
+/// design D7): the owner selected with the site, the reference as written,
+/// the path the seat is told, and the digest the owner already pins for
+/// those bytes. Rebuild unit 18-fix-b (council F1, F2): with the [`Binding`]
+/// the compile's bound read verified — both keys and the file it read — and
+/// who the owner's directory was when that same read reached it. A pin is
+/// built only from such a read ([`CharterPin::of`]), never from a path.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CharterPin {
+    pub owner: CharterOwner,
+    pub reference: String,
+    pub path: PathBuf,
+    pub digest: String,
+    pub(crate) binding: Binding,
+    pub(crate) directory: OwnerIdentity,
+}
+
+/// Who pins a charter (rebuild unit 17): the layer that declared an inline
+/// role, with the key its file map pins the role under, or the library an
+/// agent was loaded from, with its own contained root.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CharterOwner {
+    Layer { dir: PathBuf, key: String },
+    Library { agent: String, root: PathBuf },
+}
+
+impl CharterOwner {
+    /// The owner's canonical directory: the declaring layer's, or the
+    /// library's own.
+    pub fn root(&self) -> &PathBuf {
+        match self {
+            CharterOwner::Layer { dir, .. } => dir,
+            CharterOwner::Library { root, .. } => root,
+        }
+    }
+}
+
+impl CharterPin {
+    /// The pin of the charter `bound` read from `owner`'s directory by
+    /// [`owned_input`]: its digest, its binding and who that read found the
+    /// owner's directory to be, all from the one read.
+    pub(crate) fn of(
+        owner: CharterOwner,
+        reference: &str,
+        path: PathBuf,
+        bound: &BoundInput,
+    ) -> CharterPin {
+        CharterPin {
+            owner,
+            reference: reference.to_string(),
+            path,
+            digest: sha256_bytes(&bound.bytes),
+            binding: bound.held.binding.clone(),
+            directory: bound
+                .held
+                .owner
+                .clone()
+                .expect("a charter is read through its owner's directory"),
+        }
+    }
+
+    /// The owner and the key a dispatch refusal names. A layer is found by
+    /// its exact directory, never by the longest root a path starts with;
+    /// `None` where no layer of this bundle is that directory.
+    fn named(&self, bundle: &Bundle) -> Option<(String, String)> {
+        match &self.owner {
+            CharterOwner::Layer { dir, key } => {
+                let name = match dir == &bundle.dir {
+                    true => &bundle.name,
+                    false => {
+                        &bundle
+                            .chain
+                            .iter()
+                            .find(|ancestor| &ancestor.dir == dir)?
+                            .name
+                    }
+                };
+                Some((format!("layer '{name}'"), key.clone()))
+            }
+            CharterOwner::Library { agent, .. } => Some((
+                format!("agent '{agent}'"),
+                self.path
+                    .file_name()
+                    .map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
+            )),
+        }
+    }
 }
 
 impl SiteFacts {
@@ -402,6 +598,18 @@ impl SiteFacts {
             HandsState::Hands(spec) => Some(spec),
             _ => None,
         }
+    }
+
+    /// Rebuild unit 14a1: an inline site's typed serving inputs — its
+    /// recorded dialect, no pins (the recipe writes its own model and
+    /// effort) and the typed hands this site resolved. `None` at a site
+    /// with no inline composition, whose candidates carry theirs.
+    pub fn inline_serving(&self) -> Option<crate::agents::ServingInputs> {
+        Some(crate::agents::ServingInputs {
+            dialect: self.inline_dialect.clone()?,
+            pins: Vec::new(),
+            spec: self.hands_spec().cloned(),
+        })
     }
 }
 
@@ -453,6 +661,10 @@ pub struct Bundle {
     /// `hands` and `inline_resume` beside it are serialization
     /// projections, never separately mutable authorities.
     pub sites: BTreeMap<String, SiteFacts>,
+    /// Second council H6: the library pin of every agent charter this
+    /// compile resolved, consulted at the dispatch door for a charter no
+    /// layer's file map keys.
+    pub charters: CharterPins,
     /// The phase every path to a non-stop terminal must traverse.
     pub protected_phase: String,
     /// Dialect-owned prose, resolved once at compile time and keyed by the
@@ -485,6 +697,49 @@ struct AgentContext {
     /// is exactly what `binding_grant: true` meant, so every bundle on
     /// disk keeps the behaviour it has.
     egress_minimum: EgressClass,
+    /// Every library charter's bound read, held until the bundle is sealed
+    /// (rebuild unit 18-fix-b return, council F2).
+    reads: Vec<LibraryRead>,
+}
+
+/// One library charter a site was bound to, as its read holds it: the site
+/// and agent a refusal names, the reference as written, the digest of the
+/// buffer read and what the read holds. No layer's walk pins a library's
+/// file, so before the bundle is sealed the read itself is checked to still
+/// stand — its owner, every entry on its way and its bytes — as a layer's
+/// charter is by that layer's seal (rebuild unit 18-fix-b return, F2).
+struct LibraryRead {
+    site: String,
+    agent: String,
+    reference: String,
+    digest: String,
+    held: Held,
+}
+
+impl LibraryRead {
+    /// Refused, where the read no longer stands as it was read.
+    fn check(&self) -> Result<(), CompileError> {
+        match self.held.intact(&self.digest) {
+            true => Ok(()),
+            false => Err(library_refusal(
+                &self.site,
+                &self.agent,
+                &self.reference,
+                "which the compile no longer holds as it was read: its library's directory, an \
+                 entry on its way, or its bytes changed after the read that bound it",
+            )),
+        }
+    }
+}
+
+/// The refusal of the charter `reference` the library's `agent` names for
+/// the seat `site`, for the reason `clause`.
+fn library_refusal(site: &str, agent: &str, reference: &str, clause: &str) -> CompileError {
+    CompileError::Invalid(format!(
+        "seat '{site}': agent '{agent}' names charter {}, {clause}. What a seat is told must be \
+         what the bundle's identity names, so it is refused (decision 0065 slice one, design D7)",
+        bounded_reference(reference)
+    ))
 }
 
 /// One resolved agent reference, ready to become an ordinary seat body.
@@ -519,13 +774,17 @@ fn mentions_agent(value: &Value) -> bool {
 /// declared secret binding needs it too, even in a bundle that names no
 /// agent at all (`bundles/verify` and `recipes/fast` are exactly that).
 /// A bundle with none of the three has nothing to check and still
-/// compiles with no `adapters/` directory in sight.
+/// compiles with no `adapters/` directory in sight. A typed `tools`
+/// declaration (decision 0065 slice one, design D5.2) is judged against
+/// what an adapter can represent, so it opens the adapters too — through
+/// this same fallible context, never a swallowed load.
 fn needs_adapters(value: &Value) -> bool {
     match value {
         Value::Object(map) => {
             map.contains_key("agent")
                 || map.contains_key("dialect")
                 || map.contains_key("secrets")
+                || map.contains_key("tools")
                 || map.get("class").and_then(Value::as_str) == Some("gate")
                 || map.values().any(needs_adapters)
         }
@@ -788,19 +1047,22 @@ struct Unpinned {
     hands_notice: BTreeMap<String, HandsNotice>,
 }
 
-/// Adapter data for the effortless-route exemption (decision 0035
-/// addendum 2026-09-11), the inline resume assessment and the inline
-/// discovery notice. Loaded only where an inline model seat could claim
-/// it. An ABSENT adapters root reads as no exemptions, no assessment and
-/// no notice — the strict rule stands, exactly as a bundle with no
-/// adapters/ directory in sight compiles today. A PRESENT root that does
-/// not load is refused with the loader's own words (proposed decision
-/// 0069): a malformed discovery notice must not pass itself off as an
-/// adapter that declares none.
-fn load_pin_adapters(
-    root: &Path,
-    seats: &Map<String, Value>,
-) -> Result<Option<Adapters>, CompileError> {
+/// Adapter data for an inline model seat, loaded only where a bundle seats
+/// one, and kept as the `Result` the load gave (decision 0066 ruling 1).
+///
+/// Readers with opposite needs. The effortless-route exemption (decision
+/// 0035 addendum 2026-09-11), the inline resume assessment and the inline
+/// discovery notice (decision 0069) take the `Ok` and read an absent or
+/// unloadable root as none of them, so the strict rule stands. The
+/// capability pass is MANDATORY: the same data says how a harness's native
+/// search is switched off, and an error swallowed here used to reach it as
+/// "nothing declared" and compile a Codex seat with no denial. It takes the
+/// error too, and refuses the seat with the loader's own words. A PRESENT
+/// root that does not load is refused after that pass in any case
+/// (decision 0069): a malformed discovery notice must not pass itself off
+/// as an adapter that declares none. `None` is a bundle that seats no
+/// inline model driver and so asked for nothing.
+fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Result<Adapters, String>> {
     fn has_inline_model_driver(value: &Value) -> bool {
         match value {
             Value::Object(map) => {
@@ -811,14 +1073,41 @@ fn load_pin_adapters(
         }
     }
     if !seats.values().any(has_inline_model_driver) {
-        return Ok(None);
+        return None;
     }
-    if !root.exists() {
-        return Ok(None);
+    Some(Adapters::load(root).map_err(|error| error.to_string()))
+}
+
+/// The adapters a capability pass resolves against, and why there are none
+/// where a load failed: what [`site_capabilities`] is handed.
+#[derive(Clone, Copy)]
+struct CapabilityAdapters<'a> {
+    adapters: Option<&'a Adapters>,
+    unloaded: Option<&'a str>,
+}
+
+impl<'a> CapabilityAdapters<'a> {
+    fn loaded(adapters: &'a Adapters) -> Self {
+        CapabilityAdapters {
+            adapters: Some(adapters),
+            unloaded: None,
+        }
     }
-    Adapters::load(root)
-        .map(Some)
-        .map_err(|e| CompileError::Invalid(e.to_string()))
+
+    /// An inline seat's adapters: loaded, failed to load, or never asked for.
+    fn of(pinned: Option<&'a Result<Adapters, String>>) -> Self {
+        match pinned {
+            Some(Ok(adapters)) => Self::loaded(adapters),
+            Some(Err(problem)) => CapabilityAdapters {
+                adapters: None,
+                unloaded: Some(problem),
+            },
+            None => CapabilityAdapters {
+                adapters: None,
+                unloaded: None,
+            },
+        }
+    }
 }
 
 /// Decision 0035 addendum 2026-09-11: a seat whose concrete lane
@@ -917,11 +1206,7 @@ fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &
     }
     if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
         for (index, step) in sequence.iter().enumerate() {
-            let name = step
-                .get("name")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("step-{}", index + 1));
+            let name = step_label(index, step);
             collect_unpinned(&format!("{what}:{name}"), step, adapters, out);
         }
     }
@@ -1042,6 +1327,29 @@ impl Bundle {
         adapters_root: &Path,
         boundary: Boundary,
     ) -> Result<Bundle, CompileError> {
+        Self::compile_unmapped(
+            dir,
+            library_root,
+            adapters_root,
+            boundary,
+            library_root.parent().unwrap_or(Path::new("")),
+        )
+    }
+
+    /// [`Bundle::compile_under`] with the operator's configuration
+    /// directory named rather than inferred (decision 0065; design D2):
+    /// without a map, the abstract definitions and tool dialects are read
+    /// under the OPERATED repository, which a `--repo` makes a different
+    /// directory from the one the library stands in. The context grants
+    /// nothing either way; the root only locates what a seat's ask is
+    /// checked against.
+    pub fn compile_unmapped(
+        dir: &Path,
+        library_root: &Path,
+        adapters_root: &Path,
+        boundary: Boundary,
+        operator_root: &Path,
+    ) -> Result<Bundle, CompileError> {
         let default_path = library_root
             .parent()
             .unwrap_or(Path::new(""))
@@ -1055,13 +1363,17 @@ impl Bundle {
         } else {
             None
         };
-        Self::compile_with_realm(
+        Self::compile_with_capabilities(
             dir,
             library_root,
             adapters_root,
             None,
             default.as_ref(),
             boundary,
+            &crate::capabilities::CapabilityContext::no_grants(
+                crate::capabilities::UNMAPPED,
+                operator_root,
+            ),
         )
     }
 
@@ -1079,13 +1391,47 @@ impl Bundle {
         dialect: Option<&Dialect>,
         boundary: Boundary,
     ) -> Result<Bundle, CompileError> {
+        // No grant context was supplied, so there is none: the explicit
+        // no-grant context, never a skipped denial (decision 0065 ruling
+        // 4). The operator's configuration directory is the one the
+        // library and the default dialect already stand in.
+        let capabilities = crate::capabilities::CapabilityContext::no_grants(
+            realm_name.unwrap_or(crate::capabilities::UNMAPPED),
+            library_root.parent().unwrap_or(Path::new("")),
+        );
+        Self::compile_with_capabilities(
+            dir,
+            library_root,
+            adapters_root,
+            realm_name,
+            dialect,
+            boundary,
+            &capabilities,
+        )
+    }
+
+    /// Compile under an explicit capability context (decision 0065; design
+    /// D2): the operated realm, what it grants, and where the operator's
+    /// definitions and tool dialects live. Every other entry point reaches
+    /// here with the no-grant context; only a caller that read the
+    /// operator's realm map can supply a grant, which is what makes the
+    /// realm the one place a capability is granted.
+    pub fn compile_with_capabilities(
+        dir: &Path,
+        library_root: &Path,
+        adapters_root: &Path,
+        realm_name: Option<&str>,
+        dialect: Option<&Dialect>,
+        boundary: Boundary,
+        capabilities: &crate::capabilities::CapabilityContext,
+    ) -> Result<Bundle, CompileError> {
         let dir = dir
             .canonicalize()
             .map_err(|e| CompileError::Invalid(format!("bundle dir {}: {e}", dir.display())))?;
         // Composition resolves FIRST, into one flat bundle; everything
         // below this line compiles a single bundle and never learns that
         // composition happened (decision 0017).
-        let resolved = compose::resolve(&dir)?;
+        let resolved = compose::resolve_unsealed(&dir)?;
         let note = resolved.chain_note();
         match Bundle::assemble(
             &dir,
@@ -1095,14 +1441,20 @@ impl Bundle {
             realm_name,
             dialect,
             boundary,
+            capabilities,
         ) {
             Ok(bundle) => Ok(bundle),
             // Every failure downstream of resolution on a composed
             // bundle is wrapped ONCE with the chain — one arm, rather
             // than teaching each lint about layers.
-            Err(error) => Err(match note {
-                Some(note) => CompileError::Invalid(format!("{error} ({note})")),
-                None => error,
+            // A capability refusal is wrapped in its raw words, as it has
+            // always read, and bounded once, where the whole line renders.
+            Err(error) => Err(match (note, error) {
+                (Some(note), CompileError::Capability(reason)) => {
+                    CompileError::Capability(format!("bundle: {reason} ({note})"))
+                }
+                (Some(note), error) => CompileError::Invalid(format!("{error} ({note})")),
+                (None, error) => error,
             }),
         }
     }
@@ -1113,17 +1465,26 @@ impl Bundle {
     #[expect(
         clippy::excessive_nesting,
         clippy::too_many_lines,
-        reason = "baseline 2026-09, #288"
+        clippy::too_many_arguments,
+        reason = "baseline 2026-09, #288; decision 0065 adds the capability context"
     )]
     fn assemble(
         dir: &Path,
-        resolved: compose::Resolved,
+        mut resolved: compose::Resolved,
         library_root: &Path,
         adapters_root: &Path,
         realm_name: Option<&str>,
         dialect: Option<&Dialect>,
         boundary: Boundary,
+        capabilities: &crate::capabilities::CapabilityContext,
     ) -> Result<Bundle, CompileError> {
+        // Decision 0065 (design D4 steps 1 and 2): the operated realm's
+        // grants are judged BEFORE any seat is looked at — every
+        // definition, every selected dialect, every restriction, and the
+        // two realm-wide refusals. None of them can become an optional
+        // drop, because no ask has been read yet.
+        let authority = crate::capabilities::Authority::load(capabilities.clone())
+            .map_err(CompileError::Capability)?;
         let config = &resolved.document;
         let name = resolved.name.clone();
         let description = config
@@ -1148,9 +1509,16 @@ impl Bundle {
         // `drivers` pin the exemptions do: a site that already has an
         // exemption names the same provider and digest, so extending
         // the map leaves that fact unchanged rather than duplicating it.
+        // Kept for the capability pass below (decision 0065): an inline
+        // model seat in a bundle that seats no gate opens no agent
+        // context, and its adapter's native declaration is still what
+        // says how its search is switched off.
+        let pin_adapters = load_pin_adapters(adapters_root, &resolved.seats);
         let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) = enforce_model_pins(
             &resolved.seats,
-            load_pin_adapters(adapters_root, &resolved.seats)?.as_ref(),
+            pin_adapters
+                .as_ref()
+                .and_then(|loaded| loaded.as_ref().ok()),
         )?;
         // The one canonical family table (design D10 F1). Seeded with the
         // inline pins and assessments before any parse writes beside
@@ -1236,11 +1604,34 @@ impl Bundle {
                         "{e}; the adapter data is where a driver's model mapping \
                          (decision 0016) and its trust tier and binding grant \
                          (decision 0021) are declared, and this bundle names an \
-                         agent, seats a gate, or declares a secret binding"
+                         agent, seats a gate, declares a secret binding or declares \
+                         typed tools"
                     ))
                 })?,
                 egress_minimum,
+                reads: Vec::new(),
             }),
+        };
+        // Decision 0065 ruling 1 (CQ2; design D3): a library this compile
+        // LOADED is linted whole, before any seat is resolved or subtracts
+        // anything — every agent in it, seated or not, asks only for what
+        // the operator defined. The capability walk below resolves seated
+        // references alone, so without this a valid seated worker hides an
+        // unseated office's undefined request. A library no seat opens is
+        // not loaded to be linted. What the lint consulted is pinned: the
+        // names ride into the manifest's definitions beside the seats' own.
+        let library_asks: Vec<String> = match agents.as_ref().and_then(|a| a.library.as_ref()) {
+            None => Vec::new(),
+            Some(library) => {
+                let problems = authority.definitions.lint(library);
+                if !problems.is_empty() {
+                    return Err(CompileError::Capability(problems.join("; ")));
+                }
+                library
+                    .agents()
+                    .flat_map(|agent| agent.capabilities.keys().cloned())
+                    .collect()
+            }
         };
 
         // The dialect's `verify` wrapper, applied only AFTER the authoring
@@ -1261,6 +1652,7 @@ impl Bundle {
         let mut verify_agent_hands: Option<HandsSpec> = None;
 
         let mut seats = BTreeMap::new();
+        let charters = Charters::default();
         for (phase, raw) in &resolved.seats {
             // An inherited seat's `role` and `./`-prefixed argv resolve
             // against the layer that WROTE them, found by name — the
@@ -1275,6 +1667,7 @@ impl Bundle {
             refuse_crossing_keys(phase, raw)?;
             refuse_unknown_keys(phase, raw, SEAT_KEYS)?;
             refuse_confine(phase, raw)?;
+            refuse_driver_keys(phase, raw)?;
             let law = SiteLaw {
                 boundary,
                 dir,
@@ -1333,6 +1726,9 @@ impl Bundle {
                      panel, sequence, or select"
                 )));
             }
+            if has_panel || has_sequence || has_select {
+                refuse_tools_on_container(phase, raw)?;
+            }
             let secrets = parse_secrets(phase, raw)?;
             let agent_seat = match has_agent {
                 false => None,
@@ -1368,6 +1764,7 @@ impl Bundle {
                     &mut agents,
                     &mut sites,
                     boundary,
+                    &charters,
                 )?;
                 SeatBody::Panel { members, aggregate }
             } else if has_sequence {
@@ -1383,6 +1780,7 @@ impl Bundle {
                             secrets: &secrets,
                             dialect,
                             boundary,
+                            charters: &charters,
                         },
                     )?,
                 }
@@ -1400,11 +1798,21 @@ impl Bundle {
                         case_origin: &resolved.case_origin,
                         dialect,
                         boundary,
+                        charters: &charters,
                     },
                 )?
             } else {
+                record_inline_tools(
+                    dir,
+                    phase,
+                    raw,
+                    true,
+                    &command_parts(raw),
+                    agents.as_ref().map(|context| &context.adapters),
+                    &mut sites,
+                )?;
                 SeatBody::Single {
-                    role_path: parse_role(dir, phase, raw)?,
+                    role_path: parse_role(dir, phase, raw, &charters, &mut sites)?,
                     command: parse_command(dir, phase, raw, &secrets)?,
                     candidates: Vec::new(),
                 }
@@ -1537,6 +1945,46 @@ impl Bundle {
             }
         }
 
+        // Decision 0065 ruling 5, over the COMPOSED seats and before the
+        // wrapper moves anything: every executable site — seat, member,
+        // step, selected body, inherited or not — resolves office asks
+        // minus seat subtractions against the realm's grants, once per
+        // provider candidate, and the outcome lands in the one canonical
+        // site family so relocation carries it like every other fact.
+        {
+            let (library, adapters) = match &agents {
+                Some(context) => (
+                    context.library.as_ref(),
+                    CapabilityAdapters::loaded(&context.adapters),
+                ),
+                None => (None, CapabilityAdapters::of(pin_adapters.as_ref())),
+            };
+            for (phase, raw) in &resolved.seats {
+                // The layer that wrote the seat, as its agent's hands
+                // segment is expanded against (review return F1).
+                let dir = &resolved.roots[resolved.seat_origin[phase]];
+                record_capabilities(
+                    &authority,
+                    library,
+                    adapters,
+                    boundary,
+                    (dir, &resolved.roots, &resolved.case_origin),
+                    phase,
+                    raw,
+                    &mut sites,
+                )?;
+            }
+        }
+        // Decision 0069: a PRESENT adapters root that does not load is
+        // refused with the loader's own words, so a malformed discovery
+        // notice never passes itself off as an adapter that declares none.
+        // Judged after the capability pass, which already refuses a seat
+        // the failed load leaves with no valid denial, naming that same
+        // cause (decision 0066 ruling 1). An absent root reads as no notice.
+        if let Some(Err(problem)) = pin_adapters.as_ref().filter(|_| adapters_root.exists()) {
+            return Err(CompileError::Invalid(problem.clone()));
+        }
+
         // The authoring census (design D10 F2): every structural owner is
         // registered, and a raw collision refused, BEFORE the wrapper
         // changes an address or any destination fact is written. The
@@ -1603,6 +2051,16 @@ impl Bundle {
                         };
                     (prior_body, moved)
                 };
+            // The validator's address is claimed against the WHOLE census,
+            // before any source is drained (operator ruling of 2026-09-30,
+            // unit 26c): its facts are written before the wrapped body's
+            // move, so a member named for it would take them along.
+            claim_address(
+                &census,
+                "verify",
+                "verify:dialect-verify",
+                "the injected dialect validator",
+            )?;
             // Drain every source reservation before claiming any
             // destination: a member `x` beside `checks:x` has the second
             // member's source as its destination, which stays legal.
@@ -1618,12 +2076,6 @@ impl Bundle {
                     &crate::engine::resume::describe(owner),
                 )?;
             }
-            claim_address(
-                &remaining,
-                "verify",
-                "verify:dialect-verify",
-                "the injected dialect validator",
-            )?;
             let dialect_site = "verify:dialect-verify";
             let synthetic = dialect_gate_site(dialect_site, boundary)?;
             let verify_raw = &resolved.seats["verify"];
@@ -1643,6 +2095,41 @@ impl Bundle {
                 &mut sites,
             )?;
             record_hands(dialect_site, &synthetic, None, &secrets, &mut sites)?;
+            // The one site the engine generated was written by no author
+            // and asks for nothing, and it still gets an explicit outcome
+            // through the same walk every authored site takes: "no
+            // capability" is a recorded fact, never a missing one (design
+            // D5). ONLY this site is given one here — an authored site the
+            // walk above missed keeps none, and a site with no outcome is
+            // refused at dispatch rather than launched on its defaults.
+            // And it is refused like one: an `exec` harness declared with
+            // a native power it cannot switch off does not seat the
+            // validator either (ruling 4).
+            {
+                // A dialect phase is what opened the agent context above,
+                // so the wrapper never runs without one.
+                let context = agents
+                    .as_ref()
+                    .expect("a bundle that uses the dialect opened its adapters");
+                let library = context.library.as_ref();
+                let adapters = CapabilityAdapters::loaded(&context.adapters);
+                record_capabilities(
+                    &authority,
+                    library,
+                    adapters,
+                    boundary,
+                    (law.dir, &resolved.roots, &resolved.case_origin),
+                    dialect_site,
+                    &synthetic,
+                    &mut sites,
+                )?;
+            }
+            // The generated validator declares no `tools`, and like every
+            // other visited executable it records that as a CHECKED
+            // unspecified value rather than an unvisited one (design
+            // D5.2; review return F3).
+            let unspecified = crate::agents::LocalTools::unspecified();
+            record_judged_tools(law.dir, dialect_site, unspecified, None, None, &mut sites);
             relocate_verify_facts(&mut sites, &moved);
             let prior = SequenceStep {
                 name: "checks".into(),
@@ -1676,6 +2163,25 @@ impl Bundle {
         }
 
         refuse_global_aliasing(&seats)?;
+
+        let capability_sites: Map<String, Value> = sites
+            .iter()
+            .map(|(label, facts)| {
+                let site = facts
+                    .capabilities
+                    .as_ref()
+                    .expect("the capability walk gave every compiled site an outcome");
+                (label.clone(), site.manifest())
+            })
+            .collect();
+        let consulted: Vec<String> = sites
+            .values()
+            .filter_map(|facts| facts.capabilities.as_ref())
+            .flat_map(|site| site.asks.asks.keys().chain(&site.asks.subtracted).cloned())
+            .chain(library_asks)
+            .collect();
+        let mut capability_record = authority.manifest(&consulted);
+        capability_record["sites"] = Value::Object(capability_sites);
 
         let select_records: Map<String, Value> = seats
             .iter()
@@ -1713,6 +2219,21 @@ impl Bundle {
         let mut drivers: Map<String, Value> = Map::new();
         fold_driver_facts(&mut drivers, &sites);
         let drivers = (!drivers.is_empty()).then_some(&drivers);
+        // Design D7 (rebuild unit 16-fix-b, F3): every layer's identity is
+        // sealed from the buffers it was composed from and the charters its
+        // seats were bound to, ancestors first, so no consumed file is read
+        // again by a walk. The leaf's walk takes its own the same way, and
+        // each input must still stand as it was read or nothing seals.
+        // Rebuild unit 18-fix-b (council F2): who each charter's owner is
+        // was taken by the read that bound the charter, and the seal's check
+        // compares it; no later walk records another. Its return (council
+        // F2): a library charter, which no layer's walk pins, is checked by
+        // the read that bound it, owner included, before any identity is
+        // sealed.
+        for read in agents.iter().flat_map(|context| &context.reads) {
+            read.check()?;
+        }
+        resolved.seal(charters.into_inner())?;
         let manifest = manifest_for(
             dir,
             &name,
@@ -1722,11 +2243,25 @@ impl Bundle {
             &hands,
             &select_records,
             boundary,
+            Some(capability_record),
+            &resolved.leaf_digests(),
         )?;
+        resolved.check_leaf(manifest["files"].as_object().expect("manifest files"))?;
+        // Second council H6: every charter this compile bound, kept where a
+        // projection of the site facts cannot lose it, with each binding a
+        // site selected for its path (rebuild unit 17).
+        let mut charters = CharterPins::new();
+        for charter in sites.values().filter_map(|site| site.charter.clone()) {
+            charters
+                .entry(charter.path.clone())
+                .or_default()
+                .insert(charter);
+        }
         Ok(Bundle {
             hands,
             inline_resume,
             sites,
+            charters,
             name,
             description,
             cost,
@@ -2040,6 +2575,91 @@ fn refuse_confine(what: &str, raw: &Value) -> Result<(), CompileError> {
     }
 }
 
+/// The keys a site's `driver` object may write. Closed, like the site's
+/// own vocabulary ([`refuse_unknown_keys`]): the compiler reads only
+/// `command` there (and refuses `confine` by name first, in
+/// [`refuse_confine`]), so before rebuild unit 5e a `tools` object placed
+/// under `driver` compiled, delivered nothing and ran the seat at its
+/// harness default.
+const DRIVER_KEYS: &[&str] = &["command"];
+
+/// Decision 0004's closed input semantics, applied to the `driver`
+/// object (decision 0065 slice one, rebuild unit 5e): an unknown key is
+/// refused where it is written, never ignored. The reason names the key
+/// and the object, and never the value; a key that is not a short name is
+/// described rather than echoed, so the reason stays bounded. A
+/// capability key gets the place it belongs.
+fn refuse_driver_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
+    let Some(driver) = raw.get("driver").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    let Some(key) = driver
+        .keys()
+        .find(|key| !DRIVER_KEYS.contains(&key.as_str()))
+    else {
+        return Ok(());
+    };
+    let named = if key.len() <= 64
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
+    {
+        format!("'{key}'")
+    } else {
+        "one that is not a short name and is not echoed".to_string()
+    };
+    let place = match key.as_str() {
+        "tools" | "hands" | "capabilities" => {
+            format!(" '{key}' is a site declaration, written on the seat beside its driver.")
+        }
+        "sandbox" => {
+            " 'sandbox' is a typed tool field, written as 'tools.sandbox' on the seat.".to_string()
+        }
+        _ => String::new(),
+    };
+    Err(CompileError::Invalid(format!(
+        "seat {} driver has an unknown key, {named}; known: {}.{place} A key the compiler \
+         does not read is a declaration that was never made — a capability placed there would \
+         compile, deliver nothing and run the seat at its harness default — so it is refused \
+         rather than ignored (decision 0004; decision 0065 slice one, rebuild unit 5e)",
+        bounded_site(what),
+        DRIVER_KEYS.join(", ")
+    )))
+}
+
+/// A site identity rendered for a refusal, bounded and safe (decision
+/// 0065 slice one, rebuild unit 5e-fix). A site label is built from
+/// author-written phase, member, step, case and recipe names, and nothing
+/// bounds their length or their characters. A label of at most 64 bytes of
+/// ASCII letters, digits, `_`, `-`, `.` and `:` (the site separator) is
+/// quoted whole. Any other is named by its leading run of those
+/// characters, at most 32, and its length in bytes, so a 100,000-character
+/// member name cannot become a 100,000-byte reason and a newline cannot
+/// forge a line. Rebuild unit 5e-fix-b renders a root key and a
+/// composition chain's layer names the same way.
+pub(crate) fn bounded_site(label: &str) -> String {
+    if plain_label(label) {
+        return format!("'{label}'");
+    }
+    let lead: String = label
+        .bytes()
+        .take_while(safe_label_byte)
+        .take(32)
+        .map(char::from)
+        .collect();
+    format!("'{lead}…' ({} bytes, not echoed in full)", label.len())
+}
+
+/// A label [`bounded_site`] quotes whole: at most 64 bytes, all of them
+/// [`safe_label_byte`].
+fn plain_label(label: &str) -> bool {
+    label.len() <= 64 && label.bytes().all(|byte| safe_label_byte(&byte))
+}
+
+fn safe_label_byte(byte: &u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"_-.:".contains(byte)
+}
+
 /// Decision 0046 ruling 1: the boundary is the realm's fact, declared in
 /// `realms.json` under `forge.realms/v4`, and a bundle never names it. A
 /// site that writes the key is told where the word lives rather than
@@ -2121,6 +2741,10 @@ fn dialect_gate_site(what: &str, boundary: Boundary) -> Result<Value, CompileErr
 /// Resolve `"agent": "<name>"` into an ordinary seat body, and record
 /// the resolution under this invocation site.
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn resolve_reference(
     agents: &mut Option<AgentContext>,
     sites: &mut BTreeMap<String, SiteFacts>,
@@ -2146,14 +2770,21 @@ fn resolve_reference(
         .library
         .as_ref()
         .expect("a bundle mentioning an agent opens the library");
-    let report = crate::agents::report_under(
+    // Decision 0065 slice one (design D5.2): the site's own typed `tools`
+    // narrows a PRIVATE clone of the office before composition. Shape is
+    // judged here, narrowing inside the resolver, and the effective value
+    // is what the chain below is composed from.
+    let requested = decode_site_tools(what, raw)?;
+    let report = crate::agents::report_narrowed(
         library,
         &context.adapters,
         &Availability::unspecified(),
         name,
         boundary,
+        &requested,
     )
     .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
+    let effective = report.agent.local();
     // D33: judge every mapped hands link before resolving capability gaps.
     // In particular dsh/LaneTally earn the tier refusal under namespace,
     // and the missing harness.gate refusal under harness. An unmapped
@@ -2176,6 +2807,9 @@ fn resolve_reference(
                 // judgment.
                 resume: Default::default(),
                 hands_notice: None,
+                // The entry's own lowering, refused or composed, never a
+                // valid empty one standing in for it (design D5.7).
+                lowering: entry.lowering.clone(),
             })
             .collect();
         enforce_model_policy(
@@ -2215,6 +2849,7 @@ fn resolve_reference(
     // function, so a resolved seat is an inline seat by construction.
     let mut candidates = Vec::with_capacity(resolution.candidates.len());
     for candidate in &resolution.candidates {
+        refuse_permission_pins(what, candidate, &context.adapters)?;
         lint_secret_refs(what, &candidate.argv, secrets)?;
         candidates.push(Candidate {
             agent: candidate.agent.clone(),
@@ -2226,9 +2861,54 @@ fn resolve_reference(
             harness: candidate.harness.clone(),
             resume: candidate.resume.clone(),
             hands_notice: candidate.hands_notice.clone(),
+            lowering: expand_lowering(dir, &candidate.lowering),
         });
     }
     site_facts(sites, site_key).record = Some(resolution.record.clone());
+    // Second council H6: the charter this site will be told, bound to the
+    // digest its library record pins, so the dispatch door can compare the
+    // bytes it is about to hand over against the bytes the compile read.
+    // Rebuild unit 17: its owner is the library the office was loaded
+    // from, with that library's own root, whether it stands outside the
+    // recipe or inside it.
+    // Rebuild unit 18-fix-b (council F1, F2): the pin is the binding of a
+    // bound read from the library's directory, which must supply the bytes
+    // the library record pins; a charter no such read binds is refused here
+    // rather than compiled into a seat every dispatch refuses.
+    let source = &resolution.charter_source;
+    let refused =
+        |clause: String| library_refusal(what, &resolution.agent, &source.reference, &clause);
+    let bound = match owned_input(&source.library, &source.reference) {
+        Ok(bound) if sha256_bytes(&bound.bytes) == source.digest => bound,
+        Ok(_) => {
+            return Err(refused(
+                "whose bytes changed after its library was loaded".into(),
+            ))
+        }
+        Err(InputFault::Missing(error)) => return Err(refused(missing_clause(&error))),
+        Err(InputFault::Place(place)) => return Err(refused(place.to_string())),
+    };
+    let owner = CharterOwner::Library {
+        agent: resolution.agent.clone(),
+        root: source.library.clone(),
+    };
+    let pin = CharterPin::of(owner, &source.reference, resolution.charter.clone(), &bound);
+    site_facts(sites, site_key).charter = Some(pin);
+    // Rebuild unit 18-fix-b return (F2): the read is held until the seal,
+    // which checks it still stands, its owner included.
+    context.reads.push(LibraryRead {
+        site: what.to_string(),
+        agent: resolution.agent.clone(),
+        reference: source.reference.clone(),
+        digest: source.digest.clone(),
+        held: bound.held,
+    });
+    // The capability pass judges exactly the chain this site will run
+    // (decision 0065): one outcome per candidate, never their union.
+    site_facts(sites, site_key).chain = candidates.clone();
+    // The effective local declaration, beside the site's other facts
+    // (design D5.2): a checked value even where nothing was declared.
+    site_facts(sites, site_key).local = Some(effective);
     Ok(ResolvedSeat {
         role_path: resolution.charter.clone(),
         command: candidates[0].argv.clone(),
@@ -2237,6 +2917,63 @@ fn resolve_reference(
         inputs: resolution.inputs.clone(),
         hands: resolution.hands.clone(),
     })
+}
+
+/// Rebuild unit 5c-fix-b (chief R1; operator ruling 1 of 2026-09-23): a
+/// model or effort pin never carries a permission control. An adapter
+/// whose `model_flag` or `effort_flag` spells one is refused as a
+/// declaration, whichever model or effort it would pin, and every later
+/// `template` contribution of the candidate's composition must be a model
+/// or effort pin ([`brokkr_protocol::native_controls::pin_fault`]), so a
+/// model or effort value cannot smuggle one either. The refusal names the
+/// field and the control's canonical spelling, or the contribution's
+/// position and a fixed cause, and never a token.
+fn refuse_permission_pins(
+    what: &str,
+    candidate: &crate::agents::Candidate,
+    adapters: &crate::agents::Adapters,
+) -> Result<(), CompileError> {
+    use brokkr_protocol::native_controls::{permission_control, pin_fault};
+    let provider = &candidate.provider;
+    // A resolved candidate was composed from its provider's adapter, whose
+    // driver template opens the composition (operator ruling of 2026-09-30,
+    // unit 26c): the pins judged are the ones that adapter and that
+    // composition carry.
+    let pins = adapters.adapter(provider).into_iter().flat_map(|adapter| {
+        [
+            ("model_flag", &adapter.model_flag),
+            ("effort_flag", &adapter.effort_flag),
+        ]
+    });
+    for (field, flag) in pins {
+        if let Some(control) = flag.as_deref().and_then(permission_control) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}': the '{provider}' adapter declares its {field} as the \
+                 permission control '{control}'; a model or effort pin names a model or an \
+                 effort and never carries a permission mode, so the declaration is refused \
+                 rather than composed (operator ruling 1 of 2026-09-23; rebuild unit \
+                 5c-fix-b)"
+            )));
+        }
+    }
+    let segments = crate::engine::composed(candidate)
+        .map_or(&[][..], |composition| composition.segments.as_slice());
+    for (at, pin) in segments.iter().enumerate().skip(1) {
+        if pin.origin != brokkr_protocol::native_controls::Origin::Template {
+            continue;
+        }
+        if let Some(fault) = pin_fault(&segments[0].argv, &pin.argv) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}': the '{provider}' adapter's composition carries a template \
+                 contribution (segment {}) behind its driver template that {fault}; only a model \
+                 or effort pin may follow the driver template, and its tokens are not echoed \
+                 because they can carry a value (operator ruling 1 of 2026-09-23; rebuild unit \
+                 5c-fix-b)",
+                at + 1
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// A site's decision-0021 class, as written. ABSENT is `Work`: the
@@ -2294,6 +3031,8 @@ const SEAT_KEYS: &[&str] = &[
     "role",
     "driver",
     "hands",
+    "capabilities",
+    "tools",
     "panel",
     "aggregate",
     "sequence",
@@ -2306,6 +3045,8 @@ const BODY_KEYS: &[&str] = &[
     "role",
     "driver",
     "hands",
+    "capabilities",
+    "tools",
     "panel",
     "aggregate",
     "sequence",
@@ -2315,7 +3056,15 @@ const BODY_KEYS: &[&str] = &[
 /// has no `results`, `limits`, `inputs` or `secrets` of its own — the
 /// seat above it does — which is why an agent declaring them at a member
 /// site is already refused rather than silently discarded.
-const MEMBER_KEYS: &[&str] = &["class", "agent", "role", "driver", "hands"];
+const MEMBER_KEYS: &[&str] = &[
+    "class",
+    "agent",
+    "role",
+    "driver",
+    "hands",
+    "capabilities",
+    "tools",
+];
 
 /// The keys a SEQUENCE STEP may write: a member's, plus its name, plus
 /// the two a step needs to be a panel of its own.
@@ -2327,10 +3076,959 @@ const STEP_KEYS: &[&str] = &[
     "role",
     "driver",
     "hands",
+    "capabilities",
+    "tools",
     "panel",
     "aggregate",
     "dialect",
 ];
+
+/// Decode one site's typed `tools` (decision 0065 slice one, design D5.2)
+/// through the agents' strict decoder, naming the site as every other
+/// refusal of it does. A site that writes no `tools` requests nothing.
+fn decode_site_tools(what: &str, raw: &Value) -> Result<crate::agents::LocalTools, CompileError> {
+    match raw.as_object() {
+        Some(site) => crate::agents::decode_local_tools(&format!("seat '{what}'"), site)
+            .map_err(CompileError::Invalid),
+        None => Ok(crate::agents::LocalTools::unspecified()),
+    }
+}
+
+/// A `tools` declaration beside a panel, sequence or select is refused
+/// (design D5.2): a local declaration belongs to the site that executes,
+/// and a container that carried one could only share it as a grant or
+/// drop it — so even an empty object is refused here.
+fn refuse_tools_on_container(what: &str, raw: &Value) -> Result<(), CompileError> {
+    match raw.get("tools") {
+        None => Ok(()),
+        Some(_) => Err(CompileError::Invalid(format!(
+            "seat '{what}' declares 'tools' beside a panel, sequence or select; a local \
+             declaration belongs to the site that executes — the member, step or case body — \
+             and a container cannot own one, even an empty object, because it would either \
+             become a shared grant or be ignored (decision 0065 slice one, design D5)"
+        ))),
+    }
+}
+
+/// Decode, judge and record the typed local declaration of a site whose
+/// command no office composes — an inline driver site or a dialect-generated
+/// check (design D5.3), whose command is `command`. Decoding is not runnable
+/// admission. A typed allow at an inline Claude or LaneTally site is lowered
+/// onto its adapter's tool permissions by unit 3's own lowering (rebuild
+/// unit 5b), and recorded for the engine to append as its `local` segment;
+/// every other nonempty field is kept exactly and refused rather than
+/// recorded beside an unchanged command. An unspecified declaration is
+/// recorded as a checked value, distinct from a site never visited.
+///
+/// Rebuild unit 5d (operator ruling of 2026-09-25): a typed sandbox at a
+/// seat — `seat`, a site whose own `class` rules it, never a panel member,
+/// sequence step or select case — whose command dispatches the codex
+/// driver is lowered by [`lower_inline_sandbox`]; everywhere else it keeps
+/// its refusal.
+fn record_inline_tools(
+    dir: &Path,
+    what: &str,
+    raw: &Value,
+    seat: bool,
+    command: &[String],
+    adapters: Option<&crate::agents::Adapters>,
+    sites: &mut BTreeMap<String, SiteFacts>,
+) -> Result<(), CompileError> {
+    let local = decode_site_tools(what, raw)?;
+    let lowered = match &local.allow {
+        Some(allow) => Some(lower_inline_allow(what, raw, command, allow, adapters)?),
+        None => None,
+    };
+    let sandboxed = match local.sandbox {
+        Some(class) if seat && dispatch_driver(command).as_deref() == Some("codex") => {
+            Some(lower_inline_sandbox(what, raw, command, class, adapters)?)
+        }
+        Some(_) => {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' declares 'tools.sandbox' on a site whose command no office \
+                 composes; the engine does not yet lower a typed local sandbox into an authored \
+                 command, so the restriction would be recorded and not delivered — it is kept \
+                 exactly and refused rather than run unrestricted, until decision 0065 slice \
+                 one's lowering and origin transport prove its delivery (design D5.3); an \
+                 authored flag cannot stand in for it"
+            )))
+        }
+        None => None,
+    };
+    record_judged_tools(dir, what, local, lowered, sandboxed, sites);
+    Ok(())
+}
+
+/// Record a site's judged local declaration and what it lowered to: the
+/// half of [`record_inline_tools`] that refuses nothing. The generated
+/// dialect validator declares no `tools`, so it records the unspecified
+/// declaration here directly (operator ruling of 2026-09-30, unit 26c).
+fn record_judged_tools(
+    dir: &Path,
+    what: &str,
+    local: crate::agents::LocalTools,
+    lowered: Option<InlineAllow>,
+    sandboxed: Option<InlineClass>,
+    sites: &mut BTreeMap<String, SiteFacts>,
+) {
+    let facts = site_facts(sites, what);
+    facts.local = Some(local);
+    // Expanded as an agent's composition is, segment by segment, so the
+    // engine's contribution names this machine's paths as the command does.
+    let expanded = |segment: Segment| Segment {
+        origin: segment.origin,
+        argv: expand_command(dir, &segment.argv),
+    };
+    // A seat's allow and its sandbox never both lower: the one lowers only
+    // for claude and lanetally, the other only for codex. Whichever did
+    // brings its adapter's template (rebuild unit 5d reuses 5c's).
+    let (lowered, allow_template, permissions) = lowered
+        .map_or((None, None, None), |(lowered, template, permissions)| {
+            (Some(lowered), template, permissions)
+        });
+    let (sandboxed, sandbox_template, declared) = sandboxed.map_or(
+        (None, None, Vec::new()),
+        |(sandboxed, template, declared)| (Some(sandboxed), template, declared),
+    );
+    // Rebuild unit 14a1: the dialect the lowering read, recorded before
+    // anything is expanded — the class's fragment as the adapter declares
+    // it, carried beside and never read back from the segment emitted.
+    facts.inline_dialect = Some(crate::agents::DeclaredDialect {
+        permissions,
+        sandbox: declared,
+        ..Default::default()
+    });
+    let template = allow_template.or(sandbox_template);
+    // Rebuild unit 5c-fix: the declaration is recorded as its own typed
+    // fact, beside and never read back from the segment to be emitted.
+    let lowers = lowered.is_some() || sandboxed.is_some();
+    facts.declared_template = lowers.then(|| match &template {
+        Some(declared) => TemplateExpectation::Declared(expand_command(dir, &declared.argv)),
+        None => TemplateExpectation::None,
+    });
+    facts.inline_local = lowered.map(|lowered| crate::agents::LocalLowering {
+        segment: expanded(lowered.segment),
+        limits: lowered.limits,
+    });
+    facts.inline_sandbox = sandboxed.map(|sandboxed| InlineSandbox {
+        segment: expanded(sandboxed.segment),
+        ..sandboxed
+    });
+    facts.inline_template = template.map(expanded);
+}
+
+/// Rebuild unit 5d (operator ruling of 2026-09-25, "narrow"; design D5.3):
+/// the one inline shape whose typed sandbox the engine delivers — a seat
+/// whose command dispatches the codex driver, with no hands and no
+/// capability-bearing option of its author's. A work seat is admitted
+/// exactly `workspace-write` and a gate exactly `read-only`; the class is
+/// then expressed by the fragment the adapter declares for that class of
+/// seat (`hands.harness.work` or `hands.harness.gate`), which must express
+/// exactly it, judged by the same reading [`admit_local_sandbox`] judges an
+/// agent's fragment with. The gate fragment opens the adapter's declared
+/// result door. Beside it comes the adapter's permission template, as unit
+/// 5c places it, or `None` where the adapter declares none, and the
+/// fragment as the adapter declares it (rebuild unit 14a1).
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn lower_inline_sandbox(
+    what: &str,
+    raw: &Value,
+    command: &[String],
+    class: Sandbox,
+    adapters: Option<&crate::agents::Adapters>,
+) -> Result<InlineClass, CompileError> {
+    let requested = class.name();
+    let refuse = |cause: String| {
+        CompileError::Invalid(format!(
+            "seat '{what}' declares 'tools.sandbox' '{requested}' {cause}"
+        ))
+    };
+    if raw.get("hands").is_some() {
+        return Err(refuse(
+            "beside the site's own hands; hands replace the harness's tools, so an inline \
+             sandbox would stand beside the box's restriction rather than express it — it is \
+             kept exactly and refused (decision 0065 slice one, design D5.3)"
+                .to_string(),
+        ));
+    }
+    let seat_class = parse_class(what, raw)?;
+    let (admitted, site_kind) = match seat_class {
+        SeatClass::Gate => (Sandbox::ReadOnly, "an inline Codex gate"),
+        SeatClass::Work => (Sandbox::WorkspaceWrite, "an inline Codex work seat"),
+    };
+    if class != admitted {
+        let admitted = admitted.name();
+        return Err(refuse(format!(
+            "at {site_kind}, where only '{admitted}' is admitted: a gate changes no files, so it \
+             runs read-only and delivers its result through the last-message door, a work seat \
+             runs workspace-write, and danger-full-access is admitted nowhere (operator ruling of \
+             2026-09-25, inline Codex sandbox classes are narrowed; design D5.3)"
+        )));
+    }
+    // Operator ruling 1 of 2026-09-23: the engine composes the class as its
+    // own contribution, and nothing it composes is merged with or ordered
+    // against a control of the author's, read under the harness's grammar.
+    let grammar = brokkr_protocol::native_controls::grammar::grammar("codex")
+        .expect("the codex grammar is modelled");
+    let authored = grammar
+        .parse(brokkr_protocol::native_controls::harness_arguments(command))
+        .map_err(|problem| {
+            refuse(format!(
+                "while its authored command cannot be read: the 'codex' command grammar cannot \
+                 place argument {} ({}), whose token is not echoed because it can carry a value: \
+                 it {}. A control nobody can read is a control nobody can rule on, so it is \
+                 refused rather than passed through (decision 0066 ruling 6; operator ruling 1 \
+                 of 2026-09-23)",
+                problem.at + 1,
+                unplaced_label(grammar, &problem.token),
+                problem.cause
+            ))
+        })?;
+    if let Some((node, kind)) = authored
+        .nodes
+        .iter()
+        .find_map(|node| authored_sandbox_control(node).map(|kind| (node, kind)))
+    {
+        return Err(refuse(format!(
+            "while its authored command carries '{}' (argument {}), {kind}; the engine composes \
+             the typed class as its own contribution and a recipe authors no capability-bearing \
+             option beside it, so the site is refused rather than reconciled (operator ruling 1 \
+             of 2026-09-23; decision 0065 slice one, design D5.3)",
+            node.name(),
+            node.at + 1
+        )));
+    }
+    let adapter = adapters
+        .and_then(|adapters| adapters.adapter("codex"))
+        .ok_or_else(|| {
+            refuse(
+                "for driver 'codex', which no loaded adapter declares; with no sandbox control \
+                 the class cannot be expressed, so it is refused rather than run unrestricted \
+                 (decision 0065 slice one, design D5.3)"
+                    .to_string(),
+            )
+        })?;
+    // Rebuild unit 5d-fix (chief F2): a gate delivers through the
+    // last-message door alone, captured into the engine-owned result path.
+    let (part, fragment, door) = match seat_class {
+        SeatClass::Gate => {
+            if adapter.harness.result != crate::agents::ResultDoor::LastMessage {
+                return Err(refuse(
+                    "at an inline Codex gate, but the codex adapter declares its \
+                     `hands.harness.result` door as 'file'; a gate delivers only through the \
+                     last-message door, the harness's capture of its final message into the \
+                     engine-owned result path, so file delivery is refused (decision 0046 ruling \
+                     4; operator ruling of 2026-09-25; rebuild unit 5d-fix)"
+                        .to_string(),
+                ));
+            }
+            (
+                "`hands.harness.gate` fragment",
+                adapter.harness.gate.as_deref(),
+                crate::agents::ResultDoor::LastMessage,
+            )
+        }
+        SeatClass::Work => (
+            "`hands.harness.work` fragment",
+            adapter.harness.work.as_deref(),
+            crate::agents::ResultDoor::File,
+        ),
+    };
+    let fragment = fragment.unwrap_or(&[]);
+    let whom = format!("seat '{what}'");
+    match expressed_sandbox(&whom, part, fragment, Contribution::Written)? {
+        Some(found) if found == requested => {}
+        _ => {
+            return Err(refuse(format!(
+                "at {site_kind}, but the codex adapter's {part} does not express exactly that \
+                 class; a missing or different fragment is not a representation, and a fragment \
+                 is neither called narrower nor clamped — refused (design D5.3)"
+            )))
+        }
+    }
+    let refused = |cause: String| CompileError::Invalid(format!("seat '{what}': {cause}"));
+    let template = crate::agents::inline_template(adapter, "codex").map_err(refused)?;
+    let sandboxed = InlineSandbox {
+        class,
+        segment: Segment::new(Origin::Local, fragment),
+        door,
+    };
+    // The whole launch, native plan included, is judged once the plan is
+    // resolved ([`admit_inline_launch`]; rebuild unit 5d-fix-b).
+    Ok((sandboxed, template, fragment.to_vec()))
+}
+
+/// What [`lower_inline_sandbox`] lowered: the class, the adapter's template
+/// and the fragment the class lowered onto, as the adapter declares it.
+type InlineClass = (InlineSandbox, Option<Segment>, Vec<String>);
+
+/// What an option an author wrote beside a typed inline Codex sandbox is
+/// (rebuild unit 5d; operator ruling 1 of 2026-09-23), or `None` for one
+/// that bears no capability. Judged on the parsed node under the codex
+/// grammar, so every spelling of an option is judged at once, and its value
+/// is never echoed: the grammar's own capability classification (a list,
+/// a load, a catalogue control — `--sandbox` itself among them — or a
+/// configuration assignment into a capability table or with no bounded
+/// meaning), and beside it the two inert-typed options whose value the
+/// engine's control owns: the root the class is measured from and the
+/// file the gate's result door writes.
+fn authored_sandbox_control(
+    node: &brokkr_protocol::native_controls::grammar::Node,
+) -> Option<&'static str> {
+    Some(match node.name() {
+        "--sandbox" => "a sandbox class, which the typed declaration alone supplies",
+        "--cd" => "a root selector, which moves the root the sandbox class is measured from",
+        "--output-last-message" => {
+            "a result capture, which the engine's gate control owns as the last-message door"
+        }
+        _ => match node.bears_capability() {
+            Ok(false) => return None,
+            Ok(true) => "which bears a capability the realm grants and the engine composes",
+            Err(_) => "a configuration assignment with no bounded meaning",
+        },
+    })
+}
+
+/// The placeholder an adapter's gate fragment captures into, which the
+/// engine fills with the result path it owns at dispatch.
+pub const RESULT_PATH: &str = "{result_path}";
+
+/// A refusal of an inline Codex launch as admission and the dispatch door
+/// both word it (rebuild unit 5d-fix-c1, chief F4 of run
+/// `0065-rebuild-unit-5d-fix-b-see-t-8067eebc`): the seat in the one
+/// bounded representation, [`bounded_site`], beside the value-free cause of
+/// [`judge_inline_codex_launch`], the judgment both boundaries call.
+///
+/// [`judge_inline_codex_launch`]: brokkr_protocol::native_controls::grammar::judge_inline_codex_launch
+pub(crate) fn inline_codex_refusal(site: &str, cause: &impl std::fmt::Display) -> String {
+    format!(
+        "the inline Codex launch of seat {} {cause}",
+        bounded_site(site)
+    )
+}
+
+/// Rebuild unit 5b (design D5.3, D5.7): the one inline shape whose typed
+/// allow the engine delivers — a command that dispatches the claude or
+/// lanetally driver, with no hands and no capability-bearing option of its
+/// author's (rebuild unit 5b-fix), whose adapter maps every name. The list
+/// is lowered by the same function that lowers an agent's, and every other
+/// shape refuses with its own cause. Beside it comes the adapter's declared
+/// permission template, which the engine emits here as it does for an
+/// agent (rebuild unit 5c), or `None` where the adapter declares none, and
+/// the permission flag the list lowered onto (rebuild unit 14a1).
+fn lower_inline_allow(
+    what: &str,
+    raw: &Value,
+    command: &[String],
+    allow: &[String],
+    adapters: Option<&crate::agents::Adapters>,
+) -> Result<InlineAllow, CompileError> {
+    let refuse = |cause: String| {
+        CompileError::Invalid(format!("seat '{what}' declares 'tools.allow' {cause}"))
+    };
+    let driver = match dispatch_driver(command) {
+        Some(kind) if kind == "claude" || kind == "lanetally" => kind,
+        other => {
+            let dispatches = match other {
+                Some(kind) => format!("dispatches the '{kind}' driver"),
+                None => "dispatches no built-in driver".to_string(),
+            };
+            return Err(refuse(format!(
+                "on an inline site whose command {dispatches}; the engine lowers a typed local \
+                 allow into an inline command only for the claude and lanetally drivers, whose \
+                 adapters map it onto their tool permissions, so here the restriction would be \
+                 recorded and not delivered — it is kept exactly and refused rather than run \
+                 unrestricted (decision 0065 slice one, design D5.3); an authored flag cannot \
+                 stand in for it"
+            )));
+        }
+    };
+    if raw.get("hands").is_some() {
+        return Err(refuse(
+            "beside the site's own hands; hands replace the harness's tools, so a direct local \
+             list at an inline site would stand beside the box's restriction rather than express \
+             it — it is kept exactly and refused (decision 0065 slice one, design D5.3)"
+                .to_string(),
+        ));
+    }
+    // Operator ruling 1 of 2026-09-23: the engine composes the typed list
+    // as its own contribution, and nothing it composes is merged with or
+    // ordered against a capability control of the author's, read under the
+    // harness's own grammar.
+    let grammar = brokkr_protocol::native_controls::grammar::grammar(&driver)
+        .expect("the claude and lanetally grammars are modelled");
+    let authored = grammar
+        .parse(brokkr_protocol::native_controls::harness_arguments(command))
+        .map_err(|problem| {
+            // The problem's rendering quotes its token, and a joined or
+            // misplaced token carries its value (rebuild unit 5b-fix2, S2):
+            // only the position, a bounded label and the grammar's cause,
+            // built from fixed text and canonical option names, are named.
+            refuse(format!(
+                "while its authored command cannot be read: the '{}' command grammar cannot \
+                 place argument {} ({}), whose token is not echoed because it can carry a value: \
+                 it {}. A control nobody can read is a control nobody can rule on, so it is \
+                 refused rather than passed through (decision 0066 ruling 6; operator ruling 1 \
+                 of 2026-09-23)",
+                grammar.harness,
+                problem.at + 1,
+                unplaced_label(grammar, &problem.token),
+                problem.cause
+            ))
+        })?;
+    if let Some((node, kind)) = authored
+        .nodes
+        .iter()
+        .find_map(|node| authored_capability_control(node).map(|kind| (node, kind)))
+    {
+        return Err(refuse(format!(
+            "while its authored command carries '{}' (argument {}), {kind}; the engine composes \
+             the typed list as its own contribution and a recipe authors no capability-bearing \
+             option beside it, so the site is refused rather than reconciled (operator ruling 1 \
+             of 2026-09-23; decision 0065 slice one, design D5.3)",
+            node.name(),
+            node.at + 1
+        )));
+    }
+    let adapter = adapters
+        .and_then(|adapters| adapters.adapter(&driver))
+        .ok_or_else(|| {
+            refuse(format!(
+                "for driver '{driver}', which no loaded adapter declares; with no tool permission \
+                 mapping the restriction cannot be expressed, so it is refused rather than run \
+                 unrestricted (decision 0065 slice one, design D5.3)"
+            ))
+        })?;
+    let refused = |cause: String| CompileError::Invalid(format!("seat '{what}': {cause}"));
+    let lowered = crate::agents::lower_allow(adapter, allow, "site").map_err(refused)?;
+    let template = crate::agents::inline_template(adapter, &driver).map_err(refused)?;
+    Ok((
+        lowered,
+        template,
+        crate::agents::declared_permissions(adapter),
+    ))
+}
+
+/// What [`lower_inline_allow`] lowered: the list, the adapter's template
+/// and the permission flag the list lowered onto.
+type InlineAllow = (
+    crate::agents::LocalLowering,
+    Option<Segment>,
+    Option<brokkr_protocol::native_controls::ListFlag>,
+);
+
+/// What a capability-bearing option an author wrote at an inline typed
+/// site is (operator ruling 1 of 2026-09-23; rebuild units 5b-fix and
+/// 5b-fix2), or `None` for an option that bears no capability. Judged on
+/// the parsed node, so every spelling of one option — split, `=`-joined,
+/// an alias, repeated or variadic — is judged at once, and its value is
+/// never echoed and, but for an effort's, never read: a permission mode is
+/// refused whichever mode it names. Web
+/// and search reach Claude only as tool names, which ride a list; an
+/// option the grammar does not model never parses. The whole sweep of the
+/// Claude/LaneTally grammar, with the options judged inert and why, is
+/// recorded in evidence.md ("Unit 5b-fix2").
+///
+/// An effort is the one option whose VALUE decides it (rebuild unit
+/// 5b-fix3, R2): the CLI reference's `ultracode` requests `xhigh` with
+/// workflows turned on, so only the reference's plain levels stand, by this
+/// fixed classification and never by an adapter's declaration — adding a
+/// name to adapter data does not make its meaning inert — and the refusal
+/// names the fixed levels, never the value or the adapter's list (R1).
+fn authored_capability_control(
+    node: &brokkr_protocol::native_controls::grammar::Node,
+) -> Option<&'static str> {
+    use brokkr_protocol::native_controls::grammar::Effect;
+    /// The effort values the CLI reference gives as a level and nothing
+    /// more (https://code.claude.com/docs/en/cli-reference, `--effort`).
+    const PLAIN_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+    Some(match (node.spec.effect, node.name()) {
+        (Effect::List(_), _) => "a tool list",
+        (Effect::Load | Effect::Config, _) => {
+            "which loads or configures a server, a plugin or a settings document"
+        }
+        (Effect::Session, _) => {
+            "a session selector, and a rejoined session restores its saved working directory"
+        }
+        (_, "--permission-mode") => "a permission mode",
+        (_, "--strict-mcp-config") => "an MCP configuration control",
+        (_, "--add-dir") => "an additional directory, which grants file access",
+        (_, "--bg") => {
+            "a background session, which runs under a supervisor the engine does not launch"
+        }
+        (_, "--input-format") => {
+            "an input format, whose streamed input can carry control messages the engine does not \
+             compose"
+        }
+        (_, "--effort")
+            if !node
+                .values
+                .iter()
+                .all(|value| PLAIN_EFFORTS.iter().any(|plain| plain == value)) =>
+        {
+            "an effort other than the reference's plain levels (low, medium, high, xhigh, max), \
+             which can turn on more than effort"
+        }
+        _ => return None,
+    })
+}
+
+/// A bounded, value-free label for the token a grammar could not place
+/// (rebuild unit 5b-fix2, S2): the modelled option it names, read before
+/// any `=` and named by its canonical spelling whichever alias was written
+/// (rebuild unit 5b-fix3, R3), or what kind of token it is. An unmodelled
+/// name is authored text of any length, so it is never echoed either.
+fn unplaced_label(
+    grammar: &brokkr_protocol::native_controls::grammar::Grammar,
+    token: &str,
+) -> String {
+    if !token.starts_with('-') || token == "-" {
+        return "a bare word".to_string();
+    }
+    let name = token.split_once('=').map_or(token, |(name, _)| name);
+    grammar
+        .options
+        .iter()
+        .find(|spec| spec.canonical == name || spec.aliases.contains(&name))
+        .map_or_else(
+            || format!("an option the '{}' grammar does not model", grammar.harness),
+            |spec| format!("'{}'", spec.canonical),
+        )
+}
+
+/// Which contribution [`expressed_sandbox`] judges (design D5.6): bytes an
+/// author or the selected hands fragment wrote, or the resolved native plan,
+/// which alone may also write the exact key its measured denial uses. The
+/// context selects that one allowance; it never skips a competing-control
+/// check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Contribution {
+    Written,
+    Native,
+}
+
+/// The one `--sandbox` class an argv expresses under the codex grammar, or
+/// `None` where it names none. Read through the public protocol grammar
+/// rather than by token matching, so a joined, attached or aliased spelling
+/// is the same option. Anything the grammar cannot place refuses — an
+/// unreadable contribution is uncertainty, and uncertainty refuses typed
+/// admission — naming its position and never its token. So does a COMPETING control beside the class (design D5.3,
+/// made explicit by D5.5): a switch that lifts or replaces the sandbox
+/// (`--full-auto`, `--dangerously-bypass-approvals-and-sandbox`), or a
+/// configuration assignment into `sandbox_mode` or `sandbox_workspace_write`,
+/// which is the same control through an opaque door, or `--add-dir`, which
+/// adds a filesystem root the class would not reach (review return S1: a
+/// control on the same reach, in the split or the `=` spelling, whatever
+/// its value). So does an OPAQUE
+/// contribution (review return F2): an option the grammar types as a load
+/// (`--profile`) reads a whole configuration document the engine cannot
+/// see into, and a configuration assignment outside the two tables the
+/// shipped fragments are established to write — the hands transport under
+/// `mcp_servers.brokkr` and the effort under `model_reasoning_effort` — is
+/// unqualified; either could set the same control, so neither leaves a
+/// class checkable. These are refused wherever they stand — the selected
+/// fragment, the authored command or the resolved native plan — and never
+/// reconciled by argument order or trusted for their provenance. So is the
+/// root selector `--cd` in every spelling the grammar reads as it (`--cd
+/// PATH`, `--cd=PATH`, `-C PATH`, `-CPATH`; unit 2-fix A1): whatever its
+/// value — the current workspace included — it moves what the class is
+/// measured from, and which of two selectors a harness honours is not
+/// established, so it is refused rather than ordered. `whom` names the
+/// requester: an agent's link (`seat 'x' link 1`), or an inline seat
+/// (`seat 'x'`, rebuild unit 5d).
+fn expressed_sandbox(
+    whom: &str,
+    part: &str,
+    argv: &[String],
+    contribution: Contribution,
+) -> Result<Option<String>, CompileError> {
+    use brokkr_protocol::native_controls::grammar;
+    /// The two codex switches whose effect on the sandbox is not a class.
+    const SANDBOX_SWITCHES: [&str; 2] =
+        ["--full-auto", "--dangerously-bypass-approvals-and-sandbox"];
+    /// The two configuration tables that reach the same control.
+    const SANDBOX_TABLES: [&str; 2] = ["sandbox_mode", "sandbox_workspace_write"];
+    /// The option that widens the sandbox's reach by a root, whose value
+    /// is authored bytes and is never echoed.
+    const ADDED_ROOT: &str = "--add-dir";
+    /// The option that selects the root itself, canonical for `-C`.
+    const ROOT_SELECTOR: &str = "--cd";
+    /// The configuration keys an existing fragment is ESTABLISHED to write
+    /// (design D5.3): the boxed hands transport, as a table, and the
+    /// effort assignment, exactly. Every other assignment is unqualified.
+    const ESTABLISHED_TABLES: [&str; 1] = ["mcp_servers.brokkr"];
+    const ESTABLISHED_KEYS: [&str; 1] = ["model_reasoning_effort"];
+    /// The one further key a RESOLVED NATIVE plan is established to write
+    /// (design D5.6): the measured web-search denial `-c`,
+    /// `web_search="disabled"`, exactly this key — not a table, not a
+    /// descendant, and never in written bytes.
+    const NATIVE_KEY: &str = "web_search";
+    let command = match grammar::parse("codex", argv).expect("the codex grammar is modelled") {
+        Ok(command) => command,
+        // The problem's rendering quotes its token, and an attached or
+        // joined token carries its value (unit 2-fix review return S2): only
+        // the position and the grammar's cause, which is built from fixed
+        // text and canonical option names alone, are named.
+        Err(problem) => {
+            let (argument, cause) = (problem.at + 1, problem.cause);
+            return Err(CompileError::Invalid(format!(
+                "{whom} requests a typed 'tools.sandbox', but the {part} it \
+                 would be judged against cannot be read: the 'codex' command grammar cannot place \
+                 argument {argument}, whose token is not echoed because it can carry a value: it \
+                 {cause} — refused (design D5.3)"
+            )));
+        }
+    };
+    let mut expressed = None;
+    for node in &command.nodes {
+        if node.name() == "--sandbox" {
+            expressed = node.values.first().cloned();
+        }
+        if let Some(switch) = SANDBOX_SWITCHES.iter().find(|name| node.name() == **name) {
+            return Err(CompileError::Invalid(format!(
+                "{whom} requests a typed 'tools.sandbox', but the {part} \
+                 carries `{switch}`, a switch that lifts or replaces the sandbox a `--sandbox` \
+                 class would express, so no typed class can be checked against it — refused \
+                 (design D5.3)"
+            )));
+        }
+        if node.name() == ADDED_ROOT {
+            return Err(CompileError::Invalid(format!(
+                "{whom} requests a typed 'tools.sandbox', but the {part} \
+                 carries `{ADDED_ROOT}`, which adds a filesystem root the `--sandbox` class \
+                 would not reach, a competing control on the same reach that no typed class can \
+                 be checked against — refused (design D5.3)"
+            )));
+        }
+        if node.name() == ROOT_SELECTOR {
+            return Err(CompileError::Invalid(format!(
+                "{whom} requests a typed 'tools.sandbox', but the {part} \
+                 carries `{ROOT_SELECTOR}`, which selects the root the `--sandbox` class is \
+                 measured from, a competing root control that no typed class can be checked \
+                 against whatever its value or position — refused (design D5.3)"
+            )));
+        }
+        if node.spec.effect == grammar::Effect::Load {
+            let option = node.name();
+            return Err(CompileError::Invalid(format!(
+                "{whom} requests a typed 'tools.sandbox', but the {part} \
+                 carries `{option}`, which loads an opaque configuration document the engine \
+                 cannot see into and that can set the same control, so no typed class can be \
+                 checked against it — refused (design D5.3)"
+            )));
+        }
+        if node.spec.effect == grammar::Effect::Config {
+            if let Some(table) = SANDBOX_TABLES.iter().find(|table| {
+                node.values
+                    .iter()
+                    .any(|value| grammar::config_under(&grammar::config_key(value), table))
+            }) {
+                // Only written bytes reach here: a resolved native plan's
+                // every declared assignment passed the bounded reader at
+                // adapter load, which admits no sandbox table (rebuild units
+                // 11 and 12).
+                return Err(CompileError::Invalid(format!(
+                    "{whom} requests a typed 'tools.sandbox', but the {part} \
+                     assigns '{table}' through the harness's configuration, a second door to the \
+                     same control that no typed class can be checked against — refused (design \
+                     D5.3)"
+                )));
+            }
+            // An assignment outside the established keys is not echoed:
+            // its key is authored bytes, and only its position is named. A
+            // resolved native plan's assignments are all established ones
+            // (rebuild units 11 and 12), so only written bytes reach here.
+            let established = node.values.iter().all(|value| {
+                let key = grammar::config_key(value);
+                ESTABLISHED_TABLES
+                    .iter()
+                    .any(|table| grammar::config_under(&key, table))
+                    || ESTABLISHED_KEYS.contains(&key.as_str())
+                    || (contribution == Contribution::Native && key == NATIVE_KEY)
+            });
+            if !established {
+                let at = node.at;
+                return Err(CompileError::Invalid(format!(
+                    "{whom} requests a typed 'tools.sandbox', but the {part} \
+                     assigns configuration at argument {at} outside the keys an existing fragment \
+                     is established to write (the hands transport under 'mcp_servers.brokkr' and \
+                     the effort 'model_reasoning_effort'); an unqualified assignment could reach \
+                     the same control, so no typed class can be checked against it — refused \
+                     (design D5.3)"
+                )));
+            }
+        }
+    }
+    Ok(expressed)
+}
+
+/// The one class design D5.3's table admits on a serving path, keyed on
+/// the path alone — the boundary and the seat's class — and never on
+/// adapter data (review return F1): a box and a harness gate hold
+/// read-only, harness work holds workspace-write. The selected fragment
+/// is the path's REPRESENTATION and must express this class exactly; it
+/// is not an authority, so an adapter whose fragment expresses a wider
+/// class does not widen the table.
+fn admitted_sandbox(boundary: Boundary, seat_class: SeatClass) -> (Sandbox, &'static str) {
+    if boundary.is_boxed() {
+        (Sandbox::ReadOnly, "a boxed site")
+    } else {
+        match seat_class {
+            SeatClass::Gate => (Sandbox::ReadOnly, "a harness gate"),
+            SeatClass::Work => (Sandbox::WorkspaceWrite, "a harness work seat"),
+        }
+    }
+}
+
+/// Design D5.3: a typed `tools.sandbox` is admitted only where an EXISTING
+/// engine fragment already expresses exactly that class, and refused
+/// everywhere else — never dropped, clamped or called narrower. Runs after
+/// every standing refusal of the site (the hands law, the gate tier, the
+/// judges list, the egress bar), so those keep their precedence. The
+/// admitted shapes are actual codex dispatch with hands: `hands.workspace`
+/// under a boxed boundary, `hands.harness.gate` for a gate and
+/// `hands.harness.work` for a work seat under `harness`. Every link of the
+/// chain is judged, so a later candidate cannot hide behind the primary.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn admit_local_sandbox(
+    what: &str,
+    raw: &Value,
+    candidates: &[Candidate],
+    law: SiteLaw<'_>,
+    adapters: Option<&Adapters>,
+    sites: &BTreeMap<String, SiteFacts>,
+) -> Result<(), CompileError> {
+    let Some(requested) = sites
+        .get(what)
+        .and_then(|facts| facts.local.as_ref())
+        .and_then(|local| local.sandbox)
+    else {
+        return Ok(());
+    };
+    // Rebuild unit 5d: an inline Codex seat's class was judged and lowered
+    // where it was recorded (`lower_inline_sandbox`), onto the engine's own
+    // control; the standing refusals above have had their say. No inline
+    // site records a class any other way: `record_inline_tools` lowers it
+    // or refuses the site (operator ruling of 2026-09-30, unit 26c), so no
+    // guard on the lowering stands here, where the exact-coverage gate would
+    // count it unreachable. The removal control is
+    // `an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_field`,
+    // and a class recorded without its lowering still refuses at dispatch
+    // (`the_dispatch_door_admits_only_the_record_sealed_for_its_spawn`).
+    if candidates.is_empty() {
+        return Ok(());
+    }
+    let class = requested.name();
+    let boundary = law.boundary;
+    if law.agent_hands.is_none() {
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' requests 'tools.sandbox' '{class}' without hands; no engine path \
+             expresses a sandbox class for a site without hands, so the class would be recorded \
+             and not delivered — refused under the `{boundary}` boundary until decision 0065 \
+             slice one's lowering proves it (design D5.3)"
+        )));
+    }
+    let seat_class = parse_class(what, raw)?;
+    let adapters = adapters.expect("an agent-resolved site opened the adapters (needs_adapters)");
+    for (index, candidate) in candidates.iter().enumerate() {
+        let link = index + 1;
+        let provider = &candidate.provider;
+        // The HARNESS is what the command dispatches, read off the command
+        // itself: a provider label is not evidence of a sandbox class.
+        let harness = dispatch_driver(&candidate.argv)
+            .unwrap_or_else(|| crate::capabilities::OPAQUE_HARNESS.to_string());
+        if harness != "codex" {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests 'tools.sandbox' '{class}' but dispatches the \
+                 '{harness}' harness through provider '{provider}'; only the codex harness's own \
+                 `--sandbox` fragments express a sandbox class today, and a provider label, a \
+                 permission mode or an unmodelled driver is not evidence of one — refused under \
+                 the `{boundary}` boundary (design D5.3)"
+            )));
+        }
+        let adapter = adapters
+            .adapter(provider)
+            .expect("resolution mapped every link of the chain");
+        let (part, fragment): (&str, &[String]) = if boundary.is_boxed() {
+            ("`hands.workspace` fragment", &candidate.hands_fragment)
+        } else if boundary == Boundary::Harness {
+            match seat_class {
+                SeatClass::Gate => (
+                    "`hands.harness.gate` fragment",
+                    adapter.harness.gate.as_deref().unwrap_or(&[]),
+                ),
+                SeatClass::Work => (
+                    "`hands.harness.work` fragment",
+                    adapter.harness.work.as_deref().unwrap_or(&[]),
+                ),
+            }
+        } else {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests 'tools.sandbox' '{class}' under the `open` \
+                 boundary, where a work seat runs at the harness's own default and no engine \
+                 fragment expresses a class; a presumed provider default is not a representation \
+                 — refused (design D5.3)"
+            )));
+        };
+        if fragment.is_empty() {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests 'tools.sandbox' '{class}' under the \
+                 `{boundary}` boundary, but provider '{provider}' supplies no {part} to express \
+                 it; a missing fragment is not a representation — refused (design D5.3)"
+            )));
+        }
+        let whom = format!("seat '{what}' link {link}");
+        match expressed_sandbox(&whom, part, fragment, Contribution::Written)? {
+            Some(found) if found == class => {
+                // The fragment represents the class; the TABLE decides
+                // whether this path may hold it at all (review return F1).
+                let (admitted, site_kind) = admitted_sandbox(boundary, seat_class);
+                if requested != admitted {
+                    let admitted = admitted.name();
+                    return Err(CompileError::Invalid(format!(
+                        "seat '{what}' link {link} requests 'tools.sandbox' '{class}' at \
+                         {site_kind} under the `{boundary}` boundary, where decision 0065 slice \
+                         one admits only '{admitted}' (design D5.3: a box and a harness gate hold \
+                         read-only, harness work holds workspace-write); the {part} of provider \
+                         '{provider}' expresses '{class}' too, but adapter data is a \
+                         representation and not an authority, so a fragment cannot widen that \
+                         table — refused"
+                    )));
+                }
+            }
+            Some(found) => {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the {part} \
+                     the engine selects for provider '{provider}' under the `{boundary}` boundary \
+                     expresses '{found}'; a fragment is neither called narrower nor clamped, the \
+                     typed class must match it exactly — refused (design D5.3)"
+                )))
+            }
+            None => {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the {part} \
+                     the engine selects for provider '{provider}' under the `{boundary}` boundary \
+                     names no `--sandbox` class at all; a fragment that expresses nothing is not a \
+                     representation — refused (design D5.3)"
+                )))
+            }
+        }
+        // The other contributions must not carry a competing control: the
+        // authored part of the command is read after brokkr's own dispatch
+        // tokens, under the same grammar.
+        let (authored, _) = candidate.parts();
+        let authored = brokkr_protocol::native_controls::harness_arguments(authored);
+        if let Some(found) =
+            expressed_sandbox(&whom, "authored command", authored, Contribution::Written)?
+        {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the authored \
+                 command of provider '{provider}' already carries `--sandbox` '{found}', a \
+                 competing control the selected {part} would stand beside; authored bytes cannot \
+                 supply or contest a typed representation — refused under the `{boundary}` \
+                 boundary (design D5.3)"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Design D5.6 (unit 2-fix S1): the RESOLVED native plan of every link is
+/// the third contribution a typed class is judged beside. It exists only
+/// after resolution, so this runs where the plans are sealed and before
+/// their notices and facts are published, after [`admit_local_sandbox`]
+/// has already admitted the matching hands fragment. The whole argv each
+/// plan resolved to — the selected ON or OFF and any substituted
+/// restriction transport — is read once through the same typed decoder the
+/// driver reads it with, and judged by the same guard: no disposition label
+/// or engine provenance exempts it, and a valid denial beside a competing
+/// control does not end the scan. Only the selected hands fragment
+/// represents the class, so any native `--sandbox`, matching or not,
+/// competes. An inline Codex seat's plan is judged with its whole launch by
+/// [`admit_inline_launch`] instead.
+fn admit_native_sandbox(
+    what: &str,
+    requested: Sandbox,
+    site: &crate::capabilities::SiteCapabilities,
+) -> Result<(), CompileError> {
+    let class = requested.name();
+    for (index, outcome) in site.outcomes.iter().enumerate() {
+        let link = index + 1;
+        let whom = format!("seat '{what}' link {link}");
+        let provider = &outcome.provider;
+        let plan = brokkr_protocol::native_controls::managed(
+            &json!({"native_controls": outcome.controls()}),
+        )
+        .map_err(CompileError::Invalid)?
+        .expect("the plan is read from under its own key");
+        let part = "resolved native control argv";
+        if expressed_sandbox(&whom, part, &plan.argv, Contribution::Native)?.is_some() {
+            return Err(CompileError::Invalid(format!(
+                "{whom} requests 'tools.sandbox' '{class}', but the {part} of provider \
+                 '{provider}' carries `--sandbox`, a second sandbox control beside the selected \
+                 hands fragment; only that fragment represents a typed class, so even a matching \
+                 native class competes — refused (design D5.3)"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Rebuild unit 5d-fix-b (chief F1 and F2; design D5.3): the admission of an
+/// inline Codex seat's whole launch over its compiled plan — the authored
+/// command, the recorded template, the engine's `local` fragment and each
+/// resolved native plan, in the order dispatch composes them — by
+/// [`grammar::judge_inline_codex_launch`], the same judgment the dispatch
+/// door runs (rebuild unit 5d-fix-c1). The capture follows the admitted
+/// class: a `read-only` class is a gate's and captures into the
+/// engine-owned result path. The seat is named bounded ([`bounded_site`]).
+fn admit_inline_launch(
+    what: &str,
+    parts: &[String],
+    facts: &SiteFacts,
+    site: &crate::capabilities::SiteCapabilities,
+) -> Result<(), CompileError> {
+    use brokkr_protocol::native_controls::grammar;
+    let Some(lowered) = &facts.inline_sandbox else {
+        return Ok(());
+    };
+    let capture = (lowered.class == Sandbox::ReadOnly).then_some(RESULT_PATH);
+    for outcome in &site.outcomes {
+        let plan = brokkr_protocol::native_controls::managed(
+            &json!({"native_controls": outcome.controls()}),
+        )
+        .map_err(CompileError::Invalid)?
+        .expect("the plan is read from under its own key");
+        let segments: Vec<Segment> = std::iter::once(Segment::new(
+            Origin::Authored,
+            brokkr_protocol::native_controls::harness_arguments(parts),
+        ))
+        .chain(facts.inline_template.clone())
+        .chain([
+            lowered.segment.clone(),
+            Segment::new(Origin::Native, &plan.argv),
+        ])
+        .collect();
+        grammar::judge_inline_codex_launch(lowered.class.intent(), &segments, capture).map_err(
+            |cause| {
+                CompileError::Invalid(format!(
+                    "seat {} declares 'tools.sandbox' '{}', but {} (operator ruling of \
+                     2026-09-25; rebuild unit 5d-fix-b; design D5.3)",
+                    bounded_site(what),
+                    lowered.class.name(),
+                    inline_codex_refusal(what, &cause)
+                ))
+            },
+        )?;
+    }
+    Ok(())
+}
 
 /// The vocabulary of a site object is CLOSED, because since decision
 /// 0021 a dropped key is a dropped refusal. `class` is read by absence —
@@ -2448,7 +4146,6 @@ fn unreadable_destination(flags: &[String]) -> String {
 /// bundle's identity carries what let it judge. An agent site needs no
 /// entry here — its resolution record already pins every adapter its
 /// chain consulted.
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn enforce_model_policy(
     what: &str,
     raw: &Value,
@@ -2472,6 +4169,34 @@ fn enforce_model_policy(
         law,
         agents.as_ref().map(|context| &context.adapters),
     )?;
+    enforce_route_policy(what, raw, candidates, secrets, agents, sites)?;
+    // Design D5.3, LAST: a typed sandbox class is admitted only where an
+    // existing engine fragment expresses it exactly, after every standing
+    // refusal above has had its say, so none of them loses precedence.
+    admit_local_sandbox(
+        what,
+        raw,
+        candidates,
+        law,
+        agents.as_ref().map(|context| &context.adapters),
+        sites,
+    )
+}
+
+/// Decision 0021's two prohibitions proper — the gate tier, the judges
+/// list and the egress bar — at one site, after the hands law has spoken.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn enforce_route_policy(
+    what: &str,
+    raw: &Value,
+    candidates: &[Candidate],
+    secrets: &[String],
+    agents: &mut Option<AgentContext>,
+    sites: &mut BTreeMap<String, SiteFacts>,
+) -> Result<(), CompileError> {
     let class = parse_class(what, raw)?;
     if class == SeatClass::Work && secrets.is_empty() {
         return Ok(());
@@ -2894,8 +4619,1213 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
 /// realm map and dialect library are workspace declarations pinned into
 /// the RUN manifest, never bundle files. One function, shared by the walk
 /// and by the pinned-script lookup, so the two cannot drift.
+///
+/// Decision 0065 adds the operator's abstract capability definitions on
+/// the same terms: the ones a compile CONSULTS are pinned by name and
+/// digest in the manifest's `capabilities` section, so walking the whole
+/// directory would make an unconsulted definition a second source of
+/// bundle identity.
 fn unpinned_top_level(name: &str) -> bool {
-    name == "realms.json" || name == "dialects"
+    name == "realms.json" || name == "dialects" || name == crate::capabilities::DEFINITIONS_DIR
+}
+
+/// The top-level name an ACTIVE input stands under, where that name is one
+/// the walk skips (decision 0066 ruling 5, correcting decision 0065's
+/// design D7). A seat's charter decides what the seat is told and a layer's
+/// table decides how the run is ruled, so neither may sit where the
+/// manifest's file map does not look: the skip is sound for operator
+/// configuration only while nothing a recipe EXECUTES is read from under
+/// it. One predicate, shared with the walk, so the two cannot drift.
+///
+/// `root` is the declaring layer's canonical directory and `reference` is
+/// what that layer wrote. Judged twice: here, the reference as written, its
+/// `.` and `..` folded without touching the disk, which catches a path
+/// spelled into the skipped tree — a link there that points back out
+/// included, since the link is itself bytes nobody pins; and in
+/// [`bound_input`], its canonical target, which catches an allowed spelling
+/// whose file, or whose parent, is a link into it. That second question is
+/// asked of the one resolution the read is then bound to.
+///
+/// A reference written OUT of the layer altogether — `../shared/role.md`
+/// — escapes the same map the same way, and no other route pins it: an
+/// agent's charter is pinned by its library record, a dialect's
+/// instructions by the dialect pin, and an inline role by the file map or
+/// by nothing. It is refused on the same terms. The answer is WHERE the
+/// input stands, as the clause both refusals carry.
+///
+/// Second council H5: A `..` STEP IS NOT A PATH THE WALK EVER TAKES. The
+/// walk descends real directory entries — through a link, though a
+/// consumed input whose link leaves the layer is refused by
+/// [`bound_input`] under operator ruling 3 — and every key it writes is a
+/// chain of such entries. A
+/// reference that walks back UP cannot be one of those keys: with
+/// `base/alias -> ../outside/child`, `alias/../charter.md` folds
+/// lexically to `base/charter.md`, which the map does pin, while the file
+/// a reader opens is `outside/charter.md`, which nothing pins. The chief
+/// edited that file and every manifest digest stayed the same.
+///
+/// So the fold is no longer asked to stand in for the filesystem: a
+/// reference that reaches its file through `..` is refused outright, and
+/// what remains is exactly the set of paths the walk enumerates.
+fn unpinned_active_input(root: &Path, reference: &str) -> Option<String> {
+    let folded = folded(&root.join(reference));
+    if !folded.starts_with(root) {
+        return Some(
+            "which stands outside the layer's own directory, where the bundle's file walk \
+             never reaches"
+                .to_string(),
+        );
+    }
+    // The narrower question first, so a reference spelled into operator
+    // configuration keeps naming the tree it reached.
+    skipped_top_level(root, &folded).or_else(|| {
+        Path::new(reference)
+            .components()
+            .any(|part| part == std::path::Component::ParentDir)
+            .then(|| {
+                "which reaches its file through a '..' step — never a path the bundle's file \
+                 walk takes, so a link earlier in it can put the file a reader opens outside \
+                 everything the walk pinned"
+                    .to_string()
+            })
+    })
+}
+
+/// The clause for a path standing under a top-level name the walk skips,
+/// judged relative to the declaring layer's canonical `root`.
+fn skipped_top_level(root: &Path, path: &Path) -> Option<String> {
+    let first = path.strip_prefix(root).ok()?.components().next()?;
+    let name = first.as_os_str().to_str()?;
+    unpinned_top_level(name).then(|| {
+        format!(
+            "which stands under '{name}' — a top-level name the bundle's file walk does not \
+             pin, because it holds operator configuration"
+        )
+    })
+}
+
+/// One consumed input, resolved from its layer's directory handle a name at
+/// a time and read through the handle that resolution ended at (operator
+/// ruling 3; decision 0065 slice one, design D7).
+pub(crate) struct BoundInput {
+    /// The bytes the handle supplied: the buffer a caller hashes and parses,
+    /// and whose digest the layer's walk takes for both of its keys.
+    pub(crate) bytes: Vec<u8>,
+    /// What the resolution observed, the names it bound the input by and
+    /// the handles it holds, so the walk can verify the input without
+    /// opening its path to read it.
+    pub(crate) held: Held,
+}
+
+/// The names one observation bound its input by, with the file it read
+/// (rebuild unit 16-fix-c, F1): built only by [`observe`], in one value,
+/// from the handles that resolution holds, and compared whole whenever the
+/// input is observed again. A key is never chosen by listing a path.
+/// Rebuild unit 18-fix-b (council F1): a charter's pin keeps its binding
+/// whole, and the dispatch door compares it whole. Its return (council
+/// F1): whole includes every entry the resolution walked, so a
+/// directory on the way replaced around the very file that was read is a
+/// binding that no longer holds.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Binding {
+    /// The file-map key under which the declaring layer's walk pins what the
+    /// reference names, as written. Where no step of the written path is a
+    /// link it is `target_key`. Through a link it is the written spelling:
+    /// the link's own entry where the last step is the link, and otherwise
+    /// the path the walk lists through a linked directory, which names the
+    /// target's own entry, never a second one (rebuild unit 16-fix-d).
+    key: String,
+    /// The file-map key the declaring layer's walk writes for the target:
+    /// each name exactly as it was looked up in the held directory before
+    /// it. A spelling the filesystem accepted for an entry its directory
+    /// lists otherwise (a case or normalization alias) is bound as written,
+    /// and the walk, listing no entry of that name, refuses it.
+    target_key: String,
+    /// The `(dev, ino)` of the handle that was read.
+    id: (u64, u64),
+    /// Every step the resolution took, in order, from the layer's
+    /// directory to the file read: each directory it stood in is the one
+    /// it held, and each link the text it followed.
+    steps: Vec<Step>,
+}
+
+impl Binding {
+    /// The reference's key and the target's key.
+    pub(crate) fn keys(&self) -> [&str; 2] {
+        [&self.key, &self.target_key]
+    }
+
+    /// What a layer's walk is told about `key`, one of these keys, whose
+    /// buffer hashed to `digest`, read for `consumer`.
+    pub(crate) fn supplied(&self, digest: &str, consumer: String) -> Supplied {
+        Supplied {
+            digest: digest.to_string(),
+            id: self.id,
+            target: self.target_key.clone(),
+            consumer,
+        }
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+impl Binding {
+    /// The binding a read under `root` names the file at `target` by,
+    /// spelled `key`: a test's expected pin (rebuild unit 18-fix-b). Its
+    /// steps are looked at by path, one written name at a time, a link's
+    /// text followed from the link's own directory (its return).
+    pub(crate) fn expected(root: &Path, key: &str, target: &str) -> Binding {
+        use std::os::unix::fs::MetadataExt;
+        let id = |path: &Path| {
+            let meta = std::fs::metadata(path).unwrap();
+            (meta.dev(), meta.ino())
+        };
+        let names = |path: &Path| -> Vec<OsString> {
+            path.components()
+                .filter(|part| *part != std::path::Component::CurDir)
+                .rev()
+                .map(|part| part.as_os_str().to_os_string())
+                .collect()
+        };
+        let mut steps = vec![Step::Entry(OsString::new(), id(root))];
+        let (mut at, mut pending) = (root.to_path_buf(), names(Path::new(key)));
+        while let Some(name) = pending.pop() {
+            let path = at.join(&name);
+            match std::fs::read_link(&path) {
+                Ok(text) => {
+                    pending.extend(names(&text));
+                    steps.push(Step::Link(name, text.into_os_string()));
+                }
+                Err(_) if name == ".." => {
+                    at.pop();
+                }
+                Err(_) => {
+                    steps.push(Step::Entry(name, id(&path)));
+                    at = path;
+                }
+            }
+        }
+        Binding {
+            key: key.to_string(),
+            target_key: target.to_string(),
+            id: id(&root.join(target)),
+            steps,
+        }
+    }
+}
+
+/// A key a bound read supplied, as its layer's walk takes it (design D7):
+/// the digest of the buffer that was read, and the file the read held,
+/// named by its target's key, so no other name for that file is walked as
+/// a file nothing consumed.
+pub(crate) struct Supplied {
+    digest: String,
+    id: (u64, u64),
+    target: String,
+    /// Who consumed it, bounded, as its own refusal opens: the declaring
+    /// file, and the document, the table or the seat and its role.
+    consumer: String,
+}
+
+/// One step of an owner-rooted resolution, in the order it was taken: an
+/// entry opened by the name it was looked up by, with the `(dev, ino)` its
+/// handle holds, or a link, with the text it was followed by. The layer's
+/// own directory is the first entry.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Step {
+    Entry(OsString, (u64, u64)),
+    Link(OsString, OsString),
+}
+
+/// A handle a resolution stands in, with the name it was looked up by and
+/// the `(dev, ino)` it holds.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+type Hold = (std::fs::File, OsString, (u64, u64));
+
+/// What one bound read observed, and the handles its resolution ended
+/// holding: the chain from the layer's directory to the read file, the read
+/// file last. A handle for a step the resolution left again — a directory a
+/// `..` climbed out of, or a chain an absolute link's text restarted at the
+/// layer's directory — was closed when it was left and is not among them.
+/// The retained handles stay open while the input is consumed, so no file
+/// they hold can give its number to another.
+pub(crate) struct Held {
+    root: PathBuf,
+    reference: PathBuf,
+    binding: Binding,
+    /// Who the owner's directory was when this read reached it from `/`
+    /// ([`owned_input`]); `None` for a read given its directory by its path.
+    owner: Option<OwnerIdentity>,
+    handles: Vec<std::fs::File>,
+}
+
+impl Held {
+    /// The names the input was bound by, and the file that was read.
+    pub(crate) fn binding(&self) -> &Binding {
+        &self.binding
+    }
+
+    /// Whether `now`, the reference observed again, stands as it stood when
+    /// it was read: the same binding — both keys, the file read and the same
+    /// steps (every entry the same file, every link the same text) — and
+    /// the same owner, it and every directory above it.
+    fn stands(&self, now: &Observation) -> bool {
+        (&now.binding, &now.owner) == (&self.binding, &self.owner)
+    }
+
+    /// Whether the input still stands as it was read: its reference, resolved
+    /// again from the layer's directory — reached as the read reached it —
+    /// [`Held::stands`], and the held file still holds exactly the bytes
+    /// whose digest is `digest`. Those bytes are read back through the held
+    /// handle, never by opening the path, and any failure to observe or read
+    /// is a change: this fails closed.
+    pub(crate) fn intact(&self, digest: &str) -> bool {
+        use std::io::{Read, Seek};
+        let mut file = self.handles.last().expect("a resolution ends at a handle");
+        let mut again = Vec::new();
+        let reread = file.rewind().and_then(|()| file.read_to_end(&mut again));
+        let held = reread.map(|_| sha256_bytes(&again));
+        let open = || match self.owner {
+            Some(_) => owner_open(&self.root),
+            None => by_path(&self.root),
+        };
+        let stands = observe(&self.root, &open, &self.reference).is_ok_and(|now| self.stands(&now));
+        (held.ok().as_deref(), stands) == (Some(digest), true)
+    }
+}
+
+/// What one owner-rooted resolution saw.
+struct Observation {
+    handles: Vec<std::fs::File>,
+    binding: Binding,
+    owner: Option<OwnerIdentity>,
+}
+
+/// Why an active input was not bound. `Missing` is said by
+/// [`missing_clause`] in the caller's own sentence, because a missing
+/// charter and a missing table are not said in the same words; `Place` is
+/// the clause a refusal carries.
+pub(crate) enum InputFault {
+    Missing(std::io::Error),
+    Place(Place),
+}
+
+/// Where a bound read refused, as the resolver refused it (rebuild unit
+/// 18-fix, F4): the closed kind a dispatch refusal is named by, beside the
+/// clause a compile refusal carries. The kind is set where the refusal is
+/// made and never read back out of the clause's prose.
+pub(crate) struct Place {
+    kind: FaultKind,
+    clause: String,
+    /// What to do about it, where the caller's own remedy does not apply
+    /// (rebuild unit 18-fix-b return, F3): moving a charter within its owner
+    /// cannot make a directory above that owner readable.
+    remedy: Option<&'static str>,
+}
+
+/// The kinds of place a bound read refuses, each the one word a dispatch
+/// refusal names it by.
+#[derive(Clone, Copy)]
+enum FaultKind {
+    /// A FIFO, device or directory where a regular file must be.
+    Nonregular,
+    /// A link, or a `..`, that leads out of the owner's directory.
+    Outward,
+    /// A file, or an owner's directory, that is no longer the one bound.
+    Replaced,
+    /// A file that is there but cannot be read.
+    Unreadable,
+    /// A reference no bound read can name a file by: a skipped tree, a
+    /// `..` step, too many links, a host that cannot bind a read.
+    Unbound,
+}
+
+impl Place {
+    fn of(kind: FaultKind, clause: impl Into<String>) -> InputFault {
+        InputFault::Place(Place {
+            kind,
+            clause: clause.into(),
+            remedy: None,
+        })
+    }
+
+    /// The remedy this place carries, if the caller's does not apply.
+    pub(crate) fn remedy(&self) -> Option<&'static str> {
+        self.remedy
+    }
+}
+
+impl std::fmt::Display for Place {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.clause)
+    }
+}
+
+/// The clause for an input whose target could not be resolved: absent, or
+/// unresolvable with the io kind that says why.
+pub(crate) fn missing_clause(error: &std::io::Error) -> String {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "which does not exist".to_string(),
+        kind => format!("which cannot be resolved ({kind})"),
+    }
+}
+
+/// An authored input reference rendered for a refusal, bounded (decision
+/// 0065 slice one, rebuild unit 16): the same shape as [`bounded_site`],
+/// over the printable ASCII a path is written in other than the quote. A
+/// reference of at most 128 such bytes is quoted whole; any other is named
+/// by its leading run of them, at most 64, and its length in bytes, so ten
+/// thousand bytes of `./` cannot become a ten-thousand-byte reason.
+pub(crate) fn bounded_reference(reference: &str) -> String {
+    let printable = |byte: &u8| (b' '..=b'~').contains(byte) && *byte != b'\'';
+    if reference.len() <= 128 && reference.bytes().all(|byte| printable(&byte)) {
+        return format!("'{reference}'");
+    }
+    let lead: String = reference
+        .bytes()
+        .take_while(printable)
+        .take(64)
+        .map(char::from)
+        .collect();
+    format!("'{lead}…' ({} bytes, not echoed in full)", reference.len())
+}
+
+/// The file-map key the walk writes for `path` in the layer at `root`, or
+/// `None` when `path` does not stand inside it.
+fn walk_key(root: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?;
+    Some(
+        relative
+            .iter()
+            .map(|part| part.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
+}
+
+/// Where a bound read stands, for the tests' controlled replacements, in
+/// the order a read reaches them; and where the walk stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReadStage {
+    /// The resolution holds a handle on the entry at this path, looked up
+    /// in the directory handle before it.
+    Entered,
+    /// A handle is open on the contained target; nothing is checked yet.
+    Opened,
+    /// The handle's own kind was checked: it holds a regular file.
+    Checked,
+    /// The handle's bytes are in the buffer, and the binding is about to be
+    /// verified again.
+    Read,
+    /// The binding was verified and both keys are fixed; the input is about
+    /// to be handed to its caller.
+    Verified,
+    /// The walk is about to judge, then read and hash, a file under no
+    /// consumed key.
+    Walked,
+    /// The walk is about to open and list a directory: one in a skipped tree
+    /// is not yet opened through its parent's handle.
+    Listing,
+    /// A directory in a skipped tree was opened through its parent's handle
+    /// and checked to be the directory its parent listed there, and is about
+    /// to be listed through that handle.
+    DirectoryChecked,
+    /// The walk listed this entry in a tree it skips, and is about to ask
+    /// what it is without following a link.
+    Skipped,
+    /// An owner's directory is about to be reached from `/`, and who it is
+    /// taken (rebuild unit 18-fix-b, F2).
+    Owning,
+    /// An owner's directory was reached, and who it is was taken.
+    Owned,
+}
+
+#[cfg(test)]
+type ReadHook = Box<dyn FnMut(ReadStage, &Path)>;
+
+#[cfg(test)]
+thread_local! {
+    /// A controlled replacement, run at each stage of a bound read on this
+    /// thread. Tests only: nothing in production can reach between the
+    /// stages.
+    pub(crate) static READ_HOOK: std::cell::RefCell<Option<ReadHook>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn at_stage(stage: ReadStage, target: &Path) {
+    READ_HOOK.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().as_mut() {
+            hook(stage, target);
+        }
+    });
+}
+
+#[cfg(not(test))]
+fn at_stage(_: ReadStage, _: &Path) {}
+
+/// The most links one resolution follows, as Linux's own lookup does.
+const MAX_LINKS: usize = 40;
+
+/// The clause a consumed input whose resolved target leaves its layer
+/// carries (operator ruling 3).
+const OUTWARD: &str = "which resolves through a link to a file outside the layer's own \
+                       directory; the walk pins such a link only by the bytes it reaches, so \
+                       retargeting it to equal bytes moves nothing, and it is refused rather \
+                       than pinned and admitted (operator ruling 3)";
+
+/// The clause a FIFO, device or directory carries.
+const NONREGULAR: &str = "which is not a regular file; only a regular file's bytes are read, \
+                          hashed and pinned, and a FIFO, device or directory could supply bytes \
+                          the walk never hashed";
+
+/// The clause a read whose reference no longer resolves as it did carries.
+const REPLACED: &str = "which was replaced while it was read: the file the read holds is no \
+                        longer the contained target that was checked, so its bytes are not the \
+                        ones verified";
+
+/// Every name the directory `handle` holds lists, but `.` and `..`, read
+/// through that handle and never by a path (rebuild unit 16-fix-e, second
+/// return F2). A listing that cannot be opened or ends in error is an error:
+/// the caller fails closed. The calls are rustix's safe ones (operator ruling
+/// 2026-09-29: this crate forbids `unsafe`, decision 0071 ruling 1).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn names_in(handle: &std::fs::File) -> std::io::Result<Vec<OsString>> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut names = Vec::new();
+    for entry in rustix::fs::Dir::read_from(handle)? {
+        let entry = entry?;
+        let name = entry.file_name().to_bytes();
+        if !matches!(name, b"." | b"..") {
+            names.push(OsStr::from_bytes(name).to_os_string());
+        }
+    }
+    Ok(names)
+}
+
+/// A handle on the directory at `path`, reached as a path is (a pinned
+/// tree's contained linked directory included), which opens nothing but a
+/// directory and never waits.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn directory(path: &Path) -> std::io::Result<std::fs::File> {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    Ok(rustix::fs::open(path, flags, Mode::empty())?.into())
+}
+
+/// A handle on the directory `name` inside the directory `parent` holds,
+/// never following a link it names.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn directory_at(parent: &std::fs::File, name: &OsStr) -> std::io::Result<std::fs::File> {
+    open_at(parent, name, rustix::fs::OFlags::DIRECTORY)
+}
+
+/// No supported host lacks a listing through a handle (decision 0063); any
+/// other refuses rather than listing a layer by its path.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn directory(_: &Path) -> std::io::Result<std::fs::File> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// As [`directory`]: any other host lists nothing.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn directory_at(_: &std::fs::File, _: &OsStr) -> std::io::Result<std::fs::File> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// As [`directory`]: any other host lists nothing.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn names_in(_: &std::fs::File) -> std::io::Result<Vec<OsString>> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// Open `name` inside the directory `parent` holds, non-blocking, never
+/// following a link it names, with any further `flags`. Non-blocking: a FIFO
+/// met on the way to an input is refused by the handle's kind, never waited
+/// on. No-follow: each link on the way is seen, its text read, and followed
+/// by this code.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn open_at(
+    parent: &std::fs::File,
+    name: &OsStr,
+    flags: rustix::fs::OFlags,
+) -> std::io::Result<std::fs::File> {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC | flags;
+    Ok(rustix::fs::openat(parent, name, flags, Mode::empty())?.into())
+}
+
+/// The text of the link `name` inside the directory `parent` holds.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn link_at(parent: &std::fs::File, name: &OsStr) -> std::io::Result<OsString> {
+    use std::os::unix::ffi::OsStringExt;
+    let text = rustix::fs::readlinkat(parent, name, Vec::new())?;
+    Ok(OsString::from_vec(text.into_bytes()))
+}
+
+/// Why an entry on the way to an input could not be opened or read: an
+/// absent entry, or a parent that is not a directory, is a reference that
+/// resolves to nothing, said in the caller's own words; anything else is a
+/// file that cannot be read, with its cause.
+fn unopened(error: std::io::Error) -> InputFault {
+    match error.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => {
+            InputFault::Missing(error)
+        }
+        kind => Place::of(
+            FaultKind::Unreadable,
+            format!("which cannot be read ({kind})"),
+        ),
+    }
+}
+
+/// Put `text`'s names on `pending`, the first on top, each marked `written`
+/// or not. An absolute `text` restarts at the layer's directory, which it
+/// must stand under; a relative one continues from the current handle.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn queue(
+    root: &Path,
+    text: &Path,
+    written: bool,
+    stack: &mut Vec<Hold>,
+    pending: &mut Vec<(OsString, bool)>,
+) -> Result<(), InputFault> {
+    let relative = if text.is_absolute() {
+        stack.truncate(1);
+        text.strip_prefix(root)
+            .map_err(|_| Place::of(FaultKind::Outward, OUTWARD))?
+    } else {
+        text
+    };
+    pending.extend(
+        relative
+            .components()
+            .rev()
+            .filter(|part| *part != std::path::Component::CurDir)
+            .map(|part| (part.as_os_str().to_os_string(), written)),
+    );
+    Ok(())
+}
+
+/// Resolve `reference` from the layer's directory at `root` a name at a
+/// time: each name is looked up inside the directory handle before it,
+/// without following a link; a link's text is read and its names are looked
+/// up in turn, from the link's own directory or, when absolute, from the
+/// layer's. A `..` that would step above the layer, an absolute text outside
+/// it, or more than [`MAX_LINKS`] links is refused. No path is canonicalized
+/// and then opened: every handle is found inside the one before it. The
+/// layer's directory itself is the handle `open` gives: by its path at
+/// compile ([`by_path`]), and at dispatch through [`owner_read`]'s check
+/// that it is still the directory the compile bound.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn observe(root: &Path, open: Opener<'_>, reference: &Path) -> Result<Observation, InputFault> {
+    use std::os::unix::fs::MetadataExt;
+    let identity = |file: &std::fs::File| file.metadata().map(|meta| (meta.dev(), meta.ino()));
+    let (top, owner) = open()?;
+    let id = identity(&top).map_err(InputFault::Missing)?;
+    let mut steps = vec![Step::Entry(OsString::new(), id)];
+    let mut stack: Vec<Hold> = vec![(top, OsString::new(), id)];
+    let mut pending = Vec::new();
+    queue(root, reference, true, &mut stack, &mut pending)?;
+    let (mut links, mut through_link) = (0, false);
+    while let Some((name, written)) = pending.pop() {
+        if name == ".." {
+            if stack.len() == 1 {
+                return Err(Place::of(FaultKind::Outward, OUTWARD));
+            }
+            stack.pop();
+            continue;
+        }
+        let parent = &stack.last().expect("the layer's directory stays").0;
+        match open_at(parent, &name, rustix::fs::OFlags::empty()) {
+            Ok(file) => {
+                let id = identity(&file).map_err(InputFault::Missing)?;
+                steps.push(Step::Entry(name.clone(), id));
+                stack.push((file, name, id));
+                let path = stack[1..]
+                    .iter()
+                    .fold(root.to_path_buf(), |path, (_, name, _)| path.join(name));
+                at_stage(ReadStage::Entered, &path);
+            }
+            Err(error) => {
+                let text = link_at(parent, &name).map_err(|_| unopened(error))?;
+                links += 1;
+                if links > MAX_LINKS {
+                    return Err(Place::of(
+                        FaultKind::Unbound,
+                        format!(
+                            "which resolves through more than {MAX_LINKS} links, so it names no \
+                             file"
+                        ),
+                    ));
+                }
+                through_link |= written;
+                steps.push(Step::Link(name, text.clone()));
+                queue(root, Path::new(&text), false, &mut stack, &mut pending)?;
+            }
+        }
+    }
+    // Each name exactly as it was looked up in the held directory before it
+    // (rebuild unit 16-fix-d): no listing, search or inode match ever puts
+    // another entry in its place. The keys, and the file read, are bound
+    // here and nowhere else.
+    let target_key = stack[1..]
+        .iter()
+        .map(|(_, name, _)| name.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    // Through a link, the link's own entry as written: `unpinned_active_input`
+    // has refused every spelling that leaves the layer or steps up. Without
+    // one, the written path IS the target, and its key is the target's.
+    let key = match through_link {
+        true => walk_key(root, &folded(&root.join(reference))).unwrap_or_default(),
+        false => target_key.clone(),
+    };
+    let id = stack.last().expect("the layer's directory stays").2;
+    Ok(Observation {
+        handles: stack.into_iter().map(|(file, ..)| file).collect(),
+        binding: Binding {
+            key,
+            target_key,
+            id,
+            steps,
+        },
+        owner,
+    })
+}
+
+/// No supported host lacks the resolution; any other refuses rather than
+/// reading an input it cannot bind (design D7).
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn observe(_: &Path, _: Opener<'_>, _: &Path) -> Result<Observation, InputFault> {
+    Err(Place::of(
+        FaultKind::Unbound,
+        "which this host cannot read through a handle bound to its contained target",
+    ))
+}
+
+/// How a resolution is given its layer's directory: [`by_path`], or reached
+/// as an owner's ([`owner_open`], and [`owner_read`]'s checked handle), with
+/// who that owner is.
+type Opener<'a> = &'a dyn Fn() -> Result<(std::fs::File, Option<OwnerIdentity>), InputFault>;
+
+/// The layer's directory opened by its canonical path, as the compile
+/// opens it: the compile has just canonicalized that path.
+fn by_path(root: &Path) -> Result<(std::fs::File, Option<OwnerIdentity>), InputFault> {
+    Ok((
+        std::fs::File::open(root).map_err(InputFault::Missing)?,
+        None,
+    ))
+}
+
+/// Decision 0065 slice one, design D7, under operator ruling 3 ("It is not
+/// pinned and admitted"): resolve what `reference` names against the
+/// declaring layer's canonical `root`, require the target to stand inside
+/// that layer and outside every tree the walk skips, and read it ONCE,
+/// through one handle, into the one buffer a caller parses and hashes.
+///
+/// The target is found by [`observe`], from the layer's directory handle a
+/// name at a time, never by canonicalizing a path and opening it: a link
+/// inside the layer is followed, and one that leads out of it is refused
+/// even where the walk would pin the bytes it reaches, because the walk
+/// pins a link only by those bytes and a retarget to equal bytes moves
+/// nothing. Every name is opened non-blocking, so a FIFO never blocks the
+/// compile, and the handle the resolution ends at must hold a regular file
+/// before a byte is read, so a FIFO, device or directory never supplies
+/// any. Both file-map keys come from that one observation, bound with the
+/// file it read ([`Binding`]): whether a written step was a link is what it
+/// saw, and each name is exactly the one it looked up, never another entry
+/// found by a later look at the directory or the path.
+///
+/// After the read, while the handles are still held, the reference is
+/// resolved again from the layer's directory and must take exactly the same
+/// steps to the same binding, keys included (rebuild unit 16-fix-c, F1).
+/// What is guaranteed is exactly this: the bytes returned are the buffer
+/// read from the file the observation held, and when the reference no
+/// longer resolves to that file in the same steps under the same names, the
+/// read is refused.
+/// A file put in place BEFORE the resolution is the file resolved; one
+/// swapped in and back again between the open and the check is not seen,
+/// and the buffer is still the held file's. Bytes written in place into the
+/// held file after the read are refused where the layer's walk verifies it
+/// ([`Held::intact`]), before that layer's identity is sealed.
+pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, InputFault> {
+    bound_through(root, &|| by_path(root), reference)
+}
+
+/// [`bound_input`] with the layer's directory given by `open`, for both of
+/// the read's resolutions.
+fn bound_through(root: &Path, open: Opener<'_>, reference: &str) -> Result<BoundInput, InputFault> {
+    use std::io::Read;
+    if let Some(place) = unpinned_active_input(root, reference) {
+        return Err(Place::of(FaultKind::Unbound, place));
+    }
+    let reference = PathBuf::from(reference);
+    let observed = observe(root, open, &reference)?;
+    let target = root.join(&observed.binding.target_key);
+    if let Some(place) = skipped_top_level(root, &target) {
+        return Err(Place::of(FaultKind::Unbound, place));
+    }
+    let held = Held {
+        root: root.to_path_buf(),
+        reference,
+        binding: observed.binding,
+        owner: observed.owner,
+        handles: observed.handles,
+    };
+    let mut file = held.handles.last().expect("a resolution ends at a handle");
+    at_stage(ReadStage::Opened, &target);
+    if !file.metadata().map_err(unopened)?.is_file() {
+        return Err(Place::of(FaultKind::Nonregular, NONREGULAR));
+    }
+    at_stage(ReadStage::Checked, &target);
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(unopened)?;
+    at_stage(ReadStage::Read, &target);
+    if !observe(root, open, &held.reference).is_ok_and(|now| held.stands(&now)) {
+        return Err(Place::of(FaultKind::Replaced, REPLACED));
+    }
+    at_stage(ReadStage::Verified, &target);
+    Ok(BoundInput { bytes, held })
+}
+
+/// Who an owner's directory is (rebuild unit 18-fix, F1; design D7): the
+/// `(dev, ino)` of every directory from `/` down to it, the owner's own
+/// last. Rebuild unit 18-fix-b (council F2): taken by the very read that
+/// bound a charter, when it reached the owner's directory, and compared by
+/// that read's second resolution, by the seal's check and at the door — never
+/// recorded by a walk of its own.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct OwnerIdentity(Vec<(u64, u64)>);
+
+/// The clause an owner's directory that is no longer the one bound carries.
+const OWNER_REPLACED: &str = "whose owner's directory, or a directory above it, is no longer \
+                              the one the compile bound: it was replaced, or reached through a \
+                              link";
+
+/// The owner's directory at the canonical `root`, found from `/` a name at a
+/// time: each looked up inside the directory handle before it, WITHOUT
+/// following a link, and opened as a directory. A link where a directory of
+/// the compiled path stood is a replaced component and refuses; nothing is
+/// opened by the stored path. The handle comes with the [`OwnerIdentity`] of
+/// the directories it was reached through. A directory on the way that is
+/// there but cannot be opened is named (rebuild unit 18-fix-b, F3).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn owner_directory(root: &Path) -> Result<(std::fs::File, OwnerIdentity), InputFault> {
+    use std::os::unix::fs::MetadataExt;
+    let identity = |file: &std::fs::File| {
+        file.metadata()
+            .map(|meta| (meta.dev(), meta.ino()))
+            .map_err(unopened)
+    };
+    at_stage(ReadStage::Owning, root);
+    let mut reached = PathBuf::from("/");
+    let mut handle = directory(&reached).map_err(unreached_at(&reached))?;
+    let mut ancestry = vec![identity(&handle)?];
+    for name in root.strip_prefix("/").unwrap_or(root) {
+        reached.push(name);
+        handle = directory_at(&handle, name).map_err(|error| match link_at(&handle, name) {
+            Ok(_) => Place::of(FaultKind::Replaced, OWNER_REPLACED),
+            Err(_) => unreached_at(&reached)(error),
+        })?;
+        ancestry.push(identity(&handle)?);
+    }
+    at_stage(ReadStage::Owned, root);
+    Ok((handle, OwnerIdentity(ancestry)))
+}
+
+/// Why the directory at `path`, on the way from `/` to an owner's, could not
+/// be opened: gone, as [`unopened`] says it, or there but not observable —
+/// an ancestor without read permission — named, bounded, with its cause
+/// (rebuild unit 18-fix-b, F3), so a compile refuses it by name.
+/// Its return (F3): the remedy is the directory's, not the charter's.
+fn unreached(path: &Path, error: std::io::Error) -> InputFault {
+    let kind = error.kind();
+    match unopened(error) {
+        InputFault::Place(_) => InputFault::Place(Place {
+            kind: FaultKind::Unreadable,
+            clause: format!(
+                "whose owner's directory cannot be reached: {} cannot be opened ({kind}), so the \
+                 directory the charter is read from cannot be bound",
+                bounded_reference(&path.to_string_lossy())
+            ),
+            remedy: Some(UNREACHED_REMEDY),
+        }),
+        missing => missing,
+    }
+}
+
+/// [`unreached`] at `path`, for `/` and for every directory below it alike
+/// (unit 26c).
+fn unreached_at(path: &Path) -> impl Fn(std::io::Error) -> InputFault + '_ {
+    move |error| unreached(path, error)
+}
+
+/// What to do about an owner's directory the compile cannot reach.
+const UNREACHED_REMEDY: &str = "The compile opens every directory from '/' down to the charter's \
+                                owner, so that directory must be readable by the user who \
+                                compiles; grant it, or compile from a realm under directories \
+                                that user can read (decision 0065 slice one, design D7)";
+
+/// No supported host lacks the lookup; any other binds no owner.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn owner_directory(_: &Path) -> Result<(std::fs::File, OwnerIdentity), InputFault> {
+    Err(Place::of(
+        FaultKind::Unbound,
+        "which this host cannot read through a handle bound to its owner",
+    ))
+}
+
+/// The owner's directory at `root`, reached by [`owner_directory`], with who
+/// it is.
+fn owner_open(root: &Path) -> Result<(std::fs::File, Option<OwnerIdentity>), InputFault> {
+    let (handle, owner) = owner_directory(root)?;
+    Ok((handle, Some(owner)))
+}
+
+/// Rebuild unit 18-fix-b (council F1, F2): unit 16's bound read of
+/// `reference`, as the compile reads a charter — from its owner's directory
+/// at `root`, reached from `/` by [`owner_directory`] in each of the read's
+/// two resolutions. Who the owner is is taken by that read and nowhere else:
+/// the second resolution must find the same owner, as the seal's check and
+/// the dispatch door must, or the read refuses as replaced. An owner the
+/// compile cannot observe refuses the read, by name (F3).
+pub(crate) fn owned_input(root: &Path, reference: &str) -> Result<BoundInput, InputFault> {
+    bound_through(root, &|| owner_open(root), reference)
+}
+
+/// Rebuild unit 18-fix (F1): the same read at the dispatch door, whose
+/// owner's directory must be `owner`, the one the compile's read found, or
+/// the read refuses as replaced before anything is read. One resolver.
+fn owner_read(
+    root: &Path,
+    owner: &OwnerIdentity,
+    reference: &str,
+) -> Result<BoundInput, InputFault> {
+    let open = || {
+        let (handle, now) = owner_directory(root)?;
+        if &now != owner {
+            return Err(Place::of(FaultKind::Replaced, OWNER_REPLACED));
+        }
+        Ok((handle, Some(now)))
+    };
+    bound_through(root, &open, reference)
+}
+
+/// A path with its `.` and `..` folded away, without touching the disk:
+/// the spelling a layer's file map keys a file under. `Path::components`
+/// already drops every `.` but a leading one, and every path folded here is
+/// absolute — a reference joined to its layer's canonical root — so only
+/// `..` is left to fold.
+fn folded(path: &Path) -> PathBuf {
+    let mut folded = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                folded.pop();
+            }
+            other => folded.push(other),
+        }
+    }
+    folded
+}
+
+/// Decision 0066 ruling 5 at the dispatch door: the charter a seat is
+/// about to be told must still be the bytes its layer's file map pinned.
+/// The driver reads a role when it renders the prompt, long after the
+/// compile that hashed it; without this check an edit in between reaches
+/// the seat as fresh instructions under the old identity. The role is read
+/// through any link exactly as the walk read it, so a link retargeted since
+/// the compile is a change like any other. `None` where the pin holds.
+///
+/// Rebuild unit 17: the owner is the one the compile selected with each
+/// site that is told this path — the declaring layer of an inline role, the
+/// library of an agent's charter — found by the exact path, never by the
+/// longest layer root the path starts with, and never by folding a spelling
+/// onto a neighbouring pin. Every binding of the path must hold.
+///
+/// Second council H6: A CHARTER NO LAYER KEYS IS NOT A CHARTER NOBODY
+/// PINNED. An agent's charter stands in the library, outside every
+/// layer's file map, and the first repair answered `None` for it — so a
+/// bundle could be compiled once, `agents/charters/worker.md` edited, and
+/// the seat dispatched with `render_prompt` consuming the changed text
+/// under the old identity. The library record's own `charter_digest`
+/// already existed; it is compared HERE, at the door, against the bytes
+/// the driver is about to be handed. A role neither route pins is refused
+/// rather than launched, because a charter nothing pins is a charter
+/// nobody ruled on.
+/// The verified charter TEXT, from the same read the pin was checked
+/// against (second council H6; task 6.3). A driver that reopened
+/// `role_path` would read whatever the file said by then — after the door
+/// read what it said at the door — so the bytes that were compared are the
+/// bytes the seat is told, and nothing reopens the path to render them.
+/// Rebuild unit 18: each binding is checked by [`pinned_charter`], through
+/// its owner's bound read; the dispatch door itself checks only the site's
+/// own binding, through [`site_charter_text`].
+///
+/// `Err((owner, what))` is the pin's complaint, in the two pieces the
+/// dispatch refusal is written from.
+pub fn charter_text(bundle: &Bundle, role: &Path) -> Result<String, (String, String)> {
+    let pins: Vec<&CharterPin> = bundle.charters.get(role).into_iter().flatten().collect();
+    if pins.is_empty() {
+        return unbound_charter(bundle, role);
+    }
+    let mut texts = pins
+        .into_iter()
+        .map(|pin| pinned_charter(bundle, pin))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(texts.swap_remove(0))
+}
+
+/// Rebuild unit 18 (design D7): the charter ONE site is told, from the
+/// binding the compile selected with that site — never from every binding
+/// of a path, and never from the path the input names. `role` is the path
+/// the site's input carries; it must be the path its binding was compiled
+/// for, because an input whose `role_path` was merged over names a charter
+/// the site was never bound to (a neighbour's, pinned or not). A site with
+/// no binding is [`charter_text`]'s unbound case exactly.
+pub fn site_charter_text(
+    bundle: &Bundle,
+    pin: Option<&CharterPin>,
+    role: &Path,
+) -> Result<String, (String, String)> {
+    let Some(pin) = pin else {
+        return unbound_charter(bundle, role);
+    };
+    let (name, key) = owned(bundle, pin)?;
+    if role != pin.path {
+        return Err((name, format!("replaced: {key}")));
+    }
+    pinned_charter(bundle, pin)
+}
+
+/// Rebuild unit 19 (design D7; task 19.1): EVERY charter this bundle bound,
+/// checked exactly as the dispatch door checks one site's — through its
+/// owner's bound read, owner, target and bytes ([`pinned_charter`]) — so a
+/// run is neither started nor resumed over a charter that moved since the
+/// compile. `Err` is the first binding's complaint, in the two pieces a
+/// refusal is written from. Nothing read here is kept: every dispatch still
+/// reads its own site's charter at the door.
+///
+/// Its review return (F1): `Ok` is what a run records at its start, one
+/// entry per binding — its owner, key, target and [`binding_digest`] — so
+/// that a resume, whose bundle is compiled again, is held to the bindings
+/// the run STARTED over ([`charters_as_started`]), not the recompile's.
+pub fn charters_intact(bundle: &Bundle) -> Result<Value, (String, String)> {
+    bound_charters(bundle).map(|bound| charter_record(&bound))
+}
+
+/// Rebuild unit 19, review return (F1): a pinned resume over the bindings
+/// its run started over. A recompile reads each charter afresh, so an
+/// equal-byte retarget inside the owner, or a file replaced by equal bytes,
+/// compiles to the very manifest the run pinned and binds anew; checked
+/// against `started` — the run's own record, from [`charters_intact`] at its
+/// start — each binding must be the one the run began with. A binding the
+/// run did not record (a run started before its record existed) refuses:
+/// nothing vouches for it.
+///
+/// Its second review return (F1): a run whose start recorded no bindings
+/// at all refuses as `unrecorded` even when the bundle binds none, since
+/// its start vouched for nothing (operator ruling 2026-09-29, point 1).
+pub fn charters_as_started(
+    bundle: &Bundle,
+    started: Option<&Value>,
+) -> Result<(), (String, String)> {
+    let now = bound_charters(bundle)?;
+    let Some(started) = started.cloned() else {
+        let first = now
+            .first()
+            .map(|(owner, _, key, _, _)| (owner.clone(), key.clone()));
+        let (owner, key) = first.unwrap_or_else(|| {
+            let owner = format!("bundle '{}'", bundle.name);
+            (owner, "the run started with no charter record".to_string())
+        });
+        return Err((owner, format!("unrecorded: {key}")));
+    };
+    for (owner, reference, key, target, binding) in &now {
+        // Matched by owner and reference as written: a library's key is its
+        // charter's file name, which a retarget moves.
+        let was =
+            started.as_array().into_iter().flatten().find(|was| {
+                was["owner"] == owner.as_str() && was["reference"] == reference.as_str()
+            });
+        let cause = match was {
+            None => "unrecorded",
+            Some(was) if was["target"] != target.as_str() => "retargeted",
+            Some(was) if was["binding"] != binding.as_str() => "replaced",
+            Some(_) => continue,
+        };
+        let key = was.and_then(|was| was["key"].as_str()).unwrap_or(key);
+        return Err((owner.clone(), format!("{cause}: {key}")));
+    }
+    // Every binding matched one the run recorded; a recorded binding this
+    // bundle no longer selects is the one thing left to differ.
+    match started == charter_record(&now) {
+        true => Ok(()),
+        false => Err((
+            format!("bundle '{}'", bundle.name),
+            "unselected: a charter the run started over".to_string(),
+        )),
+    }
+}
+
+/// One binding as a run records it: owner, reference, key, target, binding
+/// digest.
+type BoundCharter = (String, String, String, String, String);
+
+/// Every charter the bundle bound, each checked through [`pinned_charter`],
+/// as a run records it.
+fn bound_charters(bundle: &Bundle) -> Result<BTreeSet<BoundCharter>, (String, String)> {
+    let mut bound = BTreeSet::new();
+    for pin in bundle.charters.values().flatten() {
+        pinned_charter(bundle, pin)?;
+        let (owner, key) = owned(bundle, pin)?;
+        let (reference, target) = (pin.reference.clone(), pin.binding.target_key.clone());
+        bound.insert((owner, reference, key, target, binding_digest(pin)));
+    }
+    Ok(bound)
+}
+
+fn charter_record(bound: &BTreeSet<BoundCharter>) -> Value {
+    bound
+        .iter()
+        .map(|(owner, reference, key, target, binding)| {
+            json!({"owner": owner, "reference": reference, "key": key, "target": target,
+                   "binding": binding})
+        })
+        .collect()
+}
+
+/// The digest of a pin's whole binding and the owner directory its read
+/// reached: every key, step, link text and `(dev, ino)` [`pinned_charter`]
+/// compares, each part length-prefixed so no two bindings encode alike.
+fn binding_digest(pin: &CharterPin) -> String {
+    let Binding {
+        key,
+        target_key,
+        id,
+        steps,
+    } = &pin.binding;
+    let identity = |(dev, ino): (u64, u64)| [dev.to_be_bytes(), ino.to_be_bytes()].concat();
+    let mut bytes = Vec::new();
+    let mut put = |part: &[u8]| {
+        bytes.extend_from_slice(&(part.len() as u64).to_be_bytes());
+        bytes.extend_from_slice(part);
+    };
+    put(key.as_bytes());
+    put(target_key.as_bytes());
+    put(&identity(*id));
+    for step in steps {
+        match step {
+            Step::Entry(name, id) => {
+                put(b"entry");
+                put(name.as_encoded_bytes());
+                put(&identity(*id));
+            }
+            Step::Link(name, text) => {
+                put(b"link");
+                put(name.as_encoded_bytes());
+                put(text.as_encoded_bytes());
+            }
+        }
+    }
+    for directory in &pin.directory.0 {
+        put(&identity(*directory));
+    }
+    sha256_bytes(&bytes)
+}
+
+/// The owner and key a pin's refusals name. A pin whose layer is not one of
+/// this bundle's is a charter the bundle's identity does not answer for.
+fn owned(bundle: &Bundle, pin: &CharterPin) -> Result<(String, String), (String, String)> {
+    pin.named(bundle).ok_or_else(|| {
+        (
+            format!("bundle '{}'", bundle.name),
+            format!("unpinned: {}", pin.path.display()),
+        )
+    })
+}
+
+/// A role no site was bound to. After a compile every role is bound — an
+/// inline charter to the layer that declared it, an agent's to the library
+/// it was loaded from — so reaching here means the bundle's identity does
+/// not answer for what this seat is about to be told, and the launch stops.
+///
+/// A RELATIVE role was not produced by this engine at all: `parse_role`
+/// joins its layer's absolute directory and the library resolves an
+/// absolute charter, so an absolute path is the only shape a compile
+/// writes. Such a role reads as it always did.
+fn unbound_charter(bundle: &Bundle, role: &Path) -> Result<String, (String, String)> {
+    if !role.is_absolute() {
+        return Ok(std::fs::read_to_string(role).unwrap_or_default());
+    }
+    Err((
+        format!("bundle '{}'", bundle.name),
+        format!("unpinned: {}", role.display()),
+    ))
+}
+
+/// Rebuild unit 18 (design D7, operator ruling 3): one binding checked at
+/// consumption, and the text of the read that checked it. The reference is
+/// resolved again from its OWNER's canonical root — the declaring layer's,
+/// or the library's own, wherever that library stands — through unit 16's
+/// handle-bound read ([`bound_input`]), so a link that now leaves the owner,
+/// a FIFO, or a replacement mid-read refuses exactly as it does at compile.
+/// The buffer read must hash to the pinned digest, and the file it was read
+/// from must be the target the compile bound: a retarget to equal bytes is
+/// a moved charter, not an unchanged one. Only then is the buffer the text.
+///
+/// Rebuild unit 18-fix (council F1): the owner's directory is not opened by
+/// its stored path, which follows whatever now stands there — a link to an
+/// equal-byte tree outside, or such a tree renamed into place. Both of the
+/// read's resolutions reach it from `/` without following a link, and it
+/// must be the directory the compile bound, it and every directory above it
+/// ([`owner_read`]).
+///
+/// Rebuild unit 18-fix-b (council F1): the owner the door requires is the
+/// one the compile's read found, carried on the pin, and the read's WHOLE
+/// binding must be the pin's — both keys and the file read. Equal bytes at
+/// the same path in another file, or in a replaced directory, are
+/// `replaced`; a target reached under another key is `retargeted`.
+/// Its return (council F1): the binding carries every directory
+/// the compile's read walked, so the very file read, moved into a directory
+/// that replaced its own, is `replaced` too.
+fn pinned_charter(bundle: &Bundle, pin: &CharterPin) -> Result<String, (String, String)> {
+    let (name, key) = owned(bundle, pin)?;
+    let refused = |cause: &str| (name.clone(), format!("{cause}: {key}"));
+    let root = pin.owner.root();
+    let bound = owner_read(root, &pin.directory, &pin.reference)
+        .map_err(|fault| refused(fault_kind(&fault)))?;
+    if sha256_bytes(&bound.bytes) != pin.digest {
+        return Err(refused("changed"));
+    }
+    let now = bound.held.binding();
+    if now != &pin.binding {
+        return Err(refused(match now.target_key == pin.binding.target_key {
+            true => "replaced",
+            false => "retargeted",
+        }));
+    }
+    // The pin is over BYTES; what a seat is told is text. A charter whose
+    // bytes are not text is refused rather than rendered with its
+    // undecodable parts replaced, because what the seat would then read is
+    // not what the digest names.
+    String::from_utf8(bound.bytes).map_err(|_| refused("unreadable"))
+}
+
+/// The one word a dispatch refusal names a failed bound read by: bounded,
+/// never the clause's path or the value that failed, and taken from the
+/// kind the resolver refused with, never from its prose (council F4).
+fn fault_kind(fault: &InputFault) -> &'static str {
+    match fault {
+        InputFault::Missing(_) => "missing",
+        InputFault::Place(place) => match place.kind {
+            FaultKind::Nonregular => "nonregular",
+            FaultKind::Outward => "outward",
+            FaultKind::Replaced => "replaced",
+            FaultKind::Unreadable => "unreadable",
+            FaultKind::Unbound => "unbound",
+        },
+    }
 }
 
 /// Re-walk the script's directory, including its helpers, against the
@@ -2920,7 +5850,7 @@ pub(crate) fn layer_drift(bundle: &Bundle, directory: &Path) -> Option<(String, 
             .find(|ancestor| &ancestor.dir == layer)?;
         (&ancestor.name, &ancestor.files)
     };
-    let current = match walk_files(layer, directory) {
+    let current = match walk_files(layer, directory, &BTreeMap::new()) {
         Ok(files) => files,
         Err(error) => return Some((name.clone(), error.to_string())),
     };
@@ -2980,6 +5910,371 @@ fn record_hands(
     };
     site_facts(sites, what).hands = state;
     Ok(())
+}
+
+/// One site's sealed capability facts (decision 0065 ruling 5): its asks
+/// resolved once per provider candidate — the agent's chain, or the one
+/// driver an inline site dispatches. A command that dispatches no built-in
+/// driver is an opaque custom one: no adapter answers for it, so its
+/// native inventory is unmeasured and it can hold nothing.
+#[expect(clippy::too_many_arguments, reason = "decision 0065, #288")]
+fn site_capabilities(
+    authority: &crate::capabilities::Authority,
+    adapters: CapabilityAdapters<'_>,
+    asks: crate::capabilities::SiteAsks,
+    chain: &[Candidate],
+    managed: &[Vec<String>],
+    inline_driver: Option<&str>,
+    inline_argv: &[String],
+    inline_local: &[String],
+    inline_hands: &[String],
+) -> Result<crate::capabilities::SiteCapabilities, CompileError> {
+    use brokkr_protocol::native_controls::{Application, Provenance};
+    let native = |provider: &str| {
+        adapters
+            .adapters
+            .and_then(|adapters| adapters.adapter(provider))
+            .map(|adapter| (&adapter.native, adapter.digest.as_str()))
+    };
+    let inline = inline_driver.unwrap_or(crate::capabilities::OPAQUE_HARNESS);
+    // Each serving's argv in its two parts, by who wrote them (decision
+    // 0066 ruling 4). An inline site's is wholly the author's. A
+    // candidate's is the agent's composed argv and then the adapter's hands
+    // fragment, which `agents::compose` appended LAST and recorded — so the
+    // parts are split at the length it recorded, a fact carried from where
+    // the fragment was appended, never recovered by matching its text.
+    //
+    // The HARNESS is the driver kind the command dispatches, read off the
+    // command itself: an inline site's provider already is that kind, and a
+    // candidate's argv opens with its adapter's `driver`, which may dispatch
+    // the codex or claude driver under whatever name the adapter carries.
+    let harnesses: Vec<String> = chain
+        .iter()
+        .map(|candidate| {
+            dispatch_driver(&candidate.argv)
+                .unwrap_or_else(|| crate::capabilities::OPAQUE_HARNESS.to_string())
+        })
+        .collect();
+    // A candidate's engine fragment: the box's hands `compose` recorded,
+    // then the managed boundary fragment the engine appends behind them.
+    let fragments: Vec<Vec<String>> = chain
+        .iter()
+        .enumerate()
+        .map(|(at, candidate)| {
+            let managed = managed.get(at).map(Vec::as_slice).unwrap_or_default();
+            [candidate.parts().1, managed].concat()
+        })
+        .collect();
+    // What admits a tool without a holding, by type (rebuild unit
+    // 12-fix-c): the box's hands `compose` recorded from the agent's typed
+    // hands, which open the fragment, and the limits its typed allow lowered
+    // to — never read back from the argv. An inline site's typed allow is
+    // lowered where its facts were recorded, and its hands fragment is the
+    // one the engine appends behind its command, served like an agent's
+    // (operator ruling (B) of 2026-09-27; rebuild unit 14a4a).
+    let provenances: Vec<Provenance> = chain
+        .iter()
+        .map(|candidate| Provenance {
+            hands: candidate.hands_fragment.len(),
+            local: match &candidate.lowering {
+                crate::agents::Lowering::Composed(crate::agents::Composition {
+                    application: Application::Direct(limits),
+                    ..
+                }) => limits.clone(),
+                _ => Vec::new(),
+            },
+        })
+        .collect();
+    let inline_provenance = Provenance {
+        hands: inline_hands.len(),
+        local: inline_local.to_vec(),
+    };
+    let servings: Vec<crate::capabilities::Serving<'_>> = match chain.is_empty() {
+        true => vec![crate::capabilities::Serving {
+            provider: inline,
+            harness: inline,
+            model: None,
+            native: native(inline),
+            unloaded: adapters.unloaded,
+            authored: inline_argv,
+            fragment: inline_hands,
+            provenance: &inline_provenance,
+            written: inline_argv,
+        }],
+        false => chain
+            .iter()
+            .zip(&harnesses)
+            .zip(&fragments)
+            .zip(&provenances)
+            .map(|(((candidate, harness), fragment), provenance)| {
+                let (authored, _) = candidate.parts();
+                crate::capabilities::Serving {
+                    provider: &candidate.provider,
+                    harness,
+                    model: Some(&candidate.model),
+                    native: native(&candidate.provider),
+                    unloaded: adapters.unloaded,
+                    authored,
+                    fragment,
+                    provenance,
+                    // An agent reference is total (AC-21): the seat writes
+                    // no argv, and its composition is the adapter's
+                    // template, the engine's local permissions and hands
+                    // (design D5.7), none of it the recipe's words.
+                    written: &[],
+                }
+            })
+            .collect(),
+    };
+    let mut outcomes = Vec::with_capacity(servings.len());
+    for serving in &servings {
+        outcomes.push(
+            authority
+                .resolve(&asks, serving)
+                .map_err(CompileError::Capability)?,
+        );
+    }
+    Ok(crate::capabilities::SiteCapabilities { asks, outcomes })
+}
+
+/// Walk one composed seat exactly as [`collect_unpinned`] does — same
+/// labels, so the facts land where the engine looks — and resolve every
+/// executable site's capabilities. An agent-backed site's asks are its
+/// agent's minus what the site subtracts; an inline site's map is its own
+/// office's asks. A wanted capability a candidate lost is a notice in that
+/// site's agent record, where a skipped model link already is. `dir` is
+/// the directory an inline site's command was expanded against; a select
+/// case a later layer wrote by `override.cases` is walked in that layer's
+/// root, from `roots` by `case_origin`, as `parse_select` parses it.
+#[expect(clippy::too_many_arguments, reason = "decision 0065, #288")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn record_capabilities(
+    authority: &crate::capabilities::Authority,
+    library: Option<&Library>,
+    adapters: CapabilityAdapters<'_>,
+    boundary: Boundary,
+    (dir, roots, case_origin): (&Path, &[PathBuf], &BTreeMap<String, usize>),
+    what: &str,
+    raw: &Value,
+    sites: &mut BTreeMap<String, SiteFacts>,
+) -> Result<(), CompileError> {
+    let written = raw.get("capabilities");
+    if let Some(name) = raw.get("agent").and_then(Value::as_str) {
+        let agent = library
+            .and_then(|library| library.agent(name))
+            .expect("the seat loop resolved this agent reference");
+        let asks =
+            crate::capabilities::SiteAsks::of(what, Some((name, &agent.capabilities)), written)
+                .map_err(CompileError::Invalid)?;
+        let chain = site_facts(sites, what).chain.clone();
+        // Under the harness boundary the engine appends each candidate's
+        // `hands.harness.*` fragment for the seat's class behind a hands
+        // site's argv; it is composed with here exactly as at the launch,
+        // so a limit it carries holds at compile, and a wanted holding it
+        // excludes drops rather than refusing its spawn (unit 12-fix-b, R2).
+        let class = match (boundary, &agent.hands) {
+            (Boundary::Harness, Some(_)) => Some(parse_class(what, raw)?),
+            _ => None,
+        };
+        let managed: Vec<Vec<String>> = chain
+            .iter()
+            .map(|candidate| {
+                let fragment = match class {
+                    Some(SeatClass::Gate) => candidate.harness.gate.as_deref(),
+                    Some(SeatClass::Work) => candidate.harness.work.as_deref(),
+                    None => None,
+                };
+                fragment.unwrap_or_default().to_vec()
+            })
+            .collect();
+        let site = site_capabilities(
+            authority,
+            adapters,
+            asks,
+            &chain,
+            &managed,
+            None,
+            &[],
+            &[],
+            &[],
+        )?;
+        let facts = site_facts(sites, what);
+        // The EFFECTIVE class, an inherited office class included, as the
+        // local admission recorded it (design D5.6).
+        if let Some(requested) = facts.local.as_ref().and_then(|local| local.sandbox) {
+            admit_native_sandbox(what, requested, &site)?;
+        }
+        let notices = facts
+            .record
+            .as_mut()
+            .and_then(|record| record.get_mut("notices"))
+            .and_then(Value::as_array_mut)
+            .expect("an agent-backed site carries its resolution record");
+        for (candidate, outcome) in chain.iter().zip(&site.outcomes) {
+            for (capability, message) in &outcome.notices {
+                notices.push(
+                    crate::agents::Notice {
+                        agent: candidate.agent.clone(),
+                        provider: candidate.provider.clone(),
+                        model: candidate.model.clone(),
+                        capability: "capability".to_string(),
+                        item: capability.clone(),
+                        message: message.clone(),
+                    }
+                    .value(),
+                );
+            }
+        }
+        facts.capabilities = Some(site);
+        return Ok(());
+    }
+    // A single site, by the same two keys `has_single` reads.
+    if ["driver", "role"].iter().any(|key| raw.get(key).is_some()) {
+        let asks = crate::capabilities::SiteAsks::of(what, None, written)
+            .map_err(CompileError::Invalid)?;
+        let parts = command_parts(raw);
+        let driver = dispatch_driver(&parts);
+        let facts = site_facts(sites, what);
+        // Operator ruling (B) of 2026-09-27: an inline site with hands is
+        // served like an agent, so its dialect carries the `hands.workspace`
+        // fragment its driver's adapter declares, as `agents::compose`
+        // carries an agent's. Its hands are boxed: the hands law refuses an
+        // inline model harness's hands unboxed (decision 0046 ruling 4).
+        let declared = adapters
+            .adapters
+            .zip(driver.as_deref())
+            .and_then(|(adapters, driver)| adapters.adapter(driver))
+            .and_then(|adapter| adapter.hands.as_ref())
+            .filter(|_| facts.hands_spec().is_some());
+        if let (Some(dialect), Some(fragment)) = (facts.inline_dialect.as_mut(), declared) {
+            dialect.hands = fragment.clone();
+            // Rebuild unit 14a4a: the engine emits that fragment, expanded
+            // as an agent's `hands` segment is, and the plan types it.
+            facts.inline_hands = Some(Segment::new(Origin::Hands, &expand_command(dir, fragment)));
+        }
+        let hands = facts
+            .inline_hands
+            .as_ref()
+            .map(|segment| segment.argv.clone())
+            .unwrap_or_default();
+        let local = facts
+            .inline_local
+            .as_ref()
+            .map(|lowered| lowered.limits.clone())
+            .unwrap_or_default();
+        let site = site_capabilities(
+            authority,
+            adapters,
+            asks,
+            &[],
+            &[],
+            driver.as_deref(),
+            &parts,
+            &local,
+            &hands,
+        )?;
+        let facts = site_facts(sites, what);
+        // Rebuild unit 5d-fix-b: an inline class the engine lowered is
+        // judged with its whole launch, the resolved native plan included.
+        admit_inline_launch(what, &parts, facts, &site)?;
+        facts.capabilities = Some(site);
+        return Ok(());
+    }
+    if written.is_some() {
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' declares 'capabilities' beside a panel, sequence or select; a request \
+             belongs to the site that executes — the member, step or case body — because that \
+             is the office the realm grants to (decision 0065 ruling 5)"
+        )));
+    }
+    // A dialect step runs the realm dialect's own validator through the
+    // exec driver: no author wrote its command and it asks for nothing,
+    // and it still gets an explicit outcome — "no capability" is a
+    // recorded fact, never a missing one (design D5). Only where the
+    // dialect supplied a validator: an unsupported `check` compiles to no
+    // site at all, and none is invented for it here.
+    if raw.get("dialect").is_some() {
+        if sites.contains_key(what) {
+            let asks = crate::capabilities::SiteAsks {
+                label: what.to_string(),
+                office: what.to_string(),
+                ..Default::default()
+            };
+            let site = site_capabilities(
+                authority,
+                adapters,
+                asks,
+                &[],
+                &[],
+                Some("exec"),
+                &[],
+                &[],
+                &[],
+            )?;
+            site_facts(sites, what).capabilities = Some(site);
+        }
+        return Ok(());
+    }
+    let mut nested: Vec<(String, &Value, &Path)> = Vec::new();
+    if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
+        nested.extend(
+            panel
+                .iter()
+                .map(|(member, raw)| (format!("{what}:{member}"), raw, dir)),
+        );
+    }
+    if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
+        for (index, step) in sequence.iter().enumerate() {
+            nested.push((format!("{what}:{}", step_label(index, step)), step, dir));
+        }
+    }
+    if let Some(select) = raw.get("select").and_then(Value::as_object) {
+        // Each case in the layer that wrote it (second review return C1);
+        // the default stays with the seat's owner.
+        nested.extend(
+            select
+                .get("cases")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+                .map(|(case, raw)| {
+                    let label = format!("{what}:{case}");
+                    let owner = case_origin
+                        .get(&label)
+                        .map_or(dir, |&index| roots[index].as_path());
+                    (label, raw, owner)
+                }),
+        );
+        if let Some(body) = select.get("default") {
+            nested.push((format!("{what}:default"), body, dir));
+        }
+    }
+    for (label, raw, dir) in nested {
+        record_capabilities(
+            authority,
+            library,
+            adapters,
+            boundary,
+            (dir, roots, case_origin),
+            &label,
+            raw,
+            sites,
+        )?;
+    }
+    Ok(())
+}
+
+/// The label a sequence step is recorded under: its `name`, or its
+/// one-based position where the step names itself nothing. One spelling,
+/// shared by the pin walk and the capability walk, so the two record the
+/// same step under the same label.
+fn step_label(index: usize, step: &Value) -> String {
+    step.get("name")
+        .and_then(Value::as_str)
+        .map_or_else(|| format!("step-{}", index + 1), str::to_string)
 }
 
 /// The one accessor into the canonical site family (design D10 F1):
@@ -3073,6 +6368,7 @@ struct BodyCompile<'a> {
     secrets: &'a [String],
     dialect: Option<&'a Dialect>,
     boundary: Boundary,
+    charters: &'a Charters,
 }
 
 fn parse_selected_body(
@@ -3087,12 +6383,14 @@ fn parse_selected_body(
         results,
         secrets,
         boundary,
+        charters,
         ..
     } = compile;
     refuse_boundary_key(what, raw)?;
     refuse_crossing_keys(what, raw)?;
     refuse_unknown_keys(what, raw, BODY_KEYS)?;
     refuse_confine(what, raw)?;
+    refuse_driver_keys(what, raw)?;
     let has_agent = raw.get("agent").is_some();
     if has_agent {
         refuse_amendments(what, raw)?;
@@ -3109,6 +6407,9 @@ fn parse_selected_body(
         return Err(CompileError::Invalid(format!(
             "seat '{what}' must be exactly one of role+driver, agent, panel, or sequence"
         )));
+    }
+    if has_panel || has_sequence {
+        refuse_tools_on_container(what, raw)?;
     }
     if has_agent {
         let resolved = resolve_reference(
@@ -3136,8 +6437,9 @@ fn parse_selected_body(
         };
         Ok(body)
     } else if has_panel {
-        let (members, aggregate) =
-            parse_panel(dir, what, raw, results, secrets, agents, sites, boundary)?;
+        let (members, aggregate) = parse_panel(
+            dir, what, raw, results, secrets, agents, sites, boundary, charters,
+        )?;
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Panel { members, aggregate })
     } else if has_sequence {
@@ -3145,6 +6447,15 @@ fn parse_selected_body(
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Sequence { steps })
     } else {
+        record_inline_tools(
+            dir,
+            what,
+            raw,
+            false,
+            &command_parts(raw),
+            agents.as_ref().map(|context| &context.adapters),
+            sites,
+        )?;
         let law = SiteLaw {
             boundary,
             dir,
@@ -3153,7 +6464,7 @@ fn parse_selected_body(
         enforce_model_policy(what, raw, &[], secrets, agents, law, sites)?;
         record_hands(what, raw, None, secrets, sites)?;
         let body = SeatBody::Single {
-            role_path: parse_role(dir, what, raw)?,
+            role_path: parse_role(dir, what, raw, charters, sites)?,
             command: parse_command(dir, what, raw, secrets)?,
             candidates: Vec::new(),
         };
@@ -3168,6 +6479,7 @@ struct SelectCompile<'a> {
     case_origin: &'a BTreeMap<String, usize>,
     dialect: Option<&'a Dialect>,
     boundary: Boundary,
+    charters: &'a Charters,
 }
 
 fn parse_select(
@@ -3237,6 +6549,7 @@ fn parse_select(
                     secrets: compile.secrets,
                     dialect: compile.dialect,
                     boundary: compile.boundary,
+                    charters: compile.charters,
                 },
             )?,
         );
@@ -3255,6 +6568,7 @@ fn parse_select(
                     secrets: compile.secrets,
                     dialect: compile.dialect,
                     boundary: compile.boundary,
+                    charters: compile.charters,
                 },
             )
             .map(Box::new)
@@ -3270,6 +6584,10 @@ fn parse_select(
 }
 
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn parse_panel(
     dir: &Path,
     what: &str,
@@ -3279,6 +6597,7 @@ fn parse_panel(
     agents: &mut Option<AgentContext>,
     sites: &mut BTreeMap<String, SiteFacts>,
     boundary: Boundary,
+    charters: &Charters,
 ) -> Result<(Vec<PanelMember>, Aggregate), CompileError> {
     let members_raw = raw
         .get("panel")
@@ -3332,17 +6651,29 @@ fn parse_panel(
         refuse_boundary_key(&site, member_raw)?;
         refuse_crossing_keys(&site, member_raw)?;
         refuse_confine(&site, member_raw)?;
+        refuse_driver_keys(&site, member_raw)?;
         if member_raw.get("agent").is_some() {
             refuse_amendments(&site, member_raw)?;
         }
         refuse_unknown_keys(&site, member_raw, MEMBER_KEYS)?;
         let (role_path, command, candidates, agent_hands) = match member_raw.get("agent") {
-            None => (
-                parse_role(dir, &site, member_raw)?,
-                parse_command(dir, &site, member_raw, secrets)?,
-                Vec::new(),
-                None,
-            ),
+            None => {
+                record_inline_tools(
+                    dir,
+                    &site,
+                    member_raw,
+                    false,
+                    &command_parts(member_raw),
+                    agents.as_ref().map(|context| &context.adapters),
+                    sites,
+                )?;
+                (
+                    parse_role(dir, &site, member_raw, charters, sites)?,
+                    parse_command(dir, &site, member_raw, secrets)?,
+                    Vec::new(),
+                    None,
+                )
+            }
             Some(_) => {
                 let resolved = resolve_reference(
                     agents,
@@ -3384,6 +6715,10 @@ fn parse_panel(
 /// run serially inside one effect. At least two steps (a one-step
 /// sequence is a single seat); names unique case-insensitively.
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn parse_sequence(
     dir: &Path,
     phase: &str,
@@ -3397,6 +6732,7 @@ fn parse_sequence(
         secrets,
         dialect,
         boundary,
+        charters,
     } = compile;
     let steps_raw = raw
         .get("sequence")
@@ -3431,6 +6767,7 @@ fn parse_sequence(
         refuse_boundary_key(&what, step_raw)?;
         refuse_crossing_keys(&what, step_raw)?;
         refuse_confine(&what, step_raw)?;
+        refuse_driver_keys(&what, step_raw)?;
         let has_agent = step_raw.get("agent").is_some();
         if has_agent {
             refuse_amendments(&what, step_raw)?;
@@ -3451,6 +6788,9 @@ fn parse_sequence(
             )));
         }
         refuse_unknown_keys(&what, step_raw, STEP_KEYS)?;
+        if has_panel {
+            refuse_tools_on_container(&what, step_raw)?;
+        }
         let final_step = index + 1 == steps_raw.len();
         if final_step && step_raw.get("results").is_some() {
             return Err(CompileError::Invalid(format!(
@@ -3518,6 +6858,17 @@ fn parse_sequence(
             })?;
             let Some(command) = dialect.validation(phase) else {
                 if operation == "check" {
+                    // No executable site is compiled for an unsupported
+                    // check, so a `tools` declaration here would have no
+                    // owner and could only be discarded (design D5.2).
+                    if step_raw.get("tools").is_some() {
+                        return Err(CompileError::Invalid(format!(
+                            "sequence step '{what}' declares 'tools' on a dialect step whose \
+                             '{operation}' the dialect does not supply; no executable site \
+                             exists to own the declaration, so it could only be discarded — \
+                             refused (decision 0065 slice one, design D5)"
+                        )));
+                    }
                     continue;
                 }
                 return Err(CompileError::Invalid(format!(
@@ -3526,6 +6877,19 @@ fn parse_sequence(
                 )));
             };
             let synthetic = dialect_gate_site(&what, boundary)?;
+            // The dialect's validator is an exec-generated check: it can
+            // own a checked empty declaration and represents no nonempty
+            // local field (design D5.2), judged against the command the
+            // validator actually runs.
+            record_inline_tools(
+                dir,
+                &what,
+                step_raw,
+                false,
+                &command_parts(&synthetic),
+                agents.as_ref().map(|context| &context.adapters),
+                sites,
+            )?;
             let law = SiteLaw {
                 boundary,
                 dir,
@@ -3567,11 +6931,21 @@ fn parse_sequence(
                 agents,
                 sites,
                 boundary,
+                charters,
             )?;
             StepBody::Panel { members, aggregate }
         } else {
+            record_inline_tools(
+                dir,
+                &what,
+                step_raw,
+                false,
+                &command_parts(step_raw),
+                agents.as_ref().map(|context| &context.adapters),
+                sites,
+            )?;
             StepBody::Single {
-                role_path: parse_role(dir, &what, step_raw)?,
+                role_path: parse_role(dir, &what, step_raw, charters, sites)?,
                 command: parse_command(dir, &what, step_raw, secrets)?,
                 candidates: Vec::new(),
             }
@@ -3614,7 +6988,17 @@ fn parse_sequence(
     Ok(steps)
 }
 
-fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileError> {
+/// The charters a compile bound, each kept with the layer that declared it
+/// until that layer's identity is sealed from its buffer (design D7).
+type Charters = std::cell::RefCell<Vec<compose::CharterRead>>;
+
+fn parse_role(
+    dir: &Path,
+    what: &str,
+    raw: &Value,
+    charters: &Charters,
+    sites: &mut BTreeMap<String, SiteFacts>,
+) -> Result<PathBuf, CompileError> {
     let Some(role_rel) = raw.get("role").and_then(Value::as_str) else {
         if raw
             .pointer("/driver/command")
@@ -3641,13 +7025,51 @@ fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileErr
             "seat '{what}' missing 'role'"
         )));
     };
-    let role_path = dir.join(role_rel);
-    if !role_path.is_file() {
-        return Err(CompileError::Invalid(format!(
-            "seat '{what}' role file '{role_rel}' does not exist"
-        )));
+    // Decision 0066 ruling 5: `dir` is the layer that WROTE this seat, so
+    // an inherited, selected or nested body is judged against its own
+    // declaring layer and the refusal names that layer's file. The charter
+    // is read through a handle bound to its contained, regular target
+    // (operator ruling 3; design D7), so a link out of the layer, a FIFO
+    // or a replacement mid-read refuses here rather than at the seat. Every
+    // refusal names the declaring file, the seat and the reference, bounded.
+    // The verified buffer's digest is what the declaring layer's walk takes
+    // for the charter's keys (rebuild unit 16-fix-b, F3), so it is kept.
+    // Rebuild unit 17: the site is bound here to that layer, the key its
+    // map pins the reference under, the target the read resolved and the
+    // buffer's digest, so no later reader has to guess its owner.
+    // Rebuild unit 18-fix-b (council F1, F2): read from the layer's directory
+    // as its owner, so the pin carries that read's binding and who the owner
+    // was when it was read, and the seal compares both.
+    let source = dir.join("bundle.json");
+    let (site, reference) = (bounded_site(what), bounded_reference(role_rel));
+    match owned_input(dir, role_rel) {
+        Ok(bound) => {
+            let role = dir.join(role_rel);
+            let owner = CharterOwner::Layer {
+                dir: dir.to_path_buf(),
+                key: bound.held.binding.key.clone(),
+            };
+            let pin = CharterPin::of(owner, role_rel, role.clone(), &bound);
+            site_facts(sites, what).charter = Some(pin);
+            let read = compose::CharterRead::of(dir, site, reference, bound);
+            charters.borrow_mut().push(read);
+            Ok(role)
+        }
+        Err(InputFault::Missing(error)) => Err(CompileError::Invalid(format!(
+            "{}: seat {site} names role {reference}, {}",
+            source.display(),
+            missing_clause(&error)
+        ))),
+        Err(InputFault::Place(place)) => Err(CompileError::Invalid(format!(
+            "{}: seat {site} names role {reference}, {place}. {}",
+            source.display(),
+            place.remedy().unwrap_or(
+                "A charter there could change what the seat is told without moving the bundle's \
+                 identity, so it is refused; move it to a path the bundle pins, such as 'roles/' \
+                 (decision 0066 ruling 5)"
+            )
+        ))),
     }
-    Ok(role_path)
 }
 
 /// Parse a seat's declared secret bindings (decision 0012): NAMES only,
@@ -3762,6 +7184,36 @@ pub fn expand_command(dir: &Path, parts: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// [`expand_command`] over a composition, one segment at a time (design
+/// D5.7): each token keeps the origin of the segment that supplied it, and
+/// because the expansion is token for token, the expanded segments are
+/// exactly the expanded argv, in order. A lowering that never composed
+/// has nothing to expand.
+pub(crate) fn expand_lowering(dir: &Path, lowering: &Lowering) -> Lowering {
+    match lowering {
+        Lowering::Composed(composition) => Lowering::Composed(Composition {
+            segments: composition
+                .segments
+                .iter()
+                .map(|segment| Segment {
+                    origin: segment.origin,
+                    argv: expand_command(dir, &segment.argv),
+                })
+                .collect(),
+            // Rebuild unit 5c-fix2: the declared template is expanded as
+            // its segment is, so the seal compares like with like.
+            template: match &composition.template {
+                TemplateExpectation::None => TemplateExpectation::None,
+                TemplateExpectation::Declared(argv) => {
+                    TemplateExpectation::Declared(expand_command(dir, argv))
+                }
+            },
+            ..composition.clone()
+        }),
+        other => other.clone(),
+    }
+}
+
 fn brokkr_executable(current: std::io::Result<PathBuf>) -> String {
     match current {
         Ok(path) => path.to_string_lossy().into_owned(),
@@ -3839,6 +7291,8 @@ fn fold_driver_facts(drivers: &mut Map<String, Value>, sites: &BTreeMap<String, 
 /// everything derived from it — and so the chain survives the dispatch
 /// manifest round-trip, which copies `files` verbatim. `agents` is the
 /// resolution record (decision 0016), pinned for the same reason.
+/// `consumed` carries the digests of the layer's bound buffers into its
+/// walk ([`walk_files`]).
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn manifest_for(
     dir: &Path,
@@ -3849,6 +7303,8 @@ fn manifest_for(
     hands: &BTreeMap<String, HandsSpec>,
     select: &Map<String, Value>,
     boundary: Boundary,
+    capabilities: Option<Value>,
+    consumed: &BTreeMap<String, Supplied>,
 ) -> Result<Value, CompileError> {
     let mut files = Map::new();
     for (index, ancestor) in chain.iter().enumerate() {
@@ -3866,7 +7322,7 @@ fn manifest_for(
             Value::String(ancestor.digest.clone()),
         );
     }
-    for (rel, digest) in walk_files(dir, dir)? {
+    for (rel, digest) in walk_files(dir, dir, consumed)? {
         files.insert(rel, Value::String(digest));
     }
     let mut manifest = json!({
@@ -3877,6 +7333,17 @@ fn manifest_for(
         "bundle_name": bundle_name,
         "files": Value::Object(files),
     });
+    // ALWAYS present in a compiled bundle, unlike every key below
+    // (decision 0065 ruling 8; run-manifest v11): "this realm grants
+    // nothing and this seat holds nothing" is a fact about the bundle, and
+    // a manifest that merely lacked the key could not be told from one
+    // written before the word existed. A changed grant, scope, tool
+    // subset, restriction, definition or dialect byte moves the digest.
+    // Absent only from an ANCESTOR layer's own digest, which is compiled
+    // in no realm and holds nothing.
+    if let Some(capabilities) = capabilities {
+        manifest["capabilities"] = capabilities;
+    }
     // ABSENT when no seat references an agent (the decision-0012
     // `if !seat.secrets.is_empty()` precedent, applied verbatim): a
     // non-adopting bundle's manifest is byte-identical to what it was.
@@ -3923,27 +7390,86 @@ fn manifest_for(
 /// under `scope`, keyed relative to the layer `dir` and digested, in
 /// sorted key order. Compile walks the layer; spawn walks the script's
 /// directory with the same filename and byte identity rules.
-fn walk_files(dir: &Path, scope: &Path) -> Result<BTreeMap<String, String>, CompileError> {
-    let mut stack = vec![scope.to_path_buf()];
-    let mut paths = Vec::new();
-    while let Some(current) = stack.pop() {
-        for entry in std::fs::read_dir(&current)? {
-            let path = entry?.path();
+///
+/// A key in `consumed` is a file a bound read already supplied (design D7;
+/// rebuild unit 16-fix-b, F3): its digest is the digest of the buffer that
+/// was parsed, and the walk never opens its path to hash it again. The
+/// caller verifies that each such input still stands as it was read before
+/// the digest is sealed.
+///
+/// The walk is the one place that sees every name in the layer, so it holds
+/// each consumed file to exactly one entry (rebuild unit 16-fix-d): a
+/// consumed key it lists no entry for is refused, naming who consumed it,
+/// a file under no consumed key that IS a consumed file under another entry
+/// is refused as another name for it (16-fix-c, F1), and a consumed file
+/// met under a second entry, consumed or not, is refused naming both. What
+/// was consumed is known by its binding, not by the name the walk happens
+/// to list it under. A link is its own entry, so a contained link to a
+/// consumed file is one name whose target is the other; and a path through
+/// a contained linked directory lists the target's own entry again, which
+/// is that entry, never a second one ([`Entry`]).
+///
+/// A tree under a top-level name the walk skips is still searched for such a
+/// second entry whenever the layer consumed anything (rebuild unit 16-fix-d,
+/// return F1). It is never pinned, so an unconsulted definition there moves
+/// no identity; but a hard link there to a consumed file is a second name for
+/// it inside the layer all the same, and is refused on the same terms. That
+/// search never follows a link (16-fix-e, F3): a linked directory there is
+/// one entry, not a tree, so it cannot leave the layer or loop; a directory
+/// there is opened through its parent's handle, never following a link, and
+/// listed through that handle only while it is the one its parent listed
+/// ([`listing`]; 16-fix-e, return F3 and second return F2); and an entry
+/// there it cannot ask what it is is refused naming it (16-fix-e, second
+/// return F1). A directory the walk cannot list, skipped or not, is refused
+/// naming it, and naming who read a consumed entry it holds.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
+fn walk_files(
+    dir: &Path,
+    scope: &Path,
+    consumed: &BTreeMap<String, Supplied>,
+) -> Result<BTreeMap<String, String>, CompileError> {
+    // Each directory to list, with how its parent found it when it stands
+    // in a skipped tree.
+    let mut stack: Vec<(PathBuf, Option<Found>)> = vec![(scope.to_path_buf(), None)];
+    let (mut paths, mut unpinned) = (Vec::new(), Vec::new());
+    while let Some((current, found)) = stack.pop() {
+        let in_skipped = found.is_some();
+        let (handle, names) = listing(dir, &current, found, consumed)?;
+        let handle = std::rc::Rc::new(handle);
+        for name in names {
+            let path = current.join(&name);
+            // A consumed entry is the one entry it was read by, never a tree
+            // to descend (16-fix-e, return F1): whatever stands there now is
+            // judged by its own check, which names who read it.
+            let consumed_here = consumed.contains_key(&walk_key(dir, &path).unwrap_or_default());
             // A scaffold may also be the workspace from which Brokkr is
             // invoked. Its realm map and dialect library are workspace
             // declarations pinned into the RUN manifest, never bundle files:
             // changing either must not move the strategy's identity.
-            if current == dir
-                && path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(unpinned_top_level)
-            {
+            let skipped =
+                in_skipped || current == dir && name.to_str().is_some_and(unpinned_top_level);
+            if skipped && consumed.is_empty() {
                 continue;
             }
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.is_file() {
+            if skipped {
+                // Asked of the entry, never its target (16-fix-e, F3): a
+                // linked directory here is one entry, not a tree. An entry
+                // it cannot ask is refused as itself (second return F1).
+                at_stage(ReadStage::Skipped, &path);
+                let meta = std::fs::symlink_metadata(&path)
+                    .map_err(|error| unobservable(dir, &path, &error))?;
+                if meta.is_dir() {
+                    let found = (std::rc::Rc::clone(&handle), name, node(&meta));
+                    stack.push((path, Some(found)));
+                } else {
+                    unpinned.push(path);
+                }
+            } else if !consumed_here && path.is_dir() {
+                stack.push((path, None));
+            } else if consumed_here || path.is_file() {
                 // A secrets store inside the bundle would ride the
                 // manifest digest: rotation would change the digest AND
                 // the manifest would embed a SHA-256 of the secret file —
@@ -3961,7 +7487,7 @@ fn walk_files(dir: &Path, scope: &Path) -> Result<BTreeMap<String, String>, Comp
         }
     }
     paths.sort();
-    let mut files = BTreeMap::new();
+    let mut walked = Vec::with_capacity(paths.len());
     for path in paths {
         // Join actual components, never replace bytes inside a name:
         // Unix `scripts\gate.sh` is a different file from `scripts/gate.sh`.
@@ -3989,9 +7515,289 @@ fn walk_files(dir: &Path, scope: &Path) -> Result<BTreeMap<String, String>, Comp
                  supplied by a bundle"
             )));
         }
-        files.insert(rel, sha256_bytes(&std::fs::read(&path)?));
+        walked.push((path, rel));
+    }
+    if let Some((key, supplied)) = consumed
+        .iter()
+        .find(|(key, _)| !walked.iter().any(|(_, rel)| rel == *key))
+    {
+        return Err(CompileError::Invalid(format!(
+            "{}, which the walk that pins the layer lists under no entry of the name {} it was \
+             read by: the name reached the file through a case or normalization alias the \
+             filesystem accepted, or the entry was removed after the read. A layer's identity \
+             names a consumed file by the entry its directory lists, so it is refused; write the \
+             reference as its directory lists it (decision 0065 slice one, design D7)",
+            supplied.consumer,
+            bounded_reference(key)
+        )));
+    }
+    let mut named: BTreeMap<(u64, u64), (Entry, String)> = BTreeMap::new();
+    let mut files = BTreeMap::new();
+    for (path, rel) in walked {
+        let supplied = consumed.get(&rel);
+        if supplied.is_none() {
+            at_stage(ReadStage::Walked, &path);
+        }
+        one_entry(dir, &path, &rel, supplied, consumed, &mut named)?;
+        let digest = match supplied {
+            Some(supplied) => supplied.digest.clone(),
+            None => sha256_bytes(&std::fs::read(&path)?),
+        };
+        files.insert(rel, digest);
+    }
+    // Judged after every pinned entry, so a consumed file's first entry is
+    // the one it was read by; nothing here is read or pinned.
+    for path in unpinned {
+        let rel = path
+            .strip_prefix(dir)
+            .expect("walked under dir")
+            .to_string_lossy();
+        one_entry(dir, &path, &rel, None, consumed, &mut named)?;
     }
     Ok(files)
+}
+
+/// How the walk found a directory in a skipped tree: the handle on the
+/// directory its parent's listing named it in, its name there, and the
+/// `(dev, ino)` it was, asked without following a link.
+type Found = (std::rc::Rc<std::fs::File>, OsString, (u64, u64));
+
+/// The names `current`, a directory under the layer `dir`, lists, and the
+/// handle they were listed through: the listing reads that handle, never a
+/// path (rebuild unit 16-fix-e, second return F2). A pinned directory is
+/// opened as its path reaches it. One in a skipped tree was `found` by its
+/// parent's listing (return F3): it is opened through its parent's handle,
+/// never following a link, and listed only while that handle holds the
+/// directory found and its entry still stands as it, checked when it is
+/// opened and again after the listing. A link or anything else put in its
+/// place is refused before a name listed there is walked, and the walk never
+/// opens or lists a directory outside the layer.
+fn listing(
+    dir: &Path,
+    current: &Path,
+    found: Option<Found>,
+    consumed: &BTreeMap<String, Supplied>,
+) -> Result<(std::fs::File, Vec<OsString>), CompileError> {
+    let refuse = |error| unlisted(dir, current, error, consumed);
+    at_stage(ReadStage::Listing, current);
+    let Some((parent, name, id)) = found else {
+        let handle = directory(current).map_err(refuse)?;
+        let names = names_in(&handle).map_err(refuse)?;
+        return Ok((handle, names));
+    };
+    let stands = || std::fs::symlink_metadata(current).is_ok_and(|meta| node(&meta) == id);
+    let opened = directory_at(&parent, &name)
+        .and_then(|handle| handle.metadata().map(|meta| (handle, node(&meta))));
+    let handle = match opened {
+        Ok((handle, held)) if held == id => handle,
+        Err(error) if stands() => return Err(refuse(error)),
+        _ => return Err(replaced(dir, current, "before")),
+    };
+    at_stage(ReadStage::DirectoryChecked, current);
+    let names = names_in(&handle).map_err(refuse)?;
+    if !stands() {
+        return Err(replaced(dir, current, "while"));
+    }
+    Ok((handle, names))
+}
+
+/// The refusal of `directory`, in a skipped tree under the layer `dir`,
+/// which stood as another entry `moment` the walk listed it.
+fn replaced(dir: &Path, directory: &Path, moment: &str) -> CompileError {
+    let key = walk_key(dir, directory).unwrap_or_default();
+    CompileError::Invalid(format!(
+        "bundle directory {} was replaced {moment} the walk listed it: a tree the walk skips is \
+         searched only to hold each consumed file to one name, entered as the directory its \
+         parent listed there and never through a link, so a directory replaced there is refused \
+         rather than followed (decision 0065 slice one, design D7)",
+        bounded_reference(&format!("./{key}"))
+    ))
+}
+
+/// The refusal of the entry at `path`, in a skipped tree under the layer
+/// `dir`, which the walk listed but could not ask what it is (rebuild unit
+/// 16-fix-e, second return F1 and F3): named by its own place in the layer,
+/// never as its directory, with the kind of failure, never an unbounded io
+/// message.
+fn unobservable(dir: &Path, path: &Path, error: &std::io::Error) -> CompileError {
+    let key = walk_key(dir, path).unwrap_or_default();
+    CompileError::Invalid(format!(
+        "bundle entry {}, in a tree the walk skips, cannot be observed ({}): the walk asks each \
+         entry there what it is, without following a link, to hold each consumed file to one \
+         name, so an entry it cannot observe is refused rather than passed over (decision 0065 \
+         slice one, design D7)",
+        bounded_reference(&format!("./{key}")),
+        error.kind()
+    ))
+}
+
+/// The refusal of `directory`, under the layer `dir`, which the walk could
+/// not list (rebuild unit 16-fix-e, F3): named by its place in the layer,
+/// with the kind of failure, never an unbounded io message. Where it holds a
+/// consumed entry, the refusal opens with who read that entry, as the
+/// input's own refusals do (16-fix-e, return F1).
+fn unlisted(
+    dir: &Path,
+    directory: &Path,
+    error: std::io::Error,
+    consumed: &BTreeMap<String, Supplied>,
+) -> CompileError {
+    let key = walk_key(dir, directory).unwrap_or_default();
+    let refusal = format!(
+        "bundle directory {} cannot be listed ({}): the walk that pins a layer lists every \
+         directory it enters, a skipped tree's included where it holds each consumed file to one \
+         name, so a directory it cannot list is refused rather than passed over (decision 0065 \
+         slice one, design D7)",
+        bounded_reference(&format!("./{key}")),
+        error.kind()
+    );
+    match consumed
+        .iter()
+        .find(|(held, _)| Path::new(held).starts_with(&key))
+    {
+        Some((held, supplied)) => CompileError::Invalid(format!(
+            "{}, whose entry {} stands in {refusal}",
+            supplied.consumer,
+            bounded_reference(held)
+        )),
+        None => CompileError::Invalid(refusal),
+    }
+}
+
+/// The `(dev, ino)` `meta` describes.
+#[cfg(unix)]
+fn node(meta: &std::fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (meta.dev(), meta.ino())
+}
+
+/// As [`entry_of`]: any other host consumes nothing, and so never searches a
+/// skipped tree.
+#[cfg(not(unix))]
+fn node(_: &std::fs::Metadata) -> (u64, u64) {
+    (0, 0)
+}
+
+/// The refusal of a consumed input whose entry `key` the walk could not
+/// observe (rebuild unit 16-fix-e, F1): removed, replaced or made
+/// unobservable after the read. It names who consumed it, as the input's own
+/// refusals do, and the kind of failure, never a bare io message.
+fn unobserved(held: &Supplied, key: &str, error: &std::io::Error) -> CompileError {
+    CompileError::Invalid(format!(
+        "{}, whose entry {} the walk that pins the layer cannot observe ({}): it was removed, \
+         replaced or made unobservable after the read. A consumed input the walk cannot observe \
+         is refused rather than pinned unobserved (decision 0065 slice one, design D7)",
+        held.consumer,
+        bounded_reference(key),
+        error.kind()
+    ))
+}
+
+/// Hold the walked `path`, keyed `rel` and consumed as `supplied` or not, to
+/// the one-entry rule of [`walk_files`], `named` holding each consumed
+/// file's first entry.
+fn one_entry(
+    dir: &Path,
+    path: &Path,
+    rel: &str,
+    supplied: Option<&Supplied>,
+    consumed: &BTreeMap<String, Supplied>,
+    named: &mut BTreeMap<(u64, u64), (Entry, String)>,
+) -> Result<(), CompileError> {
+    // A consumed key the walk cannot observe names who read it (16-fix-e,
+    // F1); an entry under no consumed key is not known to be one.
+    let found = consumed_entry(path, consumed);
+    let found = match supplied {
+        Some(supplied) => found.map_err(|error| unobserved(supplied, rel, &error))?,
+        None => found?,
+    };
+    let Some((held, entry)) = found else {
+        return Ok(());
+    };
+    // A path through a linked directory lists the target's own entry again:
+    // the same file, under the same entry, is the consumed file and not
+    // another name for it.
+    let same = match supplied {
+        Some(supplied) => supplied.id == held.id,
+        None => {
+            let target = entry_of(&dir.join(&held.target));
+            entry == target.map_err(|error| unobserved(held, &held.target, &error))?
+        }
+    };
+    if !same {
+        return Err(CompileError::Invalid(format!(
+            "bundle file {} is another name for {}, the file a bound read consumed: a layer's \
+             identity names a consumed file by the entry it was read by, and a second name for \
+             it inside the layer is refused rather than walked as a file nothing consumed \
+             (decision 0065 slice one, design D7)",
+            bounded_reference(rel),
+            bounded_reference(&held.target)
+        )));
+    }
+    let (first_entry, first) = named
+        .entry(held.id)
+        .or_insert_with(|| (entry.clone(), rel.to_string()));
+    if *first_entry != entry {
+        return Err(CompileError::Invalid(format!(
+            "bundle files {} and {} are two names for one file a bound read consumed: a layer's \
+             identity names a consumed file by exactly one entry, and a second name for it \
+             inside the layer, consumed or not, is refused rather than bound twice (decision \
+             0065 slice one, design D7)",
+            bounded_reference(first),
+            bounded_reference(rel)
+        )));
+    }
+    Ok(())
+}
+
+/// One directory entry: the `(dev, ino)` of the directory that holds it,
+/// and its name there. Two walked paths are one entry exactly when both
+/// agree, however many linked directories either passed through; two hard
+/// links are two entries.
+type Entry = ((u64, u64), OsString);
+
+/// The entry `path` names: its directory, following links on the way, and
+/// its own name.
+#[cfg(unix)]
+fn entry_of(path: &Path) -> std::io::Result<Entry> {
+    use std::os::unix::fs::MetadataExt;
+    let parent = std::fs::metadata(path.parent().expect("a walked path has a parent"))?;
+    let name = path.file_name().expect("a walked path has a name");
+    Ok(((parent.dev(), parent.ino()), name.to_os_string()))
+}
+
+/// The consumed file the entry at `path` is, when it is one — the same
+/// `(dev, ino)` as a file a bound read held — with the entry it is. The
+/// entry itself is asked, never a link's target, so a link to a consumed
+/// file is walked as the link it is.
+#[cfg(unix)]
+fn consumed_entry<'a>(
+    path: &Path,
+    consumed: &'a BTreeMap<String, Supplied>,
+) -> std::io::Result<Option<(&'a Supplied, Entry)>> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(path)?;
+    let id = (meta.dev(), meta.ino());
+    match consumed.values().find(|supplied| supplied.id == id) {
+        Some(supplied) => Ok(Some((supplied, entry_of(path)?))),
+        None => Ok(None),
+    }
+}
+
+/// No supported host lacks the identity; any other consumes nothing, since
+/// its every bound read refuses (design D7).
+#[cfg(not(unix))]
+fn entry_of(_: &Path) -> std::io::Result<Entry> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// As [`entry_of`]: any other host consumes nothing.
+#[cfg(not(unix))]
+fn consumed_entry<'a>(
+    _: &Path,
+    _: &'a BTreeMap<String, Supplied>,
+) -> std::io::Result<Option<(&'a Supplied, Entry)>> {
+    Ok(None)
 }
 
 #[cfg(test)]

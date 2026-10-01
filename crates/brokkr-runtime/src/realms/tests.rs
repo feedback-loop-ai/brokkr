@@ -401,6 +401,8 @@ fn a_v3_world_pins_house_and_dialect_and_house_content_moves_run_identity() {
         boundary: None,
         publishes: CrossingList::Absent,
         consumes: CrossingList::Absent,
+        capabilities: None,
+        grants: Default::default(),
     };
     assert!(world.dialect_for_realm(&unknown).unwrap().is_none());
     let first = world.pinned(&json!({"files": {}}), Some(&repo)).unwrap();

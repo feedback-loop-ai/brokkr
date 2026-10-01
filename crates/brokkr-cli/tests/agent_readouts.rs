@@ -62,10 +62,13 @@ impl Workspace {
         let ws = Workspace {
             dir: tempfile::tempdir().unwrap(),
         };
-        for sub in ["bundle", "agents/charters", "adapters", "state"] {
+        for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
             std::fs::create_dir_all(ws.path().join(sub)).unwrap();
         }
         std::fs::write(ws.path().join("bundle/policy.json"), POLICY).unwrap();
+        // An inline seat's role stands inside its own bundle, where the
+        // file map pins it (decision 0066 ruling 5).
+        std::fs::write(ws.path().join("bundle/roles/work.md"), "# work\n").unwrap();
         std::fs::write(ws.path().join("agents/charters/work.md"), "# work\n").unwrap();
         ws.write(
             "adapters/absent.json",
@@ -127,7 +130,7 @@ impl Workspace {
                     "implement": {"results": ["complete"], "agent": "worker"},
                     "review": {
                         "results": ["clean"],
-                        "role": "../agents/charters/work.md",
+                        "role": "roles/work.md",
                         "driver": {"command": [
                             brokkr_bin(), "fake-driver",
                             "--script", ws.path().join("script.json").to_string_lossy(),
@@ -405,4 +408,77 @@ fn the_agents_verbs_run_against_the_default_roots() {
         ws.path().join("adapters").to_str().unwrap(),
     ]);
     assert!(stderr.contains("is not in the library"), "{stderr}");
+}
+
+/// Decision 0065, CQ2, through the binary: `brokkr agents list` and
+/// `brokkr agents show` are the library's semantic lint. Parsing
+/// `capabilities` is syntax; whether the OPERATOR defines each name is the
+/// question, answered from `capabilities/` in the operator's configuration
+/// directory — and an `--agents-dir` override moves the library, never that
+/// authority.
+#[test]
+fn the_agents_verbs_lint_every_ask_against_the_operators_definitions() {
+    let ws = Workspace::new(json!(["second"]));
+    ws.write(
+        "agents/worker.json",
+        json!({
+            "description": "the worker",
+            "charter": "charters/work.md",
+            "efforts": efforts_for(&json!(["second"])),
+            "models": ["second"],
+            "capabilities": {"operator-library-docs": "wants"},
+        }),
+    );
+    let missing = "agent 'worker': capability 'operator-library-docs' has no abstract definition \
+                   at 'capabilities/operator-library-docs.json' in the operator configuration; \
+                   declare its classes before requesting it";
+
+    // `list` warns and keeps listing; `show` refuses, as the compiler would.
+    let (stdout, _) = ws.brokkr(&["agents", "list"]);
+    assert_eq!(
+        stdout,
+        format!("warning: {missing}\nworker\tsecond\tthe worker\n")
+    );
+    let (stdout, stderr) = ws.brokkr(&["agents", "show", "worker"]);
+    assert_eq!(stdout, "");
+    assert_eq!(stderr, format!("error: {missing}\n"));
+
+    // A definition beside the LIBRARY is not the operator's: a library
+    // root chosen by flag cannot bring its own class metadata.
+    std::fs::create_dir_all(ws.path().join("agents/capabilities")).unwrap();
+    let definition = json!({"name": "operator-library-docs", "classes": ["reads", "egress"]});
+    ws.write(
+        "agents/capabilities/operator-library-docs.json",
+        definition.clone(),
+    );
+    let (stdout, _) = ws.brokkr(&["agents", "list", "--agents-dir", "agents"]);
+    assert!(
+        stdout.starts_with(&format!("warning: {missing}\n")),
+        "{stdout}"
+    );
+
+    // Defined by the operator — no dialect, no grant, no provider — the
+    // library lints clean and `show` prints the ask as written.
+    std::fs::create_dir_all(ws.path().join("capabilities")).unwrap();
+    ws.write("capabilities/operator-library-docs.json", definition);
+    let (stdout, _) = ws.brokkr(&["agents", "list"]);
+    assert_eq!(stdout, "worker\tsecond\tthe worker\n");
+    let (stdout, _) = ws.brokkr(&["agents", "show", "worker"]);
+    let shown: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        shown["capabilities"],
+        json!({"operator-library-docs": "wants"})
+    );
+
+    // A malformed definition is the operator's to repair, and both verbs
+    // name the file rather than linting against half a directory.
+    std::fs::write(ws.path().join("capabilities/broken.json"), "{").unwrap();
+    for verb in [vec!["agents", "list"], vec!["agents", "show", "worker"]] {
+        let (stdout, stderr) = ws.brokkr(&verb);
+        assert_eq!(stdout, "");
+        assert!(
+            stderr.starts_with("error: 'capabilities/broken.json': "),
+            "{stderr}"
+        );
+    }
 }

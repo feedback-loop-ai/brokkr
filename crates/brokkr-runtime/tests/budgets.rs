@@ -207,6 +207,13 @@ fn site_input(
         None => {}
     }
     marks.site(&site.at, site.gate, link, &mut input);
+    // Decision 0065: an engine launch hands the adapter the charter text
+    // the dispatch door read through the bundle's binding, and the adapter
+    // never reopens `role_path`. The budget hands over the same bytes, so
+    // the charter it measures is the one a seat is told.
+    if let Ok(text) = std::fs::read_to_string(&site.role_path) {
+        input[brokkr_protocol::native_controls::ROLE_TEXT] = Value::String(text);
+    }
     input
 }
 

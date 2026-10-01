@@ -90,7 +90,7 @@ use brokkr_core::realms::{Boundary, SCHEMA_V3, SCHEMA_V4};
 use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::Bundle;
-use serde_json::{json, Map};
+use serde_json::{json, Map, Value};
 
 const OPENSPEC_DIALECT: &str = include_str!("../dialects/openspec.json");
 const SPECKIT_DIALECT: &str = include_str!("../dialects/speckit.json");
@@ -449,8 +449,12 @@ const MKDIR: Tool = Tool {
 };
 
 /// The stack's own runners, one const per leading binary the two
-/// detection tables can name. Each is the `Bash(<bin>:*)` expression the
-/// shipped adapter vocabulary already carries for the same binary.
+/// detection tables can name, each as its `Bash(<bin>:*)` expression.
+/// Where the shipped Claude adapter maps the same name — `cargo`,
+/// `python3`, `pytest`, and `npm` and `npx` among the typed-migration
+/// names (decision 0065) — the expression is the shipped one, byte for
+/// byte; `bun`, `bunx`, `pnpm`, `yarn`, `uv`, `go` and `make` are the
+/// scaffold's own. `init_stacks` holds both halves of that sentence.
 const CARGO: Tool = Tool {
     name: "cargo",
     permission: "Bash(cargo:*)",
@@ -600,6 +604,72 @@ fn grants(detected: Option<&Detected>) -> Grants {
 /// `tools.allow` lists must be expressible here or the scaffold's own
 /// compile refuses. Where nothing was recognized the map stays EMPTY,
 /// and the README carries the sentence that says which of the two it is.
+/// Claude Code's native network tools, as `adapters/claude.json` declares
+/// them (decision 0065 ruling 4): each switched ON by admitting it to the
+/// seat's own tool lists and OFF by denying it by name. Adapter data and
+/// argv composition only — no live denial or enablement was measured, and
+/// the limitations say so. `init_stacks` holds this equal to the shipped
+/// declaration, so a scaffold cannot drift into a weaker one.
+fn claude_native_capabilities() -> Value {
+    let native = |capability: &str, tool: &str, restriction: &str, extra: &[&str]| {
+        let mut limitations = vec![
+            "that a boxed seat's empty --tools list under --strict-mcp-config leaves no native \
+             tool is adapter data, not a live measurement"
+                .to_string(),
+            format!(
+                "{tool} ON beside the hands tool, and {tool} OFF by --disallowedTools on an \
+                 unboxed seat, are both unmeasured live; the checks are owed to the controller"
+            ),
+        ];
+        limitations.extend(extra.iter().map(|gap| gap.to_string()));
+        json!({
+            "capability": capability,
+            "tools": [tool],
+            "on": {"selection": {"include": [tool], "allow": [tool], "deny": []}},
+            "off": {"selection": {"include": [], "allow": [], "deny": [tool]}},
+            "restrictions": {"unsupported": restriction},
+            "evidence": {
+                "source": "adapters/claude.json and the installed 2.1.266 help: --tools, \
+                           --allowedTools and --disallowedTools each take tool names",
+                "scope": format!(
+                    "adapter data and argv composition only; no live denial or enablement of \
+                     {tool} has been measured"
+                ),
+                "limitations": limitations,
+            },
+            "authored": {
+                "list_flags": ["--tools", "--allowedTools", "--allowed-tools"],
+                "value_flags": ["--model", "--effort", "--permission-mode", "--mcp-config"],
+            },
+        })
+    };
+    json!({
+        "known": {
+            "web-search": native(
+                "web-search",
+                "WebSearch",
+                "no native transport for a restriction on Claude Code's WebSearch has been \
+                 established",
+                &["this names the two native network tools that were known, not an exhaustive \
+                   inventory of what Claude Code can reach on its own"],
+            ),
+            "web-fetch": native(
+                "web-fetch",
+                "WebFetch",
+                "no native transport for a restriction on Claude Code's WebFetch has been \
+                 established; a WebFetch(domain:…) permission pattern was not measured as a \
+                 host allowlist",
+                &[],
+            ),
+        },
+        "selection": {
+            "include": {"flag": "--tools", "separator": ","},
+            "allow": {"flag": "--allowedTools", "separator": ","},
+            "deny": {"flag": "--disallowedTools", "separator": ","},
+        },
+    })
+}
+
 fn adapter_json(grants: &Grants) -> String {
     let mut names = Map::new();
     for tool in &grants.work {
@@ -625,6 +695,12 @@ fn adapter_json(grants: &Grants) -> String {
         "effort_flag": "--effort",
         "tool_permissions": {"flag": "--allowedTools", "separator": ",", "names": names},
         "mcp": {"flag": "--mcp-config", "servers": {}},
+        // Decision 0065 ruling 4: what this harness can already reach on
+        // its own, and how each such power is switched on and off. A
+        // scaffold grants nothing, so a stranger's first seats are
+        // launched with both denied by name — the same assessment the
+        // shipped adapter carries, word for word, evidence limits included.
+        "native_capabilities": claude_native_capabilities(),
         // What has been MEASURED about resuming this provider here, in
         // this workspace, on this machine: nothing (proposed decision
         // 0056 ruling 5). The scaffold could omit the key — absence
@@ -679,6 +755,81 @@ const CODEX_ADAPTER: &str = r#"{
     "unsupported": "codex exec restricts by sandbox class (read-only, workspace-write), not by tool name; there is no per-tool allow-list flag to map a seat's tools onto"
   },
   "mcp": "unsupported",
+  "native_capabilities": {
+    "known": {
+      "web-search": {
+        "capability": "web-search",
+        "tools": [
+          "web_search"
+        ],
+        "on": {
+          "default": "codex-cli 0.154.0 cold `codex exec` has server-side web search ON with no flag: the default run of the 2026-09-21 controller measurement issued a web_search item and answered with a cited version. No explicit ON value is declared because none was measured."
+        },
+        "off": {
+          "argv": [
+            "-c",
+            "web_search=\"disabled\""
+          ]
+        },
+        "restrictions": {
+          "unsupported": "no native transport for a restriction on codex's server-side search has been established; the measurement covers only the key's \"disabled\" value"
+        },
+        "evidence": {
+          "source": ".forge/tasks/controller-codex-web-search-switch-2026-09-21.json",
+          "scope": "codex-cli 0.154.0, cold `codex exec` only: with `-c web_search=\"disabled\"` the model answered NO SEARCH TOOL; without it the tool ran",
+          "limitations": [
+            "whether the OFF switch holds on a RESUMED codex session is unmeasured; the engine composes the pair on the `exec resume` argv too, and the live check is owed to the controller",
+            "whether a resumed session that holds web-search has it ON is unmeasured",
+            "values of web_search other than \"disabled\" were not measured, and the interactive CLI's --search flag was not exercised under `codex exec`",
+            "codex-cli versions other than 0.154.0 were not measured",
+            "this is one native capability that was measured, not an exhaustive inventory of what codex can reach on its own; profile and config.toml precedence over the -c override is unmeasured",
+            "the hands fragment adds mcp_servers.brokkr and does not establish that an ambient MCP server in the operator's codex configuration is excluded"
+          ]
+        },
+        "authored": {
+          "flags": [
+            "--search"
+          ],
+          "config_flags": [
+            "-c",
+            "--config"
+          ],
+          "config_keys": [
+            "web_search",
+            "web_search_mode",
+            "tools.web_search",
+            "features.web_search_request",
+            "features.web_search_cached"
+          ],
+          "feature_flags": [
+            "--enable",
+            "--disable"
+          ],
+          "features": [
+            "web_search_request",
+            "web_search_cached"
+          ],
+          "value_flags": [
+            "-m",
+            "--model",
+            "-i",
+            "--image",
+            "-o",
+            "--output-last-message",
+            "--output-schema",
+            "-s",
+            "--sandbox",
+            "--effort",
+            "-p",
+            "--profile",
+            "-C",
+            "--cd",
+            "--add-dir"
+          ]
+        }
+      }
+    }
+  },
   "hands": {
     "workspace": [
       "--sandbox", "read-only",
@@ -715,6 +866,9 @@ const DSH_ADAPTER: &str = r#"{
   "effort_flag": "--effort",
   "tool_permissions": "unsupported",
   "mcp": "unsupported",
+  "native_capabilities": {
+    "unmeasured": "dsh declares mcp and tool_permissions unsupported, which establishes only that Brokkr cannot narrow or extend its tool surface from the command line; it does not establish that dsh has no native egress of its own. On the contrary, recipes/research-dsh/README.md records that since dsh 0.1.2-rc.1 the headless profile ships web-fetch-http with page fetch on and a keyed search, so native egress is likely present and no OFF control for it has been declared or measured. Its native inventory, and any ON or OFF control for it, remain unmeasured: nothing is granted through dsh and no native denial is claimed (decision 0065 slice one; owed to the controller)"
+  },
   "hands": {
     "unsupported": "dsh replaces its tool surface only through a profile plugin; no CLI flag disables its shell and file tools or adds an MCP server"
   }

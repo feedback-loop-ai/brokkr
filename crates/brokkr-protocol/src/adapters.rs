@@ -351,7 +351,31 @@ fn read_charter(input: &Value, kind: AdapterKind) -> Result<String, StartRefusal
 /// scripts keep reading the result path off it by line.
 pub fn render_prompt(input: &Value, kind: AdapterKind) -> Result<String, StartRefusal> {
     let get = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or("");
-    let role = read_charter(input, kind)?;
+    // Second council H6: the charter is the text the dispatch door read
+    // when it compared the pin, carried here. The path is retained for
+    // identity and diagnostics and is NOT reopened — an engine launch
+    // that names a role and carries no text is refused before it is
+    // served, in `composed_launch`. A driver run by hand over a
+    // hand-written input has no such door, and reads the path it was
+    // given, refusing a model seat's charter it cannot read (#372).
+    //
+    // Rebuild unit 18 (design D7): an ENGINE launch — the managed-launch
+    // contract, whose input the engine always gives `native_controls` —
+    // never reopens a path it names, whatever else it carries.
+    // `run_seat_with` refuses such a launch that names a role without its
+    // verified text before invoking anything, so the empty charter below
+    // is never sent. One that names no role has no path to reopen, and
+    // is read as any other: an exec site's charter is optional, and a
+    // model seat without one refuses to start (#372).
+    let named = input
+        .get("role_path")
+        .and_then(Value::as_str)
+        .is_some_and(|path| !path.is_empty());
+    let role = match input.get(crate::native_controls::ROLE_TEXT) {
+        Some(Value::String(text)) => text.clone(),
+        _ if named && input.get("native_controls").is_some() => String::new(),
+        _ => read_charter(input, kind)?,
+    };
     let context = serde_json::to_string_pretty(input.get("context").unwrap_or(&json!({})))
         .unwrap_or_default();
     let allowed = input
@@ -380,9 +404,17 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> Result<String, StartRe
     // The contract therefore names the one tool that can write — and,
     // since decision 0046, the boundary the seat stands under. An exec
     // driver reads no paragraph: its script reads the environment.
+    // Decision 0065 ruling 5: beside its hands, a model seat is told by
+    // capability name what it holds and what it does not, so it never
+    // discovers a missing tool by failing to call it — from the same
+    // record the launch was composed from.
     let hands = match kind {
         AdapterKind::Exec => String::new(),
-        _ => hands_paragraph(input),
+        _ => format!(
+            "{}{}",
+            hands_paragraph(input),
+            crate::native_controls::capabilities_paragraph(input)
+        ),
     };
     // Under a `last-message` door (decision 0046 ruling 4) the contract's
     // own line says how the file comes to exist: the harness writes the
@@ -2531,39 +2563,100 @@ fn codex_effort_config(effort: &str) -> String {
 /// word, stays in the argv, so the harness refuses it loudly rather
 /// than this adapter dropping a pin in silence.
 fn split_effort(extra: &[String]) -> (Option<String>, Vec<String>) {
+    split_effort_as("codex", extra)
+}
+
+/// [`split_effort`] under `harness`'s grammar: DSH reads its own.
+fn split_effort_as(harness: &str, extra: &[String]) -> (Option<String>, Vec<String>) {
+    let (effort, kept) = effort_split_as(harness, extra);
+    (effort.map(|(level, _)| level), picked(extra, &kept))
+}
+
+/// The seat's argv as its harness's grammar places it (rebuild unit 13;
+/// design D6): the ONE parse the selector, extraction and resume readers
+/// below share, so a value such as the word `resume` after `--image` is
+/// never re-read as an option or a subcommand. `None` where the argv does
+/// not parse whole — a by-hand driver's option the grammar does not model,
+/// a dangling value or a doubled option — and there no token can be told
+/// from a value, so each reader keeps its conservative reading by
+/// spelling, which only refuses or declines. An engine launch parses every
+/// origin and refuses what does not parse before it composes (decision
+/// 0066 ruling 6).
+fn placed(harness: &str, argv: &[String]) -> Option<crate::native_controls::grammar::Command> {
+    crate::native_controls::grammar::parse(harness, argv).and_then(Result::ok)
+}
+
+/// Whether `node` carries its value attached to a short option, `-nVALUE`,
+/// rather than split or after `=`. The readers before rebuild unit 13 read
+/// no attached spelling as a class or an admitted flag, and eligibility
+/// stays exactly theirs.
+fn attached(argv: &[String], node: &crate::native_controls::grammar::Node) -> bool {
+    node.joined && !argv[node.at].starts_with(&format!("{}=", node.spelling))
+}
+
+/// [`split_effort`] by position: the level with the index of the part that
+/// carried it, and the indices of the parts that pass through, so the
+/// final judgment can name the origin of every part it reads (rebuild unit
+/// 5d-fix-c2).
+fn effort_split(extra: &[String]) -> (Option<(String, usize)>, Vec<usize>) {
+    effort_split_as("codex", extra)
+}
+
+/// [`effort_split`] under `harness`'s grammar. Where the argv parses, the
+/// pin is its one `--effort` node, read as that node's value and never by
+/// scanning for the spelling (rebuild unit 13).
+fn effort_split_as(harness: &str, extra: &[String]) -> (Option<(String, usize)>, Vec<usize>) {
+    if let Some(command) = placed(harness, extra) {
+        let pin = command
+            .nodes
+            .iter()
+            .filter(|node| node.name() == "--effort")
+            .find_map(|node| effort_token(&node.values[0]).map(|level| (level, node)));
+        let taken = pin
+            .as_ref()
+            .map_or(0..0, |(_, node)| node.at..node.at + node.tokens);
+        let kept = (0..extra.len()).filter(|at| !taken.contains(at)).collect();
+        return (pin.map(|(level, node)| (level, node.at)), kept);
+    }
     let mut effort = None;
-    let mut passthrough = Vec::with_capacity(extra.len());
-    let mut parts = extra.iter();
-    while let Some(part) = parts.next() {
+    let mut kept = Vec::with_capacity(extra.len());
+    let mut at = 0;
+    while at < extra.len() {
+        let part = &extra[at];
         // `--effort <level>` and `--effort=<level>`: the value is
         // whichever spelling carried it, and a bare `--effort` at the
-        // end of the argv carries none.
-        let level = match part.strip_prefix("--effort=") {
-            Some(value) => Some(value.to_string()),
-            None if part == "--effort" => parts.next().cloned(),
-            None => None,
+        // end of the argv carries none. Only a value that arrived as its
+        // OWN argv part is a second part; an `--effort=…` spelling
+        // carries its level inside its one part.
+        let (level, width) = match part.strip_prefix("--effort=") {
+            Some(value) => (Some(value.to_string()), 1),
+            None if part == "--effort" => match extra.get(at + 1) {
+                Some(value) => (Some(value.clone()), 2),
+                None => (None, 1),
+            },
+            None => (None, 1),
         };
         match level.as_deref().and_then(effort_token) {
-            Some(level) if effort.is_none() => effort = Some(level),
-            _ => {
-                passthrough.push(part.clone());
-                // Only a value that arrived as its OWN argv part goes
-                // back as one; an `--effort=…` spelling already carries
-                // its level inside the part just pushed.
-                if part == "--effort" {
-                    if let Some(level) = level {
-                        passthrough.push(level);
-                    }
-                }
-            }
+            Some(level) if effort.is_none() => effort = Some((level, at)),
+            _ => kept.extend(at..at + width),
         }
+        at += width;
     }
-    (effort, passthrough)
+    (effort, kept)
+}
+
+/// The parts of `argv` at `kept`, in order.
+fn picked(argv: &[String], kept: &[usize]) -> Vec<String> {
+    kept.iter().map(|&at| argv[at].clone()).collect()
 }
 
 /// The cold argv: `codex exec --json -C <workdir>`, the pinned effort as
-/// the config override codex reads, then the seat's own passthrough.
-fn codex_cold(bin: &str, extra: &[String], workdir: &str) -> Vec<String> {
+/// the config override codex reads, the seat's own passthrough, and LAST
+/// the engine-managed native controls (decision 0065 ruling 4) — the OFF
+/// switch for a native capability the seat does not hold. They arrive
+/// from the driver input and never from `extra`: an authored pair that
+/// spells the same switch was refused before this builder ran.
+fn codex_cold(bin: &str, extra: &[String], workdir: &str, managed: &[String]) -> Vec<String> {
     let (effort, passthrough) = split_effort(extra);
     let mut command = vec![
         bin.to_string(),
@@ -2577,6 +2670,7 @@ fn codex_cold(bin: &str, extra: &[String], workdir: &str) -> Vec<String> {
         command.push(codex_effort_config(effort));
     }
     command.extend(passthrough);
+    command.extend(managed.iter().cloned());
     command
 }
 
@@ -2587,22 +2681,45 @@ fn codex_cold(bin: &str, extra: &[String], workdir: &str) -> Vec<String> {
 /// `-c sandbox_mode="<class>"`. A flag with nothing after it declares
 /// nothing, and the resume refuses itself rather than inventing a class.
 fn split_codex_sandbox(extra: &[String]) -> (Option<String>, Vec<String>) {
+    let (class, kept) = sandbox_split(extra);
+    (class, picked(extra, &kept))
+}
+
+/// [`split_codex_sandbox`] by position: the class, and the indices of the
+/// parts that pass through (rebuild unit 5d-fix-c2). Where the argv parses,
+/// the class is its one `--sandbox` node written `--sandbox CLASS`,
+/// `--sandbox=CLASS` or `-s CLASS` (rebuild unit 13); a short `-s=CLASS` or
+/// `-sCLASS` stays in the passthrough, as it always has.
+fn sandbox_split(extra: &[String]) -> (Option<String>, Vec<usize>) {
+    if let Some(command) = placed("codex", extra) {
+        let node = command.nodes.iter().find(|node| {
+            node.name() == "--sandbox" && (!node.joined || node.spelling.starts_with("--"))
+        });
+        let taken = node.map_or(0..0, |node| node.at..node.at + node.tokens);
+        let kept = (0..extra.len()).filter(|at| !taken.contains(at)).collect();
+        return (node.map(|node| node.values[0].clone()), kept);
+    }
     let mut class = None;
-    let mut passthrough = Vec::with_capacity(extra.len());
-    let mut parts = extra.iter();
-    while let Some(part) = parts.next() {
+    let mut kept = Vec::with_capacity(extra.len());
+    let mut at = 0;
+    while at < extra.len() {
+        let part = &extra[at];
         if let Some(value) = part.strip_prefix("--sandbox=") {
             class = Some(value.to_string());
         } else if part == "--sandbox" || part == "-s" {
-            match parts.next() {
-                Some(value) => class = Some(value.clone()),
-                None => passthrough.push(part.clone()),
+            match extra.get(at + 1) {
+                Some(value) => {
+                    class = Some(value.clone());
+                    at += 1;
+                }
+                None => kept.push(at),
             }
         } else {
-            passthrough.push(part.clone());
+            kept.push(at);
         }
+        at += 1;
     }
-    (class, passthrough)
+    (class, kept)
 }
 
 /// The passthrough flags that may travel to a resume, each verified
@@ -2649,7 +2766,24 @@ const CODEX_RESUME_BARE_FLAGS: [&str; 4] = [
 /// `--profile`, `--add-dir`, `--approve-for-me` and `-C` are each
 /// rejected outright by `codex exec resume` (verified, 0.148.0), so
 /// passing them on would buy a usage error dressed up as a refusal.
+///
+/// Where the passthrough parses, each option is judged by the canonical
+/// name its node places, so a value is never classified on its own
+/// (rebuild unit 13), and the part returned is the option's own token; an
+/// attached short spelling is refused as it always was.
 fn codex_resume_blocker(passthrough: &[String]) -> Option<String> {
+    if let Some(command) = placed("codex", passthrough) {
+        return command
+            .nodes
+            .iter()
+            .find(|node| {
+                let name = node.name();
+                !(CODEX_RESUME_VALUE_FLAGS.contains(&name)
+                    || CODEX_RESUME_BARE_FLAGS.contains(&name))
+                    || attached(passthrough, node)
+            })
+            .map(|node| passthrough[node.at].clone());
+    }
     let mut parts = passthrough.iter();
     while let Some(part) = parts.next() {
         if CODEX_RESUME_BARE_FLAGS.contains(&part.as_str()) {
@@ -2683,15 +2817,19 @@ fn codex_resume_blocker(passthrough: &[String]) -> Option<String> {
 /// the warm path and travel unchanged on the cold one, as they always
 /// have.
 ///
-/// The word is refused wherever it appears, value positions included: a
-/// model, image or output file literally named `resume` is not worth a
-/// grammar that has to track which codex flags take a value, and such a
-/// grammar goes stale the next time codex grows one. Bundles are
+/// The word is read through the codex grammar's one parse (rebuild unit
+/// 13; design D6): an argv that parses has no bare word at all, so a model,
+/// image or output file literally named `resume` is that option's value.
+/// Only where the argv does not parse whole, and so no token can be told
+/// from a value, is the word refused wherever it appears. Bundles are
 /// operator-trusted, so this is a refusal that names its part, never a
 /// silent drop.
 const CODEX_SELECTOR: &str = "resume";
 
 fn codex_selector_conflict(extra: &[String]) -> Option<&'static str> {
+    if placed("codex", extra).is_some() {
+        return None;
+    }
     extra
         .iter()
         .any(|part| part == CODEX_SELECTOR)
@@ -2736,6 +2874,59 @@ fn codex_launch(
     session: Option<&str>,
     input: &Value,
 ) -> Result<LaunchPlan, String> {
+    codex_launch_and_cold(bin, extra, workdir, session, input).map(|(plan, _)| plan)
+}
+
+/// What the engine's plan composes one provider's launch into: the seat's
+/// argv with every consumed control folded in, and the managed argv that is
+/// appended last (decision 0066 rulings 1 to 4). A driver run by hand
+/// carries no plan, and its argv is the operator's own, untouched.
+///
+/// An engine launch is judged part by part: the provenance the engine
+/// recorded must reassemble the argv actually handed over; the AUTHORED
+/// part may not contend with a managed native control, nor configure a
+/// capability server; and the plan must be ready for this provider and
+/// carry only representations its launch consumes.
+fn composed_launch(
+    provider: &str,
+    extra: &[String],
+    input: &Value,
+) -> Result<crate::native_controls::Composed, String> {
+    use crate::native_controls as controls;
+    let Some(plan) = controls::managed(input)? else {
+        return Ok(controls::Composed {
+            extra: extra.to_vec(),
+            managed: Vec::new(),
+        });
+    };
+    controls::verified_role(input)?;
+    let (authored, fragment) = controls::launch_arguments(input, extra)?;
+    // The authored part is parsed against the harness's grammar before it
+    // is judged, at this boundary exactly as at compile: one parser, so a
+    // spelling admitted here cannot be one the compiler read differently
+    // (decision 0066 ruling 6).
+    let conflict = controls::authored_conflict(provider, &authored, &plan.guards)
+        .map_err(|refusal| refusal.at_launch(input))?;
+    if let Some(conflict) = conflict {
+        return Err(controls::conflict_refusal(input, &conflict));
+    }
+    controls::compose_for_provider(provider, &authored, &fragment, &plan)
+        .map_err(|refusal| refusal.at_launch(input))
+}
+
+/// [`codex_launch`], and beside its plan the COLD argv the same validated
+/// controls compose. A rejoin the harness rejects before any work is
+/// replaced by exactly that command, so the replacement carries the control
+/// the launch already proved rather than decoding the plan a second time —
+/// where an error once degraded to no control at all (decision 0066 ruling
+/// 2).
+fn codex_launch_and_cold(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+) -> Result<(LaunchPlan, Vec<String>), String> {
     if let Some(conflict) = codex_selector_conflict(extra) {
         return Err(format!(
             "refusing to invoke the agent CLI: the seat's arguments carry '{conflict}', which \
@@ -2744,10 +2935,161 @@ fn codex_launch(
              refused before any provider work rather than dropped in silence"
         ));
     }
+    // Decision 0065 rulings 4 and 5: the native controls this launch is
+    // composed with are the engine's, read from the driver input. A site
+    // the engine computed no authority for is refused, and so is an
+    // authored argument that reaches the same capability — `--search`, a
+    // `web_search` config assignment, even the OFF pair itself — because
+    // ordering two controls against each other is not a ruling.
+    let composed = composed_launch("codex", extra, input)?;
+    let cold = codex_cold(bin, &composed.extra, workdir, &composed.managed);
+    let mut plan = codex_plan(
+        bin,
+        &composed.extra,
+        workdir,
+        session,
+        input,
+        &composed.managed,
+    );
+    // Both commands this launch can spawn, the rejoin and the cold one a
+    // rejected rejoin is replaced by, are judged as composed.
+    let rejoin = plan.rejoining.is_some();
+    inline_codex_final(input, &composed, workdir, &plan.command, rejoin)?;
+    inline_codex_final(input, &composed, workdir, &cold, false)?;
+    // Each serves only what the final check returns, checked on its own
+    // (rebuild units 14 and 15): the rejoin with the session it rejoins, and
+    // the cold replacement with none, so a replacement is never checked, or
+    // counted, as the rejoin it replaces.
+    let chosen = |session| crate::native_controls::Serving {
+        program: bin,
+        workdir,
+        session,
+        ..Default::default()
+    };
+    let session = plan.rejoining.clone();
+    plan.command = served(
+        "codex",
+        plan.command,
+        extra,
+        input,
+        chosen(session.as_deref()),
+    )?;
+    let cold = served("codex", cold, extra, input, chosen(None))?;
+    Ok((plan, cold))
+}
+
+/// Rebuild unit 5d-fix-c2 (chief F2 of runs
+/// `0065-rebuild-unit-5d-fix-b-see-t-8067eebc` and
+/// `0065-rebuild-unit-5d-fix-c1-see--b800f52a`; operator ruling of
+/// 2026-09-25, "narrow"; design D5.3): where the sealed launch record names
+/// the engine's own `local` class, which is an inline Codex site's, the
+/// FINAL command — after `--effort` was translated, `--json` and `-C`
+/// generated and, on a rejoin, the class moved into an assignment — is
+/// judged exactly as the harness receives it, through
+/// [`grammar::judge_inline_codex_command`] and so the same
+/// `judge_inline_codex_launch` admission and the dispatch door call.
+///
+/// The record's segments must reassemble the arguments composed, so every
+/// part the harness receives is judged beside its origin: the translated
+/// effort carries the origin of the pin it translated, and the native plan
+/// is the engine's `native` contribution. A gate is the `read-only` class,
+/// whose capture must be into exactly the result path the input names. The
+/// cause is bounded and value-free, and names no seat. A launch no record
+/// was sealed for, and one whose record names no `local` class (an agent's
+/// class rides its hands), is not an inline Codex launch and is not judged
+/// here.
+///
+/// [`grammar::judge_inline_codex_command`]: crate::native_controls::grammar::judge_inline_codex_command
+fn inline_codex_final(
+    input: &Value,
+    composed: &crate::native_controls::Composed,
+    workdir: &str,
+    command: &[String],
+    rejoin: bool,
+) -> Result<(), String> {
+    use crate::native_controls::{
+        grammar, reassemble, HandsIntent, LaunchRecord, Origin, SandboxIntent, Segment,
+    };
+    let Some(sealed) = input.get("launch_record") else {
+        return Ok(());
+    };
+    let refuse = |cause: &str| {
+        format!(
+            "refusing to invoke the agent CLI: the final command of this inline Codex launch \
+             {cause} (decision 0046 ruling 4; operator ruling of 2026-09-25; rebuild unit \
+             5d-fix-c2)"
+        )
+    };
+    // The decoder's and the reassembly's text is not echoed: the final
+    // judgment's causes are fixed.
+    let record = LaunchRecord::decode(Some(sealed)).map_err(|_| {
+        refuse("carries a launch record that cannot be read, so its class cannot be judged")
+    })?;
+    let class = match record.expected.hands {
+        HandsIntent::None => record.expected.local.sandbox,
+        HandsIntent::Required => SandboxIntent::Unspecified,
+    };
+    if class == SandboxIntent::Unspecified {
+        return Ok(());
+    }
+    let extra = &composed.extra;
+    reassemble(&record.segments, extra).map_err(|_| {
+        refuse(
+            "is composed from arguments its sealed record does not reassemble, so no part of it \
+             has an origin to be judged by",
+        )
+    })?;
+    let origins: Vec<Origin> = record
+        .segments
+        .iter()
+        .flat_map(|segment| std::iter::repeat_n(segment.origin, segment.argv.len()))
+        .collect();
+    // The composition's own splits, by position: the effort leaves first,
+    // and on a rejoin the class leaves what remains.
+    let (effort, mut kept) = effort_split(extra);
+    if rejoin {
+        let (_, remaining) = sandbox_split(&picked(extra, &kept));
+        kept = remaining.iter().map(|&at| kept[at]).collect();
+    }
+    let mut runs: Vec<(Origin, Vec<String>)> = Vec::new();
+    let mut place = |origin: Origin, part: String| match runs.last_mut() {
+        Some((last, parts)) if *last == origin => parts.push(part),
+        _ => runs.push((origin, vec![part])),
+    };
+    if let Some((level, at)) = effort {
+        place(origins[at], "-c".to_string());
+        place(origins[at], codex_effort_config(&level));
+    }
+    for at in kept {
+        place(origins[at], extra[at].clone());
+    }
+    for part in &composed.managed {
+        place(Origin::Native, part.clone());
+    }
+    let contributions: Vec<Segment> = runs
+        .iter()
+        .map(|(origin, parts)| Segment::new(*origin, parts))
+        .collect();
+    let capture = (class == SandboxIntent::ReadOnly)
+        .then(|| input["result_path"].as_str().unwrap_or_default());
+    grammar::judge_inline_codex_command(class, &command[1..], &contributions, capture, workdir)
+        .map_err(|cause| refuse(&cause.to_string()))
+}
+
+/// The plan of one validated codex launch: `extra` and `managed` are what
+/// [`composed_launch`] composed, and nothing here can refuse.
+fn codex_plan(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+    managed: &[String],
+) -> LaunchPlan {
     let gate = resume_gate(input, CODEX_SHAPE);
     let probe = vec![bin.to_string(), "--version".to_string()];
     let cold = |refusal: Option<&'static str>, version: Option<String>| LaunchPlan {
-        command: codex_cold(bin, extra, workdir),
+        command: codex_cold(bin, extra, workdir, managed),
         rejoining: None,
         refusal,
         sandbox: None,
@@ -2765,17 +3107,50 @@ fn codex_launch(
     // therefore be worth recording for the next retry.
     let Some(session) = session else {
         let qualification = qualify(&gate, &probe, None);
-        return Ok(cold(None, qualification.observed));
+        return cold(None, qualification.observed);
     };
     // A closed gate names ITS reason: under an unmeasured shape the
     // offer is declined because the shape is unmeasured, whatever the
     // seat's argv did or did not declare.
     if let ResumeGate::Disabled(reason) = &gate {
-        return Ok(cold(Some(reason), None));
+        return cold(Some(reason), None);
     }
     if !plain_thread_id(session) {
-        return Ok(cold(Some("invalid-session-id"), None));
+        return cold(Some("invalid-session-id"), None);
     }
+    let (command, class) = match codex_rejoin(bin, extra, managed, session) {
+        Ok(rejoin) => rejoin,
+        Err(refusal) => return cold(Some(refusal), None),
+    };
+    let qualification = qualify(&gate, &probe, originating_harness_version(input));
+    if let Some(refusal) = qualification.refusal {
+        return cold(Some(refusal), qualification.observed);
+    }
+    LaunchPlan {
+        command,
+        rejoining: Some(session.to_string()),
+        refusal: None,
+        sandbox: Some(class),
+        kind: "codex-thread",
+        harness_version: qualification.observed,
+        wrapper_digest: None,
+        persistent: true,
+        confirms_from_locator: true,
+        effort: None,
+    }
+}
+
+/// The rejoin command of one validated Codex launch and the class it
+/// re-imposes, or the token that declines the rejoin (rebuild unit
+/// 13-fix-c, R4): the ONE builder the driver's plan and the final check's
+/// rebuild ([`serving_command`]) share, so the rejoin checked is the rejoin
+/// spawned. Pure: it reads nothing but its arguments.
+fn codex_rejoin(
+    bin: &str,
+    extra: &[String],
+    managed: &[String],
+    session: &str,
+) -> Result<(Vec<String>, String), &'static str> {
     // The effort pin leaves the argv FIRST, for the same reason the
     // sandbox class does: `codex exec resume` takes neither as a flag,
     // and both go back in as `-c key=value`. Splitting it here also
@@ -2785,21 +3160,17 @@ fn codex_launch(
     let (effort, remainder) = split_effort(extra);
     let (class, passthrough) = split_codex_sandbox(&remainder);
     let Some(class) = class else {
-        return Ok(cold(Some("sandbox-unavailable"), None));
+        return Err("sandbox-unavailable");
     };
     if !CODEX_SANDBOX_CLASSES.contains(&class.as_str()) {
-        return Ok(cold(Some("unsupported-sandbox"), None));
+        return Err("unsupported-sandbox");
     }
     // The rest of the seat's argv has to be safe to carry across, part
     // by part: a second sandbox expression could outrank the one
     // re-imposed here, and last-write-wins is not a thing to gamble a
     // restriction on.
     if codex_resume_blocker(&passthrough).is_some() {
-        return Ok(cold(Some("incompatible-argv"), None));
-    }
-    let qualification = qualify(&gate, &probe, originating_harness_version(input));
-    if let Some(refusal) = qualification.refusal {
-        return Ok(cold(Some(refusal), qualification.observed));
+        return Err("incompatible-argv");
     }
     let mut command = vec![
         bin.to_string(),
@@ -2817,22 +3188,246 @@ fn codex_launch(
         command.push(codex_effort_config(effort));
     }
     command.extend(passthrough);
+    // The managed native controls ride the rejoin exactly as they ride a
+    // cold spawn (decision 0065 ruling 4): a resume drops what it was
+    // given, so a search switched off cold must be switched off again
+    // here. They never passed through `codex_resume_blocker` — that
+    // allow-list judges what the SEAT wrote, and an authored `-c` still
+    // turns the rejoin cold — and they sit before the two positionals.
+    command.extend(managed.iter().cloned());
     command.push(session.to_string());
     // The prompt still arrives on stdin, which `codex exec resume` reads
     // only when the prompt positional is `-` (verified against 0.148.0).
     command.push("-".into());
-    Ok(LaunchPlan {
+    Ok((command, class))
+}
+
+/// The whole refusal of a launch that carries sealed inputs without the
+/// ones they are sealed beside (rebuild unit 14).
+const UNPAIRED: &str =
+    "refusing to invoke the agent CLI: the input carries a sealed launch record or sealed serving \
+     inputs without the capability plan and the record they are sealed beside, so its final \
+     command cannot be checked; a sealed launch is never served unchecked (rebuild unit 14; \
+     design D6)";
+
+/// The whole refusal of a launch that carries the engine's plan with neither
+/// sealed input (rebuild unit 15-fix-b; SC15-R2-1): dispatch seals both
+/// wherever it writes a plan, so a plan alone is a governed launch stripped
+/// of what it is checked by.
+const UNSEALED: &str =
+    "refusing to invoke the agent CLI: the input carries the engine's capability plan without the \
+     sealed launch record and sealed serving inputs it is served beside, so its final command \
+     cannot be checked; a launch the engine governs is never served as an unsealed one (rebuild \
+     unit 15; design D6)";
+
+/// Rebuild units 14 and 15 (operator ruling 2 of 2026-09-23; design D6):
+/// the command a launch spawns, cold, rejoining or a rejected rejoin's cold
+/// replacement, once [`check_final`] has proved that it expresses exactly
+/// its sealed plan. Where the engine sealed the launch, the record and the
+/// typed serving inputs sealed beside it (rebuild unit 14a2) are decoded,
+/// the record's whole ordered segments must reassemble `handed`, the
+/// arguments the driver was handed, and the check is handed them with the
+/// engine's serving choices:
+/// `chosen`'s executable, workdir, the session it rejoins (`None` cold)
+/// and, for DSH, overlay, stream reading and prompt; the recipe's words by
+/// their recorded origin; the result path where the door is the capture;
+/// and the box's hands bound to this executable and workdir. Nothing is
+/// read back from the argv. The spawn is handed [`Checked::into_argv`] and
+/// nothing else.
+///
+/// A launch with no plan, no record and no serving inputs was not sealed: a
+/// driver run by hand, which this check gives no guarantee, is served as
+/// composed, as the inline judgment serves it (rebuild unit 5d-fix-c2). A
+/// plan with neither sealed input refuses (rebuild unit 15-fix-b), and so
+/// does one half of the sealed pair without the other, or without its plan.
+///
+/// [`check_final`]: crate::native_controls::check_final
+/// [`Checked::into_argv`]: crate::native_controls::Checked::into_argv
+fn served(
+    harness: &str,
+    command: Vec<String>,
+    handed: &[String],
+    input: &Value,
+    chosen: crate::native_controls::Serving<'_>,
+) -> Result<Vec<String>, String> {
+    use crate::native_controls::{
+        check_final, managed, reassemble, Dialect, LaunchRecord, Origin, SealedServing, Serving,
+        Transport, SERVING_INPUTS,
+    };
+    let record = match (input.get("launch_record"), input.get(SERVING_INPUTS)) {
+        (None, None) if input.get("native_controls").is_none() => return Ok(command),
+        (None, None) => return Err(UNSEALED.to_string()),
+        (Some(record), Some(_)) => record,
+        _ => return Err(UNPAIRED.to_string()),
+    };
+    let Some(controls) = managed(input)? else {
+        return Err(UNPAIRED.to_string());
+    };
+    let record = LaunchRecord::decode(Some(record))?;
+    let sealed = SealedServing::decode(input.get(SERVING_INPUTS))?;
+    // The whole ordered record, not only its authored segments, must
+    // reassemble the arguments this driver was handed: a record emptied,
+    // reordered or grown around them has no origin to read the recipe's
+    // words by, and is refused (NCC; tasks 15.1 and 15.2).
+    reassemble(&record.segments, handed)?;
+    let authored: Vec<String> = record
+        .segments
+        .iter()
+        .filter(|segment| segment.origin == Origin::Authored)
+        .flat_map(|segment| segment.argv.iter().cloned())
+        .collect();
+    let brokkr = std::env::current_exe().unwrap_or_default();
+    let dialect = &sealed.dialect;
+    check_final(
+        harness,
         command,
-        rejoining: Some(session.to_string()),
-        refusal: None,
-        sandbox: Some(class),
-        kind: "codex-thread",
-        harness_version: qualification.observed,
-        wrapper_digest: None,
-        persistent: true,
-        confirms_from_locator: true,
-        effort: None,
-    })
+        &controls,
+        &record.expected,
+        Dialect {
+            permissions: dialect.permissions.as_ref(),
+            sandbox: &dialect.sandbox,
+            hands: &dialect.hands,
+            boundary: &dialect.boundary,
+            stands: dialect.stands,
+        },
+        Serving {
+            authored: &authored,
+            pins: &sealed.pins,
+            output: last_message_door(input)
+                .then(|| input["result_path"].as_str().unwrap_or_default()),
+            hands: sealed.spec.as_ref().map(|spec| Transport {
+                brokkr: &brokkr,
+                workdir: Path::new(chosen.workdir),
+                spec,
+            }),
+            ..chosen
+        },
+    )
+    .map(crate::native_controls::Checked::into_argv)
+    .map_err(|refusal| refusal.at_launch(input))
+}
+
+/// The complete serving command one built-in driver spawns for a composed
+/// launch and the engine's serving choices (rebuild unit 13-fix-c, R4),
+/// built by the builders the drivers themselves call — [`claude_serving`],
+/// [`codex_cold`] and [`codex_rejoin`], [`dsh_command`] and
+/// the prompt it ends with — so the command [`check_final`] rebuilds is the
+/// command the driver spawns. `Err` is the fixed reason no command is
+/// served: a choice the harness's shape has no place for, or the token a
+/// rejoin is declined by.
+///
+/// The harness is its [`ServingShape`], so a harness no driver builds a
+/// command for has no value to ask with (operator ruling of 2026-09-30,
+/// unit 26c). A claude command is built from the whole composition, its
+/// managed part behind its extras as [`check_final`] reads it: the claude
+/// composition leaves that part empty, and one that did not would depart
+/// from the command the driver spawned.
+///
+/// [`check_final`]: crate::native_controls::check_final
+pub(crate) fn serving_command(
+    shape: ServingShape,
+    serving: &crate::native_controls::Serving<'_>,
+    composed: &crate::native_controls::Composed,
+) -> Result<Vec<String>, &'static str> {
+    let program = serving.program;
+    let dsh_only = serving.overlay.is_some() || serving.stream || serving.prompt.is_some();
+    match shape {
+        ServingShape::Claude | ServingShape::Codex if dsh_only => Err(
+            "a staged overlay, a stream shape or a prompt argument, which only a dsh command \
+             carries, while this harness reads its prompt on stdin",
+        ),
+        ServingShape::Claude => Ok(claude_serving(
+            program,
+            &[composed.extra.as_slice(), &composed.managed].concat(),
+            serving.session,
+        )),
+        ServingShape::Codex => match serving.session {
+            None => Ok(codex_cold(
+                program,
+                &composed.extra,
+                serving.workdir,
+                &composed.managed,
+            )),
+            Some(session) => codex_rejoin(program, &composed.extra, &composed.managed, session)
+                .map(|(command, _)| command)
+                .map_err(|token| match token {
+                    "sandbox-unavailable" => "a rejoin its driver declines, no class to re-impose",
+                    "unsupported-sandbox" => "a rejoin its driver declines, an unsupported class",
+                    _ => "a rejoin its driver declines, an argument a rejoin cannot carry",
+                }),
+        },
+        ServingShape::Dsh => {
+            let (Some(overlay), Some(prompt)) = (serving.overlay, serving.prompt) else {
+                return Err("no staged overlay or no prompt, which every dsh command carries");
+            };
+            if serving.session.is_some() && !serving.stream {
+                return Err("a rejoin without the stream reading a dsh rejoin is spawned under");
+            }
+            let mut command = dsh_command(program, overlay, serving.stream, serving.session);
+            command.push(prompt.to_string());
+            Ok(command)
+        }
+    }
+}
+
+/// The serving command shapes the built-in drivers spawn, one per builder
+/// [`serving_command`] calls. LaneTally wraps Claude's harness and is served
+/// Claude's shape. `exec` and an opaque driver have none, as they have no
+/// modelled grammar ([`crate::native_controls::grammar::grammar`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ServingShape {
+    Claude,
+    Codex,
+    Dsh,
+}
+
+impl ServingShape {
+    pub(crate) fn of(harness: &str) -> Option<ServingShape> {
+        match harness {
+            "claude" | "lanetally" => Some(ServingShape::Claude),
+            "codex" => Some(ServingShape::Codex),
+            "dsh" => Some(ServingShape::Dsh),
+            _ => None,
+        }
+    }
+}
+
+/// The command a Codex launch WOULD spawn for this driver argv and input,
+/// composed and refused exactly as a real launch is — the same function,
+/// read for its argv. It exists so the chain decision 0065 rests on can be
+/// proved end to end without a provider: a compiled seat's resolved
+/// native controls, handed over as the engine hands them, arriving in the
+/// harness's argv.
+pub fn codex_command(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+) -> Result<Vec<String>, String> {
+    codex_launch(bin, extra, workdir, session, input).map(|plan| plan.command)
+}
+
+/// The same reading of a Claude launch.
+pub fn claude_command(
+    bin: &str,
+    extra: &[String],
+    session: Option<&str>,
+    input: &Value,
+) -> Result<Vec<String>, String> {
+    claude_launch(bin, extra, session, input, CLAUDE_SHAPE, None).map(|plan| plan.command)
+}
+
+/// The same reading of a LaneTally launch: claude's, composed and checked
+/// under the wrapper's own name and shape, as the launch runs it
+/// (operator ruling of 2026-09-30, unit 22-fix-b).
+pub fn lanetally_command(
+    bin: &str,
+    extra: &[String],
+    session: Option<&str>,
+    input: &Value,
+) -> Result<Vec<String>, String> {
+    claude_launch(bin, extra, session, input, claude_shape(true), None).map(|plan| plan.command)
 }
 
 /// Every claude flag that selects, copies or relocates a conversation.
@@ -2845,10 +3440,12 @@ fn codex_launch(
 /// beside `--resume` and resolves the conflict itself. `--bg` with
 /// `--resume` "starts a copy and says so when the session is already
 /// running"; `--fork-session` creates a new id. A copy is not a rejoin,
-/// and neither is a fork.
+/// and neither is a fork. The final check reads the bare list too, so a
+/// switch the grammar types as `Switch` is a selector there as here
+/// (rebuild unit 13, review F4).
 const CLAUDE_SELECTORS_WITH_VALUE: [&str; 5] =
     ["-r", "--resume", "--session-id", "--from-pr", "--teleport"];
-const CLAUDE_SELECTORS_BARE: [&str; 8] = [
+pub(crate) const CLAUDE_SELECTORS_BARE: [&str; 8] = [
     "-c",
     "--continue",
     "--fork-session",
@@ -2871,7 +3468,32 @@ const CLAUDE_SELECTORS_BARE: [&str; 8] = [
 /// working directory last held, which is worse on a cold path than on a
 /// warm one — nothing chose it. A cold-inadmissible setting refuses
 /// before any provider work rather than being dropped in silence.
+///
+/// Where the argv parses under the claude grammar, LaneTally's too, the
+/// selector is a node whose effect is a session or whose canonical name is
+/// listed, named in the spelling it was written in (rebuild unit 13); a
+/// value is never read as one.
 fn claude_selector_conflict(extra: &[String]) -> Option<&'static str> {
+    if let Some(command) = placed("claude", extra) {
+        let listed = || {
+            CLAUDE_SELECTORS_WITH_VALUE
+                .iter()
+                .chain(CLAUDE_SELECTORS_BARE.iter())
+        };
+        return command
+            .nodes
+            .iter()
+            .find(|node| {
+                node.spec.effect == crate::native_controls::grammar::Effect::Session
+                    || listed().any(|selector| *selector == node.name())
+            })
+            .map(|node| {
+                listed()
+                    .find(|selector| **selector == node.spelling)
+                    .copied()
+                    .unwrap_or(node.name())
+            });
+    }
     extra.iter().find_map(|part| {
         let name = part.split_once('=').map_or(part.as_str(), |(name, _)| name);
         CLAUDE_SELECTORS_WITH_VALUE
@@ -2919,18 +3541,48 @@ fn claude_restriction_control(part: &str) -> Option<(&'static str, bool)> {
 ///
 /// `false` for a control that stands alone, `true` for one that takes a
 /// value. Only the flag's NAME decides; the value is never classified.
+///
+/// Where the argv parses, the controls are its nodes, each by canonical
+/// name (rebuild unit 13): the grammar has already refused a missing value
+/// and a duplicate of every control it admits once, so what is left is a
+/// repeated `--mcp-config` and a split value that is the lone `-`.
 fn claude_restriction_conflict(extra: &[String]) -> Option<String> {
+    let doubled = |control: &str| {
+        format!(
+            "refusing to invoke the agent CLI: the seat's arguments carry '{control}' more than \
+             once, and the CLI resolves a duplicate last-wins against the current restriction \
+             plan the engine composed (proposed decision 0056 ruling 6)"
+        )
+    };
+    let valueless = |control: &str| {
+        format!(
+            "refusing to invoke the agent CLI: the seat's arguments carry '{control}' with no \
+             value, which the measured grammar requires"
+        )
+    };
+    if let Some(command) = placed("claude", extra) {
+        let mut seen: Vec<&'static str> = Vec::new();
+        for node in &command.nodes {
+            let Some((control, takes_value)) = claude_restriction_control(node.name()) else {
+                continue;
+            };
+            if seen.contains(&control) {
+                return Some(doubled(control));
+            }
+            seen.push(control);
+            if takes_value && !node.joined && node.values[0].starts_with('-') {
+                return Some(valueless(control));
+            }
+        }
+        return None;
+    }
     let mut seen: Vec<&'static str> = Vec::new();
     let mut index = 0;
     while index < extra.len() {
         let part = &extra[index];
         if let Some((control, takes_value)) = claude_restriction_control(part) {
             if seen.contains(&control) {
-                return Some(format!(
-                    "refusing to invoke the agent CLI: the seat's arguments carry '{control}' more \
-                     than once, and the CLI resolves a duplicate last-wins against the current \
-                     restriction plan the engine composed (proposed decision 0056 ruling 6)"
-                ));
+                return Some(doubled(control));
             }
             seen.push(control);
             if takes_value && !part.contains('=') {
@@ -2939,12 +3591,7 @@ fn claude_restriction_conflict(extra: &[String]) -> Option<String> {
                     // this control's value; the empty string `--tools ""`
                     // is the one admitted empty value and does not.
                     Some(value) if !value.starts_with('-') => index += 1,
-                    _ => {
-                        return Some(format!(
-                            "refusing to invoke the agent CLI: the seat's arguments carry \
-                             '{control}' with no value, which the measured grammar requires"
-                        ))
-                    }
+                    _ => return Some(valueless(control)),
                 }
             }
         }
@@ -2966,6 +3613,18 @@ fn claude_cold(bin: &str, extra: &[String]) -> Vec<String> {
         "--verbose".into(),
     ];
     command.extend(extra.iter().cloned());
+    command
+}
+
+/// The claude command a launch spawns: [`claude_cold`], and for a rejoin
+/// exactly `--resume <id>` after it. The ONE builder the launch and the
+/// final check's rebuild share (rebuild unit 13-fix-c, R4).
+fn claude_serving(bin: &str, extra: &[String], rejoining: Option<&str>) -> Vec<String> {
+    let mut command = claude_cold(bin, extra);
+    if let Some(id) = rejoining {
+        command.push("--resume".into());
+        command.push(id.to_string());
+    }
     command
 }
 
@@ -3015,6 +3674,35 @@ fn claude_launch(
     shape: &str,
     wrapper_digest: Option<String>,
 ) -> Result<LaunchPlan, String> {
+    // Decision 0065 rulings 4 and 5, as on the codex path: the engine's
+    // plan or a refusal, and no authored list that admits a native tool
+    // the realm did not grant. The held tools are then folded into the
+    // seat's OWN lists, once, so the hands fragment's empty tool list
+    // gains exactly what is held, `mcp__brokkr__workspace` stays allowed
+    // and strict MCP configuration stays — and the duplicate and arity
+    // refusals below judge the argv that will actually run. A list the
+    // seat wrote as `--allowed-tools` or `--disallowedTools=…` is the same
+    // list (design D6), found through the one alias reading this launch
+    // already owns, so a local permission is kept rather than refused as
+    // a duplicate of the engine's own flag.
+    //
+    // Decision 0066 ruling 3 (finding H3): EVERY representation the plan
+    // carries is consumed here or the launch refuses — a managed list
+    // argument such as `--disallowedTools WebSearch` joins the same deny
+    // list a selection contributes to, and a restriction transport rides
+    // verbatim. Consuming the selection alone recorded such an OFF and
+    // never delivered it. LaneTally forwards claude's grammar, and is
+    // composed under its own name so it inherits no floor but its own.
+    let provider = match shape {
+        LANETALLY_SHAPE => "lanetally",
+        _ => "claude",
+    };
+    // The session and duplicate/arity refusals judge the argv the seat was
+    // handed, BEFORE the plan is composed into it: the composition emits
+    // each list flag exactly once, so a duplicate in the final command can
+    // only have come from the seat, and naming it in the seat's own words
+    // (proposed decision 0056 ruling 6) is more use than naming it in the
+    // grammar's.
     if let Some(conflict) = claude_selector_conflict(extra) {
         return Err(format!(
             "refusing to invoke the agent CLI: the seat's arguments carry '{conflict}', which \
@@ -3026,24 +3714,24 @@ fn claude_launch(
     if let Some(conflict) = claude_restriction_conflict(extra) {
         return Err(conflict);
     }
+    let composed = composed_launch(provider, extra, input)?;
+    let handed = extra;
+    let extra = composed.extra.as_slice();
     // `--no-session-persistence` is admitted — it is a legitimate thing
     // for a seat to want — and it makes the shape nonresumable, which is
     // a fact the launch row reports rather than a setting to strip.
-    let persistent = !extra.iter().any(|part| part == "--no-session-persistence");
+    // Read as the parsed switch where the argv parses (rebuild unit 13).
+    let switch = "--no-session-persistence";
+    let persistent = match placed(provider, extra) {
+        Some(command) => !command.nodes.iter().any(|node| node.name() == switch),
+        None => !extra.iter().any(|part| part == switch),
+    };
     let gate = resume_gate(input, shape);
     let probe = vec![bin.to_string(), "--version".to_string()];
     let plan = |rejoining: Option<String>,
                 refusal: Option<&'static str>,
                 version: Option<String>| LaunchPlan {
-        command: match &rejoining {
-            None => claude_cold(bin, extra),
-            Some(id) => {
-                let mut command = claude_cold(bin, extra);
-                command.push("--resume".into());
-                command.push(id.clone());
-                command
-            }
-        },
+        command: claude_serving(bin, extra, rejoining.as_deref()),
         rejoining,
         refusal,
         sandbox: None,
@@ -3054,26 +3742,39 @@ fn claude_launch(
         confirms_from_locator: true,
         effort: None,
     };
+    // A launch serves only what the final check returns (rebuild units 14
+    // and 15): a cold one with no session, a rejoin with the one it rejoins.
+    let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
+    let served_plan = |mut launch: LaunchPlan| {
+        let chosen = crate::native_controls::Serving {
+            program: bin,
+            workdir,
+            session: launch.rejoining.as_deref(),
+            ..Default::default()
+        };
+        launch.command = served(provider, launch.command, handed, input, chosen)?;
+        Ok(launch)
+    };
     let Some(session) = session else {
         let qualification = qualify(&gate, &probe, None);
-        return Ok(plan(None, None, qualification.observed));
+        return served_plan(plan(None, None, qualification.observed));
     };
     // The gate first, as on the codex and dsh paths: a closed gate names
     // its own reason, whatever the offered id or the seat's argv looks
     // like.
     if let ResumeGate::Disabled(reason) = &gate {
-        return Ok(plan(None, Some(reason), None));
+        return served_plan(plan(None, Some(reason), None));
     }
     if !plain_claude_session(session) {
-        return Ok(plan(None, Some("invalid-session-id"), None));
+        return served_plan(plan(None, Some("invalid-session-id"), None));
     }
     if !persistent {
-        return Ok(plan(None, Some("nonpersistent-session"), None));
+        return served_plan(plan(None, Some("nonpersistent-session"), None));
     }
     let qualification = qualify(&gate, &probe, originating_harness_version(input));
     match qualification.refusal {
-        Some(refusal) => Ok(plan(None, Some(refusal), qualification.observed)),
-        None => Ok(plan(
+        Some(refusal) => served_plan(plan(None, Some(refusal), qualification.observed)),
+        None => served_plan(plan(
             Some(session.to_string()),
             None,
             qualification.observed,
@@ -3212,11 +3913,13 @@ fn invoke_dsh(
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let launch = dsh_launch(pinned.binary, pinned.extra, workdir, session, input)?;
-    invoke_dsh_launch(launch, prompt, workdir, bindings, emit, |child| {
+    let command = dsh_served(pinned.binary, &launch, pinned.extra, prompt, workdir, input)?;
+    let wait = |child: &mut std::process::Child| {
         child
             .try_wait()
             .map(|status| status.map(|status| status.code().unwrap_or(-1)))
-    })
+    };
+    invoke_dsh_launch_observed(launch, command, workdir, bindings, emit, wait, &mut |_| {})
 }
 
 /// The DSH plugin's own value-taking selectors and the launcher's control
@@ -3657,13 +4360,7 @@ struct DshLaunch {
     /// The absolute retained root the transcript fold follows.
     root: std::path::PathBuf,
     /// Held for the child's lifetime; dropping it removes the staged file.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "held for its Drop, which removes the staged overlay"
-        )
-    )]
+    /// Its path is the overlay the final check serves (`dsh_served`).
     overlay: DshSeatOverlay,
     /// True when the seat pinned no `--effort`, so the absence is the
     /// standing and every row reads `not applicable` (decision 0035
@@ -3749,27 +4446,44 @@ fn dsh_launch_resolving(
     })
 }
 
-/// `dsh_launch` over an injected composite producer, so every drift and
-/// mismatch case is a plain test over synthetic homes.
-#[expect(
-    clippy::excessive_nesting,
-    clippy::too_many_lines,
-    reason = "baseline 2026-09, #288"
-)]
-fn dsh_launch_with(
-    bin: &str,
-    extra: &[String],
-    workdir: &str,
-    session: Option<&str>,
-    input: &Value,
-    composite: impl FnOnce() -> Result<DshComposite, String>,
-) -> Result<DshLaunch, String> {
-    // Original adjacency first: the three extractions below are
+/// What a DSH launch reads from the seat's argv once it is judged: the
+/// engine's own model, effort and single route overlay, and nothing else.
+struct DshArgv {
+    model: Option<String>,
+    effort: Option<String>,
+    route: Option<String>,
+}
+
+/// The seat's argv as every DSH launch judges it, before any route is
+/// claimed, version probed or overlay staged ([`dsh_launch_with`]), and as
+/// doctor's reading of a DSH command judges it ([`dsh_cold_command`]).
+fn dsh_argv(extra: &[String], input: &Value) -> Result<DshArgv, String> {
+    // Decision 0065 ruling 4, as on the codex and claude paths and FIRST
+    // here: a site the engine computed no authority for is refused before
+    // the seat's argv is read, a route claimed, a version probed or an
+    // overlay staged. DSH declares its native inventory unmeasured, so the
+    // plan an engine writes carries no argv, no selection and no guard —
+    // and every residual argument is refused below whatever it spells. A
+    // driver no ruling engine launched carries no key and runs as it did.
+    //
+    // The plan is COMPOSED all the same (decision 0066 ruling 3): this
+    // launch consumes no native control, so a plan that carries one — a
+    // managed argument, a tool selection — is refused here rather than
+    // recorded and dropped, and the engine's provenance must reassemble
+    // the argv like any other launch's. What comes back is the argv as it
+    // was handed over: DSH folds nothing in.
+    //
+    // The order is the operator's (ruling of 2026-09-23, addendum): the
+    // authority refusal wins, and the boundary check below inspects the
+    // COMPOSED argv, the command that will actually launch (ruling 2).
+    let composed = composed_launch("dsh", extra, input)?;
+    let extra = composed.extra.as_slice();
+    // Original adjacency next: the three extractions below are
     // sequential, so a control standing in another control's value slot
     // would vanish before that slot is read (see `dsh_input_boundaries`).
     dsh_input_boundaries(extra)?;
     let (model, passthrough) = split_dsh_model(extra)?;
-    let (effort, passthrough) = split_effort(&passthrough);
+    let (effort, passthrough) = split_effort_as("dsh", &passthrough);
     let (route_arg, passthrough) = split_dsh_patch(&passthrough)?;
     // The inherited selector-only deny-list is not the admission rule:
     // after the engine's own model, effort and single route overlay are
@@ -3797,6 +4511,33 @@ fn dsh_launch_with(
                 .to_string(),
         );
     }
+    Ok(DshArgv {
+        model,
+        effort,
+        route: route_arg,
+    })
+}
+
+/// `dsh_launch` over an injected composite producer, so every drift and
+/// mismatch case is a plain test over synthetic homes.
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09, #288"
+)]
+fn dsh_launch_with(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+    composite: impl FnOnce() -> Result<DshComposite, String>,
+) -> Result<DshLaunch, String> {
+    let DshArgv {
+        model,
+        effort,
+        route: route_arg,
+    } = dsh_argv(extra, input)?;
     let route = route_overlay::claim(input, workdir, model.as_deref(), route_arg.as_deref())?;
     let transcript = Transcript::resolve(TranscriptKind::DshSession)?;
     let home = transcript.home().to_path_buf();
@@ -3912,24 +4653,12 @@ fn dsh_launch_with(
         route.as_deref(),
         sandbox_row.as_deref(),
     )?;
-    let mut command = vec![
-        bin.to_string(),
-        "--profile".into(),
-        "headless".into(),
-        "--patch".into(),
-        overlay.path().to_string_lossy().into_owned(),
-    ];
-    if stream_json {
-        command.push("--output-format".into());
-        command.push("stream-json".into());
-        match &rejoining {
-            Some(id) => {
-                command.push("--session".into());
-                command.push(id.clone());
-            }
-            None => command.push("--new".into()),
-        }
-    }
+    let command = dsh_command(
+        bin,
+        &overlay.path().to_string_lossy(),
+        stream_json,
+        rejoining.as_deref(),
+    );
     // Nothing of the seat's own argv follows: `dsh_control_conflict`
     // above refused every residual part, so the argv is exactly what the
     // engine composed.
@@ -3948,6 +4677,33 @@ fn dsh_launch_with(
         facts,
         staged,
     })
+}
+
+/// A DSH serving command up to its prompt: `<bin> --profile headless
+/// --patch <overlay>`, and where the driver qualified its stream reading,
+/// `--output-format stream-json` and then `--session <id>` for a rejoin or
+/// `--new`. The ONE builder the launch and the final check's rebuild share
+/// (rebuild unit 13-fix-c, R4); the prompt is appended last, as data.
+fn dsh_command(bin: &str, overlay: &str, stream: bool, rejoining: Option<&str>) -> Vec<String> {
+    let mut command = vec![
+        bin.to_string(),
+        "--profile".into(),
+        "headless".into(),
+        "--patch".into(),
+        overlay.to_string(),
+    ];
+    if stream {
+        command.push("--output-format".into());
+        command.push("stream-json".into());
+        match rejoining {
+            Some(id) => {
+                command.push("--session".into());
+                command.push(id.to_string());
+            }
+            None => command.push("--new".into()),
+        }
+    }
+    command
 }
 
 /// The offered root resolved beneath the admitted home, plus the sequence
@@ -4021,10 +4777,96 @@ fn owned_dsh_root(
     Ok((root, boundary))
 }
 
+/// The command one DSH launch spawns: its command, then the prompt as data,
+/// and only what the final check returns, cold or with the session it
+/// rejoins (rebuild units 14 and 15).
+fn dsh_served(
+    bin: &str,
+    launch: &DshLaunch,
+    handed: &[String],
+    prompt: &str,
+    workdir: &str,
+    input: &Value,
+) -> Result<Vec<String>, String> {
+    let overlay = launch.overlay.path().to_string_lossy();
+    DshServing {
+        command: launch.command.clone(),
+        overlay: &overlay,
+        stream: launch.stream_json,
+        session: launch.rejoining.as_deref(),
+    }
+    .served(bin, handed, prompt, workdir, input)
+}
+
+/// A DSH command up to its prompt and the engine's serving choices for
+/// it: the staged overlay it names, whether its stream reading
+/// qualified, and the session it rejoins (`None` cold).
+struct DshServing<'a> {
+    command: Vec<String>,
+    overlay: &'a str,
+    stream: bool,
+    session: Option<&'a str>,
+}
+
+impl DshServing<'_> {
+    /// The command ended by `prompt`, as data, and served only as the final
+    /// check returns it ([`served`]).
+    fn served(
+        self,
+        bin: &str,
+        handed: &[String],
+        prompt: &str,
+        workdir: &str,
+        input: &Value,
+    ) -> Result<Vec<String>, String> {
+        let mut command = self.command;
+        command.push(prompt.to_string());
+        let chosen = crate::native_controls::Serving {
+            program: bin,
+            workdir,
+            session: self.session,
+            overlay: Some(self.overlay),
+            stream: self.stream,
+            prompt: Some(prompt),
+            ..Default::default()
+        };
+        served("dsh", command, handed, input, chosen)
+    }
+}
+
+/// The same reading of a cold DSH launch as [`codex_command`] and
+/// [`claude_command`] give of theirs (operator ruling of 2026-09-30, unit
+/// 22-fix-b): the seat's argv judged as every DSH launch judges it
+/// ([`dsh_argv`]), then the one serving command [`dsh_command`] builds,
+/// unqualified and rejoining nothing, ended by `prompt` and handed to the
+/// same final check a DSH launch serves its command through
+/// ([`dsh_served`]). The overlay is named, never staged: the check reads it
+/// only as the argument it is. No route is claimed, no version probed and
+/// nothing spawned, so its admission or refusal is the final validation's
+/// alone.
+pub fn dsh_cold_command(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    overlay: &str,
+    prompt: &str,
+    input: &Value,
+) -> Result<Vec<String>, String> {
+    dsh_argv(extra, input)?;
+    DshServing {
+        command: dsh_command(bin, overlay, false, None),
+        overlay,
+        stream: false,
+        session: None,
+    }
+    .served(bin, extra, prompt, workdir, input)
+}
+
 /// `invoke_dsh` over an already-settled launch, so the qualified
 /// stream-json arm is reachable from a test without a real composite
-/// install and its node probe. Production reaches it only through
-/// `dsh_launch`, which still performs every qualification check.
+/// install and its node probe. Production never reaches it: its launches
+/// come through `dsh_launch`, which still performs every qualification
+/// check, and are served through [`dsh_served`].
 ///
 /// The one question the OS answers — "is the child still running?" — is
 /// injectable too, the way `stage_prompt_with` and
@@ -4032,6 +4874,7 @@ fn owned_dsh_root(
 /// `waitpid` failure cannot be provoked from a test, and the arm that
 /// handles it is the difference between a seat that reports a refusal
 /// and a seat that spins in silence forever, so it is reachable here.
+#[cfg(test)]
 fn invoke_dsh_launch(
     launch: DshLaunch,
     prompt: &str,
@@ -4040,16 +4883,19 @@ fn invoke_dsh_launch(
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
-    invoke_dsh_launch_observed(launch, prompt, workdir, bindings, emit, wait, &mut |_| {})
+    let mut command = launch.command.clone();
+    command.push(prompt.to_string());
+    invoke_dsh_launch_observed(launch, command, workdir, bindings, emit, wait, &mut |_| {})
 }
 
 /// `invoke_dsh_launch` with this ONE invocation's observer of the
-/// confirmation's completed observations. Production watches nothing; a
-/// test reads here exactly what the watcher consumed — never a second
-/// walk of its own — and only once the watcher has ruled on it.
+/// confirmation's completed observations, spawning exactly `command`.
+/// Production watches nothing; a test reads here exactly what the watcher
+/// consumed — never a second walk of its own — and only once the watcher
+/// has ruled on it.
 fn invoke_dsh_launch_observed(
     mut launch: DshLaunch,
-    prompt: &str,
+    command: Vec<String>,
     workdir: &str,
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
@@ -4092,8 +4938,6 @@ fn invoke_dsh_launch_observed(
     if !launch.stream_json {
         hold.finish(emit);
     }
-    let mut command = launch.command.clone();
-    command.push(prompt.to_string());
     // Everything the seat committed lives in the private store and
     // nowhere else until the promotion below moves it. Returning early
     // would drop the store — and the seat's work with it — behind an
@@ -4839,7 +5683,6 @@ fn redact_dsh_reasoning(stderr: &str) -> String {
 }
 
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn invoke_with_stager(
     kind: AdapterKind,
     pinned: Pinned<'_>,
@@ -4878,7 +5721,8 @@ fn invoke_with_stager(
             Ok(invocation)
         }
         AdapterKind::Codex => {
-            let plan = codex_launch(bin, extra, &workdir, session, input)?;
+            let (plan, validated_cold) =
+                codex_launch_and_cold(bin, extra, &workdir, session, input)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
             let mut invocation =
@@ -4906,17 +5750,17 @@ fn invoke_with_stager(
             {
                 // The rejected child's candidates go with it: a
                 // replacement inherits none of its launch, root,
-                // locator or accounting. The cold argv reuses `extra`
-                // unchanged because `codex_launch` already validated
-                // exactly these immutable arguments — the selector and
-                // incompatible-argv guards ran on them before the first
-                // spawn — so a second builder guard here would repeat a
-                // check that cannot have become false.
-                let cold = LaunchPlan::cold(
-                    codex_cold(bin, extra, &workdir),
-                    "codex-thread",
-                    Some("harness-refused"),
-                );
+                // locator or accounting. The cold argv IS the one the
+                // launch composed from the arguments and the capability
+                // plan it validated before the first spawn — the selector,
+                // provenance and native-control guards all ran on them —
+                // so the replacement carries the same delivered control,
+                // and nothing is decoded a second time where an error
+                // could degrade to no control (decision 0066 ruling 2).
+                // It is the command the final check returned for a cold
+                // launch, checked on its own (rebuild unit 15).
+                let cold =
+                    LaunchPlan::cold(validated_cold, "codex-thread", Some("harness-refused"));
                 let command = cold.command.clone();
                 let mut replacement = LaunchHold::new("codex", cold);
                 let mut outcome =
@@ -5051,7 +5895,20 @@ fn parse_dsh_model(pinned: &str) -> Result<DshModel<'_>, String> {
 /// every provider shares — and this driver is where `--model <id>`
 /// becomes the overlay dsh actually reads. Everything after `--` that
 /// is not that pair passes through to the launcher unchanged.
+///
+/// Where the argv parses under the dsh grammar the model is its one
+/// `--model` node, read from the grammar's parse (rebuild unit 13); the
+/// grammar admits the same separate spelling alone, so both readings agree
+/// on every argv both accept.
 fn split_dsh_model(extra: &[String]) -> Result<(Option<String>, Vec<String>), String> {
+    if let Some(command) = placed("dsh", extra) {
+        return dsh_placed(
+            extra,
+            &command,
+            "--model",
+            "dsh driver: --model needs a model id after it",
+        );
+    }
     let mut model = None;
     let mut passthrough = Vec::with_capacity(extra.len());
     let mut parts = extra.iter();
@@ -5126,7 +5983,17 @@ fn dsh_input_boundaries(extra: &[String]) -> Result<(), String> {
 /// shape; a second `--patch`, a bare `--patch` and any other `--patch…`
 /// spelling are refused by arity before staging, never forwarded and never
 /// dropped to make the launch admissible (AS3; design D6 mechanism 1).
+/// Where the argv parses under the dsh grammar the overlay is its one
+/// `--patch` node, as [`split_dsh_model`] reads the model (rebuild unit 13).
 fn split_dsh_patch(extra: &[String]) -> Result<(Option<String>, Vec<String>), String> {
+    if let Some(command) = placed("dsh", extra) {
+        return dsh_placed(
+            extra,
+            &command,
+            "--patch",
+            "dsh driver: --patch needs an overlay path after it",
+        );
+    }
     let mut route = None;
     let mut passthrough = Vec::with_capacity(extra.len());
     let mut parts = extra.iter();
@@ -5156,6 +6023,30 @@ fn split_dsh_patch(extra: &[String]) -> Result<(Option<String>, Vec<String>), St
         }
     }
     Ok((route, passthrough))
+}
+
+/// The value of the one dsh option `name` in a parsed argv, and the parts
+/// that pass through, which are every part the option did not occupy
+/// (rebuild unit 13). The grammar places the option once, in its separate
+/// spelling, with a value that does not read as an option; an empty value
+/// is refused as the splitter always refused it.
+fn dsh_placed(
+    extra: &[String],
+    command: &crate::native_controls::grammar::Command,
+    name: &str,
+    refusal: &str,
+) -> Result<(Option<String>, Vec<String>), String> {
+    let node = command.nodes.iter().find(|node| node.name() == name);
+    let taken = node.map_or(0..0, |node| node.at..node.at + node.tokens);
+    let value = node.map(|node| node.values[0].clone());
+    if value.as_deref() == Some("") {
+        return Err(refusal.to_string());
+    }
+    let passthrough = (0..extra.len())
+        .filter(|at| !taken.contains(at))
+        .map(|at| extra[at].clone())
+        .collect();
+    Ok((value, passthrough))
 }
 
 /// The pinned-model row of the seat overlay, in the loader-patch
@@ -5840,6 +6731,29 @@ fn run_seat_with(
         }
     };
 
+    // Rebuild unit 18 (design D7): an engine launch that names a charter
+    // and carries none of its verified text is refused BEFORE anything is
+    // invoked, so no prompt is ever sent around an empty or reread
+    // charter: `render_prompt` above reopened no path for it. A
+    // determinate refusal like a missing secret's: the driver has not
+    // spawned, so no turn can have begun.
+    if input.get("native_controls").is_some() {
+        if let Err(error) = crate::native_controls::verified_role(&input) {
+            send(Body::Accepted {
+                effect_id: effect_id.clone(),
+                attempt_id: attempt_id.clone(),
+                session_ref: None,
+            });
+            send(Body::Result {
+                effect_id,
+                attempt_id,
+                status: ResultStatus::Failed,
+                result: None,
+                error: Some(error),
+            });
+            return;
+        }
+    }
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
     let invocation = match invoke(&prompt, &input, &bindings, &mut |data: &Value| {

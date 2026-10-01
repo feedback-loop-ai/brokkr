@@ -22,6 +22,26 @@ fn machine() -> Machine {
     .unwrap()
 }
 
+/// A hand-built fixture link whose whole argv its adapter's template
+/// supplied, with no local limits and no hands (design D5.7): the origin
+/// the fixture DECLARES for the argv it spells, not one recovered from a
+/// command. A fixture about origins spells its segments itself.
+pub(super) fn templated(mut candidate: Candidate) -> Candidate {
+    candidate.lowering = Lowering::Composed(crate::agents::Composition {
+        segments: vec![Segment::new(Origin::Template, &candidate.argv)],
+        effort: candidate.effort.clone(),
+        intent: crate::agents::Intent {
+            allow: AllowIntent::Unspecified,
+            sandbox: SandboxIntent::Unspecified,
+            hands: HandsIntent::None,
+        },
+        application: Application::Unrestricted,
+        template: crate::agents::declared_template(&candidate.argv),
+        serving: Default::default(),
+    });
+    candidate
+}
+
 pub(super) fn single_body(command: Vec<String>) -> SeatBody {
     SeatBody::Single {
         role_path: PathBuf::from("role.md"),
@@ -79,6 +99,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         hands: BTreeMap::new(),
         inline_resume: BTreeMap::new(),
         sites: Default::default(),
+        charters: Default::default(),
     }
 }
 
@@ -568,7 +589,8 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
     let mut selection = Selection::new();
     selection.insert(
         Some("validate".into()),
-        Candidate {
+        templated(Candidate {
+            lowering: Lowering::Unavailable,
             agent: "dialect".into(),
             model: "none".into(),
             effort: None,
@@ -584,7 +606,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
                     result: json!({"result":"drafted"}),
                 },
             ),
-        },
+        }),
     );
     let failing_step = SequenceStep {
         name: "validate".into(),
@@ -656,7 +678,8 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
     let mut selection = Selection::new();
     selection.insert(
         Some("validate".into()),
-        Candidate {
+        templated(Candidate {
+            lowering: Lowering::Unavailable,
             agent: "dialect".into(),
             model: "none".into(),
             effort: None,
@@ -672,7 +695,7 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
                     result: json!({"result":"drafted"}),
                 },
             ),
-        },
+        }),
     );
     let steps = [first, validate];
     runtime
@@ -1595,24 +1618,29 @@ fn a_composed_run_resumes_and_refuses_when_its_base_moved() {
         .unwrap()
         .contains_key("@compose/0000/base"));
 
+    // Decision 0065 ruling 8 (design D7): every compiled bundle now pins
+    // its capability authority, and the frozen v2 lineage cannot carry
+    // it. Its own fail-closed list refuses the key BY NAME, before any
+    // row, rather than stripping the authority to make the round-trip
+    // fit — so a Looper-bound start of a compiled bundle is refused until
+    // that lineage gains a version that can carry `capabilities`.
     let store = Store::open(&dir.path().join("composed.db")).unwrap();
     let envelope = dispatch(&composed);
-    let engine = Engine::start_with_dispatch(
+    match Engine::start_with_dispatch(
         store,
         composed.clone(),
         "composed",
         Some(dir.path().into()),
         envelope,
-    )
-    .unwrap();
-    let resumed = Engine::resume(
-        engine.store,
-        composed.clone(),
-        "bound-run",
-        Some(dir.path().into()),
-    )
-    .unwrap();
-    assert_eq!(resumed.feature, "composed");
+    ) {
+        Err(EngineError::Dispatch(
+            brokkr_core::dispatch::DispatchError::ManifestKeyUnsupportedByDispatchLineage(key),
+        )) => assert_eq!(key, "capabilities"),
+        Err(other) => panic!("expected the named lineage refusal: {other}"),
+        Ok(_) => panic!("the v2 lineage cannot carry capability authority"),
+    }
+    let refused = Store::open(&dir.path().join("composed.db")).unwrap();
+    assert!(refused.list_runs().unwrap().is_empty());
 
     // A base that moved under a plain run surfaces BY NAME: resume
     // recompiles, re-resolves from the same library, and the existing
@@ -1945,7 +1973,7 @@ fn git_helpers_fail_closed_and_a_site_without_hands_composes_its_own_argv() {
             dir.path(),
             &[dir.path().to_path_buf()]
         ),
-        command
+        Ok(command)
     );
 }
 
@@ -2136,6 +2164,25 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
         .as_str()
         .unwrap()
         .contains("stderr tail"));
+}
+
+/// Give an operated repository the operator's abstract definitions. A
+/// compile that loads the shipped library consults the definitions every
+/// loaded agent names (decision 0065; design D3) and pins them, and the
+/// start fence reads those pins under the OPERATED repository — so a test
+/// that compiles against the workspace and starts somewhere else has to
+/// stand where a real operated repository stands: beside its definitions.
+fn carry_definitions(operated: &Path) {
+    let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../capabilities");
+    std::fs::create_dir_all(operated.join("capabilities")).unwrap();
+    for entry in std::fs::read_dir(shipped).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            operated.join("capabilities").join(entry.file_name()),
+        )
+        .unwrap();
+    }
 }
 
 fn git_commit(repo: &Path, message: &str) -> String {
@@ -2851,7 +2898,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
     std::fs::create_dir(dir.path().join("work")).unwrap();
     let bundle = bundle(dir.path(), single_body(vec!["driver".into()]));
     let manifest = bundle.manifest.clone();
-    let started = json!({"feature":"feature","manifest":manifest});
+    let started = json!({"feature":"feature","manifest":manifest,"charters":[]});
     let in_flight = vec![
         (EventType::RunStarted, started.clone()),
         (EventType::PhaseEntered, json!({"phase":"work"})),
@@ -3909,14 +3956,16 @@ fn world_with_house(dir: &Path, repo: &Path, house: &str) -> crate::realms::Worl
 
 fn engine_in(dir: &Path, world: Option<crate::realms::World>, repo: &Path) -> Engine {
     let store = Store::open(&dir.join("forge.db")).unwrap();
-    Engine::start_in_world(
-        store,
-        bundle(dir, single_body(vec!["driver".into()])),
-        "feature",
-        Some(repo.to_path_buf()),
-        world,
-    )
-    .unwrap()
+    // Compiled in the realm it is started in, granting nothing: the start
+    // fence compares both (decision 0065 ruling 3).
+    let mut bundle = bundle(dir, single_body(vec!["driver".into()]));
+    let realm = world
+        .as_ref()
+        .and_then(|world| world.realm_for(repo))
+        .map_or(crate::capabilities::UNMAPPED, |realm| &realm.name);
+    bundle.manifest["capabilities"] = json!({"realm": realm, "grants": {}, "definitions": {},
+        "dialects": {}, "sites": {}});
+    Engine::start_in_world(store, bundle, "feature", Some(repo.to_path_buf()), world).unwrap()
 }
 
 #[test]
@@ -4078,11 +4127,12 @@ fn a_run_in_a_world_with_a_crossing_records_the_digest_it_stood_on() {
     let started = &engine.store.load(&engine.run_id).unwrap()[0];
     assert_eq!(started.payload["manifest"], manifest);
 
-    // And it is the contract it claims: run-manifest/v10.
+    // And it is the contract it claims: run-manifest/v11, which is v10
+    // and the required `capabilities` section (decision 0065 ruling 8).
     let schema: Value = serde_json::from_slice(
         &std::fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../contracts/run-manifest.v10.schema.json"),
+                .join("../../contracts/run-manifest.v11.schema.json"),
         )
         .unwrap(),
     )
@@ -4125,6 +4175,16 @@ fn a_two_realm_run_with_no_crossing_stores_the_exact_earlier_shape() {
     let manifest = engine.store.manifest(&engine.run_id).unwrap();
     assert!(manifest.get("crossings").is_none(), "{manifest}");
     assert!(manifest.get("realms").is_some());
+    // The earlier shape, exactly: set the capability section every
+    // manifest now carries aside (decision 0065 ruling 8 — run-manifest
+    // v11), and what a world with no crossing writes is still what v9
+    // described.
+    let mut earlier = manifest.clone();
+    assert!(earlier
+        .as_object_mut()
+        .unwrap()
+        .remove("capabilities")
+        .is_some());
     let v9: Value = serde_json::from_slice(
         &std::fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -4134,7 +4194,7 @@ fn a_two_realm_run_with_no_crossing_stores_the_exact_earlier_shape() {
     )
     .unwrap();
     assert!(
-        jsonschema::draft7::new(&v9).unwrap().is_valid(&manifest),
+        jsonschema::draft7::new(&v9).unwrap().is_valid(&earlier),
         "a world with no crossing writes a manifest v9 still validates",
     );
 }
@@ -4508,7 +4568,7 @@ fn resume_carries_no_world_where_the_run_had_none_and_refuses_a_broken_pin() {
 /// answering with a fixed result. `driver_command` above is enough when
 /// only the outcome matters; a sequence's later step is judged by what
 /// it was TOLD, so this one keeps the evidence.
-fn capturing_driver_command(
+pub(super) fn capturing_driver_command(
     effect_id: &str,
     attempt_id: &str,
     capture: &Path,
@@ -4750,10 +4810,20 @@ fn compiled_triage_engine() -> (tempfile::TempDir, Engine) {
     // These unit scenarios replace the compiled commands with the protocol
     // fake below; the box itself has its dedicated boxed proof.
     bundle.hands.clear();
-    bundle.sites.clear();
+    bundle.sites.retain(|_, facts| facts.charter.is_some());
+    bundle.sites.values_mut().for_each(|facts| {
+        *facts = SiteFacts {
+            charter: facts.charter.take(),
+            ..SiteFacts::default()
+        }
+    });
+    // Named for its dialect, started with no world at all: the fence reads
+    // the realm the bundle was resolved in (decision 0065 ruling 3).
+    bundle.manifest["capabilities"]["realm"] = json!(crate::capabilities::UNMAPPED);
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
     std::fs::create_dir(&work).unwrap();
+    carry_definitions(&work);
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let engine = Engine::start(store, bundle, "compiled SDD proof", Some(work)).unwrap();
     (dir, engine)
@@ -4871,7 +4941,8 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
     let mut selection = Selection::new();
     selection.insert(
         Some("check".into()),
-        Candidate {
+        templated(Candidate {
+            lowering: Lowering::Unavailable,
             agent: "dialect".into(),
             model: "none".into(),
             effort: None,
@@ -4887,7 +4958,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
                     result: json!({"result":"ambiguous"}),
                 },
             ),
-        },
+        }),
     );
     let mut current = state(Some("clarify"), Cursor::Idle);
     current.phase_results.insert(
@@ -4941,7 +5012,8 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
     let mut selection = Selection::new();
     selection.insert(
         Some("check".into()),
-        Candidate {
+        templated(Candidate {
+            lowering: Lowering::Unavailable,
             agent: "dialect".into(),
             model: "none".into(),
             effort: None,
@@ -4957,7 +5029,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
                     result: json!({"result":"clear"}),
                 },
             ),
-        },
+        }),
     );
     let mut current = state(Some("clarify"), Cursor::Idle);
     current.phase_results.insert(
@@ -5007,7 +5079,8 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
     let mut selection = Selection::new();
     selection.insert(
         Some("check".into()),
-        Candidate {
+        templated(Candidate {
+            lowering: Lowering::Unavailable,
             agent: "dialect".into(),
             model: "none".into(),
             effort: None,
@@ -5023,7 +5096,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
                     result: json!({"result":"drift"}),
                 },
             ),
-        },
+        }),
     );
     let mut current = state(Some("analyze"), Cursor::Idle);
     current.visits.insert("analyze".into(), 1);
@@ -5265,6 +5338,7 @@ fn a_returning_implement_exposes_its_docs_delta_and_takes_review_directly() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -5307,6 +5381,7 @@ fn a_verify_fail_return_with_a_docs_delta_still_goes_through_verify() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -5351,6 +5426,7 @@ fn a_review_return_exposes_no_docs_fact_without_both_heads() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -5424,6 +5500,7 @@ fn docs_only_review_commits_are_classified_and_never_claimed() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let mut engine = engine_in(dir.path(), None, &repo);
@@ -5472,6 +5549,7 @@ fn the_docs_class_is_read_at_the_entry_head_and_not_from_the_tree() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let mut engine = engine_in(dir.path(), None, &repo);
@@ -5546,6 +5624,7 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let mut engine = engine_in(dir.path(), None, &repo);
@@ -5642,7 +5721,7 @@ fn a_site_without_hands_spawns_its_command_untouched() {
     let command = vec!["claude".to_string(), "--model".to_string(), "x".to_string()];
     assert_eq!(
         hands_command(command.clone(), None, Path::new("/work"), &[]),
-        command
+        Ok(command)
     );
 }
 
@@ -5666,7 +5745,8 @@ fn a_model_seat_with_hands_gets_the_server_config_expanded_into_its_argv() {
         Some(&spec),
         Path::new("/work"),
         &[],
-    );
+    )
+    .unwrap();
     let exe = std::env::current_exe()
         .unwrap()
         .to_string_lossy()
@@ -5686,23 +5766,112 @@ fn a_model_seat_with_hands_gets_the_server_config_expanded_into_its_argv() {
     );
 }
 
+/// Rebuild unit 14a2 (the 13-fix-b follow-up): a model seat's hands are
+/// expanded by `Transport::expand`, the one TOML-safe encoder the final
+/// check expects them from. Every escape it makes — `\` and `"`, the short
+/// control escapes, and `\uXXXX` for the rest of U+0000–U+001F and U+007F —
+/// reaches the served server arguments exactly, where the spawn's own
+/// encoder escaped only `\` and `"`. A workdir that is not UTF-8 names no
+/// exact provider value and refuses the spawn instead of binding a lossy
+/// path.
+#[test]
+fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
+    let spec = brokkr_protocol::hands::HandsSpec::default();
+    let workdir = Path::new("/w\\\"\t\n\u{1}\u{7f}\u{8}\u{c}\r");
+    let fragment: Vec<String> = [
+        "--mcp-config",
+        "{hands_mcp_json}",
+        "-c",
+        "mcp_servers.brokkr.command=\"{brokkr}\"",
+        "-c",
+        "mcp_servers.brokkr.args={hands_args_toml}",
+    ]
+    .map(String::from)
+    .to_vec();
+    let argv = hands_command(fragment.clone(), Some(&spec), workdir, &[]).unwrap();
+    let brokkr = std::env::current_exe().unwrap();
+    let transport = Transport {
+        brokkr: &brokkr,
+        workdir,
+        spec: &spec,
+    };
+    assert_eq!(Some(argv.clone()), transport.expand(&fragment));
+    assert_eq!(
+        argv[5],
+        r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/w\\\"\t\n\u0001\u007F\b\f\r","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
+    );
+    assert_eq!(
+        argv[3],
+        format!("mcp_servers.brokkr.command=\"{}\"", brokkr.display())
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let lossy = Path::new(std::ffi::OsStr::from_bytes(b"/w\xff"));
+        let refusal = "dispatch refused: the engine's executable or the site's workdir is not \
+                       UTF-8, so no provider value names it exactly and the box's hands cannot \
+                       be bound to it; a lossy path would bind another (rebuild unit 13-fix-c, \
+                       R2; rebuild unit 14a2)";
+        assert_eq!(
+            hands_command(fragment.clone(), Some(&spec), lossy, &[]),
+            Err(refusal.to_string())
+        );
+        let command: Vec<String> = ["/bin/brokkr", "driver", "codex", "--"]
+            .map(String::from)
+            .into_iter()
+            .chain(fragment.clone())
+            .collect();
+        let spawn = compose_site(
+            BuiltBoundary::Namespace,
+            SeatClass::Work,
+            command.clone(),
+            Some(&spec),
+            None,
+            lossy,
+            &[],
+            "",
+            None,
+        );
+        // The dispatch door refuses it before anything starts (rebuild unit
+        // 26b).
+        let dir = tempfile::tempdir().unwrap();
+        let compiled = bundle(
+            &dir.path().canonicalize().unwrap(),
+            single_body(command.clone()),
+        );
+        let door = spawn_site(
+            &compiled,
+            &spawn,
+            &json!({}),
+            lossy,
+            std::time::Duration::from_secs(1),
+        );
+        assert_eq!(door.err(), Some(refusal.to_string()));
+        assert_eq!(
+            (spawn.argv, spawn.refusal),
+            (command, Some(refusal.to_string()))
+        );
+    }
+}
+
 #[test]
 fn only_an_exec_dispatch_is_boxed_whole() {
     let spec = brokkr_protocol::hands::HandsSpec::default();
     let short = vec!["true".to_string()];
     assert_eq!(
         hands_command(short.clone(), Some(&spec), Path::new("/w"), &[]),
-        short
+        Ok(short)
     );
     let not_a_dispatch = vec!["a".to_string(), "b".to_string(), "exec".to_string()];
     assert_eq!(
         hands_command(not_a_dispatch.clone(), Some(&spec), Path::new("/w"), &[],),
-        not_a_dispatch
+        Ok(not_a_dispatch)
     );
     let other_driver = vec!["x".to_string(), "driver".to_string(), "claude".to_string()];
     assert_eq!(
         hands_command(other_driver.clone(), Some(&spec), Path::new("/w"), &[],),
-        other_driver
+        Ok(other_driver)
     );
 }
 
@@ -5723,7 +5892,8 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
         Some(&spec),
         Path::new("/work"),
         &[PathBuf::from("/bundle")],
-    );
+    )
+    .unwrap();
     let exe = std::env::current_exe()
         .unwrap()
         .to_string_lossy()
@@ -5746,7 +5916,8 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
         "--".to_string(),
         "true".to_string(),
     ];
-    let rootless = hands_command(rootless_inner.clone(), Some(&spec), Path::new("/work"), &[]);
+    let rootless =
+        hands_command(rootless_inner.clone(), Some(&spec), Path::new("/work"), &[]).unwrap();
     assert_eq!(rootless[7], "--");
     assert_eq!(&rootless[8..], &rootless_inner);
 }

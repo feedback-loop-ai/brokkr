@@ -517,6 +517,233 @@ network, so no seat can run a live codex smith; the first one — cargo
 and git through the box on codex, a real commit, verify passing — is the
 controller's measurement after the change lands, and is pending.
 
+## Native capabilities
+
+A harness may carry powers of its own that no box confines, because the
+PROVIDER runs them: Codex's server-side web search returns inside the
+model's response, so a box with `network: false` neither sees nor stops
+it. Decision 0065 ruling 4 rules them off until a realm lists them, and
+the adapter is where a harness's own powers are declared — each with how
+it is switched ON and how it is switched OFF, or `unsupported` with the
+measured reason, in the form `tool_permissions` already uses.
+
+```json
+"native_capabilities": {
+  "known": {
+    "web-search": {
+      "capability": "web-search",
+      "tools": ["web_search"],
+      "on":  { "default": "codex-cli 0.154.0 cold `codex exec` has server-side web search ON with no flag …" },
+      "off": { "argv": ["-c", "web_search=\"disabled\""] },
+      "restrictions": { "unsupported": "no native transport for a restriction … has been established" },
+      "evidence": { "source": "…", "scope": "codex-cli 0.154.0, cold `codex exec` only …", "limitations": ["…"] },
+      "authored": { "flags": ["--search"], "config_flags": ["-c", "--config"], "config_keys": ["web_search", "…"] }
+    }
+  }
+}
+```
+
+The key (`web-search`) is what a provider-native tool dialect's
+`adapter_key` names; `capability` is the abstraction it realises and
+`tools` the harness's own tool names. Each of `on` and `off` is exactly
+one **disposition**:
+
+| Disposition | Meaning |
+|---|---|
+| `{"argv": […]}` | Non-empty argv that switches it. |
+| `{"default": "<reason>"}` | Nothing to write: this IS the harness's measured default. |
+| `{"selection": {"include": […], "allow": […], "deny": […]}}` | Contributions to the harness's own tool lists; the adapter's sibling `selection` names the three list flags and separators. |
+| `{"unsupported": "<measured reason>"}` | Measured: it cannot be switched this way. |
+| `{"unmeasured": "<reason>"}` | Nobody has measured whether it can. |
+
+A declaration missing a half, a reason, or carrying two variants is
+refused at load, as is an empty argv or a selection control with no list
+flags to express it. `restrictions` says whether a grant's restriction
+object can reach the harness at all: `unsupported` with its reason, or an
+argv template carrying exactly one `{restrictions_json}` slot, filled with
+the canonical JSON of the whole validated object as one argument value —
+never shell text. **Slice one carries only the empty restriction.** No
+provider restriction transport has been measured, so a nonempty
+restriction cannot be expressed on any candidate, a declared transport
+included: a `requires` of such a grant refuses compilation and a `wants`
+is dropped with the capability OFF (operator addendum of 2026-09-25). No
+seat holds an enforced nonempty restriction today. `evidence` keeps a
+declared mechanism apart from a live result: its `scope` and
+`limitations` are printed by `brokkr doctor` beside the control, and a
+green argv test upgrades neither. `authored` names the arguments a seat
+might write that would contend with the managed control. For a harness
+brokkr models, compilation already refuses every capability-bearing
+option a recipe writes, whatever its value (below). `authored` is what the
+launch's guard checks again before the spawn, and what the command of a
+driver brokkr cannot parse is conservatively searched for. Either refusal
+names the control and the capability and copies no value, and two
+controls are never ordered against each other.
+
+**The whole inventory may instead be `{"unmeasured": "<reason>"}`**, and
+an adapter written before the ruling reads that way too, with the
+absence as its reason. Unmeasured is not an empty inventory: nothing can
+be granted through it and no native denial is claimed for it. For a
+harness the engine KNOWS to carry a native power — Codex `web-search`,
+Claude `web-search` and `web-fetch` — unmeasured is not enough (decision
+0066 ruling 1): a seat on it compiles only with a valid, delivered
+control for each such power. An adapter written before the ruling, one
+whose `native_capabilities` is omitted, empty or missing the power, an
+adapter file that cannot be read — an unrelated one in the same
+directory included, since the directory loads whole — and an OFF nobody
+measured each refuse the seat, naming the site, the office, the realm,
+the provider, the capability and the original cause. That floor grants
+nothing and supplies no switch; the control is still the adapter's
+data. DSH, LaneTally and an opaque custom driver keep their own declared
+uncertainty and inherit nobody's inventory.
+
+What the compiler does with a declaration, per seat and per provider
+candidate, independently of anything the office asks:
+
+- a native power the seat HOLDS — asked for, granted to its office by the
+  realm through a dialect bound to this provider and key — is switched ON;
+- one it does not hold is switched OFF, whether it asked for nothing, lost
+  a want, fell outside the grant's offices or subtracted it;
+- one whose OFF is `unsupported` **refuses compilation** in a realm that
+  has not granted it to that seat: a harness that cannot be told to stay
+  quiet cannot be seated there, and a `wants` does not excuse it;
+- a whole-set switch cannot admit a proper subset of a dialect's tools,
+  and a grant whose restriction the harness cannot express is refused for
+  a `requires` and dropped — with the capability OFF — for a `wants`. The
+  restriction is never discarded to make the grant usable.
+
+The resolved controls ride the driver input (`native_controls`) the
+engine writes, and the adapter composes them into the final argv: last on
+a cold Codex command, before the session and stdin positionals on an
+eligible `exec resume` (an AUTHORED `-c` still turns a rejoin cold). On
+Claude and LaneTally they are composed with the engine's OWN lists — the
+adapter's permission template, the seat's typed local permissions and the
+hands fragment — into one include, allow and deny list, each list flag
+emitted once, so the hands fragment's empty tool list gains exactly what
+is held while `mcp__brokkr__workspace` and `--strict-mcp-config` stay.
+None of those lists is the recipe's: a recipe writes no tool list (below),
+so nothing it wrote is merged. A model site the engine computed no
+authority for is refused before any provider work rather than launched
+on the harness's defaults.
+
+The launch composes with the same function the compiler admitted with,
+so a control the compiler accepted reaches the final argv or the compile
+refuses that representation (decision 0066 ruling 3): a Claude OFF
+declared as argv — `--disallowedTools WebSearch` — is folded into the
+same engine-owned deny list a selection feeds, each list flag once; a
+selection for Codex, or anything for dsh, is refused rather than recorded
+and dropped. **The launch then proves itself** (operator ruling 2 of
+2026-09-23): the complete final command, after every prefix, expansion,
+session argument and prompt, is parsed back under the harness's grammar,
+the capability state it expresses is compared with the state the plan
+recorded, and it must equal the engine's recomposition from the sealed
+typed inputs token for token. A mismatch refuses the launch. The adapter's
+ON and OFF argv are parsed when the adapter data loads, and a declaration
+that does not parse refuses the load. What a recipe AUTHORED and what the
+engine appended are carried apart as provenance, from composition through
+dispatch to the driver's private `launch_arguments`, never recovered by
+matching text (ruling 4), and copying the engine's bytes into a recipe
+confers none of its provenance.
+
+**A recipe authors no capability-bearing option** for a harness brokkr
+drives — claude, codex and dsh, and LaneTally's claude path (operator
+ruling 1 of 2026-09-23). A tool list of any polarity, a loaded document
+(`--mcp-config`, `--settings`, `--plugin-dir`, `--agents`, a Codex
+`--profile`), a permission mode or sandbox, a web or search switch, and a
+Codex `-c` assignment into a capability table are refused at compile by
+origin, in every spelling, primary or fallback, inline or agent-backed,
+whatever the value and whatever the realm grants:
+
+```text
+bundle: seat 'work' (office 'work') in realm 'private': its arguments carry
+'--sandbox' (argument 5), a capability-bearing option of harness 'codex'. A
+recipe authors no capability-bearing option, whatever its value, polarity or
+grant: tools come from typed declarations and the realm's grant, composed by
+the engine alone (operator ruling 1 of 2026-09-23)
+```
+
+Tools come from typed agent and seat data (`tools.allow`,
+`tools.sandbox`; see [recipe authoring](recipe-authoring.md#a-seat)) and
+the realm's grant, composed by the engine, while the engine's own hands
+fragment keeps working. A server named `brokkr` proves nothing, so an inline model seat
+that authored the box's hands tokens itself is refused the same way; the
+way out is to seat the office through an agent, whose adapter owns that
+fragment. DSH's one `--patch` stays: a bound, contained, digest-matched
+route overlay under a closed grammar, re-read and re-validated before it
+is staged.
+
+### The command is parsed, not scanned
+
+A driver command for a harness brokkr KNOWS — `claude`, `codex`,
+`lanetally`, `dsh` — is parsed against a model of that CLI's options
+before anything judges it: which options exist, which take a value, in
+which forms (split, `=`-joined, attached), which are variadic, which may
+repeat, and what each one DOES. Admission then judges that structure, so
+every spelling of one option is judged at once. What this means when you
+author a command:
+
+- **All five Codex config spellings are one assignment.** `-c k=v`,
+  `-c=k=v`, `-ck=v`, `--config k=v` and `--config=k=v` reach the same
+  place and earn the same answer. There is no spelling that escapes.
+- **A token the grammar cannot place is refused, by name.** An option
+  the model does not carry, a bare word where no positional belongs, an
+  option written twice where the CLI resolves duplicates last-wins — all
+  refuse at compile, naming the token and its position. The guarantee is
+  a closed supported subset, not support for every option those CLIs
+  will ever grow: a new one refuses until it is modelled, which is the
+  direction a capability fence has to fail in.
+- **A split value that reads as an option is ambiguous.** Write
+  `--append-system-prompt='--disallowedTools hello'`, not
+  `--append-system-prompt --disallowedTools hello`: the split pair could
+  be a prompt carrying a flag or a flag carrying a prompt, and a harness
+  that reads it the other way turns a required denial into a prompt.
+  The joined spelling carries such text intact.
+- **Loading is a realm's business, not a recipe's.** `--plugin-dir`,
+  `--mcp-config`, `--settings`, `--agents` and a Codex `--profile` each
+  load a document that can configure a server, so an authored one
+  refuses.
+- **Tool lists are the engine's.** `--tools`, `--allowedTools`,
+  `--disallowedTools` and their aliases refuse when a recipe writes them,
+  whatever they hold: an empty, narrowing or deny list refuses exactly as
+  a widening one does, and nothing is read out of its values. Nothing is
+  merged.
+- **Subtraction is typed.** A seat that must not hold a capability
+  leaves it out of its `capabilities` map, and the engine composes the
+  capability's OFF. An authored `--disallowedTools mcp__*` is not a way to
+  narrow a seat; it refuses like any other list.
+
+An `exec` command and a driver brokkr does not recognize have no modelled
+grammar and claim none: the engine never composes their final command,
+and what such a driver then does is its own.
+
+### What the five shipped adapters say today
+
+| Adapter | Native capabilities | What is established, and what is not |
+|---|---|---|
+| `codex` | `web-search` → `web_search`; ON is the cold default, OFF is `-c web_search="disabled"` | Measured by the controller on codex-cli 0.154.0, **cold `codex exec` only** (`.forge/tasks/controller-codex-web-search-switch-2026-09-21.json`). Unmeasured: whether OFF or ON holds on a RESUMED session (the pair is composed there all the same), any `web_search` value other than `"disabled"`, the interactive `--search` flag under `exec`, other versions, profile and `config.toml` precedence, and whether an ambient MCP server in the operator's codex configuration is excluded. It is one measured capability, not an exhaustive inventory. |
+| `claude` | `web-search` → `WebSearch`, `web-fetch` → `WebFetch`; ON admits the tool to the engine's lists, OFF denies it by name | Adapter data and argv composition only. That a boxed seat's empty `--tools` list under `--strict-mcp-config` leaves no native tool is a declaration, not a live measurement; ON beside the hands tool and OFF on an unboxed seat are both unmeasured live. |
+| `dsh` | `unmeasured` | `mcp` and `tool_permissions` being unsupported shows only that Brokkr cannot narrow dsh's tools. It does not show dsh has no native egress — `recipes/research-dsh/README.md` records that its headless profile ships web fetch ON — and no OFF control has been declared or measured. Nothing is granted through dsh and no denial is claimed. |
+| `lanetally` | `unmeasured` | The wrapper forwards argv to claude, and forwarding is not confinement. Claude's declarations and evidence are not inherited. |
+| `exec` | `unmeasured` | The engine cannot certify what an arbitrary child program reaches. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged. |
+
+Every "unmeasured" above is the controller's to measure, and
+`brokkr doctor` prints each beside the realm it matters to.
+
+**Doctor asks the composer about the whole plan** (operator ruling 4 of
+2026-09-23). For each realm and each installed harness with a known
+inventory, it submits ONE plan: a seat that holds none of the harness's
+native powers, every one switched OFF together. That plan goes through
+the compile's own resolution and the launch's final validation, and the
+`capabilities <realm> plan <provider>` line reports whether it is
+admitted or refused, with the full cause. Two OFF controls that each
+compose alone can refuse together, so no capability is certified on its
+own. A granted capability also gets the plan of a wanting seat the grant
+reaches: admitted with it ON, dropped with the reason, or refused. Each
+such line names its scope, the adapter's own template alone with no
+seat's arguments, model pins, typed tools or hands assessed. A seat's own
+plan is judged when its bundle compiles, which `brokkr doctor --bundle`
+does. Nothing is run to say any of this, and an admitted plan is
+composition, not a live measurement.
+
 ## Resume — what has been measured, per named shape
 
 A work site's retry is offered the session that site's own earlier

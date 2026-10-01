@@ -1926,7 +1926,7 @@ fn run_with(
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
         Cmd::Recipes { command } => setup::recipes(workspace, command),
-        Cmd::Agents { command } => setup::agents(command),
+        Cmd::Agents { command } => setup::agents(workspace, command),
         Cmd::Muninn { command } => setup::muninn(workspace, command),
         Cmd::Secrets { command } => setup::secrets(command),
         Cmd::FakeDriver(args) => setup::fake_driver(args),

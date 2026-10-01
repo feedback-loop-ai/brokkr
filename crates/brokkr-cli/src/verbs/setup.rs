@@ -133,14 +133,19 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
 }
 
 /// `brokkr agents`: list the agent library or show one definition.
-pub(crate) fn agents(command: AgentsCmd) -> Result<ExitCode> {
+pub(crate) fn agents(workspace: &Path, command: AgentsCmd) -> Result<ExitCode> {
+    // Semantic lint reads the OPERATOR's capability definitions
+    // (decision 0065; design D2): beside the active map, else in
+    // the workspace — wherever `--agents-dir` points the library.
+    let world = World::discover(workspace, None)?;
+    let operator_root = launch::capability_context(workspace, world.as_ref(), None, workspace).root;
     match command {
-        AgentsCmd::List { agents_dir } => agents::list(&agents_dir)?,
+        AgentsCmd::List { agents_dir } => agents::list(&agents_dir, &operator_root)?,
         AgentsCmd::Show {
             name,
             agents_dir,
             adapters_dir,
-        } => agents::show(&name, &agents_dir, &adapters_dir)?,
+        } => agents::show(&name, &agents_dir, &adapters_dir, &operator_root)?,
     }
     Ok(Exit::Completed.into())
 }

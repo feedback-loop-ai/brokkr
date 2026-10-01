@@ -84,24 +84,113 @@ pub struct Resolved {
     /// opaque seats, marked case overrides may have mixed provenance.
     pub case_origin: BTreeMap<String, usize>,
     /// Ancestors, nearest first. Empty for a recipe that composed
-    /// nothing.
+    /// nothing, and empty until [`Resolved::seal`] has sealed them.
     pub chain: Vec<Ancestor>,
     /// Every layer's directory, leaf first.
     pub roots: Vec<PathBuf>,
+    /// Every layer's declared name and the library directory it was reached
+    /// as, leaf first.
+    layers: Vec<(String, Option<String>)>,
+    /// What each layer was composed from, leaf first: its declaring document
+    /// and its own table, and then the charters its seats were bound to.
+    /// Each ancestor's are compared with its walk when it is sealed; after
+    /// that only the leaf's remain, for its own manifest.
+    reads: Vec<Consumed>,
 }
 
 impl Resolved {
     /// The chain as one line, leaf first — appended ONCE to any compile
     /// error raised downstream of resolution, so a composed bundle's
     /// failures say what they were composed from without teaching every
-    /// lint about layers. `None` when nothing was composed.
+    /// lint about layers. `None` when nothing was composed. Each name is
+    /// the one its layer declares, which nothing bounds, so a plain name
+    /// reads as written and any other is rendered bounded and safe
+    /// (rebuild unit 5e-fix-b).
     pub fn chain_note(&self) -> Option<String> {
-        if self.chain.is_empty() {
+        if self.layers.len() == 1 {
             return None;
         }
-        let mut names = vec![self.name.clone()];
-        names.extend(self.chain.iter().map(|ancestor| ancestor.name.clone()));
+        let shown = |(name, _): &(String, Option<String>)| match super::plain_label(name) {
+            true => name.to_string(),
+            false => super::bounded_site(name),
+        };
+        let names: Vec<String> = self.layers.iter().map(shown).collect();
         Some(format!("composed: {}", names.join(" -> ")))
+    }
+
+    /// Seal every ancestor's identity, deepest first (design D7; rebuild
+    /// unit 16-fix-b, F3). Each ancestor's walk takes the digest of every
+    /// file a bound read supplied from that read's buffer — its declaring
+    /// document, its own table, and each charter in `charters` its seats
+    /// named — and never reads those paths again; each input must still
+    /// stand as it was read before the digest exists. An overridden
+    /// ancestor's reads are compared too. `charters` carries every charter
+    /// the compile bound, each with the layer that declared it.
+    pub(crate) fn seal(&mut self, charters: Vec<CharterRead>) -> Result<(), CompileError> {
+        for charter in charters {
+            let index = self
+                .roots
+                .iter()
+                .position(|root| *root == charter.dir)
+                .expect("a charter is declared by a layer");
+            self.reads[index].charters.push(charter);
+        }
+        let mut chain: Vec<Ancestor> = Vec::new();
+        for index in (1..self.roots.len()).rev() {
+            let (name, reached_as) = &self.layers[index];
+            let read = &self.reads[index];
+            // An ancestor's digest covers its own files and its own
+            // ancestors — never the leaf's agent resolution or the adapter
+            // declarations that authorised its gates, both of which belong
+            // to the composed bundle rather than to any layer.
+            // An ancestor boxes nothing at this level, so the boundary it is
+            // handed writes no key and moves no digest; `namespace` is the
+            // word a layer meant before decision 0046 named one.
+            let manifest = super::manifest_for(
+                &self.roots[index],
+                name,
+                &chain,
+                None,
+                None,
+                &BTreeMap::new(),
+                &Map::new(),
+                brokkr_core::realms::Boundary::Namespace,
+                // Nor does an ancestor hold or grant a capability (decision
+                // 0065): authority belongs to the composed bundle compiled in
+                // a realm, so a layer's digest carries none and does not move.
+                None,
+                &read.digests(),
+            )?;
+            let files = manifest["files"]
+                .as_object()
+                .expect("manifest files")
+                .clone();
+            read.check(&files)?;
+            chain.insert(
+                0,
+                Ancestor {
+                    name: name.clone(),
+                    reached_as: reached_as.clone(),
+                    dir: self.roots[index].clone(),
+                    digest: brokkr_core::canonical::sha256_hex(&manifest),
+                    files,
+                },
+            );
+        }
+        self.reads.truncate(1);
+        self.chain = chain;
+        Ok(())
+    }
+
+    /// The digests the leaf's own walk takes from its bound buffers.
+    pub(crate) fn leaf_digests(&self) -> BTreeMap<String, super::Supplied> {
+        self.reads[0].digests()
+    }
+
+    /// Refuse a leaf whose walk does not hold what it was composed from and
+    /// the charters its own seats were bound to, as they were read.
+    pub(crate) fn check_leaf(&self, files: &Map<String, Value>) -> Result<(), CompileError> {
+        self.reads[0].check(files)
     }
 }
 
@@ -119,6 +208,8 @@ struct Layer {
     dir: PathBuf,
     file: PathBuf,
     document: Map<String, Value>,
+    /// Where the layer's walk must pin the bytes `document` was parsed from.
+    read: Pinned,
 }
 
 /// `^[a-z0-9][a-z0-9-]*$`, checked BEFORE any path is built so `../x`,
@@ -136,6 +227,10 @@ fn valid_recipe_name(name: &str) -> bool {
 /// own `bundle.json`. A repeated directory is a cycle and names the
 /// whole loop in order; a chain longer than [`MAX_LAYERS`] names the
 /// chain so far.
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
     let mut layers: Vec<Layer> = Vec::new();
     // Canonical from the leaf down, so every recorded dir is comparable
@@ -155,7 +250,30 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
             )));
         }
         let file = dir.join("bundle.json");
-        let document: Map<String, Value> = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
+        // Read STRICTLY from the layer's own bytes (decision 0065, design
+        // D3): a seat's capability requests are written here, and an
+        // ordinary JSON map keeps the last copy of a repeated key — so a
+        // `"requires"` followed by a `"wants"` under one name, or a second
+        // `capabilities` field, would weaken a requirement before any
+        // validation saw it. Every layer is read this way, so a leaf that
+        // replaces a seat cannot hide what its ancestor wrote twice.
+        // The document is consumed like any active input (design D7): ONE
+        // bound read, whose buffer is parsed here and whose digest the
+        // layer's walk must pin before its identity is sealed.
+        let bound = super::bound_input(&dir, "bundle.json").map_err(|fault| match fault {
+            super::InputFault::Missing(error) => CompileError::Io(error),
+            super::InputFault::Place(place) => invalid(format!(
+                "{}: the layer's declaring document, {place}. What a run is composed from must \
+                 be what its identity names, so it is refused (decision 0065 slice one, design \
+                 D7)",
+                file.display()
+            )),
+        })?;
+        let (read, bytes) = Pinned::of(bound);
+        let text = String::from_utf8(bytes).map_err(std::io::Error::other)?;
+        let parsed = brokkr_core::canonical::parse_strict(&text)
+            .map_err(|problem| invalid(format!("{}: {problem}", file.display())))?;
+        let document: Map<String, Value> = serde_json::from_value(parsed)?;
         let name = document
             .get("name")
             .and_then(Value::as_str)
@@ -177,6 +295,7 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
             dir: dir.clone(),
             file: file.clone(),
             document,
+            read,
         });
         if layers.len() > MAX_LAYERS {
             return Err(invalid(format!(
@@ -318,6 +437,8 @@ struct Merged {
     table_declared: bool,
     table_from: BTreeMap<String, PathBuf>,
     rule_from: BTreeMap<String, PathBuf>,
+    /// Layer index -> the policy bytes that layer's table was parsed from.
+    consumed: BTreeMap<usize, TableRead>,
 }
 
 fn rule_id(rule: &Value) -> Option<&str> {
@@ -386,9 +507,9 @@ fn union_names(base: Option<&Value>, own: &[Value]) -> Value {
     Value::Array(out)
 }
 
-/// A layer's own policy table and the file it was read from — the file
-/// every table-level refusal names.
-type LayerTable = (Map<String, Value>, PathBuf);
+/// A layer's own policy table, the file it was read from — the file every
+/// table-level refusal names — and the bytes it was parsed from.
+type LayerTable = (Map<String, Value>, PathBuf, TableRead);
 
 /// The layer's own policy table, read relative to THAT layer's
 /// directory. A layer that declares no `policy` contributes no table.
@@ -402,9 +523,279 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
             layer.file.display()
         ))
     })?;
-    let path = layer.dir.join(relative);
-    let table: Map<String, Value> = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
-    Ok(Some((table, path)))
+    // Decision 0066 ruling 5, asked of EVERY layer before its table is
+    // read or merged: a leaf that declares its own table cannot hide what
+    // an ancestor read from under a name the file walk skips. Second
+    // council H5: the table is resolved to the file that will be READ —
+    // canonically, through every link — and operator ruling 3 (design D7)
+    // binds that read to the contained, regular target by handle. Every
+    // refusal names the declaring layer's file and the reference, bounded.
+    let reference = super::bounded_reference(relative);
+    let bound = super::bound_input(&layer.dir, relative).map_err(|fault| match fault {
+        super::InputFault::Missing(error) => invalid(format!(
+            "{}: 'policy' names {reference}, {}",
+            layer.file.display(),
+            super::missing_clause(&error)
+        )),
+        super::InputFault::Place(place) => invalid(format!(
+            "{}: 'policy' names {reference}, {place}. A table there could change how a run is \
+             ruled without moving the bundle's identity, so it is refused; move it to a path \
+             the bundle pins, such as 'policy.json' (decision 0066 ruling 5)",
+            layer.file.display()
+        )),
+    })?;
+    // One read: the buffer this parses is the buffer that was hashed, and
+    // its digest is what the layer's walk takes for the table's keys.
+    let (pinned, bytes) = Pinned::of(bound);
+    let table: Map<String, Value> = serde_json::from_slice(&bytes)?;
+    let read = TableRead { reference, pinned };
+    Ok(Some((table, layer.dir.join(relative), read)))
+}
+
+/// Where one consumed buffer must stand in its layer's file map: the
+/// walk's key for the entry the reference names and for the target that
+/// was read, as `held`'s binding names them, and the digest of the buffer
+/// that was parsed. The walk takes that digest for both keys and never
+/// reads either path; `held` is what the read observed, verified before the
+/// layer is sealed.
+struct Pinned {
+    digest: String,
+    held: super::Held,
+}
+
+/// How a layer's walk holds one consumed buffer.
+enum Standing {
+    /// Under both keys, with the buffer's digest, and the input still
+    /// stands as it was read.
+    Held,
+    /// The input no longer stands as it was read: an entry on its way was
+    /// replaced, removed or retargeted, a name it was bound by changed, or
+    /// the held file's bytes changed. (A key the walk lists no entry for
+    /// never reaches here: the walk refuses it, rebuild unit 16-fix-d.)
+    Changed,
+}
+
+impl Pinned {
+    /// Where `bound`'s buffer must stand, and the buffer, for its one parse.
+    fn of(bound: super::BoundInput) -> (Pinned, Vec<u8>) {
+        let pinned = Pinned {
+            digest: brokkr_core::canonical::sha256_bytes(&bound.bytes),
+            held: bound.held,
+        };
+        (pinned, bound.bytes)
+    }
+
+    fn standing(&self, files: &Map<String, Value>) -> Standing {
+        let pinned: Vec<Option<&str>> = self
+            .held
+            .binding()
+            .keys()
+            .iter()
+            .map(|key| files.get(*key).and_then(Value::as_str))
+            .collect();
+        // Not short-circuited: the held input is verified whatever the map
+        // says, and either disagreement is a change.
+        let digests = pinned.iter().all(|at| *at == Some(self.digest.as_str()));
+        match digests & self.held.intact(&self.digest) {
+            true => Standing::Held,
+            false => Standing::Changed,
+        }
+    }
+}
+
+/// One charter a seat was bound to (design D7): the layer that declared it,
+/// the seat and the reference, bounded for a refusal, and where its buffer
+/// must stand in that layer's file map.
+pub(crate) struct CharterRead {
+    dir: PathBuf,
+    site: String,
+    reference: String,
+    pinned: Pinned,
+}
+
+impl CharterRead {
+    /// The charter `bound` read for the seat `site` from the layer at `dir`;
+    /// its bytes are not otherwise needed at compile, so only their digest
+    /// and what the read holds are kept.
+    pub(crate) fn of(
+        dir: &Path,
+        site: String,
+        reference: String,
+        bound: super::BoundInput,
+    ) -> CharterRead {
+        CharterRead {
+            dir: dir.to_path_buf(),
+            site,
+            reference,
+            pinned: Pinned::of(bound).0,
+        }
+    }
+}
+
+/// A layer's table read: the authored reference, already bounded for a
+/// refusal, and where its buffer must stand.
+struct TableRead {
+    reference: String,
+    pinned: Pinned,
+}
+
+/// The bytes one layer was composed from — its declaring document, its own
+/// table when it declares one, and the charters its seats were bound to —
+/// as they must stand in that layer's file map (design D7). The walk takes
+/// each one's digest from its buffer, and each input is verified to stand
+/// as it was read before the identity is sealed rather than assumed to.
+struct Consumed {
+    file: PathBuf,
+    document: Pinned,
+    table: Option<TableRead>,
+    charters: Vec<CharterRead>,
+}
+
+impl Consumed {
+    /// The digest the layer's walk takes for each consumed key, from the
+    /// buffer that was read (rebuild unit 16-fix-b, F3), with the file that
+    /// read held (16-fix-c, F1). Where two reads name one key the first
+    /// stands, and the other is judged against it.
+    /// Each carries who consumed it, as that input's own refusal names it,
+    /// so a key the walk lists no entry for is refused with its source,
+    /// kind, site and reference (16-fix-d).
+    fn digests(&self) -> BTreeMap<String, super::Supplied> {
+        let file = self.file.display();
+        let document = (
+            &self.document,
+            format!("{file}: the layer's declaring document"),
+        );
+        let tables = self.table.iter().map(|table| {
+            let consumer = format!("{file}: 'policy' names {}", table.reference);
+            (&table.pinned, consumer)
+        });
+        let charters = self.charters.iter().map(|charter| {
+            let consumer = format!(
+                "{file}: seat {} names role {}",
+                charter.site, charter.reference
+            );
+            (&charter.pinned, consumer)
+        });
+        let mut digests = BTreeMap::new();
+        for (pinned, consumer) in std::iter::once(document).chain(tables).chain(charters) {
+            let binding = pinned.held.binding();
+            for key in binding.keys() {
+                digests
+                    .entry(key.to_string())
+                    .or_insert_with(|| binding.supplied(&pinned.digest, consumer.clone()));
+            }
+        }
+        digests
+    }
+
+    /// Refuse a layer whose walk does not hold its document, its table or a
+    /// charter as it was read: pinned under other bytes, or no longer
+    /// standing as the read observed it. (Under no entry of the name it was
+    /// read by, the walk has already refused it.) A link retargeted or
+    /// replaced after the read moves the
+    /// reference's own entry while the file that was read keeps the
+    /// target's, so both are asked, and the whole resolution is observed
+    /// again.
+    fn check(&self, files: &Map<String, Value>) -> Result<(), CompileError> {
+        let file = self.file.display();
+        if !matches!(self.document.standing(files), Standing::Held) {
+            return Err(invalid(format!(
+                "{file}: the layer's declaring document changed between the read that composed \
+                 the layer and the walk that pinned it. What a run is composed from must be what \
+                 its identity names, so it is refused (decision 0065 slice one, design D7)"
+            )));
+        }
+        if let Some(table) = &self.table {
+            table.check(&file, files)?;
+        }
+        for charter in &self.charters {
+            if !matches!(charter.pinned.standing(files), Standing::Held) {
+                return Err(invalid(format!(
+                    "{file}: seat {} names role {}, which the walk that pinned the layer does \
+                     not hold as it was read: its entry was replaced, retargeted or removed, or \
+                     its bytes changed, after the read that bound it. What a seat is told must \
+                     be what its identity names, so it is refused (decision 0065 slice one, \
+                     design D7)",
+                    charter.site, charter.reference
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl TableRead {
+    /// Refuse a table its layer's walk does not hold as it was read.
+    fn check(
+        &self,
+        file: &impl std::fmt::Display,
+        files: &Map<String, Value>,
+    ) -> Result<(), CompileError> {
+        let reference = &self.reference;
+        match self.pinned.standing(files) {
+            Standing::Held => Ok(()),
+            Standing::Changed => Err(invalid(format!(
+                "{file}: 'policy' names {reference}, whose entry, target or bytes changed between \
+                 the read that parsed it and the walk that pinned it: an entry on its way was \
+                 replaced, removed or retargeted, a name it was read by changed, or the bytes \
+                 read changed. The table a run is ruled by must be the table its identity names, \
+                 so it is refused (decision 0065 slice one, design D7)"
+            ))),
+        }
+    }
+}
+
+/// Every key a layer's root may carry, and nothing else (decision 0004's
+/// closed inputs; decision 0065 slice one, rebuild unit 5e-fix-b). Each is
+/// read at the root by exactly one owner: `name` and `extends` by
+/// [`read_layers`], `override` and `remove` by [`Markers::read`], `policy`
+/// by [`own_table`], `seats` by [`merge_layer`], and `description`, `cost`,
+/// `protected_phase` and `egress_minimum` by `Bundle::assemble` and
+/// `parse_egress_minimum` in `bundle.rs`. It is the table of
+/// `docs/guides/recipe-authoring.md` ("`bundle.json` anatomy"), in its
+/// order, and the 18 shipped `bundle.json` files use eight of the ten. A
+/// capability is read only at a site, so a capability word at a root, or
+/// any other key, was retained and ignored: it compiled and confined
+/// nothing. The root is closed rather than a list of known capability words
+/// extended, because a list of refused words is only as complete as its
+/// last council.
+const ROOT_KEYS: [&str; 10] = [
+    "name",
+    "description",
+    "cost",
+    "policy",
+    "protected_phase",
+    "egress_minimum",
+    "seats",
+    "extends",
+    "override",
+    "remove",
+];
+
+/// Refuse any key outside [`ROOT_KEYS`] at the root of one layer. The
+/// reason names the layer and the key, both rendered bounded and safe, and
+/// never the value.
+fn refuse_unknown_root_keys(layer: &Layer) -> Result<(), CompileError> {
+    let Some(key) = layer
+        .document
+        .keys()
+        .find(|key| !ROOT_KEYS.contains(&key.as_str()))
+    else {
+        return Ok(());
+    };
+    let (rest, last) = ROOT_KEYS.split_at(ROOT_KEYS.len() - 1);
+    Err(invalid(format!(
+        "recipe {} declares {} at the bundle root, which admits only {} and {}. A \
+         capability or confinement is written on each seat it governs (a sandbox as \
+         'tools.sandbox'), and a boundary is the realm's, declared in realms.json. A key the \
+         compiler does not read would compile, deliver nothing and leave every seat at its \
+         harness default, so it is refused rather than ignored (decision 0004; decision 0065 \
+         slice one, rebuild unit 5e-fix-b)",
+        super::bounded_site(&layer.name),
+        super::bounded_site(key),
+        rest.join(", "),
+        last[0]
+    )))
 }
 
 /// Merge one layer over everything resolved beneath it.
@@ -415,6 +806,7 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
 )]
 fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<(), CompileError> {
     let layer = &layers[index];
+    refuse_unknown_root_keys(layer)?;
     let markers = Markers::read(layer)?;
     let table = own_table(layer)?;
 
@@ -555,7 +947,7 @@ fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<()
         }
         if !table
             .as_ref()
-            .is_some_and(|(own, _)| own.contains_key(field))
+            .is_some_and(|(own, _, _)| own.contains_key(field))
         {
             return Err(stale(
                 layer,
@@ -576,7 +968,7 @@ fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<()
         }
         if !table
             .as_ref()
-            .is_some_and(|(own, _)| rules_of(own).iter().any(|r| rule_id(r) == Some(id)))
+            .is_some_and(|(own, _, _)| rules_of(own).iter().any(|r| rule_id(r) == Some(id)))
         {
             return Err(stale(
                 layer,
@@ -712,9 +1104,10 @@ fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<()
         }
     }
 
-    let Some((own, own_path)) = table else {
+    let Some((own, own_path, consumed)) = table else {
         return Ok(());
     };
+    merged.consumed.insert(index, consumed);
     merged.table_declared = true;
     for (key, value) in &own {
         if key == "rules" {
@@ -805,8 +1198,19 @@ fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<()
 /// Resolve a leaf recipe directory into one flat bundle. A PURE
 /// function over the recipe sources: named files read in a
 /// name-determined order, `BTreeMap` throughout, no clock, no
-/// environment, no `read_dir` order.
+/// environment, no `read_dir` order. Every ancestor is sealed from what it
+/// was composed from; a compile, which binds charters too, seals them
+/// itself ([`resolve_unsealed`]).
 pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
+    let mut resolved = resolve_unsealed(leaf)?;
+    resolved.seal(Vec::new())?;
+    Ok(resolved)
+}
+
+/// [`resolve`] up to the ancestors' identities, which [`Resolved::seal`]
+/// seals once the compile has bound every charter a layer's seats name, so
+/// that no walk reads a consumed file the compile read (design D7).
+pub(crate) fn resolve_unsealed(leaf: &Path) -> Result<Resolved, CompileError> {
     let layers = read_layers(leaf)?;
     let mut merged = Merged::default();
     for index in (0..layers.len()).rev() {
@@ -819,54 +1223,36 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
         return Err(invalid("bundle.json missing 'seats'".into()));
     }
 
-    // Ancestor digests, deepest first: each covers its own bytes AND its
-    // own ancestors' digests, so a change at any depth moves every
-    // digest derived from it.
-    let mut chain: Vec<Ancestor> = Vec::new();
-    for layer in layers.iter().skip(1).rev() {
-        // An ancestor's digest covers its own files and its own
-        // ancestors — never the leaf's agent resolution or the adapter
-        // declarations that authorised its gates, both of which belong
-        // to the composed bundle rather than to any layer.
-        // An ancestor boxes nothing at this level, so the boundary it is
-        // handed writes no key and moves no digest; `namespace` is the
-        // word a layer meant before decision 0046 named one.
-        let no_hands = BTreeMap::new();
-        let manifest = super::manifest_for(
-            &layer.dir,
-            &layer.name,
-            &chain,
-            None,
-            None,
-            &no_hands,
-            &Map::new(),
-            brokkr_core::realms::Boundary::Namespace,
-        )?;
-        chain.insert(
-            0,
-            Ancestor {
-                name: layer.name.clone(),
-                reached_as: layer.reached_as.clone(),
-                dir: layer.dir.clone(),
-                digest: brokkr_core::canonical::sha256_hex(&manifest),
-                files: manifest["files"]
-                    .as_object()
-                    .expect("manifest files")
-                    .clone(),
-            },
-        );
+    // Every layer's document and table are kept for its seal, an overridden
+    // ancestor's too: its bytes were read and parsed whatever the leaf later
+    // replaced. Ancestor digests are sealed deepest first by
+    // `Resolved::seal`: each covers its own bytes AND its own ancestors'
+    // digests, so a change at any depth moves every digest derived from it.
+    let mut tables = merged.consumed;
+    let name = layers[0].name.clone();
+    let (mut roots, mut names, mut reads) = (Vec::new(), Vec::new(), Vec::new());
+    for (index, layer) in layers.into_iter().enumerate() {
+        reads.push(Consumed {
+            file: layer.file,
+            document: layer.read,
+            table: tables.remove(&index),
+            charters: Vec::new(),
+        });
+        names.push((layer.name, layer.reached_as));
+        roots.push(layer.dir);
     }
-
     let mut document = merged.document;
     document.insert("seats".into(), Value::Object(merged.seats.clone()));
     Ok(Resolved {
-        name: layers[0].name.clone(),
+        name,
         document: Value::Object(document),
         seats: merged.seats,
         table: Value::Object(merged.table),
         seat_origin: merged.seat_from,
         case_origin: merged.case_from,
-        chain,
-        roots: layers.into_iter().map(|layer| layer.dir).collect(),
+        chain: Vec::new(),
+        roots,
+        layers: names,
+        reads,
     })
 }

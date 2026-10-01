@@ -137,6 +137,17 @@ pub(crate) fn stopped_mid_flight_store(db: &std::path::Path, run_id: &str) {
 /// `resume` can be aimed at it under its bundle. The fixture file itself
 /// is never opened for writing and never edited.
 pub(crate) fn stopped_mid_flight_run(db: &std::path::Path, run_id: &str, manifest: &Value) {
+    stopped_mid_flight_copy(db, run_id, manifest, None);
+}
+
+/// The same copy, its `run/started` recording `charters` as a start now
+/// records the bindings it checked (rebuild unit 19), when given.
+fn stopped_mid_flight_copy(
+    db: &std::path::Path,
+    run_id: &str,
+    manifest: &Value,
+    charters: Option<&Value>,
+) {
     let ndjson = std::fs::read_to_string(
         workspace().join("fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson"),
     )
@@ -150,8 +161,12 @@ pub(crate) fn stopped_mid_flight_run(db: &std::path::Path, run_id: &str, manifes
         .create_run(run_id, "tui graph: the selection box", "test", manifest)
         .unwrap();
     for event in &events {
+        let mut payload = event.payload.clone();
+        if let (EventType::RunStarted, Some(charters)) = (event.event_type, charters) {
+            payload["charters"] = charters.clone();
+        }
         store
-            .append_next(run_id, event.event_type, event.payload.clone(), None, None)
+            .append_next(run_id, event.event_type, payload, None, None)
             .unwrap();
     }
 }
@@ -247,6 +262,7 @@ fn stage_hands_free_fast(
                 seat["role"] = json!("shipper.md");
             }
             seat["driver"] = json!({"command": ["{brokkr}", "fake-driver"]});
+            seat.as_object_mut().unwrap().remove("tools");
         }
     }
     std::fs::write(
@@ -972,6 +988,10 @@ fn dispatch_for(bundle: &Bundle, run_id: &str, callback: &str) -> DispatchEnvelo
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
+)]
 fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let dir = tempfile::tempdir().unwrap();
     // The tempdir is the workspace these invocations stand in, so it
@@ -1063,7 +1083,10 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let refusal = run_in(&unmapped, cli(gated(Some(gated_dispatch_path))))
         .unwrap_err()
         .to_string();
-    assert!(refusal.contains("'drivers'"), "{refusal}");
+    // The list names the FIRST key it cannot carry, in key order: the
+    // witness is still pinned and still uncarriable, and since decision
+    // 0065 the capability authority sorts ahead of it.
+    assert!(refusal.contains("'capabilities'"), "{refusal}");
     assert!(refusal.contains("unresumable"), "{refusal}");
 
     // A bundle that consulted no declaration still dispatches: the
@@ -1088,18 +1111,45 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
         }
         accepted
     };
-    let code = run_in(&unmapped, cli(accept(path.clone()))).unwrap();
-    assert_eq!(code, ExitCode::from(2));
+    // Decision 0065 ruling 8 (design D7) meets the same frozen lineage:
+    // EVERY compiled bundle now pins its capability authority — an
+    // explicit "this realm grants nothing" included — and the v2
+    // round-trip cannot carry it. So even this bundle is refused out
+    // loud, naming the key, by the very list that refused `drivers`
+    // above, rather than the authority being stripped to make the
+    // round-trip fit. No run row is written.
+    let refusal = run_in(&unmapped, cli(accept(path.clone())))
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("'capabilities'"), "{refusal}");
+    assert!(refusal.contains("unresumable"), "{refusal}");
 
     // A map merely LYING in the workspace is not an instruction, and a
     // dispatched run is not refused for standing next to one — this
     // repository carries its own map at its root, and `--dispatch` is a
-    // documented entry point into it. The pin is dropped, out loud.
+    // documented entry point into it. The pin is dropped, out loud; the
+    // refusal that follows is not the map's. It is the envelope's own:
+    // compiled where a map names the realm, the bundle's capability
+    // authority names that realm, so an envelope sealed over the unmapped
+    // compile pins a different bundle and is refused before any row.
     let second = dispatch_for(&bundle, "bound-run-2", "https://dogfood.example");
     let second_path = dir.path().join("dispatch-2.json");
     std::fs::write(&second_path, serde_json::to_string(&second).unwrap()).unwrap();
-    let code = run_in(dir.path(), cli(accept(second_path))).unwrap();
-    assert_eq!(code, ExitCode::from(2));
+    let refusal = run_in(dir.path(), cli(accept(second_path)))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refusal.contains("dispatch recipe digest does not match the compiled bundle"),
+        "{refusal}"
+    );
+    assert!(
+        brokkr_store::Store::open(&dir.path().join("dispatch.db"))
+            .unwrap()
+            .list_runs()
+            .unwrap()
+            .is_empty(),
+        "a refused dispatch writes no run"
+    );
 }
 
 fn loopback_server(responses: Vec<String>) -> (String, std::thread::JoinHandle<()>) {
@@ -2946,6 +2996,11 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
 /// database is touched and the fixture is never edited — and the run it
 /// leaves behind reads `stopped`, with the process exiting 3 (hard
 /// stop), not 0.
+///
+/// The fixture's own start recorded no charter bindings, so a resume of
+/// it verbatim is refused `unrecorded` (rebuild unit 19;
+/// operator ruling 2026-09-29, no grandfathering). The conclusion is proved
+/// on the same copy with the bindings a start records today.
 #[test]
 fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() {
     let dir = tempfile::tempdir().unwrap();
@@ -2960,19 +3015,29 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
         &workspace().join("adapters"),
     )
     .unwrap();
-    stopped_mid_flight_run(&db, "stopped-mid-flight", &bundle.manifest);
-
-    assert_eq!(
+    let resume = |run: &str| {
         run_in(
             &workspace(),
             cli(Cmd::Resume(ResumeArgs {
-                delivery: bundled(bundle_path),
-                run: "stopped-mid-flight".into(),
+                delivery: bundled(bundle_path.clone()),
+                run: run.into(),
                 journal: at(&db),
                 repo: Some(dir.path().to_path_buf()),
-            }))
+            })),
         )
-        .unwrap(),
+    };
+    stopped_mid_flight_run(&db, "unrecorded", &bundle.manifest);
+    assert_eq!(
+        resume("unrecorded").unwrap_err().to_string(),
+        "a charter of layer 'fast' moved since the compile (unrecorded: roles/implementer.md); \
+         a run is started or resumed only over the charters the bundle's identity names, so \
+         restore it, or recompile and start a new run (decision 0066 ruling 5)"
+    );
+
+    let charters = brokkr_runtime::bundle::charters_intact(&bundle).unwrap();
+    stopped_mid_flight_copy(&db, "stopped-mid-flight", &bundle.manifest, Some(&charters));
+    assert_eq!(
+        resume("stopped-mid-flight").unwrap(),
         ExitCode::from(3),
         "a stopped run reporting success would be a lie to the shell",
     );
@@ -4080,6 +4145,20 @@ fn write_bundle_with(bundle_dir: &std::path::Path, hands: Value) {
 fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let root = workspace();
     let dir = tempfile::tempdir().unwrap();
+    // The map's directory is where the operator's abstract definitions are
+    // read from, and a compile that loads the shipped library resolves the
+    // asks of EVERY loaded agent (decision 0066 ruling 8). A map directory
+    // without them refuses the compile on capabilities, so this one carries
+    // them and the refusal below is the dialect's.
+    std::fs::create_dir(dir.path().join("capabilities")).unwrap();
+    for entry in std::fs::read_dir(root.join("capabilities")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            dir.path().join("capabilities").join(entry.file_name()),
+        )
+        .unwrap();
+    }
     let no_dialect = json!({
         "schema":"forge.realms/v3",
         "realms":[{"name":"pinned","path":root,"default_branch":"main"}],

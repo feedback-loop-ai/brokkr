@@ -34,12 +34,10 @@ use thiserror::Error;
 
 use crate::boundary::{refuse_unboxable, Unboxable};
 use crate::bundle::{CompileError, DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
+use crate::capabilities::{CapabilityContext, UNMAPPED};
 use crate::engine::verify_dispatch_bundle_bounds;
 use crate::realms::{World, WorldError};
 use crate::{Bundle, Engine, EngineError};
-
-/// The realm name a compile stands in when no map names the repository.
-const UNMAPPED: &str = "<unmapped>";
 
 /// What every launch is asked with.
 #[derive(Debug, Clone)]
@@ -229,7 +227,9 @@ pub fn resume(request: LaunchRequest, run: &str) -> Result<Engine, LaunchError> 
     let store = Store::open(&request.journal)?;
     let manifest = store.manifest(run)?;
     let dir = request.bundle.resolve()?;
-    let bundle = compile_from_manifest(&request.workspace, &dir, &manifest)?;
+    let repo = request.repo.as_deref().unwrap_or(&request.workspace);
+    let bundle = compile_from_manifest(&request.workspace, &dir, &manifest, repo)
+        .map_err(|error| unreproducible(run, error))?;
     refuse_unboxable(&bundle, &request.host_path)?;
     let mut engine = Engine::resume(store, bundle, run, request.repo)?;
     // Decision 0057, on decision 0046's Addendum's terms: a resumed run
@@ -345,22 +345,52 @@ pub fn compile_for(
 ) -> Result<Bundle, LaunchError> {
     let realm = world.and_then(|world| world.realm_for(repo));
     let name = realm.map_or(UNMAPPED, |realm| realm.name.as_str());
-    compile_in_realm(workspace, dir, world, realm, name)
+    compile_in_realm(workspace, dir, world, realm, name, repo)
+}
+
+/// The capability context one compile authorises against (decision 0065;
+/// design D2): the OPERATED realm's grants — never a neighbouring realm's,
+/// never the recipe's home — and the directory the operator's abstract
+/// definitions and tool dialects live in. With a map that is the map
+/// file's own directory, by the rule every other map-relative name
+/// follows; without one it is the operated repository — what `--repo`
+/// names, else the workspace — and the context grants nothing. A
+/// repository the map does not name grants nothing either.
+pub fn capability_context(
+    workspace: &Path,
+    world: Option<&World>,
+    realm: Option<&Realm>,
+    repo: &Path,
+) -> CapabilityContext {
+    let root = world
+        .and_then(|world| workspace.join(&world.source).parent().map(PathBuf::from))
+        .unwrap_or_else(|| repo.to_path_buf());
+    CapabilityContext {
+        realm: realm.map_or(UNMAPPED.to_string(), |realm| realm.name.clone()),
+        grants: realm.map(|realm| realm.grants.clone()).unwrap_or_default(),
+        root,
+    }
 }
 
 /// Resume's compile: against the world and realm embedded in the run,
-/// never against whatever the workspace's map happens to hold today. A
-/// run that pinned no world compiles as it was started, in no realm.
+/// never against whatever the workspace's map happens to hold today.
 fn compile_from_manifest(
     workspace: &Path,
     dir: &Path,
     manifest: &Value,
+    repo: &Path,
 ) -> Result<Bundle, LaunchError> {
     let Some(world) = World::from_manifest(manifest)? else {
-        return Ok(Bundle::compile_with(
+        // A run that pinned no world stood in no realm and held no grant.
+        // Its definitions are re-read where they were read when it
+        // started: under the operated repository, never the recipe's home
+        // and never a map that has appeared in the workspace since.
+        return Ok(Bundle::compile_unmapped(
             dir,
             &workspace.join(DEFAULT_AGENTS_DIR),
             &workspace.join(DEFAULT_ADAPTERS_DIR),
+            Boundary::Namespace,
+            repo,
         )?);
     };
     let name = manifest
@@ -368,30 +398,66 @@ fn compile_from_manifest(
         .and_then(Value::as_str)
         .unwrap_or(UNMAPPED);
     let realm = world.map.realms.iter().find(|realm| realm.name == name);
-    compile_in_realm(workspace, dir, Some(&world), realm, name)
+    // And the grants the run was started under, from the same pinned map
+    // (decision 0065 ruling 8): a grant added to the workspace's map since
+    // is not borrowed. The definitions and dialects are re-read from the
+    // pinned source's directory and must reproduce the pinned digests, or
+    // the manifest comparison refuses the resume with capabilities named.
+    compile_in_realm(workspace, dir, Some(&world), realm, name, repo)
 }
 
-/// The bundle compiled in the realm `name`: its dialect and its
-/// boundary, or none and `namespace` when the world names no such realm.
+/// A resume whose pinned capability authority cannot be REPRODUCED here —
+/// a definition or a tool dialect that is gone, or no longer what the
+/// grant needs — is the run pinning a different bundle, and is refused
+/// through that door with capabilities named (decision 0065 ruling 8;
+/// design D7), not as a compile failure that reads like a broken recipe.
+/// Every other failure passes through untouched. The reason is the
+/// compiler's raw words, so the whole line the engine renders — its `run
+/// '{run}' pins a different bundle: ` and this detail — is made through the
+/// protocol's one refusal sink: one line, at most 512 scalar values
+/// (rebuild unit 12-fix-f; design D6). The run id is the engine's own.
+fn unreproducible(run: &str, error: LaunchError) -> LaunchError {
+    match error {
+        LaunchError::Compile(CompileError::Capability(reason)) => {
+            let head = format!("run '{run}' pins a different bundle: ");
+            let line = brokkr_protocol::native_controls::bounded_line(&format!(
+                "{head}capabilities differ: the capability authority the run was started under \
+                 cannot be reproduced here — {reason}; a grant, an abstract definition or a \
+                 tool dialect was removed or edited since the run started"
+            ));
+            LaunchError::Engine(EngineError::ManifestMismatch {
+                run_id: run.to_string(),
+                detail: line.chars().skip(head.chars().count()).collect(),
+            })
+        }
+        other => other,
+    }
+}
+
+/// The bundle compiled in the realm `name`: its dialect, its boundary,
+/// or none and `namespace` when the world names no such realm, and the
+/// capability grants of that realm for the operated `repo`.
 fn compile_in_realm(
     workspace: &Path,
     dir: &Path,
     world: Option<&World>,
     realm: Option<&Realm>,
     name: &str,
+    repo: &Path,
 ) -> Result<Bundle, LaunchError> {
     let dialect = match world.zip(realm) {
         Some((world, realm)) => world.dialect_for_realm(realm)?,
         None => None,
     };
     let boundary = realm.map_or(Boundary::Namespace, Realm::boundary);
-    Ok(Bundle::compile_with_realm(
+    Ok(Bundle::compile_with_capabilities(
         dir,
         &workspace.join(DEFAULT_AGENTS_DIR),
         &workspace.join(DEFAULT_ADAPTERS_DIR),
         Some(name),
         dialect,
         boundary,
+        &capability_context(workspace, world, realm, repo),
     )?)
 }
 

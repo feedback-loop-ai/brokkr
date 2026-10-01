@@ -39,6 +39,8 @@ fn the_minimal_map_parses_into_the_shape_the_ruling_names() {
                 boundary: None,
                 publishes: CrossingList::Absent,
                 consumes: CrossingList::Absent,
+                capabilities: None,
+                grants: Default::default(),
             }],
             journal: ".forge/forge.db".to_string(),
         }
@@ -95,9 +97,9 @@ fn text_that_is_not_json_is_refused_naming_the_file() {
 
 #[test]
 fn a_map_that_calls_itself_another_version_is_refused_by_name() {
-    let refusal = with(|map| map["schema"] = json!("forge.realms/v6"));
+    let refusal = with(|map| map["schema"] = json!("forge.realms/v7"));
     assert!(
-        refusal.contains("it calls itself 'forge.realms/v6'"),
+        refusal.contains("it calls itself 'forge.realms/v7'"),
         "{refusal}"
     );
     for label in SCHEMAS {
@@ -889,4 +891,174 @@ fn the_record_serde_helper_round_trips_words_and_the_sentinel_without_defaulting
         assert!(serde_json::from_value::<Record>(value).is_err());
     }
     assert!(serde_json::from_value::<Boundary>(json!("not applicable")).is_err());
+}
+
+fn v6(capabilities: Option<Value>) -> String {
+    let mut realm = json!({"name": "private", "path": "repo", "default_branch": "main"});
+    if let Some(capabilities) = capabilities {
+        realm["capabilities"] = capabilities;
+    }
+    json!({"schema": SCHEMA_V6, "realms": [realm], "journal": ".forge/forge.db"}).to_string()
+}
+
+/// Decision 0065 ruling 3: a v6 realm lists what it grants, and the two
+/// optional lists keep absence apart from emptiness because they mean
+/// opposite things. Every other key is the dialect's, carried as written.
+#[test]
+fn a_v6_realm_declares_grants_and_keeps_absent_lists_apart_from_empty_ones() {
+    let text = v6(Some(json!({
+        "web-fetch": {"dialect": "fetch-native", "tools": ["fetch"],
+                      "allow": {"hosts": ["sourceware.org", "yaml.org"]}},
+        "web-search": {"dialect": "codex-native-search", "offices": ["researcher"]},
+        "library-docs": {"dialect": "docs", "tools": [], "offices": []}
+    })));
+    let (map, _) = RealmMap::parse("realms.json", &text).unwrap();
+    let grants = &map.realms[0].grants;
+    assert_eq!(
+        grants["web-fetch"],
+        CapabilityGrant {
+            dialect: "fetch-native".into(),
+            tools: Some(vec!["fetch".into()]),
+            offices: None,
+            restrictions: json!({"allow": {"hosts": ["sourceware.org", "yaml.org"]}})
+                .as_object()
+                .unwrap()
+                .clone(),
+        }
+    );
+    // The grant is pinned exactly as the realm wrote it, array order kept.
+    assert_eq!(
+        grants["web-fetch"].value(),
+        json!({"dialect": "fetch-native", "tools": ["fetch"],
+               "allow": {"hosts": ["sourceware.org", "yaml.org"]}})
+    );
+    assert_eq!(
+        grants["web-search"].value(),
+        json!({"dialect": "codex-native-search", "offices": ["researcher"]})
+    );
+    // No scope reaches every office that asks; a named scope reaches
+    // only the named; an empty scope reaches none.
+    assert!(grants["web-fetch"].reaches("implementer"));
+    assert!(grants["web-search"].reaches("researcher"));
+    assert!(!grants["web-search"].reaches("implementer"));
+    assert!(!grants["library-docs"].reaches("researcher"));
+    assert_eq!(grants["library-docs"].tools, Some(Vec::new()));
+}
+
+/// Ruling 4: omission and an explicit empty map both grant nothing, and
+/// so does every older version — by having no such word at all.
+#[test]
+fn an_absent_and_an_empty_capabilities_map_both_grant_nothing() {
+    for text in [v6(None), v6(Some(json!({})))] {
+        let (map, _) = RealmMap::parse("realms.json", &text).unwrap();
+        assert!(map.realms[0].grants.is_empty());
+    }
+    let (map, _) = RealmMap::parse("realms.json", MAP).unwrap();
+    assert!(map.realms[0].grants.is_empty());
+    assert_eq!(map.realms[0].capabilities, None);
+}
+
+/// The word is refused under every label older than its own — written
+/// empty, written null or written in full — naming the realm, the word and
+/// the version that admits it.
+#[test]
+fn capabilities_are_refused_under_every_older_version_even_written_empty() {
+    for label in &SCHEMAS[..5] {
+        for written in [
+            json!({}),
+            json!(null),
+            json!({"web-search": {"dialect": "d"}}),
+        ] {
+            let mut map: Value = serde_json::from_str(&v6(Some(written))).unwrap();
+            map["schema"] = json!(label);
+            assert_eq!(
+                refusal(&map.to_string()),
+                format!(
+                    "realms.json is not a usable realms map: realm 'private' names its \
+                     capabilities, which is forge.realms/v6 vocabulary in a map calling itself \
+                     {label}"
+                )
+            );
+        }
+    }
+}
+
+#[test]
+fn a_malformed_grant_is_refused_naming_the_realm_the_capability_and_the_field() {
+    let usable = "realms.json is not a usable realms map: ";
+    for (written, problem) in [
+        (
+            json!(null),
+            "realm 'private' writes capabilities as null; a capabilities map is an object from \
+             capability name to grant, and a realm that grants nothing leaves the word out",
+        ),
+        (
+            json!({"Web Search": {"dialect": "d"}}),
+            "realm 'private' grants a capability named 'Web Search'; a capability name is \
+             lowercase letters, digits, '.', '_' and '-', starting with a letter or digit",
+        ),
+        (
+            json!({"web-search": "codex-native-search"}),
+            "realm 'private' grants capability 'web-search' as \"codex-native-search\"; a grant \
+             is an object naming the tool dialect that serves the capability",
+        ),
+        (
+            json!({"web-search": {"tools": ["web_search"]}}),
+            "realm 'private' grants capability 'web-search' without a tool dialect name; \
+             'dialect' names a file under dialects/tools/ in the realm-name grammar",
+        ),
+        (
+            json!({"web-search": {"dialect": "../escape"}}),
+            "realm 'private' grants capability 'web-search' without a tool dialect name; \
+             'dialect' names a file under dialects/tools/ in the realm-name grammar",
+        ),
+        (
+            json!({"web-search": {"dialect": "d", "tools": null}}),
+            "realm 'private' grants capability 'web-search' with a malformed 'tools'; it is a \
+             list of distinct non-empty strings, and leaving it out is how a grant says all",
+        ),
+        (
+            json!({"web-search": {"dialect": "d", "tools": ["a", "a"]}}),
+            "realm 'private' grants capability 'web-search' with a malformed 'tools'; it is a \
+             list of distinct non-empty strings, and leaving it out is how a grant says all",
+        ),
+        (
+            json!({"web-search": {"dialect": "d", "offices": ["researcher", " "]}}),
+            "realm 'private' grants capability 'web-search' with a malformed 'offices'; it is \
+             a list of distinct non-empty strings, and leaving it out is how a grant says all",
+        ),
+        (
+            json!({"web-search": {"dialect": "d", "offices": [7]}}),
+            "realm 'private' grants capability 'web-search' with a malformed 'offices'; it is \
+             a list of distinct non-empty strings, and leaving it out is how a grant says all",
+        ),
+    ] {
+        assert_eq!(refusal(&v6(Some(written))), format!("{usable}{problem}"));
+    }
+}
+
+/// A grant written twice would be granted as whichever copy came second.
+/// The rule arrives with v6; an older map keeps the reading it always had.
+#[test]
+fn a_v6_map_refuses_a_key_written_twice_and_an_older_map_reads_as_it_did() {
+    let twice = r#"{"schema":"forge.realms/v6","realms":[{"name":"private","path":"repo","default_branch":"main","capabilities":{"web-search":{"dialect":"a"},"web-search":{"dialect":"b"}}}],"journal":"forge.db"}"#;
+    assert_eq!(
+        refusal(twice),
+        "realms.json is not a readable realms map: key 'web-search' is written twice at line 1 \
+         column 168"
+    );
+    let older = r#"{"schema":"forge.realms/v1","realms":[{"name":"a","path":"x","path":".","default_branch":"main"}],"journal":"forge.db"}"#;
+    // Last-wins, as it has always been for a map that carries no grant.
+    let (map, _) = RealmMap::parse("realms.json", older).unwrap();
+    assert_eq!(map.realms[0].path, ".");
+}
+
+/// A world read back out of a manifest pin arrives as a value, and its
+/// grants are judged exactly as a file's are.
+#[test]
+fn a_map_embedded_as_a_value_carries_the_same_grants() {
+    let content: Value =
+        serde_json::from_str(&v6(Some(json!({"web-search": {"dialect": "d"}})))).unwrap();
+    let (map, _) = RealmMap::of("pinned", content).unwrap();
+    assert_eq!(map.realms[0].grants["web-search"].dialect, "d");
 }

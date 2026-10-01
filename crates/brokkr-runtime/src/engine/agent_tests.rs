@@ -6,7 +6,7 @@ use super::*;
 use crate::agents::{Candidate, HarnessHands};
 use crate::bundle::{PanelMember, SequenceStep};
 
-use super::tests::{engine, single_body};
+use super::tests::{engine, single_body, templated};
 use crate::envelope_builder::EnvelopeBuilder;
 
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
@@ -17,7 +17,7 @@ fn event(event_type: EventType, payload: Value) -> EventEnvelope {
 }
 
 fn candidate(agent: &str, model: &str) -> Candidate {
-    Candidate {
+    templated(Candidate {
         agent: agent.into(),
         model: model.into(),
         effort: Some("high".into()),
@@ -26,8 +26,9 @@ fn candidate(agent: &str, model: &str) -> Candidate {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: Default::default(),
+        lowering: Lowering::Unavailable,
         hands_notice: None,
-    }
+    })
 }
 
 fn failure(effect_id: &str, sites: Value) -> EventEnvelope {
@@ -382,7 +383,7 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
     let mut selection = Selection::new();
     selection.insert(
         None,
-        Candidate {
+        templated(Candidate {
             agent: "implementer".into(),
             model: "fable".into(),
             effort: Some("high".into()),
@@ -392,7 +393,8 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
             resume: Default::default(),
             hands_notice: None,
             argv: vec!["driver".into(), "--model".into(), "fable".into()],
-        },
+            lowering: Lowering::Unavailable,
+        }),
     );
     let reason = "provider refused before the first turn: rate_limit (HTTP 429): \
                   You have reached your limit";
@@ -436,4 +438,108 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
     // The chain index counts the journaled start failure, so the next
     // attempt is hired from the next link rather than the exhausted one.
     assert_eq!(chain_index(&events, "effect", &None, 2), 1);
+}
+
+/// Rebuild unit 27b (operator ruling 2026-09-30, point 3; unit 27's SQ3 and
+/// SQ4): A DIALECT STEP IS COMPOSED AND MARKED AT ITS OWN SITE. The
+/// generated validator's compiled site holds no charter and no inline
+/// segment, so composing at its label adds nothing to its spawn today; it
+/// does hold its own "holds nothing" outcome and a judged, unspecified
+/// local declaration, from which its launch record is sealed. Planted at
+/// that site, a charter binding rides the spawn to the door, which refuses
+/// it (SQ3), and a local declaration taken away leaves no record to seal,
+/// which refuses the spawn (SQ4). Each is refused before anything spawns.
+#[test]
+fn a_dialect_step_is_composed_and_marked_at_its_own_site() {
+    use crate::bundle::StepBody;
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dir = root.join("bundle");
+    std::fs::create_dir_all(dir.join("roles")).unwrap();
+    std::fs::write(dir.join("roles/role.md"), "# role\n").unwrap();
+    let rules = [("design", "drafted", "review"), ("design", "fail", "design")]
+        .into_iter()
+        .chain([("review", "clean", "done")])
+        .map(|(from, result, next)| {
+            json!({"id": result, "from": from, "result": result, "next": next, "reason": result})
+        });
+    let policy = json!({"phases": ["design", "review", "done"], "initial": "design",
+        "terminal": ["done"], "rules": rules.collect::<Vec<_>>()});
+    std::fs::write(dir.join("policy.json"), policy.to_string()).unwrap();
+    let inline = |name: &str, result: &str| {
+        json!({"name": name, "results": [result],
+        "role": "roles/role.md", "driver": {"command": ["driver"]}})
+    };
+    let design = json!({"results": ["drafted", "fail"], "sequence": [
+        inline("author", "drafted"), {"name": "validate", "dialect": "validate"}]});
+    let mut review = inline("review", "clean");
+    review.as_object_mut().unwrap().remove("name");
+    let seats = json!({"design": design, "review": review});
+    let config = json!({"name": "d", "policy": "policy.json", "seats": seats});
+    std::fs::write(dir.join("bundle.json"), config.to_string()).unwrap();
+    let dialect = crate::dialect::Dialect::load(&repository.join("dialects/openspec.json"));
+    let (agents, adapters) = (repository.join("agents"), repository.join("adapters"));
+    let dialect = dialect.unwrap();
+    let (dialect, boundary) = (Some(&dialect.0), Boundary::Namespace);
+    let compiled = Bundle::compile_with_realm(&dir, &agents, &adapters, None, dialect, boundary);
+    let compiled = compiled.unwrap();
+    let SeatBody::Sequence { steps } = &compiled.seats["design"].body else {
+        panic!("a sequence seat")
+    };
+    let validate = steps
+        .iter()
+        .filter(|step| matches!(step.body, StepBody::Dialect { .. }));
+    let validate: Vec<_> = validate.cloned().collect();
+    let site = &compiled.sites["design:validate"];
+    let held = [
+        site.charter.is_none(),
+        site.inline_local.is_none(),
+        site.inline_sandbox.is_none(),
+    ];
+    assert_eq!((held, site.inline_hands.is_none()), ([true; 3], true));
+    assert_eq!(
+        (site.local.is_some(), site.capabilities.is_some()),
+        (true, true)
+    );
+    let author = compiled.sites["design:author"].charter.clone();
+    type Plant<'a> = &'a dyn Fn(&mut SiteFacts);
+    let plants: [(Plant<'_>, &str); 2] = [
+        (
+            &|facts| facts.charter = author.clone(),
+            "a charter of layer 'd' moved since the compile (replaced: roles/role.md); what a \
+             seat is told must be the bytes the bundle's identity names (decision 0066 ruling 5)",
+        ),
+        (
+            &|facts| facts.local = None,
+            "the site's local declaration was never judged, so no launch record can be sealed \
+             for this site; a record is sealed from typed facts and never repaired into a default \
+             one (decision 0065 slice one, design D5.7)",
+        ),
+    ];
+    for (index, (plant, problem)) in plants.into_iter().enumerate() {
+        let refusal =
+            format!("sequence step 'validate': driver did not spawn: dispatch refused: {problem}");
+        let mut bundle = compiled.clone();
+        plant(bundle.sites.get_mut("design:validate").unwrap());
+        let store = Store::open(&root.join(format!("{index}.db"))).unwrap();
+        let mut engine = Engine::start(store, bundle, "f", Some(root.clone())).unwrap();
+        let dispatch = json!({"feature": "f", "phase": "design", "workdir": root,
+            "allowed_results": ["drafted", "fail"], "house_rules": "",
+            "context": {"results": {"design": {"result": "drafted", "inputs": {"change": "c"}}}},
+            "steps": [{"role_path": "", "result_path": "result.json",
+                       "allowed_results": ["drafted", "fail"]}]});
+        let deadline = std::time::Duration::from_secs(2);
+        let selection = Selection::new();
+        let ran = engine.execute_sequence(
+            "e", "a", "design", &validate, &dispatch, deadline, &selection,
+        );
+        ran.unwrap();
+        let events = engine.store.load(&engine.run_id).unwrap();
+        assert_eq!(
+            events.last().unwrap().payload["error"],
+            json!(refusal),
+            "{refusal}"
+        );
+    }
 }

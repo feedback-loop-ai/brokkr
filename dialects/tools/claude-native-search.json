@@ -1,0 +1,19 @@
+{
+  "schema": "brokkr.tool-dialect/v1",
+  "name": "claude-native-search",
+  "serves": "web-search",
+  "kind": "provider-native",
+  "provider": "claude",
+  "adapter_key": "web-search",
+  "tools": ["WebSearch"],
+  "classes": ["reads", "egress"],
+  "egress": "uncontracted",
+  "sends": {
+    "description": "A free-text query the model composes — possibly from the repository it just read — sent to Claude Code's built-in WebSearch tool, which the provider runs.",
+    "seat_composed": true
+  },
+  "restrictions": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}
