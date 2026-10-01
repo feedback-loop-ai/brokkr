@@ -246,8 +246,13 @@ an instruction:
   signing service. A green gate is not independent acceptance either.
 - **What the engine does not check.** It does not read a diff for
   intent. A reviewer is a model and can be persuaded by what it reviews.
-  Seat commits land unsigned in the worktree, and the operator reviews
-  the branch, pushes and merges. That review is the last check.
+  The engine signs no seat commit. A boxed or `exec` seat's commits land
+  unsigned, and the `dsh` driver turns signing off; any other unboxed
+  seat's `git` reads the host's own configuration, signing included
+  ([status](status.md)), so its commits carry the operator's signature
+  when that configuration signs.
+  The operator reviews the branch, pushes and merges. That review is the
+  last check.
 
 ## Known limitations
 

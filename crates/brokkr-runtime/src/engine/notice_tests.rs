@@ -16,9 +16,9 @@ use crate::bundle::{SiteFacts, StepBody};
 use crate::realms::World;
 use brokkr_protocol::adapters::{render_prompt, AdapterKind, HandsNotice};
 
-/// Decision 0043's boxed paragraph, as shipped.
-const BOXED: &str = "\n\nYour hands are boxed: the worktree, and this result file, are reachable \
-ONLY through the `mcp__brokkr__workspace` tool. Your harness's own shell runs outside the box and \
+/// Decision 0043's boxed paragraph.
+const BOXED: &str = "\n\nYour hands are boxed: write the worktree, and this result file, through \
+the `mcp__brokkr__workspace` tool. Your harness's own shell runs outside the box and \
 cannot write here — a file written through it never reaches the engine. Write the result file with \
 the workspace tool.";
 
@@ -30,8 +30,8 @@ writes are refused by design; this is not a blocker. Use the workspace tool for 
 writes, including the result file.";
 
 const HARNESS: &str = "\n\nYour hands stand under the `harness` boundary: no workspace tool of \
-Brokkr's is served, and you run under your harness's own sandbox. The result path above is the \
-one file that sandbox lets you write; write it yourself.";
+Brokkr's is served, and you run under your harness's own sandbox, which may let you write more \
+than the result path above. Write that file yourself.";
 
 const OPEN: &str = "\n\nYour hands stand under the `open` boundary: nothing of Brokkr's stands \
 between you and the machine, and no workspace tool is served. Write the result file yourself.";

@@ -13,5 +13,7 @@ required checks still run them before a merge.
 The verifier tells Cargo to stay offline, so it reads only the bound
 registry cache; an uncached dependency fails verification closed, and the
 result notes quote Cargo's decisive error. Both gates are boxed with no
-network under a `namespace` boundary, and unboxed, with no network
-denial reported, under `harness`.
+network under a `namespace` boundary. A `harness` realm refuses this
+recipe: the `review:correctness` seat's second link resolves to claude,
+whose adapter declares no `hands.harness.gate` fragment, and compilation
+refuses it naming that seat.

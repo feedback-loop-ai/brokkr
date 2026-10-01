@@ -4,8 +4,9 @@
 # Reads the repository's own docs class — `.github/delivery-classes.json`,
 # the file the contribution gate cuts its tiers by (decision 0038 ruling
 # 3) — and answers `docs` when every path the branch changes against its
-# base matches the class, `code` otherwise. Seconds, no model, boxed like
-# the verifier. Anything it cannot establish is answered `code`: a
+# base matches the class, `code` otherwise. Seconds, no model, and boxed
+# like the verifier only under a `namespace` boundary; under `harness` it
+# runs unboxed. Anything it cannot establish is answered `code`: a
 # missing base, a missing class file, an empty diff. Fail closed toward
 # the build, never toward the skip.
 set -u

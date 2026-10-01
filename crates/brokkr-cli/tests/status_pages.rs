@@ -503,10 +503,23 @@ const OVERCLAIMS: [&str; 8] = [
 /// reported. A recipe whose dialect steps compile only under `namespace`
 /// (`triage`, `night-shift`) may say boxed, and says why.
 ///
+/// So are the landing review's last sentences of the class: preflight's
+/// review gate called read-only, where it runs unboxed under
+/// `acceptEdits`, and a fixes-applied rule no shipped table carries;
+/// panel-review said to run unboxed under `harness`, which refuses it;
+/// a harness seat told the result file is the one file its sandbox
+/// writes, where a codex work seat's `workspace-write` writes the whole
+/// workspace; a boxed seat told its worktree is reachable only through
+/// the workspace tool, where a boxed codex seat keeps its native
+/// read-only shell; a verifier script's header saying the box denies
+/// network, and a recipe table saying its gate is boxed, with no
+/// boundary named; and seat commits said to land unsigned, where an
+/// unboxed seat's `git` reads the host's signing configuration.
+///
 /// A comparison that only implies a bound, such as one arm called no
 /// narrower than another, is outside the guard: its wording names no
 /// control a list could hold.
-const ANYWHERE: [&str; 107] = [
+const ANYWHERE: [&str; 117] = [
     "blast radius",
     "no tool restriction",
     "tools restriction",
@@ -614,6 +627,16 @@ const ANYWHERE: [&str; 107] = [
     "the review offices' already are",
     "that are boxed stay boxed",
     "fast's boxed verifier",
+    "fit and security. read-only.",
+    "applied fixes hard-stops",
+    "no network denial reported, under harness",
+    "one file that sandbox lets",
+    "one file the sandbox lets",
+    "result file, are reachable only through",
+    "verifier seat. the box denies network",
+    "no model, boxed like the verifier",
+    "one boxed gate proves",
+    "seat commits land unsigned",
 ];
 
 /// The wording the guard refuses, as lists a test can take one word out of.
@@ -771,7 +794,7 @@ fn literal(chars: &[char], from: usize, literals: &mut Vec<String>) -> usize {
 
 /// Excerpts of the pages this story reworded, word for word as they
 /// stood: each holds one paragraph the guard refuses.
-const OLD_PAGES: [&str; 114] = [
+const OLD_PAGES: [&str; 120] = [
     // docs/guides/agent-library.md
     "**The honesty rules are the point, and they are enforced rather than\n\
      documented.** A tool restriction the provider cannot express fails\n\
@@ -1070,11 +1093,56 @@ const OLD_PAGES: [&str; 114] = [
      stay boxed.",
     // recipes/wager-harness/README.md and its two arms
     "The harness inherits `fast`'s boxed verifier and shipper by construction.",
+    // recipes/preflight/README.md, as the landing review found it
+    "| `review` | `gate` | `clean`, `residual`, `security-hold` | Adversarial read of \
+     `git diff main...HEAD` across correctness, fit and security. Read-only. |",
+    "your machine with your credentials and are charged to touch nothing; the\n\
+     table's part is that a seat which reports having applied fixes hard-stops\n\
+     the run (`REVIEW-CLEAN-FIXED`, `REVIEW-RESIDUAL-FIXED`) instead of being\n\
+     believed.",
+    // recipes/panel-review/README.md
+    "Both gates are boxed with no\n\
+     network under a `namespace` boundary, and unboxed, with no network\n\
+     denial reported, under `harness`.",
+    // openspec/specs/boundary-record/spec.md
+    "and — with `file` — says the result path is the one file that sandbox\n\
+     lets it write, or — with `last-message` — says the seat's final message",
+    "- **THEN** the input carries `boundary: harness`, no `hands` marker and no \
+     `result_delivery`, and the paragraph names `harness`, does not name \
+     `mcp__brokkr__workspace`, and says the result path is the one file the sandbox lets \
+     the seat write",
+    // docs/security-model.md
+    "  Seat commits land unsigned in the worktree, and the operator reviews\n  \
+     the branch, pushes and merges. That review is the last check.",
+];
+
+/// Excerpts of the shell scripts and recipe data this story reworded, as
+/// the guard reads them: a script's comments, a recipe's JSON strings.
+const OLD_DATA: [(&str, &str); 3] = [
+    // scripts/verify-seat.sh, and its five pinned copies in bundles/ and recipes/
+    (
+        "verify-seat.sh",
+        "#!/usr/bin/env bash\n\
+         # Deterministic verifier seat. The box denies network; Cargo is also told\n\
+         # explicitly to stay offline so a cache miss is reported as such.\n\
+         set -u\n",
+    ),
+    // recipes/landing/scripts/classify-seat.sh
+    (
+        "classify-seat.sh",
+        "# base matches the class, `code` otherwise. Seconds, no model, boxed like\n\
+         # the verifier. Anything it cannot establish is answered `code`: a\n",
+    ),
+    // recipes/research/policy.json
+    (
+        "policy.json",
+        r#"{"description": "Research intake (decision 0044): one work seat reads the articles a commission names or finds and proposes registry entries; one boxed gate proves the registry still parses"}"#,
+    ),
 ];
 
 /// Excerpts of the doc comments this story reworded, as the sources
 /// carried them.
-const OLD_SOURCES: [&str; 17] = [
+const OLD_SOURCES: [&str; 18] = [
     // crates/brokkr-protocol/src/hands.rs
     "//! `/tmp`, no host home, no host credential, no other process, and no\n\
      //! network unless the spec grants it. A tool allow-list bounded what the\n\
@@ -1129,11 +1197,16 @@ const OLD_SOURCES: [&str; 17] = [
     "/// The scaffold follows the shipped roster: work and review are model\n\
      /// offices, while verify and ship are deterministic boxed exec scripts.",
     "//! Verify and ship are boxed scripts and carry no model grants.",
+    // crates/brokkr-protocol/src/adapters.rs
+    "/// - `boundary: harness` — the harness's own sandbox stands, no\n\
+     ///   workspace tool is served, and the result reaches the engine through\n\
+     ///   the door the input names: the one file the sandbox lets the seat\n\
+     ///   write, or the seat's final message, which the harness captures;",
 ];
 
 /// Excerpts of the string literals this story reworded, as the sources
 /// carried them: text a generated file or an error message says.
-const OLD_LITERALS: [&str; 3] = [
+const OLD_LITERALS: [&str; 5] = [
     // crates/brokkr-cli/src/init.rs, the scaffold README's tool grants
     r#""{gate_list}. Verify and ship are boxed scripts with no model grant.\n\n\
                  The grant is per BINARY, not per subcommand""#,
@@ -1145,17 +1218,72 @@ const OLD_LITERALS: [&str; 3] = [
     r#""seat '{what}' declares hands and secret bindings {secrets:?}; the box \
                      clears the environment, so a boxed seat cannot receive a binding \
                      (decision 0043)""#,
+    // crates/brokkr-protocol/src/adapters.rs, the boxed and harness notices
+    r#""\n\nYour hands are boxed: the worktree, and this result file, are \
+         reachable ONLY through the `{workspace}` tool. Your \
+         harness's own shell runs outside the box and cannot write here""#,
+    r#""\n\nYour hands stand under the `harness` boundary: no workspace \
+         tool of Brokkr's is served, and you run under your harness's own sandbox. The \
+         result path above is the one file that sandbox lets you write; write it yourself.""#,
 ];
 
+/// A shell script's comments as Markdown: each `#` line's text, and a
+/// paragraph break at every line that is not one, the `#!` line included.
+fn comment_text(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| match line.trim_start().strip_prefix('#') {
+            Some(text) if !text.starts_with('!') => text,
+            Some(_) | None => "",
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A JSON file's strings as Markdown, a paragraph break between strings.
+/// A file that does not parse fails the guard rather than reading as
+/// nothing.
+fn json_text(path: &str, source: &str) -> String {
+    fn strings(value: &serde_json::Value, out: &mut Vec<String>) {
+        match value {
+            serde_json::Value::String(text) => out.push(text.clone()),
+            serde_json::Value::Array(items) => items.iter().for_each(|item| strings(item, out)),
+            serde_json::Value::Object(map) => map.values().for_each(|item| strings(item, out)),
+            serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            }
+        }
+    }
+    let value = serde_json::from_str(source).unwrap_or_else(|error| panic!("{path}: {error}"));
+    let mut out = Vec::new();
+    strings(&value, &mut out);
+    out.join("\n\n")
+}
+
+/// What the guard reads in one file: a Rust source's doc comments and
+/// string literals, a script's comments, a JSON file's strings, and a
+/// page as written.
+fn guarded_texts(path: &str, source: &str) -> Vec<String> {
+    match path.rsplit_once('.').map(|(_, extension)| extension) {
+        Some("rs") => vec![doc_text(source), literal_text(source)],
+        Some("sh") => vec![comment_text(source)],
+        Some("json") => vec![json_text(path, source)],
+        _ => vec![source.to_string()],
+    }
+}
+
 /// Every old excerpt as the guard reads it: a page as written, a source
-/// as its doc comments or its string literals.
+/// as its doc comments or its string literals, a script or recipe datum
+/// as its comments or strings.
 fn old_texts() -> Vec<String> {
     let pages = OLD_PAGES.iter().map(|page| page.to_string());
     let sources = OLD_SOURCES
         .iter()
         .map(|source| doc_text(&format!("{source}\nfn f() {{}}\n")));
     let literals = OLD_LITERALS.iter().map(|source| literal_text(source));
-    pages.chain(sources).chain(literals).collect()
+    let data = OLD_DATA
+        .iter()
+        .flat_map(|(path, source)| guarded_texts(path, source));
+    pages.chain(sources).chain(literals).chain(data).collect()
 }
 
 #[test]
@@ -1218,13 +1346,21 @@ fn no_living_doc_says_a_tool_list_bounds_an_unboxed_seat() {
             "{source} is not scanned"
         );
     }
-    let texts = pages
-        .iter()
-        .map(|page| (page, read(page)))
-        .chain(sources.iter().flat_map(|source| {
-            let text = read(source);
-            [(source, doc_text(&text)), (source, literal_text(&text))]
-        }));
+    // A gate script's comments and a recipe's data say the class too.
+    let data: Vec<String> =
+        tracked_files::tracked(&root, &["*.sh", "recipes/*.json", "bundles/*.json"])
+            .into_iter()
+            .filter(|path| !RECORDS.iter().any(|record| path.starts_with(record)))
+            .collect();
+    for path in ["scripts/verify-seat.sh", "recipes/research/policy.json"] {
+        assert!(data.iter().any(|p| p == path), "{path} is not scanned");
+    }
+    let texts = pages.iter().chain(&sources).chain(&data).flat_map(|path| {
+        let text = read(path);
+        guarded_texts(path, &text)
+            .into_iter()
+            .map(move |text| (path, text))
+    });
     let offenses: Vec<String> = texts
         .flat_map(|(path, text)| {
             tool_list_overclaims(&text)

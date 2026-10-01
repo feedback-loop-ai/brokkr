@@ -125,10 +125,12 @@ SHALL also carry `result_delivery: last-message`; with `file`, or for a
 work-class site, no such field is present. The rendered prompt SHALL
 follow the two: under `namespace`, `seatbelt` and `container` exactly
 today's paragraph, which names the `mcp__brokkr__workspace` tool as the
-only writer; under `harness` a paragraph that names the word, says the
-seat runs under its harness's own sandbox with no workspace tool served,
-and — with `file` — says the result path is the one file that sandbox
-lets it write, or — with `last-message` — says the seat's final message
+seat's write path into the box; under `harness` a paragraph that names
+the word, says the seat runs under its harness's own sandbox with no
+workspace tool served, and — with `file` — says that sandbox may let it
+write more than the result path, which it writes itself (a codex work
+seat's `workspace-write` writes the whole workspace), or — with
+`last-message` — says the seat's final message
 must be exactly the result object, which the harness writes to the
 result path, in which case the result contract's line that asks for a
 file written says so too; under `open` the same with the word `open`
@@ -141,11 +143,11 @@ decision 0043 as amended by the boxed-marker fix).
 
 #### Scenario: namespace keeps today's words
 - **WHEN** a boxed site's input and prompt are rendered under `namespace`
-- **THEN** the input carries `hands: boxed` and `boundary: namespace`, and the paragraph is byte-identical to today's, naming the workspace tool as the only writer
+- **THEN** the input carries `hands: boxed` and `boundary: namespace`, and the paragraph is byte-identical to today's, naming the workspace tool as the seat's write path
 
 #### Scenario: harness does not claim the workspace tool
 - **WHEN** a boxed gate site's input and prompt are rendered under `harness` on an adapter whose `result` is `file`
-- **THEN** the input carries `boundary: harness`, no `hands` marker and no `result_delivery`, and the paragraph names `harness`, does not name `mcp__brokkr__workspace`, and says the result path is the one file the sandbox lets the seat write
+- **THEN** the input carries `boundary: harness`, no `hands` marker and no `result_delivery`, and the paragraph names `harness`, does not name `mcp__brokkr__workspace`, and says that sandbox may let the seat write more than the result path
 
 #### Scenario: An exec site's prompt carries no hands paragraph
 - **WHEN** the shipped verify seat of `bundles/self` — an exec site with hands — has its input and prompt rendered under `namespace`, `harness` and `open` in turn

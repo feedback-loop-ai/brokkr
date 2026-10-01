@@ -40,7 +40,7 @@ pub(super) const REVIEW_GATE: &str =
      claude seat here does, so it can edit files: the engine parks a gate\n\
      that moves HEAD, and an edit it leaves uncommitted moves nothing.";
 
-const NAMESPACE: Claims = Claims {
+pub(super) const NAMESPACE: Claims = Claims {
     gates: "the verify and ship exec\n  gates, which `namespace` boxes",
     runs: "runs in Brokkr's box, without network",
     scripts: "Verify and ship are exec scripts with no model grant,\n\
@@ -58,7 +58,7 @@ const UNBOXED: Claims = Claims {
     realm: None,
 };
 
-const CODEX: Claims = Claims {
+pub(super) const CODEX: Claims = Claims {
     realm: Some(
         "`realms.json` declares the `harness` boundary: codex holds each seat's \
          hands under its own sandbox — read-only for the review gate, \
@@ -69,7 +69,7 @@ const CODEX: Claims = Claims {
     ..UNBOXED
 };
 
-const MACOS: Claims = Claims {
+pub(super) const MACOS: Claims = Claims {
     realm: Some(
         "`realms.json` declares the `harness` boundary: `namespace`, the default, \
          is built by bubblewrap 0.10 or newer, which is Linux-only, so on macOS \

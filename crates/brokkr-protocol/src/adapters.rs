@@ -250,15 +250,17 @@ fn discovery_paragraph(notice: &HandsNotice) -> String {
 /// contract (decision 0043; decision 0046 rulings 3 and 4). Keyed off
 /// the input's `hands` marker and `boundary` word:
 ///
-/// - `hands: boxed` — today's words: the workspace tool is the only
-///   writer, whatever the boxed word is. The tool is the one the
+/// - `hands: boxed` — the workspace tool is the seat's write path into
+///   the box, whatever the boxed word is. The tool is the one the
 ///   provider's notice declares, when one applies, and otherwise the one
 ///   `brokkr hands serve` has always served; the discovery paragraph
 ///   follows it when a notice applies;
 /// - `boundary: harness` — the harness's own sandbox stands, no
 ///   workspace tool is served, and the result reaches the engine through
-///   the door the input names: the one file the sandbox lets the seat
-///   write, or the seat's final message, which the harness captures;
+///   the door the input names: a file the seat writes itself, under
+///   whatever its adapter's fragment lets that sandbox write (a codex
+///   work seat's `workspace-write` reaches the whole workspace), or the
+///   seat's final message, which the harness captures;
 /// - `boundary: open` — nothing of Brokkr's stands; the seat writes the
 ///   file;
 /// - neither — no paragraph, as before the box existed.
@@ -271,8 +273,8 @@ fn hands_paragraph(input: &Value) -> String {
             .map_or(DEFAULT_WORKSPACE_TOOL, HandsNotice::workspace_tool);
         let discovery = notice.as_ref().map(discovery_paragraph).unwrap_or_default();
         return format!(
-            "\n\nYour hands are boxed: the worktree, and this result file, are \
-         reachable ONLY through the `{workspace}` tool. Your \
+            "\n\nYour hands are boxed: write the worktree, and this result file, \
+         through the `{workspace}` tool. Your \
          harness's own shell runs outside the box and cannot write here — a \
          file written through it never reaches the engine. Write the result \
          file with the workspace tool.{discovery}"
@@ -286,8 +288,8 @@ fn hands_paragraph(input: &Value) -> String {
          result path, so you do not write the file yourself."
             .to_string(),
         Some("harness") => "\n\nYour hands stand under the `harness` boundary: no workspace \
-         tool of Brokkr's is served, and you run under your harness's own sandbox. The \
-         result path above is the one file that sandbox lets you write; write it yourself."
+         tool of Brokkr's is served, and you run under your harness's own sandbox, which \
+         may let you write more than the result path above. Write that file yourself."
             .to_string(),
         Some("open") => "\n\nYour hands stand under the `open` boundary: nothing of \
          Brokkr's stands between you and the machine, and no workspace tool is served. \

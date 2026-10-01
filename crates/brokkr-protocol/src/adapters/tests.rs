@@ -229,7 +229,7 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         AdapterKind::Claude,
     )
     .unwrap();
-    assert!(boxed.contains("reachable ONLY through the `mcp__brokkr__workspace` tool"));
+    assert!(boxed.contains("result file, through the `mcp__brokkr__workspace` tool"));
     assert!(
         boxed.find("## Result contract").unwrap() < boxed.find("mcp__brokkr__workspace").unwrap()
     );
@@ -9350,11 +9350,12 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
     .unwrap();
     let legacy = render_prompt(&input(json!({"hands": "boxed"})), AdapterKind::Codex).unwrap();
     assert_eq!(boxed, legacy);
-    assert!(boxed.contains("reachable ONLY through the `mcp__brokkr__workspace` tool"));
+    assert!(boxed.contains("result file, through the `mcp__brokkr__workspace` tool"));
     assert!(boxed.contains("write a JSON object to exactly this file"));
 
-    // `harness` on a `file` door: the word, no workspace tool, the one
-    // file the sandbox lets the seat write.
+    // `harness` on a `file` door: the word, no workspace tool, and a
+    // sandbox that may write more than the result file (a codex work
+    // seat's `workspace-write` writes the whole workspace).
     let filed = render_prompt(&input(json!({"boundary": "harness"})), AdapterKind::Claude).unwrap();
     assert!(
         filed.contains("stand under the `harness` boundary"),
@@ -9362,7 +9363,7 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
     );
     assert!(!filed.contains("mcp__brokkr__workspace"), "{filed}");
     assert!(
-        filed.contains("the one file that sandbox lets you write"),
+        filed.contains("may let you write more than the result path above"),
         "{filed}"
     );
     assert!(
