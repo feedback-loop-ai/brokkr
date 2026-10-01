@@ -36,18 +36,18 @@ pub(super) fn console<'a, R: Write>(
 
 /// A session opened on `run` at its level, watching `watched`, driven
 /// over `source` for `polls` polls of the scripted keys: how it closed,
-/// the frame it last drew, and the console's state.
+/// the backend holding the frame it last drew, and the console's state.
 fn opened(
     run: &str,
     watched: Watched,
     source: &mut dyn FnMut(Ask) -> Result<Refreshed>,
     polls: usize,
-) -> (Closed, Vec<String>, Tui) {
+) -> (Closed, TestBackend, Tui) {
     let mut terminal = Terminal::new(TestBackend::new(160, 48)).unwrap();
     let mut tui = Tui::over(Some(run.to_string()), Vec::new(), 0);
     tui.watched = watched;
     let closed = drive(&mut terminal, &test_ops(), source, &mut tui, polls).unwrap();
-    (closed, lines_of(terminal.backend().buffer()), tui)
+    (closed, terminal.backend().clone(), tui)
 }
 
 /// A flag the drive beside the view raises once it has returned.
@@ -55,12 +55,15 @@ fn driven(ended: bool) -> Watched {
     Watched::Driven(std::sync::Arc::new(AtomicBool::new(ended)))
 }
 
+/// The events the scripted terminal delivers next, as they are.
+fn events(events: Vec<Event>) {
+    *SCRIPT.lock().unwrap() = events;
+}
+
 /// Ctrl+C as raw mode delivers it: a key, never a signal.
 fn ctrl_c() {
-    let mut script = SCRIPT.lock().unwrap();
-    script.clear();
     let pressed = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-    script.push(Event::Key(pressed));
+    events(vec![Event::Key(pressed)]);
 }
 
 /// The view `brokkr run` opens draws, frame for frame, what `brokkr tui
@@ -73,8 +76,8 @@ fn the_run_view_is_the_frame_tui_run_draws() {
     let mut source = |_: Ask| Ok(Some(views()));
     let (_, tui_run, _) = opened("run-7", Watched::Console, &mut source, 2);
     let (_, run_view, _) = opened("run-7", driven(false), &mut source, 2);
-    assert_eq!(run_view, tui_run);
-    let frame = run_view.join("\n");
+    assert_eq!(run_view.buffer(), tui_run.buffer());
+    let frame = run_view.to_string();
     settings().bind(|| insta::assert_snapshot!("run_view_160x48", frame));
 
     let dir = tempfile::tempdir().unwrap();
@@ -85,11 +88,9 @@ fn the_run_view_is_the_frame_tui_run_draws() {
         |ask: Ask| crate::tui_views(&db, true, ask, &mut head, &mut None, || NOW.to_string());
     let (_, tui_run, _) = opened("run-on-disk", Watched::Console, &mut source, 2);
     let (_, run_view, _) = opened("run-on-disk", driven(false), &mut source, 2);
-    assert!(
-        tui_run.join("\n").contains("run run-on-disk"),
-        "{tui_run:#?}"
-    );
-    assert_eq!(run_view, tui_run);
+    let drawn = tui_run.to_string();
+    assert!(drawn.contains("run run-on-disk"), "{drawn}");
+    assert_eq!(run_view.buffer(), tui_run.buffer());
 }
 
 /// Ctrl+C stops a run this process drives, as SIGINT would; everywhere
@@ -137,12 +138,25 @@ fn a_run_that_ended_holds_its_final_frame_until_any_key() {
         [true, true, false],
         "the final frame is read afresh"
     );
-    let footer = frame[47].trim_end();
+    let footer = lines_of(frame.buffer())[47].trim_end().to_string();
     assert_eq!(footer, "the run has ended · any key closes the view");
     let mut source = |_: Ask| Ok(Some(views()));
     script(&[Key::Char('?')]);
     let (closed, _, tui) = opened("run-7", driven(true), &mut source, 4);
     assert_eq!((closed, tui.help), (Closed::Ended, false));
+    // A key the console binds nothing to closes it too; a resize and a
+    // release, which are no key pressed, do not.
+    let home = KeyEvent::new(KeyCode::Home, KeyModifiers::NONE);
+    let mut release = home;
+    release.kind = KeyEventKind::Release;
+    events(vec![
+        Event::Resize(160, 48),
+        Event::Key(release),
+        Event::Key(home),
+    ]);
+    let (closed, _, _) = opened("run-7", driven(true), &mut source, 4);
+    assert_eq!(closed, Closed::Ended);
+    assert_eq!(SCRIPT.lock().unwrap().len(), 0, "the press closed it");
     script(&[Key::Char('?')]);
     let (closed, _, tui) = opened("run-7", driven(false), &mut source, 2);
     assert_eq!((closed, tui.help, tui.ended), (Closed::Quit, true, false));
@@ -155,16 +169,26 @@ fn a_run_that_ended_holds_its_final_frame_until_any_key() {
 fn a_watched_journal_ends_when_its_run_stops_running() {
     let mut views = views();
     let watched = Watched::Journal("run-7".to_string());
-    let status = |views: &mut Views, run: &str, status: Option<&str>| {
+    let stand = |views: &mut Views, run: &str, standing: Standing| {
         let row = views.runs.runs.iter_mut().find(|row| row.run_id == run);
-        row.unwrap().status = status.map(str::to_string);
+        row.unwrap().verdict.standing = standing;
     };
-    status(&mut views, "run-7", Some("running"));
-    status(&mut views, "run-old", Some("completed"));
-    assert!(!has_ended(&watched, &views));
-    status(&mut views, "run-7", None);
-    assert!(!has_ended(&watched, &views));
-    status(&mut views, "run-7", Some("awaiting_operator"));
-    assert!(has_ended(&watched, &views));
+    stand(&mut views, "run-old", Standing::Shipped);
+    let every = [
+        Standing::Running,
+        Standing::Quarantined,
+        Standing::Parked,
+        Standing::Shipped,
+        Standing::Stopped,
+        Standing::OperatorStopped,
+    ];
+    let ended: Vec<bool> = every
+        .into_iter()
+        .map(|standing| {
+            stand(&mut views, "run-7", standing);
+            has_ended(&watched, &views)
+        })
+        .collect();
+    assert_eq!(ended, [false, false, true, true, true, true]);
     assert!(!has_ended(&Watched::Console, &views));
 }

@@ -45,6 +45,13 @@ fn a_run_status_exits_with_its_own_code() {
     assert_eq!(Exit::of_status(&Status::AwaitingOperator), Exit::Parked);
     assert_eq!(Exit::of_status(&Status::Stopped), Exit::Stopped);
     assert_eq!(Exit::of_status(&Status::Running), Exit::Running);
+    // A watch ends once its run has stopped running, and only then.
+    assert_eq!(
+        Exit::of_settled(Some(&Status::Stopped)),
+        Some(Exit::Stopped)
+    );
+    assert_eq!(Exit::of_settled(Some(&Status::Running)), None);
+    assert_eq!(Exit::of_settled(None), None);
 }
 
 /// A refused command line is clap's usage error; the help and the

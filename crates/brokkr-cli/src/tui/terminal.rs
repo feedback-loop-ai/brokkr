@@ -190,23 +190,39 @@ pub(super) fn has_ended(watched: &Watched, views: &Views) -> bool {
     match watched {
         Watched::Console => false,
         Watched::Driven(ended) => ended.load(Ordering::SeqCst),
-        Watched::Journal(run) => views.runs.runs.iter().any(|row| {
-            row.run_id == *run
-                && row
-                    .status
-                    .as_deref()
-                    .is_some_and(|status| status != "running")
-        }),
+        Watched::Journal(run) => views
+            .runs
+            .runs
+            .iter()
+            .any(|row| row.run_id == *run && settled(row.verdict.standing)),
     }
 }
 
-/// A key the shell read, applied: how it closes the session, if it does.
-/// Once the run watched has ended any key closes it, and Ctrl+C stops a
-/// run this process drives where elsewhere it quits.
-fn pressed(tui: &mut Tui, views: &Views, key: Key) -> Option<Closed> {
-    if tui.ended {
+/// Whether a run standing so has stopped running, as watch's frames end
+/// on it. A row whose journal does not fold keeps the watch going, as
+/// the frames keep polling a journal that does not fold.
+fn settled(standing: Standing) -> bool {
+    match standing {
+        Standing::Running | Standing::Quarantined => false,
+        Standing::Parked | Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => {
+            true
+        }
+    }
+}
+
+/// An event the shell read: how it closes the session, if it does. Once
+/// the run watched has ended any key pressed closes it, bound or not.
+fn closed_by(tui: &mut Tui, views: &Views, event: Event) -> Option<Closed> {
+    let press = matches!(&event, Event::Key(key) if key.kind == KeyEventKind::Press);
+    if tui.ended && press {
         return Some(Closed::Ended);
     }
+    from_crossterm(event).and_then(|key| pressed(tui, views, key))
+}
+
+/// A key the shell read, applied: how it closes the session, if it does.
+/// Ctrl+C stops a run this process drives where elsewhere it quits.
+fn pressed(tui: &mut Tui, views: &Views, key: Key) -> Option<Closed> {
     if apply(tui, views, key) == Flow::Continue {
         return None;
     }
@@ -282,9 +298,7 @@ where
         (tui.width, tui.height) = (size.width, size.height);
         terminal.draw(|frame| draw(frame, tui, &views))?;
         if (ops.poll)(TICK)? {
-            if let Some(closed) =
-                from_crossterm((ops.read)()?).and_then(|key| pressed(tui, &views, key))
-            {
+            if let Some(closed) = closed_by(tui, &views, (ops.read)()?) {
                 return Ok(closed);
             }
         }

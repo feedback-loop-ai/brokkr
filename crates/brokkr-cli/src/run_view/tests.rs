@@ -78,7 +78,9 @@ fn each_close_says_what_became_of_the_run() {
 /// The drive's ending comes back only once the view beside it has
 /// closed, and the view is told when the drive has returned: so a view
 /// holding its final frame holds the summary until its key. A view that
-/// panics does not take the run's ending with it.
+/// panics does not take the run's ending with it, and a drive that
+/// panics has ended for its view too, its panic carried on once the view
+/// has closed.
 #[test]
 fn the_drive_ends_before_its_view_and_the_summary_waits_for_it() {
     let order = Mutex::new(Vec::new());
@@ -101,6 +103,16 @@ fn the_drive_ends_before_its_view_and_the_summary_waits_for_it() {
     assert_eq!(*order.lock().unwrap(), wanted);
     let end = beside(|| 8, |_| panic!("a view that panics"));
     assert_eq!(end, 8);
+    let seen = AtomicBool::new(false);
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        beside(
+            || -> u8 { panic!("a drive that panics") },
+            |ended| seen.store(awaited(&ended), Ordering::SeqCst),
+        )
+    }));
+    let panic = unwound.unwrap_err();
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"a drive that panics"));
+    assert!(seen.load(Ordering::SeqCst), "the view saw the drive end");
 }
 
 const ROLE: &str = "BROKKR_RUN_VIEW_TEST_ROLE";

@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
-use brokkr_core::fold::{fold, Status};
+use brokkr_core::fold::fold;
 use brokkr_runtime::realms::Hearth;
 use brokkr_runtime::Engine;
 
@@ -140,17 +140,30 @@ pub(crate) fn drive(
     })
 }
 
+/// The drive's end, told to its view when the drive returns and when it
+/// unwinds alike: a drive that panicked has ended too, and a view left
+/// waiting on it would hold the scope's join, and the process, open.
+struct Ends<'a>(&'a AtomicBool);
+
+impl Drop for Ends<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
 /// `drive` on this thread and `view` on its own, the view told through
-/// the flag once the drive has returned. What the drive returned comes
-/// back once the view has closed, so a view holding the final frame holds
-/// the summary until its key.
+/// the flag once the drive has returned or unwound. What the drive
+/// returned comes back once the view has closed, so a view holding the
+/// final frame holds the summary until its key.
 fn beside<T>(drive: impl FnOnce() -> T, view: impl FnOnce(Arc<AtomicBool>) + Send) -> T {
     let ended = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&ended);
     std::thread::scope(|scope| {
         let viewing = scope.spawn(move || view(flag));
-        let end = drive();
-        ended.store(true, Ordering::SeqCst);
+        let end = {
+            let _ends = Ends(&ended);
+            drive()
+        };
         // A view that panicked has restored the terminal and printed its
         // message through the console's hook; the run's ending still
         // prints, as it would have without the view.
@@ -197,10 +210,9 @@ pub(crate) fn watch(journal: &Path, run: &str, viewer: &Viewer) -> Result<ExitCo
     (viewer.console)(sole(journal), Some(run.to_string()), 0, watched)?;
     let events = open_journal(journal, Access::Read)?.load(run)?;
     let status = fold(&events).ok().map(|state| state.status);
-    Ok(match status {
-        Some(Status::Running) | None => Exit::Running.into(),
-        Some(status) => Exit::of_status(&status).into(),
-    })
+    Ok(Exit::of_settled(status.as_ref())
+        .unwrap_or(Exit::Running)
+        .into())
 }
 
 #[cfg(test)]

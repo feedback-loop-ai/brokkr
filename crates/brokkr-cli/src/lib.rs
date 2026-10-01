@@ -580,7 +580,6 @@ pub(crate) fn open_journal(db: &std::path::Path, access: Access) -> Result<Store
 /// seq and hash: a rewritten journal at equal seq is the tamper case
 /// `anchor` exists for, and `watch` should redraw rather than sit blind.
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
-#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn watch_loop(
     db: &std::path::Path,
     run: &str,
@@ -612,14 +611,11 @@ fn watch_loop(
                     let view = brokkr_view::run_view(&events, state.as_ref());
                     let frame = render::inspect(&view, None, false, style);
                     write_frame(out, &frame, is_tty, clock)?;
-                    if let Some(state) = state {
-                        // A park admits no further events until a human
-                        // acts, so "keep watching" is an unbounded CI
-                        // hang. The park reason printed first is the
-                        // frame's own header.
-                        if state.status != Status::Running {
-                            return Ok(Exit::of_status(&state.status).into());
-                        }
+                    // A park admits no further events until a human acts,
+                    // so "keep watching" is an unbounded CI hang. The park
+                    // reason printed first is the frame's own header.
+                    if let Some(exit) = Exit::of_settled(state.map(|state| state.status).as_ref()) {
+                        return Ok(exit.into());
                     }
                 }
             }

@@ -166,9 +166,11 @@ on, so this file names them.
     mode delivers as a key, restores the terminal and raises SIGINT at
     the process, so the engine's stop path (decision 0006's addendum) meets
     it as it meets the operator's own; it never detaches silently. A run
-    that ends holds its final frame until any key, and then its summary
-    prints and its exit code returns as before; `watch`'s view exits with
-    the code its frames would have. The CLI's `rustix` edge gains its
+    that ends holds its final frame until any key pressed, one the view
+    binds nothing to included, and then its summary prints and its exit
+    code returns as before; a drive that panics has ended for its view
+    too, and its panic carries on once the view closes. `watch`'s view
+    exits with the code its frames would have. The CLI's `rustix` edge gains its
     `process` feature, already built for the engine, to raise the signal.
 
 ## Consequences
