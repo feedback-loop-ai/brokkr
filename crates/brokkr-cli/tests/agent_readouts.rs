@@ -237,10 +237,18 @@ impl Workspace {
 #[test]
 fn a_run_off_a_terminal_prints_what_it_always_has() {
     let ws = Workspace::new(json!(["first", "second"]));
-    // A repository, so the run anchors and prints no host's git refusal.
-    let mut init = Command::new("git");
-    let init = init.args(["init", "-q"]).current_dir(ws.path());
-    assert!(init.status().unwrap().success());
+    // A repository with an identity of its own, so the run anchors and
+    // prints no host's git refusal: a CI runner has no global identity,
+    // and the anchor's commit-tree needs one.
+    for args in [
+        &["init", "-q"][..],
+        &["config", "user.name", "Readouts Test"],
+        &["config", "user.email", "readouts@example.invalid"],
+    ] {
+        let mut git = Command::new("git");
+        let git = git.args(args).current_dir(ws.path());
+        assert!(git.status().unwrap().success());
+    }
     let printed = |extra: &[&str]| {
         let (run, stdout, stderr) = ws.run_printing(extra);
         (stdout.replace(&run, "<run>"), stderr.replace(&run, "<run>"))
