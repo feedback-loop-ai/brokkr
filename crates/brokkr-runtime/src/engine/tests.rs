@@ -26,6 +26,39 @@ fn machine() -> Machine {
 /// supplied, with no local limits and no hands (design D5.7): the origin
 /// the fixture DECLARES for the argv it spells, not one recovered from a
 /// command. A fixture about origins spells its segments itself.
+/// The marker a re-executed test binary carries: the one test it runs is
+/// already in an engine of its own.
+const OWN_ENGINE: &str = "BROKKR_TEST_OWN_ENGINE";
+
+/// Whether this test runs in an engine of its own (#403; #484's probe tests
+/// do the same). An in-process attempt is one of the test binary's engine's
+/// attempts, and every test in the binary shares that engine as its
+/// subreaper. Inside a hands box, an orphan another test hands it (a bwrap
+/// namespace init that outlives its bwrap) can read as a stray of this
+/// test's attempt and refuse it, so a test whose sites get real hands
+/// re-executes this binary on itself alone and asserts that run passed.
+/// True in the re-executed child, which runs the body; false in the parent,
+/// whose child already ran it.
+pub(super) fn in_its_own_engine(test: &str) -> bool {
+    if std::env::var_os(OWN_ENGINE).is_some() {
+        return true;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", test])
+        .env(OWN_ENGINE, "1")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let shown = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let passed = shown.contains("test result: ok. 1 passed;");
+    assert_eq!((output.status.code(), passed), (Some(0), true), "{shown}");
+    false
+}
+
 pub(super) fn templated(mut candidate: Candidate) -> Candidate {
     candidate.lowering = Lowering::Composed(crate::agents::Composition {
         segments: vec![Segment::new(Origin::Template, &candidate.argv)],

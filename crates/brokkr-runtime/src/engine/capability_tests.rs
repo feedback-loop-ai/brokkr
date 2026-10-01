@@ -226,6 +226,9 @@ fn a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null() {
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn every_nested_dispatch_hands_its_driver_the_selected_links_own_controls() {
+    if !super::tests::in_its_own_engine("engine::capability_tests::every_nested_dispatch_hands_its_driver_the_selected_links_own_controls") {
+        return;
+    }
     let captures = tempfile::tempdir().unwrap();
     let captured = |name: &str| captures.path().join(format!("{name}.json"));
     let capturing = |name: &str, result: &str| {
