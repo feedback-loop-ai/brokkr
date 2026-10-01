@@ -64,9 +64,19 @@ fn events(events: Vec<Event>) {
 }
 
 /// Ctrl+C as raw mode delivers it: a key, never a signal.
+fn ctrl_c_event() -> Event {
+    Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL))
+}
+
+/// Ctrl+C, the next event the scripted terminal delivers.
 fn ctrl_c() {
-    let pressed = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-    events(vec![Event::Key(pressed)]);
+    events(vec![ctrl_c_event()]);
+}
+
+/// `views` with `run`'s fleet row folded to `standing`.
+fn stand(views: &mut Views, run: &str, standing: Standing) {
+    let row = views.runs.runs.iter_mut().find(|row| row.run_id == run);
+    row.unwrap().verdict.standing = standing;
 }
 
 /// The view `brokkr run` opens draws, frame for frame, what `brokkr tui
@@ -165,6 +175,47 @@ fn a_run_that_ended_holds_its_final_frame_until_any_key() {
     assert_eq!((closed, tui.help, tui.ended), (Closed::Quit, true, false));
 }
 
+/// A run that ends while a frame is read is ended for that frame: drawn
+/// as ended, and its key closes the view. A drive that returns after the
+/// frame was ruled is ended at the key, so its Ctrl+C raises nothing.
+#[test]
+fn a_run_that_ends_inside_a_frame_is_ended_for_its_key() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let flag = std::sync::Arc::new(std::sync::OnceLock::new());
+    let mut returning = |_: Ask| {
+        let _ = flag.set(DriveEnd::Returned);
+        Ok(Some(views()))
+    };
+    ctrl_c();
+    let watched = Watched::Driven(std::sync::Arc::clone(&flag));
+    let (closed, _, _) = opened("run-7", watched, &mut returning, 4);
+    assert_eq!(closed, Closed::Ended);
+
+    // The first frame of a journal already settled says so, and its key
+    // closes the view rather than opening help.
+    let mut source = |_: Ask| {
+        let mut settled = views();
+        stand(&mut settled, "run-7", Standing::Shipped);
+        Ok(Some(settled))
+    };
+    let journal = Watched::Journal("run-7".to_string());
+    script(&[]);
+    let (_, frame, tui) = opened("run-7", journal.clone(), &mut source, 1);
+    let footer = lines_of(frame.buffer())[47].trim_end().to_string();
+    assert_eq!(
+        (footer.as_str(), tui.ended),
+        ("the run has ended · any key closes the view", true)
+    );
+    script(&[Key::Char('?')]);
+    let (closed, _, tui) = opened("run-7", journal, &mut source, 1);
+    assert_eq!((closed, tui.help), (Closed::Ended, false));
+
+    let mut tui = Tui::over(Some("run-7".to_string()), Vec::new(), 0);
+    tui.watched = driven(Some(DriveEnd::Returned));
+    let closed = closed_by(&mut tui, &views(), ctrl_c_event());
+    assert_eq!((closed, tui.ended), (Some(Closed::Ended), false));
+}
+
 /// A drive that panicked closes its view at once: the panic hook has
 /// already left the terminal, so nothing more is drawn and no key is
 /// awaited, where a drive that returned holds its final frame for one.
@@ -188,10 +239,6 @@ fn a_drive_that_unwound_closes_its_view_at_once() {
 fn a_watched_journal_ends_when_its_run_stops_running() {
     let mut views = views();
     let watched = Watched::Journal("run-7".to_string());
-    let stand = |views: &mut Views, run: &str, standing: Standing| {
-        let row = views.runs.runs.iter_mut().find(|row| row.run_id == run);
-        row.unwrap().verdict.standing = standing;
-    };
     stand(&mut views, "run-old", Standing::Shipped);
     let every = [
         Standing::Running,

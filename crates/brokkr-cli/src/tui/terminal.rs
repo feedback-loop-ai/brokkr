@@ -220,10 +220,12 @@ fn unwound(watched: &Watched) -> bool {
 }
 
 /// An event the shell read: how it closes the session, if it does. Once
-/// the run watched has ended any key pressed closes it, bound or not.
-fn closed_by(tui: &mut Tui, views: &Views, event: Event) -> Option<Closed> {
+/// the run watched has ended any key pressed closes it, bound or not. The
+/// end is ruled again at the key: a drive can return while the frame
+/// draws or the poll waits, after the frame was ruled.
+pub(super) fn closed_by(tui: &mut Tui, views: &Views, event: Event) -> Option<Closed> {
     let press = matches!(&event, Event::Key(key) if key.kind == KeyEventKind::Press);
-    if tui.ended && press {
+    if press && (tui.ended || has_ended(&tui.watched, views)) {
         return Some(Closed::Ended);
     }
     from_crossterm(event).and_then(|key| pressed(tui, views, key))
@@ -259,12 +261,6 @@ where
     let mut views = Views::empty();
     let mut failures = 0usize;
     for _ in 0..max_iterations {
-        if !tui.ended && has_ended(&tui.watched, &views) {
-            // The final frame reads the journal as the run left it, and
-            // stays until a key (#508).
-            tui.ended = true;
-            tui.force = true;
-        }
         let subject = subject_of(tui, &views);
         let vanishing_key = subject.as_ref().map(|subject| subject.key.clone());
         let asked = asked_run(tui, &views);
@@ -301,6 +297,14 @@ where
             }
         }
         settle(tui, &views);
+        // Ruled over the frame just read, so the frame that first shows
+        // the run settled is drawn, and keyed, as ended. The next frame
+        // reads the journal as the run left it, and stays until a key
+        // (#508).
+        if !tui.ended && has_ended(&tui.watched, &views) {
+            tui.ended = true;
+            tui.force = true;
+        }
         // Checked just before the draw: a drive that panicked closes the
         // view at once, with nothing more drawn and no key awaited.
         if unwound(&tui.watched) {
