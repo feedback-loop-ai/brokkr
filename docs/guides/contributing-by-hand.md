@@ -431,10 +431,10 @@ conditioned on the debug profile: an item behind
 `#[cfg(debug_assertions)]` that non-debug code depends on, or a `cargo
 test`-only path that hid a warning.
 
-The second line is the size budget (#342): the binary must stay within
-one per cent of `quality/binary-size.json`'s committed size, either way.
-Run it to see the number, but read it as a hint: the budget is measured
-on CI's build, whose embedded paths yours do not share.
+The second line is the size budget (#342): the binary must not pass
+`quality/binary-size.json`'s ceiling. Run it to see the number, but read
+it as a hint: the ceiling holds CI's build, whose embedded paths yours do
+not share.
 
 ### The checks you cannot fully reproduce
 
