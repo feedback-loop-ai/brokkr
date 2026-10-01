@@ -14,7 +14,7 @@ use serde_json::json;
 
 use crate::cli_args::{CompareArgs, CostsArgs, InspectArgs, LedgerArgs, RealmsArgs};
 use crate::cli_args::{ReplayArgs, RunsArgs, SeatsArgs, TuiArgs, UiArgs, WatchArgs};
-use crate::{compare, fleet, ledger, realms, render, run_view, selector};
+use crate::{compare, fleet, ledger, realms, render, run_view, selector, tui};
 use crate::{hearths_of, journal_of, now_rfc3339, open_journal, resolve_in_hearths};
 use crate::{summarize, ui_journal, watch_loop, Access, Exit, Invocation};
 
@@ -65,7 +65,7 @@ pub(crate) fn ui(
 pub(crate) fn tui(
     workspace: &Path,
     TuiArgs { run, realms, db }: TuiArgs,
-    run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<ExitCode>,
+    run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<tui::Closed>,
 ) -> Result<ExitCode> {
     let hearths = hearths_of(workspace, realms, db)?;
     // Selectors resolve through decision 0015's one resolver —
@@ -82,7 +82,9 @@ pub(crate) fn tui(
         }
         None => (0, None),
     };
-    run_tui(hearths, run, tab)
+    // However the console closed, `brokkr tui` did what it was asked.
+    run_tui(hearths, run, tab)?;
+    Ok(Exit::Completed.into())
 }
 
 /// The view `inspect` derives and `seats` paints a block of: the run the

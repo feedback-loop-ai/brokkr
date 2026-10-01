@@ -1304,8 +1304,8 @@ fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)
 
 /// `brokkr tui`'s impure entry: the console, watching nothing but its
 /// keys, through the session every run view opens (#508).
-fn run_tui(hearths: Vec<Hearth>, run: Option<String>, tab: usize) -> Result<ExitCode> {
-    run_view::console(hearths, run, tab, tui::Watched::Console).map(|_| Exit::Completed.into())
+fn run_tui(hearths: Vec<Hearth>, run: Option<String>, tab: usize) -> Result<tui::Closed> {
+    run_view::console(hearths, run, tab, tui::Watched::Console)
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
@@ -1860,7 +1860,7 @@ fn run_with(
     serve_ui: impl FnOnce(PathBuf, u16, bool) -> std::io::Result<()>,
     bridge_iteration_limit: Option<usize>,
     watch_iteration_limit: Option<usize>,
-    run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<ExitCode>,
+    run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<tui::Closed>,
 ) -> Result<ExitCode> {
     use verbs::{delivery, exchange, readouts, setup};
     match cli.command {

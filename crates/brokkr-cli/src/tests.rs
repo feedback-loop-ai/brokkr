@@ -773,7 +773,7 @@ fn ui_and_tui_open_the_journal_the_map_names() {
         None,
         |hearths, _, _| {
             opened = Some(hearths.into_iter().map(|hearth| hearth.journal).collect());
-            Ok(ExitCode::SUCCESS)
+            Ok(tui::Closed::Quit)
         },
     )
     .unwrap();
@@ -814,7 +814,7 @@ fn ui_refuses_a_world_of_two_hearths_that_tui_reads_whole() {
         None,
         |hearths, _, _| {
             opened = Some(hearths.into_iter().map(|hearth| hearth.journal).collect());
-            Ok(ExitCode::SUCCESS)
+            Ok(tui::Closed::Quit)
         },
     )
     .unwrap();
@@ -1898,7 +1898,7 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         None,
         |hearths, run, tab| {
             seen = Some((hearths[0].journal.clone(), run, tab));
-            Ok(ExitCode::SUCCESS)
+            Ok(tui::Closed::Quit)
         },
     )
     .unwrap();
@@ -1925,7 +1925,7 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         None,
         |hearths, run, tab| {
             seen = Some((hearths[0].journal.clone(), run, tab));
-            Ok(ExitCode::SUCCESS)
+            Ok(tui::Closed::Quit)
         },
     )
     .unwrap();
@@ -1947,7 +1947,7 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         None,
         |hearths, run, tab| {
             seen = Some((hearths[0].journal.clone(), run, tab));
-            Ok(ExitCode::SUCCESS)
+            Ok(tui::Closed::Quit)
         },
     )
     .unwrap();
