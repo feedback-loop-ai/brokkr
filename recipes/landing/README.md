@@ -59,7 +59,7 @@ its own and cannot be argued with.
 
 | | `preflight` | `landing` |
 |---|---|---|
-| Ends at | `review` — findings only, nothing changes, nothing merges | `ship` — a vouched head, or a stop with the reason |
+| Ends at | `review` — findings, with no phase that changes or merges the branch (an edit the review seat leaves uncommitted is not checked) | `ship` — a vouched head, or a stop with the reason |
 | On a finding | reports it | returns it to the smith, twice, then the ladder |
 | The gate reads it as | a `Brokkr-Preflight` beside a delivery run's docs delta | a `Brokkr-Run`: the run that judged and shipped the head |
 | Cost | two gates | a read, a build for code, a judge, and the smith only when there is something to fix |

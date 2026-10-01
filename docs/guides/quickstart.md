@@ -112,23 +112,25 @@ and (iii) build them. `brokkr doctor` prints one `boundaries` line
 saying which this machine offers.
 
 Which shipped bundles run under `harness` today is a fact of the tree,
-not a promise: the eleven whose hands sites are their own `./` exec gates
+not a promise: the twelve whose hands sites are their own `./` exec gates
 compile — `recipes/fast`, `recipes/landing`, `recipes/standby`, `recipes/node`, `recipes/preflight`,
-`recipes/research`, `recipes/research-dsh`, `recipes/wager-harness`,
+`recipes/review-first`, `recipes/research`, `recipes/research-dsh`, `recipes/wager-harness`,
 `recipes/wager-harness-dsh`, `recipes/wager-harness-muse` and
-`bundles/verify`. Five refuse, each naming the ground the compiler
+`bundles/verify`. Six refuse, each naming the ground the compiler
 reaches first: `bundles/self` and `recipes/panel-review` because their
 reviewer's chain reaches claude and `adapters/claude.json` declares no
 `hands.harness.gate` until the operator's measurement lands (see
 [provider adapters](provider-adapters.md)); `recipes/triage` and
-`recipes/night-shift` because their `analyze:check` dialect step is an
-exec gate whose argv is not the bundle's own script, refused under
-`harness` and `open` until a decision admits it — and, once it is,
-still on the claude ground until that measurement lands. The pin test
-in `crates/brokkr-runtime/src/bundle/model_policy_tests.rs` is the
-record of that split. The fifth refusal is `recipes/release`: its boxed
-`implement` office reaches claude without a measured `hands.harness.work`
-fragment before compilation reaches the review gate.
+`recipes/night-shift`, and `recipes/gpt-flash`, which extends `triage`,
+because their `analyze:check` dialect step is an exec gate whose argv is
+not the bundle's own script, refused under `harness` and `open` until a
+decision admits it — and, once
+it is, `triage` and `night-shift` still on the claude ground until that
+measurement lands; and `recipes/release`, whose `implement` office
+declares hands and reaches claude without a measured `hands.harness.work`
+fragment before compilation reaches the review gate. The pin test in
+`crates/brokkr-runtime/src/bundle/model_policy_tests.rs` is the record of
+that split.
 
 ```console
 $ brokkr --version

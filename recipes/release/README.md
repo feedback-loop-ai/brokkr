@@ -64,7 +64,12 @@ that external check as pending; an in-box test run does not certify it.
 
 The shipped networked workspace can read public release/profile repositories;
 private targets need an explicitly configured access mechanism or preparation
-reports the missing access. It does not expose the host's GitHub credentials.
+reports the missing access. Under a `namespace` boundary the box binds no
+host home, so a command run through it does not reach the host's GitHub
+credentials. That bounds the box, not the seat: the manager's chain falls
+back to codex `sol`, and a boxed Codex seat keeps a read-only view of the
+whole host outside the box, credential files included
+([security model](../../docs/security-model.md)).
 
 A configured profile is a repository and path, with a project selector and an
 application stage. The manager reads the remote file, prepares a local patch

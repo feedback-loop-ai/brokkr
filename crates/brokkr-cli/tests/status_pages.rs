@@ -516,10 +516,23 @@ const OVERCLAIMS: [&str; 8] = [
 /// boundary named; and seat commits said to land unsigned, where an
 /// unboxed seat's `git` reads the host's signing configuration.
 ///
+/// So are the final landing review's: the standby row's gates called
+/// boxed with no boundary named; preflight's table said to produce only
+/// a ruling, a landing table saying nothing changes, and a review rule's
+/// reason saying a gate changes nothing or no code changed, where the
+/// engine parks a moved HEAD and only ship checks the tree; GPT agents
+/// said to keep workspace restrictions two of them never declare;
+/// release's implement office called boxed, and the harness split's
+/// stale count; release said not to expose the host's GitHub
+/// credentials, which a boxed Codex seat reads; dsh's sandbox said to
+/// write only the session workspace, where the runner adds two mounts;
+/// and a model gate under `open` said refused outright, where only one
+/// with hands is.
+///
 /// A comparison that only implies a bound, such as one arm called no
 /// narrower than another, is outside the guard: its wording names no
 /// control a list could hold.
-const ANYWHERE: [&str; 117] = [
+const ANYWHERE: [&str; 128] = [
     "blast radius",
     "no tool restriction",
     "tools restriction",
@@ -637,6 +650,17 @@ const ANYWHERE: [&str; 117] = [
     "no model, boxed like the verifier",
     "one boxed gate proves",
     "seat commits land unsigned",
+    "boxed verify and ship gates unchanged",
+    "can only produce a ruling",
+    "findings only, nothing changes",
+    "a gate changes nothing",
+    "no code changed",
+    "retain their existing workspace restrictions",
+    "boxed implement office",
+    "the eleven whose hands sites",
+    "does not expose the host's github credentials",
+    "writes only under the session workspace",
+    "a model gate is refused outright",
 ];
 
 /// The wording the guard refuses, as lists a test can take one word out of.
@@ -794,7 +818,7 @@ fn literal(chars: &[char], from: usize, literals: &mut Vec<String>) -> usize {
 
 /// Excerpts of the pages this story reworded, word for word as they
 /// stood: each holds one paragraph the guard refuses.
-const OLD_PAGES: [&str; 120] = [
+const OLD_PAGES: [&str; 128] = [
     // docs/guides/agent-library.md
     "**The honesty rules are the point, and they are enforced rather than\n\
      documented.** A tool restriction the provider cannot express fails\n\
@@ -1114,11 +1138,38 @@ const OLD_PAGES: [&str; 120] = [
     // docs/security-model.md
     "  Seat commits land unsigned in the worktree, and the operator reviews\n  \
      the branch, pushes and merges. That review is the last check.",
+    // docs/guides/recipe-authoring.md's standby row, as the final landing review found it
+    "| [`standby`](../../recipes/standby/README.md) | delivering while one vendor's account is \
+     out of limit | `extends fast`: both model seats pinned inline to codex `sol` \
+     (`gpt-6.1-sol`), the boxed verify and ship gates unchanged; a hedge forces its crew, so it \
+     takes no fallback |",
+    // recipes/landing/README.md
+    "| Ends at | `review` — findings only, nothing changes, nothing merges | `ship` — a vouched \
+     head, or a stop with the reason |",
+    // recipes/gpt-flash/README.md
+    "support workspace hands or named tool filtering; the Flash agents therefore\n\
+     declare neither. GPT agents retain their existing workspace restrictions. Flash panel \
+     positions",
+    // docs/guides/quickstart.md
+    "Which shipped bundles run under `harness` today is a fact of the tree,\n\
+     not a promise: the eleven whose hands sites are their own `./` exec gates",
+    "record of that split. The fifth refusal is `recipes/release`: its boxed\n\
+     `implement` office reaches claude without a measured `hands.harness.work`\n\
+     fragment before compilation reaches the review gate.",
+    // recipes/release/README.md
+    "private targets need an explicitly configured access mechanism or preparation\n\
+     reports the missing access. It does not expose the host's GitHub credentials.",
+    // docs/guides/provider-adapters.md
+    "A dsh **work** seat under `harness` is confined by dsh's own sandbox,\n\
+     which writes only under the session workspace.",
+    "| `gate` | The argv fragment that puts a gate-class seat in the harness's read-only class. \
+     A model gate is admitted under `harness` only when **every** link of its resolved chain \
+     declares one (decision 0046 ruling 4); under `open` a model gate is refused outright. |",
 ];
 
 /// Excerpts of the shell scripts and recipe data this story reworded, as
 /// the guard reads them: a script's comments, a recipe's JSON strings.
-const OLD_DATA: [(&str, &str); 3] = [
+const OLD_DATA: [(&str, &str); 6] = [
     // scripts/verify-seat.sh, and its five pinned copies in bundles/ and recipes/
     (
         "verify-seat.sh",
@@ -1137,6 +1188,21 @@ const OLD_DATA: [(&str, &str); 3] = [
     (
         "policy.json",
         r#"{"description": "Research intake (decision 0044): one work seat reads the articles a commission names or finds and proposes registry entries; one boxed gate proves the registry still parses"}"#,
+    ),
+    // recipes/preflight/policy.json
+    (
+        "policy.json",
+        r#"{"description": "The table has no intake, no implement and no ship phase and it ends after review — so a preflight run can only produce a ruling, never a change and never a merge."}"#,
+    ),
+    // recipes/fast/policy.json and recipes/review-first/policy.json
+    (
+        "policy.json",
+        r#"{"rules": [{"id": "REVIEW-CLEAN", "reason": "Review clean; a gate changes nothing, so verification evidence stands."}]}"#,
+    ),
+    // recipes/node/policy.json, recipes/panel-review/policy.json and bundles/self/policy.json
+    (
+        "policy.json",
+        r#"{"rules": [{"id": "REVIEW-CLEAN", "reason": "Review clean and no code changed; verification evidence stands."}]}"#,
     ),
 ];
 
@@ -1206,7 +1272,7 @@ const OLD_SOURCES: [&str; 18] = [
 
 /// Excerpts of the string literals this story reworded, as the sources
 /// carried them: text a generated file or an error message says.
-const OLD_LITERALS: [&str; 5] = [
+const OLD_LITERALS: [&str; 6] = [
     // crates/brokkr-cli/src/init.rs, the scaffold README's tool grants
     r#""{gate_list}. Verify and ship are boxed scripts with no model grant.\n\n\
                  The grant is per BINARY, not per subcommand""#,
@@ -1225,6 +1291,10 @@ const OLD_LITERALS: [&str; 5] = [
     r#""\n\nYour hands stand under the `harness` boundary: no workspace \
          tool of Brokkr's is served, and you run under your harness's own sandbox. The \
          result path above is the one file that sandbox lets you write; write it yourself.""#,
+    // crates/brokkr-cli/src/init.rs, the scaffold's phase table
+    r##"r#"    {"id": "REVIEW-CLEAN-NO-FIXES", "from": "review", "result": "clean",
+     "when": {"fixes_applied": false}, "next": "ship",
+     "reason": "Clean with no code changed; verification evidence stands."},"#"##,
 ];
 
 /// A shell script's comments as Markdown: each `#` line's text, and a

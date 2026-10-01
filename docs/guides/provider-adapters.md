@@ -389,7 +389,7 @@ Three members, nothing else admitted:
 
 | Member | Meaning |
 |---|---|
-| `gate` | The argv fragment that puts a gate-class seat in the harness's read-only class. A model gate is admitted under `harness` only when **every** link of its resolved chain declares one (decision 0046 ruling 4); under `open` a model gate is refused outright. |
+| `gate` | The argv fragment that puts a gate-class seat with hands in the harness's read-only class. A model gate with hands is admitted under `harness` only when **every** link of its resolved chain declares one (decision 0046 ruling 4), and under `open` it is refused. A model gate without hands is not refused by this check under either word, and runs unboxed with no fragment added. |
 | `work` | The fragment for a work-class seat with hands — the class that writes. A work seat under `harness` needs it on every link too; under `open` the same seat runs at the harness's own default, and whether that default writes is the harness's fact. |
 | `result` | How the gate's verdict reaches the engine: `file` (default — the seat writes the result file itself) or `last-message` (the harness's own capture writes its final message to the result path). |
 
@@ -846,7 +846,8 @@ Three limits this guide will not hide:
   on disk. Whether a live model obeys is judgment's to check.
 
 A dsh **work** seat under `harness` is confined by dsh's own sandbox,
-which writes only under the session workspace. A linked `git worktree`
+whose writes reach the session workspace and, for a linked worktree, the
+two mounts the runner adds below. A linked `git worktree`
 keeps its metadata under the shared repository's `.git`, outside that
 workspace, so `git add`/`git commit` would fail on `index.lock` (the
 defect the essay records). `brokkr driver dsh` resolves the worktree's
