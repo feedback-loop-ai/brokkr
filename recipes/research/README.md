@@ -25,9 +25,13 @@ in one run, and the gate refuses an eleventh entry.
   class `work`): reads the registry README and index and the decision
   index first, then the articles, then writes one entry per article and
   one index row each, and commits them on the branch the commission
-  names. It is the only office in the library that holds the `webfetch` and
-  `websearch` grants; the charter is the configurable prompt, and editing it
-  moves this recipe's witness digest.
+  names. It asks for `web-fetch` and `web-search` as `wants`
+  (`capabilities`), and holds neither unless the realm grants it through
+  a tool dialect in `realms.json` (decision 0065); otherwise the run
+  proceeds without them, with a notice in the run manifest and in the
+  seat's prompt. This repository's own `realms.json` grants nothing. The
+  charter is the configurable prompt, and editing it moves this recipe's
+  witness digest.
 - **verify** (`roles/verify-seat.sh`, in Brokkr's box with no network
   where the realm's boundary is `namespace`; under `harness` it runs
   unboxed and no network denial is reported): the tree is

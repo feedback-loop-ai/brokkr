@@ -748,26 +748,20 @@ const OVERCLAIMS: [&str; 8] = [
 /// declare MCP servers, which no agent may name; and what a seat may run
 /// said to be its tool list.
 ///
-/// So is a boxed claude seat said to keep only `workspace` with no grant
-/// named, where the engine fills its `--tools` list with the tool of each
-/// native power the realm grants it (`final_tools`): each phrase is the
-/// unqualified clause as it ended, so the sentence that names the grant
-/// is read true. So, too, is each sentence that held a gate boxed, its
-/// network denied or its environment cleared with no boundary named. Each
-/// such phrase is that sentence's clause as it stood: carried to the
-/// word the old clause ended on, or, where the clause opened its
-/// sentence or a citation, anchored to that start (a leading `. ` or
-/// `decision 0043: `). A sentence that names `namespace` inside the
-/// clause, or before an anchored one, is read true. A phrase still held
-/// mid-clause refuses a sentence that keeps its exact words after a
-/// qualifier; the positive controls in
+/// A phrase that is false only for what its sentence leaves unnamed is
+/// not here: [`BOXED`] holds a gate called boxed, offline or cleared with
+/// no boundary named, and [`UNGRANTED`] a boxed claude seat said to keep
+/// only `workspace` with no native power named. The phrases left here
+/// that opened their sentence or a citation are anchored to that start
+/// (a leading `. ` or `decision 0043: `), so a sentence that names
+/// `namespace` before one is read true; the positive controls in
 /// [`the_guard_reads_true_0065_sentences_true`] are the sentences each
-/// narrowed phrase must read true.
+/// phrase must read true.
 ///
 /// A comparison that only implies a bound, such as one arm called no
 /// narrower than another, is outside the guard: its wording names no
 /// control a list could hold.
-const ANYWHERE: [&str; 149] = [
+const ANYWHERE: [&str; 96] = [
     "blast radius",
     "tools restriction",
     "permission narrowing",
@@ -791,33 +785,16 @@ const ANYWHERE: [&str; 149] = [
     "removes the harness's own tools",
     "boxes what a gate can reach",
     "gates never write",
-    "boxed exec verify",
-    "three model offices and two boxed exec gates",
-    "carry a boxed exec script",
-    "name boxed exec scripts",
-    "deterministic boxed verify and",
-    "deterministic boxed verifier",
-    "deterministic boxed driver",
-    "deterministic boxed exec scripts",
-    "commands, boxed without network",
-    "own commands and runs without network",
-    "runs both with network denied",
-    "repository root with network denied",
-    "%s passed with network denied",
-    "are boxed scripts and carry no model grants",
-    "are boxed scripts with no model grant",
     "read and never write",
     "decision 0043: the box bounds only the workspace calls",
     "plants no git hook",
     "the box expresses the restriction",
     "gates change nothing",
-    "the verifier is a boxed script",
     "decision 0043: the box;",
     "judges only and changes nothing",
     "controlled agent effects",
     "brokkr-like effect authorization",
     "grant/effect boundary",
-    "boxes its verify and ship gates",
     "read-only subset for review",
     "sandbox holds each seat's hands",
     "keeps a verify seat from installing",
@@ -827,14 +804,10 @@ const ANYWHERE: [&str; 149] = [
     "nobody pushes, nobody merges",
     "list in each seat's driver",
     "read-only sdd judge",
-    "are boxed, inline exec scripts",
     "holding the worktree read-write and the host toolchain",
-    "the box clears the environment, and compilation refuses",
-    "the box clears the environment, so a boxed seat cannot receive",
     "and reports, it never writes",
     "and it never writes",
     "box lacks",
-    "boxed and offline, in that order",
     "nothing in this repository pushes",
     "re-express every restriction",
     "which boundary builds them",
@@ -852,31 +825,12 @@ const ANYWHERE: [&str; 149] = [
     "for a linked worktree the box binds",
     "every restriction expressible",
     "boxed verify seat and an unboxed review seat under",
-    "policy and boxed exec gates",
-    "offline and inside the box",
-    "deterministic boxed exec gates",
     "tool the box cannot reach",
-    "offline inside the box",
-    "network remains refused",
-    "boxed, no model",
-    "boxed exec verifier",
-    "boxed exec shipper",
-    "the gate is a boxed script",
-    "boxed, no network",
     "declare boxed hands",
     ". the verifier is a boxed exec script",
     ". network is refused:",
-    "verify uses boxed exec",
-    "cannot reach the network, so the gate fails closed",
-    "boxed registry gate",
-    "same boxed exec gate",
-    "own boxed exec script",
-    "boxed ship seat",
-    "its boxed gates",
-    "| boxed exec scripts |",
     "the review offices' already are",
     "that are boxed stay boxed",
-    "fast's boxed verifier",
     "fit and security. read-only.",
     "applied fixes hard-stops",
     "no network denial reported, under harness",
@@ -884,10 +838,7 @@ const ANYWHERE: [&str; 149] = [
     "one file the sandbox lets",
     "result file, are reachable only through",
     "verifier seat. the box denies network",
-    "no model, boxed like the verifier",
-    "one boxed gate proves",
     "seat commits land unsigned",
-    "boxed verify and ship gates unchanged",
     "can only produce a ruling",
     "findings only, nothing changes",
     "a gate changes nothing",
@@ -907,6 +858,69 @@ const ANYWHERE: [&str; 149] = [
     "grants (which pre-approve tools and remove none)",
     "what a seat may run is the agent data",
     "a seat's declared mcp servers",
+];
+
+/// Wording that held a gate boxed, its network denied or its environment
+/// cleared with no boundary named: under `harness` a pinned exec script
+/// runs unboxed in a rebuilt environment and no network denial is
+/// reported. Each is refused unless its sentence names [`BOUNDARY`]
+/// before it, so a sentence that says under which boundary the box
+/// stands is read true wherever in the clause it says so.
+const BOXED: [&str; 43] = [
+    "boxed exec verify",
+    "three model offices and two boxed exec gates",
+    "carry a boxed exec script",
+    "name boxed exec scripts",
+    "deterministic boxed verify and",
+    "deterministic boxed verifier",
+    "deterministic boxed driver",
+    "deterministic boxed exec scripts",
+    "commands, boxed without network",
+    "own commands and runs without network",
+    "runs both with network denied",
+    "repository root with network denied",
+    "%s passed with network denied",
+    "are boxed scripts and carry no model grants",
+    "are boxed scripts with no model grant",
+    "the verifier is a boxed script",
+    "boxes its verify and ship gates",
+    "are boxed, inline exec scripts",
+    "the box clears the environment, and compilation refuses",
+    "the box clears the environment, so a boxed seat cannot receive",
+    "boxed and offline, in that order",
+    "policy and boxed exec gates",
+    "offline and inside the box",
+    "deterministic boxed exec gates",
+    "offline inside the box",
+    "network remains refused",
+    "boxed, no model",
+    "boxed exec verifier",
+    "boxed exec shipper",
+    "the gate is a boxed script",
+    "boxed, no network",
+    "verify uses boxed exec",
+    "cannot reach the network, so the gate fails closed",
+    "boxed registry gate",
+    "same boxed exec gate",
+    "own boxed exec script",
+    "boxed ship seat",
+    "its boxed gates",
+    "| boxed exec scripts |",
+    "fast's boxed verifier",
+    "no model, boxed like the verifier",
+    "one boxed gate proves",
+    "boxed verify and ship gates unchanged",
+];
+
+/// The boundary whose box the [`BOXED`] wording describes.
+const BOUNDARY: [&str; 1] = ["namespace"];
+
+/// Wording that held a boxed claude seat to `workspace` alone, where the
+/// engine fills its `--tools` list with the tool of each native power
+/// the realm grants it (`final_tools`). Each is refused unless its
+/// sentence names [`GRANT`] before it. Naming `namespace` does not read
+/// one true: the box stands there, and the grant still adds a tool.
+const UNGRANTED: [&str; 10] = [
     "boxed claude seat has no tool but workspace, yet",
     "leave the model no tool but workspace",
     "claude seat has no other tool, though",
@@ -919,17 +933,25 @@ const ANYWHERE: [&str; 149] = [
     "no tools of claude code's own and one boxed workspace tool",
 ];
 
+/// What decides whether a boxed claude seat keeps a tool beside
+/// `workspace`.
+const GRANT: [&str; 1] = ["native power"];
+
 /// The wording the guard refuses, as lists a test can take one word out of.
 struct Vocabulary<'a> {
     tool_list: &'a [&'a str],
     overclaims: &'a [&'a str],
     anywhere: &'a [&'a str],
+    boxed: &'a [&'a str],
+    ungranted: &'a [&'a str],
 }
 
 const VOCABULARY: Vocabulary<'static> = Vocabulary {
     tool_list: &TOOL_LIST,
     overclaims: &OVERCLAIMS,
     anywhere: &ANYWHERE,
+    boxed: &BOXED,
+    ungranted: &UNGRANTED,
 };
 
 /// Each paragraph of a Markdown text that the full [`VOCABULARY`] refuses.
@@ -943,7 +965,9 @@ fn tool_list_overclaims(text: &str) -> Vec<String> {
 /// bullets cannot hide one. Paragraphs are lowercased with their code and
 /// emphasis marks dropped and their line breaks joined, so neither can
 /// hide one either. A phrase that opens with `. ` matches only at a
-/// sentence's start, the paragraph's first included.
+/// sentence's start, the paragraph's first included. A [`BOXED`] or
+/// [`UNGRANTED`] phrase is refused only where its sentence has not named
+/// what reads it true before it.
 fn overclaims_in(text: &str, vocabulary: &Vocabulary) -> Vec<String> {
     let paragraphs: Vec<String> = text
         .split("\n\n")
@@ -957,15 +981,20 @@ fn overclaims_in(text: &str, vocabulary: &Vocabulary) -> Vec<String> {
         })
         .filter(|paragraph| !paragraph.is_empty())
         .collect();
-    let says = |paragraph: &str, words: &[&str]| {
+    let says_unless = |paragraph: &str, words: &[&str], qualifiers: &[&str]| {
         let sentences = format!(". {paragraph}");
-        words.iter().any(|word| sentences.contains(word))
+        words
+            .iter()
+            .any(|word| unqualified(&sentences, word, qualifiers))
     };
+    let says = |paragraph: &str, words: &[&str]| says_unless(paragraph, words, &[]);
     paragraphs
         .iter()
         .enumerate()
         .filter(|(at, paragraph)| {
             says(paragraph, vocabulary.anywhere)
+                || says_unless(paragraph, vocabulary.boxed, &BOUNDARY)
+                || says_unless(paragraph, vocabulary.ungranted, &GRANT)
                 || says(paragraph, vocabulary.overclaims)
                     && (says(paragraph, vocabulary.tool_list)
                         || at
@@ -974,6 +1003,24 @@ fn overclaims_in(text: &str, vocabulary: &Vocabulary) -> Vec<String> {
         })
         .map(|(_, paragraph)| paragraph.clone())
         .collect()
+}
+
+/// Whether `text` holds `word` at some place whose sentence names none of
+/// `qualifiers` before it. A sentence starts after a `. `, at a table
+/// cell's `|` or at a bullet's ` - `, so a qualifier in one cell, bullet
+/// or sentence reads nothing true in the next.
+fn unqualified(text: &str, word: &str, qualifiers: &[&str]) -> bool {
+    text.match_indices(word).any(|(at, _)| {
+        let before = &text[..at];
+        let start = [". ", "|", " - "]
+            .iter()
+            .filter_map(|end| before.rfind(end).map(|found| found + end.len()))
+            .max()
+            .unwrap_or(0);
+        !qualifiers
+            .iter()
+            .any(|qualifier| before[start..].contains(qualifier))
+    })
 }
 
 /// A Rust source's doc comments as Markdown: each `//!` or `///` line's
@@ -1487,7 +1534,7 @@ const OLD_PAGES: [&str; 146] = [
 /// True sentences of decision 0065's code that the guard must read true:
 /// each names what decides, so a phrase widened past the clause it is
 /// held for refuses one of them.
-const TRUE_TEXTS: [&str; 16] = [
+const TRUE_TEXTS: [&str; 23] = [
     "Under `namespace`, verify runs without network.",
     "Under `namespace`, the verify script is boxed without network.",
     "A boxed claude seat the realm grants both powers has `WebSearch` and\n\
@@ -1509,6 +1556,16 @@ const TRUE_TEXTS: [&str; 16] = [
     "Under `namespace`, verify and ship are two boxed exec gates with `hands.network: false`.",
     "Under `namespace`, the box bounds only the workspace calls of a gate whose agent declares \
      hands.",
+    "Under `namespace`, the deterministic boxed verifier runs `cargo test` with \
+     `hands.network: false`.",
+    "Under `namespace`, verify runs both with network denied.",
+    "Under `namespace`, verify and ship are boxed scripts with no model grant.",
+    "Under `namespace`, the box clears the environment, and compilation refuses a secret \
+     binding on a seat that declares hands.",
+    "Under `namespace`, a boxed exec verifier executes a pinned script.",
+    "Under `namespace`, verify and ship are deterministic boxed exec gates.",
+    "A boxed claude seat that holds no native power is started with no tools of Claude Code's \
+     own and one boxed workspace tool.",
 ];
 
 /// Excerpts of the shell scripts and recipe data this story reworded, as
@@ -1730,22 +1787,39 @@ fn the_guard_reads_true_0065_sentences_true() {
     }
 }
 
+/// A qualifier reads true only the sentence, table cell or bullet that
+/// names it: the next one still says its clause bare.
+#[test]
+fn a_qualifier_reads_only_its_own_sentence_true() {
+    for text in [
+        "Under `namespace` the box stands. The deterministic boxed verifier runs offline.",
+        "| verify | under `namespace` |\n|---|---|\n| ship | boxed exec shipper |",
+        "- Under `namespace`, verify is boxed\n- the deterministic boxed verifier runs offline",
+    ] {
+        assert_eq!(tool_list_overclaims(text).len(), 1, "not refused:\n{text}");
+    }
+}
+
 /// Each word the guard holds is the only word that refuses some old
 /// excerpt, so none can be dropped with this file green and none is held
 /// for a sentence no one wrote.
 #[test]
 fn every_word_the_guard_holds_alone_refuses_an_old_sentence() {
     let texts = old_texts();
-    for word in TOOL_LIST.iter().chain(&OVERCLAIMS).chain(&ANYWHERE) {
+    let words = TOOL_LIST.iter().chain(&OVERCLAIMS).chain(&ANYWHERE);
+    for word in words.chain(&BOXED).chain(&UNGRANTED) {
         let keep = |list: &[&'static str]| -> Vec<&'static str> {
             list.iter().copied().filter(|kept| kept != word).collect()
         };
         let (tool_list, overclaims, anywhere) =
             (keep(&TOOL_LIST), keep(&OVERCLAIMS), keep(&ANYWHERE));
+        let (boxed, ungranted) = (keep(&BOXED), keep(&UNGRANTED));
         let without = Vocabulary {
             tool_list: &tool_list,
             overclaims: &overclaims,
             anywhere: &anywhere,
+            boxed: &boxed,
+            ungranted: &ungranted,
         };
         assert!(
             texts

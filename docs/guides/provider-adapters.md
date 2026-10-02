@@ -390,7 +390,7 @@ Three members, nothing else admitted:
 
 | Member | Meaning |
 |---|---|
-| `gate` | The argv fragment that puts a gate-class seat with hands in the harness's read-only class. A model gate with hands is admitted under `harness` only when **every** link of its resolved chain declares one (decision 0046 ruling 4), and under `open` it is refused. A model gate without hands is not refused by this check under either word, and runs unboxed with no fragment added. |
+| `gate` | The argv fragment that puts a gate-class seat with hands in the harness's read-only class. A model gate with hands is admitted under `harness` only when **every** link of its resolved chain declares one (decision 0046 ruling 4), and under `open` it is refused. A model gate without hands is not refused by this check under either word, and runs unboxed with no fragment added, with one exception under every boundary: an inline gate whose command dispatches the codex driver and that declares `tools.sandbox` `read-only` gets this fragment, while it stays unboxed (`lower_inline_sandbox`, `bundle.rs`). |
 | `work` | The fragment for a work-class seat with hands — the class that writes. A work seat under `harness` needs it on every link too; under `open` the same seat runs at the harness's own default, and whether that default writes is the harness's fact. |
 | `result` | How the gate's verdict reaches the engine: `file` (default — the seat writes the result file itself) or `last-message` (the harness's own capture writes its final message to the result path). |
 

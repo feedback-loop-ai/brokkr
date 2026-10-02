@@ -103,8 +103,10 @@ Codex's server-side web search or Claude Code's `WebSearch` and
 `WebFetch`, so no box confines it. Decision 0065 ruling 4 turns each one
 off in every seat the realm does not grant it. A realm grants one in
 `realms.json`'s `forge.realms/v6` `capabilities` map, through a tool
-dialect under [`dialects/tools/`](../dialects/tools/), and only to the
-offices it names. A recipe or an agent only asks, by name, under
+dialect under [`dialects/tools/`](../dialects/tools/). A grant with no
+`offices` list reaches every office that asks, one with `"offices": []`
+reaches none, and one with a list reaches only the offices it names
+(`CapabilityGrant::reaches`, `realms.rs`). A recipe or an agent only asks, by name, under
 `capabilities`. This repository's own `realms.json` grants nothing.
 
 The same test renders this block from the adapters' `native_capabilities`
