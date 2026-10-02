@@ -1060,6 +1060,7 @@ fn role() {
         "job-engine" => orphaning_engine(&dir, "job"),
         "joiner-engine" => orphaning_engine(&dir, "joiner"),
         "stampless-engine" => stampless_engine(&dir),
+        "spared-engine" => spared_engine(&dir),
         "detach" => detach_and_record(&dir),
         _ => {}
     }
@@ -1152,10 +1153,7 @@ fn as_ps(only: Option<i32>) -> Result<Vec<table::Entry>, table::TableError> {
 /// tracker records it by its parent on either host, not as an orphan the
 /// driver adopts as subreaper: a job whose shell exits at once goes to
 /// launchd unrecorded on macOS, the residual the operator's ruling of
-/// 2026-09-28 accepted. It writes
-/// down the cleanup its deadline kill reports, then ends the grandchild
-/// the parked attempt left running: were it to come to the test process
-/// running, a concurrent test's attempt would take it for its stray.
+/// 2026-09-28 accepted. Its deadline kill parks.
 fn stampless_engine(dir: &str) {
     let seats = Seats::at(dir);
     let host = Host {
@@ -1167,7 +1165,33 @@ fn stampless_engine(dir: &str) {
     let deadline = Some(Duration::from_secs(1));
     let process =
         DriverProcess::spawn_with(&driver, &seats.dir, deadline, &SpawnEnv::Inherit, host);
-    let report = attempt(process.unwrap());
+    report_and_end_the_grandchild(&seats, process.unwrap());
+}
+
+/// An engine whose kill spares every identity, so its attempt's detached
+/// grandchild runs on after the kill, as #504's exiting box init does
+/// not. Its driver reports success once the grandchild has recorded
+/// itself, and exits.
+fn spared_engine(dir: &str) {
+    let seats = Seats::at(dir);
+    let host = Host {
+        kill: |_| Ok(()),
+        ..Host::REAL
+    };
+    let succeeds = format!("printf '%s\\n' '{}'", succeeded());
+    let driver = seats.role_driver("seat", "detached", &accepting(), &succeeds);
+    let process = DriverProcess::spawn_with(&driver, &seats.dir, None, &SpawnEnv::Inherit, host);
+    let mut process = process.unwrap();
+    process.bounds.settle = Duration::from_millis(300);
+    report_and_end_the_grandchild(&seats, process);
+}
+
+/// Run the attempt, write down the cleanup its end reports, then end the
+/// grandchild the parked attempt left running: were it to come to the
+/// test process running, a concurrent test's attempt would take it for
+/// its stray.
+fn report_and_end_the_grandchild(seats: &Seats, process: DriverProcess) {
+    let report = attempt(process);
     let written = format!("{:?}", report.cleanup);
     std::fs::write(seats.file("seat", "report"), written).unwrap();
     let tree = seats.pids("seat");
@@ -1508,6 +1532,26 @@ fn a_recorded_descendant_whose_row_loses_its_stamp_parks_the_attempt() {
         reason: Unsettled::Signal {
             pid: grandchild,
             error: format!("the ps row \"{grandchild} 1 {grandchild} S\" could not be read"),
+        },
+    };
+    let written = std::fs::read_to_string(seats.file("seat", "report")).unwrap();
+    assert_eq!(written, format!("{parked:?}"));
+}
+
+/// #504: what reading an exiting process as gone must not weaken. A
+/// descendant that left the group and genuinely runs on after the kill
+/// parks the attempt, though its driver reported success: only a zombie
+/// or a process inside its exit is gone. The engine is a child process,
+/// so no other test's attempt takes the survivor for its stray.
+#[test]
+fn a_descendant_still_running_after_the_kill_parks_the_attempt() {
+    let seats = Seats::new();
+    let mut engine = engine(&seats, "spared-engine").spawn().unwrap();
+    assert_eq!(exit_code(&mut engine), Some(0));
+    let [_, grandchild] = seats.pids("seat");
+    let parked = Cleanup::Unresolved {
+        reason: Unsettled::Descendants {
+            pids: vec![grandchild],
         },
     };
     let written = std::fs::read_to_string(seats.file("seat", "report")).unwrap();

@@ -306,7 +306,9 @@ impl Live {
     /// Record every descendant of the leader, and of what is already
     /// recorded, that `entries` shows running, and every member of the
     /// group while its leader is unreaped: an orphan that stayed in the
-    /// group is the attempt's, whoever adopted it.
+    /// group is the attempt's, whoever adopted it. An exiting process is
+    /// recorded and followed: its children stay its own until its exit
+    /// ends.
     fn record(&mut self, entries: &[Entry]) {
         let mut roots: BTreeSet<i32> = entries
             .iter()
@@ -378,14 +380,17 @@ impl Live {
 
     /// What of the attempt `entries` shows running, in the order it is
     /// reported: its group, its recorded descendants, the orphans it
-    /// doubts. Every identity still running is signalled again first,
-    /// for what was attributed to it since its kill.
+    /// doubts. A zombie and an exiting process run nothing (`Entry::runs`):
+    /// a box's pid-namespace init can take seconds to finish exiting on a
+    /// busy disk, and is not a survivor (#504). Every identity still
+    /// running is signalled again first, for what was attributed to it
+    /// since its kill.
     fn running(
         &self,
         entries: &[Entry],
         kill: fn(&Identity) -> std::io::Result<()>,
     ) -> Result<(), Unsettled> {
-        let running = || entries.iter().filter(|entry| !entry.zombie);
+        let running = || entries.iter().filter(|entry| entry.runs());
         let owned = |set: &BTreeSet<Identity>| -> Vec<&Identity> {
             running()
                 .filter(|entry| set.contains(&entry.id))
@@ -466,10 +471,12 @@ fn adopted(entries: &[Entry]) -> impl Iterator<Item = &Entry> {
 
 /// The running orphans the engine adopted that no live attempt explains
 /// and that are not already the engine's own. A driver leads a group that
-/// is a live attempt's.
+/// is a live attempt's. An exiting orphan runs nothing, as a zombie does:
+/// a settled attempt's box init still exiting is no one's doubt, and its
+/// children, reparented when its exit ends, are read then.
 fn strays<'a>(entries: &'a [Entry], registry: &'a Registry) -> impl Iterator<Item = &'a Entry> {
     adopted(entries)
-        .filter(|entry| !entry.zombie)
+        .filter(|entry| entry.runs())
         .filter(|entry| !registry.unowned.contains(&entry.id))
         .filter(|entry| !registry.attempts.values().any(|live| live.explains(entry)))
 }

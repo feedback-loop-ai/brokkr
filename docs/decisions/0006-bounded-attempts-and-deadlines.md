@@ -195,3 +195,41 @@ determinate was not.
   launchd unseen. Separately, and not a limit of settlement: without a
   pidfd, a pid reused between `ps`'s confirmation and the signal could
   be signalled.
+
+## Addendum — 2026-10-02, a process inside its exit is gone (#504), proposed
+
+A boxed exec site whose script succeeded parked `indeterminate` on a
+loaded CI runner: "its descendants N were still running after the kill".
+N was the box's pid-namespace init. bubblewrap's outer process exits as
+soon as that init reports the command's status, before the init has
+exited itself. So the init is reparented to the driver, then to the
+engine, and is recorded as a descendant. Its own exit then tears down
+the box's mount namespace, and unmounting an overlay whose upper layer
+is on a busy disk waits on the disk. A reproduction on Linux 6.17, with
+the session on ext4 beside writers that sync, read the init in state D,
+waiting in `jbd2_log_wait_commit`, `wb_wait_for_completion` or
+`folio_wait_bit`, its memory already released and the kernel's
+`PF_EXITING` set. It became a zombie from 64 ms to 9 s past the 5 s
+settle bound. A longer bound only moves the threshold.
+
+- A process inside its exit counts as gone, as a zombie does. On Linux
+  that is a process every thread of which has `PF_EXITING` in its
+  `/proc` flags or has ended. The flag in a process's own row is its
+  leader thread's alone, so a process whose leader is exiting is read
+  thread by thread, and a thread that cannot be read fails the read. On
+  macOS it is the `E` that `ps` prints, which the group's EPERM reading
+  already used. Such a process runs no code of its own again, so it
+  cannot fork, signal or write anything new.
+- The settle wait, the engine's signal stop and the group's EPERM
+  reading ask one question, whether a process still runs, and answer it
+  the same way. An exiting orphan the engine adopted is not a stray, as
+  a zombie is not: its children stay its own until its exit ends, and
+  are read on their own once they come to the engine. The tracker still
+  records and follows an exiting process for the same reason, and an
+  attempt is not noted ended while one of its processes is exiting.
+- The guarantee does not move. A descendant that still runs after the
+  kill parks the attempt, whatever its driver reported.
+- This closes a false `indeterminate`, a descendant reported but
+  already over. It closes no missed descendant: the residuals above
+  stand, and per-attempt cgroup containment (#472) is still what would
+  close them by construction.

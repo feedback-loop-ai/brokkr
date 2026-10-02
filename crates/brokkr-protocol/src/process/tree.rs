@@ -83,7 +83,10 @@
 //! Every read fails closed. A table that cannot be read, a row that
 //! cannot be read or parsed, a `ps` that exits nonzero and a snapshot
 //! without the engine's own row prove nothing; a row that vanished
-//! between the listing and its read is gone. A read before the spawn that
+//! between the listing and its read is gone. So is a zombie, and a
+//! process inside the kernel's exit (`table::Entry`): it runs no code of
+//! its own again, though a box's pid-namespace init can spend seconds
+//! there unmounting on a busy disk (#504). A read before the spawn that
 //! fails refuses the spawn: without it, nothing tells the attempt's
 //! orphans from what ran before it. A kill the kernel refuses on a live
 //! identity leaves the cleanup unresolved. So does a kill it refuses on
@@ -306,9 +309,10 @@ pub(super) enum GroupRefusal {
 /// when a fresh read of `table` shows no member of the group running:
 /// Darwin answers a group whose members are all zombies or exiting with
 /// EPERM, having found the group and signalled nobody, so a zombie or an
-/// exiting member is not running here. Linux signals both, and lists no
-/// member exiting, so its EPERM names a member it would not signal, which
-/// the same read shows running. One code serves both. A table that cannot
+/// exiting member is not running here. Linux signals both, so its EPERM
+/// names a member it would not signal, which the same read shows running
+/// unless it is exiting, and then it runs nothing either. One code serves
+/// both. A table that cannot
 /// be read proves nothing: the EPERM is unread, and the attempt parks on
 /// what the read shows (`GroupRefusal::Unread`).
 pub(super) fn group_refused(
@@ -325,7 +329,7 @@ pub(super) fn group_refused(
         Err(unread) => Some(GroupRefusal::Unread(unread)),
         Ok(entries) => entries
             .iter()
-            .any(|entry| entry.pgid == group && !entry.zombie && !entry.exiting)
+            .any(|entry| entry.pgid == group && entry.runs())
             .then_some(GroupRefusal::Stands(errno)),
     }
 }

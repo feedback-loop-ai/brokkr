@@ -26,9 +26,14 @@ impl Identity {
 
 /// One row of a snapshot. A zombie has exited: it holds a pid until its
 /// parent reaps it, and it runs nothing, so it counts as gone. An exiting
-/// process is one BSD `ps` flags `E`, trying to exit but not yet a
-/// zombie: Darwin's group signal skips it (`tree::group_refused`). Linux
-/// lists no such state, and reads none exiting.
+/// process is inside the kernel's exit but not yet a zombie. BSD `ps`
+/// flags it `E`, and Darwin's group signal skips it
+/// (`tree::group_refused`). On Linux it is one whose every thread has
+/// entered `do_exit` (`PF_EXITING`). Its exit can still take seconds,
+/// for example while a pid namespace's init unmounts the box's overlay
+/// and waits on the disk (#504). It runs no code of its own again, so it
+/// cannot fork, signal or write anything new, and it counts as gone too
+/// (`Entry::runs`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Entry {
     pub(super) id: Identity,
@@ -36,6 +41,14 @@ pub(super) struct Entry {
     pub(super) pgid: i32,
     pub(super) zombie: bool,
     pub(super) exiting: bool,
+}
+
+impl Entry {
+    /// Does the process still run? Neither a zombie nor an exiting
+    /// process does.
+    pub(super) fn runs(&self) -> bool {
+        !self.zombie && !self.exiting
+    }
 }
 
 /// Why the table could not be read whole.
@@ -86,13 +99,26 @@ fn snapshot_in(proc: &std::path::Path) -> Result<Vec<Entry>, TableError> {
 
 /// The row of `pid`, or `None` when the process is gone: its directory
 /// went with it (`ENOENT`), or it exited while its `stat` was read
-/// (`ESRCH`).
+/// (`ESRCH`). The flag in `stat` is the leader thread's alone, so a
+/// process reads exiting only when every thread of it does: a leader
+/// that exits first leaves the others running.
 #[cfg(target_os = "linux")]
 fn read(proc: &std::path::Path, pid: i32) -> std::io::Result<Option<Entry>> {
-    let stat = match std::fs::read_to_string(proc.join(pid.to_string()).join("stat")) {
-        Err(error) if matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ESRCH)) => {
-            return Ok(None)
-        }
+    let dir = proc.join(pid.to_string());
+    match stat_row(&dir, pid)? {
+        Some(entry) if entry.exiting => Ok(Some(Entry {
+            exiting: threads_exiting(&dir, pid)?,
+            ..entry
+        })),
+        entry => Ok(entry),
+    }
+}
+
+/// The row `dir/stat` holds, or `None` when it is gone.
+#[cfg(target_os = "linux")]
+fn stat_row(dir: &std::path::Path, pid: i32) -> std::io::Result<Option<Entry>> {
+    let stat = match std::fs::read_to_string(dir.join("stat")) {
+        Err(error) if gone(&error) => return Ok(None),
         stat => stat?,
     };
     parse_stat(pid, &stat).map(Some).ok_or_else(|| {
@@ -103,13 +129,44 @@ fn read(proc: &std::path::Path, pid: i32) -> std::io::Result<Option<Entry>> {
     })
 }
 
+/// Has every thread `dir/task` lists entered its exit, or ended? A
+/// thread, or the whole task list, gone between the listing and its read
+/// has ended. A thread whose row cannot be read could still run, so it
+/// fails the read.
+#[cfg(target_os = "linux")]
+fn threads_exiting(dir: &std::path::Path, pid: i32) -> std::io::Result<bool> {
+    let tasks = match std::fs::read_dir(dir.join("task")) {
+        Err(error) if gone(&error) => return Ok(true),
+        tasks => tasks?,
+    };
+    for task in tasks {
+        if stat_row(&task?.path(), pid)?.is_some_and(|thread| thread.runs()) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Did a read of `/proc` fail because what it named is gone?
+#[cfg(target_os = "linux")]
+fn gone(error: &std::io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ESRCH))
+}
+
+/// The kernel's flag for a thread inside `do_exit`, set before it
+/// releases anything (`include/linux/sched.h`).
+#[cfg(target_os = "linux")]
+const PF_EXITING: u32 = 0x0000_0004;
+
 /// `/proc/<pid>/stat`: the command name is parenthesised and may hold any
 /// byte, so fields are counted from its closing parenthesis — state,
-/// ppid, pgrp, and the start time twenty fields on.
+/// ppid, pgrp, the kernel flags four fields on, and the start time
+/// thirteen after them.
 #[cfg(target_os = "linux")]
 fn parse_stat(pid: i32, stat: &str) -> Option<Entry> {
     let (_, rest) = stat.rsplit_once(')')?;
     let fields: Vec<&str> = rest.split_whitespace().collect();
+    let flags: u32 = fields.get(6)?.parse().ok()?;
     Some(Entry {
         id: Identity {
             pid,
@@ -118,7 +175,7 @@ fn parse_stat(pid: i32, stat: &str) -> Option<Entry> {
         ppid: fields.get(1)?.parse().ok()?,
         pgid: fields.get(2)?.parse().ok()?,
         zombie: ["Z", "X"].contains(fields.first()?),
-        exiting: false,
+        exiting: flags & PF_EXITING != 0,
     })
 }
 

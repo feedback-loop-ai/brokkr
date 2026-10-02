@@ -34,6 +34,13 @@ fn zombie(entry: Entry) -> Entry {
     }
 }
 
+fn exiting(entry: Entry) -> Entry {
+    Entry {
+        exiting: true,
+        ..entry
+    }
+}
+
 /// This process, leading the engine's group, and `rows` beside it.
 fn table(rows: impl IntoIterator<Item = Entry>) -> Vec<Entry> {
     let mut entries = vec![row(me(), 1, me())];
@@ -116,7 +123,8 @@ fn the_tracker_records_every_descendant_and_nothing_else() {
 
 /// What `running` reads as still running, in the order it is reported:
 /// the group, then a recorded descendant, then an orphan the attempt
-/// doubts. A zombie, whatever holds it, counts as gone.
+/// doubts. A zombie, whatever holds it, counts as gone, and so, since
+/// #504, does a process inside its exit: a box's init still unmounting.
 #[test]
 fn running_is_the_group_the_recorded_and_the_doubted() {
     let recorded = row(RECORDED, me(), RECORDED);
@@ -140,6 +148,8 @@ fn running_is_the_group_the_recorded_and_the_doubted() {
             pids: vec![STRANGER]
         })
     );
+    let exiting = [member.clone(), recorded.clone(), doubted.clone()].map(exiting);
+    assert_eq!(live.running(&table(exiting), spared), Ok(()));
     let zombies = [member, recorded, doubted].map(zombie);
     assert_eq!(live.running(&table(zombies), spared), Ok(()));
 }
@@ -219,9 +229,9 @@ fn an_orphan_born_after_the_last_read_and_before_a_spawn_is_not_the_attempts() {
 /// a job that shell job control moved to a group of its own, orphaned
 /// before the tracker saw it, included. It is attributed to the one
 /// attempt that could have left it, and doubted by each attempt when
-/// several could. A child the engine spawned, a zombie, another process's
-/// child, a member of a live group and what an attempt already explains
-/// are not strays.
+/// several could. A child the engine spawned, a zombie, an orphan inside
+/// its exit (#504), another process's child, a member of a live group and
+/// what an attempt already explains are not strays.
 #[test]
 fn an_orphan_the_engine_adopted_is_attributed_or_doubted() {
     let job = row(STRANGER, me(), STRANGER);
@@ -230,6 +240,7 @@ fn an_orphan_the_engine_adopted_is_attributed_or_doubted() {
         zombie(row(STRANGER + 2, me(), STRANGER + 2)),
         row(STRANGER + 3, 1, STRANGER + 3),
         row(STRANGER + 4, me(), GROUP),
+        exiting(row(STRANGER + 5, me(), STRANGER + 5)),
     ];
     let entries = table(others.into_iter().chain([job.clone()]));
     let other_group = GROUP + 100;
@@ -344,7 +355,10 @@ fn an_orphan_no_attempt_could_have_left_is_the_engines_own() {
 /// sleep`), before any read could see it run, so nothing records it. It
 /// comes to the engine once the driver exits, and no attempt explains it,
 /// live or dropped. The read is the engine's own, so no live attempt's
-/// leader is taken for an orphan.
+/// leader is taken for an orphan. The orphan runs on the host's schedule,
+/// not the driver's: on a loaded host it can outlive the driver's 0.2 s,
+/// and a read then finds it running with the engine (#504). So reads are
+/// taken until one shows it exited, and that read and the next are judged.
 #[cfg(target_os = "linux")]
 #[test]
 fn an_orphan_that_exited_before_its_first_read_is_reaped() {
@@ -370,7 +384,14 @@ fn an_orphan_that_exited_before_its_first_read_is_reaped() {
         let entries = live().read(Host::REAL.table).unwrap();
         entries.into_iter().find(|entry| entry.id.pid == orphan)
     };
-    let adopted = listed();
+    let until = Instant::now() + Duration::from_secs(10);
+    let adopted = loop {
+        let adopted = listed();
+        if adopted.as_ref().is_none_or(|entry| entry.zombie) || Instant::now() >= until {
+            break adopted;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
     assert!(
         adopted
             .as_ref()
