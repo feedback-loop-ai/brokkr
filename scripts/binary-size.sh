@@ -24,7 +24,7 @@ declared="$(jq -n --stream '[inputs | select(length == 2 and .[0] == ["budgets",
 # Read whole (-s), it must be exactly one document whose budgets.bytes is
 # one whole positive number: two documents would print two lines, and a
 # comparison against them is a bash arithmetic error an `if` reads as false.
-budget="$(jq -ser 'if length == 1 then .[0].budgets.bytes | select(type == "number" and . == floor and . > 0) else empty end' "$budget_file")" || {
+budget="$(jq --slurp --exit-status --raw-output 'if length == 1 then .[0].budgets.bytes | select(type == "number" and . == floor and . > 0) else empty end' "$budget_file")" || {
   printf 'binary size refusal: %s holds no whole positive budgets.bytes\n' "$budget_file" >&2
   exit 1
 }
