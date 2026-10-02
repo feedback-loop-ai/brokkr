@@ -748,10 +748,17 @@ const OVERCLAIMS: [&str; 8] = [
 /// declare MCP servers, which no agent may name; and what a seat may run
 /// said to be its tool list.
 ///
+/// So is a boxed claude seat said to keep only `workspace` with no grant
+/// named, where the engine fills its `--tools` list with the tool of each
+/// native power the realm grants it (`final_tools`): each phrase is the
+/// unqualified clause as it ended, so the sentence that names the grant
+/// is read true. The positive controls in
+/// [`the_guard_reads_true_0065_sentences_true`] hold that.
+///
 /// A comparison that only implies a bound, such as one arm called no
 /// narrower than another, is outside the guard: its wording names no
 /// control a list could hold.
-const ANYWHERE: [&str; 135] = [
+const ANYWHERE: [&str; 144] = [
     "blast radius",
     "tools restriction",
     "permission narrowing",
@@ -783,8 +790,8 @@ const ANYWHERE: [&str; 135] = [
     "deterministic boxed verifier",
     "deterministic boxed driver",
     "deterministic boxed exec scripts",
-    "boxed without network",
-    "runs without network",
+    "commands, boxed without network",
+    "own commands and runs without network",
     "with network denied",
     "are boxed scripts",
     "read and never write",
@@ -880,13 +887,22 @@ const ANYWHERE: [&str; 135] = [
     "a model gate is refused outright",
     "unmerged decision 0065",
     "on in every codex seat",
-    "websearch and webfetch among them",
-    "websearch and webfetch included",
+    "default tools, websearch and webfetch among them",
+    "default tools, websearch and webfetch included",
     "researcher (webfetch, websearch",
     "keeps the harness's defaults",
     "grants (which pre-approve tools and remove none)",
     "what a seat may run is the agent data",
     "a seat's declared mcp servers",
+    "boxed claude seat has no tool but workspace",
+    "leave the model no tool but workspace",
+    "claude seat has no other tool, though",
+    "removes claude code's own tools;",
+    "removes claude code's own tools, while",
+    "removes claude code's own tools (--tools \"\"), while",
+    "removes claude code's own tools, and --strict-mcp-config",
+    "the only tool a claude seat keeps while",
+    "applies to a claude seat's namespace hands, not",
 ];
 
 /// The wording the guard refuses, as lists a test can take one word out of.
@@ -1044,7 +1060,7 @@ fn literal(chars: &[char], from: usize, literals: &mut Vec<String>) -> usize {
 
 /// Excerpts of the pages this story reworded, word for word as they
 /// stood: each holds one paragraph the guard refuses.
-const OLD_PAGES: [&str; 137] = [
+const OLD_PAGES: [&str; 145] = [
     // docs/guides/agent-library.md
     "**The honesty rules are the point, and they are enforced rather than\n\
      documented.** A tool restriction the provider cannot express fails\n\
@@ -1423,6 +1439,43 @@ const OLD_PAGES: [&str; 137] = [
      engine lowers to `--permission-mode acceptEdits` and an\n   \
      `--allowedTools` list of seven `Bash` prefixes, so it may edit\n   \
      freely but may run nothing outside that list.",
+    // docs/security-model.md and docs/status.md, before the grant was named
+    "credential and its connection to the provider. A boxed claude seat has\n\
+     no tool but `workspace`, yet the Claude Code process still loads the",
+    "  settings declare run on the host, outside the box. `--tools \"\"` and\n  \
+     `--strict-mcp-config` still leave the model no tool but `workspace`.",
+    "| `claude` | … | On the boxed path, the hands fragment's `--tools \"\"` removes Claude Code's \
+     own tools, and `--strict-mcp-config` shuts out the operator's MCP servers \
+     (`adapters/claude.json`). |",
+    // docs/guides/agent-library.md
+    "bounds those calls and nothing else the harness does: a claude seat has\n\
+     no other tool, though Claude Code still loads the operator's own",
+    "adapter file, or `\"unsupported\"` with the reason). Claude's fragment\n\
+     removes Claude Code's own tools; Codex's sets its native shell read-only",
+    // docs/guides/provider-adapters.md
+    "the harness's: claude's fragment removes Claude Code's own tools\n\
+     (`--tools \"\"`), while codex's sets Codex's native shell",
+    // docs/research/0013-heart-tool-primitives.md
+    "| 1 | … | namespace hands add one workspace tool with explicit binds, the only tool a claude \
+     seat keeps while a Codex seat keeps its native read-only shell on the host beside it |",
+    "miss those controls. The one-tool description applies to a claude\n\
+     seat's namespace hands, not to a Codex seat, which keeps its native",
+];
+
+/// True sentences of decision 0065's code that the guard must read true:
+/// each names what decides, so a phrase widened past the clause it is
+/// held for refuses one of them.
+const TRUE_TEXTS: [&str; 6] = [
+    "Under `namespace`, verify runs without network.",
+    "Under `namespace`, the verify script is boxed without network.",
+    "A boxed claude seat the realm grants both powers has `WebSearch` and\n\
+     `WebFetch` included in its `--tools` list.",
+    "The engine composes each held tool, `WebSearch` and `WebFetch` among\n\
+     them, into the seat's include list.",
+    "A boxed claude seat that holds no native power has `workspace` as its\n\
+     only tool; a granted power adds its tool to `--tools`.",
+    "Claude's fragment removes Claude Code's own tools, and the engine adds\n\
+     back only the tool of a native power the realm grants the seat.",
 ];
 
 /// Excerpts of the shell scripts and recipe data this story reworded, as
@@ -1474,7 +1527,7 @@ const OLD_DATA: [(&str, &str); 7] = [
 
 /// Excerpts of the doc comments this story reworded, as the sources
 /// carried them.
-const OLD_SOURCES: [&str; 17] = [
+const OLD_SOURCES: [&str; 19] = [
     // crates/brokkr-protocol/src/hands.rs
     "//! `/tmp`, no host home, no host credential, no other process, and no\n\
      //! network unless the spec grants it. A tool allow-list bounded what the\n\
@@ -1535,6 +1588,12 @@ const OLD_SOURCES: [&str; 17] = [
     "//! that lets a gate seat judge is adapter data, and since decision 0016\n\
      //! what a seat may RUN is the agent data its `tools.allow` names,\n\
      //! expressed through the adapter's `tool_permissions.names`. A starter",
+    // crates/brokkr-protocol/src/hands.rs and crates/brokkr-runtime/src/agents.rs,
+    // before the grant was named
+    "//! box bounds what a `workspace` call can touch and nothing else: claude's\n\
+     //! fragment removes Claude Code's own tools, while a boxed Codex seat keeps its",
+    "    /// not consulted. The box bounds only a call to it: claude's fragment\n\
+     /// removes Claude Code's own tools; a Codex seat keeps its native shell.",
 ];
 
 /// Excerpts of the string literals this story reworded, as the sources
@@ -1626,6 +1685,15 @@ fn old_texts() -> Vec<String> {
 fn the_guard_refuses_every_sentence_this_story_reworded() {
     for text in old_texts() {
         assert_eq!(tool_list_overclaims(&text).len(), 1, "not refused:\n{text}");
+    }
+}
+
+/// Each phrase is held to the clause it was written for: a true sentence
+/// that names what decides is not refused.
+#[test]
+fn the_guard_reads_true_0065_sentences_true() {
+    for text in TRUE_TEXTS {
+        assert_eq!(tool_list_overclaims(text), Vec::<String>::new(), "{text}");
     }
 }
 

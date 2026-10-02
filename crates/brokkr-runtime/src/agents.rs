@@ -133,7 +133,8 @@ pub struct Agent {
     pub capabilities: crate::capabilities::Requests,
     /// Decision 0043: the agent's hands are one boxed tool; the tool list is
     /// not consulted. The box bounds only a call to it: claude's fragment
-    /// removes Claude Code's own tools; a Codex seat keeps its native shell.
+    /// removes Claude Code's own tools and the engine adds back only a
+    /// realm-granted native power's tool; a Codex seat keeps its native shell.
     pub hands: Option<brokkr_protocol::hands::HandsSpec>,
     pub limits: Option<Limits>,
     pub inputs: Option<Vec<String>>,

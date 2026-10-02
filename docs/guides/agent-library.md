@@ -290,8 +290,9 @@ executes inside an empty-root bubblewrap namespace holding the worktree
 and the repository's common git directory read-write and the host
 toolchain read-only, so a boxed call can move shared refs and write a
 worktree's `config.worktree`. Under `harness` no such box stands. The box
-bounds those calls and nothing else the harness does: a claude seat has
-no other tool, though Claude Code still loads the operator's own
+bounds those calls and nothing else the harness does: a claude seat
+keeps no other tool but that of a native power the realm grants it,
+though Claude Code still loads the operator's own
 configuration on the host, and a Codex seat keeps its native shell,
 read-only and outside the box, and can read the host through it (see the
 [security model](../security-model.md#what-the-box-does-not-do)). `binds` add host paths — the Rust toolchain cache as an
@@ -312,7 +313,8 @@ credentials masked, rustup read-only:
 With hands, the adapter's per-tool map is not consulted; what the adapter
 must express is how its harness is handed the boxed tool (`hands` in the
 adapter file, or `"unsupported"` with the reason). Claude's fragment
-removes Claude Code's own tools; Codex's sets its native shell read-only
+removes Claude Code's own tools, and the engine adds back only the tool
+of a native power the realm grants the seat; Codex's sets its native shell read-only
 beside the tool, and no switch removes it. The review agents declare
 hands, which is what lets a codex lane hold a review office at all: `sol` opens the single reviewer, the review
 chief and the adversarial member, and stands second behind `fable` on

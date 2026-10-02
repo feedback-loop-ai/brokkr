@@ -299,7 +299,8 @@ BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests
 hands: the argv fragment that hands the harness the `workspace` tool,
 served by `brokkr hands serve` over MCP. What else the model keeps is
 the harness's: claude's fragment removes Claude Code's own tools
-(`--tools ""`), while codex's sets Codex's native shell
+(`--tools ""`) and the engine adds back only the tool of a native power
+the realm grants the seat, while codex's sets Codex's native shell
 `--sandbox read-only` beside it, because Codex has no switch that
 removes that shell ([security model](../security-model.md)). Two tokens are expanded by the engine at
 spawn — `{hands_mcp_json}`, a Claude-style MCP config naming this binary,

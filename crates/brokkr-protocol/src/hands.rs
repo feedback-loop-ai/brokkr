@@ -1,15 +1,15 @@
 //! The model's hands are one tool, and the tool runs in an empty root
 //! (decision 0043).
 //!
-//! A harness keeps its credential and its network to the provider
-//! OUTSIDE the box. Brokkr serves one tool, `workspace`, over MCP on stdio by
-//! `brokkr hands serve`; each call runs `bash -lc <command>` in a bubblewrap
-//! namespace from an empty root: the worktree read-write at its own path, the
-//! host toolchain read-only, a private `HOME` and `/tmp`, no host home or
-//! credential, no other process, and no network unless the spec grants it. The
-//! box bounds what a `workspace` call can touch and nothing else: claude's
-//! fragment removes Claude Code's own tools, while a boxed Codex seat keeps its
-//! native shell, read-only and outside the box. A tool list only pre-approves.
+//! A harness keeps its credential and its network to the provider OUTSIDE the
+//! box. Brokkr serves one tool, `workspace`, over MCP on stdio by `brokkr hands
+//! serve`; each call runs `bash -lc <command>` in a bubblewrap namespace from an
+//! empty root: the worktree read-write at its own path, the host toolchain
+//! read-only, a private `HOME` and `/tmp`, no host home or credential, no other
+//! process, and no network unless the spec grants it. The box bounds a
+//! `workspace` call and nothing else: claude's fragment removes Claude Code's
+//! own tools but a realm-granted native power's, a boxed Codex seat keeps its
+//! native shell, read-only, outside the box, and a tool list only pre-approves.
 //!
 //! The same namespace boxes a deterministic `exec` seat whole, which is
 //! what lets a pinned script hold a gate (ruling 3). The strategy is part

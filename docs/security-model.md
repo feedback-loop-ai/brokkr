@@ -61,9 +61,12 @@ seats declare no hands asks nothing of the host and runs, unboxed.
 The box runs two things: each call a boxed model seat makes to its one
 `workspace` tool, as `bash -lc <command>`, and a boxed `exec` seat's
 whole command. The harness process itself runs outside the box, with its
-credential and its connection to the provider. A boxed claude seat has
-no tool but `workspace`, yet the Claude Code process still loads the
-operator's own configuration on the host (see below). A boxed codex seat
+credential and its connection to the provider. A boxed claude seat that
+holds no native power has `workspace` as its only tool; a native power
+the realm grants it adds that power's tool, `WebSearch` or `WebFetch`,
+to its `--tools` and `--allowedTools` lists (`final_tools`,
+`native_controls.rs`). Either way the Claude Code process still loads
+the operator's own configuration on the host (see below). A boxed codex seat
 also keeps Codex's native shell, read-only and outside the box (see
 below). A dsh seat, whose adapter cannot express boxed hands, never
 reaches the box.
@@ -118,7 +121,7 @@ What each harness makes of them:
 
 | Harness | `tools.allow` | `tools.sandbox` | What actually removes or confines |
 |---|---|---|---|
-| `claude` | `--allowedTools`, from the adapter's `tool_permissions` map (`lower_allow`, `agents.rs`). This is pre-approval: it removes no tool. A name that maps to `WebSearch` or `WebFetch` is refused (`native_alias`), and so is an explicitly empty list. | Refused: a class is admitted only where an engine fragment already expresses it, and only Codex's do (`admit_local_sandbox`, `bundle.rs`). | On the boxed path, the hands fragment's `--tools ""` removes Claude Code's own tools, and `--strict-mcp-config` shuts out the operator's MCP servers (`adapters/claude.json`). On every seat, `--disallowedTools` names each native power the seat does not hold. |
+| `claude` | `--allowedTools`, from the adapter's `tool_permissions` map (`lower_allow`, `agents.rs`). This is pre-approval: it removes no tool. A name that maps to `WebSearch` or `WebFetch` is refused (`native_alias`), and so is an explicitly empty list. | Refused: a class is admitted only where an engine fragment already expresses it, and only Codex's do (`admit_local_sandbox`, `bundle.rs`). | On the boxed path, the hands fragment's `--tools ""` removes Claude Code's own tools and the engine fills that include list with the tools of the native powers the seat holds and nothing else, so a seat with no grant keeps only `workspace` (`final_tools`, `native_controls.rs`); `--strict-mcp-config` shuts out the operator's MCP servers (`adapters/claude.json`). On every seat, `--disallowedTools` names each native power the seat does not hold. |
 | `codex` | Refused: Codex maps no tool name, so the list cannot be expressed (`lower_allow`). | Admitted only where an engine fragment expresses exactly that class: `read-only` for a boxed seat and for a gate under `harness`, `workspace-write` for a work seat under `harness`. Every other shape is refused, never clamped (`admitted_sandbox`, `bundle.rs`). | `--sandbox read-only` on the boxed path, and the `hands.harness` fragments' `--sandbox` classes under `harness` (`adapters/codex.json`). On every seat, `-c web_search="disabled"` unless the seat holds `web-search`. |
 | `lanetally` | Refused at compile while its native inventory is unmeasured (operator ruling R5 of 2026-09-29; `Authority::resolve`, `capabilities.rs`). | Refused, as for claude. | Nothing of Brokkr's. LaneTally takes no boxed hands and no native control. |
 | `dsh` | Refused: dsh maps no tool name. | Refused. | dsh's own sandbox, which the driver's runner refines (`dsh_sandbox.rs`). No typed tool reaches it. |
@@ -213,8 +216,9 @@ check can read.
   `--setting-sources` and no configuration directory, so it reads the
   operator's user-scope settings, `CLAUDE.md` and auto-memory from the
   host home. That text reaches the model's context, and the hooks those
-  settings declare run on the host, outside the box. `--tools ""` and
-  `--strict-mcp-config` still leave the model no tool but `workspace`.
+  settings declare run on the host, outside the box. `--tools` and
+  `--strict-mcp-config` still leave the model only `workspace` and the
+  tool of each native power the realm grants the seat.
   No issue owns this yet.
 - **Provider-side tools run outside it.** Codex's server-side
   `web_search` runs at the provider, so a box with no network neither
