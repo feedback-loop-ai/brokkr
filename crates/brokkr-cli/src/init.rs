@@ -9,8 +9,10 @@
 //! The scaffold is a WORKSPACE, not only a bundle: it carries its own
 //! `adapters/` and `agents/` trees, because since decision 0021 the tier
 //! that lets a gate seat judge is adapter data, and since decision 0016
-//! what a seat may RUN is the agent data its `tools.allow` names,
-//! expressed through the adapter's `tool_permissions.names`. A starter
+//! what a seat runs without asking is the agent data its `tools.allow`
+//! names, pre-approved through the adapter's `tool_permissions.names`;
+//! the list removes no tool, so what else the seat may run is Claude
+//! Code's permission model and the operator's own settings. A starter
 //! whose review seat judged on nobody's authority would teach the wrong
 //! lesson on day one; a starter whose seats could not be granted the
 //! stack's own build and test commands would be a starter whose first run
@@ -888,8 +890,8 @@ fn codex_hands(detected: Option<&Detected>) -> serde_json::Value {
 
 /// One agent definition, in the repository's own library format. The
 /// `tools` key is omitted — not written empty — when there is nothing to
-/// grant: the loader rejects an empty `allow` as ambiguous between no
-/// list and a list naming nothing, and the README says which of the two
+/// grant: an empty `allow` is an explicit empty set, which the lowering
+/// refuses until a serving path can deliver it, and the README says what
 /// an absent key means.
 fn agent_json(
     spec: &AgentSpec,

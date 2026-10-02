@@ -1161,7 +1161,7 @@ fn a_provider_that_cannot_pin_the_model_is_a_hard_failure() {
 
 /// The pinch of salt made mechanical: a gap on a NON-CHOSEN entry fails
 /// exactly as loudly as one on the chosen entry, because a chain that
-/// would widen the agent's blast radius on fallback is a design-time
+/// would drop the agent's declared tool list on fallback is a design-time
 /// error, not a 2am surprise. The whole refusal names the later link's
 /// provider and model and the gap itself (task 2.1.3; review return P1).
 #[test]

@@ -257,10 +257,8 @@ fn discovery_paragraph(notice: &HandsNotice) -> String {
 ///   follows it when a notice applies;
 /// - `boundary: harness` — the harness's own sandbox stands, no
 ///   workspace tool is served, and the result reaches the engine through
-///   the door the input names: a file the seat writes itself, under
-///   whatever its adapter's fragment lets that sandbox write (a codex
-///   work seat's `workspace-write` reaches the whole workspace), or the
-///   seat's final message, which the harness captures;
+///   the door the input names: a file the seat writes, under whatever its
+///   sandbox lets it write, or the seat's final message, which it captures;
 /// - `boundary: open` — nothing of Brokkr's stands; the seat writes the
 ///   file;
 /// - neither — no paragraph, as before the box existed.

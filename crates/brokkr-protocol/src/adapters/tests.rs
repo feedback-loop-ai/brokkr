@@ -9353,9 +9353,8 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
     assert!(boxed.contains("result file, through the `mcp__brokkr__workspace` tool"));
     assert!(boxed.contains("write a JSON object to exactly this file"));
 
-    // `harness` on a `file` door: the word, no workspace tool, and a
-    // sandbox that may write more than the result file (a codex work
-    // seat's `workspace-write` writes the whole workspace).
+    // `harness` on a `file` door: the word, no workspace tool, and a sandbox
+    // that may write more than the result file (codex's `workspace-write`).
     let filed = render_prompt(&input(json!({"boundary": "harness"})), AdapterKind::Claude).unwrap();
     assert!(
         filed.contains("stand under the `harness` boundary"),

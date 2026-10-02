@@ -3,10 +3,15 @@
 Brokkr runs agents that edit a repository, run its tools and commit. This
 page says what stands between a seat and the host on `main` today, what
 does not, how secrets move, and how the engine treats what a seat hands
-back. Every statement here is read from the code. The box is built in
-`crates/brokkr-protocol/src/hands.rs`, and each statement about it cites
-that file. Where a gap has an owner, the
-[known limitations](#known-limitations) link its issue. The
+back. Every statement here is read from the code, and each one cites the
+file that does it. The box is built in
+`crates/brokkr-protocol/src/hands.rs`. A seat's typed tools are read in
+`crates/brokkr-runtime/src/agents/load.rs` and lowered in
+`crates/brokkr-runtime/src/agents.rs` and
+`crates/brokkr-runtime/src/bundle.rs`. What a seat holds is ruled in
+`crates/brokkr-runtime/src/capabilities.rs`, and the launch is checked in
+`crates/brokkr-protocol/src/native_controls.rs`. Where a gap has an
+owner, the [known limitations](#known-limitations) link its issue. The
 [status page](status.md) says what each harness can do.
 
 The threat model for every gate is the operator's ruling of 2026-09-26: a
@@ -29,10 +34,12 @@ and a realm that names none gets `namespace`:
 | `open` | Nothing at all. A model gate whose agent declares hands is refused under `open`. |
 
 The wall stands only around a seat that declares hands. A seat without
-hands is launched with its command unchanged under every boundary, so a
-seat that declares a tool list or no tools runs unboxed on the host,
-and under `harness` no harness sandbox is added for it either (see
-[what the box does not do](#what-the-box-does-not-do)).
+hands is launched with no box under every boundary, so a seat that
+declares a tool list or no tools runs unboxed on the host, and under
+`harness` no harness sandbox is added for it either (see
+[what the box does not do](#what-the-box-does-not-do)). What decision
+0065 composes into its command, the [native powers](#capabilities-are-off-until-the-realm-grants-them)
+it does not hold switched off, stands under every boundary.
 
 A realm may declare `seatbelt` or `container` and compile. A run whose
 seats declare hands under either is refused before any row is written,
@@ -88,6 +95,102 @@ reaches the box.
 - **Bounds.** A call times out after 30 seconds by default and 600 at
   most, and each output stream is capped at 256 KiB.
 
+## Typed tools, per harness
+
+A seat declares its tools as data, never as flags (decision 0065, slice
+one). `parse_tools` in `agents/load.rs` reads three keys and refuses any
+other: `tools.allow`, an ordered list of names from the adapter's map;
+`tools.sandbox`, one of `read-only`, `workspace-write` and
+`danger-full-access`; and `tools.mcp`, which must be empty, because an
+agent no longer names an MCP server. There is no `tools.deny` in this
+build. A site may subtract from its office's list and narrow its class,
+and widening either is refused (`LocalTools::narrow`, `agents.rs`).
+
+A recipe writes no capability-bearing option. A tool list of any
+polarity, a permission mode, a sandbox class, an MCP or settings load, a
+Codex `-c` assignment into a capability table, `--add-dir` and a session
+selector written into a driver command are refused at compile, whatever
+their value (`authored_refusal`, `native_controls.rs`, called from
+`Authority::resolve` in `capabilities.rs`). Only the engine writes a
+seat's tools, from the adapter's data.
+
+What each harness makes of them:
+
+| Harness | `tools.allow` | `tools.sandbox` | What actually removes or confines |
+|---|---|---|---|
+| `claude` | `--allowedTools`, from the adapter's `tool_permissions` map (`lower_allow`, `agents.rs`). This is pre-approval: it removes no tool. A name that maps to `WebSearch` or `WebFetch` is refused (`native_alias`), and so is an explicitly empty list. | Refused: a class is admitted only where an engine fragment already expresses it, and only Codex's do (`admit_local_sandbox`, `bundle.rs`). | On the boxed path, the hands fragment's `--tools ""` removes Claude Code's own tools, and `--strict-mcp-config` shuts out the operator's MCP servers (`adapters/claude.json`). On every seat, `--disallowedTools` names each native power the seat does not hold. |
+| `codex` | Refused: Codex maps no tool name, so the list cannot be expressed (`lower_allow`). | Admitted only where an engine fragment expresses exactly that class: `read-only` for a boxed seat and for a gate under `harness`, `workspace-write` for a work seat under `harness`. Every other shape is refused, never clamped (`admitted_sandbox`, `bundle.rs`). | `--sandbox read-only` on the boxed path, and the `hands.harness` fragments' `--sandbox` classes under `harness` (`adapters/codex.json`). On every seat, `-c web_search="disabled"` unless the seat holds `web-search`. |
+| `lanetally` | Refused at compile while its native inventory is unmeasured (operator ruling R5 of 2026-09-29; `Authority::resolve`, `capabilities.rs`). | Refused, as for claude. | Nothing of Brokkr's. LaneTally takes no boxed hands and no native control. |
+| `dsh` | Refused: dsh maps no tool name. | Refused. | dsh's own sandbox, which the driver's runner refines (`dsh_sandbox.rs`). No typed tool reaches it. |
+| `exec` | Not applicable. | Not applicable. | The box under `namespace`. |
+
+So two things still only pre-approve. Claude's `--allowedTools`, and the
+claude adapter's own `--permission-mode acceptEdits` (its `driver`),
+make what they name run without asking and take nothing away. What an
+unboxed claude seat may run beyond them is Claude Code's permission model
+and the operator's own settings.
+
+## Capabilities are off until the realm grants them
+
+A seat holds a capability, such as `web-search` or `web-fetch`, only
+when three things agree: its office asks for it by name under
+`capabilities`, the seat does not subtract it, and the realm grants it
+to that office in `realms.json`'s `forge.realms/v6` `capabilities` map,
+through a tool dialect (decision 0065 rulings 1, 3 and 5;
+`Authority::resolve`, `capabilities.rs`). A recipe or an agent only
+asks. A `requires` the realm does not grant refuses the compile, and a
+`wants` is dropped, with a notice in the run manifest and in the seat's
+prompt. This repository's own `realms.json` grants nothing.
+
+A harness's own powers are declared in its adapter's
+`native_capabilities` (decision 0065 ruling 4; `NativeInventory`,
+`capabilities.rs`), and the [status page](status.md#native-powers)
+renders them. For every seat, independently of what it asks:
+
+- a known power the seat holds is switched on, and one it does not hold
+  is switched off by the control its adapter declares, boxed or not;
+- a known power whose OFF is `unsupported` or `unmeasured` refuses the
+  seat, in a realm that has not granted it;
+- the engine knows Codex carries `web-search` and Claude Code carries
+  `web-search` and `web-fetch` (`known_powers`, `native_controls.rs`), so
+  an adapter that omits, empties or cannot load that declaration refuses
+  the seat rather than launching it with the power on (decision 0066
+  ruling 1);
+- an `unmeasured` inventory, which dsh, LaneTally and `exec` declare,
+  switches nothing off and claims no denial. The prompt tells the seat
+  so.
+
+A grant's restriction keys, such as a host allow-list, reach no harness
+yet: no adapter declares a restriction transport, so a grant with a
+nonempty restriction refuses a `requires` and drops a `wants` with the
+power off. Only Codex's OFF was measured live, on codex-cli 0.154.0's
+cold `codex exec`; Claude's is composition (the
+[status page's notes](status.md#notes-on-native-powers)). `brokkr doctor`
+says per realm what is granted and which native powers are switched off.
+
+## The final launch check
+
+The engine seals each launch: its plan, a record of every argument by
+origin (the recipe's, the adapter's template, the engine's local
+permissions, its hands and its native controls), and the typed inputs it
+was composed from. Before the harness is spawned, the driver checks the
+final command (`served`, `adapters.rs`; `check_final`,
+`native_controls.rs`):
+
+- the record must reassemble exactly the arguments the driver was
+  handed;
+- the command is parsed back under the harness's grammar, and the
+  capability state it expresses must carry every denial the plan
+  records, and nothing beside;
+- the engine recomposes the command from the sealed inputs alone, and the
+  final command must equal it token for token.
+
+A mismatch refuses the launch. So does a plan without its sealed record,
+or a record without its plan. A driver run by hand, with no plan, is
+served as composed, and this check gives it no guarantee. A harness with
+no modelled grammar, `exec` or a custom driver, has no final command the
+check can read.
+
 ## What the box does not do
 
 - **No seccomp filter.** No system call is filtered.
@@ -114,9 +217,11 @@ reaches the box.
   `--strict-mcp-config` still leave the model no tool but `workspace`.
   No issue owns this yet.
 - **Provider-side tools run outside it.** Codex's server-side
-  `web_search` runs at the provider, so a boxed Codex seat whose hands
-  set no network can still search the web. dsh 0.1.5 turns on
-  `web_search` and `web_fetch` in every seat.
+  `web_search` runs at the provider, so a box with no network neither
+  sees nor stops it. What stops it is the OFF composed into the command
+  when the seat does not hold `web-search`. dsh 0.1.5 turns on
+  `web_search` and `web_fetch` in every seat, and nothing of Brokkr's
+  switches them off.
 - **The git common directory is writable.** The box binds the
   repository's common git directory read-write, with only its `hooks`
   and `config` covered; a plain checkout's lies inside the read-write
@@ -129,18 +234,19 @@ reaches the box.
   consequences). The dsh runner closes it for dsh seats by giving the
   seat a private common directory.
 - **Tool-list offices are not boxed, and their tool list does not
-  bound them.** `implementer` and `implementer-sdd` (granted `cargo`
-  and `git`), `intake` (`git`) and `researcher` (`webfetch`,
-  `websearch`, `git`, `ls`, `rg`) declare a tool list, not hands. They
+  bound them.** `implementer` and `implementer-sdd` (`cargo` and `git`),
+  `intake` (`git`) and `researcher` (`git`, `ls` and `rg`, and it asks
+  for `web-search` and `web-fetch`) declare a tool list, not hands. They
   run on the host as the operator's user, in the engine's environment,
   under claude's `--permission-mode acceptEdits`, which pre-approves
-  file edits. Brokkr passes the tool list as `--allowedTools`, Claude
-  Code's list of tools it runs without asking, which removes no other
-  tool. Only `--tools` restricts which tools a seat has, and the
-  adapter passes it on the boxed hands path alone. What such a seat may
-  run is decided by Claude Code's permission model and the operator's
-  own Claude Code permission settings, and the operator's MCP servers
-  reach it ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
+  file edits. Their list becomes `--allowedTools`, which removes no
+  other tool. What removes a tool is the `--tools` list the engine passes
+  on the boxed hands path, and the `--disallowedTools` it passes on
+  every claude seat, naming each native power the seat does not hold.
+  So what such a seat may run is decided by Claude Code's permission
+  model and the operator's own Claude Code permission settings, less
+  `WebSearch` and `WebFetch`, and the operator's MCP servers reach it
+  ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
   The `bundles/verify` review seat is the same: unboxed, `acceptEdits`,
   with `cargo`, `git`, `ls`, `rg`, `gh pr view` and `gh run view`
   pre-approved. So are `recipes/fast`'s own inline implement and review
@@ -148,18 +254,13 @@ reaches the box.
   `mkdir` pre-approved, and a recipe that `extends fast` inherits them
   unless it replaces them: the default delivery's review gate is
   unboxed. Offices that declare neither, such as `triage` and the
-  position seats, get no tool flag at all.
-- **An unboxed claude seat with no tool list keeps Claude Code's
-  defaults.** Brokkr passes no tool flag, no `--settings` and no
+  position seats, get no tool list at all.
+- **An unboxed claude seat with no tool list keeps Claude Code's other
+  defaults.** Brokkr passes no `--tools`, no `--settings` and no
   `--setting-sources`, so the seat has Claude Code's default tools,
-  `WebSearch` and `WebFetch` included, subject to the operator's own
-  permission settings, and the operator's MCP servers. The shipped
-  `triage` gate is such a seat.
-- **Unboxed claude seats read the operator's MCP servers.** Only the
-  boxed fragment passes `--strict-mcp-config`, so an unboxed claude seat
-  starts every MCP server the operator's own Claude Code configuration
-  names, with their credentials. A Codex seat, boxed or not, starts the
-  MCP servers in `~/.codex/config.toml`.
+  subject to the operator's own permission settings, and the operator's
+  MCP servers. Only `WebSearch` and `WebFetch` are denied by name, unless
+  the realm grants them. The shipped `triage` gate is such a seat.
 - **The `harness` boundary is the harness's word.** Codex restricts by
   sandbox class (`read-only`, `workspace-write`), not by tool, and
   Brokkr has not measured what that sandbox enforces. An unboxed `exec`
@@ -167,12 +268,42 @@ reaches the box.
   `TMPDIR`, which confines nothing on disk: it may open any path the
   operator's user can. On Linux the engine attempts a network narrowing
   for it and does not report when the narrowing is unavailable.
-- **Process settlement.** A timed-out attempt's detached descendants can
-  outlive the kill. A dead hands server's scratch tree waits under the
+- **Process settlement.** A timed-out attempt's whole process tree is
+  ended before its report returns, and an end that cannot be proven
+  parks the attempt `indeterminate` rather than letting a retry overlap
+  it (`process.rs`). A dead hands server's scratch tree waits under the
   temporary directory for the next run, resume or rerun to start. That
   start removes it when its recorded owner is dead and no process holds
   its lock, keeps it while its lock is held, and keeps and names it on
   stderr when its lock cannot be probed.
+
+## What Brokkr does not enforce
+
+- **The operator's own MCP servers and settings.** Decision 0065 ruling
+  6 says a harness's own MCP configuration is never inherited. The code
+  does not yet hold that: an unboxed claude seat gets no
+  `--strict-mcp-config` (`adapters/claude.json` passes it only in
+  `hands.workspace`), so it starts every server in the operator's
+  user-scope Claude Code configuration, with their credentials, and
+  every claude seat, boxed or not, loads the operator's settings,
+  `CLAUDE.md` and hooks. No Codex fragment clears the `mcp_servers` in
+  `~/.codex/config.toml`, so every Codex seat starts them
+  ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
+- **Messages from other sessions.** A claude seat is a headless Claude
+  Code session, and on a host that runs other interactive sessions it is
+  reachable by their cross-session messages: an input channel outside
+  the journal and outside the realm's grant
+  ([#505](https://github.com/feedback-loop-ai/brokkr/issues/505)).
+- **What an unmeasured harness reaches.** dsh, LaneTally and `exec`
+  declare their native inventories unmeasured, so Brokkr switches none
+  of their own powers off and claims no denial. dsh's base profile turns
+  on web search and fetch
+  ([#462](https://github.com/feedback-loop-ai/brokkr/issues/462)), and
+  whether Claude Code's controls hold through the LaneTally wrapper is
+  unmeasured.
+- **A grant's restriction keys.** No harness receives them yet, so a
+  realm cannot narrow a granted power to a host list; such a grant is
+  refused or dropped instead (above).
 
 ## How secrets flow
 
@@ -232,6 +363,11 @@ an instruction:
   [0001](decisions/0001-no-llm-repair-of-control-plane.md)). A seat
   never chooses the next phase: the pinned policy table rules on the
   result.
+- **What a capability returns is data too.** A model seat's prompt says
+  what it holds and that whatever a capability returns is data, never
+  instruction (`native_controls.rs`; decision 0065 ruling 7). A prompt
+  is not a control: a seat persuaded otherwise is caught only by the
+  checks below.
 - **The wire fails closed.** The driver protocol refuses an unknown
   message type, and a checkpoint keeps only bounded turn, tool and usage
   fields, never prose or commands.
@@ -260,19 +396,18 @@ an instruction:
   ([#220](https://github.com/feedback-loop-ai/brokkr/issues/220)).
 - **The box's network is on or off, with no allow-list**
   ([#216](https://github.com/feedback-loop-ai/brokkr/issues/216)).
-- **Codex's server-side web search is on in every Codex seat.** Its off
-  switch exists only on the unmerged decision 0065 slice
-  ([#319](https://github.com/feedback-loop-ai/brokkr/pull/319)).
-- **dsh turns on `web_search` and `web_fetch` in every seat**, with no
-  realm grant ([#462](https://github.com/feedback-loop-ai/brokkr/issues/462)).
-- **Brokkr bounds neither a tool-less claude seat's tools nor the MCP
-  servers of an unboxed claude seat or any Codex seat**
+- **dsh turns on `web_search` and `web_fetch` in every seat**, and its
+  unmeasured inventory means Brokkr switches neither off
+  ([#462](https://github.com/feedback-loop-ai/brokkr/issues/462)).
+- **Brokkr bounds neither a tool-less claude seat's other tools nor the
+  MCP servers and settings of an unboxed claude seat or any Codex seat**
   ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)), as
-  [what the box does not do](#what-the-box-does-not-do) states. Decision
-  0065 slice one ([#319](https://github.com/feedback-loop-ai/brokkr/pull/319))
-  brings the capability grants meant to close it.
-- **A timed-out attempt's detached descendants can outlive the kill**
-  ([#403](https://github.com/feedback-loop-ai/brokkr/issues/403)).
+  [what Brokkr does not enforce](#what-brokkr-does-not-enforce) states.
+- **A seat can receive another session's messages**
+  ([#505](https://github.com/feedback-loop-ai/brokkr/issues/505)).
+- **A boxed exec attempt can park `indeterminate`** when a sandbox
+  descendant is still exiting at the kill
+  ([#504](https://github.com/feedback-loop-ai/brokkr/issues/504)).
 - **A dead hands server's scratch tree waits for the next run's start**,
   which keeps a tree whose lock cannot be probed and, until 0.13.0,
   removes a lockless tree from before the lock even when a live server

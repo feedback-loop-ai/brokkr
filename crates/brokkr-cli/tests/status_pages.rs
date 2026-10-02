@@ -8,6 +8,8 @@
 //! destructured without `..`, so a field the loader grows fails this
 //! file's compile until the matrix rules on it: a field an adapter grows
 //! cannot go unlisted, and a rendered value that changes shows on the page.
+//! The native-powers block is each adapter's `native_capabilities` and the
+//! shipped tool dialects rendered the same way (decision 0065 ruling 4).
 //!
 //! No living doc may say a tool list bounds a seat: every tracked Markdown
 //! file outside the dated records, and every doc comment in the crates'
@@ -19,6 +21,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use brokkr_runtime::agents::{
     Adapter, Agent, McpSupport, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape,
     ResumeStatus, ToolPermissions,
+};
+use brokkr_runtime::capabilities::{
+    DialectKind, Disposition, Evidence, ListFlag, NativeCapability, NativeInventory,
+    SelectionFlags, ToolDialect, ToolLists, Transport, DIALECTS_DIR,
 };
 use brokkr_runtime::{Adapters, HarnessHands, Library, TrustTier};
 
@@ -65,9 +71,18 @@ fn words(items: &[String]) -> String {
     }
 }
 
+/// One adapter rendered: its matrix row and the measured gaps it declares,
+/// and its native powers' rows and the notes on them.
+struct Rendered {
+    row: String,
+    gaps: Vec<String>,
+    native: Vec<String>,
+    notes: Vec<String>,
+}
+
 /// One adapter's matrix row, and the measured gaps it declares as list
 /// items for the section below the table.
-fn render(adapter: &Adapter) -> (String, Vec<String>) {
+fn render(adapter: &Adapter, dialects: &[ToolDialect]) -> Rendered {
     let Adapter {
         provider,
         trust_tier,
@@ -83,6 +98,7 @@ fn render(adapter: &Adapter) -> (String, Vec<String>) {
         hands_gap,
         harness,
         resume,
+        native,
         // How the engine reaches the harness, not what it can do: the
         // binary doctor probes, its install hint, the driver prefix, the
         // model map and pin flags, route credential names, the boxed
@@ -119,8 +135,15 @@ fn render(adapter: &Adapter) -> (String, Vec<String>) {
         gaps.push(format!("`{provider}` effort on `{route}`: {measurement}"));
     }
     let tools = match (tool_permissions, tool_permissions_gap) {
+        // A typed list on a harness whose native controls are unmeasured
+        // refuses at compile (operator ruling R5 of 2026-09-29).
+        (Some(_), _) if matches!(native, NativeInventory::Unmeasured(_)) => {
+            "no: refused while the native inventory is unmeasured".to_string()
+        }
         // The flag is named in the legend, and the separator is argv
         // syntax, not a capability.
+        // A name that maps to a native power's tool is refused at compile
+        // (decision 0065 ruling 3): only the realm grants that power.
         (
             Some(ToolPermissions {
                 names: grants,
@@ -128,7 +151,16 @@ fn render(adapter: &Adapter) -> (String, Vec<String>) {
                 separator: _,
             }),
             _,
-        ) => names(grants.keys()),
+        ) => {
+            let cells: Vec<String> = grants
+                .iter()
+                .map(|(name, mapped)| match native.capability_of(mapped) {
+                    Some(capability) => format!("`{name}` (refused: native `{capability}`)"),
+                    None => format!("`{name}`"),
+                })
+                .collect();
+            words(&cells)
+        }
         (None, Some(gap)) => {
             gaps.push(format!("`{provider}` tool allow-list: {gap}"));
             "no (measured)".to_string()
@@ -155,7 +187,121 @@ fn render(adapter: &Adapter) -> (String, Vec<String>) {
     let row = format!(
         "| `{provider}` | {trust} | {egress} | {gate} | {effort} | {tools} | {mcp} | {boxed} | {sandbox} | {resume} |"
     );
-    (row, gaps)
+    let (native, notes) = native_powers(provider, native, dialects);
+    Rendered {
+        row,
+        gaps,
+        native,
+        notes,
+    }
+}
+
+/// The native-powers rows of one adapter, and the notes on them: each
+/// power's OFF, which every seat the realm does not grant it gets, its
+/// ON, and the shipped dialect a realm grants it through. An unmeasured
+/// inventory is one row that switches nothing off and claims no denial.
+fn native_powers(
+    provider: &str,
+    native: &NativeInventory,
+    dialects: &[ToolDialect],
+) -> (Vec<String>, Vec<String>) {
+    let (known, selection) = match native {
+        NativeInventory::Known { known, selection } => (known, selection),
+        NativeInventory::Unmeasured(reason) => {
+            return (
+                vec![format!(
+                    "| `{provider}` | unmeasured | {EMPTY} | nothing is switched off, and no denial is claimed | nothing can be granted | {EMPTY} | {EMPTY} |"
+                )],
+                vec![format!("`{provider}` native inventory: {reason}")],
+            )
+        }
+    };
+    let mut rows = Vec::new();
+    let mut notes = Vec::new();
+    for (key, power) in known {
+        let NativeCapability {
+            capability,
+            tools,
+            on,
+            off,
+            restrictions,
+            evidence:
+                Evidence {
+                    source: _,
+                    scope,
+                    // Dated prose, read in the adapter file.
+                    limitations: _,
+                },
+            // The authored arguments a compile refuses beside the managed
+            // control: argv syntax, not a power.
+            authored: _,
+        } = power;
+        let lists = selection.as_ref();
+        let grant: Vec<&String> = dialects
+            .iter()
+            .filter(|dialect| match &dialect.kind {
+                DialectKind::Native {
+                    provider: serves,
+                    adapter_key,
+                } => serves == provider && adapter_key == key,
+                DialectKind::Mcp | DialectKind::Hands => false,
+            })
+            .map(|dialect| &dialect.name)
+            .collect();
+        let transport = match restrictions {
+            Transport::Argv(argv) => format!("`{}`", argv.join(" ")),
+            Transport::Unsupported(reason) => {
+                notes.push(format!("`{provider}` `{key}` restrictions: {reason}"));
+                "unsupported".to_string()
+            }
+        };
+        for (half, disposition) in [("ON", on), ("OFF", off)] {
+            if let Disposition::Default(reason)
+            | Disposition::Unsupported(reason)
+            | Disposition::Unmeasured(reason) = disposition
+            {
+                notes.push(format!("`{provider}` `{key}` {half}: {reason}"));
+            }
+        }
+        notes.push(format!("`{provider}` `{key}` evidence: {scope}"));
+        rows.push(format!(
+            "| `{provider}` | `{capability}` | {} | {} | {} | {} | {transport} |",
+            names(tools),
+            disposition_cell(off, lists),
+            disposition_cell(on, lists),
+            names(grant),
+        ));
+    }
+    (rows, notes)
+}
+
+/// One ON or OFF disposition as the page says it.
+fn disposition_cell(disposition: &Disposition, lists: Option<&SelectionFlags>) -> String {
+    match disposition {
+        Disposition::Argv(argv) => format!("`{}`", argv.join(" ")),
+        Disposition::Default(_) => "the harness's default, with no flag".to_string(),
+        Disposition::Selection(ToolLists {
+            include,
+            allow,
+            deny,
+        }) => {
+            let flags = lists.expect("the loader refuses a selection with no list flags");
+            let parts: Vec<String> = [
+                ("include", include, &flags.include),
+                ("allow", allow, &flags.allow),
+                ("deny", deny, &flags.deny),
+            ]
+            .into_iter()
+            .filter(|(_, tools, _)| !tools.is_empty())
+            .map(|(verb, tools, ListFlag { flag, separator: _ })| {
+                format!("{verb} {} in `{flag}`", names(tools))
+            })
+            .collect();
+            words(&parts)
+        }
+        Disposition::Unsupported(_) => "unsupported".to_string(),
+        Disposition::Unmeasured(_) => "unmeasured".to_string(),
+    }
 }
 
 /// Which seat classes the harness's own sandbox stands in for the box
@@ -272,28 +418,64 @@ fn evidence_axes(evidence: &ResumeEvidence) -> String {
 const MCP_COLUMN: &str = "MCP flag Brokkr passes";
 
 /// The MCP column's legend, which the page carries word for word.
-const MCP_LEGEND: &str = "the flag through which a seat's declared `mcp` servers are \
-    passed, not whether the seat reaches MCP servers. The operator's own configuration \
-    still reaches every Codex seat, boxed or not, through `~/.codex/config.toml`, and \
-    every unboxed claude seat, through their Claude Code configuration. Only the boxed \
-    claude fragment passes `--strict-mcp-config`, which shuts those out.";
+const MCP_LEGEND: &str = "the flag through which Brokkr passes a seat MCP servers, not \
+    whether the seat reaches MCP servers. Under decision 0065 no agent names a server, so \
+    the only one Brokkr passes is a boxed seat's `workspace`, through its hands fragment. \
+    The operator's own \
+    configuration still reaches every Codex seat, boxed or not, through \
+    `~/.codex/config.toml`, and every unboxed claude seat, through their Claude Code \
+    configuration. Only the boxed claude fragment passes `--strict-mcp-config`, which shuts \
+    those out.";
 
-/// The matrix and gap blocks as the adapter data renders them.
-fn rendered(adapters: &Adapters) -> (String, String) {
-    let mut matrix = format!(
-        "| Harness | Trust | Egress | Holds a model gate | Efforts | Tool allow-list | {MCP_COLUMN} | Boxed hands | Own sandbox for | Resume shapes |\n\
-         |---|---|---|---|---|---|---|---|---|---|\n",
-    );
-    let mut gaps = String::new();
+/// Every shipped tool dialect, through the engine's own loader.
+fn shipped_dialects() -> Vec<ToolDialect> {
+    let root = workspace();
+    let mut dialects: Vec<ToolDialect> = std::fs::read_dir(root.join(DIALECTS_DIR))
+        .expect("a shipped dialects directory")
+        .map(|entry| {
+            let path = entry.expect("a readable entry").path();
+            let name = path.file_stem().expect("a named file").to_string_lossy();
+            ToolDialect::load(&root, &name).unwrap_or_else(|error| panic!("{error}"))
+        })
+        .collect();
+    dialects.sort_by(|a, b| a.name.cmp(&b.name));
+    dialects
+}
+
+/// The page's four rendered blocks, by marker name.
+struct Blocks {
+    matrix: String,
+    gaps: String,
+    native: String,
+    notes: String,
+}
+
+/// The matrix, gap and native blocks as the adapter data renders them.
+fn rendered(adapters: &Adapters, dialects: &[ToolDialect]) -> Blocks {
+    let mut blocks = Blocks {
+        matrix: format!(
+            "| Harness | Trust | Egress | Holds a model gate | Efforts | Tool allow-list | {MCP_COLUMN} | Boxed hands | Own sandbox for | Resume shapes |\n\
+             |---|---|---|---|---|---|---|---|---|---|\n",
+        ),
+        gaps: String::new(),
+        native: "| Harness | Native power | Tools | Off, in every seat the realm does not grant it | On, where the realm grants it | Shipped dialect a realm grants it through | Restriction transport |\n\
+                 |---|---|---|---|---|---|---|\n"
+            .to_string(),
+        notes: String::new(),
+    };
     for adapter in adapters.providers() {
-        let (row, declared) = render(adapter);
-        matrix.push_str(&row);
-        matrix.push('\n');
-        for gap in declared {
-            gaps.push_str(&format!("- {gap}\n"));
+        let one = render(adapter, dialects);
+        blocks.matrix.push_str(&format!("{}\n", one.row));
+        for (block, items) in [(&mut blocks.gaps, one.gaps), (&mut blocks.notes, one.notes)] {
+            for item in items {
+                block.push_str(&format!("- {item}\n"));
+            }
+        }
+        for row in one.native {
+            blocks.native.push_str(&format!("{row}\n"));
         }
     }
-    (matrix, gaps)
+    blocks
 }
 
 #[test]
@@ -301,17 +483,19 @@ fn the_status_matrix_is_the_adapter_data() {
     let adapters =
         Adapters::load(&workspace().join("adapters")).expect("the shipped adapters load");
     let page = read("docs/status.md");
-    let (matrix, gaps) = rendered(&adapters);
-    assert_eq!(
-        block(&page, "adapter-matrix"),
-        matrix,
-        "docs/status.md's matrix drifted from adapters/*.json; the rendering is:\n{matrix}"
-    );
-    assert_eq!(
-        block(&page, "adapter-gaps"),
-        gaps,
-        "docs/status.md's measured gaps drifted from adapters/*.json; the rendering is:\n{gaps}"
-    );
+    let blocks = rendered(&adapters, &shipped_dialects());
+    for (name, rendering) in [
+        ("adapter-matrix", &blocks.matrix),
+        ("adapter-gaps", &blocks.gaps),
+        ("native-powers", &blocks.native),
+        ("native-notes", &blocks.notes),
+    ] {
+        assert_eq!(
+            block(&page, name),
+            rendering.as_str(),
+            "docs/status.md's {name} block drifted from adapters/*.json; the rendering is:\n{rendering}"
+        );
+    }
     let legend = format!("- **{MCP_COLUMN}**: {MCP_LEGEND}");
     assert!(
         page.split_whitespace()
@@ -337,12 +521,18 @@ fn the_status_matrix_is_the_adapter_data() {
     assert_eq!(rows.len(), providers.len(), "one behaviour row per adapter");
 }
 
-/// The claude row's web-search cell as the agent library renders it. For
-/// an agent a claude seat can hire, a tool list becomes `--allowedTools`
-/// and hands become the box's `--tools ""`; an agent with neither runs
-/// unboxed with no tool flag, so the harness and the operator's own
-/// settings decide, never a Brokkr control (#467).
+/// The claude row's web cell as the adapter and the agent library render
+/// it. Every native power the adapter declares is off in a seat the realm
+/// does not grant it (decision 0065 ruling 4), and an agent asks for one
+/// by name under `capabilities`. An agent with no tool list and no hands
+/// runs unboxed with no `--tools` and no `--allowedTools`, so Claude Code's
+/// other default tools and the operator's MCP servers still reach it
+/// (#467).
 fn claude_web_cell(library: &Library, claude: &Adapter) -> String {
+    let NativeInventory::Known { known, .. } = &claude.native else {
+        panic!("the claude adapter's native inventory is known");
+    };
+    let powers: Vec<&String> = known.values().map(|power| &power.capability).collect();
     let hireable: Vec<&Agent> = library
         .agents()
         .filter(|agent| agent.models.iter().any(|m| claude.models.contains_key(m)))
@@ -351,25 +541,32 @@ fn claude_web_cell(library: &Library, claude: &Adapter) -> String {
         .iter()
         .filter(|agent| agent.allow.is_none() && agent.hands.is_none())
         .map(|agent| &agent.name);
-    let web = hireable
+    let asking: Vec<String> = hireable
         .iter()
         .filter(|agent| {
-            agent.allow.as_ref().is_some_and(|allow| {
-                allow
-                    .iter()
-                    .any(|tool| tool == "websearch" || tool == "webfetch")
-            })
+            powers
+                .iter()
+                .any(|power| agent.capabilities.contains_key(*power))
         })
-        .map(|agent| &agent.name);
+        .map(|agent| {
+            let asks: Vec<String> = agent
+                .capabilities
+                .iter()
+                .map(|(name, strength)| format!("`{name}` {}", strength.word()))
+                .collect();
+            format!("`{}` ({})", agent.name, asks.join(", "))
+        })
+        .collect();
     format!(
-        "Decided by the harness's permission model and the operator's own Claude Code settings, \
-         which reach every unboxed seat. An agent that lists tools passes them as `--allowedTools`; \
-         `websearch` or `webfetch` is listed by {}. An agent that lists no tools and declares no \
-         hands, as {} do, runs unboxed with no tool flag, so Claude Code's default tools, \
-         `WebSearch` and `WebFetch` among them, and the operator's MCP servers reach it \
-         ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)). \
-         A boxed seat runs with `--tools \"\"`",
-        names(web),
+        "Off unless the realm grants it: each of {} that a seat does not hold is denied by name \
+         in its command ([native powers](#native-powers)), which is composition, not a live \
+         measurement. \
+         An agent asks for one under `capabilities`, as {} does. An agent that lists no tools and \
+         declares no hands, as {} do, runs unboxed with no tool list, so Claude Code's other \
+         default tools and the operator's MCP servers reach it \
+         ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467))",
+        names(powers),
+        words(&asking),
         names(tool_less),
     )
 }
@@ -442,6 +639,17 @@ const RECORDS: [&str; 6] = [
     "docs/evidence/",
     "openspec/changes/archive/",
 ];
+
+/// Whether a path is a record: under one of [`RECORDS`], or one of an
+/// in-flight change's own records (its proposal, design, tasks, evidence
+/// and rulings), dated as they are written. A change's `specs/` deltas
+/// are living text, and the guard reads them.
+fn is_record(path: &str) -> bool {
+    RECORDS.iter().any(|record| path.starts_with(record))
+        || path
+            .strip_prefix("openspec/changes/")
+            .is_some_and(|change| !change.contains("/specs/"))
+}
 
 /// What names a claude seat's tool list: the list itself, the agent
 /// field it comes from, the flag it is passed as, or the restriction or
@@ -529,14 +737,23 @@ const OVERCLAIMS: [&str; 8] = [
 /// and a model gate under `open` said refused outright, where only one
 /// with hands is.
 ///
+/// So are the sentences decision 0065's slice one made false: Codex's
+/// search said to be on in every seat, or its off switch to wait for an
+/// unmerged 0065, where every seat the realm does not grant it is
+/// launched with it off; Claude Code's `WebSearch` and `WebFetch` said
+/// to be among an unboxed seat's tools, the researcher said to list them,
+/// and a scaffolded seat said to keep the harness's defaults, where each
+/// is denied by name unless granted; tool grants said to pre-approve and
+/// remove nothing, where a realm grant switches a power; a seat said to
+/// declare MCP servers, which no agent may name; and what a seat may run
+/// said to be its tool list.
+///
 /// A comparison that only implies a bound, such as one arm called no
 /// narrower than another, is outside the guard: its wording names no
 /// control a list could hold.
-const ANYWHERE: [&str; 128] = [
+const ANYWHERE: [&str; 135] = [
     "blast radius",
-    "no tool restriction",
     "tools restriction",
-    "no restriction",
     "permission narrowing",
     "what the model asks to run goes through one",
     "the one tool the model sees",
@@ -618,7 +835,7 @@ const ANYWHERE: [&str; 128] = [
     "policy and boxed exec gates",
     "offline and inside the box",
     "deterministic boxed exec gates",
-    "lint tool the box cannot reach",
+    "tool the box cannot reach",
     "offline inside the box",
     "network remains refused",
     "boxed, no model",
@@ -661,6 +878,15 @@ const ANYWHERE: [&str; 128] = [
     "does not expose the host's github credentials",
     "writes only under the session workspace",
     "a model gate is refused outright",
+    "unmerged decision 0065",
+    "on in every codex seat",
+    "websearch and webfetch among them",
+    "websearch and webfetch included",
+    "researcher (webfetch, websearch",
+    "keeps the harness's defaults",
+    "grants (which pre-approve tools and remove none)",
+    "what a seat may run is the agent data",
+    "a seat's declared mcp servers",
 ];
 
 /// The wording the guard refuses, as lists a test can take one word out of.
@@ -818,7 +1044,7 @@ fn literal(chars: &[char], from: usize, literals: &mut Vec<String>) -> usize {
 
 /// Excerpts of the pages this story reworded, word for word as they
 /// stood: each holds one paragraph the guard refuses.
-const OLD_PAGES: [&str; 128] = [
+const OLD_PAGES: [&str; 137] = [
     // docs/guides/agent-library.md
     "**The honesty rules are the point, and they are enforced rather than\n\
      documented.** A tool restriction the provider cannot express fails\n\
@@ -1165,11 +1391,43 @@ const OLD_PAGES: [&str; 128] = [
     "| `gate` | The argv fragment that puts a gate-class seat in the harness's read-only class. \
      A model gate is admitted under `harness` only when **every** link of its resolved chain \
      declares one (decision 0046 ruling 4); under `open` a model gate is refused outright. |",
+    // Decision 0065's slice one, as the pages stood before it: docs/guides/provider-adapters.md
+    "it, and so does Codex's server-side web search, which stays on in every\n\
+     Codex seat until decision 0065 is built (see the\n\
+     [security model](../security-model.md)).",
+    // docs/status.md
+    "- **Codex seats can search the web.** Codex's server-side `web_search`\n  \
+     stays on. Its off switch exists only on the unmerged decision 0065\n  \
+     slice ([#319](https://github.com/feedback-loop-ai/brokkr/pull/319)).",
+    "| `codex` | The Codex thread under `$CODEX_HOME` or `~/.codex` | … | **On** in every Codex \
+     seat, boxed or not. Codex runs it server-side, outside the box |",
+    "- **Unboxed seats inherit the operator's harness configuration.** A\n  \
+     claude seat whose agent lists no tools and declares no hands, such as\n  \
+     the `triage` gate, keeps Claude Code's default tools, `WebSearch` and\n  \
+     `WebFetch` among them, under the operator's own permission settings,",
+    "- **MCP flag Brokkr passes**: the flag through which a seat's declared\n  \
+     `mcp` servers are passed, not whether the seat reaches MCP servers.",
+    // docs/security-model.md
+    "  `--setting-sources`, so the seat has Claude Code's default tools,\n  \
+     `WebSearch` and `WebFetch` included, subject to the operator's own\n  \
+     permission settings, and the operator's MCP servers.",
+    "- **Tool-list offices are not boxed, and their tool list does not\n  \
+     bound them.** `implementer` and `implementer-sdd` (granted `cargo`\n  \
+     and `git`), `intake` (`git`) and `researcher` (`webfetch`,\n  \
+     `websearch`, `git`, `ls`, `rg`) declare a tool list, not hands.",
+    // docs/research/github-peers/ruvnet--ruflo.md
+    "Brokkr's grants (which pre-approve tools and remove none), its engine-held effects and its \
+     dispatcher work should test every externally reachable path",
+    // recipes/wager-harness/README.md, as decision 0065's slice one wrote it
+    "   implement seat declares `tools.allow` with seven names, which the\n   \
+     engine lowers to `--permission-mode acceptEdits` and an\n   \
+     `--allowedTools` list of seven `Bash` prefixes, so it may edit\n   \
+     freely but may run nothing outside that list.",
 ];
 
 /// Excerpts of the shell scripts and recipe data this story reworded, as
 /// the guard reads them: a script's comments, a recipe's JSON strings.
-const OLD_DATA: [(&str, &str); 6] = [
+const OLD_DATA: [(&str, &str); 7] = [
     // scripts/verify-seat.sh, and its five pinned copies in bundles/ and recipes/
     (
         "verify-seat.sh",
@@ -1177,6 +1435,14 @@ const OLD_DATA: [(&str, &str); 6] = [
          # Deterministic verifier seat. The box denies network; Cargo is also told\n\
          # explicitly to stay offline so a cache miss is reported as such.\n\
          set -u\n",
+    ),
+    // recipes/fast/scripts/verify-seat.sh's check list (#506)
+    (
+        "verify-seat.sh",
+        "export CARGO_NET_OFFLINE=true\n\
+         # Cheapest first, every required check that works offline and in the box\n\
+         # (#427). The non-Rust lints are the list ci.yml's lint-non-rust job runs;\n\
+         # a tool the box cannot reach is named in the notes, never skipped silently.\n",
     ),
     // recipes/landing/scripts/classify-seat.sh
     (
@@ -1208,7 +1474,7 @@ const OLD_DATA: [(&str, &str); 6] = [
 
 /// Excerpts of the doc comments this story reworded, as the sources
 /// carried them.
-const OLD_SOURCES: [&str; 18] = [
+const OLD_SOURCES: [&str; 17] = [
     // crates/brokkr-protocol/src/hands.rs
     "//! `/tmp`, no host home, no host credential, no other process, and no\n\
      //! network unless the spec grants it. A tool allow-list bounded what the\n\
@@ -1237,8 +1503,6 @@ const OLD_SOURCES: [&str; 18] = [
      ///   every row in the tables today, are the same binary the build and\n\
      ///   lint lines also lead with — the grant is per binary, and the README",
     "//! EMPTY, no agent declares a `tools` restriction, and the scaffold's",
-    "/// grant: the loader rejects an empty `allow` as ambiguous between \"no\n\
-     /// restriction\" and \"restrict to nothing\", and the README says which of",
     // crates/brokkr-cli/tests/init_stacks.rs
     "//! The same table decides what the seats may RUN: the binary each command\n\
      //! invokes is written into the scaffold's adapter as a tool permission and\n\
@@ -1249,7 +1513,6 @@ const OLD_SOURCES: [&str; 18] = [
     // crates/brokkr-protocol/src/hands.rs
     "/// The one tool the model sees. Claude Code names it `mcp__brokkr__workspace`.",
     // crates/brokkr-runtime/src/agents.rs and its tests
-    "    /// `None` declares NO tool restriction; `Some` is ordered, and that",
     "    /// anything can touch — and the adapter must say how it replaces the\n\
      /// harness's own tools with that one.",
     "/// How a provider expresses a tool-permission narrowing on its command",
@@ -1268,6 +1531,10 @@ const OLD_SOURCES: [&str; 18] = [
      ///   workspace tool is served, and the result reaches the engine through\n\
      ///   the door the input names: the one file the sandbox lets the seat\n\
      ///   write, or the seat's final message, which the harness captures;",
+    // crates/brokkr-cli/src/init.rs's module doc (#506)
+    "//! that lets a gate seat judge is adapter data, and since decision 0016\n\
+     //! what a seat may RUN is the agent data its `tools.allow` names,\n\
+     //! expressed through the adapter's `tool_permissions.names`. A starter",
 ];
 
 /// Excerpts of the string literals this story reworded, as the sources
@@ -1276,10 +1543,6 @@ const OLD_LITERALS: [&str; 6] = [
     // crates/brokkr-cli/src/init.rs, the scaffold README's tool grants
     r#""{gate_list}. Verify and ship are boxed scripts with no model grant.\n\n\
                  The grant is per BINARY, not per subcommand""#,
-    // crates/brokkr-runtime/src/agents/load.rs
-    r#""{what} 'tools.allow' is empty, which is ambiguous between \
-                     'no restriction' and 'restrict to nothing'; omit the key to \
-                     declare no restriction""#,
     // crates/brokkr-runtime/src/bundle.rs
     r#""seat '{what}' declares hands and secret bindings {secrets:?}; the box \
                      clears the environment, so a boxed seat cannot receive a binding \
@@ -1295,6 +1558,9 @@ const OLD_LITERALS: [&str; 6] = [
     r##"r#"    {"id": "REVIEW-CLEAN-NO-FIXES", "from": "review", "result": "clean",
      "when": {"fixes_applied": false}, "next": "ship",
      "reason": "Clean with no code changed; verification evidence stands."},"#"##,
+    // crates/brokkr-cli/src/init/claims.rs, before decision 0065's native denials
+    r#""Pre-approval removes no tool: an unboxed seat keeps the\n\
+     harness's defaults, your own permission settings and MCP servers.""#,
 ];
 
 /// A shell script's comments as Markdown: each `#` line's text, and a
@@ -1394,11 +1660,21 @@ fn no_living_doc_says_a_tool_list_bounds_an_unboxed_seat() {
     let root = workspace();
     let pages: Vec<String> = tracked_files::tracked(&root, &["*.md"])
         .into_iter()
-        .filter(|page| !RECORDS.iter().any(|record| page.starts_with(record)))
+        .filter(|page| !is_record(page))
         .collect();
     for page in ["ARCHITECTURE.md", "README.md", "docs/security-model.md"] {
         assert!(pages.iter().any(|p| p == page), "{page} is not scanned");
     }
+    // An in-flight change's records are dated; its deltas are read.
+    assert_eq!(
+        [
+            "openspec/changes/a-change/evidence.md",
+            "openspec/changes/a-change/specs/a-capability/spec.md",
+            "openspec/specs/a-capability/spec.md",
+        ]
+        .map(is_record),
+        [true, false, false]
+    );
     // This file holds the refused sentences as its fixtures.
     let sources: Vec<String> =
         tracked_files::tracked(&root, &["crates/*/src/*.rs", "crates/*/tests/*.rs"])
@@ -1420,7 +1696,7 @@ fn no_living_doc_says_a_tool_list_bounds_an_unboxed_seat() {
     let data: Vec<String> =
         tracked_files::tracked(&root, &["*.sh", "recipes/*.json", "bundles/*.json"])
             .into_iter()
-            .filter(|path| !RECORDS.iter().any(|record| path.starts_with(record)))
+            .filter(|path| !is_record(path))
             .collect();
     for path in ["scripts/verify-seat.sh", "recipes/research/policy.json"] {
         assert!(data.iter().any(|p| p == path), "{path} is not scanned");

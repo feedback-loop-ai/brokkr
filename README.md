@@ -93,7 +93,7 @@ The [full quickstart](docs/guides/quickstart.md) covers `init` per stack, parks,
 ## Read next
 
 - [Guides](docs/guides/README.md) — the task map: first run, recipes, agents, adapters, secrets, journals and repository anatomy.
-- [What works today](docs/status.md) — per harness: gates, hands, resume, telemetry, secrets and web search, with every known limitation linked to its issue.
+- [What works today](docs/status.md) — per harness: gates, hands, native powers, resume, telemetry, secrets and web search, with every known limitation linked to its issue.
 - [Security model](docs/security-model.md) — what the box does and does not contain, how secrets flow, and how seat output is treated.
 - [Decision record](docs/decisions/README.md) — the constitution: every semantic rule, its status and its enforcement binding.
 - [Research registry](docs/research/README.md) — source-backed findings and comparisons, including GitHub peers for graphs, agents and charters.

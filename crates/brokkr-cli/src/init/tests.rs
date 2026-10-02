@@ -323,7 +323,9 @@ fn the_readme_names_the_adapters_written_and_no_tool_map_without_claude() {
 }
 
 /// The README says the work seats' grant pre-approves and removes no
-/// tool, never that a seat may run only what its charter names (#366).
+/// tool, never that a seat may run only what its charter names (#366),
+/// and that only the native powers the realm does not grant are denied
+/// (decision 0065).
 #[test]
 fn the_readme_says_the_work_grant_pre_approves_and_removes_no_tool() {
     let cargo = detected("cargo build", "cargo test", "cargo clippy");
@@ -336,7 +338,9 @@ fn the_readme_says_the_work_grant_pre_approves_and_removes_no_tool() {
         work,
         "Work-class seats (intake, implement) are pre-approved for the whole set:\n\
          cargo, git, ls, rg, mkdir. Pre-approval removes no tool: an unboxed seat keeps the\n\
-         harness's defaults, your own permission settings and MCP servers."
+         harness's other defaults, your own permission settings and MCP\n\
+         servers. Only `WebSearch` and `WebFetch` are denied, by name, because\n\
+         `realms.json` grants neither."
     );
 }
 

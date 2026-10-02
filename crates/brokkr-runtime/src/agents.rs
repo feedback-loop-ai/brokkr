@@ -17,11 +17,11 @@
 //! The honesty rules of decision 0016 are mechanised here, not
 //! documented here:
 //!
-//! - A **restriction** the resolved provider cannot express (a tool
-//!   permission narrowing) is always a hard failure: the agent would run
-//!   with MORE power than it declares. `optional` is structurally
-//!   unrepresentable on a restriction — `tools.allow` is a plain array,
-//!   there is no key to set.
+//! - A **tool list** the resolved provider cannot express (codex maps no
+//!   tool name) is always a hard failure; `optional` is unrepresentable
+//!   there, as `tools.allow` is a plain array. One it can express is
+//!   pre-approval, not a boundary: claude's `--allowedTools` removes no
+//!   tool. Only the native powers the realm does not grant are denied.
 //! - A **capability** an office asks for is asked for by ABSTRACT name,
 //!   `requires` or `wants` (decision 0065 ruling 1), and only a realm
 //!   grants one. An agent therefore names no MCP server: the `tools.mcp`
@@ -29,10 +29,10 @@
 //!   an office could name would be a door a pulled bundle could open. A
 //!   `wants` the realm does not grant becomes a notice that lands in the
 //!   run manifest. Never nothing.
-//! - The restriction check runs over **every** entry in the chain, not
+//! - The tool-list check runs over **every** entry in the chain, not
 //!   just the chosen one: a chain whose second link cannot express the
-//!   agent's restrictions would silently widen its blast radius the
-//!   moment it fell back.
+//!   agent's tool list fails at design time, not the moment it falls
+//!   back.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -131,11 +131,9 @@ pub struct Agent {
     /// abstract name, each `requires` or `wants`. A request, never a
     /// grant: it names no dialect, server, provider or tool.
     pub capabilities: crate::capabilities::Requests,
-    /// Decision 0043: the agent's hands are one boxed tool. When set, the
-    /// tool list is not consulted, and the adapter must say how it hands
-    /// the harness that tool. The box bounds only what a call to it can
-    /// touch: claude's fragment removes Claude Code's own tools, while a
-    /// Codex seat keeps its native read-only shell outside the box.
+    /// Decision 0043: the agent's hands are one boxed tool; the tool list is
+    /// not consulted. The box bounds only a call to it: claude's fragment
+    /// removes Claude Code's own tools; a Codex seat keeps its native shell.
     pub hands: Option<brokkr_protocol::hands::HandsSpec>,
     pub limits: Option<Limits>,
     pub inputs: Option<Vec<String>>,
@@ -318,8 +316,8 @@ pub(crate) fn decode_local_tools(
     load::parse_tools(site, what).map_err(|problem| problem.to_string())
 }
 
-/// How a provider expresses a tool-permission narrowing on its command
-/// line. Absent from the adapter as the explicit string `"unsupported"`,
+/// How a provider expresses an agent's tool list on its command line.
+/// Absent from the adapter as the explicit string `"unsupported"`,
 /// never inferred from an empty map.
 #[derive(Debug, Clone)]
 pub struct ToolPermissions {

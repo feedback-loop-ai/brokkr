@@ -70,17 +70,24 @@ is a pure function of *(library, adapters, availability)* — availability
 that `Bundle::compile` deliberately supplies none of, so one bundle
 cannot resolve two ways on two machines.
 
-**The honesty rules are the point, and they are enforced rather than
-documented.** A tool restriction the provider cannot express fails
-compilation naming the agent, the provider and the capability — the
-agent would run with MORE power than it declares, so `optional` is
-structurally unrepresentable there. A capability the realm does not
+**The honesty rules are the point, and compilation checks them.** A
+tool list the provider cannot express at all — codex restricts by
+sandbox class, not by tool name, and dsh maps no tool — fails
+compilation naming the agent, the provider and the capability, so
+`optional` is structurally unrepresentable there. A tool list the
+provider can express is pre-approval, not a boundary: on claude it
+becomes `--allowedTools`, which pre-approves the named tools and removes
+none, so an unboxed claude seat also has Claude Code's other default
+tools under the operator's own permission settings, and the operator's
+MCP servers ([security model](../security-model.md)). What the engine
+does switch off by name is each native power the realm does not grant
+(see [capabilities](#capabilities)). A capability the realm does not
 grant refuses compilation when the office `requires` it, and when the
 office only `wants` it the loss is a notice that lands in the run
 manifest and in every readout — never nothing. Both checks run over
-**every** entry in the chain, so a chain that would widen an agent's
-blast radius the moment it fell back fails at design time rather than at
-2am. The chain is a fallback chain,
+**every** entry in the chain, so a chain whose fallback cannot express a
+declared tool list fails at design time rather than at 2am. The chain is
+a fallback chain,
 not a portability claim: Brokkr never says the second choice equals
 the first, and `brokkr compare` reports a model difference as a
 first-class divergence.

@@ -30,8 +30,12 @@ pub(super) struct Claims {
 
 /// Every claude seat the scaffold hires, on every host: `init` gives no
 /// claude agent hands, so none is boxed, and a tool list pre-approves.
+/// The scaffold's `realms.json` grants no capability, so each native
+/// power the claude adapter declares is denied by name (decision 0065).
 pub(super) const PRE_APPROVAL: &str = "Pre-approval removes no tool: an unboxed seat keeps the\n\
-     harness's defaults, your own permission settings and MCP servers.";
+     harness's other defaults, your own permission settings and MCP\n\
+     servers. Only `WebSearch` and `WebFetch` are denied, by name, because\n\
+     `realms.json` grants neither.";
 
 /// The claude-hired review gate, on every host: unboxed, under the
 /// adapter's `acceptEdits`, and held to its charter by a HEAD check.

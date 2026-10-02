@@ -1882,9 +1882,8 @@ fn the_declaration_not_the_provider_name_decides_and_nothing_else_is_echoed() {
         "codex",
         "pass, fail",
         &format!(
-            "\n\nYour hands are boxed: the worktree, and this result file, are reachable ONLY \
-through the `fixture_workspace` tool. Your harness's own shell runs outside the box and cannot \
-write here — a file written through it never reaches the engine. Write the result file with the \
+            "\n\nYour hands are boxed: write the worktree, and this result file, through the \
+`fixture_workspace` tool. Your harness's own shell runs outside the box and cannot write here — a file written through it never reaches the engine. Write the result file with the \
 workspace tool.\n\nYour workspace tool is `fixture_workspace`. If it is not listed, use \
 `fixture_search` to load it before doing workspace work. Native shell and apply_patch writes are \
 refused by design; this is not a blocker. Use the workspace tool for all workspace writes, \

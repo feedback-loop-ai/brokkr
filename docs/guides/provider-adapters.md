@@ -530,8 +530,10 @@ combined in one launch.
 All of this is compile and composition evidence. The box takes the
 network away from the commands it runs, when the hands grant none, and
 from nothing else: the harness and its provider's traffic stay outside
-it, and so does Codex's server-side web search, which stays on in every
-Codex seat until decision 0065 is built (see the
+it, and so does Codex's server-side web search. What switches that
+search off, in every seat the realm does not grant it, is the OFF the
+codex adapter declares, composed into the command (see
+[native capabilities](#native-capabilities) and the
 [security model](../security-model.md)). The first live codex smith —
 cargo and git through the box on codex, a real commit, verify passing —
 is the controller's measurement after the change lands, and is pending.
