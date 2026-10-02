@@ -752,13 +752,16 @@ const OVERCLAIMS: [&str; 8] = [
 /// named, where the engine fills its `--tools` list with the tool of each
 /// native power the realm grants it (`final_tools`): each phrase is the
 /// unqualified clause as it ended, so the sentence that names the grant
-/// is read true. The positive controls in
+/// is read true. So, too, is each sentence that held a gate boxed, its
+/// network denied or its environment cleared with no boundary named: the
+/// phrase is that sentence's clause, so the one that names `namespace` is
+/// read true. The positive controls in
 /// [`the_guard_reads_true_0065_sentences_true`] hold that.
 ///
 /// A comparison that only implies a bound, such as one arm called no
 /// narrower than another, is outside the guard: its wording names no
 /// control a list could hold.
-const ANYWHERE: [&str; 144] = [
+const ANYWHERE: [&str; 149] = [
     "blast radius",
     "tools restriction",
     "permission narrowing",
@@ -792,8 +795,11 @@ const ANYWHERE: [&str; 144] = [
     "deterministic boxed exec scripts",
     "commands, boxed without network",
     "own commands and runs without network",
-    "with network denied",
-    "are boxed scripts",
+    "runs both with network denied",
+    "repository root with network denied",
+    "%s passed with network denied",
+    "are boxed scripts and carry no model grants",
+    "are boxed scripts with no model grant",
     "read and never write",
     "box bounds only the workspace calls",
     "plants no git hook",
@@ -817,7 +823,8 @@ const ANYWHERE: [&str; 144] = [
     "read-only sdd judge",
     "are boxed, inline exec scripts",
     "holding the worktree read-write and the host toolchain",
-    "the box clears the environment",
+    "the box clears the environment, and compilation refuses",
+    "the box clears the environment, so a boxed seat cannot receive",
     "and reports, it never writes",
     "and it never writes",
     "box lacks",
@@ -854,7 +861,7 @@ const ANYWHERE: [&str; 144] = [
     "verifier is a boxed exec script",
     "network is refused",
     "verify uses boxed exec",
-    "cannot reach the network",
+    "cannot reach the network, so the gate fails closed",
     "boxed registry gate",
     "same boxed exec gate",
     "own boxed exec script",
@@ -903,6 +910,7 @@ const ANYWHERE: [&str; 144] = [
     "removes claude code's own tools, and --strict-mcp-config",
     "the only tool a claude seat keeps while",
     "applies to a claude seat's namespace hands, not",
+    "no tools of claude code's own and one boxed workspace tool",
 ];
 
 /// The wording the guard refuses, as lists a test can take one word out of.
@@ -1060,7 +1068,7 @@ fn literal(chars: &[char], from: usize, literals: &mut Vec<String>) -> usize {
 
 /// Excerpts of the pages this story reworded, word for word as they
 /// stood: each holds one paragraph the guard refuses.
-const OLD_PAGES: [&str; 145] = [
+const OLD_PAGES: [&str; 146] = [
     // docs/guides/agent-library.md
     "**The honesty rules are the point, and they are enforced rather than\n\
      documented.** A tool restriction the provider cannot express fails\n\
@@ -1460,12 +1468,16 @@ const OLD_PAGES: [&str; 145] = [
      seat keeps while a Codex seat keeps its native read-only shell on the host beside it |",
     "miss those controls. The one-tool description applies to a claude\n\
      seat's namespace hands, not to a Codex seat, which keeps its native",
+    // docs/research/0004-context-privilege-escalation.md
+    "| 5 | … | decision 0043: under namespace a claude seat that declares hands is started with \
+     no tools of Claude Code's own and one boxed workspace tool (`adapters/claude.json`), so the \
+     commands its model asks for run in the box |",
 ];
 
 /// True sentences of decision 0065's code that the guard must read true:
 /// each names what decides, so a phrase widened past the clause it is
 /// held for refuses one of them.
-const TRUE_TEXTS: [&str; 6] = [
+const TRUE_TEXTS: [&str; 10] = [
     "Under `namespace`, verify runs without network.",
     "Under `namespace`, the verify script is boxed without network.",
     "A boxed claude seat the realm grants both powers has `WebSearch` and\n\
@@ -1476,6 +1488,10 @@ const TRUE_TEXTS: [&str; 6] = [
      only tool; a granted power adds its tool to `--tools`.",
     "Claude's fragment removes Claude Code's own tools, and the engine adds\n\
      back only the tool of a native power the realm grants the seat.",
+    "Under `namespace`, the verifier runs its checks with network denied.",
+    "Under `namespace`, verify and ship are boxed scripts.",
+    "Under `namespace`, the box clears the environment.",
+    "Under `namespace`, a boxed command cannot reach the network.",
 ];
 
 /// Excerpts of the shell scripts and recipe data this story reworded, as
