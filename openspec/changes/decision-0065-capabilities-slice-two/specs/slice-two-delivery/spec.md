@@ -96,7 +96,13 @@ slice one's exact realm-wide cause:
 of kind 'mcp', whose broker support is not implemented until decision 0065
 slice two". This includes wants, unused grants and offices [].
 Earlier units may parse/test internal records or execute a fake child through
-a bound test plan, but SHALL add no production compile escape.
+a bound test plan, but SHALL add no production compile escape. A directly
+invoked broker command SHALL also refuse before spawn while its serving
+protections are incomplete, with "broker serving protections are incomplete".
+Once nonretaining serving is complete but retention is not, a retained plan
+SHALL refuse "broker retained-response support is incomplete" rather than
+silently discard its retention obligation. These temporary preparation causes
+are removed with their corresponding protections, not retained as user flags.
 
 U9 SHALL remove the fence only after strictness, safe typed resolution, gate
 rules, attribution, broker filtering/secrets/cleanup, final exact-server proof,
@@ -118,6 +124,12 @@ It SHALL not change the requested effect digest or qualify a resume shape.
 - **WHEN** any U1–U8 intermediate head compiles a valid MCP realm grant, requested, wanted or unused
 - **THEN** it returns exactly the old unbuilt-kind cause and spawns no server
 - **AND** removing that fence prematurely fails its regression
+
+#### Scenario: Direct invocation cannot exploit a preparation merge
+
+- **WHEN** a valid bound test plan reaches the public command before U6f's serving protections, or a retained plan reaches it before U8b
+- **THEN** the exact incomplete-serving or incomplete-retention cause above refuses before child spawn
+- **AND** the existing unbound-plan refusal still wins for an untrusted locator; private fake-child tests confer no production authority
 
 #### Scenario: The enabling proof uses the real path
 

@@ -147,7 +147,7 @@ retention and actual artifact publication before adding a digest.
 
 Capability and dialect use the existing safe name grammar with an explicit
 128-byte bound. Call_id uses bounded nonsecret ASCII identifiers (128 bytes);
-call_state is exactly observed, started, succeeded, failed, refused or
+call_state is exactly observed, succeeded, failed, refused or
 interrupted. response_sha256 is exactly 64 lowercase hexadecimal characters.
 For attributed records the concrete tool name SHALL be bounded to 256 ASCII
 bytes in the existing tool identifier vocabulary; v6 may widen v5's 80-byte
@@ -158,10 +158,11 @@ clamping. Unrecognized tool identifiers received at runtime are protocol
 failures, never journal payloads echoed without validation.
 
 V6 SHALL accept every valid old-shaped v5 record. Native observed records
-have no response digest. Broker calls have started and one terminal, except
-a local denied attempt may have a refused terminal without child forwarding.
+have no response digest. Broker calls have exactly one settled checkpoint;
+a local denial has outcome refused without child forwarding. Private Started ledger records are not
+public checkpoints.
 Existing tool-to-turn requirements remain for old-shaped and native observed
-records. Attributed broker records (started or terminal) MAY omit turn when
+records. Attributed broker settled records MAY omit turn when
 no measured correlation supplies it: their mandatory attempt/call identity
 provides ownership. V6 SHALL express that conditional additive widening.
 The engine SHALL never invent a model turn or usage to satisfy the old
@@ -169,7 +170,7 @@ dependency. A verified correlated turn, when available, remains the real one.
 
 #### Scenario: New fields have literal typed constraints
 
-- **WHEN** a checkpoint has only capability, an uppercase/short digest, unknown call_state, overlong identity or a digest beside started/refused/interrupted/observed
+- **WHEN** a checkpoint has only capability, an uppercase/short digest, call_state started or another unknown state, overlong identity or a digest beside refused/interrupted/observed
 - **THEN** v6 rejects the exact field/dependency violation at append without writing anything
 - **AND** a complete native observed row and broker succeeded/failed row with a valid published digest pass
 

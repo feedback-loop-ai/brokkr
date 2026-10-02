@@ -24,7 +24,13 @@ Codex trials SHALL independently measure authentication, normal model/effort
 configuration and session behavior under isolation. They SHALL inspect
 mcp_tool_call server/tool/call-identity fields and tool_search discovery.
 DSH trials SHALL establish both ambient exclusion and engine MCP loading;
-one does not prove the other.
+one does not prove the other. Evidence SHALL also distinguish new native calls
+from replayed session history. U0 SHALL separately measure native-write
+confinement and secret-read isolation for hands and native tools, using positive
+canary controls at the operator-store and child-process surfaces. Ambient MCP
+exclusion or read-only workspace settings SHALL NOT qualify either read surface.
+Secret-bearing eligibility follows MB2; no new box or permission exemption is
+introduced to force a passing measurement.
 
 #### Scenario: A sentinel distinguishes replacement from merging
 
@@ -44,6 +50,12 @@ one does not prove the other.
 - **WHEN** Claude passes a strictness trial but LaneTally or dsh has not passed its own trial
 - **THEN** neither inherits Claude's support; its assessment remains unmeasured with its own cause
 - **AND** no new harness, plugin, resume qualification or boundary is enabled merely to obtain a positive
+
+#### Scenario: Secret-read qualification is a separate measurement
+
+- **WHEN** ambient MCP exclusion succeeds but a native tool can read a canary store or child process binding
+- **THEN** the evidence records strict MCP and failed secret-read isolation separately; MB2 refuses secret-bearing holdings
+- **AND** secret-free eligibility is assessed independently, and a resumed historical native event is not recorded as a new call
 
 ### Requirement: SI2 every model serving path excludes ambient MCP
 

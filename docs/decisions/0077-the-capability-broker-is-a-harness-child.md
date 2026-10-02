@@ -25,7 +25,9 @@ The commission's rulings are preserved at
 [the operator record](../../openspec/changes/decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md).
 They govern the proposed slice; this decision remains proposed for acceptance
 by the operator. The proposal, deltas, design and tasks carry exact
-admission, refusal and evidence obligations.
+admission, refusal and evidence obligations. The council visit proposes owning
+specification repairs and returns upstream for review; this revision does not
+accept this decision or certify runtime protections.
 
 0077 was unclaimed in the local decision-index gap table and the six open
 pull requests checked on 2026-10-03: #404, #452, #460, #486, #494 and #500.
@@ -77,7 +79,13 @@ claimed by this document.
    The broker lists only the realm-admitted tools and refuses an ungranted
    call before forwarding it. Its output is masked before delivery or
    persistence. Neither tool arguments nor returned content can change
-   connection, grants, restrictions, secrets or retention.
+   connection, grants, restrictions, secrets or retention. Secret-bearing
+   holdings additionally require measured exclusion of store and child-process
+   reads from both hands and model-native tools; read-only write containment
+   does not establish that. Before secrets are resolved, the executable,
+   startup inputs and working directory must be protected from seat writes.
+   An unprovable arrangement refuses; no whole-harness box or installer is
+   introduced to claim a proof.
 
    **Enforcement binding:** typed identity-bound broker plan, tool-list/call
    checks, shared secret resolver/injector/masker, no-forward and leak-scan
@@ -89,13 +97,22 @@ claimed by this document.
    Every broker call is recorded in a protected per-attempt ledger before
    external forwarding, with a terminal outcome when known. The engine folds
    and validates it against the pinned holding and existing journal state.
+   After process settlement, one public checkpoint records each accepted call's
+   settled outcome. Private Started/Terminal records stay private; actual
+   journal commit, not a queued offer, confirms evidence. An uncertain action
+   is never replayed. A fixed attempt-wide retention budget is reserved before
+   forwarding, with no silent downgrade on exhaustion.
    A broker never opens the journal for writing. Missing, malformed, partial
    or conflicting evidence cannot produce a successful complete attempt.
    Retained responses are masked data prepared for delivery, stored content-addressed
    at .forge/artifacts/sha256/<hex>, with the digest in the checkpoint.
    A persisted response proves no model receipt across a crash.
    The dialect opts in through retained; the realm may veto through the new
-   reserved grant key. The seat cannot write the ledger or substitute evidence.
+   reserved grant key. Every Brokkr-managed writer sharing the artifact root,
+   including a zero-grant sibling and later runs, is subject to evidence
+   protection before dispatch. Unsafe concurrent writers refuse; historical
+   artifacts remain protected. This is not a guarantee against arbitrary
+   operator host writes or older engines that have not been quiesced.
 
    **Enforcement binding:** seat-record v6 and run-manifest v12; additive
    realm contract and existing tool-dialect v1; broker durable ledger, engine idempotent fold and

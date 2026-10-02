@@ -26,7 +26,10 @@ remaining protections before narrow implementation PRs begin.
   carry the DATA rule in the paragraph naming the capability.
 - Every granted call gains capability/dialect/tool attribution. MCP calls
   pass through a protected durable ledger; the engine alone appends journal
-  checkpoints. Opted-in, non-vetoed responses are masked, content-addressed at
+  checkpoints, one settled record per accepted broker call. Secret-bearing
+  holdings require measured read isolation; executable startup inputs and
+  evidence across every managed writer require protection. Opted-in,
+  non-vetoed responses have a fixed aggregate budget, are masked, content-addressed at
   `.forge/artifacts/sha256/<hex>`, and openable through inspect.
 - Later implementation adds seat-record v6, run-manifest v12 and **the next
   realms version after v7** for `retain: false`. Tool-dialect v1 already
@@ -61,8 +64,10 @@ slice-one artifacts/evidence are not rewritten.
 This visit adopts proposal then deltas, clarifies their scenarios, writes
 design.md and tasks.md, and analyzes their consistency using the dialect's
 own instructions. Design records the unit order, every planned file, Hot
-files, alternatives and analysis. No council position files or returned_from
-were supplied; no council vote is invented.
+files, alternatives and analysis. The design council's robustness and simplicity
+positions are reconciled explicitly in design D1. No returned_from was supplied.
+The council exposed earlier requirement faults: this design visit proposes
+coherent owning-spec repairs and returns upstream under SD1 for their review.
 
 Only these documents, the verbatim ruling record, proposed decision 0077,
 its index row and 0065's amendment pointer are committed. No production,
@@ -91,4 +96,11 @@ native protections. Reconcile three draft choices with reasons:
 
 URL execution, native response retention, wider boundaries, slice-three
 comparisons and D11 nonempty restriction transport remain outside scope.
+Council amendments: one qualifying DATA declaration per capability replaces
+the every-mention rule (GP2); private begin/terminal evidence yields one public
+settled checkpoint (CC2/SC4/CR4). MB2–MB4 add measured secret-read isolation,
+protected startup inputs and protocol correlation. CR2–CR4 require protection
+across managed writers, closed ledger lifecycle, commit-confirmed settlement
+and aggregate retention bounds. These repair earlier specification omissions,
+not implementation exceptions. Design D1 records each claim and reason.
 The operator alone accepts decision 0077 and the completed plan.

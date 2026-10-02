@@ -19,7 +19,9 @@ checkpoint per call even when the harness emits both start and completion.
 A tool-use ordinal is permitted only for a measured format that emits exactly
 one observation per call; absence of a reliable correlation refuses attribution
 rather than conflating repeated calls. U4 records that format evidence and does
-not depend on U1's strictness implementation.
+not depend on U1's strictness implementation. Resumed history SHALL be
+distinguished from a new call by measured event semantics, never restamped
+as current-attempt activity merely because its tool name matches.
 
 Driver-supplied capability, dialect, retention digest and call ownership
 SHALL never supply authority: the engine SHALL remove/reject such values and
@@ -68,7 +70,9 @@ succeeded, failed, refused and interrupted. Native observation uses
 call_state observed; it need not fabricate a response that telemetry did not
 supply.
 
-The engine SHALL fold broker records into seat-record v6 checkpoints, with
+After the owned process tree settles, and before any terminal attempt result
+is admitted, the engine SHALL fold exactly one settled seat-record v6
+checkpoint per accepted broker call, with
 the same capability/dialect/tool fields as CC1, and SHALL be the only journal
 writer. Harness MCP telemetry SHALL be normalized using U0 evidence for
 diagnostics/discovery but SHALL not produce a second attributed broker call:
@@ -80,7 +84,7 @@ holdings or successful uses.
 #### Scenario: Two telemetry events still describe one call
 
 - **WHEN** a broker call emits a start and completion in its ledger and the harness also emits item.started and item.completed
-- **THEN** the journal has one call_id with its started and terminal records, counted as one use, and no duplicate attributed harness call
+- **THEN** the journal has exactly one settled checkpoint for that call_id and no duplicate attributed harness call
 - **AND** loss of harness completion cannot lose the durable broker terminal record
 
 #### Scenario: An ungranted tool is visible as a refusal
@@ -126,8 +130,11 @@ activation. Capability checkpoints report observed use; they do not claim
 unreported native activity can be reconstructed from absent telemetry.
 
 The broker ledger prevents dependence on each harness's response events.
-Started/terminal checkpoints share call_id so crash evidence does not become
-two uses. Native observed checkpoints deliberately claim no completion.
+Started/terminal records remain private; the public checkpoint has only the
+settled outcome. This adopts simplicity A without reducing durable evidence
+(0071 rulings 3, 5, 7). Authoritative MCP rows appear at settlement; live
+telemetry remains diagnostic and cannot certify completion. Native observed
+checkpoints deliberately claim no completion.
 The engine's journal fence remains single-writer; a broker opening forge.db
 is rejected as an alternative.
 

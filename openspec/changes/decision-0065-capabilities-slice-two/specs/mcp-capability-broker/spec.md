@@ -70,7 +70,12 @@ a holding drops. New hard-refusal causes, in order, SHALL be:
 '<boundary>'"; "MCP capability '<capability>' requires workspace hands at
 this site"; "MCP capability '<capability>' requires workspace hands with
 network false"; "MCP capability '<capability>' requires a model harness with
-an engine-owned MCP channel". The evidence-protection check follows those four hard checks. Existing start-time namespace availability
+an engine-owned MCP channel". The evidence-protection check follows those four hard checks. For a dialect
+with secrets, a separate measured read-isolation check SHALL then prove that
+workspace hands and model-native tools cannot read the bound store or the
+child's secret-bearing process state. Failure SHALL hard-refuse with
+"MCP capability '<capability>' cannot protect its secret bindings from this provider's native tools". Read-only write confinement and file mode 0600 SHALL
+NOT count as read isolation. Secret-free holdings need no secret-read proof. Existing start-time namespace availability
 refusals remain in force on both supported hosts.
 
 #### Scenario: Every other boundary refuses by name
@@ -110,6 +115,12 @@ refusals remain in force on both supported hosts.
 - **THEN** the hard refusal is "MCP capability 'library-docs' cannot protect broker evidence from this provider's native tools"
 - **AND** neither wants nor a permission prompt replaces the confinement proof
 
+#### Scenario: Read-only native tools cannot qualify a secret-bearing holding
+
+- **WHEN** U0's canary control proves a native tool can read the store or child process environment despite read-only workspace settings
+- **THEN** the secret-bearing holding hard-refuses with MB2's secret-protection cause for both requires and wants
+- **AND** a secret-free control remains eligible under the other rules; hands and every supported serving shape have independent read-isolation evidence
+
 ### Requirement: MB3 the broker offers only granted tools and records refusals
 
 The broker SHALL load an engine-created, identity-bound private plan naming
@@ -119,6 +130,13 @@ or accept authority from tool arguments, server output, recipe files or an
 unbound path in the workspace. Plans and ledgers SHALL be outside writable
 seat reach; a changed, missing or forged plan SHALL refuse before contacting
 the child, with "broker plan is not bound to this attempt".
+
+Before any secret lookup or child spawn, the broker SHALL select a protected
+working directory and resolve the executable and startup inputs outside
+seat-writable reach, including aliases and replaceable ancestors. An executable
+inside that reach SHALL refuse "MCP server launch resolves inside seat-writable reach"; unprotected scripts, configuration, package/plugin loading or an
+unprovable startup arrangement SHALL refuse "MCP server startup inputs are not protected from seat writes". Direct argv and a server-reported version alone
+are insufficient. No heuristic interpreter-flag parser can grant an exception.
 
 Only MCP initialization and the measured protocol operations necessary for
 listing/calling granted tools SHALL be proxied. Tool listing SHALL expose
@@ -144,7 +162,14 @@ count/page/cursor failures return "MCP tool catalog exceeds the broker limit";
 a second concurrent call returns "MCP broker already has an active call".
 Responses exceeding bounds return the response-limit cause below; no truncated
 response is delivered as complete. These are slice limits, not configurable
-new grant keys.
+new grant keys. Responses SHALL match the exact typed JSON-RPC request ID,
+method and session phase; string and numeric IDs are distinct. Unknown, wrong,
+duplicate or late responses SHALL refuse "MCP server protocol is invalid" with a
+typed correlation failure. Timeouts are absolute deadlines unaffected by ping,
+progress or notification traffic. Cancellation/timeout ends an uncertain child
+session; its external action SHALL NOT be replayed. Non-response frames share
+a fixed 1 MiB cumulative byte budget per initialization/list or call operation;
+exhaustion SHALL return "MCP server response exceeds the broker limit".
 
 #### Scenario: Filtering is enforced at both list and call
 
@@ -170,6 +195,18 @@ new grant keys.
 - **WHEN** a caller selects another protocol version, exceeds the request/depth bound, or calls concurrently while one call is active
 - **THEN** it receives respectively the unsupported-version, request-limit or active-call cause above, without forwarding that call
 - **AND** catalog overflow, more than 32 pages or a repeated cursor returns the catalog-limit cause; exact-limit positive controls still work
+
+#### Scenario: Startup cannot execute a seat replacement with secrets
+
+- **WHEN** a seat substitutes a repository-relative executable, interpreter script, startup config, plugin, package or ancestor before launch
+- **THEN** launch refuses the corresponding executable or startup-input cause before reading or injecting a secret
+- **AND** a protected installed fake-server control starts with a private working directory and the permitted binding; serverInfo.version alone never admits the replacement
+
+#### Scenario: Correlation and deadlines survive hostile protocol traffic
+
+- **WHEN** a child sends a wrong-type ID, duplicate/late response or response for the wrong phase
+- **THEN** the broker ends that session with the exact protocol cause, records the unresolved call without a digest, and forwards no mismatched result
+- **AND** continuous pings or progress cannot extend the fixed deadline; notification-budget exhaustion has the exact response-limit cause, and an uncertain cancelled action is never retried
 
 ### Requirement: MB4 only the real server receives broker secret bindings
 
@@ -258,6 +295,13 @@ R2's explicit refusal takes precedence over a wants drop for a site that is
 not safely boxed; ordinary unsupported carriage still follows ruling 5.
 The box here is 0043's tool-call box, not the proposed whole-harness seat box.
 No 0072 boundary or full-access behavior is smuggled into this change.
+
+Robustness A/B/E are adopted at MB2–MB4, their earliest owners: native
+read-only access is not secrecy (hands.rs:1–13, decision 0043), process.rs:173–178
+otherwise inherits the workdir, and a method result needs typed request
+correlation (0071 rulings 3, 8, 9). U0 may prove a harness unsupported; this
+proposal adds no whole-harness box, executable installer or general attestation
+service. The protected operator installation remains trusted code.
 
 Nonempty restrictions remain inexpressible under D11, even if an MCP child
 claims to understand them. The realm's empty restriction is still the sole
