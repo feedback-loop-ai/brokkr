@@ -235,4 +235,11 @@ fn each_refusal_leaves_with_its_own_words() {
          ENTRY:CONDITION, with CONDITION one of completed, ended\n\n\
          For more information, try '--help'.\n"
     );
+
+    // Nor does a flag only `brokkr run` reads: queuing opens no run view.
+    let no_view = Cli::try_parse_from(argv.iter().chain(&["--no-view"]));
+    assert_eq!(
+        no_view.err().unwrap().kind(),
+        clap::error::ErrorKind::UnknownArgument
+    );
 }

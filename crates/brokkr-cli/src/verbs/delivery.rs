@@ -13,7 +13,9 @@ use brokkr_runtime::realms::World;
 use brokkr_runtime::{conclude as conclude_run, operator_command};
 use brokkr_runtime::{Engine, FencedCommandOutcome};
 
-use crate::cli_args::{ConcludeArgs, DeliveryArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs};
+use crate::cli_args::{
+    ConcludeArgs, DeliveryArgs, LaunchArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs,
+};
 use crate::run_view::{self, Viewer};
 use crate::Invocation;
 use crate::{drive_to_end, finish, open_journal, recipes, selector, supersede, Access, Exit};
@@ -21,17 +23,16 @@ use crate::{drive_to_end, finish, open_journal, recipes, selector, supersede, Ac
 /// `brokkr run`: start a new run and drive it until it parks or finishes,
 /// beside its run view on a terminal (#508).
 pub(crate) fn run(workspace: &Path, args: RunArgs, viewer: &Viewer) -> Result<ExitCode> {
-    let no_view = args.no_view;
-    let (request, new) = new_run(workspace, args)?;
+    let (request, new) = new_run(workspace, args.launch)?;
     let journal = request.journal.clone();
     let mut engine = launch::start(request, new, &mut |note| eprintln!("{note}"))?;
     eprintln!("run started: {}", engine.run_id);
-    run_view::drive(&mut engine, &journal, no_view, viewer)
+    run_view::drive(&mut engine, &journal, args.no_view, viewer)
 }
 
 /// The launch `brokkr run`'s arguments ask for; `brokkr queue add` queues
 /// the same one.
-pub(super) fn new_run(workspace: &Path, args: RunArgs) -> Result<(LaunchRequest, NewRun)> {
+pub(super) fn new_run(workspace: &Path, args: LaunchArgs) -> Result<(LaunchRequest, NewRun)> {
     // The map is read BEFORE anything is compiled, opened or spawned: a
     // named map that is missing or malformed ends the invocation here.
     let Invocation {

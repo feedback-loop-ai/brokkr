@@ -186,6 +186,19 @@ pub(super) struct DeliveryArgs {
 #[group(skip)]
 pub(super) struct RunArgs {
     #[command(flatten)]
+    pub(super) launch: LaunchArgs,
+    /// On a terminal, print the plain lines and the summary instead of
+    /// opening the run view. Off a terminal they always print.
+    #[arg(long)]
+    pub(super) no_view: bool,
+}
+
+/// The launch a new run is: what `brokkr run` starts and `brokkr queue
+/// add` queues.
+#[derive(clap::Args)]
+#[group(skip)]
+pub(super) struct LaunchArgs {
+    #[command(flatten)]
     pub(super) delivery: DeliveryArgs,
     /// The feature the run delivers, as text: recorded when the run
     /// starts and handed to its seats.
@@ -212,10 +225,6 @@ pub(super) struct RunArgs {
     /// bounds are pinned into an immutable run-manifest/v2.
     #[arg(long)]
     pub(super) dispatch: Option<PathBuf>,
-    /// On a terminal, print the plain lines and the summary instead of
-    /// opening the run view. Off a terminal they always print.
-    #[arg(long)]
-    pub(super) no_view: bool,
 }
 
 #[derive(clap::Args)]
@@ -587,7 +596,7 @@ pub(super) enum QueueCmd {
 #[group(skip)]
 pub(super) struct QueueAddArgs {
     #[command(flatten)]
-    pub(super) run: RunArgs,
+    pub(super) launch: LaunchArgs,
     /// The entry's priority: operator data, weighed at admission.
     #[arg(long, default_value_t = 0, allow_negative_numbers = true)]
     pub(super) priority: i64,

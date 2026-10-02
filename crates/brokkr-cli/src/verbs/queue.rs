@@ -36,14 +36,14 @@ pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
 fn add(
     workspace: &Path,
     QueueAddArgs {
-        run,
+        launch,
         priority,
         after,
         reason,
     }: QueueAddArgs,
 ) -> Result<ExitCode> {
     let workspace = std::path::absolute(workspace)?;
-    let (request, new) = new_run(&workspace, run)?;
+    let (request, new) = new_run(&workspace, launch)?;
     let payload = QueuedLaunch::of(&request, &new)?.encode()?;
     let mut store = open_journal(&request.journal, Access::Append)?;
     let entry = NewEntry {

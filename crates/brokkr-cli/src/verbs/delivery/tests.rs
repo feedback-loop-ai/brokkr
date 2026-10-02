@@ -6,7 +6,7 @@ use brokkr_runtime::launch::LaunchError;
 use brokkr_store::StoreError;
 
 use super::{rerun, resume, run};
-use crate::cli_args::{DeliveryArgs, JournalArgs, RerunArgs, ResumeArgs, RunArgs};
+use crate::cli_args::{DeliveryArgs, JournalArgs, LaunchArgs, RerunArgs, ResumeArgs, RunArgs};
 use crate::run_view::PRODUCTION;
 use crate::selector::{refusal_kind, Refusal};
 use crate::{contention, failure_line, report, Exit};
@@ -48,12 +48,14 @@ fn a_missing_recipe_never_masks_the_refusal_each_verb_met_first() {
     let dispatched = run(
         ws,
         RunArgs {
-            delivery: missing(),
-            feature: "f".into(),
-            realms: Some(ws.join("map.json")),
-            db: Some(db.clone()),
-            repo: None,
-            dispatch: Some(ws.join("d.json")),
+            launch: LaunchArgs {
+                delivery: missing(),
+                feature: "f".into(),
+                realms: Some(ws.join("map.json")),
+                db: Some(db.clone()),
+                repo: None,
+                dispatch: Some(ws.join("d.json")),
+            },
             no_view: true,
         },
         &PRODUCTION,
