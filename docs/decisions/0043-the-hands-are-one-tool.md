@@ -277,11 +277,15 @@ succeeded (#504). The engine's settlement does not change.
 2. The tmpfs carries no size of its own, so the kernel's default holds:
    half the host's RAM. A box that writes past it fails with `ENOSPC`
    inside the box; nothing falls back to disk. `--tmp-overlay` shipped in
-   the same bubblewrap release as `--overlay`, so the version refusal
-   ruling 2 names already covers it, and no bwrap has one without the
-   other. That release is 0.11.0, not 0.10: Debian's changelog lists the
-   overlay options in a snapshot after 0.10.0. The floor the code checks
-   is a follow-up.
+   the same bubblewrap release as `--overlay`, so no bwrap has one without
+   the other. That release is 0.11.0, not the 0.10 ruling 2 names:
+   Debian's changelog lists the overlay options in a snapshot after
+   0.10.0, first released in 0.11.0. The version refusal is raised to
+   match: a spec with an overlay bind is refused before the box starts
+   on a bwrap reporting less than 0.11, naming the version it reported,
+   where a stock 0.10.0 used to pass admission and then fail at option
+   parsing. A pre-release snapshot that has the options but reports
+   0.10.0 is refused too, which is the closed side.
 3. What the RAM holds was measured on Linux 6.17 with bubblewrap 0.11.0,
    the upper layers on a tmpfs: 256 KiB for a boxed `cargo test
    --workspace` of this repository from an empty target (cargo's

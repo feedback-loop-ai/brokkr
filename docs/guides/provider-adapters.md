@@ -117,7 +117,7 @@ The `boundaries` line (decision
 [0046](../decisions/0046-the-boundary-is-named.md) ruling 2) names what
 this machine can put between a boxed seat's hands and itself. A boundary
 is **offered** when `run`, `resume` and `rerun` would start a bundle under
-it here: `namespace` needs bubblewrap on `PATH` (0.10 or newer for an
+it here: `namespace` needs bubblewrap on `PATH` (0.11 or newer for an
 overlay bind), and `harness` and `open` are offered everywhere because
 they need nothing of Brokkr's. A boundary is **ready** only once the tree
 has built it, and the line says which slice does: `seatbelt` (slice ii)

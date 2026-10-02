@@ -356,14 +356,24 @@ fn overlays_need_a_bubblewrap_that_has_them() {
         "no overlay, no question"
     );
     let refusal = overlay_supported(&overlaid, &missing).unwrap_err();
-    assert!(refusal.contains("0.10 or newer"), "{refusal}");
+    assert!(refusal.contains("0.11 or newer"), "{refusal}");
     // The rule on the reported string: no script is written and executed
     // here, because another test's fork can hold a fresh file open and
-    // turn its exec into "text file busy".
+    // turn its exec into "text file busy". 0.10.0 parses neither
+    // `--overlay-src` nor `--tmp-overlay`: both first ship in 0.11.0.
+    assert_eq!(
+        overlay_supported_by("bubblewrap 0.10.0", &missing).unwrap_err(),
+        format!(
+            "hands bind mode 'overlay' needs bubblewrap 0.11 or newer; {} reports \"bubblewrap 0.10.0\"",
+            missing.display()
+        )
+    );
     for (reported, ok) in [
         ("bubblewrap 0.9.0", false),
-        ("bubblewrap 0.10.0", true),
+        ("bubblewrap 0.10.0", false),
+        ("bubblewrap 0.10.9", false),
         ("bubblewrap 0.11.0", true),
+        ("bubblewrap 0.12.0", true),
         ("", false),
     ] {
         assert_eq!(

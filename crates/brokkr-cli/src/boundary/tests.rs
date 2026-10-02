@@ -149,7 +149,7 @@ fn the_table_probes_each_boundarys_tool_and_offers_the_two_that_need_none() {
 
 /// Rows 5.6 and 5.7: one refusal per boundary on an empty search path,
 /// `harness` and `open` passing, `namespace` passing with a planted
-/// `bwrap` and no overlay bind and still asking 0.10 of it with one, the
+/// `bwrap` and no overlay bind and still asking 0.11 of it with one, the
 /// two unbuilt boundaries refusing with and without their tool, and a
 /// plain bundle passing everywhere.
 #[test]
@@ -221,7 +221,7 @@ fn every_boundary_is_judged_against_the_search_path_and_the_slice_that_builds_it
     );
     let older = refusal(&overlaid, &bin);
     assert!(older.contains("seat 'work'"), "{older}");
-    assert!(older.contains("0.10 or newer"), "{older}");
+    assert!(older.contains("0.11 or newer"), "{older}");
 
     // The unbuilt two refuse with their tool found as much as without,
     // and say which they found.

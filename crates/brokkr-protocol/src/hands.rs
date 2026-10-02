@@ -806,7 +806,8 @@ pub fn require_bwrap() -> Result<PathBuf, String> {
 }
 
 /// The bwrap binary able to build THIS spec: overlays need bubblewrap
-/// 0.10 or newer (Ubuntu 24.04 ships 0.9), and a spec that binds one is
+/// 0.11 or newer (Ubuntu 24.04 ships 0.9, and 0.10.0 parses neither
+/// `--overlay-src` nor `--tmp-overlay`), and a spec that binds one is
 /// refused on an older bwrap rather than degraded to a writable bind.
 pub fn require_bwrap_for(spec: &HandsSpec) -> Result<PathBuf, String> {
     let bwrap = require_bwrap()?;
@@ -814,7 +815,7 @@ pub fn require_bwrap_for(spec: &HandsSpec) -> Result<PathBuf, String> {
     Ok(bwrap)
 }
 
-/// Refuse a spec with overlay binds on a bwrap older than 0.10.
+/// Refuse a spec with overlay binds on a bwrap older than 0.11.
 pub fn overlay_supported(spec: &HandsSpec, bwrap: &Path) -> Result<(), String> {
     if !spec.binds.iter().any(|bind| bind.mode == BindMode::Overlay) {
         return Ok(());
@@ -831,9 +832,9 @@ pub fn overlay_supported(spec: &HandsSpec, bwrap: &Path) -> Result<(), String> {
 /// The version rule on the string bwrap reported — the testable half.
 pub fn overlay_supported_by(reported: &str, bwrap: &Path) -> Result<(), String> {
     match parse_version(reported) {
-        Some(version) if version >= (0, 10, 0) => Ok(()),
+        Some(version) if version >= (0, 11, 0) => Ok(()),
         _ => Err(format!(
-            "hands bind mode 'overlay' needs bubblewrap 0.10 or newer; {} reports {:?}",
+            "hands bind mode 'overlay' needs bubblewrap 0.11 or newer; {} reports {:?}",
             bwrap.display(),
             reported
         )),

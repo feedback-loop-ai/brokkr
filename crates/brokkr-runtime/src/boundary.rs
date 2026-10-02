@@ -5,7 +5,7 @@
 //! cannot disagree (design DD17).
 //!
 //! A boundary is never simulated. `namespace` needs bubblewrap on the
-//! search path (and 0.10 or newer for a spec with overlay binds, as
+//! search path (and 0.11 or newer for a spec with overlay binds, as
 //! decision 0043 read); `seatbelt` needs `sandbox-exec` and `container`
 //! a container engine, and both refuse on every machine until decision
 //! 0046 ruling 6's slices (ii) and (iii) build them — their tool is
