@@ -121,6 +121,9 @@ pub enum brokkr_protocol::hands::BindMode
 pub brokkr_protocol::hands::BindMode::Overlay
 pub brokkr_protocol::hands::BindMode::Ro
 pub brokkr_protocol::hands::BindMode::Rw
+pub enum brokkr_protocol::hands::OverlayWrites<'a>
+pub brokkr_protocol::hands::OverlayWrites::Ram
+pub brokkr_protocol::hands::OverlayWrites::Session(&'a std::path::Path)
 pub enum brokkr_protocol::hands::SessionError
 pub brokkr_protocol::hands::SessionError::Io(core::io::error::Error)
 pub brokkr_protocol::hands::SessionError::Lock
@@ -167,7 +170,7 @@ pub const brokkr_protocol::hands::SANDBOX_BUNDLE: &str
 pub const brokkr_protocol::hands::SERVER_NAME: &str
 pub const brokkr_protocol::hands::TOOL_NAME: &str
 pub fn brokkr_protocol::hands::boundary_evidence_required() -> bool
-pub fn brokkr_protocol::hands::box_argv(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::GitFacts, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::io::error::Result<alloc::vec::Vec<alloc::string::String>>
+pub fn brokkr_protocol::hands::box_argv(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, brokkr_protocol::hands::OverlayWrites<'_>, &brokkr_protocol::hands::GitFacts, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::io::error::Result<alloc::vec::Vec<alloc::string::String>>
 pub fn brokkr_protocol::hands::bwrap_on(&std::ffi::os_str::OsStr) -> core::result::Result<std::path::PathBuf, alloc::string::String>
 pub fn brokkr_protocol::hands::drain_bounded<R: alloc::io::read::Read>(R) -> (alloc::vec::Vec<u8>, bool)
 pub fn brokkr_protocol::hands::execute(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>

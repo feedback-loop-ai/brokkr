@@ -771,12 +771,14 @@ fn machine_proof(tmp: &Path) -> (tempfile::TempDir, std::process::Output) {
 
 /// #504's stress harness, run by hand and never by CI: the two boxed exec
 /// runs above, side by side, `RUNS` times, beside two busy loops per core
-/// and four writers that sync what they write. The boxes' sessions, and so
-/// their overlay upper layers, are on the target's disk beside the
-/// writers, as a CI runner's `/tmp` is. A box's pid-namespace init, outlived
-/// by bwrap's outer process, then spends seconds in its exit unmounting
-/// them, and was read as a descendant still running after the kill. Every
-/// failed run is printed with its park reason, then counted:
+/// and four writers that sync what they write. The boxes' sessions are on
+/// the target's disk beside the writers, as a CI runner's `/tmp` is. While
+/// an exec box's overlay upper layer lived there, the box's pid-namespace
+/// init, outlived by bwrap's outer process, spent seconds in its exit
+/// syncing that disk as it unmounted the overlay, and was read as a
+/// descendant still running after the kill; the upper layer is now a tmpfs
+/// inside the box. Every failed run is printed with its park reason, then
+/// counted:
 ///
 /// `cargo test -p brokkr-cli --test hands -- --ignored --exact --nocapture boxed_exec_settles_under_load`
 #[test]

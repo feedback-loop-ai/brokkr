@@ -34,13 +34,6 @@ fn zombie(entry: Entry) -> Entry {
     }
 }
 
-fn exiting(entry: Entry) -> Entry {
-    Entry {
-        exiting: true,
-        ..entry
-    }
-}
-
 /// This process, leading the engine's group, and `rows` beside it.
 fn table(rows: impl IntoIterator<Item = Entry>) -> Vec<Entry> {
     let mut entries = vec![row(me(), 1, me())];
@@ -123,8 +116,7 @@ fn the_tracker_records_every_descendant_and_nothing_else() {
 
 /// What `running` reads as still running, in the order it is reported:
 /// the group, then a recorded descendant, then an orphan the attempt
-/// doubts. A zombie, whatever holds it, counts as gone, and so, since
-/// #504, does a process inside its exit: a box's init still unmounting.
+/// doubts. A zombie, whatever holds it, counts as gone.
 #[test]
 fn running_is_the_group_the_recorded_and_the_doubted() {
     let recorded = row(RECORDED, me(), RECORDED);
@@ -148,8 +140,6 @@ fn running_is_the_group_the_recorded_and_the_doubted() {
             pids: vec![STRANGER]
         })
     );
-    let exiting = [member.clone(), recorded.clone(), doubted.clone()].map(exiting);
-    assert_eq!(live.running(&table(exiting), spared), Ok(()));
     let zombies = [member, recorded, doubted].map(zombie);
     assert_eq!(live.running(&table(zombies), spared), Ok(()));
 }
@@ -229,81 +219,53 @@ fn an_orphan_born_after_the_last_read_and_before_a_spawn_is_not_the_attempts() {
 /// a job that shell job control moved to a group of its own, orphaned
 /// before the tracker saw it, included. It is attributed to the one
 /// attempt that could have left it, and doubted by each attempt when
-/// several could. So is an orphan inside its exit (#504): its children
-/// stay its own until its exit ends. A child the engine spawned, a
-/// zombie, another process's child, a member of a live group and what an
-/// attempt already explains are not strays.
+/// several could. A child the engine spawned, a zombie, another process's
+/// child, a member of a live group and what an attempt already explains
+/// are not strays.
 #[test]
 fn an_orphan_the_engine_adopted_is_attributed_or_doubted() {
     let job = row(STRANGER, me(), STRANGER);
-    let leaving = exiting(row(STRANGER + 5, me(), STRANGER + 5));
     let others = [
         row(STRANGER + 1, me(), me()),
         zombie(row(STRANGER + 2, me(), STRANGER + 2)),
         row(STRANGER + 3, 1, STRANGER + 3),
         row(STRANGER + 4, me(), GROUP),
     ];
-    let strays = [job.clone(), leaving];
-    let entries = table(others.into_iter().chain(strays.clone()));
+    let entries = table(others.into_iter().chain([job.clone()]));
     let other_group = GROUP + 100;
 
     let mut alone = registry([closed(GROUP, &[], &[])]);
     alone.observe(&entries);
-    assert_eq!(alone.attempts[&0].recorded, ids(&strays));
+    assert_eq!(alone.attempts[&0].recorded, ids([&job]));
     alone.observe(&entries);
     let attempt = &alone.attempts[&0];
-    assert_eq!((attempt.recorded.len(), attempt.doubted.len()), (2, 0));
+    assert_eq!((attempt.recorded.len(), attempt.doubted.len()), (1, 0));
 
     let mut both = registry([closed(GROUP, &[], &[]), closed(other_group, &[], &[])]);
     both.observe(&entries);
     both.observe(&entries);
     for live in both.attempts.values() {
-        assert_eq!((live.recorded.len(), &live.doubted), (0, &ids(&strays)));
+        assert_eq!((live.recorded.len(), &live.doubted), (0, &ids([&job])));
         assert_eq!(
             live.doubts(None),
             Err(Unsettled::Strays {
-                pids: vec![STRANGER, STRANGER + 5]
+                pids: vec![STRANGER]
             })
         );
     }
 
-    let mut later = registry([closed(GROUP, &[], &[]), closed(other_group, &[], &strays)]);
+    let mut later = registry([
+        closed(GROUP, &[], &[]),
+        closed(other_group, &[], std::slice::from_ref(&job)),
+    ]);
     later.observe(&entries);
     assert_eq!(
         (
             &later.attempts[&0].recorded,
             later.attempts[&1].recorded.len()
         ),
-        (&ids(&strays), 0)
+        (&ids([&job]), 0)
     );
-}
-
-/// #504, the first round's security hold: an orphan the engine adopted
-/// inside its exit, which no read recorded first, keeps its running child
-/// until its exit ends. The read that first shows the orphan attributes
-/// it and records the child under it, so the attempt does not settle on
-/// that read: the child runs, and is signalled.
-#[test]
-fn an_exiting_orphans_running_child_keeps_the_attempt_open() {
-    static SIGNALLED: Mutex<Vec<i32>> = Mutex::new(Vec::new());
-    fn recorded(id: &Identity) -> std::io::Result<()> {
-        SIGNALLED.lock().unwrap().push(id.pid);
-        Ok(())
-    }
-    let orphan = exiting(row(STRANGER, me(), STRANGER));
-    let child = row(STRANGER + 1, STRANGER, STRANGER);
-    let entries = table([orphan.clone(), child.clone()]);
-    let mut registry = registry([closed(GROUP, &[], &[])]);
-    registry.observe(&entries);
-    let live = &registry.attempts[&0];
-    assert_eq!(live.recorded, ids([&orphan, &child]));
-    assert_eq!(
-        live.running(&entries, recorded),
-        Err(Unsettled::Descendants {
-            pids: vec![STRANGER + 1]
-        })
-    );
-    assert_eq!(*SIGNALLED.lock().unwrap(), vec![STRANGER + 1]);
 }
 
 /// #403: a running leader is its own tree's subreaper, and an orphan of

@@ -107,32 +107,6 @@ fn a_stat_line_is_read_from_its_last_parenthesis() {
     assert_eq!(parse_stat(7, "7 (cut short) Z 1"), None);
 }
 
-/// #504: the kernel flags in `stat` say whether the thread is inside its
-/// exit (`PF_EXITING`). The first row is the one the engine read of a
-/// box's pid-namespace init at a park on a loaded host: waiting on the
-/// disk, its flags 0x40014c. Flags that do not parse fail the row.
-#[cfg(target_os = "linux")]
-#[test]
-fn a_stat_line_reads_the_exiting_flag() {
-    let init = "948271 (bwrap) D 948236 948271 948271 0 -1 4194636 138 37506 0 0 0 2 11 8 \
-                20 0 1 0 27315461 0 0";
-    let read = parse_stat(948_271, init).unwrap();
-    assert_eq!(
-        (read.zombie, read.exiting, read.runs()),
-        (false, true, false)
-    );
-    let running = init.replace(" 4194636 ", " 4194632 ");
-    let read = parse_stat(948_271, &running).unwrap();
-    assert_eq!(
-        (read.zombie, read.exiting, read.runs()),
-        (false, false, true)
-    );
-    assert_eq!(
-        parse_stat(948_271, &init.replace(" 4194636 ", " -4 ")),
-        None
-    );
-}
-
 /// A `/proc` of `rows`, each a pid directory holding `stat` as a file of
 /// the given text, or as a directory when the text is `None`.
 #[cfg(target_os = "linux")]
@@ -183,73 +157,6 @@ fn a_row_that_cannot_be_read_fails_the_snapshot() {
             std::io::Error::from_raw_os_error(libc::ENOENT)
         )
     );
-}
-
-/// The `stat` of process or thread `pid` in `state` with kernel `flags`.
-#[cfg(target_os = "linux")]
-fn stat(pid: i32, state: &str, flags: u32) -> String {
-    format!("{pid} (bwrap) {state} 1 {pid} {pid} 0 -1 {flags} 0 0 0 0 0 0 0 0 20 0 1 0 12345 0 0")
-}
-
-/// Plant the thread `tid` of `pid` under `proc`, its `stat` the given
-/// text, or absent when it is `None`: a thread gone since the listing.
-#[cfg(target_os = "linux")]
-fn thread(proc: &std::path::Path, pid: i32, tid: i32, stat: Option<&str>) {
-    let dir = proc
-        .join(pid.to_string())
-        .join("task")
-        .join(tid.to_string());
-    std::fs::create_dir_all(&dir).unwrap();
-    stat.into_iter()
-        .for_each(|stat| std::fs::write(dir.join("stat"), stat).unwrap());
-}
-
-/// #504: the flag in a process's `stat` is its leader thread's alone, and
-/// a leader can exit first and leave the others running. So a process
-/// reads exiting only when every thread its `task` lists is exiting or
-/// has ended, a thread or a task list gone since the listing included;
-/// a process whose leader is not exiting is not read thread by thread.
-/// A thread whose row cannot be read could still run: it fails the read.
-#[cfg(target_os = "linux")]
-#[test]
-fn a_process_reads_exiting_only_when_every_thread_does() {
-    let rows = [
-        ("7", Some(stat(7, "D", PF_EXITING))),
-        ("20", Some(stat(20, "R", PF_EXITING))),
-        ("30", Some(stat(30, "D", PF_EXITING))),
-        ("40", Some(stat(40, "S", 0))),
-    ];
-    let rows: Vec<(&str, Option<&str>)> = rows
-        .iter()
-        .map(|(pid, stat)| (*pid, stat.as_deref()))
-        .collect();
-    let proc = proc_of(&rows);
-    thread(proc.path(), 7, 7, Some(&stat(7, "D", PF_EXITING)));
-    thread(proc.path(), 7, 8, Some(&stat(8, "X", 0)));
-    thread(proc.path(), 7, 9, None);
-    thread(proc.path(), 20, 20, Some(&stat(20, "R", PF_EXITING)));
-    thread(proc.path(), 20, 21, Some(&stat(21, "S", 0)));
-    thread(proc.path(), 40, 41, Some("not a row"));
-    let read: Vec<(i32, bool)> = snapshot_in(proc.path())
-        .unwrap()
-        .into_iter()
-        .map(|entry| (entry.id.pid, entry.exiting))
-        .collect();
-    assert_eq!(
-        read.into_iter().collect::<std::collections::BTreeSet<_>>(),
-        [(7, true), (20, false), (30, true), (40, false)].into()
-    );
-
-    let refused = |proc: &std::path::Path| match snapshot_in(proc).unwrap_err() {
-        TableError::Row { pid, error } => (pid, error.raw_os_error()),
-        other => panic!("{other}"),
-    };
-    thread(proc.path(), 7, 10, None);
-    std::fs::create_dir(proc.path().join("7/task/10/stat")).unwrap();
-    assert_eq!(refused(proc.path()), (7, Some(libc::EISDIR)));
-    let unlisted = proc_of(&[("50", Some(&stat(50, "D", PF_EXITING)))]);
-    std::fs::write(unlisted.path().join("50/task"), "").unwrap();
-    assert_eq!(refused(unlisted.path()), (50, Some(libc::ENOTDIR)));
 }
 
 #[test]

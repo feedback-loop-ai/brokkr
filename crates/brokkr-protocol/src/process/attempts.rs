@@ -218,11 +218,8 @@ impl Registry {
 
     /// Record what `entries` shows of every live attempt's tree, attribute
     /// each orphan the engine adopted that none explains, once, as it
-    /// first appears, record again under what was attributed, note which
-    /// attempts ended, and reap the adopted zombies. The second record is
-    /// what reaches an attributed orphan's children at the read that first
-    /// shows it: one inside its exit keeps them until its exit ends, and
-    /// the attempt must not settle on that read while they run (#504).
+    /// first appears, note which attempts ended, and reap the adopted
+    /// zombies.
     fn observe(&mut self, entries: &[Entry]) {
         for live in self.attempts.values_mut() {
             live.record(entries);
@@ -234,9 +231,6 @@ impl Registry {
             .collect();
         for id in strays {
             self.attribute(id, entries);
-        }
-        for live in self.attempts.values_mut() {
-            live.record(entries);
         }
         let youngest = entries.iter().filter_map(|entry| entry.id.born()).max();
         for live in self.attempts.values_mut() {
@@ -312,9 +306,7 @@ impl Live {
     /// Record every descendant of the leader, and of what is already
     /// recorded, that `entries` shows running, and every member of the
     /// group while its leader is unreaped: an orphan that stayed in the
-    /// group is the attempt's, whoever adopted it. An exiting process is
-    /// recorded and followed: its children stay its own until its exit
-    /// ends.
+    /// group is the attempt's, whoever adopted it.
     fn record(&mut self, entries: &[Entry]) {
         let mut roots: BTreeSet<i32> = entries
             .iter()
@@ -386,17 +378,14 @@ impl Live {
 
     /// What of the attempt `entries` shows running, in the order it is
     /// reported: its group, its recorded descendants, the orphans it
-    /// doubts. A zombie and an exiting process run nothing (`Entry::runs`):
-    /// a box's pid-namespace init can take seconds to finish exiting on a
-    /// busy disk, and is not a survivor (#504). Every identity still
-    /// running is signalled again first, for what was attributed to it
-    /// since its kill.
+    /// doubts. Every identity still running is signalled again first,
+    /// for what was attributed to it since its kill.
     fn running(
         &self,
         entries: &[Entry],
         kill: fn(&Identity) -> std::io::Result<()>,
     ) -> Result<(), Unsettled> {
-        let running = || entries.iter().filter(|entry| entry.runs());
+        let running = || entries.iter().filter(|entry| !entry.zombie);
         let owned = |set: &BTreeSet<Identity>| -> Vec<&Identity> {
             running()
                 .filter(|entry| set.contains(&entry.id))
@@ -475,12 +464,9 @@ fn adopted(entries: &[Entry]) -> impl Iterator<Item = &Entry> {
         .filter(move |entry| entry.ppid == me && Some(entry.pgid) != mine)
 }
 
-/// The orphans the engine adopted, other than zombies, that no live
-/// attempt explains and that are not already the engine's own. A driver
-/// leads a group that is a live attempt's. An orphan inside its exit is a
-/// stray (#504): it runs nothing itself, but its children stay its own
-/// until its exit ends, and only its attribution leads an attempt to them
-/// (`Registry::observe`).
+/// The running orphans the engine adopted that no live attempt explains
+/// and that are not already the engine's own. A driver leads a group that
+/// is a live attempt's.
 fn strays<'a>(entries: &'a [Entry], registry: &'a Registry) -> impl Iterator<Item = &'a Entry> {
     adopted(entries)
         .filter(|entry| !entry.zombie)
