@@ -120,14 +120,19 @@ before you trust a comparison, not after.**
    differently and the mapping is never exact, so this is a judgement
    call you must make deliberately and record. Read this recipe's own
    arms as the worked example, and read them honestly: `fast`'s
-   implement seat declares `tools.allow` with seven names, which the
-   engine lowers to `--permission-mode acceptEdits` and an
-   `--allowedTools` list of seven `Bash` prefixes, so it may edit
-   freely but may run nothing outside that list. This recipe's seat
+   implement seat declares `tools.allow` with five names, which the
+   engine lowers to an `--allowedTools` list of five `Bash` prefixes
+   beside the adapter's `--permission-mode acceptEdits`, so it may edit
+   freely and runs those prefixes without asking. That list
+   pre-approves and removes no other tool: anything else the operator's
+   own Claude Code permission settings allow, and the operator's MCP
+   servers, reach the seat too. Only Claude Code's `WebSearch` and
+   `WebFetch` are denied by name, unless the realm grants them
+   ([security model](../../docs/security-model.md)). This recipe's seat
    declares `tools.sandbox: "workspace-write"`, which the engine lowers
    to `--sandbox workspace-write`: Codex restricts by sandbox class, not
    by command, so the challenger may write the workspace and run
-   commands outside `fast`'s seven prefixes, inside that sandbox. The
+   commands outside `fast`'s five prefixes, inside that sandbox. The
    two cages are **different**, not equal, and whether one is wider
    overall is not measured here. Until 2026-09-25 this seat ran
    `--sandbox danger-full-access`, deliberately broader, because the
@@ -217,6 +222,7 @@ tree-wide compile test covers it, and its digest is pinned like any
 other recipe's. An example nobody can run is a snippet, and snippets
 rot.
 
-The harness inherits `fast`'s boxed verifier and shipper by construction.
+The harness inherits `fast`'s verifier and shipper by construction, boxed
+only where the realm's boundary is `namespace`.
 Cargo verification runs offline from the bound registry cache; an
 uncached dependency fails closed and its decisive line is quoted.

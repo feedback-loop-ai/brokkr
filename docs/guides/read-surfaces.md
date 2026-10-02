@@ -582,11 +582,14 @@ run yet still yields a dossier: each absent journal is said out loud, and
 the crossings are carried anyway. A world with no journal to read and no
 crossing to carry is the one world with nothing to report on.
 
-Nothing it proposes is executed, and nothing here can execute it. Muninn
-issues no operator command, starts no run, is given no repository tree
-and no secrets, and writes to no run journal — proposals go to its own
-append-only file, `.forge/muninn.ndjson`, beside the journal and inside
-none of it. Every proposal names the run ids and sequence numbers it was
+Nothing it proposes is executed by the engine. Brokkr issues no operator
+command for Muninn, starts no run, gives the seat no repository tree (its
+working directory is a scratch directory) and no secrets, and writes to
+no run journal — proposals go to its own append-only file,
+`.forge/muninn.ndjson`, beside the journal and inside none of it. The
+seat itself runs unboxed under `acceptEdits` and is told to propose
+only; what it could run beyond that is decided by Claude Code's
+permission model and the operator's own settings, not by Brokkr. Every proposal names the run ids and sequence numbers it was
 derived from, and a proposal about a contract names the consuming realm
 and the crossing instead; a report that cites a fact the dossier does not
 carry is refused and recorded nowhere. The record snapshots the crossing

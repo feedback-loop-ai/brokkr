@@ -28,7 +28,10 @@ final review chief, which chains Sol at `high` and then Astra at `max`
 
 DSH is an untrusted work provider: it cannot judge gates. Its adapter does not
 support workspace hands or named tool filtering; the Flash agents therefore
-declare neither. GPT agents retain their existing workspace restrictions. Flash panel positions
+declare neither. Seven of the nine GPT agents declare workspace hands, which
+box their commands only under a `namespace` boundary; `gpt-flash-triage` and
+`gpt-flash-position-robustness` declare none, so Brokkr adds no box, sandbox
+fragment or tool flag to their command. Flash panel positions
 are work seats; the chief alone makes the final review decision after the panel.
 No Claude model is hired by this recipe.
 

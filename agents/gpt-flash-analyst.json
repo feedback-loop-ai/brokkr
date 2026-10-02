@@ -1,5 +1,5 @@
 {
-  "description": "Read-only SDD judge: finds drift across the artifacts and the realm constitution.",
+  "description": "SDD judge, read-only by charter: finds drift across the artifacts and the realm constitution.",
   "charter": "charters/analyst.md",
   "models": [
     "sol"

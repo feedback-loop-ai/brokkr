@@ -27,11 +27,16 @@ it what not to reinvent.
 
 | Seat | Class | Results | Runs |
 |---|---|---|---|
-| `classify` | `gate` | `docs`, `code` | `scripts/classify-seat.sh`, boxed, no model: every path the branch changes against the default branch is read against the repository's own docs class, `.github/delivery-classes.json` — the file the contribution gate cuts its tiers by (decision 0038 ruling 3). All prose → `docs`; anything else, or anything it cannot establish → `code`. |
-| `verify` | `gate` | `pass`, `fail` | `fast`'s boxed exec verifier, cheapest first: format, the non-Rust lints CI's `non-Rust lints` job runs (`scripts/lint-non-rust.sh`), clippy with `-D warnings`, the workspace suite, the `bundles/self` compile. A lint tool the box cannot reach is named in the notes, never skipped silently. `fail` returns to `implement` with the failing command and its decisive output. |
+| `classify` | `gate` | `docs`, `code` | `scripts/classify-seat.sh`, an exec script with no model: every path the branch changes against the default branch is read against the repository's own docs class, `.github/delivery-classes.json` — the file the contribution gate cuts its tiers by (decision 0038 ruling 3). All prose → `docs`; anything else, or anything it cannot establish → `code`. |
+| `verify` | `gate` | `pass`, `fail` | `fast`'s exec verifier, cheapest first: format, the non-Rust lints CI's `non-Rust lints` job runs (`scripts/lint-non-rust.sh`), clippy with `-D warnings`, the workspace suite, the `bundles/self` compile. A lint tool the seat cannot reach is named in the notes, never skipped silently. `fail` returns to `implement` with the failing command and its decisive output. |
 | `review` | `gate` | `clean`, `residual`, `security-hold` | `fast`'s adversarial read of the diff against the base: correctness, fit, security. A residual above low returns to `implement`; at or below low ships as named debt; `security-hold` stops. |
 | `implement` | `work` | `complete`, `broken`, `blocked`, `oversized` | Entered only on a return. `fast`'s implementer charter already says it: "answer the finding in `returned_from`; that finding is the work this visit owns." |
-| `ship` | `gate` | `ready`, `shipped` | `fast`'s boxed exec shipper: a clean tree, the head the engine gated on, the ledger, the anchor with the per-file patch map. |
+| `ship` | `gate` | `ready`, `shipped` | `fast`'s exec shipper: a clean tree, the head the engine gated on, the ledger, the anchor with the per-file patch map. |
+
+`classify`, `verify` and `ship` run in Brokkr's box with no network only
+where the realm's boundary is `namespace`. Under `harness`, which
+`brokkr init` writes on macOS, the three scripts run unboxed in a rebuilt
+environment, and no network denial is reported.
 
 The delivery rules are `fast`'s, rule for rule. This recipe adds the two
 `classify` arms in front of them and changes one word of the table,
@@ -54,7 +59,7 @@ its own and cannot be argued with.
 
 | | `preflight` | `landing` |
 |---|---|---|
-| Ends at | `review` — findings only, nothing changes, nothing merges | `ship` — a vouched head, or a stop with the reason |
+| Ends at | `review` — findings, with no phase that changes or merges the branch (an edit the review seat leaves uncommitted is not checked) | `ship` — a vouched head, or a stop with the reason |
 | On a finding | reports it | returns it to the smith, twice, then the ladder |
 | The gate reads it as | a `Brokkr-Preflight` beside a delivery run's docs delta | a `Brokkr-Run`: the run that judged and shipped the head |
 | Cost | two gates | a read, a build for code, a judge, and the smith only when there is something to fix |

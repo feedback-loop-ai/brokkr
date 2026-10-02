@@ -192,7 +192,7 @@ flowchart LR
   flat --> resolve{{"resolve"}}
   agents["agents/‹name›.json<br/>charter · model chain · limits · inputs · tools"] --> resolve
   adapters["adapters/‹provider›.json<br/>model ids · permissions · trust_tier · egress class per route"] --> resolve
-  resolve --> checks{"gate site → trusted tier?<br/>secret bindings → route class ≥ minimum?<br/>every restriction expressible?"}
+  resolve --> checks{"gate site → trusted tier?<br/>secret bindings → route class ≥ minimum?<br/>every declaration expressible?"}
   checks -- "no" --> refuse["compile refuses, naming agent · provider · capability"]
   checks -- "yes" --> manifest["run manifest<br/>digest pins recipe, chain and adapters<br/>resume uses exactly this or refuses"]
 ```
@@ -231,7 +231,7 @@ sequenceDiagram
   E->>D: hello
   D-->>E: capabilities
   E->>D: start — seat prompt, result path, deadline
-  D->>H: spawn, behind the realm's boundary
+  D->>H: spawn on the host
   D-->>E: accepted
   loop each turn
     H-->>D: session stream
@@ -248,17 +248,17 @@ NDJSON over stdio, stdout protocol-only, stderr captured as an artifact.
 The adapters for Claude Code, Codex, dsh and any
 prompt-in/result-file-out harness are built into the binary as
 `{brokkr} driver <kind>` (decision 0009), while the protocol stays
-language-neutral for third-party drivers. What stands around a seat is
-the realm's **boundary** (decision 0046): `namespace`, `seatbelt`,
-`container`, `harness` or `open`, pinned per site, rendered *unboxed*
-under `harness` or `open`. Decision 0008's `driver.confine` is refused
+language-neutral for third-party drivers. What stands around a seat's
+hands is the realm's **boundary** (decision 0046): `namespace`,
+`seatbelt`, `container`, `harness` or `open`, pinned per site, rendered
+*unboxed* under `harness` or `open`; hands-less seats get none. Decision 0008's `driver.confine` is refused
 (0046 ruling 5) until slice (iii) builds `container`.
 
-The implemented boundaries are `namespace` (Linux/WSL2 with bubblewrap),
-`harness` and `open`. `seatbelt` and `container` refuse at start until their
-implementation lands. Harness gates require a measured adapter fragment;
-therefore not every shipped recipe is available under `harness`. The manifest
-pins the selected boundary, and CLI, TUI and web readouts retain that fact.
+Built today: `namespace` (Linux/WSL2, bubblewrap), `harness` and `open`;
+`seatbelt` and `container` refuse at start. Harness gates need a measured
+adapter fragment, so not every shipped recipe runs under `harness`
+([status](docs/status.md)). The manifest pins the selected boundary, and
+CLI, TUI and web readouts retain that fact.
 
 ## Verification, in layers
 
@@ -267,7 +267,7 @@ pins the selected boundary, and CLI, TUI and web readouts retain that fact.
 | Differential corpus | A frozen 97-case corpus in [fixtures/](fixtures/) pins the evaluator: contract data, never regenerated. |
 | Machine proof | End-to-end scenarios drive the real binary and real subprocess protocol through success, retries, stops, parks, crash recovery at every durable boundary, panels, boxed hands and bundle pinning. |
 | Self-delivery | `bundles/self` lets the engine deliver changes to this repository; `shipped` is the sole entry into `done`, and the operator keeps push and merge. |
-| Brokkr verification | `bundles/verify` examines an already-delivered change with a verify seat and a strictly read-only review seat. It has hard-stopped its own author's work on a real security finding. |
+| Brokkr verification | `bundles/verify` examines a delivered change with a verify seat `namespace` boxes and an unboxed review seat under the operator's Claude Code permissions ([security model](docs/security-model.md)). It has hard-stopped its author's work on a real security finding. |
 
 ## The operating surface
 
@@ -294,7 +294,7 @@ prompt assembly. Configuration describes required work and evidence; it does
 not execute commands or add checks to a gate.
 
 `recipes/release` combines the manager and library reviewer with `fast`'s policy
-and boxed exec gates. The shipped verifier is Rust-specific; another stack
+and `namespace`-boxed exec gates. The shipped verifier is Rust-specific; another stack
 replaces it through recipe composition. External patches and base commits are
 reviewed in the handoff. Publication and cross-repository application are
 verified separately from local run completion.

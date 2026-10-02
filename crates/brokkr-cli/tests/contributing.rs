@@ -781,8 +781,11 @@ fn check_rows(guide: &str) -> Vec<CheckRow> {
 }
 
 /// The checks branch protection on main requires (operator rulings,
-/// 2026-09-26), as (context, job id, workflow). Branch protection lives
-/// outside the tree, so this list is its one home in the repository.
+/// 2026-09-26), as (context, job id, workflow), in the workflows' order.
+/// Branch protection lives outside the tree; its checked-in snapshot,
+/// `.github/branch-protection.json`, holds these contexts, and
+/// `contributing_lists_the_checks_branch_protection_requires` holds this
+/// list to it.
 const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
     ("delivered by brokkr", "delivered-by-brokkr", "ci.yml"),
     ("MSRV (1.88)", "msrv", "ci.yml"),
@@ -890,6 +893,120 @@ fn the_by_hand_checks_are_the_workflows_checks() {
     let contributing = std::fs::read_to_string(root.join("CONTRIBUTING.md")).unwrap();
     assert!(contributing.contains("preserves the twelve exact checks"));
     assert!(guide.contains("twelve required checks"));
+}
+
+/// `.github/branch-protection.json`: the checked-in snapshot of what
+/// branch protection on `main` requires. A test cannot call the GitHub
+/// API offline, so the settings are read from this file, and a key it
+/// does not know is refused.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Protection {
+    branch: String,
+    observed: String,
+    source: String,
+    required_status_checks: StatusChecks,
+    required_signatures: bool,
+    required_approving_review: bool,
+    enforce_admins: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StatusChecks {
+    strict: bool,
+    contexts: Vec<String>,
+}
+
+/// "requires {what}" or "does not require {what}".
+fn requires(yes: bool, what: &str) -> String {
+    match yes {
+        true => format!("requires {what}"),
+        false => format!("does not require {what}"),
+    }
+}
+
+/// CONTRIBUTING's required-check paragraph: the required contexts in the
+/// workflows' order, then each other setting the snapshot records.
+fn required_checks_paragraph(snapshot: &Protection, ordered: &[&str]) -> String {
+    let (last, rest) = ordered.split_last().expect("main requires a check");
+    let rest: Vec<String> = rest.iter().map(|check| format!("`{check}`")).collect();
+    format!(
+        "`{branch}`'s branch protection, as observed on {observed} \
+         ([snapshot](.github/branch-protection.json)), requires {count} checks: {rest}, and \
+         `{last}`. It {signatures}, {strict}, {review}, and {admins} administrators.\n",
+        branch = snapshot.branch,
+        observed = snapshot.observed,
+        count = ordered.len(),
+        rest = rest.join(", "),
+        signatures = requires(snapshot.required_signatures, "signed commits"),
+        strict = requires(
+            snapshot.required_status_checks.strict,
+            "a branch to be up to date with `main`"
+        ),
+        review = requires(snapshot.required_approving_review, "an approving review"),
+        admins = match snapshot.enforce_admins {
+            true => "applies to",
+            false => "does not apply to",
+        },
+    )
+}
+
+/// CONTRIBUTING's required-check list is generated from the workflows and
+/// the branch-protection snapshot (#366): every context the snapshot
+/// requires is a check a workflow defines, listed in the workflows'
+/// order, and `MAIN_REQUIRES` names the same contexts in that order.
+#[test]
+fn contributing_lists_the_checks_branch_protection_requires() {
+    let root = workspace();
+    let snapshot: Protection = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".github/branch-protection.json")).unwrap(),
+    )
+    .expect("the branch-protection snapshot parses");
+    assert!(
+        snapshot
+            .source
+            .starts_with("GET /repos/feedback-loop-ai/brokkr/branches/main/protection"),
+        "the snapshot names the API it transcribes"
+    );
+    let contexts = &snapshot.required_status_checks.contexts;
+    let legs: Vec<WorkflowLeg> = ["ci.yml", "mutants.yml"]
+        .into_iter()
+        .flat_map(|file| workflow_legs(&root, file))
+        .collect();
+    let mut ordered: Vec<&str> = legs
+        .iter()
+        .map(|leg| leg.check.as_str())
+        .filter(|check| contexts.iter().any(|context| context == check))
+        .collect();
+    ordered.dedup();
+    let mut defined = ordered.clone();
+    defined.sort_unstable();
+    let mut required: Vec<&str> = contexts.iter().map(String::as_str).collect();
+    required.sort_unstable();
+    assert_eq!(
+        defined, required,
+        "branch protection requires a check no workflow defines, or names one twice"
+    );
+    let listed: Vec<&str> = MAIN_REQUIRES.iter().map(|&(check, _, _)| check).collect();
+    assert_eq!(
+        listed, ordered,
+        "MAIN_REQUIRES drifted from the branch-protection snapshot"
+    );
+
+    let paragraph = required_checks_paragraph(&snapshot, &ordered);
+    let contributing = std::fs::read_to_string(root.join("CONTRIBUTING.md")).unwrap();
+    let written = contributing
+        .split_once("<!-- required-checks:start -->\n")
+        .expect("CONTRIBUTING opens its required-check list")
+        .1
+        .split_once("<!-- required-checks:end -->")
+        .expect("CONTRIBUTING closes its required-check list")
+        .0;
+    assert_eq!(
+        written, paragraph,
+        "CONTRIBUTING's required checks drifted; the rendering is:\n{paragraph}"
+    );
 }
 
 /// Every line of each job behind the twelve checks, in `MAIN_REQUIRES`'s

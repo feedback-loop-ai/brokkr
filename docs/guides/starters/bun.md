@@ -38,7 +38,7 @@ $ brokkr init my-bundle
 
 ```text
 initialized reviewable bundle at my-bundle (digest fcdb0fc2d428c0b73746ec923a9be398f9dc64d2455da8a6dd1177d6e5d89ce0)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
 ```
 
 ## `agents/charters/implementer.md`
@@ -92,9 +92,12 @@ The three lines that differ from [node.md](node.md), and why:
 
 ## `scripts/verify-seat.sh`
 
-The deterministic boxed verifier pins `bun run test` and
-`bun run typecheck`. It runs both with network denied, types `pass` only
-when both exit zero, and quotes decisive output on `fail`.
+The deterministic verifier pins `bun run test` and
+`bun run typecheck`. It runs both, types `pass` only when both exit
+zero, and quotes decisive output on `fail`. Brokkr boxes it, with no
+network, where the realm's boundary is `namespace`; under `harness`, on
+a codex scaffold or macOS, no box of Brokkr's stands and its note claims
+no denied network.
 
 - **`bun run typecheck` sits where the other node arms put `lint`.** The
   seat's slot is "the second proving command", and for a bun/TypeScript
@@ -116,13 +119,15 @@ plus `git`, `ls`, `rg` and `mkdir`:
 }
 ```
 
-The work agents carry all five names in `tools.allow`; the gate agents
-carry the same minus `mkdir`. Read that sentence twice, because bun is
-the arm where it matters most: the gate seats hold `Bash(bun:*)` —
-their test runner IS bun — and that same glob answers to `bun install`
-as readily as to `bun run test`. The grant cannot draw the boundary, so
-it is each gate's charter — "prove it, fix nothing", with no install
-line — and not the grant that keeps a verify seat from installing. The
+The work agents carry all five names in `tools.allow`; the review gate's
+agent carries the same minus `mkdir`, and the verify and ship scripts
+carry no grant. Read that sentence twice, because bun is the arm where
+it matters most: the review gate holds `Bash(bun:*)` — its test runner
+IS bun — and that same glob answers to `bun install` as readily as to
+`bun run test`. The grant cannot draw the boundary: what asks the review
+gate not to install is its charter — "prove it, fix nothing", with no
+install line — and the engine checks only that the gate left HEAD where
+it found it, which an install does not move. The
 boundary is not expressible finer than per binary: a gate that may not
 run `bun` at all could not run `bun run test` either, and an allowance
 whose name the adapter map lacks refuses the scaffold's own compile.

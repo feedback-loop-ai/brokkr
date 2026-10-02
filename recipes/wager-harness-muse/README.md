@@ -67,6 +67,7 @@ Run as the harness README says: `brokkr run --recipe fast` for the
 incumbent, `brokkr rerun --run <id> --recipe wager-harness-muse` for
 this arm, `brokkr compare` for the trails, then judge the artifacts.
 
-The harness inherits `fast`'s boxed verifier and shipper by construction.
+By construction this arm runs `fast`'s verifier and shipper, which
+Brokkr boxes only under a `namespace` boundary.
 Cargo verification runs offline from the bound registry cache; an
 uncached dependency fails closed and its decisive line is quoted.

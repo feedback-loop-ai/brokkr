@@ -28,7 +28,7 @@ $ brokkr init my-bundle
 
 ```text
 initialized reviewable bundle at my-bundle (digest 789009a981d943e0d5c767b4699b97ec3ece87cd8052f55aea536747575928ae)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
 ```
 
 Fixture:
@@ -66,9 +66,12 @@ report `complete` with failing tests or uncommitted changes.
 
 ### `scripts/verify-seat.sh`
 
-The deterministic boxed verifier pins `uv run pytest` and
-`uv run ruff check .`. It runs both with network denied, types `pass` only
-when both exit zero, and quotes decisive output on `fail`.
+The deterministic verifier pins `uv run pytest` and
+`uv run ruff check .`. It runs both, types `pass` only when both exit
+zero, and quotes decisive output on `fail`. Brokkr boxes it, with no
+network, where the realm's boundary is `namespace`; under `harness`, on
+a codex scaffold or macOS, no box of Brokkr's stands and its note claims
+no denied network.
 
 Annotated:
 
@@ -108,7 +111,7 @@ $ brokkr init my-bundle
 
 ```text
 initialized reviewable bundle at my-bundle (digest 1c8ec1e31338e23d35bfddef29d5874e48b01ae627bff9dbdde37305179e11ae)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
 ```
 
 `agents/charters/implementer.md` and `scripts/verify-seat.sh`, the

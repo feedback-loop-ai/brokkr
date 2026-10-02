@@ -39,11 +39,11 @@ regression.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | One writer: only the implementer mutates the tree, while the planner and the judge read a frozen snapshot | implemented | decision 0041: gates change nothing and the engine checks; the reviewed head is recorded and a moved head returns to review (`crates/brokkr-runtime/src/engine.rs`) |
+| 1 | One writer: only the implementer mutates the tree, while the planner and the judge read a frozen snapshot | alternative | decision 0041: a gate is chartered to change nothing, and the engine parks a gate that moves HEAD; the reviewed head is recorded and a moved head returns to review (`crates/brokkr-runtime/src/engine.rs`); no control freezes the judge's snapshot, because the default delivery's review gate runs unboxed under acceptEdits and an uncommitted write passes the HEAD check (`docs/security-model.md`) |
 | 2 | Carry an evidence state forward between iterations: what has been verified, not only what changed | alternative | decision 0028 and decision 0029: the journal is the evidence and every cited commit is kept, per run; nothing is carried into the next run's planning |
 | 3 | Validate each role's deliverable against a schema and retry on violation | alternative | decision 0001: a schema mismatch parks with the raw evidence and is never repaired or retried |
-| 4 | The developer tests baseline-before and retest-after, separately from independent quality assurance | implemented | `agents/charters/implementer.md` commits the work with its tests; decision 0043: the verifier is a boxed script, not the implementer's word |
-| 5 | Warm-start each iteration and re-plan every time; both ablate hard | alternative | decision 0030: a retry rejoins its own session with the sandbox class re-imposed; decision 0022: a finding returns to implement as declared input |
+| 4 | The developer tests baseline-before and retest-after, separately from independent quality assurance | implemented | `agents/charters/implementer.md` commits the work with its tests; decision 0043: the verifier is a pinned script, not the implementer's word, boxed under the namespace boundary and run unboxed in a rebuilt environment under harness |
+| 5 | Warm-start each iteration and re-plan every time; both ablate hard | alternative | decision 0030: a retry rejoins its own session with the harness's own sandbox class re-imposed; decision 0022: a finding returns to implement as declared input |
 | 6 | Compare configurations budget-matched (score per token at equal passes), by dominance, and by issue close and reopen counts | alternative | `crates/brokkr-cli/src/compare.rs` folds two journals to their first divergence with per-seat cost; outcome economics stay in the ledger (decision 0021) |
 
 ## Candidates

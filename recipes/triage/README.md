@@ -16,13 +16,16 @@ The design route is the SDD table: a chief specifies, a clarifier judges to
 zero ambiguity, the council designs, the smith writes the work breakdown, and
 an analyst judges to zero drift. Each artifact phase ends in the realm
 dialect's boxed validator. Each loop begins with the dialect's deterministic
-check, whose result is passed to its read-only judge. Failed validations retry
+check, whose result is passed to its judge, a gate chartered not to write
+whose only enforced check is that it left HEAD where it found it. Failed validations retry
 once; upstream findings and judged returns are bounded at three visits and
 then park for the operator.
 
 The realm must declare a dialect. Brokkr resolves and pins it, renders its
 phase instructions after the house rules, and supplies its validate/check argv
-to the boxed gates. OpenSpec and spec-kit are artifact conventions here; their
+to the boxed gates. Those gates compile only under `namespace` (decision 0042
+ruling 4), so a `harness` realm refuses this recipe and every box named here
+stands. OpenSpec and spec-kit are artifact conventions here; their
 own workflow runners never drive the Brokkr machine.
 The selected review sequences deliberately expose one trust boundary: the chief
 treats panel notes as data and never instructions. Every selected panel seats

@@ -85,8 +85,8 @@ gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 Put the binary somewhere on your `PATH`. The rest of this guide assumes
 plain `brokkr`.
 
-Every shipped bundle boxes its verify and ship gates, and what stands
-between a boxed seat's hands and your machine is the realm's
+Every shipped bundle declares hands on its verify and ship gates, and
+what stands between a seat's hands and your machine is the realm's
 **boundary** (decision
 [0046](../decisions/0046-the-boundary-is-named.md), accepted
 2026-09-05) — one word in `realms.json` beside `house` and `dialect`,
@@ -97,8 +97,11 @@ WSL2. That boundary is never simulated: a run under it refuses at start
 when bubblewrap is unavailable, naming the seats that need it. A realm
 on macOS declares `"boundary": "harness"` today, under
 `forge.realms/v4`, and then Brokkr builds no box at all: a model gate
-is judged under the harness's own sandbox as the adapter's
-`hands.harness` fragment addresses it, an exec gate runs the bundle's
+with hands is judged under the harness's own sandbox as the adapter's
+`hands.harness` fragment addresses it, a model seat without hands —
+every model seat of the claude scaffold `brokkr init` writes — is
+launched with nothing of Brokkr's or its harness's added around it, an
+exec gate runs the bundle's
 own pinned script with the environment cleared, and every readout —
 the run header, `brokkr seats`, the TUI, the web console and the
 delivery gate's check summary on the pull request — renders such a run
@@ -109,23 +112,25 @@ and (iii) build them. `brokkr doctor` prints one `boundaries` line
 saying which this machine offers.
 
 Which shipped bundles run under `harness` today is a fact of the tree,
-not a promise: the eleven whose hands sites are their own `./` exec gates
+not a promise: the twelve whose hands sites are their own `./` exec gates
 compile — `recipes/fast`, `recipes/landing`, `recipes/standby`, `recipes/node`, `recipes/preflight`,
-`recipes/research`, `recipes/research-dsh`, `recipes/wager-harness`,
+`recipes/review-first`, `recipes/research`, `recipes/research-dsh`, `recipes/wager-harness`,
 `recipes/wager-harness-dsh`, `recipes/wager-harness-muse` and
-`bundles/verify`. Five refuse, each naming the ground the compiler
+`bundles/verify`. Six refuse, each naming the ground the compiler
 reaches first: `bundles/self` and `recipes/panel-review` because their
 reviewer's chain reaches claude and `adapters/claude.json` declares no
 `hands.harness.gate` until the operator's measurement lands (see
 [provider adapters](provider-adapters.md)); `recipes/triage` and
-`recipes/night-shift` because their `analyze:check` dialect step is an
-exec gate whose argv is not the bundle's own script, refused under
-`harness` and `open` until a decision admits it — and, once it is,
-still on the claude ground until that measurement lands. The pin test
-in `crates/brokkr-runtime/src/bundle/model_policy_tests.rs` is the
-record of that split. The fifth refusal is `recipes/release`: its boxed
-`implement` office reaches claude without a measured `hands.harness.work`
-fragment before compilation reaches the review gate.
+`recipes/night-shift`, and `recipes/gpt-flash`, which extends `triage`,
+because their `analyze:check` dialect step is an exec gate whose argv is
+not the bundle's own script, refused under `harness` and `open` until a
+decision admits it — and, once
+it is, `triage` and `night-shift` still on the claude ground until that
+measurement lands; and `recipes/release`, whose `implement` office
+declares hands and reaches claude without a measured `hands.harness.work`
+fragment before compilation reaches the review gate. The pin test in
+`crates/brokkr-runtime/src/bundle/model_policy_tests.rs` is the record of
+that split.
 
 ```console
 $ brokkr --version
@@ -180,7 +185,8 @@ credentials a route takes from the ambient environment instead.
 
 A **recipe** is a delivery strategy as reviewable data: a phase table and a
 seat per phase. Model offices carry an agent definition with their charter,
-model chain and tool grant; deterministic offices carry a boxed exec script.
+model chain and tool grant; deterministic offices carry an exec script,
+which Brokkr boxes under the `namespace` boundary and nowhere else.
 `brokkr init` writes one you are meant to open and edit.
 
 ```
@@ -189,7 +195,7 @@ $ brokkr init .
 
 ```text
 initialized reviewable bundle at . (digest 4a0f568f35fd6efec2fc66574651c3d786fbfcf54fcdc2bb34a247f0fcf426c9)
-run brokkr from inside . — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
+run brokkr from inside . — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
 ```
 
 `init` takes the directory as a **positional argument**, not a flag. It
@@ -203,11 +209,11 @@ what you were handed is a thing that runs.
 What it wrote:
 
 ```
-./bundle.json          # five seats: three model offices and two boxed exec gates
+./bundle.json          # five seats: three model offices and two exec gates, boxed under namespace only
 ./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
 ./realms.json          # the realm map: this repository, its journal, and the boundary where one is declared
 ./adapters/claude.json # the trust tier your gates judge on, and the tool map — yours to edit
-./adapters/exec.json   # the deterministic boxed driver
+./adapters/exec.json   # the deterministic exec driver
 ./agents/README.md     # what was written, and which tools the seats were granted — your own README is untouched
 ./agents/intake.json   # model offices: charter, model chain, tool grant, limits
 ./agents/implementer.json
@@ -215,7 +221,7 @@ What it wrote:
 ./agents/charters/intake.md
 ./agents/charters/implementer.md
 ./agents/charters/reviewer.md
-./scripts/verify-seat.sh # detected test and lint commands, boxed without network
+./scripts/verify-seat.sh # detected test and lint commands; under namespace, boxed with no network
 ./scripts/ship-seat.sh   # deterministic ledger and closeout
 ./dialects/              # only in a spec-kit or OpenSpec repository: the detected dialect's pinned data
 ./.forge/.gitignore      # ignores the run's own journal, results and ledger; one already there is kept
@@ -224,13 +230,23 @@ What it wrote:
 `init` scaffolds for the first agent CLI on `PATH`: `claude`, `codex`
 or `dsh`, and `claude` when none is found. A codex scaffold writes
 `adapters/codex.json` in place of `adapters/claude.json`, hires every
-seat from codex, and declares the `harness` boundary in `realms.json`,
-so codex's own sandbox holds each seat's hands. dsh cannot hold the
+model seat from codex, and declares the `harness` boundary in
+`realms.json`, so codex's own sandbox holds each model seat's hands —
+read-only for the review gate, workspace-write for intake and
+implement. dsh cannot hold the
 review gate, because its adapter is untrusted and names no judges. A dsh
 scaffold therefore hires intake and implement from dsh and keeps the
 reviewer on claude, and says so. On macOS `realms.json` declares
 `harness` whatever the CLI, because the default `namespace` boundary
-needs Linux bubblewrap 0.10 or newer. Commit the scaffold before the
+needs Linux bubblewrap 0.10 or newer. Under `harness`, verify and ship
+run their pinned scripts under no box of Brokkr's: the engine rebuilds
+their environment, and no network denial is confirmed. The scaffold's
+`agents/README.md` and the note a passing verify journals follow the
+boundary `init` declared: a `namespace` scaffold's note says the
+network was denied, and a `harness` scaffold's says "passed unboxed,
+with no network denial confirmed"
+([security model](../security-model.md)).
+Commit the scaffold before the
 first run: the ship gate closes out only on a clean tree, and the
 `.forge/.gitignore` keeps the run's own output out of it.
 
@@ -239,19 +255,25 @@ The table has five working phases — `intake`, `implement`, `verify`,
 the protected phase: compilation rejects any table with a path to a
 non-`stop` terminal that skips it. Each seat declares its class — work
 or gate (decision 0021 ruling 1) — and its result vocabulary. Intake,
-implement and review name agents; verify and ship name boxed exec scripts.
+implement and review name agents; verify and ship name exec scripts.
 Limits remain on every seat, while the model chain and tool grant belong
 only to agent-backed seats. `brokkr agents show <name>` reads an agent back.
 
 **The seats are granted the tools their charters name.** The same
-detection below decides what the seats may *run*: the binary each
-command invokes (`cargo`, `bun`, `pnpm`, …) plus `git`, `ls`, `rg` and
-`mkdir` go into the adapter's `tool_permissions.names` as
+detection below decides what the seats are pre-approved to *run*: the
+binary each command invokes (`cargo`, `bun`, `pnpm`, …) plus `git`,
+`ls`, `rg` and `mkdir` go into the adapter's `tool_permissions.names` as
 `Bash(<bin>:*)` entries, and each model agent's `tools.allow` names them —
-the whole set for the work seats and the read-only subset for review. The
+the whole set for the work seats and the same set without `mkdir` for
+review. That smaller set does not make the review gate read-only: it runs
+unboxed under `acceptEdits`, and the engine checks only that it left HEAD
+where it found it. The
 verify and ship gates are scripts with no model grant. A
 repository `init` does not recognize gets an EMPTY map and a README
-that says so, rather than a guessed permission.
+that says so, rather than a guessed permission. The grant is claude's
+`--allowedTools`, which pre-approves and removes no other tool: an
+unboxed seat also runs under the operator's own Claude Code permission
+settings and MCP servers ([security model](../security-model.md)).
 
 **`init` looks before it scaffolds.** The repository you ran it from is
 read for the manifests and lockfiles at its root, and the implementer
@@ -479,8 +501,10 @@ adopt a repository you did not write:
   run its install scripts by the time anyone reviews its provenance —
   which is why the reviewer charter names lockfile provenance and
   install scripts as a review dimension — and a run wants the network
-  the same way your CI does. Run it against a dependency tree you would
-  install by hand.
+  the same way your CI does. The unboxed implement seat has it; a verify
+  seat has it too unless the `namespace` box denies it to hands that grant
+  none, and then its install reads a bound package cache. Run it against
+  a dependency tree you would install by hand.
 
 The long form, with the five files a Node repository needs and the three
 edits that actually come up, is
@@ -769,8 +793,8 @@ stopped, without parsing anything.
 
 `brokkr init` writes a starter recipe you are meant to read: a seven-phase
 policy table (five working phases plus `done` and `stop`) with the review
-gate constitutionally protected, three model offices, and boxed exec verify
-and ship gates. The agent files in the scaffold's own `agents/` carry each
+gate constitutionally protected, three model offices, and exec verify and
+ship gates, boxed only under the `namespace` boundary. The agent files in the scaffold's own `agents/` carry each
 model office's charter, model chain and tool grant; all seat limits remain
 in `bundle.json`. It compiles the bundle before printing
 the digest, so the thing you were handed is a thing that runs. It also
@@ -784,12 +808,15 @@ where a manifest is ambiguous (`bun.lock` out-votes the npm fallback,
 `nx.json`) out-votes any single package's script and is run through
 whichever package manager the root's lockfile names, and a Cargo
 workspace or a `go.work` gets a charter that says so rather than a
-command it did not need. The same stack decides what the seats may RUN:
+command it did not need. The same stack decides what the seats are
+pre-approved to RUN, not what else the operator's own Claude Code
+settings allow them:
 the binaries its commands invoke are written into the scaffold's
 `adapters/claude.json` `tool_permissions.names` as `Bash(<bin>:*)`
 entries and granted in the agents' `tools.allow` — the whole set to the
-work seats, the read-only subset (the test runner's tools plus `git`,
-`ls` and `rg`) to the gates, never `mkdir`. A repository no row
+work seats, and the same set without `mkdir` (the test runner's tools
+plus `git`, `ls` and `rg`) to the review gate's agent, which that smaller
+set does not make read-only; verify and ship are scripts with no grant. A repository no row
 recognizes gets an EMPTY map and a scaffold README that says so, because
 a tool name is a permission and one guessed is one granted. The digest
 is therefore a function of what was scaffolded and differs from

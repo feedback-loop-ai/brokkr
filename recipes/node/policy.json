@@ -155,7 +155,7 @@
       "from": "review",
       "result": "clean",
       "next": "ship",
-      "reason": "Review clean and no code changed; verification evidence stands."
+      "reason": "Review clean; a gate that moves HEAD parks and ship stops on a dirty tree, so verification evidence stands."
     },
     {
       "id": "SHIP-DRIFT",

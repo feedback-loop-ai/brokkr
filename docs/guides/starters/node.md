@@ -30,7 +30,7 @@ $ brokkr init my-bundle
 
 ```text
 initialized reviewable bundle at my-bundle (digest 73c4d35763c6684dbf95b299968ba59739af86124c5dc764899565263f2e875d)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
 ```
 
 ## What it wrote
@@ -87,15 +87,18 @@ report `complete` with failing tests or uncommitted changes.
 
 ## `scripts/verify-seat.sh`
 
-The deterministic boxed verifier contains these detected command pins:
+The deterministic verifier contains these detected command pins:
 
 ```bash
 test_command='npm test'
 lint_command='npm run lint'
 ```
 
-It runs both from the repository root with network denied, writes `pass`
-only when both exit zero, and writes `fail` with decisive output otherwise.
+It runs both from the repository root, writes `pass` only when both exit
+zero, and writes `fail` with decisive output otherwise. Where the
+realm's boundary is `namespace`, Brokkr boxes it with no network. Under
+`harness` — a codex scaffold, or macOS — it runs under no box of
+Brokkr's, and its note claims no denied network.
 
 - **`npm run lint`** — a guess with a name on it. If your
   `package.json` has no `lint` script this command fails loudly at the
@@ -119,8 +122,8 @@ every seat needs:
 ```
 
 The work agents (`intake`, `implement`) carry all five names in
-`tools.allow`; the gate agents (`verify`, `review`, `ship`) carry the
-same minus `mkdir`. The grant is per binary, not per subcommand:
+`tools.allow`; the review gate's agent carries the same minus `mkdir`.
+The grant is per binary, not per subcommand:
 `Bash(npm:*)` answers to `npm run build` as readily as to `npm test`,
 and what keeps a gate from building is its charter, not the glob.
 
@@ -137,7 +140,7 @@ $ brokkr init my-bundle
 
 ```text
 initialized reviewable bundle at my-bundle (digest 1359509b294a10b7d46885bd112459f90198b39d882db8d7b363c3b6e392c07c)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
 ```
 
 `agents/charters/implementer.md`:

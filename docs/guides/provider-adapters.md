@@ -296,8 +296,13 @@ BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests
 ## Hands
 
 `hands` (decision 0043) is the adapter's answer to a site that boxes its
-hands: the argv fragment that disables the harness's own tools and reaches
-`brokkr hands serve` over MCP. Two tokens are expanded by the engine at
+hands: the argv fragment that hands the harness the `workspace` tool,
+served by `brokkr hands serve` over MCP. What else the model keeps is
+the harness's: claude's fragment removes Claude Code's own tools
+(`--tools ""`) and the engine adds back only the tool of a native power
+the realm grants the seat, while codex's sets Codex's native shell
+`--sandbox read-only` beside it, because Codex has no switch that
+removes that shell ([security model](../security-model.md)). Two tokens are expanded by the engine at
 spawn — `{hands_mcp_json}`, a Claude-style MCP config naming this binary,
 and `{hands_args_toml}`, the server's arguments as a TOML array for
 `codex -c`. The codex fragment also sets
@@ -309,7 +314,7 @@ without that key every workspace call — reads and the result write alike
 is never". The first two astra-judged gates died on exactly that
 (2026-09-05), and `auto` does not lift it; `approve` does, measured
 against `brokkr hands serve`. `{"unsupported": "<measured reason>"}` declares that the
-harness cannot swap its tool surface, and a site with hands then refuses
+harness cannot be handed that tool, and a site with hands then refuses
 to compile against it, exactly as an unexpressible tool list does.
 
 The `workspace` fragment is what a site with hands runs under the
@@ -385,7 +390,7 @@ Three members, nothing else admitted:
 
 | Member | Meaning |
 |---|---|
-| `gate` | The argv fragment that puts a gate-class seat in the harness's read-only class. A model gate is admitted under `harness` only when **every** link of its resolved chain declares one (decision 0046 ruling 4); under `open` a model gate is refused outright. |
+| `gate` | The argv fragment that puts a gate-class seat with hands in the harness's read-only class. A model gate with hands is admitted under `harness` only when **every** link of its resolved chain declares one (decision 0046 ruling 4), and under `open` it is refused. A model gate without hands is not refused by this check under either word, and runs unboxed with no fragment added, with one exception under every boundary: an inline gate whose command dispatches the codex driver and that declares `tools.sandbox` `read-only` gets this fragment, while it stays unboxed (`lower_inline_sandbox`, `bundle.rs`). |
 | `work` | The fragment for a work-class seat with hands — the class that writes. A work seat under `harness` needs it on every link too; under `open` the same seat runs at the harness's own default, and whether that default writes is the harness's fact. |
 | `result` | How the gate's verdict reaches the engine: `file` (default — the seat writes the result file itself) or `last-message` (the harness's own capture writes its final message to the result path). |
 
@@ -417,7 +422,8 @@ either way, because a failed door is a missing result, loud.
 **claude** declares **no** `hands.harness` member yet. The measurement
 is the operator's, against the installed 2.1.x line (the transcript
 above records 2.1.251), because the implementing seat's tool grant is
-`cargo` and `git` and `claude` is not a command it may run. Until it is
+`cargo` and `git` and `claude` is not a command it is pre-approved to
+run. Until it is
 recorded every shipped bundle whose hands agent's chain reaches claude
 — most hands agents chain `opus`, and the engine smith falls back to
 `fable` — refuses under `harness` naming
@@ -428,13 +434,15 @@ going in: claude's `--permission-mode` choices are `acceptEdits`,
 `auto`, `bypassPermissions`, `manual`, `dontAsk` and `plan` — there is
 no `read-only` value. Candidates for `gate`: `--permission-mode
 dontAsk` with `--allowedTools` naming the read tools and one edit rule
-scoped to `{result_path}` (`result` `file`); `--permission-mode plan`
+scoped to `{result_path}` (`result` `file`), where what runs is that
+list plus the operator's own allow rules, so it is measured with those
+settings in place; `--permission-mode plan`
 if it can still write the result file; and the `--restricted` /
 `--permission-prompts none` pair reported on 2.1.263, unconfirmed.
 Candidates for `work`: `--permission-mode acceptEdits` with the shell
 allowed, or the harness's own sandbox settings with the shell
 auto-allowed when sandboxed — a bare `acceptEdits` prompts for every
-shell call, and a non-interactive seat answers a prompt with a denial,
+shell call the operator's own settings do not already allow, and a non-interactive seat answers a prompt with a denial,
 which is why the empty fragment is an answer only if the measurement
 shows the driver's own mode grants the shell. The recipe: under each
 candidate, run one gate seat whose prompt asks it to read a file
@@ -463,11 +471,15 @@ sandbox class, not by tool name — cannot be told an agent's
 hands is therefore refused on it, in the resolver's own words: the
 restriction "cannot be expressed and the agent would run with MORE power
 than it declares". That refusal is unchanged, and no fallback link
-rescues the chain, because every mapped link is judged.
+rescues the chain, because every mapped link is judged. On claude the
+same list rides as `--allowedTools`, which pre-approves and removes no
+tool: the refusal keeps the record honest, and does not make the list
+bound a claude seat.
 
 Such a provider serves a work seat only through **declared hands**
 (decision [0043](../decisions/0043-the-hands-are-one-tool.md) ruling 2:
-the box replaces the tool list). Under the `namespace` boundary the seat
+under `namespace` the box stands where the tool list stood, and under
+`harness` and `open` Brokkr builds no box). Under the `namespace` boundary the seat
 compiles when the agent declares `hands` and the provider declares
 `hands.workspace`; a provider whose `hands` is absent or unsupported
 refuses it, and a declared `hands.harness.work` does not stand in. The
@@ -476,8 +488,9 @@ operator rulings of 2026-09-20 and 2026-09-21): it hires `sol` at
 `medium` then `fable` at `high` — the seat `astra` held at `high` until
 the roster ruling of 2026-09-30 (decision
 [0045](../decisions/0045-astra-is-a-judge.md)'s addendum) moved it to Sol
-6.1 one step down Sol's shifted scale — with no network, `~/.cargo` as an overlay with
-`credentials.toml` and `credentials` masked, and `~/.rustup` read-only.
+6.1 one step down Sol's shifted scale — declaring no network, `~/.cargo` as an overlay with
+`credentials.toml` and `credentials` masked, and `~/.rustup` read-only,
+which the `namespace` box enforces and no other boundary does.
 It carries no `tools` member, because hands would leave one dead on
 claude as well as on codex.
 
@@ -492,7 +505,10 @@ value is `mcp__brokkr__workspace` — the grant of the hands tool itself,
 never a list of commands.
 
 What that confinement **is**: the box decision 0043 already builds — an
-empty root, the run's workdir mounted writable, the declared binds in
+empty root, the run's workdir mounted writable, the repository's common
+git directory bound read-write (so a boxed command can move shared refs,
+corrupt objects and, where `extensions.worktreeConfig` is on, plant a
+hook through a worktree's `config.worktree`), the declared binds in
 their declared modes, and the declared network (here, none). What it is
 **not**: a command allow-list. Inside the box the hands tool runs the
 shell command it is given, so `cargo` and `git` are reachable because
@@ -512,10 +528,16 @@ hands compiles there; the shipped smith does not, refused at link 2
 because claude declares no `hands.harness.work`. The two paths are never
 combined in one launch.
 
-All of this is compile and composition evidence. A boxed seat has no
-network, so no seat can run a live codex smith; the first one — cargo
-and git through the box on codex, a real commit, verify passing — is the
-controller's measurement after the change lands, and is pending.
+All of this is compile and composition evidence. The box takes the
+network away from the commands it runs, when the hands grant none, and
+from nothing else: the harness and its provider's traffic stay outside
+it, and so does Codex's server-side web search. What switches that
+search off, in every seat the realm does not grant it, is the OFF the
+codex adapter declares, composed into the command (see
+[native capabilities](#native-capabilities) and the
+[security model](../security-model.md)). The first live codex smith —
+cargo and git through the box on codex, a real commit, verify passing —
+is the controller's measurement after the change lands, and is pending.
 
 ## Native capabilities
 
@@ -827,7 +849,8 @@ Three limits this guide will not hide:
   on disk. Whether a live model obeys is judgment's to check.
 
 A dsh **work** seat under `harness` is confined by dsh's own sandbox,
-which writes only under the session workspace. A linked `git worktree`
+whose writes reach the session workspace and, for a linked worktree, the
+two mounts the runner adds below. A linked `git worktree`
 keeps its metadata under the shared repository's `.git`, outside that
 workspace, so `git add`/`git commit` would fail on `index.lock` (the
 defect the essay records). `brokkr driver dsh` resolves the worktree's
@@ -835,6 +858,11 @@ defect the essay records). `brokkr driver dsh` resolves the worktree's
 and, when the seat's mode is `workspace-write` and the common dir lies
 outside the workspace, points dsh's supported sandbox `runnerCommand` at
 `brokkr dsh-sandbox-runner` with those paths as trusted argv.
+
+**Not working today.** What follows is what was built and tested, not a
+working path: commits from a dsh seat still fail, which
+[#282](https://github.com/feedback-loop-ai/brokkr/issues/282) tracks.
+The [status page](../status.md) lists it with the other dsh limits.
 
 **The shared repository is never writable.** The runner adds exactly two
 read-write mounts: the worktree's own administrative directory

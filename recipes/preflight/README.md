@@ -6,12 +6,14 @@ ruling, so there is no phase that changes your branch and no phase that
 merges it: findings are the only thing a preflight run produces.
 
 That is a property of the table, not of a sandbox. Both seats run on
-your machine with your credentials and are charged to touch nothing; the
-table's part is that a seat which reports having applied fixes hard-stops
-the run (`REVIEW-CLEAN-FIXED`, `REVIEW-RESIDUAL-FIXED`) instead of being
-believed. If you want the assurance rather than the promise, the check is
-one line: `git status --short` and `git log --oneline main..HEAD` should
-read the same after the run as before it.
+your machine with your credentials, and their charters tell them to
+touch nothing. The review seat is unboxed claude under
+`--permission-mode acceptEdits`, so nothing stops it editing a file. The
+engine checks one thing itself: a gate that moves `HEAD` parks the run
+(`GATE-MOVED-HEAD`), and an edit left uncommitted passes that check. If
+you want the assurance rather than the promise, the check is one line:
+`git status --short` and `git log --oneline main..HEAD` should read the
+same after the run as before it.
 
 ```
 brokkr run --recipe preflight --repo . --feature "<what the branch does, and its base if not main>"
@@ -26,7 +28,7 @@ faces, from the same two seats, before a human has read a line.
 | Seat | Class | Results | Runs |
 |---|---|---|---|
 | `verify` | `gate` | `pass`, `fail` | Nine commands, locally, in the forms `roles/verify-seat.sh` writes: format, clippy, the workspace suite, the MSRV check, both bundle compiles, the exact-coverage script, the licence check, the release build. Some are weaker than CI's; see [what a preflight cannot give you](#what-a-preflight-cannot-give-you). |
-| `review` | `gate` | `clean`, `residual`, `security-hold` | Adversarial read of `git diff main...HEAD` across correctness, fit and security. Read-only. |
+| `review` | `gate` | `clean`, `residual`, `security-hold` | Adversarial read of `git diff main...HEAD` across correctness, fit and security. Charged not to edit; unboxed under `acceptEdits`. |
 
 `verify` gets 5400 seconds because it runs the coverage gate, which
 rebuilds the workspace instrumented; `review` gets 3600, as elsewhere.
@@ -54,8 +56,8 @@ way.
 ## Why both seats declare `class: "gate"`
 
 Decision 0021: a judging seat stands on a compile-time gate check. Both
-seats here declare `"class": "gate"`: verify uses boxed `exec`, while
-review names the trusted model driver.
+seats here declare `"class": "gate"`: verify is the bundle's own pinned
+`exec` script with hands, while review names the trusted model driver.
 
 ## What a preflight cannot give you
 
@@ -93,9 +95,11 @@ rule names `intake`, `implement` or `ship`; and that every rule from
 See [CONTRIBUTING.md](../../CONTRIBUTING.md) for where this sits in the
 walk from clone to pull request.
 
-The verifier is a boxed exec script beside these roles. Cargo runs
-offline from the bound registry cache; an uncached dependency cannot
-reach the network, so the gate fails closed and quotes Cargo's decisive
-offline/cache line in its notes. The bundle root is mounted read-only in
-the box, so this script travels with the recipe when `--repo` points at
-a foreign repository; the target repository needs no copied gate script.
+The verifier is an exec script beside these roles, and it sets
+`CARGO_NET_OFFLINE`: Cargo reads only the bound registry cache, so an
+uncached dependency fails the gate closed and its notes quote Cargo's
+decisive offline/cache line. Only under a `namespace` boundary does
+Brokkr box it with no network, the bundle root mounted read-only in the
+box, so this script travels with the recipe when `--repo` points at a
+foreign repository; the target repository needs no copied gate script.
+A `harness` realm runs it unboxed, and reports no network denial.

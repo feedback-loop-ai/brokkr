@@ -24,13 +24,13 @@ $ brokkr init my-bundle
 
 ```text
 initialized reviewable bundle at my-bundle (digest feac6d904f012e999c22f74277663b1315a57253c43fcf8acdd02f723e60d60b)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
 ```
 
 ## What it wrote
 
-The same scaffold shape as every stack: three model offices and two boxed
-exec gates, with model and exec adapters, verify/ship scripts and
+The same scaffold shape as every stack: three model offices and two exec
+gates that Brokkr boxes under `namespace` only, with model and exec adapters, verify/ship scripts and
 `realms.json`. The
 invariant `bundle.json` is in
 [rust.md](rust.md#what-it-wrote); so are the fixed parts of the agent
@@ -79,15 +79,18 @@ report `complete` with failing tests or uncommitted changes.
 
 ## `scripts/verify-seat.sh`
 
-The deterministic boxed verifier contains these detected command pins:
+The deterministic verifier contains these detected command pins:
 
 ```bash
 test_command='go test ./...'
 lint_command='go vet ./...'
 ```
 
-It runs both from the repository root with network denied, types `pass`
-only when both exit zero, and quotes decisive output on `fail`.
+It runs both from the repository root, types `pass` only when both exit
+zero, and quotes decisive output on `fail`. Where the realm's boundary
+is `namespace`, Brokkr boxes it with no network. Under `harness` — a
+codex scaffold, or macOS — it runs under no box of Brokkr's, and its
+note claims no denied network.
 
 - **`go vet ./...`** is the arm's `lint`, and it is the honest default
   because it ships with the toolchain: `golangci-lint` would be a better
@@ -111,8 +114,8 @@ every seat needs:
 ```
 
 The work agents (`intake`, `implement`) carry all five names in
-`tools.allow`; the gate agents (`verify`, `review`, `ship`) carry the
-same minus `mkdir`. The grant is per binary, not per subcommand:
+`tools.allow`; the review gate's agent carries the same minus `mkdir`.
+The grant is per binary, not per subcommand:
 `Bash(go:*)` answers to `go build` as readily as to `go test`, and what
 keeps a gate from building is its charter, not the glob.
 

@@ -2,7 +2,7 @@
 
 Two seats: `research` → `verify` → `done`/`stop`. No implement, no
 review of code, no ship. The work seat is the library's `researcher`
-office; the gate is a boxed script. What a run produces is a branch of
+office; the gate is a pinned exec script. What a run produces is a branch of
 proposed entries under `docs/research/`, each finding classified from
 the registry's closed vocabulary with a citation that the gate proves
 resolves. The classifications are proposals: the operator reads them,
@@ -25,10 +25,16 @@ in one run, and the gate refuses an eleventh entry.
   class `work`): reads the registry README and index and the decision
   index first, then the articles, then writes one entry per article and
   one index row each, and commits them on the branch the commission
-  names. It is the only office in the library that holds the `webfetch` and
-  `websearch` grants; the charter is the configurable prompt, and editing it
-  moves this recipe's witness digest.
-- **verify** (`roles/verify-seat.sh`, boxed, no network): the tree is
+  names. It asks for `web-fetch` and `web-search` as `wants`
+  (`capabilities`), and holds neither unless the realm grants it through
+  a tool dialect in `realms.json` (decision 0065); otherwise the run
+  proceeds without them, with a notice in the run manifest and in the
+  seat's prompt. This repository's own `realms.json` grants nothing. The
+  charter is the configurable prompt, and editing it moves this recipe's
+  witness digest.
+- **verify** (`roles/verify-seat.sh`, in Brokkr's box with no network
+  where the realm's boundary is `namespace`; under `harness` it runs
+  unboxed and no network denial is reported): the tree is
   clean, nothing outside `docs/research/` changed, at most ten entries
   were added, and `cargo test --test research_registry` passes: the
   index equals the entries, every class is in the vocabulary, every
@@ -48,8 +54,9 @@ the operator's skill runs this one.
 
 ## What a run does not do
 
-It opens no issue and no pull request, and it never writes
-`Status: ruled`. The operator's `research-intake` skill wraps the run:
+Its charter opens no issue and no pull request and writes no
+`Status: ruled`. The seat runs unboxed with a tool list that removes no
+tool, so that is its charter and your own settings, not a control. The operator's `research-intake` skill wraps the run:
 it opens the Research-typed issue that carries the run id and the
 proposals, and, once the operator has ruled the rows, delivers the
 branch under decisions 0033 and 0038.

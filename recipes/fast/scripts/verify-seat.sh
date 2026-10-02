@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Deterministic verifier seat. The box denies network; Cargo is also told
-# explicitly to stay offline so a cache miss is reported as such. It runs
+# Deterministic verifier seat. Under a `namespace` boundary the box denies
+# network; under `harness` it runs unboxed and no denial is reported. Cargo
+# is told explicitly to stay offline so a cache miss is reported as such. It runs
 # from the repository root, where scripts/lint-non-rust.sh lives.
 set -u
 
@@ -53,9 +54,10 @@ failure_notes() {
 }
 
 export CARGO_NET_OFFLINE=true
-# Cheapest first, every required check that works offline and in the box
+# Cheapest first, every required check that works offline, boxed or not
 # (#427). The non-Rust lints are the list ci.yml's lint-non-rust job runs;
-# a tool the box cannot reach is named in the notes, never skipped silently.
+# a tool not on this seat's PATH, or not at the version CI pins, is named
+# in the notes, never skipped silently.
 if ! cargo fmt --all -- --check > "$output" 2>&1 </dev/null; then
     failure_notes "cargo fmt --all -- --check"
 fi

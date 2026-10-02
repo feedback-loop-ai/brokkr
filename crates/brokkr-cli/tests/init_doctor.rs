@@ -43,9 +43,15 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(stderr.contains("digest"), "stderr: {stderr}");
-    // The scaffold says where to stand, once, on stderr.
+    // The scaffold says where to stand, once, on stderr, and says what
+    // decides an unboxed seat rather than that its tool list does.
     assert!(
-        stderr.contains("run brokkr from inside"),
+        stderr.contains(&format!(
+            "run brokkr from inside {} — its adapters/ and agents/ declare the trust tier \
+             and the tools its seats are pre-approved for; an unboxed seat is still decided \
+             by the harness's permission model and your own settings and MCP servers\n",
+            bundle.display()
+        )),
         "stderr: {stderr}"
     );
 
@@ -167,6 +173,23 @@ fn a_codex_only_host_gets_a_codex_scaffold_that_compiles() {
         readme.contains("## Tool grants\n\nNone. No seat is hired from claude"),
         "{readme}"
     );
+}
+
+/// A codex scaffold declares `harness`, where verify runs under no box of
+/// Brokkr's: the note its script journals on a pass says so, and claims
+/// no denied network (#366).
+#[test]
+fn a_harness_scaffolds_verify_note_claims_no_denied_network() {
+    let (_dir, bundle, _) = init_with_only(&["codex"]);
+    let script = std::fs::read_to_string(bundle.join("scripts/verify-seat.sh")).unwrap();
+    let notes: Vec<&str> = script
+        .lines()
+        .filter(|line| line.contains(" passed "))
+        .collect();
+    let unboxed = "printf '%s and %s passed unboxed, with no network denial confirmed' \
+                   \"$test_command\" \"$lint_command\" > \"$notes\"";
+    assert_eq!(notes, [unboxed]);
+    assert!(!script.contains("network denied"), "{script}");
 }
 
 /// A run writes its journal, results and ledger under `.forge/`, and the

@@ -6,12 +6,13 @@
 //! init knows, that the charter says so in those words instead of dressing
 //! a placeholder as a choice.
 //!
-//! The same table decides what the seats may RUN: the binary each command
-//! invokes is written into the scaffold's adapter as a tool permission and
-//! granted to the scaffolded agents — the whole set to the work seats, the
-//! read-only subset to the gates — and what is asserted is the resolved
-//! argv the compiler composes for the implement seat, because a grant that
-//! never reached `--allowedTools` is no grant.
+//! The same table decides what the seats are pre-approved to run: the
+//! binary each command invokes is written into the scaffold's adapter as a
+//! tool permission and granted to the scaffolded agents — the whole set to
+//! the work seats, the smaller set to the review gate — and what is asserted
+//! is the resolved argv the compiler composes for the implement seat,
+//! because a grant that never reached `--allowedTools` is no grant.
+//! Pre-approval removes no tool.
 //!
 //! Every scaffold is made in a tempdir the fixture's markers are COPIED
 //! into. Never in the checked-in fixture itself: `init` writes, and a
@@ -130,9 +131,9 @@ const MONOREPOS: &[(&str, &str, &str, &str, &str)] = &[
 
 /// The tool-grant table, asserted per stack: fixture, the WORK allowance
 /// (intake, implement — the full set: the stack's runners plus git, ls,
-/// rg and mkdir), then the GATE allowance (verify, review, ship — the
-/// read-only subset: the test runner's tools plus git, ls and rg, never
-/// the write tool). Written out again rather than imported, like every
+/// rg and mkdir), then the GATE allowance (the review agent's — the
+/// smaller set: the test runner's tools plus git, ls and rg, never
+/// `mkdir`). Written out again rather than imported, like every
 /// other table here: a grant silently widened or narrowed in `init.rs`
 /// fails here.
 const TOOLS: &[(&str, &[&str], &[&str])] = &[
@@ -785,7 +786,7 @@ fn a_workspace_charter_says_it_is_a_workspace_and_a_lone_package_does_not() {
 /// adapter whose `tool_permissions.names` maps exactly the granted names
 /// to their `Bash(...)` expressions, and model offices sized by decision
 /// 0021 ruling 1's classes — the two work agents carry the full set and
-/// review carries the read-only subset. Verify and ship are exec scripts.
+/// review carries the smaller set. Verify and ship are exec scripts.
 /// The class is read from the
 /// scaffolded `bundle.json`, not assumed, so the roster the seats declare
 /// and the roster the allowances were written for cannot drift apart
@@ -849,8 +850,8 @@ fn each_stack_grants_its_own_tools_by_seat_class() {
 /// spawn for the seat that builds — carries the expected `--allowedTools`
 /// list, composed from the implementer agent's `tools.allow` through the
 /// adapter's names map (decision 0016). node/bun and rust/cargo are the
-/// two the adoption run asked for; the gate seats' argv carries the
-/// read-only subset, and never `mkdir`.
+/// two the adoption run asked for; the review seat's argv carries the
+/// smaller set, and never `mkdir`.
 #[test]
 fn the_implement_and_verify_seats_argv_carry_the_class_allowed_tools() {
     for (fixture, work, gate) in TOOLS {
@@ -952,9 +953,9 @@ fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
 }
 
 /// A repository no row recognizes is granted nothing BY NAME: the
-/// adapter's names map stays empty and no agent declares a `tools`
-/// restriction (the loader reads an absent `tools` as "no restriction" —
-/// the only honest reading an empty map can serve). The README says so in
+/// adapter's names map stays empty and no agent declares a `tools` list
+/// (the loader reads an absent `tools` as no list and composes no tool
+/// flag — the only honest reading an empty map can serve). The README says so in
 /// those words rather than letting the silence pass for a choice, and the
 /// scaffold still compiles with no `--allowedTools` on any seat.
 #[test]
@@ -970,7 +971,7 @@ fn an_unrecognized_stack_scaffolds_an_empty_map_and_a_readme_that_says_so() {
         let definition = agent(&bundle, name);
         assert!(
             definition.get("tools").is_none(),
-            "generic agent {name} declares a tools restriction the empty map cannot express"
+            "generic agent {name} declares a tools list the empty map cannot express"
         );
         // Everything else an agent needs is still there.
         assert_eq!(definition["charter"], format!("charters/{name}.md"));

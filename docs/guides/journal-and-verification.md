@@ -96,8 +96,10 @@ $ brokkr keep-refs delete --run <id>             # the exhibits may go — the o
 ```
 
 A run parked on **`GATE-MOVED-HEAD`** is saying the repository head moved
-across a gate's own span: a gate reads and reports, it never writes
-([decision 0041](../decisions/0041-one-office-per-seat.md)). The check is
+across a gate's own span: a gate is chartered to read and report, not to
+write ([decision 0041](../decisions/0041-one-office-per-seat.md)), and
+this park is the engine's only check of it: it sees a moved head, not an
+uncommitted write. The check is
 per gate step, not per effect — the head is observed when a gate step
 starts, or when a gate seat that has no steps of its own starts, and it
 is compared at that same step's end. So an author that lawfully commits
@@ -181,7 +183,7 @@ invocation site — `member`, the site's tag as checkpoints and
 provenance already use it; `boundary`, the word; `gate`, whether the
 site is gate class — present only when at least one site of the attempt
 declares hands, and never read by `fold`, so a run over a bundle that
-boxes nothing journals byte-identical payloads.
+declares no hands journals byte-identical payloads.
 
 The data carries the plain word; the screen carries the adjective. A
 run in which any gate-class site stood under `harness` or `open` is

@@ -3,7 +3,8 @@
 Found-branch delivery for work that already exists: the suite verifies the
 branch as found, Sol 6.1 (codex, high) judges it, findings return to
 Muse Spark 1.3-contributor (dsh, xhigh) for remediation, and a clean
-verified branch ships through the boxed ship seat.
+verified branch ships through the exec ship seat, boxed where the
+realm's boundary is `namespace`.
 
 It is fast's constitution entered at `verify` instead of `implement`: the
 same v2 rules, the same bounds (three implement visits, then stop), the

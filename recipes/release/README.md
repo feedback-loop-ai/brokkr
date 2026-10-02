@@ -7,8 +7,9 @@ brokkr run --recipe release --repo . --feature "Prepare v0.12.0 from the latest 
 The library's `release-manager` reads the commits, prepares the version change
 and release description, reconciles the configured documentation, and prepares
 all matching organization-profile updates. A separate `reviewer` judges the
-candidate and its external patches. The recipe inherits `fast`'s policy, boxed
-exec verifier and shipper, including bounded returns on findings. Shipping here
+candidate and its external patches. The recipe inherits `fast`'s policy, exec
+verifier and shipper, including bounded returns on findings; the two gates are
+boxed only where the realm's boundary is `namespace`. Shipping here
 means a reviewed local candidate with journal evidence; tagging, publishing and
 applying external patches are subsequent operator actions.
 
@@ -49,7 +50,7 @@ This shipped recipe uses `fast`'s **Rust verifier**. The manager additionally
 runs the configured checks, but their prose results do not change what the
 deterministic verify gate executes. For another stack, seat `release-manager`
 in that stack's delivery recipe, or extend `release` and explicitly override
-`verify` with the stack's own boxed exec script and required toolchain binds.
+`verify` with the stack's own pinned exec script and required toolchain binds.
 The existing [recipe composition](../../docs/guides/recipe-authoring.md)
 mechanism covers both cases; declaring a command in house text does not install
 it, grant it or add it to the gate.
@@ -63,7 +64,12 @@ that external check as pending; an in-box test run does not certify it.
 
 The shipped networked workspace can read public release/profile repositories;
 private targets need an explicitly configured access mechanism or preparation
-reports the missing access. It does not expose the host's GitHub credentials.
+reports the missing access. Under a `namespace` boundary the box binds no
+host home, so a command run through it does not reach the host's GitHub
+credentials. That bounds the box, not the seat: the manager's chain falls
+back to codex `sol`, and a boxed Codex seat keeps a read-only view of the
+whole host outside the box, credential files included
+([security model](../../docs/security-model.md)).
 
 A configured profile is a repository and path, with a project selector and an
 application stage. The manager reads the remote file, prepares a local patch

@@ -5,8 +5,8 @@
 effort `xhigh`, forwarded through dsh's settings layer since decision
 0035's addendum and echoed back in the record) instead of the
 library's Claude Code office. Everything else is
-inherited: the boxed registry gate, the ten-entry cap, the table that
-proposes and never ships (decision 0044).
+inherited: the registry gate (boxed only under `namespace`), the
+ten-entry cap, the table that proposes and never ships (decision 0044).
 
 ```
 brokkr run --recipe research-dsh --repo . --feature "$(cat recipes/research/commissions/weekly-sweep.md)"

@@ -9,8 +9,9 @@
 
 use super::{
     allowance, command_tools, detect, grants, host, leading_word, realms_json, relative_realm_path,
-    runner_tools, stack_readme, tools_for, write_dialect, AgentSpec, Boundary, Class, Cli,
-    Detected, DialectDetection, Effort, Tool, NO_TOOL_MAP, OPENSPEC, SEATS,
+    runner_tools, stack_readme, tools_for, verify_script, write_dialect, AgentSpec, Boundary,
+    Claims, Class, Cli, Detected, DialectDetection, Effort, Host, Tool, NO_TOOL_MAP, OPENSPEC,
+    PRE_APPROVAL, REVIEW_GATE, SEATS,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -205,7 +206,7 @@ fn an_unrecognized_stack_grants_nothing() {
 
 /// The allowance an agent is written with follows the class of the seat
 /// that names it — and, when nothing was granted, every agent omits the
-/// `tools` restriction rather than name a tool the empty map cannot back.
+/// `tools` list rather than name a tool the empty map cannot back.
 #[test]
 fn an_agents_allowance_follows_its_seats_class() {
     let work = AgentSpec {
@@ -301,14 +302,14 @@ fn a_dsh_scaffold_hires_its_gate_from_claude() {
 #[test]
 fn the_readme_names_the_adapters_written_and_no_tool_map_without_claude() {
     let cargo = detected("cargo build", "cargo test", "cargo clippy");
-    let codex = stack_readme(Some(&cargo), &[Cli::Codex]);
+    let codex = stack_readme(Some(&cargo), &[Cli::Codex], claims(Some(Boundary::Harness)));
     assert!(
         codex.contains("- `adapters/codex.json` and `adapters/exec.json` — the model and"),
         "{codex}"
     );
     assert!(codex.ends_with(NO_TOOL_MAP), "{codex}");
     assert!(!codex.contains("claude.json"), "{codex}");
-    let dsh = stack_readme(Some(&cargo), &[Cli::Dsh, Cli::Claude]);
+    let dsh = stack_readme(Some(&cargo), &[Cli::Dsh, Cli::Claude], claims(None));
     assert!(
         dsh.contains(
             "- `adapters/dsh.json`, `adapters/claude.json` and `adapters/exec.json` — the model and"
@@ -319,6 +320,193 @@ fn the_readme_names_the_adapters_written_and_no_tool_map_without_claude() {
         dsh.contains("`adapters/claude.json` maps each tool"),
         "{dsh}"
     );
+}
+
+/// The README says the work seats' grant pre-approves and removes no
+/// tool, never that a seat may run only what its charter names (#366),
+/// and that only the native powers the realm does not grant are denied
+/// (decision 0065).
+#[test]
+fn the_readme_says_the_work_grant_pre_approves_and_removes_no_tool() {
+    let cargo = detected("cargo build", "cargo test", "cargo clippy");
+    let readme = stack_readme(Some(&cargo), &[Cli::Claude], claims(None));
+    let work = readme
+        .split("\n\n")
+        .find(|paragraph| paragraph.starts_with("Work-class seats"))
+        .expect("a work-class paragraph");
+    assert_eq!(
+        work,
+        "Work-class seats (intake, implement) are pre-approved for the whole set:\n\
+         cargo, git, ls, rg, mkdir. Pre-approval removes no tool: an unboxed seat keeps the\n\
+         harness's other defaults, your own permission settings and MCP\n\
+         servers. Only `WebSearch` and `WebFetch` are denied, by name, because\n\
+         `realms.json` grants neither."
+    );
+}
+
+/// No README the scaffold writes calls a `tools` list a restriction: a
+/// list pre-approves and removes no tool (#366).
+#[test]
+fn no_scaffold_readme_calls_a_tool_list_a_restriction() {
+    let cargo = detected("cargo build", "cargo test", "cargo clippy");
+    for readme in [
+        stack_readme(Some(&cargo), &[Cli::Claude], claims(None)),
+        stack_readme(None, &[Cli::Claude], claims(None)),
+        stack_readme(Some(&cargo), &[Cli::Codex], claims(Some(Boundary::Harness))),
+    ] {
+        assert_eq!(
+            readme.matches("restriction").collect::<Vec<_>>(),
+            Vec::<&str>::new(),
+            "{readme}"
+        );
+    }
+}
+
+/// What the scaffold says of the boundary `boundary`, from a claude host.
+fn claims(boundary: Option<Boundary>) -> Claims {
+    let host = Host {
+        cli: Cli::Claude,
+        boundary,
+        notes: Vec::new(),
+    };
+    host.claims()
+}
+
+/// The README and the note a passing verify journals claim the box and a
+/// denied network only under `namespace`. Under every other boundary the
+/// scripts run under no box of Brokkr's, and a note saying "network
+/// denied" would record a control that was not applied (#366).
+#[test]
+fn the_scaffold_claims_the_box_and_a_denied_network_only_under_namespace() {
+    let cargo = detected("cargo build", "cargo test", "cargo clippy");
+    let said = |boundary: Option<Boundary>| {
+        let readme = stack_readme(Some(&cargo), &[Cli::Claude], claims(boundary));
+        let script = verify_script(Some(&cargo), claims(boundary));
+        let lines = |text: &str, with: &str, count: usize| {
+            let at = text.lines().position(|line| line.contains(with));
+            let at = at.expect(with);
+            text.lines()
+                .skip(at)
+                .take(count)
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        [
+            lines(&readme, "- `bundle.json`", 2),
+            lines(&readme, "own commands", 1),
+            lines(&readme, "Verify and ship", 2),
+            lines(&script, " passed ", 1),
+        ]
+    };
+    let boxed = [
+        "- `bundle.json` — three model offices plus the verify and ship exec\n  \
+         gates, which `namespace` boxes,",
+        "names this repository's own commands and runs in Brokkr's box, without network.",
+        "cargo, git, ls, rg. Verify and ship are exec scripts with no model grant,\n\
+         and `namespace` boxes them.",
+        "printf '%s and %s passed boxed under namespace, with no network' \
+         \"$test_command\" \"$lint_command\" > \"$notes\"",
+    ];
+    let unboxed = [
+        "- `bundle.json` — three model offices plus the verify and ship exec\n  \
+         gates, which no box of Brokkr's holds,",
+        "names this repository's own commands and runs under no box of Brokkr's, \
+         with no network denial confirmed.",
+        "cargo, git, ls, rg. Verify and ship are exec scripts with no model grant,\n\
+         and no box of Brokkr's holds them.",
+        "printf '%s and %s passed unboxed, with no network denial confirmed' \
+         \"$test_command\" \"$lint_command\" > \"$notes\"",
+    ];
+    for namespace in [None, Some(Boundary::Namespace)] {
+        assert_eq!(said(namespace), boxed, "{namespace:?}");
+    }
+    for other in [
+        Boundary::Harness,
+        Boundary::Open,
+        Boundary::Seatbelt,
+        Boundary::Container,
+    ] {
+        assert_eq!(said(Some(other)), unboxed, "{other:?}");
+    }
+}
+
+/// Words that claim a box, a network, a read-only surface or a tool
+/// bound. Outside the sentences `claims.rs` gives, no generated prose
+/// may carry one.
+const CLAIM_WORDS: [&str; 5] = ["box", "network", "read-only", "sandbox", "restrict"];
+
+/// Every host arm `init` can take — the `namespace` default, `harness` on
+/// macOS, a codex scaffold and a dsh one on either host — writes each
+/// sentence its claims give, once, into the whole `agents/README.md`, the
+/// scripts and the notes `init` prints; with those sentences taken out, no
+/// claim word is left in the README or the scripts. So no literal in `init`
+/// restates a claim, and one written beside the claims fails here on
+/// the arm it is false for (#366). Each arm names its claim set itself,
+/// so an arm of `claims()` that hands a host the wrong set fails too.
+#[test]
+fn every_host_arm_says_its_claims_and_no_other() {
+    use super::claims::{CODEX, MACOS, NAMESPACE};
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    std::fs::write(repo.join("Cargo.toml"), "[workspace]\n").unwrap();
+    let harness = Some(Boundary::Harness);
+    let arms = [
+        ("namespace", "claude", "linux", Cli::Claude, None, NAMESPACE),
+        ("macos", "claude", "macos", Cli::Claude, harness, MACOS),
+        ("codex", "codex", "linux", Cli::Codex, harness, CODEX),
+        ("dsh", "dsh", "linux", Cli::Dsh, None, NAMESPACE),
+        ("dsh-macos", "dsh", "macos", Cli::Dsh, harness, MACOS),
+    ];
+    let mut wrong = Vec::new();
+    for (arm, binary, os, cli, boundary, claims) in arms {
+        let bins = root.path().join(format!("{arm}-bin"));
+        std::fs::create_dir(&bins).unwrap();
+        std::fs::write(bins.join(binary), "").unwrap();
+        let dir = root.path().join(arm);
+        let scaffold = super::init(&dir, &repo, bins.as_os_str(), os).unwrap();
+        if super::claims::claims(cli, boundary) != claims {
+            wrong.push(format!("{arm}: claims() hands this host another set"));
+        }
+        let read = |path: &str| std::fs::read_to_string(dir.join(path)).unwrap();
+        let mut said = vec![claims.gates, claims.runs];
+        if cli != Cli::Codex {
+            said.extend([claims.scripts, PRE_APPROVAL, REVIEW_GATE]);
+        }
+        said.extend(claims.realm);
+        let files = [
+            (read("agents/README.md"), said),
+            (read("scripts/verify-seat.sh"), vec![claims.note]),
+            (read("scripts/ship-seat.sh"), Vec::new()),
+            (scaffold.notes.join("\n\n"), Vec::from_iter(claims.realm)),
+        ];
+        for (text, said) in files {
+            wrong.extend(
+                unsaid(&text, &said)
+                    .into_iter()
+                    .map(|at| format!("{arm}: {at}")),
+            );
+        }
+    }
+    assert_eq!(wrong, Vec::<String>::new());
+}
+
+/// What is wrong with one generated text against the claim sentences it
+/// must say: each sentence not said exactly once, then each claim word
+/// left once those sentences are taken out.
+fn unsaid(text: &str, said: &[&str]) -> Vec<String> {
+    let mut rest = text.to_string();
+    let mut wrong = Vec::new();
+    for sentence in said {
+        if rest.matches(sentence).count() != 1 {
+            wrong.push(format!("not said once: {sentence:?}"));
+        }
+        rest = rest.replace(sentence, "");
+    }
+    let rest = rest.to_lowercase();
+    let left = CLAIM_WORDS.iter().filter(|word| rest.contains(*word));
+    wrong.extend(left.map(|word| format!("{word:?} outside claims.rs")));
+    wrong
 }
 
 /// The agent CLI is the first of claude, codex and dsh on PATH, claude

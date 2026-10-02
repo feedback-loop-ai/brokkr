@@ -37,7 +37,7 @@ $ brokkr init my-bundle
 
 ```text
 initialized reviewable bundle at my-bundle (digest d4b6f758d2014a3726a6e9e798fdd3c8aae682d0ada499da536806b38b2f9c52)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
 ```
 
 The digest is a function of the bytes that were written, and the
@@ -122,7 +122,8 @@ For completeness, the invariant `bundle.json`:
 The three model offices name agents; their charter, model chain, limits and
 tool grant live under `agents/`, where `brokkr agents show <name>` reads
 them back. Verify and ship are deterministic scripts with their limits and
-boxed hands declared at the site. Class remains the seat's authority.
+hands declared at the site, which Brokkr boxes under the `namespace`
+boundary only. Class remains the seat's authority.
 
 Every other page in this directory omits this file and points here.
 
@@ -152,15 +153,20 @@ The same names, in the same order, are each agent's `tools.allow` —
 sized by the class of the seat the agent backs:
 
 - **work seats (`intake`, `implement`)** — the whole set:
-  `["cargo", "git", "ls", "rg", "mkdir"]`. A work seat may run exactly
-  the commands its charter names, and nothing broader.
-- **gate seats (`verify`, `review`, `ship`)** — the read-only subset:
-  `["cargo", "git", "ls", "rg"]`, never `mkdir`.
+  `["cargo", "git", "ls", "rg", "mkdir"]`, pre-approved as exactly the
+  commands its charter names.
+- **the review gate** — the same set without `mkdir`:
+  `["cargo", "git", "ls", "rg"]`. The verify and ship scripts carry no
+  grant.
 
 The grant is per BINARY, not per subcommand: `Bash(cargo:*)` answers to
 `cargo build` as readily as to `cargo test`. What keeps a gate from
 building is its charter — "prove it, fix nothing" — and the scaffold
 README says so rather than promising a boundary the glob cannot draw.
+Nor is the list a boundary on an unboxed seat: `--allowedTools`
+pre-approves these commands and removes no other tool, so the
+operator's own Claude Code permission settings and MCP servers reach
+the seat too ([security model](../../security-model.md)).
 An allowance is ONE grant with the adapter's map: a name the map cannot
 express refuses the scaffold's own compile (decision 0016), so when you
 edit one side, edit both.
@@ -220,16 +226,18 @@ Line by line, the parts that were chosen rather than fixed:
 
 ## `scripts/verify-seat.sh`
 
-The deterministic boxed verifier contains these detected command pins:
+The deterministic verifier contains these detected command pins:
 
 ```bash
 test_command='cargo test --workspace'
 lint_command='cargo clippy --workspace --all-targets -- -D warnings'
 ```
 
-It runs both with network denied, using the bound Cargo registry cache,
-types `pass` only when both exit zero, and quotes decisive output on
-`fail`.
+It runs both, types `pass` only when both exit zero, and quotes decisive
+output on `fail`. Where the realm's boundary is `namespace`, Brokkr
+boxes it with no network and it uses the bound Cargo registry cache.
+Under `harness` — a codex scaffold, or macOS — it runs under no box of
+Brokkr's, and its note claims no denied network.
 
 - **`cargo test --workspace`** — the same command the implementer was
   given, on purpose. The implementer runs it to know it is done; the
@@ -279,7 +287,7 @@ by its bytes, and a run records which bytes it ran.
 
 A repository `init` does not recognize — no manifest, no lockfile, no
 `Makefile` — gets the same fourteen files with an **empty** tool map
-(`"names": {}`), no `tools` restriction on any agent, and a README that
+(`"names": {}`), no `tools` list on any agent, and a README that
 says so in those words rather than granting a guessed permission. The
 two charters carry `<this project's …>` placeholders. See
 [quickstart.md](../quickstart.md#step-2--brokkr-init-) for the shape.

@@ -18,9 +18,9 @@ fact goes INSIDE inputs, and a record with any other top-level key is refused wh
 (decision 0034), which loses the whole attempt. You never decide the next phase — the engine's \
 policy table rules on your typed result.";
 
-/// Decision 0043's boxed paragraph, byte for byte as it shipped.
-const BOXED: &str = "\n\nYour hands are boxed: the worktree, and this result file, are reachable \
-ONLY through the `mcp__brokkr__workspace` tool. Your harness's own shell runs outside the box and \
+/// Decision 0043's boxed paragraph, byte for byte.
+const BOXED: &str = "\n\nYour hands are boxed: write the worktree, and this result file, through \
+the `mcp__brokkr__workspace` tool. Your harness's own shell runs outside the box and \
 cannot write here — a file written through it never reaches the engine. Write the result file with \
 the workspace tool.";
 
@@ -222,8 +222,8 @@ fn without_an_applicable_carrier_the_boxed_contract_is_todays() {
 #[test]
 fn an_unboxed_or_handless_seat_ignores_even_a_valid_carrier() {
     let harness = "\n\nYour hands stand under the `harness` boundary: no workspace tool of \
-Brokkr's is served, and you run under your harness's own sandbox. The result path above is the \
-one file that sandbox lets you write; write it yourself.";
+Brokkr's is served, and you run under your harness's own sandbox, which may let you write more \
+than the result path above. Write that file yourself.";
     let open = "\n\nYour hands stand under the `open` boundary: nothing of Brokkr's stands \
 between you and the machine, and no workspace tool is served. Write the result file yourself.";
     for (extra, tail) in [
@@ -289,8 +289,8 @@ fn a_declared_custom_workspace_is_the_one_name_the_contract_uses() {
     assert_eq!(
         contract(&prompt),
         format!(
-            "{CONTRACT}\n\nYour hands are boxed: the worktree, and this result file, are \
-reachable ONLY through the `fixture_workspace` tool. Your harness's own shell runs outside the box \
+            "{CONTRACT}\n\nYour hands are boxed: write the worktree, and this result file, \
+through the `fixture_workspace` tool. Your harness's own shell runs outside the box \
 and cannot write here — a file written through it never reaches the engine. Write the result file \
 with the workspace tool.\n\nYour workspace tool is `fixture_workspace`. If it is not listed, use \
 `fixture_search` to load it before doing workspace work. Native shell and apply_patch writes are \

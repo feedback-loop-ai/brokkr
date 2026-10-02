@@ -208,9 +208,12 @@ What a driver has to do to participate:
   credential and client that opened it; resuming it from anywhere else
   is a terms violation with the account at the end of it, not a clever
   optimisation.
-- **Re-express every restriction the seat declared.** If your harness's
+- **Re-express everything the seat declared.** If your harness's
   resume path drops a sandbox class, a permission mode or a tool
-  allow-list, put it back explicitly. Where you cannot, start cold and
+  allow-list, put it back explicitly: the sandbox class and permission
+  mode bound the seat, and a claude `--allowedTools` list, which
+  pre-approves and removes no tool, is carried so the resumed argv says
+  what the fresh one did. Where you cannot, start cold and
   say why in a checkpoint. A resumed attempt that runs with more power
   than its seat declared is the failure this whole mechanism is fenced
   against — the codex adapter translates its seat's `--sandbox <class>`
@@ -447,7 +450,11 @@ total.** Zero is a measurement, and a harness that stayed silent did not
 make it.
 
 **Every driver speaks per turn, not only at exit.** This is the standard
-each built-in driver meets and the one a new driver is held to: every
+a new driver is held to. The claude and codex drivers meet it; the dsh
+driver folds its turns from the session file it tails, and whether they
+arrive per turn on a live seat is unverified
+([#281](https://github.com/feedback-loop-ai/brokkr/issues/281)); `exec`
+has no turns. The standard: every
 assistant turn becomes at least one checkpoint while the process is
 still running; the turn count and the harness's usage ride in
 `num_turns` and `total_cost_usd` (token counts in `input_tokens`,
@@ -799,11 +806,12 @@ expansion is machine-local.
 There is no per-driver confinement key. `driver.confine` (decision 0008's
 `image`, `network`, `mounts`) is refused by the compiler naming the
 `container` boundary, slice (iii) and decision 0046 ruling 5: what
-stands around a seat is the realm's `boundary`, declared in
-`realms.json` and never in a bundle, and a pinned image is that
+stands around a seat's hands is the realm's `boundary`, declared in
+`realms.json` and never in a bundle (a seat without hands has none), and a pinned image is that
 boundary's `container` form once the slice measures it. A driver that
-wants walls declares `hands` on its site and lets the realm say which
-boundary builds them.
+wants walls declares `hands` on its site and lets the realm name the
+boundary; only `namespace` builds walls today, `harness` and `open`
+build none, and `seatbelt` and `container` refuse at start.
 
 Then check it before you run it:
 

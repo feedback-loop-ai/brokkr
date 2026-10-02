@@ -20,9 +20,9 @@ changing an agent or recipe digest.
 
 ```
 $ brokkr agents list
-analyst	fable → sol → opus	Read-only SDD judge: finds drift across the artifacts and the realm constitution.
+analyst	fable → sol → opus	SDD judge, read-only by charter: finds drift across the artifacts and the realm constitution.
 chief-architect	fable → sol → opus → astra	Authors the dialect artifacts assigned to the chief and reconciles council positions during design.
-clarifier	opus → sol	Read-only SDD judge: identifies every material ambiguity in the specification.
+clarifier	opus → sol	SDD judge, read-only by charter: identifies every material ambiguity in the specification.
 implementer-engine	sol → fable	Engine-class implementer: builds core, store, contract, and policy work selected by triage.
 implementer-sdd	opus → sonnet	Smith for spec-driven delivery: writes the breakdown, builds it, and closes out the dialect change.
 implementer	opus → sonnet	Builds the framed task to the repository's conventions and commits the work with its tests.
@@ -60,7 +60,8 @@ organization profiles; the [release recipe](../../recipes/release/README.md)
 explains configuration and stack-specific verification.
 
 Verifier and shipper are deliberately absent from the agent library.
-They are boxed, inline `exec` scripts with no model: verification runs a
+They are inline `exec` scripts with no model, boxed under the `namespace`
+boundary and run unboxed in a rebuilt environment under `harness`: verification runs a
 recipe's fixed checks, and shipping renders journal evidence through
 `brokkr ledger` before confirming the recorded head and clean tree.
 
@@ -69,17 +70,24 @@ is a pure function of *(library, adapters, availability)* — availability
 that `Bundle::compile` deliberately supplies none of, so one bundle
 cannot resolve two ways on two machines.
 
-**The honesty rules are the point, and they are enforced rather than
-documented.** A tool restriction the provider cannot express fails
-compilation naming the agent, the provider and the capability — the
-agent would run with MORE power than it declares, so `optional` is
-structurally unrepresentable there. A capability the realm does not
+**The honesty rules are the point, and compilation checks them.** A
+tool list the provider cannot express at all — codex restricts by
+sandbox class, not by tool name, and dsh maps no tool — fails
+compilation naming the agent, the provider and the capability, so
+`optional` is structurally unrepresentable there. A tool list the
+provider can express is pre-approval, not a boundary: on claude it
+becomes `--allowedTools`, which pre-approves the named tools and removes
+none, so an unboxed claude seat also has Claude Code's other default
+tools under the operator's own permission settings, and the operator's
+MCP servers ([security model](../security-model.md)). What the engine
+does switch off by name is each native power the realm does not grant
+(see [capabilities](#capabilities)). A capability the realm does not
 grant refuses compilation when the office `requires` it, and when the
 office only `wants` it the loss is a notice that lands in the run
 manifest and in every readout — never nothing. Both checks run over
-**every** entry in the chain, so a chain that would widen an agent's
-blast radius the moment it fell back fails at design time rather than at
-2am. The chain is a fallback chain,
+**every** entry in the chain, so a chain whose fallback cannot express a
+declared tool list fails at design time rather than at 2am. The chain is
+a fallback chain,
 not a portability claim: Brokkr never says the second choice equals
 the first, and `brokkr compare` reports a model difference as a
 first-class divergence.
@@ -275,11 +283,19 @@ nothing about its task, its holdings or its result contract.
 ## Hands
 
 An agent may declare `"hands"` instead of relying on its `tools.allow`
-list (decision 0043). The harness keeps its credential and its network;
-what the model asks to run goes through one MCP tool, `workspace`, served
-by `brokkr hands serve`, and every call executes inside an empty-root
-bubblewrap namespace holding the worktree read-write and the host
-toolchain read-only. `binds` add host paths — the Rust toolchain cache as an
+list (decision 0043). Under the `namespace` boundary the harness keeps
+its credential and its network; Brokkr hands the model one MCP tool,
+`workspace`, served by `brokkr hands serve`, and every call to it
+executes inside an empty-root bubblewrap namespace holding the worktree
+and the repository's common git directory read-write and the host
+toolchain read-only, so a boxed call can move shared refs and write a
+worktree's `config.worktree`. Under `harness` no such box stands. The box
+bounds those calls and nothing else the harness does: a claude seat
+keeps no other tool but that of a native power the realm grants it,
+though Claude Code still loads the operator's own
+configuration on the host, and a Codex seat keeps its native shell,
+read-only and outside the box, and can read the host through it (see the
+[security model](../security-model.md#what-the-box-does-not-do)). `binds` add host paths — the Rust toolchain cache as an
 overlay (the box may write to it, the host never sees the writes), its
 credentials masked, rustup read-only:
 
@@ -295,10 +311,12 @@ credentials masked, rustup read-only:
 ```
 
 With hands, the adapter's per-tool map is not consulted; what the adapter
-must express is how its harness's own tools are replaced by the one boxed
-tool (`hands` in the adapter file, or `"unsupported"` with the reason).
-The review agents declare hands, which is what lets a codex lane hold a
-review office at all: `sol` opens the single reviewer, the review
+must express is how its harness is handed the boxed tool (`hands` in the
+adapter file, or `"unsupported"` with the reason). Claude's fragment
+removes Claude Code's own tools, and the engine adds back only the tool
+of a native power the realm grants the seat; Codex's sets its native shell read-only
+beside the tool, and no switch removes it. The review agents declare
+hands, which is what lets a codex lane hold a review office at all: `sol` opens the single reviewer, the review
 chief and the adversarial member, and stands second behind `fable` on
 the security member, triage, the analyst and the chief-architect;
 `astra` stands only last in a chief's chain (decision 0045 and its

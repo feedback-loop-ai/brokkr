@@ -39,10 +39,10 @@ and scheduled loops on throughput, correctness, cost and human effort.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Use the eight building blocks as a checklist: trigger, stop condition, durable state, intent, isolation, independent checker, escalation, budget | implemented | decision 0006: bounded attempts and deadlines; decision 0002: the journal is the state and the table is the stop condition; decision 0043: the box; decision 0021: the checker is a gate seat; decision 0001: escalation is a park |
+| 1 | Use the eight building blocks as a checklist: trigger, stop condition, durable state, intent, isolation, independent checker, escalation, budget | implemented | decision 0006: bounded attempts and deadlines; decision 0002: the journal is the state and the table is the stop condition; decision 0043: the box, around a seat that declares hands in a namespace realm and nowhere else; decision 0021: the checker is a gate seat; decision 0001: escalation is a park |
 | 2 | Commit stop conditions and budgets to the repository as machine-checkable artifacts | implemented | `policy/phase-machine.json` and each recipe's policy table (`recipes/fast/policy.json`) carry the terminal rules; each recipe's `recipes/fast/bundle.json` carries the per-seat attempts and deadlines |
 | 3 | Emit a cost log per run: tokens and wall clock | implemented | decision 0034 and decision 0035: `contracts/seat-record.v2.schema.json` records usage, cost, effort and reasoning tokens per seat |
-| 4 | Guard against verifier theater by keeping the checker a separate seat with its own evidence | implemented | decision 0041: a gate hires judges only and changes nothing; decision 0043: the verifier and shipper are boxed scripts |
+| 4 | Guard against verifier theater by keeping the checker a separate seat with its own evidence | implemented | decision 0041: a gate hires judges only and is chartered to change nothing, and the engine parks a gate that moves HEAD, though an uncommitted write passes that check; decision 0043: the verifier and shipper are pinned scripts, boxed under the namespace boundary and unboxed under harness |
 | 5 | Track agent-authored edits to the loop's own configuration as a distinct signal | not-planned | |
 | 6 | Evaluate autonomy levels against each other on throughput, correctness, cost and human effort | not-planned | |
 

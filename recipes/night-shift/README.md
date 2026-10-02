@@ -47,9 +47,11 @@ prohibition (untrusted judge, ungranted secret binding) applies.
 What the seat gives up, and the comparison must say: `adapters/dsh.json`
 declares `tool_permissions: "unsupported"`, because the headless dsh
 launcher has no allowed-tools flag. The seat runs with whatever the
-harness permits, not the seven `Bash` prefixes the former inline seat named.
-That asymmetry is the same one [`recipes/wager-harness`](../wager-harness/README.md)
-records for its challenger arm, for the same reason.
+harness permits. The former inline seat's seven `Bash` prefixes were
+pre-approval under `--allowedTools`, not a bound: they removed no
+tool, so neither seat was held to a named list. The difference is the
+one [`recipes/wager-harness`](../wager-harness/README.md) records for
+its challenger arm, for the same reason.
 
 How the pin reaches the harness: dsh has no model flag of its own; the
 model is a row of its composed profile tree, and the launcher's only
@@ -123,6 +125,12 @@ bound to one.
 
 ## Running it
 
+**Unavailable until
+[#264](https://github.com/feedback-loop-ai/brokkr/issues/264) is fixed.**
+The implement seat pins `deepseek/deepseek-flash`, the dsh adapter maps
+no `deepseek/` route, and #264 records dsh refusing that prefix with
+`NO_ADAPTER` at launch. The command below is the one to use once it is.
+
 ```
 brokkr run --recipe night-shift --repo . --feature "<the queued task>"
 ```
@@ -133,7 +141,9 @@ time, and its manifest digest is pinned in
 `crates/brokkr-runtime/tests/witness_digests.rs`; that is the claim, and
 the only one.
 
-Its one-attempt verifier and shipper are boxed exec scripts. Cargo runs
+Its one-attempt verifier and shipper are boxed exec scripts: the dialect
+steps it inherits from `triage` compile only under `namespace` (decision
+0042 ruling 4), so a `harness` realm refuses this recipe. Cargo runs
 offline from the bound registry cache; an uncached dependency fails
 closed and the verifier quotes Cargo's decisive offline/cache line in
 its `fail` notes.

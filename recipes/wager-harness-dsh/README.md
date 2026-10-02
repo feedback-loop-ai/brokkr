@@ -13,9 +13,11 @@ results, class, the phase table, and every gate are `fast`'s, inherited.
   "unsupported"`: the headless launcher has no allowed-tools flag. The
   challenger runs with whatever the harness permits — dsh's own
   `fs-sandbox` and code runtime in the seat's workdir — while the
-  incumbent runs seven named `Bash` prefixes under `acceptEdits`. Not
-  narrower than the incumbent as far as is known; not equal; not
-  verified beyond that. The comparison must say so.
+  incumbent runs under `acceptEdits` with five `Bash` prefixes
+  pre-approved through `--allowedTools`, which removes no tool, so
+  neither arm is held to a named list: each is bounded by its own
+  harness and the operator's settings. Not equal; not verified beyond
+  that. The comparison must say so.
 - **Same model class?** No, and that is the point: the wager measures
   a cheap untrusted lane against the incumbent's opus, on the same
   commission, judged by the same gates on the incumbent.
@@ -28,10 +30,17 @@ results, class, the phase table, and every gate are `fast`'s, inherited.
   launching environment only, never into argv, the recipe, or the
   journal (decision 0012).
 
+**Unavailable until
+[#264](https://github.com/feedback-loop-ai/brokkr/issues/264) is fixed.**
+The dsh adapter maps no `deepseek/` route, and #264 records dsh refusing
+this arm's `deepseek/deepseek-flash` prefix with `NO_ADAPTER` at launch.
+Once it is fixed:
+
 Run as the harness README says: `brokkr run --recipe fast` for the
 incumbent, `brokkr rerun --run <id> --recipe wager-harness-dsh` for
 this arm, `brokkr compare` for the trails, then judge the artifacts.
 
-The harness inherits `fast`'s boxed verifier and shipper by construction.
+The harness inherits `fast`'s verifier and shipper by construction, boxed
+only where the realm's boundary is `namespace`.
 Cargo verification runs offline from the bound registry cache; an
 uncached dependency fails closed and its decisive line is quoted.
