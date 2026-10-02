@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_runtime::agents::{
     Adapter, Agent, McpSupport, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape,
-    ResumeStatus, ToolPermissions,
+    ResumeStatus, Sandbox, ToolPermissions,
 };
 use brokkr_runtime::capabilities::{
     DialectKind, Disposition, Evidence, ListFlag, NativeCapability, NativeInventory,
@@ -753,10 +753,16 @@ const OVERCLAIMS: [&str; 8] = [
 /// native power the realm grants it (`final_tools`): each phrase is the
 /// unqualified clause as it ended, so the sentence that names the grant
 /// is read true. So, too, is each sentence that held a gate boxed, its
-/// network denied or its environment cleared with no boundary named: the
-/// phrase is that sentence's clause, so the one that names `namespace` is
-/// read true. The positive controls in
-/// [`the_guard_reads_true_0065_sentences_true`] hold that.
+/// network denied or its environment cleared with no boundary named. Each
+/// such phrase is that sentence's clause as it stood: carried to the
+/// word the old clause ended on, or, where the clause opened its
+/// sentence or a citation, anchored to that start (a leading `. ` or
+/// `decision 0043: `). A sentence that names `namespace` inside the
+/// clause, or before an anchored one, is read true. A phrase still held
+/// mid-clause refuses a sentence that keeps its exact words after a
+/// qualifier; the positive controls in
+/// [`the_guard_reads_true_0065_sentences_true`] are the sentences each
+/// narrowed phrase must read true.
 ///
 /// A comparison that only implies a bound, such as one arm called no
 /// narrower than another, is outside the guard: its wording names no
@@ -786,7 +792,7 @@ const ANYWHERE: [&str; 149] = [
     "boxes what a gate can reach",
     "gates never write",
     "boxed exec verify",
-    "two boxed exec gates",
+    "three model offices and two boxed exec gates",
     "carry a boxed exec script",
     "name boxed exec scripts",
     "deterministic boxed verify and",
@@ -801,7 +807,7 @@ const ANYWHERE: [&str; 149] = [
     "are boxed scripts and carry no model grants",
     "are boxed scripts with no model grant",
     "read and never write",
-    "box bounds only the workspace calls",
+    "decision 0043: the box bounds only the workspace calls",
     "plants no git hook",
     "the box expresses the restriction",
     "gates change nothing",
@@ -828,7 +834,7 @@ const ANYWHERE: [&str; 149] = [
     "and reports, it never writes",
     "and it never writes",
     "box lacks",
-    "boxed and offline",
+    "boxed and offline, in that order",
     "nothing in this repository pushes",
     "re-express every restriction",
     "which boundary builds them",
@@ -858,8 +864,8 @@ const ANYWHERE: [&str; 149] = [
     "the gate is a boxed script",
     "boxed, no network",
     "declare boxed hands",
-    "verifier is a boxed exec script",
-    "network is refused",
+    ". the verifier is a boxed exec script",
+    ". network is refused:",
     "verify uses boxed exec",
     "cannot reach the network, so the gate fails closed",
     "boxed registry gate",
@@ -901,7 +907,7 @@ const ANYWHERE: [&str; 149] = [
     "grants (which pre-approve tools and remove none)",
     "what a seat may run is the agent data",
     "a seat's declared mcp servers",
-    "boxed claude seat has no tool but workspace",
+    "boxed claude seat has no tool but workspace, yet",
     "leave the model no tool but workspace",
     "claude seat has no other tool, though",
     "removes claude code's own tools;",
@@ -936,7 +942,8 @@ fn tool_list_overclaims(text: &str) -> Vec<String> {
 /// paragraph before names the tool list, so a list introduced above its
 /// bullets cannot hide one. Paragraphs are lowercased with their code and
 /// emphasis marks dropped and their line breaks joined, so neither can
-/// hide one either.
+/// hide one either. A phrase that opens with `. ` matches only at a
+/// sentence's start, the paragraph's first included.
 fn overclaims_in(text: &str, vocabulary: &Vocabulary) -> Vec<String> {
     let paragraphs: Vec<String> = text
         .split("\n\n")
@@ -950,7 +957,10 @@ fn overclaims_in(text: &str, vocabulary: &Vocabulary) -> Vec<String> {
         })
         .filter(|paragraph| !paragraph.is_empty())
         .collect();
-    let says = |paragraph: &str, words: &[&str]| words.iter().any(|word| paragraph.contains(word));
+    let says = |paragraph: &str, words: &[&str]| {
+        let sentences = format!(". {paragraph}");
+        words.iter().any(|word| sentences.contains(word))
+    };
     paragraphs
         .iter()
         .enumerate()
@@ -1477,7 +1487,7 @@ const OLD_PAGES: [&str; 146] = [
 /// True sentences of decision 0065's code that the guard must read true:
 /// each names what decides, so a phrase widened past the clause it is
 /// held for refuses one of them.
-const TRUE_TEXTS: [&str; 10] = [
+const TRUE_TEXTS: [&str; 16] = [
     "Under `namespace`, verify runs without network.",
     "Under `namespace`, the verify script is boxed without network.",
     "A boxed claude seat the realm grants both powers has `WebSearch` and\n\
@@ -1492,6 +1502,13 @@ const TRUE_TEXTS: [&str; 10] = [
     "Under `namespace`, verify and ship are boxed scripts.",
     "Under `namespace`, the box clears the environment.",
     "Under `namespace`, a boxed command cannot reach the network.",
+    "Under `namespace`, the verifier is a boxed exec script.",
+    "Under `namespace`, verify and ship run boxed and offline.",
+    "Under `namespace` with `hands.network: false`, network is refused.",
+    "A boxed claude seat has no tool but workspace when it holds no native power.",
+    "Under `namespace`, verify and ship are two boxed exec gates with `hands.network: false`.",
+    "Under `namespace`, the box bounds only the workspace calls of a gate whose agent declares \
+     hands.",
 ];
 
 /// Excerpts of the shell scripts and recipe data this story reworded, as
@@ -1802,6 +1819,56 @@ fn no_living_doc_says_a_tool_list_bounds_an_unboxed_seat() {
         offenses,
         Vec::<String>::new(),
         "a living doc says a tool list bounds a seat; say what decides instead"
+    );
+}
+
+/// The part of a recipe's `bundle.json` the standby README restates: each
+/// seat's typed `tools.sandbox` class.
+#[derive(serde::Deserialize)]
+struct SandboxedSeats {
+    seats: BTreeMap<String, SandboxedSeat>,
+}
+
+#[derive(serde::Deserialize)]
+struct SandboxedSeat {
+    tools: SeatTools,
+}
+
+#[derive(serde::Deserialize)]
+struct SeatTools {
+    sandbox: String,
+}
+
+/// `recipes/standby/README.md`'s table names each seat's sandbox class as
+/// the recipe's `bundle.json` declares it, so the page cannot say a class
+/// the engine never admits.
+#[test]
+fn the_standby_table_names_each_seats_declared_sandbox_class() {
+    let bundle: SandboxedSeats = serde_json::from_str(&read("recipes/standby/bundle.json"))
+        .expect("recipes/standby/bundle.json declares each seat's sandbox");
+    let readme = read("recipes/standby/README.md");
+    let rows: Vec<(&str, &str)> = readme
+        .lines()
+        .filter_map(|line| {
+            let row = line.strip_prefix("| ")?;
+            let (seat, rest) = row.split_once(" |")?;
+            Some((seat, rest.rsplit_once(", sandbox ")?.1))
+        })
+        .collect();
+    let declared: Vec<(&str, String)> = bundle
+        .seats
+        .iter()
+        .map(|(seat, declared)| {
+            let class = Sandbox::parse(&declared.tools.sandbox).expect("a known class");
+            (seat.as_str(), format!("`{}` |", class.name()))
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        declared
+            .iter()
+            .map(|(seat, cell)| (*seat, cell.as_str()))
+            .collect::<Vec<_>>()
     );
 }
 

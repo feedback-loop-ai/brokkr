@@ -35,9 +35,15 @@ and a realm that names none gets `namespace`:
 
 The wall stands only around a seat that declares hands. A seat without
 hands is launched with no box under every boundary, so a seat that
-declares a tool list or no tools runs unboxed on the host, and under
-`harness` no harness sandbox is added for it either (see
-[what the box does not do](#what-the-box-does-not-do)). What decision
+declares a tool list or no tools runs unboxed on the host (see
+[what the box does not do](#what-the-box-does-not-do)). Under `harness`
+no harness sandbox is added for such a seat either, with one exception
+that holds under every boundary, `namespace` included: an inline seat
+whose command dispatches the codex driver and that declares a
+`tools.sandbox` class gets that class through the codex adapter's
+`hands.harness` fragment for its seat class, while it stays unboxed
+(`lower_inline_sandbox`, `bundle.rs`; see
+[typed tools](#typed-tools-per-harness)). What decision
 0065 composes into its command, the [native powers](#capabilities-are-off-until-the-realm-grants-them)
 it does not hold switched off, stands under every boundary.
 
@@ -122,7 +128,7 @@ What each harness makes of them:
 | Harness | `tools.allow` | `tools.sandbox` | What actually removes or confines |
 |---|---|---|---|
 | `claude` | `--allowedTools`, from the adapter's `tool_permissions` map (`lower_allow`, `agents.rs`). This is pre-approval: it removes no tool. A name that maps to `WebSearch` or `WebFetch` is refused (`native_alias`), and so is an explicitly empty list. | Refused: a class is admitted only where an engine fragment already expresses it, and only Codex's do (`admit_local_sandbox`, `bundle.rs`). | On the boxed path, the hands fragment's `--tools ""` removes Claude Code's own tools and the engine fills that include list with the tools of the native powers the seat holds and nothing else, so a seat with no grant keeps only `workspace` (`final_tools`, `native_controls.rs`); `--strict-mcp-config` shuts out the operator's MCP servers (`adapters/claude.json`). On every seat, `--disallowedTools` names each native power the seat does not hold. |
-| `codex` | Refused: Codex maps no tool name, so the list cannot be expressed (`lower_allow`). | Admitted only where an engine fragment expresses exactly that class: `read-only` for a boxed seat and for a gate under `harness`, `workspace-write` for a work seat under `harness`. Every other shape is refused, never clamped (`admitted_sandbox`, `bundle.rs`). | `--sandbox read-only` on the boxed path, and the `hands.harness` fragments' `--sandbox` classes under `harness` (`adapters/codex.json`). On every seat, `-c web_search="disabled"` unless the seat holds `web-search`. |
+| `codex` | Refused: Codex maps no tool name, so the list cannot be expressed (`lower_allow`). | Admitted only where an engine fragment expresses exactly that class. A seat with hands: `read-only` when boxed and for a gate under `harness`, `workspace-write` for a work seat under `harness` (`admitted_sandbox`, `bundle.rs`); a class on an agent-resolved seat without hands is refused. An inline seat without hands whose command dispatches codex, under every boundary: `read-only` for a gate and `workspace-write` for a work seat (`lower_inline_sandbox`, `bundle.rs`). Every other shape, `danger-full-access` among them, is refused, never clamped. | `--sandbox read-only` on the boxed path, and the `hands.harness` fragments' `--sandbox` classes under `harness` and on an inline seat's typed class, the gate's with `--output-last-message` into the engine-owned result path (`adapters/codex.json`). On every seat, `-c web_search="disabled"` unless the seat holds `web-search`. |
 | `lanetally` | Refused at compile while its native inventory is unmeasured (operator ruling R5 of 2026-09-29; `Authority::resolve`, `capabilities.rs`). | Refused, as for claude. | Nothing of Brokkr's. LaneTally takes no boxed hands and no native control. |
 | `dsh` | Refused: dsh maps no tool name. | Refused. | dsh's own sandbox, which the driver's runner refines (`dsh_sandbox.rs`). No typed tool reaches it. |
 | `exec` | Not applicable. | Not applicable. | The box under `namespace`. |
