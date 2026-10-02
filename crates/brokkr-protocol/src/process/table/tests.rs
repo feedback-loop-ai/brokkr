@@ -240,24 +240,16 @@ fn a_process_reads_exiting_only_when_every_thread_does() {
         [(7, true), (20, false), (30, true), (40, false)].into()
     );
 
+    let refused = |proc: &std::path::Path| match snapshot_in(proc).unwrap_err() {
+        TableError::Row { pid, error } => (pid, error.raw_os_error()),
+        other => panic!("{other}"),
+    };
     thread(proc.path(), 7, 10, None);
     std::fs::create_dir(proc.path().join("7/task/10/stat")).unwrap();
-    assert_eq!(
-        snapshot_in(proc.path()).unwrap_err().to_string(),
-        format!(
-            "the row of process 7 could not be read: {}",
-            std::io::Error::from_raw_os_error(libc::EISDIR)
-        )
-    );
+    assert_eq!(refused(proc.path()), (7, Some(libc::EISDIR)));
     let unlisted = proc_of(&[("50", Some(&stat(50, "D", PF_EXITING)))]);
     std::fs::write(unlisted.path().join("50/task"), "").unwrap();
-    assert_eq!(
-        snapshot_in(unlisted.path()).unwrap_err().to_string(),
-        format!(
-            "the row of process 50 could not be read: {}",
-            std::io::Error::from_raw_os_error(libc::ENOTDIR)
-        )
-    );
+    assert_eq!(refused(unlisted.path()), (50, Some(libc::ENOTDIR)));
 }
 
 #[test]

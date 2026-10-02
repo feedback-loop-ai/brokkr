@@ -1061,6 +1061,8 @@ fn role() {
         "joiner-engine" => orphaning_engine(&dir, "joiner"),
         "stampless-engine" => stampless_engine(&dir),
         "spared-engine" => spared_engine(&dir),
+        #[cfg(target_os = "linux")]
+        "exiting-engine" => exiting_engine(&dir),
         "detach" => detach_and_record(&dir),
         _ => {}
     }
@@ -1184,6 +1186,73 @@ fn spared_engine(dir: &str) {
     let mut process = process.unwrap();
     process.bounds.settle = Duration::from_millis(300);
     report_and_end_the_grandchild(&seats, process);
+}
+
+/// The real table, read as #504's box init reads at its exit. While the
+/// seat's driver is listed, its children and its grandchild are not, so
+/// no read records the grandchild before it comes to the engine; from
+/// then on the grandchild reads inside its exit, with its own child,
+/// which it keeps, running.
+#[cfg(target_os = "linux")]
+fn exiting_grandchild() -> Result<Vec<table::Entry>, table::TableError> {
+    let seats = Seats::at(&std::env::var(ROLE_DIR).unwrap_or_default());
+    let read = |what| {
+        let text = std::fs::read_to_string(seats.file("seat", what)).unwrap_or_default();
+        text.trim().parse::<i32>().ok()
+    };
+    let (driver, grandchild) = (read("driver"), read("grandchild"));
+    let rows = table::snapshot()?;
+    let driving = rows.iter().any(|entry| Some(entry.id.pid) == driver);
+    let unlisted = |entry: &table::Entry| {
+        driving && (Some(entry.ppid) == driver || Some(entry.id.pid) == grandchild)
+    };
+    let read = |entry: table::Entry| table::Entry {
+        exiting: entry.exiting || Some(entry.id.pid) == grandchild,
+        ..entry
+    };
+    Ok(rows
+        .into_iter()
+        .filter(|entry| !unlisted(entry))
+        .map(read)
+        .collect())
+}
+
+/// An engine whose table is `exiting_grandchild`, and whose attempt's
+/// grandchild leaves the session, forks a child that runs on, and waits
+/// for it. The driver reports success and exits. The engine writes down
+/// the cleanup, and which of the grandchild and its child it reads
+/// running once the report has returned, then ends what is left.
+#[cfg(target_os = "linux")]
+fn exiting_engine(dir: &str) {
+    let seats = Seats::at(dir);
+    let host = Host {
+        table: exiting_grandchild,
+        ..Host::REAL
+    };
+    let child = seats.file("seat", "child");
+    let grandchild = format!(
+        "setsid sh -c 'sleep 30 & printf \"%s\\n\" \"$!\" > \"$1\"; \
+         printf \"%s\\n\" \"$$\" > \"$2\"; wait' grandchild '{}' \"$GRANDCHILD\"",
+        child.display()
+    );
+    let succeeds = format!("printf '%s\\n' '{}'", succeeded());
+    let driver = seats.stub("seat", &accepting(), &grandchild, &succeeds);
+    let process = DriverProcess::spawn_with(&driver, &seats.dir, None, &SpawnEnv::Inherit, host);
+    let report = attempt(process.unwrap());
+    let child = std::fs::read_to_string(child)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let tree = [seats.pids("seat")[1], child];
+    let running: Vec<i32> = tree.into_iter().filter(|pid| !gone(*pid)).collect();
+    let written = format!("{:?} {running:?}", report.cleanup);
+    std::fs::write(seats.file("seat", "report"), written).unwrap();
+    for pid in running {
+        let pid = Pid::from_raw(pid).expect("a recorded pid is positive");
+        rustix::process::kill_process(pid, rustix::process::Signal::KILL).unwrap();
+    }
+    assert!(all_gone(tree), "tree {tree:?} survived");
 }
 
 /// Run the attempt, write down the cleanup its end reports, then end the
@@ -1556,6 +1625,24 @@ fn a_descendant_still_running_after_the_kill_parks_the_attempt() {
     };
     let written = std::fs::read_to_string(seats.file("seat", "report")).unwrap();
     assert_eq!(written, format!("{parked:?}"));
+}
+
+/// #504, the first round's security hold, played by processes: an orphan
+/// the engine adopted unrecorded and inside its exit (`exiting_engine`)
+/// is attributed, and its child, which runs on until that exit ends, is
+/// ended before the report returns. The report settles because the child
+/// is gone, and the grandchild, inside its exit, runs nothing. Linux
+/// only: on macOS the orphan goes to launchd. The engine is a child
+/// process, so no other test's attempt takes the grandchild for its
+/// stray.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_exiting_orphans_running_child_is_ended_before_the_report() {
+    let seats = Seats::new();
+    let mut engine = engine(&seats, "exiting-engine").spawn().unwrap();
+    assert_eq!(exit_code(&mut engine), Some(0));
+    let written = std::fs::read_to_string(seats.file("seat", "report")).unwrap();
+    assert_eq!(written, "Settled []");
 }
 
 /// The engine, a child process so that no other test's attempt is live

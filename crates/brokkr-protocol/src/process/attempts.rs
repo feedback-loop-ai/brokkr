@@ -218,8 +218,11 @@ impl Registry {
 
     /// Record what `entries` shows of every live attempt's tree, attribute
     /// each orphan the engine adopted that none explains, once, as it
-    /// first appears, note which attempts ended, and reap the adopted
-    /// zombies.
+    /// first appears, record again under what was attributed, note which
+    /// attempts ended, and reap the adopted zombies. The second record is
+    /// what reaches an attributed orphan's children at the read that first
+    /// shows it: one inside its exit keeps them until its exit ends, and
+    /// the attempt must not settle on that read while they run (#504).
     fn observe(&mut self, entries: &[Entry]) {
         for live in self.attempts.values_mut() {
             live.record(entries);
@@ -231,6 +234,9 @@ impl Registry {
             .collect();
         for id in strays {
             self.attribute(id, entries);
+        }
+        for live in self.attempts.values_mut() {
+            live.record(entries);
         }
         let youngest = entries.iter().filter_map(|entry| entry.id.born()).max();
         for live in self.attempts.values_mut() {
@@ -469,14 +475,15 @@ fn adopted(entries: &[Entry]) -> impl Iterator<Item = &Entry> {
         .filter(move |entry| entry.ppid == me && Some(entry.pgid) != mine)
 }
 
-/// The running orphans the engine adopted that no live attempt explains
-/// and that are not already the engine's own. A driver leads a group that
-/// is a live attempt's. An exiting orphan runs nothing, as a zombie does:
-/// a settled attempt's box init still exiting is no one's doubt, and its
-/// children, reparented when its exit ends, are read then.
+/// The orphans the engine adopted, other than zombies, that no live
+/// attempt explains and that are not already the engine's own. A driver
+/// leads a group that is a live attempt's. An orphan inside its exit is a
+/// stray (#504): it runs nothing itself, but its children stay its own
+/// until its exit ends, and only its attribution leads an attempt to them
+/// (`Registry::observe`).
 fn strays<'a>(entries: &'a [Entry], registry: &'a Registry) -> impl Iterator<Item = &'a Entry> {
     adopted(entries)
-        .filter(|entry| entry.runs())
+        .filter(|entry| !entry.zombie)
         .filter(|entry| !registry.unowned.contains(&entry.id))
         .filter(|entry| !registry.attempts.values().any(|live| live.explains(entry)))
 }

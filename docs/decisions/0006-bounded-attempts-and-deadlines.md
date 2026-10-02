@@ -222,11 +222,17 @@ settle bound. A longer bound only moves the threshold.
   cannot fork, signal or write anything new.
 - The settle wait, the engine's signal stop and the group's EPERM
   reading ask one question, whether a process still runs, and answer it
-  the same way. An exiting orphan the engine adopted is not a stray, as
-  a zombie is not: its children stay its own until its exit ends, and
-  are read on their own once they come to the engine. The tracker still
-  records and follows an exiting process for the same reason, and an
-  attempt is not noted ended while one of its processes is exiting.
+  the same way. An exiting process does not itself keep an attempt open,
+  but its running children do. Its children stay its own until its exit
+  ends, so the tracker still records and follows an exiting process, and
+  an attempt is not noted ended while one of its processes is exiting.
+  For the same reason, an exiting orphan the engine adopted is still a
+  stray. It is attributed as a running one is, and the read that
+  attributes it also records its children. An attempt therefore does
+  not settle on that read while one of those children runs, and the
+  children are signalled. Were the orphan left unattributed, its
+  children would come to the engine only after the attempt had settled,
+  as the engine's own, and no one would signal them.
 - The guarantee does not move. A descendant that still runs after the
   kill parks the attempt, whatever its driver reported.
 - This closes a false `indeterminate`, a descendant reported but
