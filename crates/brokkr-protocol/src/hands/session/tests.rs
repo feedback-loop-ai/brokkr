@@ -301,3 +301,26 @@ fn a_tree_mid_creation_is_never_reapable() {
     assert_eq!(now.len(), 1);
     assert_eq!(now[0].as_ref().unwrap().file_name(), name);
 }
+
+/// A dead owner's unheld tree that cannot be removed is neither removed
+/// nor reported kept: the next start tries it again. Until #504 an exec
+/// box's overlay `work` directory (mode 000, made by overlayfs) was what
+/// made a tree unremovable; an exec box now writes its overlays to RAM,
+/// so the refusal is planted here as a directory its owner cannot write.
+#[cfg(unix)]
+#[test]
+fn a_free_tree_that_cannot_be_removed_is_left_for_the_next_start() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let tree = planted(tmp.path(), "exec", &dead_pid().to_string());
+    let sealed = tree.join("sealed");
+    std::fs::create_dir(&sealed).unwrap();
+    std::fs::write(sealed.join("call"), "").unwrap();
+    std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+    let reaped = reap_dead_sessions_in(tmp.path(), flock);
+    std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert_eq!(reaped, Reaped::default());
+    assert!(sealed.join("call").is_file(), "the tree is left whole");
+}
