@@ -1,8 +1,23 @@
-//! Where a box's overlay binds write, and their bubblewrap argv (#504).
+//! Where a box's overlay binds write, their bubblewrap argv (#504), and
+//! which bubblewrap can build them.
 
 use std::path::Path;
 
-use super::namespace_path;
+use super::{namespace_path, overlay_supported_by, BindMode, HandsSpec};
+
+/// The overlay floor on a spec, asking `reported` for bwrap's version
+/// only when the spec binds an overlay: the launch runs the binary, and
+/// `doctor` hands in what its probe found, so both judge by one rule.
+pub fn overlay_supported_with(
+    spec: &HandsSpec,
+    bwrap: &Path,
+    reported: impl FnOnce() -> String,
+) -> Result<(), String> {
+    if !spec.binds.iter().any(|bind| bind.mode == BindMode::Overlay) {
+        return Ok(());
+    }
+    overlay_supported_by(&reported(), bwrap)
+}
 
 /// Where a box's overlay binds write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

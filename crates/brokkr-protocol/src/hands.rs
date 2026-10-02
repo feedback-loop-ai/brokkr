@@ -34,7 +34,7 @@ use serde_json::{json, Map, Value};
 mod overlay;
 mod session;
 use overlay::overlay_argv;
-pub use overlay::OverlayWrites;
+pub use overlay::{overlay_supported_with, OverlayWrites};
 pub use session::{reap_dead_sessions, Reaped, Session, SessionError};
 
 /// The boxed tool Brokkr serves. Claude Code names it `mcp__brokkr__workspace`.
@@ -817,16 +817,14 @@ pub fn require_bwrap_for(spec: &HandsSpec) -> Result<PathBuf, String> {
 
 /// Refuse a spec with overlay binds on a bwrap older than 0.11.
 pub fn overlay_supported(spec: &HandsSpec, bwrap: &Path) -> Result<(), String> {
-    if !spec.binds.iter().any(|bind| bind.mode == BindMode::Overlay) {
-        return Ok(());
-    }
-    let reported = Command::new(bwrap)
-        .arg("--version")
-        .output()
-        .ok()
-        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
-        .unwrap_or_default();
-    overlay_supported_by(&reported, bwrap)
+    overlay_supported_with(spec, bwrap, || {
+        Command::new(bwrap)
+            .arg("--version")
+            .output()
+            .ok()
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            .unwrap_or_default()
+    })
 }
 
 /// The version rule on the string bwrap reported — the testable half.
