@@ -630,8 +630,8 @@ jobs:
       # The one Linux release build per run: the bootstrap bench and the
       # packaging job download this artifact rather than build their own.
       - run: cargo build --release --locked -p brokkr-cli
-      # The binary size budget (#342): within one per cent of the committed
-      # size either way, so growth is raised on purpose and a shrink is kept.
+      # The binary size budget (#342): a ceiling (30 MB, operator ruling
+      # 2026-10-01), so growth past it is raised on purpose; the size prints.
       - run: bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json
       # One binary: the `forge` shim is gone (decision 0019 ruling 9).
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

@@ -145,7 +145,7 @@ The baselines above measure code shape. These four files hold what Brokkr costs 
 | `prompt-bytes.json` | Bytes of the prompt each model site in every shipped recipe and bundle is handed | `crates/brokkr-runtime/tests/budgets.rs`, which also prints each site's o200k tokens, a report only |
 | `crate-count.json` | `Cargo.lock`'s `[[package]]` tables | the same test |
 | `heap-bytes.json` | Peak heap of projecting the largest transcript the reader admits, per kind, measured under dhat, with a tenth of headroom | `crates/brokkr-cli/tests/heap_*.rs` |
-| `binary-size.json` | Bytes of CI's Linux release binary | `scripts/binary-size.sh` in the `release-binary` job, within one per cent either way |
+| `binary-size.json` | Bytes of CI's Linux release binary, as a ceiling | `scripts/binary-size.sh` in the `release-binary` job, at or under the ceiling |
 
 Each file holds its ceilings in one `budgets` object of whole numbers. `ratchet.sh` reads the four as its table's `budgets` listing: a ceiling that rose, or a new one, is raised and needs a `Ruling:` line; a lowered or dropped one is a shrink. The gates above hold the tree to the numbers; the ratchet holds the numbers to their history.
 
