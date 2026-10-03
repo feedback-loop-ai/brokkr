@@ -317,14 +317,14 @@ fn an_inline_pin_the_tier_cannot_read_is_refused_where_the_adapter_declares_a_pr
 
     workspace.adapter(json!("fresh-1"));
     assert_eq!(workspace.compile(twice("work"), &[]).unwrap().name, "tier");
-    assert_eq!(
-        workspace
-            .compile(twice("gate"), &[])
-            .unwrap_err()
-            .to_string(),
-        "bundle: seat 'work' gate link 1 names model '<unmapped>', which driver 'newcomer' does \
-         not declare in 'judges' (decision 0041 ruling 3 — an absent declaration is empty)"
-    );
+    match workspace.compile(twice("gate"), &[]) {
+        Err(CompileError::Invalid(message)) => assert_eq!(
+            message,
+            "seat 'work' gate link 1 names model '<unmapped>', which driver 'newcomer' does not \
+             declare in 'judges' (decision 0041 ruling 3 — an absent declaration is empty)"
+        ),
+        other => panic!("expected the judges refusal, got {other:?}"),
+    }
 }
 
 /// An inline command's `--fallback-model` is the model a run falls to, so
