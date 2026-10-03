@@ -100,6 +100,13 @@ and qualifies no unmeasured harness or resume shape.
 - **AND** missing cold evidence instead refuses "seat 'intake' (office 'intake') in realm '<realm>': provider '<provider>' has no measured strict MCP configuration for 'cold'"
 - **AND** init's internal unmapped compile uses `<unmapped>` and retains "scaffolded bundle failed to compile" as its outer context; explicit workspace compilation uses starter. Each consumer test pins its entire rendered diagnostic, without a filename exemption or claiming successful initialization
 
+#### Scenario: A dsh scaffold checks its separately hired reviewer
+
+- **WHEN** a fresh dsh scaffold has qualified work candidates and all other admission checks satisfied, but its first failing review candidate is Claude with measured unsupported isolation
+- **THEN** compile refuses "seat 'review' (office 'reviewer') in realm '<realm>': provider 'claude' cannot exclude ambient MCP configuration (project MCP configuration cannot be excluded)" for that measured reason
+- **AND** missing Claude cold evidence instead refuses "seat 'review' (office 'reviewer') in realm '<realm>': provider 'claude' has no measured strict MCP configuration for 'cold'"
+- **AND** both real compile consumers pin their full diagnostic using the same unmapped initialization wrapper or mapped starter context above; an earlier dsh intake refusal proves neither reviewer check
+
 #### Scenario: An empty realm still needs strictness
 
 - **WHEN** work seat implement (office implementer) in private requests nothing and its serving test provider has no measured cold isolation

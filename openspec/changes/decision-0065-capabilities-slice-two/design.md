@@ -51,20 +51,30 @@ This is a document plan; U0 and implementation proofs remain pending.
 
 ## Decisions
 
-### D1. Repair choices and preserved authority
+### D1. Migration, checkpoint handoff and provenance
 
 | Finding / alternative | Decision, evidence and owner |
 | --- | --- |
 | S1: repository declarations alone migrate strictness | Reject. init.rs independently generates Claude, Codex and dsh metadata at :679/:745/:859 and selects it at :1776–1792. U1f2 migrates those consumers and instructions before U1g; SI2 requires exact parity and fresh-scaffold compile success/refusal in init_doctor/init_stacks (0071 rulings 5, 9). |
 | S2: normalize and immediately emit in U4c | Reject. process.rs:488–497 forwards driver data; engine.rs:2091–2107 and checkpoints.rs:221–235 pass it to store/lib.rs:316–329. v6 accepts complete groups, not private observations. U4c keeps legacy emission; U4e/U4f install all consumers, then U4f2 activates emission with native boundary proofs (rulings 3, 9). |
 | C2: keep provenance only in branch commits or behavior scenarios | Reject. A squash need not retain those commits. [evidence.md](evidence.md#visit-chronology) owns chronology and complete reconciliations; deltas describe behavior, with masking/session/startup reasons at their owners (ruling 5). |
-| Restrict strictness to seats requesting MCP | Rejected by the controlling adjudication. 0065 ruling 6 says "A harness's own MCP configuration is never inherited". SI2 applies to every model seat, including empty grants. U0 supplies evidence; an unseatable self roster needs an operator decision, never an exemption (rulings 3, 8, 9). |
+| Restrict strictness to seats requesting MCP | Reject. 0065 ruling 6 says "A harness's own MCP configuration is never inherited". SI2 applies to every model seat, including empty grants. U0 supplies evidence; an unseatable self roster needs an operator decision, never an exemption (rulings 3, 8, 9). |
 
 R1–R5, namespace-only broker admission, tool-dialect v1, seat-record v6,
 manifest v12, the next realms version after v7, D11 and both native-binding
-panic repairs stand. The operator alone accepts 0077. Panel routing advice
-has no authority; its reasoned rejection and all position dispositions are
-in [evidence.md](evidence.md#repair-adjudication).
+panic repairs stand. The operator alone accepts 0077. The claim-by-claim
+reconciliation is in [evidence.md](evidence.md#repair-council-reconciliation).
+
+A generic scaffold framework, provider substitution or initialization exemption
+is rejected: the three U1f2 paths already own generation and instructions;
+applicable assessment parity and independent compile proofs bind the necessary
+copies (0071 rulings 5, 6, 9). Whole-adapter equality would erase legitimate
+stack-specific tools and does not replace checking measured limitations.
+
+A runtime rollout flag, permissive interim schema or public observation version
+is rejected: U4's source/dependency order preserves legacy output until all
+consumers exist. Extra runtime combinations or durable private fields add no
+needed consumer and weaken the typed boundary (rulings 3, 5, 6).
 
 ### D2. U0 is an experiment with an explicit decision rule
 
@@ -565,7 +575,9 @@ fresh scaffolds compile, unsupported or missing evidence yields SI2's exact
 site/provider/shape diagnostic. The init self-check uses the existing
 `<unmapped>` context and "scaffolded bundle failed to compile" wrapper; compile
 from the generated workspace uses realm starter. Tests isolate the first
-failing model site and assert the full corresponding diagnostic. If U0 cannot
+failing model site and assert the full corresponding diagnostic. Separately
+qualify the dsh work candidates and make its Claude reviewer the first failing
+site for each SI2 cause; an intake refusal proves no reviewer check. If U0 cannot
 qualify a shipped shape, record its refusal; never change an unrelated native
 OFF or roster rule to obtain a success.
 
@@ -963,12 +975,16 @@ no instruction promises ambient MCP inheritance. These are three production
 files, including the consumed extraction.
 
 Closes tasks 7.3 and 7.4; requirements [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md).
-Proof: Each generated provider's strict metadata equals its shipped source;
+Proof: Each generated provider's applicable strict metadata and limitations
+equal its shipped source without requiring equality of stack-specific tools;
 legacy compile still works before activation. Under U1g repeat fresh-scaffold
 success for each qualified roster/shape/stack, plus SI2's exact unsupported
 and missing-evidence diagnostics at init's unmapped and workspace starter
-compile paths. Pin instruction text once; independently removing generated metadata, drifting a copied assessment or
-restoring the ambient-inheritance instruction fails its intended assertion.
+compile paths. Isolate the dsh roster's Claude reviewer as the first failing
+site for unsupported and missing evidence, independently of intake. Pin
+instruction text once; independently removing generated metadata, drifting a
+copied assessment or restoring the ambient-inheritance instruction fails its
+intended assertion.
 Synthetic test assessments prove plumbing, not live U0 qualification.
 
 Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-cli/tests/init_stacks.rs`.

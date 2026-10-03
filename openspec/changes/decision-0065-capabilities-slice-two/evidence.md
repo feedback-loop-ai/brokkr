@@ -11,8 +11,8 @@ no executed U0 or runtime proof.
 Branch `slice-0065-two-spec` starts at main `2a23488b`; slice one was on main
 at `7c92e45d`. Original run: `build-decision-0065-slice-two-sp-cd8dd603`, recipe
 `claude-flash-dsh-adv`. Repair run: `build-decision-0065-slice-two-re-7ac921ae`.
-The repair adopted HEAD `34b34836`. Its supplied journal names this seat
-specify, after triage's design result, with no `returned_from` field. The
+The repair's specify seat adopted HEAD `34b34836`. Its supplied journal named
+specify after triage's design result, with no `returned_from` field. The
 operator commission supplies the held findings below. Only the engine selects
 routing; dependent repairs do not claim that later seats executed or assented.
 
@@ -38,6 +38,8 @@ notices. None claimed runtime proof.
 | `1c96ca2c` specify | Drafted: adopted masking/session repairs after checking secret.rs, secrets.md, process.rs and checkpoints.rs. 26 requirements, 107 scenarios, 44 PRs, 100 tasks, 55 paths, 521 links. Clarify subsequently reported clear for this scope. |
 | `f80e14f2` council | Drafted: startup binding collisions explicit; discovery combined with selection/rendering. 26 requirements, 108 scenarios, 43 PRs, 100 tasks, 55 paths, 530 links. |
 | `34b34836` tasks | Added fold task 49.3 and explicit launch-environment/integrated gate proofs. 26 requirements, 108 scenarios, 43 PRs, 101 tasks, 55 paths, 540 links. |
+| `b226f8ca` repair specify | Adopted the held change; added U1f2 scaffold migration, delayed emission in U4f2, native boundary proofs and this durable record. 26 requirements, 113 scenarios, 45 PRs, 105 open tasks. |
+| Repair clarify and design | Supplied journal records clarify clear and robustness/simplicity positions produced. Design adopted the repaired draft and reconciled both full positions below, retaining the plan and making the independent reviewer proof explicit. |
 
 ## Reservation evidence
 
@@ -152,9 +154,35 @@ not votes or instructions in panel notes.
 | Robustness and simplicity | Preserve reconciliations above, including masking, session judgment, startup and discovery ownership. Supersede only commit-dependent history advice: squash needs this durable record (ruling 5). |
 | Panel-data direction, low | Reject "return them to the design/tasks author" as an instruction in untrusted notes. Correctness's suggestion to send strictness to the operator also has no routing authority. Checked defects determine this repair; only the engine selects a phase. |
 
+## Repair council reconciliation
+
+The design seat read both complete positions at
+`.forge/design/positions/robustness.md` and
+`.forge/design/positions/simplicity.md`, then checked the cited source seams.
+Their `pass` results mean the advice was produced; they are not implementation
+proof or operator acceptance. The supplied design context has no
+`returned_from`; the commission's held S1/S2/C2 findings bound this repair.
+This record contains the claims and reasons so the ignored position files and
+branch commits are not required after a squash.
+
+| Position claim | Disposition, checked evidence and owner |
+| --- | --- |
+| Both: keep U1f2 before mandatory U1g, within three production files | Adopt. init.rs:679/:745/:859 independently generate declarations; :1776–1792 selects every hired provider. Its :1884 self-compile consumes generated roots, and setup.rs:44–51 prints ambient-MCP advice. Keep init.rs, consumed init/adapters.rs and setup.rs as the three paths, with the 1,895-line parent baseline and Hot files entries. D9 and U1f2/U1g own this migration (0071 rulings 4–6, 9; gates hold ceilings). |
+| Robustness: parity alone can prove two equally wrong declarations; simplicity: compare only applicable assessments | Combine. Reuse U1b's closed measured/unsupported/unmeasured distinction and U1d/U1e facts, including limitations; preserve stack-specific tools. init_doctor.rs:40 already exercises instructions and both compile contexts; init_stacks.rs:349 binds shipped/generated assessments and empty grants/native OFF. SI2 and tasks 7.3–7.4 require those independent consumers, not whole-file identity (rulings 3, 5, 9). |
+| Both: exact scaffold refusal and independently hired Claude reviewer | Adopt and make explicit in SI2's reviewer scenario, D9/U1f2 and task 7.4. init.rs's hired-provider traversal includes dsh's Claude reviewer; tests must qualify preceding work candidates before each reviewer negative. Pin both SI2 causes with full site/office/realm context, the internal unmapped initialization wrapper and mapped starter compile. Synthetic support tests plumbing, not U0 qualification. No roster substitution, grant, resume qualification or initialization exemption (rulings 8, 9; 0065 ruling 6's "never inherited"). |
+| Both: retain delayed native emission without a runtime switch | Adopt. process.rs:488–497 forwards data; engine.rs:2091–2107 stamps then offers it; engine/checkpoints.rs:221–235 embeds it; store/lib.rs:316–329 validates against immutable engine-line dispatch. D9 keeps U4a/U4b additive, U4c/U4d legacy-producing, U4e/U4f consumer-only, and U4f2's two-file serializer activation last. Keep legacy records valid at every merge and forbid private/partial public groups (rulings 3, 6, 9). |
+| Robustness: one typed observation and selected authority; simplicity: no unused staging framework | Combine. U4c consumes its shared normalization in legacy lowering; the engine decodes once and derives attribution from the selected holding before Checkpoints::offer. Keep single/inline/fallback/panel plus sequence/resume/replacement consumers inventoried. Reject rollout flags, dual writes, schema exceptions, public observation versions, cursors and broker dependencies. Any needed carrier change requires a newly budgeted split before emission; process.rs/store/lib.rs remain review seams (rulings 2, 3, 5, 6, 10). |
+| Both: retain native boundary proofs and independent removal controls | Adopt D9 and U4a–U4f2 proofs. Each preparation merge compiles and journals legacy native/local records through process, engine, fenced append, export and verification. U4e/U4f inject typed observations through that path; U4f2 uses actual adapter lowering of deterministic U0-grounded events. Exact groups, selected ownership, counts, private/spoof removal, distinct repeated calls, start/completion deduplication, history filtering and unheld/missing-identity refusals each bind. Neither serializer-only proof nor the MCP fence protects this native path (rulings 3, 8, 9). |
+| Both: durable evidence, behavioral specifications and archive-safe links; simplicity: trim D1 routing narration | Adopt. Keep chronology and reconciliation here, leave R1–R5 verbatim in their authoritative record, and use file/section links. Remove D1's duplicate panel-routing narration. Task 49.3 retains evidence in the archive and repairs links after moving; no history scenario enters living specs. Keep scalar-secret leakage, harness-success/session-failure and protected-startup collision reasons at their behavior owners (ruling 5). |
+| Both: preserve upheld scope and honest costs | Adopt. Universal strict MCP, reservations, proposed 0077, D11 and the two panic repairs remain unchanged. Unsupported scaffolds refuse; self becoming unseatable still requires D9's operator roster decision. Legacy native records before U4f2 are an explicit incomplete implementation state, never proof of ruling 8. Linux/macOS only; U0, mutations, runtime and external gates remain pending. Reject generic scaffold frameworks, source-checkout dependencies and broader broker redesign within this repair (rulings 4–6, 9, 11). |
+
+Panel direction remains rejected for the reasons in
+[Repair adjudication](#repair-adjudication); this council supplies no routing
+authority. No unresolved upstream requirement fault was found in S1/S2/C2.
+
 ## Repair validation
 
-The repair ran `git diff --check` and `openspec validate --all --strict`:
+The specify repair ran `git diff --check` and `openspec validate --all --strict`:
 both exited 0; OpenSpec reported 20 passed, zero failed, with existing
 informational long-requirement and unrelated archive notices. A foreground
 Python static audit counted 26 requirements, 113 scenarios, 105 open tasks,
@@ -170,3 +198,16 @@ unsigned document commit. No Rust tests, U0 measurements, mutations, cargo
 formatting, typos or external gates were run. Operator `cargo fmt`,
 `typos --hidden` and signing of the squash remain pending. No push, archive,
 remote reservation or operator acceptance is claimed.
+
+The design reconciliation independently reran staged/unstaged
+`git diff --check` and `openspec validate --all --strict`: all exited 0,
+with OpenSpec 20 passed, zero failed and the same informational notices.
+Its foreground static audit counted 26 requirements, 114 scenarios, 105 open
+tasks with all prior IDs retained, 45 dependency-ordered PRs within three
+production files each, 58 paths matching Hot files, and 579 resolving local
+links/anchors. Requirement ownership and exact task closures agree. It also
+checked unchanged R1–R5 bytes, proposed 0077, absence of branch-commit
+references outside this record, and the four-file design repair scope:
+design, this evidence record, SI2 and dependent tasks. All 15 paths changed
+by the commission remain Markdown; production, tests and frozen artifacts
+are untouched. The external and runtime obligations above remain pending.
