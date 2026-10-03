@@ -1,10 +1,11 @@
 # Decision 0065 slice two — implementation tasks
 
-Status: proposed; all implementation and measurement tasks remain open.
+Status: proposed; U0's measurement tasks 1.1–1.2 are closed with dated
+evidence (pending legs named there); all implementation tasks remain open.
 Startup binding checks belong to groups 28/31/46, masking to 31/39/46 and
 session judgment to 29/30/41/42/46, each with independent removals. Discovery
 selection belongs to U7c and rendering to U7d. The plan has 45 PRs and 105
-open tasks. Historical counts and dispositions live in
+tasks, 103 of them open. Historical counts and dispositions live in
 [evidence.md](evidence.md#visit-chronology). No checkbox closes by planning.
 
 Follow design.md's final **Slice two units** section: one PR per row, from
@@ -55,8 +56,10 @@ No extra production file or relaxation of the MCP fence is implied.
 
 Dependencies: none; independent objective. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 1.1 (U0; [MB2](specs/mcp-capability-broker/spec.md), [SI1](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md)) Execute D2's per-harness ambient sentinels, strict config, Codex discovery/event and dsh loading matrix, including native historical-replay detection and separate store/process canary read-isolation controls. Record adapter evidence only; no code changes. Verify: Positive controls and each cold/resume/replacement shape are reproducible; missing read isolation refuses secret-bearing holdings, while secret-free eligibility is assessed separately.
-- [ ] 1.2 (U0; [MB2](specs/mcp-capability-broker/spec.md), [SI1](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Review the listed documents/evidence against the named requirements and retain explicit unmeasured/pending outcomes. Apply the shared verification duty above.
+- [x] 1.1 (U0; [MB2](specs/mcp-capability-broker/spec.md), [SI1](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md)) Execute D2's per-harness ambient sentinels, strict config, Codex discovery/event and dsh loading matrix, including native historical-replay detection and separate store/process canary read-isolation controls. Record adapter evidence only; no code changes. Verify: Positive controls and each cold/resume/replacement shape are reproducible; missing read isolation refuses secret-bearing holdings, while secret-free eligibility is assessed separately.
+  Evidence (2026-10-03/04, Linux, [slice-two-mcp-isolation.md](../../../docs/evidence/adapters/slice-two-mcp-isolation.md), [observations](../../../docs/evidence/adapters/slice-two-mcp-observations.json)): positive controls started, listed and answered every planted ambient sentinel. Claude 2.1.287 `--strict-mcp-config` with an explicit engine config passed cold with and without hands, and refused the flag under a managed MCP file. dsh 0.1.5-rc.1's engine-only `DSH_HOME` passed cold. Both codex-cli 0.160.0 candidates failed (project, system and managed MCP configuration loaded). LaneTally's wrapper excluded every ambient source at startup. Native/MCP event shapes and resumed-history behaviour are recorded. Store and process canaries were read separately: Claude's cold hands shape excluded both, Codex's and dsh's native shells read the store. Pending: LaneTally's engine answer and canaries, and Codex ChatGPT-login auth and OpenAI-model discovery (PENDING OPERATOR APPROVAL: each needs a credential copy that was not made); macOS (no host); resume shapes other than Codex's work-site stay unmeasured. exec is inapplicable.
+- [x] 1.2 (U0; [MB2](specs/mcp-capability-broker/spec.md), [SI1](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Review the listed documents/evidence against the named requirements and retain explicit unmeasured/pending outcomes. Apply the shared verification duty above.
+  Evidence: the record states binary/version, host, shape, config sources, candidate, argv and environment names, planted sentinels, positive controls, lifecycle logs, listings, outcomes and limitations for every cell (SI1). SD2: no production file, test, pin or witness changed. SD4 docs-only gates on the U0 head: `openspec validate --all --strict` 20 passed, 0 failed; `typos --hidden` and `git diff --check` clean. Unmeasured and pending outcomes stay explicit in the record.
 
 ## 2. U1a — Extract existing MCP transport checks
 
