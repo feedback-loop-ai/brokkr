@@ -556,7 +556,7 @@ fn the_host_picks_the_cli_on_path_and_the_boundary_the_os_can_build() {
         "{fallback:?}"
     );
     assert!(
-        fallback[1].contains("bubblewrap 0.10 or newer, which is Linux-only"),
+        fallback[1].contains("bubblewrap 0.11 or newer, which is Linux-only"),
         "{fallback:?}"
     );
     let dsh_notes = host(&dsh, "linux").notes;

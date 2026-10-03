@@ -4087,7 +4087,7 @@ fn a_bundle_with_hands_refuses_to_start_without_bubblewrap() {
     assert!(refuse_unboxable(&boxed, with_bwrap.as_os_str()).is_ok());
 
     // An overlay bind asks more of bwrap: a binary that cannot state a
-    // version of 0.10 or newer refuses the seat by name.
+    // version of 0.11 or newer refuses the seat by name.
     write_bundle_with(
         &bundle_dir,
         json!({"kind": "workspace", "binds": [{"path": "/opt/x", "mode": "overlay"}]}),
@@ -4097,7 +4097,7 @@ fn a_bundle_with_hands_refuses_to_start_without_bubblewrap() {
         .unwrap_err()
         .to_string();
     assert!(refusal.contains("seat 'work'"), "{refusal}");
-    assert!(refusal.contains("0.10 or newer"), "{refusal}");
+    assert!(refusal.contains("0.11 or newer"), "{refusal}");
 }
 
 fn write_bundle_with(bundle_dir: &std::path::Path, hands: Value) {

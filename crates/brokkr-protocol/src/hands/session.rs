@@ -3,7 +3,9 @@
 //!
 //! A hands server, an exec box and doctor's probe each hold a session
 //! directory, `brokkr-hands-<label>-<pid>-<uuid>` under the temporary
-//! directory, for what outlives one call: overlay upper layers. The owner
+//! directory, for a call's scratch and, in a server's, what outlives one
+//! call: overlay upper layers. An exec box writes its overlays to RAM
+//! inside the box (#504). The owner
 //! holds an advisory lock on the tree for its whole life and removes the
 //! tree when it ends, on a termination signal included. A session that
 //! cannot take its lock refuses to exist. A SIGKILLed owner can do

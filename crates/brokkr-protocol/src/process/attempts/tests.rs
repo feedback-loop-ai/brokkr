@@ -344,7 +344,10 @@ fn an_orphan_no_attempt_could_have_left_is_the_engines_own() {
 /// sleep`), before any read could see it run, so nothing records it. It
 /// comes to the engine once the driver exits, and no attempt explains it,
 /// live or dropped. The read is the engine's own, so no live attempt's
-/// leader is taken for an orphan.
+/// leader is taken for an orphan. The orphan runs on the host's schedule,
+/// not the driver's: on a loaded host it can outlive the driver's 0.2 s,
+/// and a read then finds it running with the engine (#504). So reads are
+/// taken until one shows it exited, and that read and the next are judged.
 #[cfg(target_os = "linux")]
 #[test]
 fn an_orphan_that_exited_before_its_first_read_is_reaped() {
@@ -370,7 +373,14 @@ fn an_orphan_that_exited_before_its_first_read_is_reaped() {
         let entries = live().read(Host::REAL.table).unwrap();
         entries.into_iter().find(|entry| entry.id.pid == orphan)
     };
-    let adopted = listed();
+    let until = Instant::now() + Duration::from_secs(10);
+    let adopted = loop {
+        let adopted = listed();
+        if adopted.as_ref().is_none_or(|entry| entry.zombie) || Instant::now() >= until {
+            break adopted;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
     assert!(
         adopted
             .as_ref()

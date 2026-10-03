@@ -303,6 +303,7 @@ pub brokkr_runtime::boundary::Unboxable::Unbuilt::seats: alloc::vec::Vec<alloc::
 pub brokkr_runtime::boundary::Unboxable::Unbuilt::slice: &'static str
 pub fn brokkr_runtime::boundary::offered(&dyn core::ops::function::Fn(&str) -> core::option::Option<alloc::string::String>) -> alloc::collections::btree::map::BTreeMap<brokkr_core::realms::Boundary, brokkr_runtime::boundary::Offer>
 pub fn brokkr_runtime::boundary::on_path(&std::ffi::os_str::OsStr) -> impl core::ops::function::Fn(&str) -> core::option::Option<alloc::string::String> + '_
+pub fn brokkr_runtime::boundary::overlays_buildable(&alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_protocol::hands::HandsSpec>, impl core::ops::function::Fn(&brokkr_protocol::hands::HandsSpec) -> core::result::Result<(), alloc::string::String>) -> core::result::Result<(), brokkr_runtime::boundary::Unboxable>
 pub fn brokkr_runtime::boundary::readiness(&str, core::option::Option<&str>) -> alloc::string::String
 pub fn brokkr_runtime::boundary::refuse_unboxable(&brokkr_runtime::bundle::Bundle, &std::ffi::os_str::OsStr) -> core::result::Result<(), brokkr_runtime::boundary::Unboxable>
 pub mod brokkr_runtime::bundle

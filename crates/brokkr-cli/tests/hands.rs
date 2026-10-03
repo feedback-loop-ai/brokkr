@@ -444,12 +444,24 @@ fn a_shipped_compiled_exec_site_runs_its_script_outside_the_worktree() {
     if !can_create_namespace() {
         return;
     }
+    let output = shipped_exec_site(&std::env::temp_dir());
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Run the shipped verify bundle, its box's session under `tmp`.
+fn shipped_exec_site(tmp: &Path) -> std::process::Output {
     let work = verifier_workspace();
     std::fs::remove_dir_all(work.path().join("scripts")).unwrap();
     std::fs::write(work.path().join("FAIL"), "select the named failing test\n").unwrap();
     let journal = tempfile::tempdir().unwrap();
     let root = workspace().canonicalize().unwrap();
-    let output = Command::new(brokkr_bin())
+    Command::new(brokkr_bin())
         .args([
             "run",
             "--bundle",
@@ -462,15 +474,9 @@ fn a_shipped_compiled_exec_site_runs_its_script_outside_the_worktree() {
             work.path().to_str().unwrap(),
         ])
         .current_dir(&root)
+        .env("TMPDIR", tmp)
         .output()
-        .unwrap();
-    assert_eq!(
-        output.status.code(),
-        Some(3),
-        "stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+        .unwrap()
 }
 
 #[test]
@@ -664,6 +670,21 @@ fn a_machine_proof_runs_the_boxed_verify_and_ship_scripts_end_to_end() {
     if !can_create_namespace() {
         return;
     }
+    let (work, output) = machine_proof(&std::env::temp_dir());
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ledger_dir = work.path().join(".forge/ledger");
+    assert_eq!(std::fs::read_dir(ledger_dir).unwrap().count(), 1);
+}
+
+/// Run the boxed verify and ship scripts through a one-off bundle; the
+/// workspace is returned for the ledger the ship seat writes into it. The
+/// boxes' sessions go under `tmp`.
+fn machine_proof(tmp: &Path) -> (tempfile::TempDir, std::process::Output) {
     let work = verifier_workspace();
     let journal = tempfile::tempdir().unwrap();
     let journal_db = journal.path().join("canonical.db");
@@ -742,14 +763,81 @@ fn a_machine_proof_runs_the_boxed_verify_and_ship_scripts_end_to_end() {
             work.path().to_str().unwrap(),
         ])
         .current_dir(work.path())
+        .env("TMPDIR", tmp)
         .output()
         .unwrap();
+    (work, output)
+}
+
+/// #504's stress harness, run by hand and never by CI: the two boxed exec
+/// runs above, side by side, `RUNS` times, beside two busy loops per core
+/// and four writers that sync what they write. The boxes' sessions are on
+/// the target's disk beside the writers, as a CI runner's `/tmp` is. While
+/// an exec box's overlay upper layer lived there, the box's pid-namespace
+/// init, outlived by bwrap's outer process, spent seconds in its exit
+/// syncing that disk as it unmounted the overlay, and was read as a
+/// descendant still running after the kill; the upper layer is now a tmpfs
+/// inside the box. Every failed run is printed with its park reason, then
+/// counted:
+///
+/// `cargo test -p brokkr-cli --test hands -- --ignored --exact --nocapture boxed_exec_settles_under_load`
+#[test]
+#[ignore = "a stress harness for #504, run by hand"]
+fn boxed_exec_settles_under_load() {
+    const RUNS: usize = 20;
     assert!(
-        output.status.success(),
-        "stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+        can_create_namespace(),
+        "the harness needs bwrap's namespaces"
     );
-    let ledger_dir = work.path().join(".forge/ledger");
-    assert_eq!(std::fs::read_dir(ledger_dir).unwrap().count(), 1);
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    let scratch = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let busy = (0..cores * 2).map(|_| {
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                std::hint::spin_loop();
+            }
+        })
+    });
+    let writers = (0..4).map(|writer| {
+        let (stop, file) = (stop.clone(), scratch.path().join(writer.to_string()));
+        std::thread::spawn(move || {
+            let block = vec![0; 1 << 20];
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let mut out = std::fs::File::create(&file).unwrap();
+                for _ in 0..256 {
+                    out.write_all(&block).unwrap();
+                }
+                out.sync_all().unwrap();
+            }
+        })
+    });
+    let load: Vec<_> = busy.chain(writers).collect();
+    let mut failed = Vec::new();
+    for run in 1..=RUNS {
+        let tmp = scratch.path().to_path_buf();
+        let shipped = std::thread::spawn(move || shipped_exec_site(&tmp));
+        let (_work, proof) = machine_proof(scratch.path());
+        let shipped = shipped.join().unwrap();
+        for (name, output, passed) in [
+            ("shipped", &shipped, shipped.status.code() == Some(3)),
+            ("proof", &proof, proof.status.success()),
+        ] {
+            if !passed {
+                let said = [&output.stdout, &output.stderr].map(|out| String::from_utf8_lossy(out));
+                eprintln!("run {run} {name} failed: {}{}", said[0], said[1]);
+                failed.push((run, name));
+            }
+        }
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    load.into_iter().for_each(|thread| thread.join().unwrap());
+    eprintln!(
+        "boxed_exec_settles_under_load: {} of {} boxed runs failed beside {} busy loops",
+        failed.len(),
+        RUNS * 2,
+        cores * 2
+    );
+    assert_eq!(failed, Vec::<(usize, &str)>::new());
 }
