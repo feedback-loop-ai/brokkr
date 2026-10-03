@@ -28,10 +28,7 @@ use brokkr_runtime::capabilities::{
 };
 use brokkr_runtime::{Adapters, HarnessHands, Library, TrustTier};
 
-#[path = "support/tracked.rs"]
-mod tracked_files;
-#[path = "support/workspace.rs"]
-mod workspace;
+use crate::{tracked_files, workspace_root as workspace};
 
 use workspace::{read, workspace};
 

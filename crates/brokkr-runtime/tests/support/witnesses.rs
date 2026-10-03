@@ -6,7 +6,7 @@
 //! Why a value moved is said in the commit that moves it; the reviewed
 //! diff of the data file is the witness.
 //!
-//! Each test binary includes this file once through `#[path]`; it is test
+//! `tests/it.rs` declares this file once through `#[path]`; it is test
 //! code by its path, so it stays outside the coverage denominator.
 
 use std::collections::BTreeMap;

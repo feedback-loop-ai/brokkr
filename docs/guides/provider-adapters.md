@@ -290,7 +290,7 @@ commit the rewritten `crates/brokkr-runtime/tests/witnesses.json`
 beside the change:
 
 ```
-BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests
+BROKKR_BLESS=1 cargo test -p brokkr-runtime --test it witness_digests::
 ```
 
 ## Hands

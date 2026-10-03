@@ -1,4 +1,4 @@
-//! The exact coverage gate's test-path vocabulary, for the test binaries
+//! The exact coverage gate's test-path vocabulary, for the test files
 //! that sort the repository's files into test and production. Its one home
 //! is `scripts/coverage-exact.sh` (`test_dirs`, `test_files`); the
 //! suppressions test holds this reading to that script, line for line.

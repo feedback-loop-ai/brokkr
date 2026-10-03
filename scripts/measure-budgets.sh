@@ -26,7 +26,7 @@ report() {
   cat "$scratch/out"
 }
 
-report -p brokkr-runtime --test budgets > "$scratch/runtime"
+report -p brokkr-runtime --test it budgets:: > "$scratch/runtime"
 for kind in claude codex dsh; do
   report -p brokkr-cli --test "heap_$kind"
 done > "$scratch/heap"

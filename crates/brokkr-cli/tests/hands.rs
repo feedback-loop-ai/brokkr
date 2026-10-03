@@ -780,7 +780,7 @@ fn machine_proof(tmp: &Path) -> (tempfile::TempDir, std::process::Output) {
 /// inside the box. Every failed run is printed with its park reason, then
 /// counted:
 ///
-/// `cargo test -p brokkr-cli --test hands -- --ignored --exact --nocapture boxed_exec_settles_under_load`
+/// `cargo test -p brokkr-cli --test it -- --ignored --exact --nocapture hands::boxed_exec_settles_under_load`
 #[test]
 #[ignore = "a stress harness for #504, run by hand"]
 fn boxed_exec_settles_under_load() {

@@ -100,5 +100,5 @@ fi
 
 # 6. Suppressions by lint (#337). The suppressions test is their one reader:
 # it holds the tree to this file on every run, and rewrites it here.
-BROKKR_REGENERATE_SUPPRESSIONS=1 cargo test --locked -q -p brokkr-cli --test suppressions \
-  every_suppression_in_the_tree_is_counted_in_the_baseline > /dev/null
+BROKKR_REGENERATE_SUPPRESSIONS=1 cargo test --locked -q -p brokkr-cli --test it \
+  suppressions::every_suppression_in_the_tree_is_counted_in_the_baseline > /dev/null

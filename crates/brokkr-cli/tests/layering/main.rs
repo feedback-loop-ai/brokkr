@@ -28,12 +28,9 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 
 mod scan;
+mod test_targets;
 
-#[path = "../support/test_paths.rs"]
-mod test_paths;
-#[path = "../support/workspace.rs"]
-mod workspace_root;
-use workspace_root::{read, workspace};
+use crate::workspace_root::{read, workspace};
 
 /// The part of `cargo metadata --format-version 1` this test reads. Cargo
 /// adds fields to the format over time, so unknown fields are ignored; an
@@ -55,6 +52,8 @@ struct Package {
     /// Every root Cargo compiles for the package: lib, bins, tests,
     /// examples, benches and a build script alike.
     targets: Vec<Target>,
+    /// The package's `Cargo.toml`, whose directory holds its `tests/`.
+    manifest_path: PathBuf,
 }
 
 /// One compiled root: its kinds as Cargo names them (`lib`, `test`,
@@ -462,6 +461,7 @@ fn the_graph_refuses_every_edge_it_does_not_allow() {
             })
             .collect(),
         targets: Vec::new(),
+        manifest_path: PathBuf::new(),
     };
     let packages = [
         package(
@@ -611,6 +611,7 @@ fn the_target_check_refuses_every_root_the_scan_does_not_read() {
         source: None,
         dependencies: Vec::new(),
         targets,
+        manifest_path: dir.join("Cargo.toml"),
     };
     let clean = package(vec![
         target("lib", "src/lib.rs"),
@@ -789,6 +790,7 @@ fn the_dependency_surface_table_matches_the_lockfile() {
             source: package.source.clone(),
             dependencies: Vec::new(),
             targets: Vec::new(),
+            manifest_path: PathBuf::new(),
         })
         .collect();
     assert_eq!(

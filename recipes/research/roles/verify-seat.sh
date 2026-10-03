@@ -41,6 +41,6 @@ else
     added=0
 fi
 export CARGO_NET_OFFLINE=true
-run "cargo test --locked -p brokkr-cli --test research_registry" cargo test --locked -p brokkr-cli --test research_registry
+run "cargo test --locked -p brokkr-cli --test it research_registry::" cargo test --locked -p brokkr-cli --test it research_registry::
 printf 'the registry parses, every citation resolves, and %s new entries were written on top of %s (cap ten); the classifications are proposals until the operator rules them' "$added" "$base" > "$notes"
 write_result pass

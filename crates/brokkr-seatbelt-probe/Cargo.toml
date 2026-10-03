@@ -7,9 +7,19 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
+# The integration tests are declared below (#423).
+autotests = false
 
 [lints]
 workspace = true
+
+# The crate's one integration-test binary (#423). Its module tree,
+# tests/seatbelt_probe/, sits beside it and is shared with the helper
+# executable through `#[path]`, and macOS CI runs its ignored probes by
+# name. brokkr-cli's `test_targets` refuses a file under tests/ that is not
+# declared here.
+[[test]]
+name = "seatbelt_lifetime_probe"
 
 # One committed test-support executable provides the probe's payload,
 # descendant, guard, supervisor and startup roles, so the native feasibility

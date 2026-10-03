@@ -1,7 +1,7 @@
 //! A reader of the attributes and `cfg!` invocations in Rust source, for
-//! the test binaries that judge them: `suppressions.rs` counts lint
-//! suppressions and `hosts.rs` refuses a Windows conditional. Each
-//! includes this through `#[path]`, so the lexer has one home.
+//! the test files that judge them: `suppressions.rs` counts lint
+//! suppressions and `hosts.rs` refuses a Windows conditional.
+//! `tests/it.rs` declares this once, so the lexer has one home.
 //!
 //! The lexer skips comments and every string and char literal, so `#[`
 //! inside a string is not an attribute, and it reads each unit whole

@@ -6,9 +6,34 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+# The integration tests are declared below, one binary and the files that
+# need a process of their own (#423).
+autotests = false
 
 [lints]
 workspace = true
+
+# The integration tests link as one binary (#423): `tests/it.rs` holds every
+# file under tests/ as a module, so a test runs as `<file>::<name>`. A file
+# that needs a process of its own is its own binary below, with the reason.
+# Cargo builds no test it is not told of here, and brokkr-cli's
+# `test_targets` refuses a file under tests/ that is neither.
+[[test]]
+name = "it"
+
+# Re-executes this binary on single tests by their unprefixed names, and
+# leaves launches alive in those children; decision 0065 slice two edits
+# its body while this lands, so only its own binary keeps both as they are.
+[[test]]
+name = "capability_launch"
+
+# Each moves the process's working directory, which every other file's
+# relative paths and spawned children would stand in.
+[[test]]
+name = "operated_repo"
+
+[[test]]
+name = "queued_launch"
 
 [dependencies]
 brokkr-core = { workspace = true }
