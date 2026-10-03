@@ -25,8 +25,8 @@ use serde_json::Value;
 use thiserror::Error;
 
 use super::{
-    command_parts, dispatch_driver, inline_route_pin, parse_class, AgentContext, Boundary,
-    CompileError, ModelPin, SeatClass,
+    command_parts, dispatch_driver, inline_route_pin, parse_class, route_pin, AgentContext,
+    Boundary, CompileError, ModelPin, SeatClass,
 };
 use crate::agents::{Adapter, Adapters, Candidate, EgressClass};
 use crate::realms::World;
@@ -208,7 +208,7 @@ fn provisional_links<'a>(
     adapters: &'a Adapters,
 ) -> Result<Vec<Link<'a>>, ProvisionalRefusal> {
     if candidates.is_empty() {
-        return Ok(inline_link(what, raw, adapters)?.into_iter().collect());
+        return inline_link(what, raw, adapters);
     }
     Ok(candidates
         .iter()
@@ -230,52 +230,69 @@ fn provisional_links<'a>(
         .collect())
 }
 
-/// An inline command's provisional model: the one its adapter maps to
-/// the concrete id the command pins, read on the flags the model policy
-/// reads (decision 0040 ruling 1). A pin those flags cannot read as one
-/// id, pinned twice or illegible, may name the provisional model as well
-/// as any other, so where the adapter declares one it is refused naming
-/// the flags read; the tier fails closed on what it cannot read. No pin
-/// at all leaves the model to the harness's own default, which may be
-/// the provisional one, so it is refused the same way: the tier does not
-/// lean on another rule to demand a pin.
+/// The flag a harness reads a second model from, the one it falls to at
+/// run time: claude's grammar admits it as inert, so the model policy
+/// walks past it, and the tier reads it as link 2 of an inline chain.
+const FALLBACK_FLAG: &str = "--fallback-model";
+
+/// An inline command's provisional models: the ones its adapter maps to
+/// the concrete ids the command pins, link 1 read on the flags the model
+/// policy reads (decision 0040 ruling 1) and link 2 on [`FALLBACK_FLAG`].
+/// A pin those flags cannot read as one id, pinned twice or illegible,
+/// may name the provisional model as well as any other, so where the
+/// adapter declares one it is refused naming the flags read; the tier
+/// fails closed on what it cannot read. No primary pin at all leaves the
+/// model to the harness's own default, which may be the provisional one,
+/// so it is refused the same way: the tier does not lean on another rule
+/// to demand a pin. No fallback pin is no second link.
 fn inline_link<'a>(
     what: &str,
     raw: &Value,
     adapters: &'a Adapters,
-) -> Result<Option<Link<'a>>, ProvisionalRefusal> {
-    let Some(adapter) =
-        dispatch_driver(&command_parts(raw)).and_then(|driver| adapters.adapter(&driver))
+) -> Result<Vec<Link<'a>>, ProvisionalRefusal> {
+    let Some(adapter) = dispatch_driver(&command_parts(raw))
+        .and_then(|driver| adapters.adapter(&driver))
+        .filter(|adapter| !adapter.provisional.is_empty())
     else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
-    let concrete = match inline_route_pin(raw, Some(adapter)) {
+    let unreadable = |flags| ProvisionalRefusal::Unreadable {
+        seat: what.to_string(),
+        adapter: adapter.provider.clone(),
+        flags,
+    };
+    let primary = match inline_route_pin(raw, Some(adapter)) {
         ModelPin::Concrete(concrete) => concrete,
-        ModelPin::Unreadable(flags) if !adapter.provisional.is_empty() => {
-            return Err(ProvisionalRefusal::Unreadable {
-                seat: what.to_string(),
-                adapter: adapter.provider.clone(),
-                flags,
-            });
-        }
-        ModelPin::Absent if !adapter.provisional.is_empty() => {
+        ModelPin::Unreadable(flags) => return Err(unreadable(flags)),
+        ModelPin::Absent => {
             return Err(ProvisionalRefusal::Unpinned {
                 seat: what.to_string(),
                 adapter: adapter.provider.clone(),
             });
         }
-        ModelPin::Unreadable(_) | ModelPin::Absent => return Ok(None),
     };
-    Ok(adapter
-        .provisional
-        .iter()
-        .find(|model| adapter.models[model.as_str()] == concrete)
-        .map(|model| Link {
-            number: 1,
-            office: None,
-            adapter,
-            model,
-        }))
+    let fallback = match route_pin(raw, FALLBACK_FLAG) {
+        ModelPin::Concrete(concrete) => Some(concrete),
+        ModelPin::Unreadable(flags) => return Err(unreadable(flags)),
+        ModelPin::Absent => None,
+    };
+    Ok([Some(primary), fallback]
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(index, concrete)| {
+            adapter
+                .provisional
+                .iter()
+                .find(|model| adapter.models[model.as_str()] == concrete)
+                .map(|model| Link {
+                    number: index + 1,
+                    office: None,
+                    adapter,
+                    model,
+                })
+        })
+        .collect())
 }
 
 #[cfg(test)]

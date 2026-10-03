@@ -797,15 +797,13 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         ],
         &what,
     )?;
-    // Decision 0065 ruling 4: what the harness can already do, and how
-    // each such power is switched on and off. An adapter that declares it
-    // is authority data, so a key written twice anywhere in the file is a
-    // refusal rather than whichever copy came second.
-    if map.contains_key("native_capabilities") {
-        let text = std::fs::read_to_string(path)?;
-        brokkr_core::canonical::parse_strict(&text)
-            .map_err(|problem| LibraryError::Invalid(format!("{what}: {problem}")))?;
-    }
+    // Every adapter is authority data: its native capabilities (decision
+    // 0065 ruling 4) and its models' tiers (proposed decision 0075 ruling
+    // 5) alike, so a key written twice anywhere in the file is a refusal
+    // rather than whichever copy came second.
+    let text = std::fs::read_to_string(path)?;
+    brokkr_core::canonical::parse_strict(&text)
+        .map_err(|problem| LibraryError::Invalid(format!("{what}: {problem}")))?;
     let native = crate::capabilities::NativeInventory::parse(&what, map.get("native_capabilities"))
         .map_err(LibraryError::Invalid)?;
     let provider = string(map, "provider", &what)?;

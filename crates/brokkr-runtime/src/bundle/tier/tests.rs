@@ -5,6 +5,7 @@
 //! read only to prove it declares nothing provisional.
 
 use super::*;
+use crate::agents::LibraryError;
 use crate::bundle::{Bundle, SeatBody};
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -326,6 +327,57 @@ fn an_inline_pin_the_tier_cannot_read_is_refused_where_the_adapter_declares_a_pr
     );
 }
 
+/// An inline command's `--fallback-model` is the model a run falls to, so
+/// it is link 2 of the chain and judged as link 1 is: a provisional id
+/// there is refused at a work seat and at a gate, a fallback pinned twice
+/// is unreadable, and a promoted one is not the tier's.
+#[test]
+fn an_inline_fallback_model_is_judged_as_a_second_link() {
+    let workspace = Workspace::new();
+    let falling = |class: &str, tail: &[&str]| {
+        let mut site = inline(class, "steady-1");
+        let command = site["driver"]["command"].as_array_mut().unwrap();
+        command.extend(tail.iter().map(|word| json!(word)));
+        site
+    };
+    let to_fresh = ["--fallback-model", "fresh-1"];
+    assert_eq!(
+        workspace.refusal(falling("work", &to_fresh), &[]),
+        ProvisionalRefusal::Unlisted {
+            seat: "work".into(),
+            link: 2,
+            model: "fresh".into(),
+            adapter: "newcomer".into(),
+            office: None,
+        }
+    );
+    assert_eq!(
+        workspace.refusal(falling("gate", &["--fallback-model=fresh-1"]), &[]),
+        ProvisionalRefusal::Gate {
+            seat: "work".into(),
+            link: 2,
+            model: "fresh".into(),
+            adapter: "newcomer".into(),
+        }
+    );
+    let twice = [
+        "--fallback-model",
+        "steady-1",
+        "--fallback-model",
+        "fresh-1",
+    ];
+    assert_eq!(
+        workspace.refusal(falling("work", &twice), &[]),
+        ProvisionalRefusal::Unreadable {
+            seat: "work".into(),
+            adapter: "newcomer".into(),
+            flags: vec!["--fallback-model".into()],
+        }
+    );
+    let steady = falling("work", &["--fallback-model", "steady-1"]);
+    assert_eq!(workspace.compile(steady, &[]).unwrap().name, "tier");
+}
+
 /// An inline command that pins no model on the adapter's flag leaves the
 /// model to the harness's default, which may be the provisional one, so
 /// it is refused at a work seat as at a gate — whether a later rule would
@@ -449,18 +501,9 @@ fn the_model_tier_is_a_closed_declaration_inside_the_models_map() {
     let workspace = Workspace::new();
     let refused = |fresh: Value| {
         workspace.adapter(fresh);
-        Adapters::load(&workspace.path("adapters"))
-            .unwrap_err()
-            .to_string()
+        invalid(&workspace)
     };
-    let file = format!(
-        "adapter 'newcomer' ({})",
-        workspace
-            .path("adapters/newcomer.json")
-            .canonicalize()
-            .unwrap()
-            .display()
-    );
+    let file = adapter_file(&workspace);
     assert_eq!(
         refused(json!({"id": "fresh-1", "tier": "promoted"})),
         format!(
@@ -497,11 +540,59 @@ fn the_model_tier_is_a_closed_declaration_inside_the_models_map() {
     )
     .unwrap();
     assert_eq!(
-        Adapters::load(&workspace.path("adapters"))
-            .unwrap_err()
-            .to_string(),
+        invalid(&workspace),
         format!("{file} needs 'models' as an object of strings")
     );
+}
+
+/// A provisional entry written twice, the second copy bare, is refused by
+/// the strict reader rather than promoted by whichever copy came second,
+/// in an adapter that declares no native capabilities as in one that
+/// does: every adapter is authority data.
+#[test]
+fn a_model_written_twice_is_refused_rather_than_promoted_by_its_second_copy() {
+    let workspace = Workspace::new();
+    workspace.agent("researcher", &["fresh"]);
+    let path = workspace.path("adapters/newcomer.json");
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("native_capabilities"), "{text}");
+    let declared = r#""fresh":{"id":"fresh-1","tier":"provisional"}"#;
+    let bare = r#","fresh":"fresh-1""#;
+    let twice = text.replacen(declared, &format!("{declared}{bare}"), 1);
+    assert_ne!(twice, text);
+    std::fs::write(&path, &twice).unwrap();
+    // The parser reports the one-based column of the quote that closed
+    // the repeated value.
+    let column = twice.find(bare).unwrap() + bare.len();
+    let refusal = format!(
+        "{}: key 'fresh' is written twice at line 1 column {column}",
+        adapter_file(&workspace)
+    );
+    assert_eq!(invalid(&workspace), refusal);
+    match workspace.compile(seat("researcher", "gate"), &["researcher"]) {
+        Err(CompileError::Invalid(message)) => assert!(
+            message.starts_with(&format!("{refusal}; the adapter data is")),
+            "{message}"
+        ),
+        other => panic!("expected the duplicate refused, got {other:?}"),
+    }
+}
+
+/// The adapter fixture as every load refusal names it.
+fn adapter_file(workspace: &Workspace) -> String {
+    let path = workspace.path("adapters/newcomer.json");
+    format!(
+        "adapter 'newcomer' ({})",
+        path.canonicalize().unwrap().display()
+    )
+}
+
+/// What loading the fixture's adapters refuses, as the variant carries it.
+fn invalid(workspace: &Workspace) -> String {
+    match Adapters::load(&workspace.path("adapters")) {
+        Err(LibraryError::Invalid(message)) => message,
+        other => panic!("expected an invalid adapter, got {other:?}"),
+    }
 }
 
 fn shipped() -> PathBuf {

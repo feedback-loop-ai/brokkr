@@ -71,7 +71,7 @@
    677 crates/brokkr-protocol/src/secret.rs
    269 crates/brokkr-protocol/src/transcript.rs
   1673 crates/brokkr-runtime/src/agents.rs
-  1337 crates/brokkr-runtime/src/agents/load.rs
+  1335 crates/brokkr-runtime/src/agents/load.rs
    285 crates/brokkr-runtime/src/anchor.rs
    168 crates/brokkr-runtime/src/boundary.rs
   7824 crates/brokkr-runtime/src/bundle.rs

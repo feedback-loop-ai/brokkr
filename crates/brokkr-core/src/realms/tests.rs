@@ -1085,20 +1085,37 @@ fn a_v7_map_lists_the_provisional_offices_and_an_absent_list_is_none() {
     let (unwritten, _) = RealmMap::parse("realms.json", &MAP.replace("/v1", "/v7")).unwrap();
     assert_eq!(unwritten.provisional_offices, [] as [&str; 0]);
 
-    let refused = |offices: Value| listed(offices).unwrap_err().to_string();
+    let refused = |offices: Value| listed(offices).unwrap_err();
+    let null = refused(Value::Null);
     assert_eq!(
-        refused(Value::Null),
+        null,
+        invalid(
+            "it writes provisional_offices as null; the list is an array, and a map that lists \
+             no office leaves the word out"
+        )
+    );
+    // The one place this refusal's rendered words are pinned.
+    assert_eq!(
+        null.to_string(),
         "realms.json is not a usable realms map: it writes provisional_offices as null; the \
          list is an array, and a map that lists no office leaves the word out"
     );
     assert_eq!(
         refused(json!(["researcher", " "])),
-        "realms.json is not a usable realms map: provisional office 1 is empty"
+        invalid("provisional office 1 is empty")
     );
     assert_eq!(
         refused(json!(["researcher", "researcher"])),
-        "realms.json is not a usable realms map: provisional office 'researcher' is listed twice"
+        invalid("provisional office 'researcher' is listed twice")
     );
+}
+
+/// The refusal `realms.json` earns for `problem`, as its variant holds it.
+fn invalid(problem: &str) -> RealmsError {
+    RealmsError::Invalid {
+        path: "realms.json".to_string(),
+        problem: problem.to_string(),
+    }
 }
 
 /// The list is refused under every label older than the one that
@@ -1108,24 +1125,27 @@ fn a_v7_map_lists_the_provisional_offices_and_an_absent_list_is_none() {
 fn provisional_offices_under_an_older_label_are_refused_by_version() {
     for label in &SCHEMAS[..6] {
         for written in [json!(["researcher"]), json!([]), Value::Null] {
-            let refusal = with(|map| {
-                map["schema"] = json!(label);
-                map["provisional_offices"] = written.clone();
-            });
+            let mut map: Value = serde_json::from_str(MAP).unwrap();
+            map["schema"] = json!(label);
+            map["provisional_offices"] = written.clone();
             assert_eq!(
-                refusal,
-                format!(
-                    "realms.json is not a usable realms map: it names provisional offices, which \
-                     is forge.realms/v7 vocabulary in a map calling itself {label}"
-                )
+                RealmMap::parse("realms.json", &map.to_string()).unwrap_err(),
+                invalid(&format!(
+                    "it names provisional offices, which is forge.realms/v7 vocabulary in a map \
+                     calling itself {label}"
+                ))
             );
         }
     }
+    let mut map: Value = serde_json::from_str(MAP).unwrap();
+    map["schema"] = json!("forge.realms/v0");
     assert_eq!(
-        with(|map| map["schema"] = json!("forge.realms/v0")),
-        "realms.json is not a usable realms map: it calls itself 'forge.realms/v0'; this build \
-         reads forge.realms/v1, forge.realms/v2, forge.realms/v3, forge.realms/v4, \
-         forge.realms/v5, forge.realms/v6 and forge.realms/v7"
+        RealmMap::parse("realms.json", &map.to_string()).unwrap_err(),
+        invalid(
+            "it calls itself 'forge.realms/v0'; this build reads forge.realms/v1, \
+             forge.realms/v2, forge.realms/v3, forge.realms/v4, forge.realms/v5, forge.realms/v6 \
+             and forge.realms/v7"
+        )
     );
 }
 
