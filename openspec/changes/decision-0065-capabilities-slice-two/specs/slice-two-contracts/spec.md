@@ -1,7 +1,7 @@
 ## Purpose
 
 State the additive public contracts and typed meanings needed before MCP
-admission, without editing any published schema in this documents-only visit.
+admission, preserving every published schema version.
 
 ## ADDED Requirements
 
@@ -177,6 +177,12 @@ dependency. A verified correlated turn, when available, remains the real one.
 - **THEN** v6 rejects the exact field/dependency violation at append without writing anything
 - **AND** a complete native observed row and broker succeeded/failed row with a valid published digest pass
 
+#### Scenario: Private observations cannot pass as public attribution
+
+- **WHEN** driver data contains a private normalized observation or only part of an attribution group
+- **THEN** the engine consumes the observation into a complete engine-owned group before append, or refuses it; v6 never admits private transport fields as journal data
+- **AND** direct append of private fields or a partial group fails the closed fence with no event written, while valid legacy checkpoints still append/export/verify during preparation
+
 #### Scenario: Historical tool records need no invented group
 
 - **WHEN** a valid v5 tool checkpoint lacks every new field
@@ -215,12 +221,12 @@ substitution. Until U9 the ordinary compiler still returns the old refusal.
 
 New realm reservation changes the old restriction namespace, so the next
 realms version after v7 is required. Tool-dialect v1 already supplies the
-fields; reject the first draft's v2 as unused version proliferation (0071
+fields; reject an unnecessary v2 as unused version proliferation (0071
 ruling 6). Explicit execution refusals preserve its data-only references. URL execution is refused with a
 named cause rather than inventing an authentication or remote transport.
 
 Seat-record v6 and run-manifest v12 are commissioned and clear. The operator
-assigns v7 to #487 despite PR #494's historical v6 wording. Slice two takes
+assigns v7 to #487. Slice two takes
 the next realms version after v7; recheck main before minting its filename. Never overwrite a frozen file to resolve it.
 
 0071 rulings 2, 3 and 8 govern the new typed variants and errors; ruling 1
@@ -228,8 +234,8 @@ keeps storage/clock/environment effects above core/view. Opaque third-party
 MCP payloads may be decoded as edge data for validated forwarding, but engine
 authority/ledger state does not retain a generic JSON value vocabulary.
 
-Specify return, 2026-10-03: adopt returned SC4 with CC2/CR4: one attributed
-settled broker record, optional measured turn, and an actual published artifact
-before its digest. Retain old-shaped v5 acceptance and native observed semantics.
-The runtime request-name scenarios close the edge needed to meet both bounded
-v6 identities and refusal recording without truncation (0071 rulings 3, 7–9).
+One settled broker record, optional measured turn and actual publication
+before a digest preserve truthful evidence. Keep old-shaped v5 acceptance,
+native observed semantics and bounded refusal identities without truncation
+(0071 rulings 3, 7–9). S2 installs these consumers before new driver emission;
+private observations never become public schema extensions.

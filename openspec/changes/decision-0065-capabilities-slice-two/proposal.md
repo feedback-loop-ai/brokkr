@@ -1,6 +1,6 @@
 Status: proposed specification and design; implementation awaits the operator.
 Change: decision-0065-capabilities-slice-two.
-Adopted: the twelve staged first-visit documents at main 2a23488b19f6dea271264f6a85b40d46a84af39e, on slice-0065-two-spec.
+Adopted: the existing slice-two change; provenance is in [evidence.md](evidence.md#visit-chronology).
 Authority: [operator rulings R1–R5](operator-ruling-2026-10-03.md).
 
 ## Why
@@ -17,14 +17,17 @@ remaining protections before narrow implementation PRs begin.
   capability. Proposed decision 0077 amends 0065's "launched by the engine".
 - **BREAKING:** every model serving path excludes ambient MCP configuration;
   U0 measures the applicable mechanism per harness, including Codex and dsh.
-  Unmeasured isolation refuses, even with no requests.
+  Unmeasured isolation refuses, even with no requests. Generated Claude, Codex
+  and dsh scaffolds migrate before U1g activates strict admission.
 - MCP holdings require workspace hands under `namespace`, network false,
   strict configuration and supported carriage. Exact safety refusals and
   requires/wants compatibility outcomes remain distinct.
 - Gates never hold writes, and hold egress only when the realm explicitly
   names their office, for native and MCP capabilities. Requesting charters
   carry the DATA rule in the paragraph naming the capability.
-- Every granted call gains capability/dialect/tool attribution. MCP calls
+- Native checkpoint consumers and the additive v6 store fence land before
+  drivers emit normalized observations; intermediate merges preserve valid
+  legacy checkpoints. Every granted call gains capability/dialect/tool attribution. MCP calls
   pass through a protected durable ledger; the engine alone appends journal
   checkpoints, one settled record per accepted broker call. Secret-bearing
   holdings require measured read isolation; executable startup inputs and
@@ -63,91 +66,23 @@ slice-one artifacts/evidence are not rewritten.
 
 ## Impact
 
-This design visit adopts the committed change at 1c96ca2c. The supplied
-returned_from is clarify's clear review of the R-G/R-H repairs; preserve that
-answer and its scenarios. Both current council positions were read whole and
-reconciled against checked source in design D1. Robustness's startup-environment
-collision is a construction and proof obligation under existing MB3: protect
-the child environment through secret injection, using its existing refusal.
-Simplicity's discovery work moves into U7c/U7d without losing tests or task IDs.
-The owning scenario precedes the revised design and tasks. Design D11 records
-the current analysis; historical upstream findings and their adoption retain
-their dated scope. No unresolved earlier-owner defect was found this visit.
-
-Only these documents, the verbatim ruling record, proposed decision 0077,
-its index row and 0065's amendment pointer are committed. No production,
-test, contract, adapter, fixture, policy or reference byte changes. No U0
-experiment or implementation gate is claimed. In-box gates are
-`git diff --check` and `openspec validate --all --strict`; plain unsigned
-`git commit` is authorized. The operator runs format/typos outside the box
-and signs the squash before pushing.
+The repair changes proposal, deltas, design, tasks, proposed decision 0077 and
+[evidence.md](evidence.md#repair-adjudication). Production, tests and frozen
+contracts remain unchanged. The operator record, decision index and 0065
+amendment pointer are preserved. U0 and runtime proofs remain implementation
+work; document gates qualify no harness and do not accept 0077.
 
 ## Decisions
 
-Adopt the first draft's realm-only broker authority, hard namespace refusal,
-native gate protection, engine-only journal, masked retention and independent
-native protections. Reconcile three draft choices with reasons:
+Retain realm-only broker authority, namespace refusal, native gate protection,
+engine-only journal and masked retention. The next realms version after v7
+preserves #487's reservation; tool-dialect v1 defines the needed fields. URL
+execution, native retention, wider boundaries, slice three and D11's nonempty
+restriction transport remain outside scope.
 
-1. Replace the draft's realms v7 veto with **the next realms version after
-   v7**: #487 owns v7. Preserve its provisional-office meaning when adding the
-   new version. Never reserve a future merge number by editing a frozen file.
-2. Reject mandatory tool-dialect v2: v1 already has every required field,
-   environment-bound names and no promised runnable MCP implementation.
-   Unsupported URL/argv-reference execution has an exact compatibility
-   refusal, not a reinterpretation of old bytes (SC1 scenarios).
-3. Replace the first visit's unavailable signing/format/typos obligations
-   with this commission's unsigned document commit and external handoff
-   (SD4 scenario). Its earlier failures stay historical, not current blockers.
-
-URL execution, native response retention, wider boundaries, slice-three
-comparisons and D11 nonempty restriction transport remain outside scope.
-Council amendments: one qualifying DATA declaration per capability replaces
-the every-mention rule (GP2); private begin/terminal evidence yields one public
-settled checkpoint (CC2/SC4/CR4). MB2–MB4 add measured secret-read isolation,
-protected startup inputs and protocol correlation. CR2–CR4 require protection
-across managed writers, closed ledger lifecycle, commit-confirmed settlement
-and aggregate retention bounds. These repair earlier specification omissions,
-not implementation exceptions. Design D1 records each claim and reason.
-Specify disposition, 2026-10-03: adopt those owning-spec repairs. Clarify the
-bounded acceptance point in CC2/CR3 and the request-identity edge in MB3/SC4;
-record the returned finding's closure in SD1 and design D11. Repair 0077's
-missing Built issue marker using its existing open strictness prerequisite
-#467; the complete remaining work is this change's tasks, not closed slice-one
-PR #319. The operator alone accepts decision 0077 and the completed plan.
-
-Council disposition, 2026-10-03, reviewed 7f36e922: adopt typed private
-session closure and conservative unsafe-response refusal, not the legacy numeric
-masking residual. Retain the existing masker and canonicalizer with a broker
-edge check. Adopt the four bounded PR combinations and two module cuts with
-all proof ownership preserved; that design contained 44 PRs. These proposals
-claim no runtime protection or acceptance of 0077 (0071 rulings 2–9).
-
-Specify disposition of b310e094, 2026-10-03: adopt R-H's conservative refusal
-and R-G's durable failed-session closure after rechecking secret.rs:637–668,
-secrets.md:50–52, process.rs:499–520 and engine/checkpoints.rs:169–248.
-The exact cause is "MCP response cannot be safely masked"; unsafe forwarded
-responses have a failed call, no digest and no delivered or staged body.
-Retain the numeric/string/control and unsafe-correlation scenarios and the
-independent engine-failure proofs. Refuse the alternatives of inheriting the
-numeric residual, changing scalar values, treating precision as secrecy or
-treating harness success as broker success (0071 rulings 3, 5, 8, 9).
-The specify result is drafted with inputs.change; all 100 implementation and
-measurement tasks remain open and 0077 remains proposed.
-
-Design disposition, 2026-10-03, reviewed 1c96ca2c: adopt R-I at MB3 with
-independent HOME/TMPDIR collision controls before store lookup or spawn.
-Reserve the broker builder's fixed environment keys without changing decision
-0012's shared name grammar or adding a plaintext accessor. Combine discovery
-selection with U7c and rendering with U7d because those rows already own the
-required files; retain the full proof inventory in 43 PRs and all 100 open
-tasks. R-G/R-H, R1–R5, contract reservations and U9b-only enablement stand
-(0071 rulings 2–6, 8–10). This is a proposed design, not operator acceptance.
-
-Tasks disposition, 2026-10-03, reviewed f80e14f2: preserve the 43-PR order
-and all 100 existing open task IDs. Add final task 49.3 to U10a for the
-OpenSpec dialect's required archive, living truth and provenance after the
-implementation gates; 101 tasks now remain open. Name MB4's launch-environment
-proof in task 36 and GP1's integrated MCP gate proof in task 46 explicitly.
-This review changes no product requirement, runtime behavior or production
-inventory, and performs no archive or measurement. The final document fold
-and final-head gates remain future work; 0077 remains proposed.
+S1 is answered by scaffold declarations and instruction migration before
+strict admission, with fresh-scaffold scenarios under SI2. S2 delays driver
+emission until the store and all attribution consumers exist, with CC1/SC4
+boundary proofs. C2 keeps one durable evidence record and behavioral delivery
+scenarios. Choices and rejected alternatives are in
+[design Decisions](design.md#decisions) (0071 rulings 3, 5 and 9).

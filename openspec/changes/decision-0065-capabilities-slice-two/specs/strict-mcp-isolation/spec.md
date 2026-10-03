@@ -80,6 +80,26 @@ are: "provider '<provider>' cannot exclude ambient MCP configuration
 unmeasured/missing shape evidence. The reason comes from validated adapter
 evidence, bounded and masked, never ambient config contents.
 
+Generated Claude, Codex and dsh scaffold declarations SHALL carry the same
+applicable U0-measured strictness metadata and limitations as their shipped
+adapters before mandatory admission activates. Generated copies SHALL have
+exact parity proofs. Scaffold instructions SHALL state ambient exclusion,
+not promise inheritance of operator MCP servers. Generation grants nothing
+and qualifies no unmeasured harness or resume shape.
+
+#### Scenario: A fresh scaffold carries measured support
+
+- **WHEN** init selects Claude, Codex or dsh and every hired model provider and actual shape has applicable U0 support, with all other admission checks satisfied
+- **THEN** init's own scaffold compile and compilation from inside the generated workspace succeed using generated metadata, with zero capability grants and native OFF unchanged
+- **AND** init_doctor and init_stacks prove declaration parity, supported stacks and emitted instructions; dsh's separately hired Claude reviewer needs its own evidence
+
+#### Scenario: A fresh scaffold cannot manufacture strictness
+
+- **WHEN** a fresh scaffold's first failing intake candidate has measured unsupported isolation with reason "project MCP configuration cannot be excluded"
+- **THEN** compile refuses "seat 'intake' (office 'intake') in realm '<realm>': provider '<provider>' cannot exclude ambient MCP configuration (project MCP configuration cannot be excluded)", substituting the selected Claude, Codex or dsh provider and actual compile realm
+- **AND** missing cold evidence instead refuses "seat 'intake' (office 'intake') in realm '<realm>': provider '<provider>' has no measured strict MCP configuration for 'cold'"
+- **AND** init's internal unmapped compile uses `<unmapped>` and retains "scaffolded bundle failed to compile" as its outer context; explicit workspace compilation uses starter. Each consumer test pins its entire rendered diagnostic, without a filename exemption or claiming successful initialization
+
 #### Scenario: An empty realm still needs strictness
 
 - **WHEN** work seat implement (office implementer) in private requests nothing and its serving test provider has no measured cold isolation
@@ -117,3 +137,9 @@ A model's statement "no tools" alone is rejected as proof: the sentinel's
 positive control and server lifecycle observations must distinguish absence
 from a model choosing not to call. The checked Codex adapter explicitly
 records ambient isolation as unproven; its hands fragment cannot certify it.
+
+S1: generated adapters are independent consumers; editing adapters/*.json
+alone cannot migrate them. A bounded scaffold unit precedes U1g; exact parity
+and real compile proofs bind copies to their source (0071 rulings 5 and 9).
+Universal strictness follows 0065 ruling 6's "never inherited", including
+empty grants; narrowing it to requested MCP holdings is rejected.

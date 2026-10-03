@@ -34,6 +34,27 @@ with "tool '<tool>' maps to more than one held capability for provider
 fail the attempt with "observed capability tool '<tool>' is not held by this
 attempt"; it SHALL not be disguised as an ordinary local call.
 
+Driver observation emission SHALL remain in its valid legacy shape until
+the v6 append/export/verify consumer and engine attribution for single, panel,
+sequence, fallback and resumed paths are installed. Private observations SHALL
+be consumed and removed at the engine edge; only complete engine-owned SC4
+groups or valid ordinary legacy records may reach the journal. Every
+intermediate merge SHALL preserve native compile-to-journal operation; the
+MCP compile fence supplies no protection for native calls.
+
+#### Scenario: A preparation merge preserves legacy native checkpoints
+
+- **WHEN** a native-only fixture compiles and runs through the production driver/process/engine/store path at any merge before new observation emission
+- **THEN** its legacy checkpoint appends, exports and verifies with exact existing fields and no private observation or partial attribution group
+- **AND** ordinary, inline, fallback, panel, sequence and eligible resumed/replacement paths retain valid records; no schema weakening or premature metadata emission is allowed
+
+#### Scenario: Native emission starts only with complete consumers
+
+- **WHEN** normalized native emission activates after the store fence and all engine attribution consumers are installed
+- **THEN** real native compile-to-journal proofs cover ordinary, inline, fallback, panel, sequence and eligible resumed/replacement paths with exact selected capability/dialect/tool/call identity and observed state
+- **AND** private observation fields and forged driver stamps never reach the store; historical replay yields no new call, repeated new calls remain distinct and start/completion count once
+- **AND** bypassing engine consumption or emitting metadata on a preceding legacy-only path independently fails its append/export/verify proof; MCP remains fenced
+
 #### Scenario: A native search call is attributed without a broker
 
 - **WHEN** a Claude attempt holds web-search through claude-native-search and reports tool WebSearch
@@ -121,7 +142,7 @@ defines new field shapes and dependencies. Historical records SHALL retain
 absence, never backfilled from today's grants or inferred from a tool name.
 The engine-line boundary SHALL follow the store's existing additive version
 convention, with exact old/new tests and an explicit boundary chosen at U4
-against then-current main; this docs visit changes no package version.
+against then-current main; adding the schema requires no package-version change.
 
 #### Scenario: Old absence is honest
 
@@ -144,7 +165,7 @@ unreported native activity can be reconstructed from absent telemetry.
 
 The broker ledger prevents dependence on each harness's response events.
 Started/terminal records remain private; the public checkpoint has only the
-settled outcome. This adopts simplicity A without reducing durable evidence
+settled outcome. This keeps durable evidence private
 (0071 rulings 3, 5, 7). Authoritative MCP rows appear at settlement; live
 telemetry remains diagnostic and cannot certify completion. Native observed
 checkpoints deliberately claim no completion.
@@ -156,9 +177,12 @@ it denotes a capability call; it carries MB3's safe protocol cause, never raw
 invalid identifiers in checkpoint fields. This does not excuse dropping any
 well-formed denied call or a granted call whose child fails.
 
-Specify return, 2026-10-03: adopt the council's CC2 repair with CR3/CR4 and
-SC4. One public settled row satisfies 0065 ruling 8; private lifecycle records
-supply the crash evidence (0071 rulings 3, 5, 7–9). Replace the unbounded
-"every syntactically valid" promise with the durable acceptance point: a
-bounded reader cannot record input it never accepted. Accepted local refusals
-remain evidence; persistence failures cannot be declared successful.
+One public settled row satisfies 0065 ruling 8; private lifecycle records
+supply crash evidence (0071 rulings 3, 5, 7–9). Durable acceptance bounds the
+promise: a bounded reader cannot record unread input. Accepted local refusals
+remain evidence; persistence failure cannot be declared successful.
+
+S2: delay emission until complete consumers exist. v6 accepts a complete
+group, not a private observation; forwarding new driver fields unchanged
+would fail its closed fence. Preserve the fence and every valid legacy row
+through preparation (0071 rulings 3 and 9).

@@ -1,59 +1,50 @@
 ## Purpose
 
-Keep this design run documentary and make later implementation narrow,
+Keep specification work documentary and implementation narrow,
 independently reviewable, inert for MCP until enablement, and honestly proved.
 
 ## ADDED Requirements
 
-### Requirement: SD1 the design run follows the dialect and awaits the operator
+### Requirement: SD1 specifications preserve authority and durable provenance
 
-This run SHALL produce documents only through specify, clarify, council
-design, tasks and analyze; it SHALL not invoke the dialect's workflow runner.
-Specify SHALL create/adopt proposal before spec deltas and record answers as
-scenarios and reasons under Decisions. Council design SHALL read every
-available position, explicitly adopt/reject/combine its claims with evidence,
-and end design.md with "Slice two units". Tasks SHALL be numbered checkbox
-groups, naming the requirement each task closes. Analyze SHALL assess all
-dependent artifacts. A returned finding SHALL be answered at its earliest
-owning artifact and dependencies made coherent; an upstream fault SHALL not
-be hidden by a downstream exception.
+Specification changes SHALL follow the dialect's artifact dependency order:
+proposal before deltas and design, deltas and design before tasks. Answers
+SHALL be scenarios; choices and reasoned refusals SHALL be recorded under
+Decisions. Every available council position SHALL be reconciled explicitly
+against evidence. A demonstrated fault SHALL be repaired at its earliest
+owning artifact with dependent artifacts kept coherent; downstream exceptions
+SHALL not hide an upstream fault. The workflow runner SHALL not be invoked.
 
-The run SHALL preserve R1–R5 verbatim in operator-ruling-2026-10-03.md and
-deliver proposed decision 0077 (unless claimed), with index and reciprocal
-Amends/Amended by pointers. Every decision stays proposed until the operator
-accepts it. The operator rules on the completed change before implementation.
-No production/test/schema/adapter edits, harness measurement execution or
-MCP grants SHALL enter this run.
+Decision amendments SHALL remain proposed until operator acceptance, with
+index and reciprocal amendment pointers. Operator rulings SHALL be preserved
+verbatim. The completed plan requires operator ruling before implementation.
+Specification work SHALL claim no production change, harness measurement or
+implementation proof that has not occurred.
 
-#### Scenario: A specify draft is not a finished council design
+Run chronology and review provenance SHALL have one durable evidence record
+in the change, referenced by file and section without requiring branch-local
+commits. Requirements and scenarios SHALL describe behavior independently of
+particular visits. Archive provenance SHALL point to the archived change;
+review chronology SHALL remain in its evidence record, not become living
+capability requirements.
 
-- **WHEN** specify has authored proposal, deltas, the ruling record and proposed amendment
-- **THEN** it returns inputs.change as decision-0065-capabilities-slice-two and claims only the artifacts it actually authored
-- **AND** it does not invent council assent, task completion, implementation, measurements or later-phase artifacts
+#### Scenario: Proposed artifacts confer no runtime authority
 
-#### Scenario: A design finding repairs its owner
+- **WHEN** a specification and amendment are complete but unaccepted and unimplemented
+- **THEN** decisions remain proposed, implementation tasks remain open and MCP admission stays fenced
+- **AND** document validation supplies no harness qualification or runtime proof
 
-- **WHEN** a later position demonstrates that a requirement cannot preserve the broker ownership or journal invariant
-- **THEN** the council identifies that earliest requirement and returns upstream with the evidence
-- **AND** changing a downstream task to silently omit the obligation is not closure
+#### Scenario: A requirement fault is repaired at its owner
 
-#### Scenario: Specify answers the returned council requirement findings
+- **WHEN** evidence shows a requirement cannot preserve broker ownership or journal integrity
+- **THEN** its owning requirement and scenarios are repaired or the claim is refuted with reasons, before dependent design and tasks change
+- **AND** a downstream omission cannot close the fault; unresolved upstream faults remain identified
 
-- **WHEN** returned_from names design's upstream findings in MB2–MB4, CR2–CR4, CC2, SC4 and GP2
-- **THEN** specify rechecks their evidence, adopts or refutes each at its owning Decisions section, encodes remaining ambiguity as scenarios and updates proposal/design/tasks in dependency order
-- **AND** a drafted result records that owning review, not runtime proof, decision acceptance or a second council vote; any unresolved earlier-owner fault still returns upstream with its cause
+#### Scenario: Provenance survives a squash and archive
 
-#### Scenario: New evidence after clear clarification has its own owner
-
-- **WHEN** clarify returned clear at 7f36e922 and the next council identifies R-G's missing session disposition and R-H's conflict between unconditional masking and scalar preservation
-- **THEN** design preserves clarify's historical scope, repairs MB3–MB5 and CR2–CR4 before their dependent design/tasks, and returns upstream for the owning specification review
-- **AND** the proposed repairs keep all implementation proofs pending; a clear earlier review or a current document gate does not accept new semantics or certify runtime behavior
-
-#### Scenario: Specify adopts the returned masking and session repairs
-
-- **WHEN** returned_from names design's b310e094 upstream result for R-H at MB4/CR2 and the accompanying R-G session-failure repair
-- **THEN** specify rechecks the masker, numeric guide limit and driver/checkpoint boundaries, adopts the exact unsafe-masking refusal and durable failed-session settlement at their owning Decisions, and keeps proposal, proposed 0077, design and tasks coherent
-- **AND** the existing scalar/text/control, unsafe-correlation and 0/1/4,096-call scenarios remain binding; drafted records this specification review with inputs.change, without claiming new council assent, runtime proof or operator acceptance
+- **WHEN** specification commits are squashed and the completed change is later archived
+- **THEN** its evidence record still contains review dispositions and reasons, and file/section references resolve without those commits
+- **AND** only behavior requirements and scenarios enter living specs, whose provenance points to the archive containing that record
 
 ### Requirement: SD2 one ordered plan splits every oversized implementation unit
 
@@ -76,10 +67,10 @@ unmeasured bypass flag SHALL be added merely for staging (0071 ruling 6).
 | Operator objective | Requirements the later tasks must cover |
 | --- | --- |
 | U0 measure; no code | SI1: strictness for each harness, Codex config/telemetry/discovery, dsh loading; dated adapter evidence and unknowns. |
-| U1 strict MCP every seat, #467 | SI2, with MB2's refusal of unsupported carriage; cold, resume, replacement and empty-grant paths. |
+| U1 strict MCP every seat, #467 | SI2, with MB2's refusal of unsupported carriage; cold, resume, replacement, empty grants and generated scaffolds migrated before admission. |
 | U2 both latent panics | SC5: exhaustive native/MCP handling in resolver and doctor before any new loaded path. |
 | U3 gate and DATA rules | GP1–GP2 for native and MCP, independent of broker runtime. |
-| U4 native attribution first | CC1, CC3, SC4 and their new record/reader tests; no broker required. |
+| U4 native attribution first | CC1, CC3, SC4; store and all engine consumers before new emission, with legacy native compile-to-journal proofs at every merge. |
 | U5 dialect model and manifest | SC1–SC3: typed preserved fields, reserved veto, additive versions and compatibility; compile still refuses MCP. |
 | U6 unwired broker with fake child | MB3–MB5: tools, protocol, secret injector and cleanup; no compile admission. |
 | U7 multi-server wiring | MB1, MB2, SI2; adapter mcp consumer and selected-attempt discovery notice. |
@@ -88,7 +79,7 @@ unmeasured bypass flag SHALL be added merely for staging (0071 ruling 6).
 | U10 removal audits and final gates | SD4: proof inventory, unresolved measurement gaps, frozen-byte audit and final validation. |
 
 Design SHALL account for already oversized capabilities.rs, bundle.rs,
-engine.rs, adapters.rs, native_controls.rs and doctor.rs before adding code:
+engine.rs, adapters.rs, native_controls.rs, doctor.rs, init.rs and engine/resume.rs before adding code:
 0071 ruling 4 permits no growth above baseline. Any extraction and new module
 is an actual named production-file change, not a ceiling exemption. The
 Hot files note SHALL list every heavily touched path, unit ownership and
@@ -105,6 +96,18 @@ other-thread conflicts, including contract/index/pin changes and #487's ownershi
 - **WHEN** U3's native gate checks and U4's native checkpoints are ready independently of U1/U2 or U6–U8
 - **THEN** their PRs can proceed under their own stated prerequisites, without enabling MCP
 - **AND** the final plan still selects one merge order and records independence explicitly
+
+#### Scenario: Generated declarations migrate before strict admission
+
+- **WHEN** the ordered plan activates mandatory strict MCP admission
+- **THEN** an earlier bounded unit has migrated generated Claude/Codex/dsh declarations and scaffold instructions, inventoried init.rs and its consumed extraction, and assigned init_doctor/init_stacks proofs
+- **AND** measured-support success and exact unsupported/unmeasured refusals remain required for fresh scaffolds without changing their empty grants
+
+#### Scenario: Native producers wait for their consumers
+
+- **WHEN** normalization, v6 acceptance and attribution are delivered in separate PRs
+- **THEN** drivers keep valid legacy emission until single, panel, sequence, fallback and resume consumers all exist; activation is a separately inventoried unit
+- **AND** native compile-to-journal tests prove every intermediate boundary, including append/export/verify, independently of the MCP compile fence
 
 ### Requirement: SD3 U9 alone removes the unbuilt MCP admission fence
 
@@ -186,18 +189,17 @@ frozen contracts/fixtures/policy/reference bytes and measured witness/compose
 pins. It SHALL not substitute a historical pass, zero-test run or docs
 validation for behavioral evidence. Production remains Rust under crates/.
 
-This docs visit SHALL run git diff --check (staged and unstaged) and
-openspec validate --all --strict; it SHALL change no tests. Documents SHALL
-be committed with plain unsigned git commit in repository style, never
-pushed. The operator runs cargo fmt and typos --hidden outside the box and
-signs the single squash commit before pushing. Those handoff steps remain
-pending until their results exist; they do not block this document commit.
+A docs-only change SHALL run staged/unstaged git diff --check and
+openspec validate --all --strict without altering tests. Where the commission
+authorizes an unsigned document commit and external formatting/spelling/signing,
+those obligations SHALL be recorded as pending until their results exist.
+No publication or push SHALL be inferred from local validation.
 
-#### Scenario: The second visit supersedes unavailable local obligations
+#### Scenario: Unavailable document checks remain an explicit handoff
 
-- **WHEN** the documents pass both in-box gates in the commissioned box without cargo, typos or the signing program
-- **THEN** the seat commits the documents unsigned and writes its result file with inputs.change
-- **AND** outside-box formatting, spelling and squash signing remain explicitly pending; the first visit's unavailable checks are historical rather than repeated blockers
+- **WHEN** the commissioned box cannot run formatting, spelling or signing, and the documents pass both in-box gates
+- **THEN** the authorized unsigned document commit may proceed with those external checks recorded as pending
+- **AND** the required result records only observed work; local validation neither supplies the missing results nor selects the next phase
 
 #### Scenario: A compiling removal proves the intended check
 
@@ -213,46 +215,16 @@ pending until their results exist; they do not block this document commit.
 
 ## Decisions
 
-R5 is a staged PR process, not a long-lived implementation branch containing
-all units. U0 records evidence; the measurement's runnable scripts or adapter
-support changes need their own inventoried later production rows.
+R5 requires narrow PRs from main through the merge queue after operator
+ruling. U0 records evidence; runnable support changes need inventoried
+production rows. MCP enablement remains U9b alone.
 
-The second commission authorizes completing the dialect's document sequence
-in one visit. This does not decide the engine's next phase or invent absent
-council positions. Design records the positions actually available and the
-analysis; all implementation checkboxes stay open.
+S1 adds the generated-adapter consumer before strict activation. S2 delays
+new native emission until complete consumers exist, because the MCP fence
+cannot protect native checkpoints. These preserve the three-file limit and
+binding proof ownership (0071 rulings 3, 5, 9).
 
-Specify return at 7f36e922, 2026-10-03: that visit's design return from
-7aa9e9ff was answered at its requirement owners. The full council
-reconciliation remains in that committed design; current D1.1/D11 identify
-the historical record and its disposition. The missing issue marker on proposed 0077 is an informational
-finding owned by the decision-index gate (0071 ruling 11). Link the existing
-open #467 strictness prerequisite and this change's complete tasks; do not
-pretend closed slice-one PR #319 carries slice two or create an unsolicited
-remote tracker. No implementation checkbox closes in this review.
-
-Council return in b310e094, 2026-10-03: that council's supplied returned_from
-was clarify's clear judgment of 7f36e922, not another copy of the earlier
-upstream findings.
-R-G/R-H are new evidence. R-H begins at MB4/CR2, so SD1 requires upstream
-owning review even though the council supplies coherent proposed repairs.
-Simplicity's four PR combinations preserve every task and proof within the
-three-production-file ceiling; the final design alone defines their merge order.
-
-Specify review at 1c96ca2c, 2026-10-03: that visit's returned_from was design's
-upstream result at b310e094, answered here and at MB4/CR2 with the accompanying R-G owners.
-Adopt its repairs with checked reasons; the complete reconciliation of both
-positions and the then-current 44-PR/100-task plan remain in committed design
-b310e094. Current design D1.1 identifies that historical record. The prior upstream
-disposition and clarify result remain historical. That visit returned drafted with
-inputs.change decision-0065-capabilities-slice-two; the engine alone determines
-its next phase. No task, measurement, external gate or proposed decision is
-marked accepted or complete by this owning review.
-
-Council design, 2026-10-03, reviewed 1c96ca2c: the supplied clarify return is
-clear on R-G/R-H. Retain those repairs. MB3's startup scenario binds an existing
-protection to the checked injector collision; it changes no grant authority
-or shared secret grammar. Adopt simplicity's U7c/U7d discovery consolidation
-with all 100 task IDs, separate selection/rendering proofs and unchanged
-three-file inventories. The current plan is 43 PRs; the earlier counts stay
-historical. D1/D11 record both positions and analysis; only U9b enables MCP.
+C2 separates evidence from behavior: branch ancestry is not durable provenance
+for a squash, and a particular review visit is not a reusable scenario.
+Archive retains the evidence record and adds living-spec provenance pointers
+without folding historical routing into requirements (0071 ruling 5).

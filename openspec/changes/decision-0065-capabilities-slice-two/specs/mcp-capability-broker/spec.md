@@ -350,58 +350,28 @@ not safely boxed; ordinary unsupported carriage still follows ruling 5.
 The box here is 0043's tool-call box, not the proposed whole-harness seat box.
 No 0072 boundary or full-access behavior is smuggled into this change.
 
-Robustness A/B/E are adopted at MB2–MB4, their earliest owners: native
-read-only access is not secrecy (hands.rs:1–13, decision 0043), process.rs:173–178
-otherwise inherits the workdir, and a method result needs typed request
-correlation (0071 rulings 3, 8, 9). U0 may prove a harness unsupported; this
-proposal adds no whole-harness box, executable installer or general attestation
-service. The protected operator installation remains trusted code.
+Native read-only access is not secrecy (hands.rs:1–13, decision 0043),
+process.rs:173–178 otherwise inherits the workdir, and a method result needs
+typed request correlation (0071 rulings 3, 8, 9). U0 may prove a harness
+unsupported; no whole-harness box, installer or attestation service substitutes
+for proof. The protected operator installation remains trusted code.
 
-Nonempty restrictions remain inexpressible under D11, even if an MCP child
-claims to understand them. The realm's empty restriction is still the sole
-restriction authority. URL transport, native response retention and wider
-boundaries require later commissioned work, not speculative runtime code.
+Nonempty restrictions remain deferred under D11, even if a child claims
+support. Empty restrictions still come only from the realm. URL transport,
+native retention and wider boundaries require later commissioned work.
 
-Specify return, 2026-10-03: adopt returned MB2–MB4 repairs for separate
-secret-read isolation, protected startup inputs and typed response correlation.
-The code facts above support the security requirements; no downstream exception
-can substitute read-only mode, a version string or a matching raw request ID
-(0071 rulings 3, 8, 9). MB3 distinguishes bounded valid refusals that need
-ledger evidence from invalid request data that cannot fit SC4's identity.
+process.rs:499–520 consumes driver status, so child exit cannot substitute
+for CR4's independent session judgment. secret.rs:637–668 leaves numeric
+scalars unchanged; the secrets guide documents that residual. R1's "masks
+secrets in its own output" requires a refusal when redaction cannot preserve
+shape. Reject inheriting that residual, coercing scalars or relying on
+precision: 876543210 is exactly representable. Keep text masking, shared
+encodings and the independent precision check (0071 rulings 3, 5, 8, 9).
 
-Council return R-G/R-H, 2026-10-03: adopt a durable session-failure disposition
-and the explicit unsafe-response refusal. process.rs:499–520 consumes driver
-status, so a broker child exit cannot stand in for CR4's engine judgment.
-secret.rs:637–668 deliberately leaves numeric scalars unchanged, and the
-secrets guide records that residual. MB4's stronger broker promise needs an
-explicit refusal where redaction and shape preservation conflict. Reject
-inheriting the numeric residual, scalar coercion, or reliance on precision
-checking: 876543210 is exactly representable. Preserve ordinary text masking,
-shared encodings and existing masker semantics (0071 rulings 3, 5, 8, 9).
-The council returned this earlier-owner repair upstream in b310e094; it is
-not a reproduced defect in an implemented broker or a runtime closure.
-
-Specify review of b310e094, 2026-10-03: adopt both repairs at this owner.
-The checked mask_json match visits strings, arrays and object keys but leaves
-other scalars unchanged; the guide explicitly documents the numeric residual.
-R1's "masks secrets in its own output" therefore requires the additional
-broker refusal already specified in MB4. Its numeric-secret and protocol-field
-scenarios answer R-H without changing legacy masking, coercing evidence or
-weakening retention-veto protection. Keep the shared encoding catalogue and
-the independent precision check (0071 rulings 3, 5, 8, 9).
-R-G's MB3/MB5 failure semantics are adopted with CR3/CR4: driver-reported
-success alone cannot discharge a broker's latched failure. U6f/U8b/U9b own
-the masking proofs; U6d/U6e/U8d/U8e/U9b own session and settlement proofs.
-Those proofs remain open; specification adoption is not operator acceptance.
-
-Council R-I, 2026-10-03, reviewed 1c96ca2c: adopt the startup-environment
-scenario under MB3's existing protection and exact cause. Checked
-adapters.rs:687–704 overwrites existing entries; secret.rs:20–30,105–137
-allows HOME/TMPDIR. A version pin or a check before injection cannot protect
-the actual child environment. Reserve every builder-owned startup key before
-lookup, including names whose current values seem safe; rotation is outside
-dialect identity. Reject global store/schema changes and a second injector.
-U6c/U6f/U9b own separate collision-removal controls and the ordinary binding
-positive. This specifies construction and proof of an existing requirement,
-not a new authority or a defect in clarify's adopted R-G/R-H answer
-(0071 rulings 2, 3, 5, 8–10; high security if bypassed in implementation).
+adapters.rs:687–704 overwrites environment entries; secret.rs:20–30,105–137
+allows HOME/TMPDIR. Checking before injection or pinning a version cannot
+protect the final child environment. Reserve builder-owned startup keys
+before lookup, even for benign values: secret rotation is outside dialect
+identity. Reject a global grammar/schema change or second injector. U6c/U6f/U9b
+own independent collision controls; U6f/U8b/U9b own masking, and
+U6d/U6e/U8d/U8e/U9b own session/settlement proofs (rulings 2, 3, 5, 8–10).

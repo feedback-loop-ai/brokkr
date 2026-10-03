@@ -13,7 +13,7 @@ beside the hands server". The operator's R1 of 2026-10-03 requires an explicit
 amendment: the intended authority stands, but that launch ownership does not
 describe the implementation we must extend.
 
-At main 2a23488b, crates/brokkr-runtime/src/engine.rs:4434–4440 documents the
+In the checked source, crates/brokkr-runtime/src/engine.rs:4434–4440 documents the
 harness-spawned hands child. crates/brokkr-protocol/src/hands.rs:1119–1142
 builds one MCP server entry invoking this executable's hands serve.
 crates/brokkr-protocol/src/native_controls.rs:2433–2456 admits exactly the
@@ -21,30 +21,17 @@ transport's hands. Adding an independently launched engine child would need
 a different transport and supervision arrangement. An engine-authored second
 configuration entry alone would still fail the existing final check.
 
-The commission's rulings are preserved at
-[the operator record](../../openspec/changes/decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md).
-They govern the proposed slice; this decision remains proposed for acceptance
-by the operator. The proposal, deltas, design and tasks carry exact
-admission, refusal and evidence obligations. Historical upstream repairs at
-7aa9e9ff and b310e094 were adopted by the specify visits at 7f36e922 and
-1c96ca2c; design D11 preserves their owners and disposition. The current
-clarify result is clear. This council retains those masking/session protections
-and makes MB3's startup-environment collision proof explicit. No runtime
-protection or acceptance of this decision is claimed.
+The [operator record](../../openspec/changes/decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md)
+governs the proposed slice; only the operator accepts this decision. Exact
+admission, refusal and evidence obligations live in the linked change.
+[Reservation and review provenance](../../openspec/changes/decision-0065-capabilities-slice-two/evidence.md#reservation-evidence)
+remain in its durable evidence record; concurrent number claims must be
+rechecked before implementation.
 
 The unbuilt marker links open [#467](https://github.com/feedback-loop-ai/brokkr/issues/467),
-the strict MCP prerequisite already commissioned as U1. It does not claim that
-issue alone specifies the broker: the complete remaining work is in
+the strict MCP prerequisite. The complete work is in
 [the slice-two tasks](../../openspec/changes/decision-0065-capabilities-slice-two/tasks.md).
-Closed slice-one PR #319 is historical delivery, not this slice's open work.
-
-0077 was unclaimed in the local decision-index gap table and the six open
-pull requests checked on 2026-10-03: #404, #452, #460, #486, #494 and #500.
-The second visit rechecked their titles, bodies and complete file lists/patches; none claims 0077. No remote reservation or merge is
-claimed by this document. This council could not refresh that remote check:
-gh had no authentication and the public API hostname could not resolve in the
-box. The local index still names proposed 0077; recheck concurrent claims
-before its implementation PR.
+No runtime protection or decision acceptance is claimed by these documents.
 
 ## Rulings
 
@@ -151,11 +138,14 @@ before its implementation PR.
    retention and contract deltas.
 
 5. **Enablement follows the operator's unit process.**
-   This change is specified, clarified, designed, planned and analyzed before
-   the operator rules on it. Subsequent narrow units are signed PRs from main
+   The completed specification and implementation plan require operator ruling.
+   Subsequent narrow units are signed PRs from main
    through the merge queue. No unit before U9 permits compilation of an MCP
    grant. Independent native gate rules, universal strict MCP, panic repairs
    and native attribution may become active before the broker is enabled.
+   Generated declarations migrate before mandatory strict admission; native
+   driver emission waits for the v6 fence and every engine attribution consumer.
+   Intermediate merges preserve valid legacy checkpoints.
 
    **Enforcement binding:** the unchanged realm-wide MCP refusal and its
    removal-control test until U9; the design's ordered one-PR units with at

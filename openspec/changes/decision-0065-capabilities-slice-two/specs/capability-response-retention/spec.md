@@ -347,46 +347,23 @@ honestly. Native retention is deferred, since the checked adapters do not
 observe native response bodies. Veto false is not an instruction to delete
 previous runs' historical artifacts; this slice introduces no garbage collector.
 
-Council robustness C/D/F and simplicity A/C are combined here: protect every
-managed writer, retain the private lifecycle, and publish one settled row only
-on confirmed append. The earlier producer-only and offered-row assumptions
-were upstream safety gaps (0071 rulings 3, 5, 8, 9). Fixed disjoint quotas avoid
-a new evidence service. Reuse existing canonical bytes with an exact-number
-edge guard; a second serializer is rejected under ruling 5. Delayed authoritative
-MCP display and serialized managed runs sharing an artifact root are accepted
-costs; losing evidence or silently changing a returned value is not.
+Writable workspace mounts require protection across all managed writers;
+Checkpoints::offer has no commit receipt. Neither a hash nor a queued row
+proves custody or settlement. Keep the private lifecycle and one settled
+public row on confirmed append (0071 rulings 3, 5, 8, 9). Static disjoint
+quotas avoid another service; existing canonicalization plus an exact-number
+edge guard avoids a second serializer. Delayed display and serialized writers
+sharing an artifact root are accepted costs.
 
-Specify return, 2026-10-03: adopt CR2–CR4's returned repairs. Writable worktree
-mounts and Checkpoints::offer's unconfirmed queue support the council's
-all-writer protection and confirmed settlement requirements; a hash or queued
-row cannot supply either proof (0071 rulings 3, 8, 9). Retain fixed attempt
-quotas, exact-number validation and reuse of canonical bytes (rulings 3, 5).
-CR3 now states the acceptance point shared with CC2; neither ledger exhaustion
-nor a failed Started write creates a fictitious recorded call. Runtime security
-proofs remain tasks, not findings closed by prose.
+A complete call set, Closed marker and harness success cannot distinguish a
+healthy zero-call session from failed initialization. Keep typed Clean/Failed
+closure and independent engine judgment. Reject deliberately missing closure
+as the normal fault channel when a safe cause can be synced; reuse existing
+failure transitions without a new public lifecycle or policy input.
 
-Council return R-G/R-H, 2026-10-03: adopt typed Clean/Failed private closure
-and engine settlement of that outcome. Presence of Closed, a complete call
-set and harness success cannot distinguish a healthy zero-call session from
-failed initialization; an end marker is not a session result. Reject using
-missing closure to encode a known fault when its safe cause can be synced.
-Reuse existing failure transitions and confirmed append; no public lifecycle,
-new journal writer or policy-table input is required (0071 rulings 2, 3, 8, 9).
-CR2 also adopts MB4's scalar/structural masking refusal. The legacy numeric
-residual conflicts with the stronger retention promise; exact numeric identity
-alone cannot discharge secrecy. The council sent these owning repairs and
-scenarios upstream in b310e094, with all dependent design/proof tasks retained.
-
-Specify review of b310e094, 2026-10-03: adopt CR2's R-H repair and CR3/CR4's
-R-G repair. The exact numeric canary is preserved by the existing canonical
-serializer and by mask_json's scalar arm, so its representation proves no
-secret safety. Retained and vetoed responses obey the same pre-delivery check;
-the unsafe response gains neither staged bytes nor a digest. CR2's numeric
-scenario and MB4's text/unrelated-number controls bind this distinction.
-The checked driver Result branch accepts the harness's status, while ordinary
-checkpoint offer has no append receipt. Keep both durable Failed closure and
-commit-confirmed engine settlement; neither a child exit nor a complete call
-set can replace them (0071 rulings 3, 5, 8, 9). CR3/CR4's 0/1/4,096-call
-scenarios retain their independent removal tests and no-replay obligation.
-No further ambiguity from the supplied return remains at this owner; runtime
-proof and operator acceptance remain pending.
+Exact numeric representation proves no secrecy: both the canonical serializer
+and mask_json preserve the numeric canary. Retained and vetoed responses obey
+the same pre-delivery check, with no unsafe staged bytes or digest. Preserve
+numeric/text/unrelated-number controls and independent masking removal. Keep
+0/1/4,096-call session controls and engine-check removal separate from cleanup;
+never replay an uncertain action (0071 rulings 3, 5, 8, 9).
