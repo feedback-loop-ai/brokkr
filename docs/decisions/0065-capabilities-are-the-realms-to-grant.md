@@ -5,6 +5,7 @@ Date: 2026-09-21
 
 Built: unbuilt (#319) — the draft rebuild of slice one
 Amends: 0016
+Amended by: 0077
 
 ## Context
 
