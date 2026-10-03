@@ -1441,9 +1441,9 @@ fn bundle_binding(dir: &Path, secrets: &[&str]) -> PathBuf {
     std::fs::write(
         bundle.join("policy.json"),
         serde_json::to_vec_pretty(&json!({
-            "phases": ["work", "review", "done", "stop"],
+            "phases": ["work", "review", "done"],
             "initial": "work",
-            "terminal": ["done", "stop"],
+            "terminal": ["done"],
             "shippable_from": ["review"],
             "rules": [
                 {"id": "W-PASS", "from": "work", "result": "pass", "next": "review",

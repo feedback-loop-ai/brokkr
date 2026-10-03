@@ -304,9 +304,13 @@ pub brokkr_runtime::boundary::Unboxable::Unbuilt::seats: alloc::vec::Vec<alloc::
 pub brokkr_runtime::boundary::Unboxable::Unbuilt::slice: &'static str
 pub fn brokkr_runtime::boundary::offered(&dyn core::ops::function::Fn(&str) -> core::option::Option<alloc::string::String>) -> alloc::collections::btree::map::BTreeMap<brokkr_core::realms::Boundary, brokkr_runtime::boundary::Offer>
 pub fn brokkr_runtime::boundary::on_path(&std::ffi::os_str::OsStr) -> impl core::ops::function::Fn(&str) -> core::option::Option<alloc::string::String> + '_
+pub fn brokkr_runtime::boundary::overlays_buildable(&alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_protocol::hands::HandsSpec>, impl core::ops::function::Fn(&brokkr_protocol::hands::HandsSpec) -> core::result::Result<(), alloc::string::String>) -> core::result::Result<(), brokkr_runtime::boundary::Unboxable>
 pub fn brokkr_runtime::boundary::readiness(&str, core::option::Option<&str>) -> alloc::string::String
 pub fn brokkr_runtime::boundary::refuse_unboxable(&brokkr_runtime::bundle::Bundle, &std::ffi::os_str::OsStr) -> core::result::Result<(), brokkr_runtime::boundary::Unboxable>
 pub mod brokkr_runtime::bundle
+pub use brokkr_runtime::bundle::ENGINE_OWNED_INPUTS
+pub use brokkr_runtime::bundle::REALM_FACTS
+pub use brokkr_runtime::bundle::is_engine_owned
 pub mod brokkr_runtime::bundle::compose
 pub struct brokkr_runtime::bundle::compose::Ancestor
 pub brokkr_runtime::bundle::compose::Ancestor::digest: alloc::string::String
@@ -504,11 +508,9 @@ pub fn brokkr_runtime::bundle::SiteFacts::inline_serving(&self) -> core::option:
 pub const brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR: &str
 pub const brokkr_runtime::bundle::DEFAULT_AGENTS_DIR: &str
 pub const brokkr_runtime::bundle::DRIVER_PROTOCOL: u32
-pub const brokkr_runtime::bundle::ENGINE_OWNED_INPUTS: [&str; 7]
 pub const brokkr_runtime::bundle::ENGINE_VERSION: &str
 pub const brokkr_runtime::bundle::ENUM_INPUTS: [&str; 1]
 pub const brokkr_runtime::bundle::EVENT_SCHEMA: u32
-pub const brokkr_runtime::bundle::REALM_FACTS: &str
 pub const brokkr_runtime::bundle::RESULT_PATH: &str
 pub const brokkr_runtime::bundle::SELECT_STRATEGIES: [&str; 4]
 pub fn brokkr_runtime::bundle::charter_text(&brokkr_runtime::bundle::Bundle, &std::path::Path) -> core::result::Result<alloc::string::String, (alloc::string::String, alloc::string::String)>
@@ -516,7 +518,6 @@ pub fn brokkr_runtime::bundle::charters_as_started(&brokkr_runtime::bundle::Bund
 pub fn brokkr_runtime::bundle::charters_intact(&brokkr_runtime::bundle::Bundle) -> core::result::Result<serde_json::value::Value, (alloc::string::String, alloc::string::String)>
 pub fn brokkr_runtime::bundle::dialect_gate_hands() -> brokkr_protocol::hands::HandsSpec
 pub fn brokkr_runtime::bundle::expand_command(&std::path::Path, &[alloc::string::String]) -> alloc::vec::Vec<alloc::string::String>
-pub fn brokkr_runtime::bundle::is_engine_owned(&str) -> bool
 pub fn brokkr_runtime::bundle::site_charter_text(&brokkr_runtime::bundle::Bundle, core::option::Option<&brokkr_runtime::bundle::CharterPin>, &std::path::Path) -> core::result::Result<alloc::string::String, (alloc::string::String, alloc::string::String)>
 pub type brokkr_runtime::bundle::CharterPins = alloc::collections::btree::map::BTreeMap<std::path::PathBuf, alloc::collections::btree::set::BTreeSet<brokkr_runtime::bundle::CharterPin>>
 pub type brokkr_runtime::bundle::DriverDigests = serde_json::map::Map<alloc::string::String, serde_json::value::Value>
@@ -953,13 +954,18 @@ pub brokkr_runtime::launch::BundleSource::Recipe::name: alloc::string::String
 pub brokkr_runtime::launch::BundleSource::Recipe::recipes_dir: std::path::PathBuf
 impl brokkr_runtime::launch::BundleSource
 pub fn brokkr_runtime::launch::BundleSource::resolve(&self) -> core::result::Result<std::path::PathBuf, brokkr_runtime::launch::LaunchError>
+pub enum brokkr_runtime::launch::Encoding
+pub brokkr_runtime::launch::Encoding::V1
 pub enum brokkr_runtime::launch::LaunchError
 pub brokkr_runtime::launch::LaunchError::Compile(brokkr_runtime::bundle::CompileError)
+pub brokkr_runtime::launch::LaunchError::DecodeQueued(serde_json::error::Error)
 pub brokkr_runtime::launch::LaunchError::Dispatch(brokkr_core::dispatch::DispatchError)
+pub brokkr_runtime::launch::LaunchError::EncodeQueued(serde_json::error::Error)
 pub brokkr_runtime::launch::LaunchError::Engine(brokkr_runtime::engine::EngineError)
 pub brokkr_runtime::launch::LaunchError::NoFeature
 pub brokkr_runtime::launch::LaunchError::NoFeature::run: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::ParseDispatch(serde_json::error::Error)
+pub brokkr_runtime::launch::LaunchError::QueuedWorkspaceRelative(std::path::PathBuf)
 pub brokkr_runtime::launch::LaunchError::ReadDispatch
 pub brokkr_runtime::launch::LaunchError::ReadDispatch::path: std::path::PathBuf
 pub brokkr_runtime::launch::LaunchError::ReadDispatch::source: core::io::error::Error
@@ -975,10 +981,15 @@ pub brokkr_runtime::launch::LaunchError::Unboxable(brokkr_runtime::boundary::Unb
 pub brokkr_runtime::launch::LaunchError::World(brokkr_runtime::realms::WorldError)
 impl brokkr_runtime::launch::LaunchError
 pub fn brokkr_runtime::launch::LaunchError::contention(&self) -> core::option::Option<&brokkr_store::StoreError>
+pub enum brokkr_runtime::launch::MapSource
+pub brokkr_runtime::launch::MapSource::Ambient(brokkr_runtime::launch::HeldWorld)
+pub brokkr_runtime::launch::MapSource::Named(brokkr_runtime::launch::HeldWorld)
+pub brokkr_runtime::launch::MapSource::Unmapped
 pub enum brokkr_runtime::launch::RunMap
 pub brokkr_runtime::launch::RunMap::Ambient(brokkr_runtime::realms::World)
 pub brokkr_runtime::launch::RunMap::Named(brokkr_runtime::realms::World)
 pub brokkr_runtime::launch::RunMap::Unmapped
+pub struct brokkr_runtime::launch::HeldWorld(_)
 pub struct brokkr_runtime::launch::LaunchRequest
 pub brokkr_runtime::launch::LaunchRequest::bundle: brokkr_runtime::launch::BundleSource
 pub brokkr_runtime::launch::LaunchRequest::host_path: std::ffi::os_str::OsString
@@ -990,6 +1001,20 @@ pub struct brokkr_runtime::launch::NewRun
 pub brokkr_runtime::launch::NewRun::dispatch: core::option::Option<std::path::PathBuf>
 pub brokkr_runtime::launch::NewRun::feature: alloc::string::String
 pub brokkr_runtime::launch::NewRun::map: brokkr_runtime::launch::RunMap
+pub struct brokkr_runtime::launch::QueuedLaunch
+pub brokkr_runtime::launch::QueuedLaunch::bundle: brokkr_runtime::launch::BundleSource
+pub brokkr_runtime::launch::QueuedLaunch::dispatch: core::option::Option<std::path::PathBuf>
+pub brokkr_runtime::launch::QueuedLaunch::encoding: brokkr_runtime::launch::Encoding
+pub brokkr_runtime::launch::QueuedLaunch::feature: alloc::string::String
+pub brokkr_runtime::launch::QueuedLaunch::map: brokkr_runtime::launch::MapSource
+pub brokkr_runtime::launch::QueuedLaunch::repo: core::option::Option<std::path::PathBuf>
+pub brokkr_runtime::launch::QueuedLaunch::secrets: core::option::Option<std::path::PathBuf>
+pub brokkr_runtime::launch::QueuedLaunch::workspace: std::path::PathBuf
+impl brokkr_runtime::launch::QueuedLaunch
+pub fn brokkr_runtime::launch::QueuedLaunch::decode(&str) -> core::result::Result<brokkr_runtime::launch::QueuedLaunch, brokkr_runtime::launch::LaunchError>
+pub fn brokkr_runtime::launch::QueuedLaunch::encode(&self) -> core::result::Result<alloc::string::String, brokkr_runtime::launch::LaunchError>
+pub fn brokkr_runtime::launch::QueuedLaunch::of(&brokkr_runtime::launch::LaunchRequest, &brokkr_runtime::launch::NewRun) -> core::result::Result<brokkr_runtime::launch::QueuedLaunch, brokkr_runtime::launch::LaunchError>
+pub fn brokkr_runtime::launch::QueuedLaunch::rebuild(self, std::path::PathBuf, std::ffi::os_str::OsString) -> core::result::Result<(brokkr_runtime::launch::LaunchRequest, brokkr_runtime::launch::NewRun), brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::capability_context(&std::path::Path, core::option::Option<&brokkr_runtime::realms::World>, core::option::Option<&brokkr_core::realms::Realm>, &std::path::Path) -> brokkr_runtime::capabilities::CapabilityContext
 pub fn brokkr_runtime::launch::compile_for(&std::path::Path, &std::path::Path, core::option::Option<&brokkr_runtime::realms::World>, &std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::rerun(brokkr_runtime::launch::LaunchRequest, &str, core::option::Option<brokkr_runtime::realms::World>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>

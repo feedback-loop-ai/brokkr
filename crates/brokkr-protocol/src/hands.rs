@@ -31,7 +31,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
+mod overlay;
 mod session;
+use overlay::overlay_argv;
+pub use overlay::{overlay_supported_with, OverlayWrites};
 pub use session::{reap_dead_sessions, Reaped, Session, SessionError};
 
 /// The boxed tool Brokkr serves. Claude Code names it `mcp__brokkr__workspace`.
@@ -409,9 +412,9 @@ pub const HOST_TOOLCHAIN_BINDS: &[&str] = &[
 
 /// The bubblewrap argv for one boxed command: the namespace, the binds,
 /// the environment, then `--` and the command. `scratch` holds this
-/// call's generated identity files and private home and tmp; `session`
-/// holds what outlives a call — the upper layers of overlay binds — and
-/// is the seat's to remove when it ends.
+/// call's generated identity files and private home and tmp; `writes`
+/// says where the upper layers of overlay binds live: a session's are
+/// the seat's to remove when it ends.
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 pub fn box_argv(
@@ -419,7 +422,7 @@ pub fn box_argv(
     workdir: &Path,
     home: &Path,
     scratch: &Path,
-    session: &Path,
+    writes: OverlayWrites<'_>,
     git: &GitFacts,
     bundle_root: Option<&Path>,
     command: &[String],
@@ -578,21 +581,7 @@ pub fn box_argv(
                 argv.extend([s("--ro-bind-try"), host_path(&host), namespace_path(&host)])
             }
             BindMode::Rw => argv.extend([s("--bind-try"), host_path(&host), namespace_path(&host)]),
-            BindMode::Overlay => {
-                let layer = session.join("overlay").join(index.to_string());
-                let upper = layer.join("upper");
-                let work = layer.join("work");
-                std::fs::create_dir_all(&upper)?;
-                std::fs::create_dir_all(&work)?;
-                argv.extend([
-                    s("--overlay-src"),
-                    host_path(&host),
-                    s("--overlay"),
-                    host_path(&upper),
-                    host_path(&work),
-                    namespace_path(&host),
-                ]);
-            }
+            BindMode::Overlay => argv.extend(overlay_argv(&host, index, writes)?),
         }
         for name in &bind.mask {
             let masked = host.join(name);
@@ -817,7 +806,8 @@ pub fn require_bwrap() -> Result<PathBuf, String> {
 }
 
 /// The bwrap binary able to build THIS spec: overlays need bubblewrap
-/// 0.10 or newer (Ubuntu 24.04 ships 0.9), and a spec that binds one is
+/// 0.11 or newer (Ubuntu 24.04 ships 0.9, and 0.10.0 parses neither
+/// `--overlay-src` nor `--tmp-overlay`), and a spec that binds one is
 /// refused on an older bwrap rather than degraded to a writable bind.
 pub fn require_bwrap_for(spec: &HandsSpec) -> Result<PathBuf, String> {
     let bwrap = require_bwrap()?;
@@ -825,26 +815,24 @@ pub fn require_bwrap_for(spec: &HandsSpec) -> Result<PathBuf, String> {
     Ok(bwrap)
 }
 
-/// Refuse a spec with overlay binds on a bwrap older than 0.10.
+/// Refuse a spec with overlay binds on a bwrap older than 0.11.
 pub fn overlay_supported(spec: &HandsSpec, bwrap: &Path) -> Result<(), String> {
-    if !spec.binds.iter().any(|bind| bind.mode == BindMode::Overlay) {
-        return Ok(());
-    }
-    let reported = Command::new(bwrap)
-        .arg("--version")
-        .output()
-        .ok()
-        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
-        .unwrap_or_default();
-    overlay_supported_by(&reported, bwrap)
+    overlay_supported_with(spec, bwrap, || {
+        Command::new(bwrap)
+            .arg("--version")
+            .output()
+            .ok()
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            .unwrap_or_default()
+    })
 }
 
 /// The version rule on the string bwrap reported — the testable half.
 pub fn overlay_supported_by(reported: &str, bwrap: &Path) -> Result<(), String> {
     match parse_version(reported) {
-        Some(version) if version >= (0, 10, 0) => Ok(()),
+        Some(version) if version >= (0, 11, 0) => Ok(()),
         _ => Err(format!(
-            "hands bind mode 'overlay' needs bubblewrap 0.10 or newer; {} reports {:?}",
+            "hands bind mode 'overlay' needs bubblewrap 0.11 or newer; {} reports {:?}",
             bwrap.display(),
             reported
         )),
@@ -985,7 +973,8 @@ pub fn execute_in(
         "-lc".to_string(),
         command.to_string(),
     ];
-    let built = box_argv(spec, workdir, home, scratch, session, git, None, &inner);
+    let writes = OverlayWrites::Session(session);
+    let built = box_argv(spec, workdir, home, scratch, writes, git, None, &inner);
     let argv = io_context(built, "namespace")?;
     let spawned = Command::new(bwrap)
         .args(&argv[1..])
@@ -1029,7 +1018,9 @@ pub fn execute_in(
 /// Run a whole command inside the box with its stdio passed through —
 /// how a deterministic `exec` seat holds a gate (ruling 3). This very
 /// binary is bound read-only so the command may be a `brokkr driver …`
-/// dispatch. Returns the child's exit code.
+/// dispatch. Returns the child's exit code. The box is single-shot, so
+/// its overlay binds write to RAM (`OverlayWrites::Ram`) and its session
+/// holds only the call's scratch (#504).
 pub fn run_boxed(
     spec: &HandsSpec,
     workdir: &Path,
@@ -1077,7 +1068,7 @@ pub fn run_boxed_in(
         workdir,
         home,
         &scratch,
-        session,
+        OverlayWrites::Ram,
         git,
         bundle_root,
         command,

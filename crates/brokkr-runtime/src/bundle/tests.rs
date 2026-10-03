@@ -80,6 +80,15 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
+/// Enter a planted literal `phase` from `review`, so the loader finds it
+/// reachable (decision 0050, ruling 3) and the compiler reaches the check
+/// the test plants it for.
+fn enter_from_review(policy: &mut Value, phase: &str) {
+    policy["rules"].as_array_mut().unwrap().push(json!({
+        "id": "ENTER", "from": "review", "result": "enter", "next": phase, "reason": "entered"
+    }));
+}
+
 fn dialect_config(verify: Value) -> (Value, Value) {
     let policy = json!({
         "phases":["design","verify","review","done"], "initial":"design", "terminal":["done"],
@@ -1527,6 +1536,7 @@ fn a_literal_phase_that_aliases_a_selected_case_is_refused_globally() {
     policy["rules"].as_array_mut().unwrap().push(json!({
         "id":"WORKCHORE", "from":"work:chore", "result":"complete", "next":"review", "reason":"x"
     }));
+    enter_from_review(&mut policy, "work:chore");
     let mut config = Fixture::config();
     config["seats"]["work"] = json!({
         "results": ["complete"],
@@ -1556,6 +1566,7 @@ fn a_literal_phase_that_aliases_a_selected_case_is_refused_globally() {
     let mut control_policy = policy.clone();
     control_policy["phases"] = json!(["work", "work:other", "review", "done"]);
     control_policy["rules"][2]["from"] = json!("work:other");
+    control_policy["rules"][3]["next"] = json!("work:other");
     assert!(fixture.compile(&control, &control_policy).is_ok());
 }
 
@@ -1576,6 +1587,7 @@ fn a_literal_phase_that_aliases_the_wrapped_verify_step_is_refused() {
     policy["rules"].as_array_mut().unwrap().push(json!({
         "id":"VC", "from":"verify:checks", "result":"pass", "next":"review", "reason":"pass"
     }));
+    enter_from_review(&mut policy, "verify:checks");
     config["seats"]["verify:checks"] = json!({
         "results":["pass"], "role":"roles/role.md", "driver":{"command":["driver"]}
     });
@@ -1616,6 +1628,7 @@ fn a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused() {
     policy["rules"].as_array_mut().unwrap().push(json!({
         "id":"VA", "from":"verify:alpha", "result":"pass", "next":"review", "reason":"pass"
     }));
+    enter_from_review(&mut policy, "verify:alpha");
     config["seats"]["verify:alpha"] = json!({
         "results":["pass"], "role":"roles/role.md", "driver":{"command":["driver"]},
         "hands":"workspace"
@@ -1655,6 +1668,7 @@ fn a_literal_phase_that_aliases_the_injected_validator_is_refused() {
     policy["rules"].as_array_mut().unwrap().push(json!({
         "id":"VDV", "from":"verify:dialect-verify", "result":"pass", "next":"review", "reason":"pass"
     }));
+    enter_from_review(&mut policy, "verify:dialect-verify");
     config["seats"]["verify:dialect-verify"] = json!({
         "results":["pass"], "role":"roles/role.md", "driver":{"command":["driver"]}
     });
@@ -1728,6 +1742,7 @@ fn a_wrapped_verify_panel_leaves_an_unrelated_literal_phase_untouched() {
     policy["rules"].as_array_mut().unwrap().push(json!({
         "id":"VB", "from":"verify:bar", "result":"pass", "next":"review", "reason":"pass"
     }));
+    enter_from_review(&mut policy, "verify:bar");
     config["seats"]["verify:bar"] = json!({
         "results":["pass"], "role":"roles/role.md", "driver":{"command":["driver"]},
         "hands":"workspace"

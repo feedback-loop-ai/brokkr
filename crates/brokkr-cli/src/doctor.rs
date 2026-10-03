@@ -1470,18 +1470,18 @@ fn doctor_observed(
             }),
         )
     });
-    let hands: Vec<&str> = compiled
+    let unboxed = std::collections::BTreeMap::new();
+    let hands = compiled
         .as_ref()
         .and_then(|(_, result)| result.as_ref().ok())
-        .map(|bundle| bundle.hands.keys().map(String::as_str).collect())
-        .unwrap_or_default();
+        .map_or(&unboxed, |bundle| &bundle.hands);
     // Decision 0046 ruling 2: one line naming the boundaries a run can
     // start under here, and the `hands` line judged against the realm's
     // boundary rather than against bubblewrap alone (decision 0043's
     // consequence, generalised). The boundary is never simulated.
     let offers = boundary::offered(&probe);
     report.ok("boundaries", boundary::doctor_line(&offers));
-    match boundary::hands_line(boundary, &offers[&boundary], &hands) {
+    match boundary::hands_line(boundary, &offers[&boundary], hands) {
         (true, line) => report.ok("hands", line),
         (false, line) => report.warn("hands", line),
     }

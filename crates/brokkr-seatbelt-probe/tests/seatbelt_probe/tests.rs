@@ -1892,7 +1892,7 @@ fn a_unit_that_covers_a_toolchain_spelling_or_control_target_fails() {
 
 #[test]
 fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
-    use brokkr_protocol::hands::{box_argv, Bind, BindMode, GitFacts, HandsSpec};
+    use brokkr_protocol::hands::{box_argv, Bind, BindMode, GitFacts, HandsSpec, OverlayWrites};
     use std::path::{Path, PathBuf};
 
     let inputs = fixed_inputs();
@@ -1950,7 +1950,7 @@ fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
             Path::new("/work"),
             &home,
             &scratch,
-            &session,
+            OverlayWrites::Session(&session),
             &git,
             None,
             &["true".to_string()],

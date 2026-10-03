@@ -208,9 +208,11 @@ that prefix with `NO_ADAPTER` at launch.
   other interactive Claude Code sessions, a claude seat is reachable by
   their cross-session messages, an input channel outside the journal
   ([#505](https://github.com/feedback-loop-ai/brokkr/issues/505)).
-- **A boxed exec attempt can park `indeterminate`.** On a loaded host, a
-  sandbox descendant still exiting at the kill leaves the attempt's end
-  unproven. Retry it
+- **A boxed exec attempt can still park `indeterminate`, rarely.** A
+  single-shot exec box writes its overlays to RAM, so its init no longer
+  outlives the kill syncing an upper layer on disk, the cause of 6 of
+  the 7 parks in 40 stressed runs. One run in 40 still parked because its
+  driver was not reaped after the kill. Retry it
   ([#504](https://github.com/feedback-loop-ai/brokkr/issues/504)).
 - **A dead hands server's scratch tree waits for the next run.** The
   start of every run, resume and rerun removes each `brokkr-hands-*` tree
@@ -224,7 +226,9 @@ that prefix with `NO_ADAPTER` at launch.
   ([#286](https://github.com/feedback-loop-ai/brokkr/issues/286),
   [#287](https://github.com/feedback-loop-ai/brokkr/issues/287)).
 - **macOS has no box of Brokkr's.** `namespace` needs bubblewrap, which
-  is Linux-only, and `seatbelt` is not built, so a macOS realm runs under
+  is Linux-only (0.11 or newer for a seat that binds an overlay, as the
+  shipped recipes' cache binds do; `doctor` warns on an older one),
+  and `seatbelt` is not built, so a macOS realm runs under
   `harness` and its exec scripts run unboxed
   ([#253](https://github.com/feedback-loop-ai/brokkr/issues/253),
   [#269](https://github.com/feedback-loop-ai/brokkr/issues/269)).

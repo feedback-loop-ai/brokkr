@@ -334,7 +334,6 @@ fn served_model_evidence_is_strict_and_dsh_reads_nested_usage_chunks() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
     let mut env = EnvGuard::lock();
     struct BrokenWriter;
@@ -375,15 +374,13 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("raw.env");
     std::fs::write(&store, b"TOKEN=abcd\xff\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o600)).unwrap();
-    }
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o600)).unwrap();
     let invalid = secret::resolve_bindings(&store, &["TOKEN".into()]).unwrap();
-    assert!(run_cli(&["true".into()], None, "", &invalid)
-        .unwrap_err()
-        .contains("not valid UTF-8"));
+    let refused = secret::bind_environment(&mut Command::new("true"), &invalid);
+    assert_eq!(refused, Err(secret::BindError::NotUtf8("TOKEN".into())));
+    let text = run_cli(&["true".into()], None, "", &invalid).unwrap_err();
+    assert_eq!(text, "secret 'TOKEN' is not valid UTF-8");
 
     // Exec's driver name is its override's, and one the reader refuses
     // labels it `exec`: `run_seat` refuses every start on it by name.

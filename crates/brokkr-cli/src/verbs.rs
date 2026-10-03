@@ -5,6 +5,7 @@
 //!
 //! The handlers are grouped by what they do to a run:
 //! - [`delivery`] starts, continues or ends one;
+//! - [`queue`] keeps the runs waiting to start (decision 0068);
 //! - [`readouts`] reads journals and the world, and writes nothing;
 //! - [`exchange`] moves a run's evidence across a machine's edge: anchors,
 //!   exports, imports and the Looper bridge;
@@ -12,6 +13,7 @@
 
 pub(super) mod delivery;
 pub(super) mod exchange;
+pub(super) mod queue;
 pub(super) mod readouts;
 pub(super) mod setup;
 

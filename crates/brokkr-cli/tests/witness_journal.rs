@@ -20,9 +20,9 @@ fn brokkr_bin() -> &'static str {
 
 const POLICY: &str = r#"{
   "schema": "forge.phase-machine/v1",
-  "phases": ["implement", "review", "done", "stop"],
+  "phases": ["implement", "review", "done"],
   "initial": "implement",
-  "terminal": ["done", "stop"],
+  "terminal": ["done"],
   "rules": [
     {"id": "IMPL-OK", "from": "implement", "result": "complete", "next": "review",
      "reason": "Implementation complete."},

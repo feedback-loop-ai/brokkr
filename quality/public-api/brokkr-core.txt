@@ -281,6 +281,12 @@ pub brokkr_core::policy::audit::Finding::Unsatisfiable
 pub brokkr_core::policy::audit::Finding::Unsatisfiable::rule: alloc::string::String
 impl core::fmt::Display for brokkr_core::policy::audit::Finding
 pub fn brokkr_core::policy::audit::Finding::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_core::policy::audit::Refusal
+pub brokkr_core::policy::audit::Refusal::Liveness(brokkr_core::policy::audit::Finding)
+pub brokkr_core::policy::audit::Refusal::Order(brokkr_core::policy::audit::Finding)
+pub brokkr_core::policy::audit::Refusal::Presence(brokkr_core::policy::audit::Finding)
+impl core::fmt::Display for brokkr_core::policy::audit::Refusal
+pub fn brokkr_core::policy::audit::Refusal::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::policy::audit::Setting
 pub brokkr_core::policy::audit::Setting::Count(u64)
 pub brokkr_core::policy::audit::Setting::Flag(bool)
@@ -306,6 +312,9 @@ pub brokkr_core::policy::Outcome::Ruling::reason: alloc::string::String
 pub brokkr_core::policy::Outcome::Ruling::requires_artifacts: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::policy::Outcome::Ruling::rule_id: alloc::string::String
 pub brokkr_core::policy::Outcome::Ruling::severity: alloc::string::String
+pub enum brokkr_core::policy::PolicyError
+pub brokkr_core::policy::PolicyError::Malformed(alloc::string::String)
+pub brokkr_core::policy::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
 pub enum brokkr_core::policy::Severity
 pub brokkr_core::policy::Severity::Critical
 pub brokkr_core::policy::Severity::High
@@ -329,7 +338,6 @@ pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::ma
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>
 pub fn brokkr_core::policy::Machine::reads_counter(&self, &str, &str) -> bool
 pub fn brokkr_core::policy::Machine::visit_phases(&self, &str) -> alloc::vec::Vec<alloc::string::String>
-pub struct brokkr_core::policy::PolicyError(pub alloc::string::String)
 pub struct brokkr_core::policy::Rule
 pub brokkr_core::policy::Rule::from: alloc::string::String
 pub brokkr_core::policy::Rule::id: alloc::string::String
@@ -341,7 +349,9 @@ pub brokkr_core::policy::Rule::severity: alloc::string::String
 pub const brokkr_core::policy::BOOLEAN_INPUTS: [&str; 8]
 pub const brokkr_core::policy::COUNTER_INPUTS: [&str; 1]
 pub const brokkr_core::policy::DRIFT_PHASES: [&str; 3]
+pub const brokkr_core::policy::ENGINE_OWNED_INPUTS: [&str; 7]
 pub const brokkr_core::policy::IDENTIFIER_INPUTS: [&str; 1]
+pub const brokkr_core::policy::REALM_FACTS: &str
 pub const brokkr_core::policy::RULING_SEVERITIES: [&str; 3]
 pub const brokkr_core::policy::SEVERITY_INPUTS: [&str; 1]
 pub const brokkr_core::policy::SEVERITY_ORDER: [&str; 6]
@@ -349,6 +359,7 @@ pub const brokkr_core::policy::STRATEGIES: [&str; 5]
 pub const brokkr_core::policy::TABLE_SCHEMA_V1: &str
 pub const brokkr_core::policy::TABLE_SCHEMA_V2: &str
 pub const brokkr_core::policy::VISIT_PREFIX: &str
+pub fn brokkr_core::policy::is_engine_owned(&str) -> bool
 pub fn brokkr_core::policy::is_identifier(&str) -> bool
 pub mod brokkr_core::realms
 pub mod brokkr_core::realms::recorded_boundary
@@ -512,6 +523,9 @@ pub brokkr_core::Outcome::Ruling::reason: alloc::string::String
 pub brokkr_core::Outcome::Ruling::requires_artifacts: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::Outcome::Ruling::rule_id: alloc::string::String
 pub brokkr_core::Outcome::Ruling::severity: alloc::string::String
+pub enum brokkr_core::PolicyError
+pub brokkr_core::PolicyError::Malformed(alloc::string::String)
+pub brokkr_core::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
 pub enum brokkr_core::Status
 pub brokkr_core::Status::AwaitingOperator
 pub brokkr_core::Status::Completed
@@ -546,7 +560,6 @@ pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::ma
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>
 pub fn brokkr_core::policy::Machine::reads_counter(&self, &str, &str) -> bool
 pub fn brokkr_core::policy::Machine::visit_phases(&self, &str) -> alloc::vec::Vec<alloc::string::String>
-pub struct brokkr_core::PolicyError(pub alloc::string::String)
 pub struct brokkr_core::RunState
 pub brokkr_core::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_core::RunState::cursor: brokkr_core::fold::Cursor

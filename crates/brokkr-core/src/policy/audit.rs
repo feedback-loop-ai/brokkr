@@ -1,12 +1,12 @@
 //! Decision 0050's table checks as a diagnostic (#429): order, liveness,
 //! presence and a bounded totality sweep over a loaded machine.
 //!
-//! The audit refuses nothing yet. The operator ruled on 2026-09-28 that
-//! no check add a refusal or a transition to a table that loads today
-//! before decision 0050 was ruled. It was accepted on 2026-09-29, and its
-//! addendum orders the refusals' enactment, each in a slice of its own:
-//! `docs/evidence/decision-0050-audit.md` lists them. `brokkr compile`
-//! prints the audit beside its manifest.
+//! Decision 0050 was accepted on 2026-09-29, and its addendum orders the
+//! refusals' enactment, each in a slice of its own:
+//! `docs/evidence/decision-0050-audit.md` lists them. The first slice
+//! refuses order, liveness and `v2` presence at load
+//! (`Machine::refuse_findings`); totality is still only reported.
+//! `brokkr compile` prints the audit beside its manifest.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -14,7 +14,10 @@ use std::fmt;
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-use super::{conditions_met, vocabulary, Condition, Machine, Outcome, Rule, SEVERITY_ORDER};
+use super::{
+    conditions_met, is_engine_owned, vocabulary, Condition, Machine, Outcome, PolicyError, Rule,
+    SEVERITY_ORDER, TABLE_SCHEMA_V2,
+};
 
 /// The valuations one audit may sweep across a whole table. The largest
 /// shipped table sweeps 1,072 (decision 0050), so the budget leaves room
@@ -145,16 +148,41 @@ impl Machine {
         let (dead, unruled): (Vec<Vec<Finding>>, Vec<Vec<Finding>>) =
             groups.iter().map(|group| self.sweep(group)).unzip();
         let mut findings: Vec<Finding> = dead.into_iter().flatten().collect();
-        findings.extend(self.liveness());
-        for group in &groups {
-            findings.extend(self.unread(group, &engine_owned));
-        }
+        findings.extend(self.unswept(&groups, &engine_owned));
         findings.extend(unruled.into_iter().flatten());
         Ok(Audit {
             groups: groups.len(),
             valuations: total,
             findings,
         })
+    }
+
+    /// Decision 0050's first enactment (#429): the load refuses a rule that
+    /// fires on no present valuation (ruling 2), an unreachable phase or a
+    /// dead end (ruling 3) and, in a `v2` table only, an advancing rule
+    /// that skips a hard seat input (ruling 1). A table past
+    /// `SWEEP_BUDGET` is not swept: its order and totality stay reported by
+    /// `brokkr compile` until the budget refusal lands with totality, and
+    /// the checks that need no sweep still refuse.
+    pub(super) fn refuse_findings(&self, v2: bool) -> Result<(), PolicyError> {
+        let findings = match self.audit_with(SWEEP_BUDGET, is_engine_owned) {
+            Ok(audit) => audit.findings,
+            Err(AuditError::Budget { .. }) => self.unswept(&self.groups(), &is_engine_owned),
+        };
+        match findings.into_iter().find_map(|finding| finding.refusal(v2)) {
+            Some(refusal) => Err(PolicyError::Refused(refusal)),
+            None => Ok(()),
+        }
+    }
+
+    /// The findings no sweep derives: liveness (ruling 3), then presence
+    /// (ruling 1) group by group.
+    fn unswept(&self, groups: &[Group<'_>], engine_owned: &impl Fn(&str) -> bool) -> Vec<Finding> {
+        let mut findings = self.liveness();
+        for group in groups {
+            findings.extend(self.unread(group, engine_owned));
+        }
+        findings
     }
 
     fn groups(&self) -> Vec<Group<'_>> {
@@ -384,6 +412,48 @@ impl Condition {
             | Condition::Flag { name, .. }
             | Condition::EnumIn { name, .. } => name,
         }
+    }
+}
+
+impl Finding {
+    /// The load's refusal of this finding, or `None` where it is only
+    /// reported: an unread input in a `v1` table, and every unruled
+    /// valuation.
+    fn refusal(self, v2: bool) -> Option<Refusal> {
+        match self {
+            Finding::Shadowed { .. } | Finding::Covered { .. } | Finding::Unsatisfiable { .. } => {
+                Some(Refusal::Order(self))
+            }
+            Finding::Unreachable { .. } | Finding::DeadEnd { .. } => Some(Refusal::Liveness(self)),
+            Finding::Unread { .. } if v2 => Some(Refusal::Presence(self)),
+            Finding::Unread { .. } | Finding::Unruled { .. } => None,
+        }
+    }
+}
+
+/// A finding the load refuses (#429), by the decision 0050 ruling that
+/// refuses it. `Finding::refusal` is its one derivation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    /// Ruling 1, in a `v2` table only: an unread hard input.
+    Presence(Finding),
+    /// Ruling 2: a rule that fires on no present valuation.
+    Order(Finding),
+    /// Ruling 3: an unreachable phase or a dead end.
+    Liveness(Finding),
+}
+
+impl fmt::Display for Refusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&match self {
+            Refusal::Presence(finding) => {
+                format!("{finding} (decision 0050, ruling 1, {TABLE_SCHEMA_V2})")
+            }
+            Refusal::Order(finding) => {
+                format!("{finding}; it fires on no present valuation (decision 0050, ruling 2)")
+            }
+            Refusal::Liveness(finding) => format!("{finding} (decision 0050, ruling 3)"),
+        })
     }
 }
 

@@ -112,6 +112,41 @@ pub const SEVERITY_INPUTS: [&str; 1] = ["max_residual_severity"];
 /// branch on them: identity is data passed to effects, not a control signal.
 pub const IDENTIFIER_INPUTS: [&str; 1] = ["change"];
 
+/// Inputs the engine owns. A seat may never supply or declare these:
+/// journal-computed truth is never accepted from a caller (README law 2).
+pub const ENGINE_OWNED_INPUTS: [&str; 7] = [
+    "consecutive_failures",
+    "drift_detected",
+    "dirty_worktrees",
+    REVIEWED_HEADS,
+    // The fold remembers the last successful triage result. A seat may
+    // neither declare nor overwrite the class that governs its run.
+    "strategy",
+    // Read from the tree at the protected phase's ruling (decision
+    // 0039): the review's own commits, classified by the repository's
+    // declared docs class.
+    "fixes_docs_only",
+    // The same repository facts, keyed by realm (decision 0023). Read
+    // from the tree by the engine, exactly like the two above it.
+    REALM_FACTS,
+];
+
+/// The protected phase's record: realm name (or the legacy unkeyed
+/// `repo`, per [`crate::realms::LEGACY_REALM_KEY`]) to observed head.
+pub(crate) const REVIEWED_HEADS: &str = "reviewed_heads";
+
+/// The per-realm repository facts a decision records in a mapped world:
+/// realm name -> observed HEAD, dirty worktree, drift.
+pub const REALM_FACTS: &str = "realm_facts";
+
+/// The same law over the phase-visit family (decision 0022): every
+/// `visits_<phase>` is counted by the fold from `phase/entered` events,
+/// so no seat may declare one and no seat may claim one. Presence
+/// (decision 0050, ruling 1) exempts exactly these inputs.
+pub fn is_engine_owned(name: &str) -> bool {
+    ENGINE_OWNED_INPUTS.contains(&name) || name.starts_with(VISIT_PREFIX)
+}
+
 /// Artifact ownership reported by the read-only analysis judge. Unlike an
 /// identifier, this is a closed enum which policy may branch on.
 pub const DRIFT_PHASES: [&str; 3] = ["specify", "design", "tasks"];
@@ -124,9 +159,16 @@ pub fn is_identifier(value: &str) -> bool {
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "._-".contains(c))
 }
 
-#[derive(Debug, Error)]
-#[error("malformed phase machine table: {0}")]
-pub struct PolicyError(pub String);
+#[derive(Debug, PartialEq, Eq, Error)]
+pub enum PolicyError {
+    /// The table's structure or closed vocabulary does not parse.
+    #[error("malformed phase machine table: {0}")]
+    Malformed(String),
+    /// The table parses, and holds a finding decision 0050 refuses at load
+    /// (`Machine::refuse_findings`).
+    #[error("malformed phase machine table: {0}")]
+    Refused(audit::Refusal),
+}
 
 fn severity_rank(name: &str) -> Option<usize> {
     SEVERITY_ORDER.iter().position(|s| *s == name)
@@ -185,61 +227,30 @@ pub struct Machine {
 }
 
 impl Machine {
+    /// Parse a whole table, then refuse what decision 0050 refuses at load
+    /// (`Machine::refuse_findings`).
     pub fn from_table(table: &Value) -> Result<Machine, PolicyError> {
+        let machine = Machine::parse(table)?;
+        machine.refuse_findings(
+            table.get("schema").and_then(Value::as_str) == Some(TABLE_SCHEMA_V2),
+        )?;
+        Ok(machine)
+    }
+
+    /// The table's structure and closed vocabulary, rule by rule. A
+    /// recipe's overlay is not a whole table, so its unit tests read it
+    /// here.
+    fn parse(table: &Value) -> Result<Machine, PolicyError> {
         let obj = table
             .as_object()
-            .ok_or_else(|| PolicyError("table must be an object".into()))?;
-        for key in ["phases", "initial", "terminal", "rules"] {
-            if !obj.contains_key(key) {
-                return Err(PolicyError(format!("table missing '{key}'")));
-            }
-        }
-        let phases = string_array(&obj["phases"], "phases")?;
-        let initial = obj["initial"]
-            .as_str()
-            .ok_or_else(|| PolicyError("initial must be a string".into()))?
-            .to_string();
-        if !phases.contains(&initial) {
-            return Err(PolicyError("initial phase not in phases".into()));
-        }
-        let terminal = string_array(&obj["terminal"], "terminal")?;
-        for t in &terminal {
-            if !phases.contains(t) {
-                return Err(PolicyError(format!("terminal phase '{t}' not in phases")));
-            }
-        }
+            .ok_or_else(|| PolicyError::Malformed("table must be an object".into()))?;
+        let (phases, initial, terminal) = parse_header(obj)?;
         let shippable_from = match obj.get("shippable_from") {
             Some(v) => string_array(v, "shippable_from")?,
             None => Vec::new(),
         };
-
         let schema = obj.get("schema").and_then(Value::as_str);
-
-        let raw_rules = obj["rules"]
-            .as_array()
-            .ok_or_else(|| PolicyError("rules must be an array".into()))?;
-        let mut rules = Vec::with_capacity(raw_rules.len());
-        let mut seen_ids: Vec<String> = Vec::new();
-        let mut ruled_unconditionally: Vec<(String, String)> = Vec::new();
-        for raw in raw_rules {
-            let rule = parse_rule(raw, &phases, &terminal, schema)?;
-            if seen_ids.contains(&rule.id) {
-                return Err(PolicyError(format!("duplicate rule id {}", rule.id)));
-            }
-            seen_ids.push(rule.id.clone());
-            let group = (rule.from.clone(), rule.result.clone());
-            if ruled_unconditionally.contains(&group) {
-                return Err(PolicyError(format!(
-                    "rule {} is unreachable: an unconditional rule for \
-                     ({}, {}) precedes it and first match wins",
-                    rule.id, rule.from, rule.result
-                )));
-            }
-            if rule.when.is_empty() {
-                ruled_unconditionally.push(group);
-            }
-            rules.push(rule);
-        }
+        let rules = parse_rules(&obj["rules"], &phases, &terminal, schema)?;
         Ok(Machine {
             phases,
             initial,
@@ -325,14 +336,82 @@ impl Machine {
 fn string_array(value: &Value, what: &str) -> Result<Vec<String>, PolicyError> {
     value
         .as_array()
-        .ok_or_else(|| PolicyError(format!("{what} must be an array")))?
+        .ok_or_else(|| PolicyError::Malformed(format!("{what} must be an array")))?
         .iter()
         .map(|v| {
             v.as_str()
                 .map(str::to_string)
-                .ok_or_else(|| PolicyError(format!("{what} entries must be strings")))
+                .ok_or_else(|| PolicyError::Malformed(format!("{what} entries must be strings")))
         })
         .collect()
+}
+
+/// A table's header: the four keys it must hold, its phases, the initial
+/// phase among them and its terminal phases among them.
+fn parse_header(
+    obj: &Map<String, Value>,
+) -> Result<(Vec<String>, String, Vec<String>), PolicyError> {
+    for key in ["phases", "initial", "terminal", "rules"] {
+        if !obj.contains_key(key) {
+            return Err(PolicyError::Malformed(format!("table missing '{key}'")));
+        }
+    }
+    let phases = string_array(&obj["phases"], "phases")?;
+    let initial = obj["initial"]
+        .as_str()
+        .ok_or_else(|| PolicyError::Malformed("initial must be a string".into()))?
+        .to_string();
+    if !phases.contains(&initial) {
+        return Err(PolicyError::Malformed("initial phase not in phases".into()));
+    }
+    let terminal = string_array(&obj["terminal"], "terminal")?;
+    for t in &terminal {
+        if !phases.contains(t) {
+            return Err(PolicyError::Malformed(format!(
+                "terminal phase '{t}' not in phases"
+            )));
+        }
+    }
+    Ok((phases, initial, terminal))
+}
+
+/// A table's rules, in order: each parsed, no id twice, and none behind an
+/// unconditional rule of its own group, since first match wins.
+fn parse_rules(
+    raw_rules: &Value,
+    phases: &[String],
+    terminal: &[String],
+    schema: Option<&str>,
+) -> Result<Vec<Rule>, PolicyError> {
+    let raw_rules = raw_rules
+        .as_array()
+        .ok_or_else(|| PolicyError::Malformed("rules must be an array".into()))?;
+    let mut rules = Vec::with_capacity(raw_rules.len());
+    let mut seen_ids: Vec<String> = Vec::new();
+    let mut ruled_unconditionally: Vec<(String, String)> = Vec::new();
+    for raw in raw_rules {
+        let rule = parse_rule(raw, phases, terminal, schema)?;
+        if seen_ids.contains(&rule.id) {
+            return Err(PolicyError::Malformed(format!(
+                "duplicate rule id {}",
+                rule.id
+            )));
+        }
+        seen_ids.push(rule.id.clone());
+        let group = (rule.from.clone(), rule.result.clone());
+        if ruled_unconditionally.contains(&group) {
+            return Err(PolicyError::Malformed(format!(
+                "rule {} is unreachable: an unconditional rule for \
+                 ({}, {}) precedes it and first match wins",
+                rule.id, rule.from, rule.result
+            )));
+        }
+        if rule.when.is_empty() {
+            ruled_unconditionally.push(group);
+        }
+        rules.push(rule);
+    }
+    Ok(rules)
 }
 
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
@@ -344,13 +423,13 @@ fn parse_rule(
 ) -> Result<Rule, PolicyError> {
     let obj = raw
         .as_object()
-        .ok_or_else(|| PolicyError("rule must be an object".into()))?;
+        .ok_or_else(|| PolicyError::Malformed("rule must be an object".into()))?;
     let field = |key: &str| -> Result<String, PolicyError> {
         obj.get(key)
             .and_then(Value::as_str)
             .map(str::to_string)
             .ok_or_else(|| {
-                PolicyError(format!(
+                PolicyError::Malformed(format!(
                     "rule {} missing '{key}'",
                     obj.get("id").and_then(Value::as_str).unwrap_or("?")
                 ))
@@ -362,7 +441,7 @@ fn parse_rule(
     let reason = field("reason")?;
     if schema == Some(TABLE_SCHEMA_V2) {
         if let Some(key) = obj.keys().find(|key| !RULE_KEYS_V2.contains(&key.as_str())) {
-            return Err(PolicyError(format!(
+            return Err(PolicyError::Malformed(format!(
                 "rule {id} declares '{key}', which is not {TABLE_SCHEMA_V2} rule \
                  vocabulary"
             )));
@@ -376,7 +455,7 @@ fn parse_rule(
         None => false,
         Some(Value::Bool(true)) => true,
         Some(other) => {
-            return Err(PolicyError(format!(
+            return Err(PolicyError::Malformed(format!(
                 "rule {id}: 'park' must be true when present, got {other}; a park \
                  is a ruling, not a switch to leave off"
             )))
@@ -386,7 +465,7 @@ fn parse_rule(
         (false, _) => Some(field("next")?),
         (true, None) => None,
         (true, Some(_)) => {
-            return Err(PolicyError(format!(
+            return Err(PolicyError::Malformed(format!(
                 "rule {id} both parks and names a next phase; a parked run takes \
                  no transition"
             )))
@@ -394,7 +473,7 @@ fn parse_rule(
     };
     if parks {
         if schema != Some(TABLE_SCHEMA_V2) {
-            return Err(PolicyError(format!(
+            return Err(PolicyError::Malformed(format!(
                 "rule {id} parks, which is {TABLE_SCHEMA_V2} vocabulary, but the \
                  table declares {}",
                 schema.unwrap_or("no schema")
@@ -402,7 +481,7 @@ fn parse_rule(
         }
         for forbidden in ["severity", "requires_artifacts"] {
             if obj.contains_key(forbidden) {
-                return Err(PolicyError(format!(
+                return Err(PolicyError::Malformed(format!(
                     "rule {id} parks and declares '{forbidden}'; a park takes no \
                      transition, so it has neither a ruling severity nor an \
                      artifact gate"
@@ -411,21 +490,23 @@ fn parse_rule(
         }
     }
     if !phases.contains(&from) || next.as_ref().is_some_and(|next| !phases.contains(next)) {
-        return Err(PolicyError(format!("rule {id} references unknown phase")));
+        return Err(PolicyError::Malformed(format!(
+            "rule {id} references unknown phase"
+        )));
     }
     if terminal.contains(&from) {
-        return Err(PolicyError(format!(
+        return Err(PolicyError::Malformed(format!(
             "rule {id} leaves terminal phase '{from}'"
         )));
     }
     let severity = match obj.get("severity") {
         None => "normal".to_string(),
         Some(v) => {
-            let s = v
-                .as_str()
-                .ok_or_else(|| PolicyError(format!("rule {id} severity must be a string")))?;
+            let s = v.as_str().ok_or_else(|| {
+                PolicyError::Malformed(format!("rule {id} severity must be a string"))
+            })?;
             if !RULING_SEVERITIES.contains(&s) {
-                return Err(PolicyError(format!(
+                return Err(PolicyError::Malformed(format!(
                     "rule {id} severity '{s}' not in {RULING_SEVERITIES:?}"
                 )));
             }
@@ -439,9 +520,9 @@ fn parse_rule(
     let when = match obj.get("when") {
         None => Vec::new(),
         Some(v) => {
-            let map = v
-                .as_object()
-                .ok_or_else(|| PolicyError(format!("rule {id} 'when' must be an object")))?;
+            let map = v.as_object().ok_or_else(|| {
+                PolicyError::Malformed(format!("rule {id} 'when' must be an object"))
+            })?;
             let mut conditions = Vec::with_capacity(map.len());
             for (key, expected) in map {
                 conditions.push(parse_condition(&id, key, expected, phases)?);
@@ -461,9 +542,30 @@ fn parse_rule(
     })
 }
 
+/// A severity condition's threshold rank, once its axis is a declared
+/// severity input: `_above` and `_at_most` read it alike.
+fn severity_threshold(
+    rule_id: &str,
+    key: &str,
+    name: &str,
+    expected: &Value,
+) -> Result<usize, PolicyError> {
+    if !SEVERITY_INPUTS.contains(&name) {
+        return Err(PolicyError::Malformed(format!(
+            "rule {rule_id}: unknown severity axis '{name}' in condition '{key}'; \
+             known: {SEVERITY_INPUTS:?}"
+        )));
+    }
+    expected.as_str().and_then(severity_rank).ok_or_else(|| {
+        PolicyError::Malformed(format!(
+            "rule {rule_id}: condition '{key}' threshold {expected} not in \
+                 {SEVERITY_ORDER:?}"
+        ))
+    })
+}
+
 /// Load-time half of the closed vocabulary: every condition names a
 /// declared input and carries a threshold of the right type.
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parse_condition(
     rule_id: &str,
     key: &str,
@@ -475,14 +577,14 @@ fn parse_condition(
             .strip_suffix("_in")
             .is_some_and(|name| IDENTIFIER_INPUTS.contains(&name))
     {
-        return Err(PolicyError(format!(
+        return Err(PolicyError::Malformed(format!(
             "rule {rule_id}: identifier input '{key}' may be declared by a seat but never used as a condition key"
         )));
     }
     if key == "strategy_in" || key == "drift_in" {
         let allowed = string_array(expected, &format!("rule {rule_id} condition '{key}'"))?;
         if allowed.is_empty() {
-            return Err(PolicyError(format!(
+            return Err(PolicyError::Malformed(format!(
                 "rule {rule_id}: condition '{key}' needs at least one value"
             )));
         }
@@ -494,7 +596,7 @@ fn parse_condition(
         let vocabulary = vocabulary(name);
         for value in &allowed {
             if !vocabulary.contains(&value.as_str()) {
-                return Err(PolicyError(format!(
+                return Err(PolicyError::Malformed(format!(
                     "rule {rule_id}: condition '{key}' value '{value}' not in {vocabulary:?}"
                 )));
             }
@@ -513,14 +615,14 @@ fn parse_condition(
             .strip_prefix(VISIT_PREFIX)
             .filter(|phase| phases.iter().any(|known| known == phase));
         if !COUNTER_INPUTS.contains(&name) && visit_phase.is_none() {
-            return Err(PolicyError(format!(
+            return Err(PolicyError::Malformed(format!(
                 "rule {rule_id}: unknown counter '{name}' in condition '{key}'; \
                  known: {COUNTER_INPUTS:?} plus '{VISIT_PREFIX}<phase>' over this \
                  table's phases {phases:?}"
             )));
         }
         let threshold = expected.as_f64().ok_or_else(|| {
-            PolicyError(format!(
+            PolicyError::Malformed(format!(
                 "rule {rule_id}: condition '{key}' needs a numeric threshold, got {expected}"
             ))
         })?;
@@ -530,36 +632,14 @@ fn parse_condition(
         });
     }
     if let Some(name) = key.strip_suffix("_above") {
-        if !SEVERITY_INPUTS.contains(&name) {
-            return Err(PolicyError(format!(
-                "rule {rule_id}: unknown severity axis '{name}' in condition '{key}'; \
-                 known: {SEVERITY_INPUTS:?}"
-            )));
-        }
-        let threshold_rank = expected.as_str().and_then(severity_rank).ok_or_else(|| {
-            PolicyError(format!(
-                "rule {rule_id}: condition '{key}' threshold {expected} not in \
-                     {SEVERITY_ORDER:?}"
-            ))
-        })?;
+        let threshold_rank = severity_threshold(rule_id, key, name, expected)?;
         return Ok(Condition::SeverityAbove {
             name: name.to_string(),
             threshold_rank,
         });
     }
     if let Some(name) = key.strip_suffix("_at_most") {
-        if !SEVERITY_INPUTS.contains(&name) {
-            return Err(PolicyError(format!(
-                "rule {rule_id}: unknown severity axis '{name}' in condition '{key}'; \
-                 known: {SEVERITY_INPUTS:?}"
-            )));
-        }
-        let threshold_rank = expected.as_str().and_then(severity_rank).ok_or_else(|| {
-            PolicyError(format!(
-                "rule {rule_id}: condition '{key}' threshold {expected} not in \
-                     {SEVERITY_ORDER:?}"
-            ))
-        })?;
+        let threshold_rank = severity_threshold(rule_id, key, name, expected)?;
         return Ok(Condition::SeverityAtMost {
             name: name.to_string(),
             threshold_rank,
@@ -567,7 +647,7 @@ fn parse_condition(
     }
     if BOOLEAN_INPUTS.contains(&key) {
         let expected = expected.as_bool().ok_or_else(|| {
-            PolicyError(format!(
+            PolicyError::Malformed(format!(
                 "rule {rule_id}: condition '{key}' expects true/false, got {expected}"
             ))
         })?;
@@ -576,7 +656,7 @@ fn parse_condition(
             expected,
         });
     }
-    Err(PolicyError(format!(
+    Err(PolicyError::Malformed(format!(
         "rule {rule_id}: unknown condition key '{key}'; known: {BOOLEAN_INPUTS:?} \
          plus strategy_in over {STRATEGIES:?}, *_gte over {COUNTER_INPUTS:?} and \
          *_above/*_at_most over {SEVERITY_INPUTS:?}"
