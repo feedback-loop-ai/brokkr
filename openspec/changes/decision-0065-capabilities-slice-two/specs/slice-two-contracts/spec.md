@@ -237,5 +237,5 @@ authority/ledger state does not retain a generic JSON value vocabulary.
 One settled broker record, optional measured turn and actual publication
 before a digest preserve truthful evidence. Keep old-shaped v5 acceptance,
 native observed semantics and bounded refusal identities without truncation
-(0071 rulings 3, 7–9). S2 installs these consumers before new driver emission;
+(0071 rulings 3, 7–9). U4 installs these consumers before new driver emission;
 private observations never become public schema extensions.

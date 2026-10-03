@@ -36,9 +36,9 @@ unchanged exact coverage on a capable external host. Final U10a adds locked
 all-feature workspace tests, bundles/verify, strict OpenSpec, diff check,
 supported-host/remote evidence and pinned-toolchain agreement. Measure changed
 witness/compose identities in their owning rows. External gates stay pending
-until results exist. No test or production edits are authorized in this
-document visit. The dialect's final fold is future task 49.3, inside U10a;
-this planning visit neither archives the change nor edits living specs.
+until results exist. This plan authorizes no test or production edit by
+itself. The dialect's final fold is future task 49.3, inside U10a; until
+then the change stays unarchived and living specs are unchanged.
 
 For each U4a–U4f group, both tasks own [D9's native boundary matrix](design.md#d9-unit-boundaries-consumers-and-merge-safety)
 under their explicit CC1/CC3/SC4 citations. Run the legacy

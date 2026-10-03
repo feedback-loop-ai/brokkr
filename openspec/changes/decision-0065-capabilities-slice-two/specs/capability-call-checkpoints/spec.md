@@ -182,7 +182,7 @@ supply crash evidence (0071 rulings 3, 5, 7–9). Durable acceptance bounds the
 promise: a bounded reader cannot record unread input. Accepted local refusals
 remain evidence; persistence failure cannot be declared successful.
 
-S2: delay emission until complete consumers exist. v6 accepts a complete
+Delay emission until complete consumers exist. v6 accepts a complete
 group, not a private observation; forwarding new driver fields unchanged
 would fail its closed fence. Preserve the fence and every valid legacy row
 through preparation (0071 rulings 3 and 9).

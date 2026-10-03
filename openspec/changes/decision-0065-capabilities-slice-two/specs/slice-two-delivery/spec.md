@@ -219,12 +219,13 @@ R5 requires narrow PRs from main through the merge queue after operator
 ruling. U0 records evidence; runnable support changes need inventoried
 production rows. MCP enablement remains U9b alone.
 
-S1 adds the generated-adapter consumer before strict activation. S2 delays
-new native emission until complete consumers exist, because the MCP fence
-cannot protect native checkpoints. These preserve the three-file limit and
-binding proof ownership (0071 rulings 3, 5, 9).
+Generated adapter declarations migrate before strict activation because they
+are independent consumers of the strict-MCP metadata. New native emission
+waits until complete consumers exist, because the MCP fence cannot protect
+native checkpoints. These preserve the three-file limit and binding proof
+ownership (0071 rulings 3, 5, 9).
 
-C2 separates evidence from behavior: branch ancestry is not durable provenance
-for a squash, and a particular review visit is not a reusable scenario.
+Evidence stays separate from behavior: branch ancestry is not durable
+provenance for a squash, and review history is not a reusable scenario.
 Archive retains the evidence record and adds living-spec provenance pointers
 without folding historical routing into requirements (0071 ruling 5).

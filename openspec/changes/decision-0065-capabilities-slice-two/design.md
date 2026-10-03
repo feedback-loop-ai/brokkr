@@ -53,11 +53,11 @@ This is a document plan; U0 and implementation proofs remain pending.
 
 ### D1. Migration, checkpoint handoff and provenance
 
-| Finding / alternative | Decision, evidence and owner |
+| Alternative | Decision, evidence and owner |
 | --- | --- |
-| S1: repository declarations alone migrate strictness | Reject. init.rs independently generates Claude, Codex and dsh metadata at :679/:745/:859 and selects it at :1776–1792. U1f2 migrates those consumers and instructions before U1g; SI2 requires exact parity and fresh-scaffold compile success/refusal in init_doctor/init_stacks (0071 rulings 5, 9). |
-| S2: normalize and immediately emit in U4c | Reject. process.rs:488–497 forwards driver data; engine.rs:2091–2107 and checkpoints.rs:221–235 pass it to store/lib.rs:316–329. v6 accepts complete groups, not private observations. U4c keeps legacy emission; U4e/U4f install all consumers, then U4f2 activates emission with native boundary proofs (rulings 3, 9). |
-| C2: keep provenance only in branch commits or behavior scenarios | Reject. A squash need not retain those commits. [evidence.md](evidence.md#visit-chronology) owns chronology and complete reconciliations; deltas describe behavior, with masking/session/startup reasons at their owners (ruling 5). |
+| Repository declarations alone migrate strictness | Reject. init.rs independently generates Claude, Codex and dsh metadata at :679/:745/:859 and selects it at :1776–1792. U1f2 migrates those consumers and instructions before U1g; SI2 requires exact parity and fresh-scaffold compile success/refusal in init_doctor/init_stacks (0071 rulings 5, 9). |
+| Normalize and immediately emit in U4c | Reject. process.rs:488–497 forwards driver data; engine.rs:2091–2107 and checkpoints.rs:221–235 pass it to store/lib.rs:316–329. v6 accepts complete groups, not private observations. U4c keeps legacy emission; U4e/U4f install all consumers, then U4f2 activates emission with native boundary proofs (rulings 3, 9). |
+| Keep provenance only in branch commits or behavior scenarios | Reject. A squash need not retain those commits. [evidence.md](evidence.md#visit-chronology) owns chronology and complete reconciliations; deltas describe behavior, with masking/session/startup reasons at their owners (ruling 5). |
 | Restrict strictness to seats requesting MCP | Reject. 0065 ruling 6 says "A harness's own MCP configuration is never inherited". SI2 applies to every model seat, including empty grants. U0 supplies evidence; an unseatable self roster needs an operator decision, never an exemption (rulings 3, 8, 9). |
 
 R1–R5, namespace-only broker admission, tool-dialect v1, seat-record v6,
@@ -557,7 +557,7 @@ retain their consumers and proof ownership; U4a/U4b and U8a/U8a2 stay separate
 because their unions exceed three production files. Stable task IDs identify
 work, not numeric merge order. No fourth file or gate exemption is implied.
 
-S1 installs U1f2 between U1f and U1g. Extract generated adapter declarations
+U1f2 sits between U1f and U1g. Extract generated adapter declarations
 from the 1,895-line init.rs into a consumed init/adapters.rs, including its
 registration in init.rs, and migrate Claude/Codex/dsh MCP metadata from the
 U0-qualified declarations. Exact parity tests bind required generated copies
@@ -581,7 +581,7 @@ site for each SI2 cause; an intake refusal proves no reviewer check. If U0 canno
 qualify a shipped shape, record its refusal; never change an unrelated native
 OFF or roster rule to obtain a success.
 
-S2 uses explicitly delayed emission, with this consumer-first handoff:
+U4 uses explicitly delayed emission, with this consumer-first handoff:
 
 | Boundary | Producer and consumer state | Required native proof |
 | --- | --- | --- |
@@ -663,13 +663,13 @@ implementation units; a document pass supplies no behavioral evidence.
 
 | Analyze category | Judgment and owner |
 | --- | --- |
-| Duplication | C2 gives history one durable home; behavior reasons stay at MB3/MB4 and CR2–CR4. Shared injector/canonicalizer/view and selected discovery remain unchanged (0071 rulings 3, 5, 7). |
+| Duplication | Specification history has one durable home in evidence.md; behavior reasons stay at MB3/MB4 and CR2–CR4. Shared injector/canonicalizer/view and selected discovery remain unchanged (0071 rulings 3, 5, 7). |
 | Ambiguity | SI2 specifies fresh-scaffold measured success and exact unsupported/missing causes, including the actual unmapped versus mapped consumer. CC1/SC4 specify legacy versus attributed checkpoint states (rulings 3, 8, 9). |
 | Underspecification | D9 and U1f2/U4f2 name migration, consumers, emission activation and intermediate boundary proofs. U0 still decides mechanisms; failure means refusal, not guessed support (rulings 3, 9). |
 | House alignment | Each PR has at most three production files; init.rs and resume.rs baselines are inventoried. Typed edges, existing authority, frozen versions, native OFF and Linux/macOS scope stand (rulings 1–10). |
 | Coverage | All 26 requirements retain task ownership. New scaffold and emission tasks remain open, as do masking, session and startup controls. Every intermediate U4 merge has native compile-to-journal proof (ruling 9). |
 | Inconsistency | Unit rows, dependencies, detailed consumers, task groups and Hot files must agree; archive folds behavioral scenarios and retains evidence with file/section references (rulings 3, 5). |
-| Gates | File/function/clone, whitespace, format and coverage findings belong to their gates. S1/S2 are planning defects; no implemented regression or weakened refusal is claimed (rulings 4, 9, 11). |
+| Gates | File/function/clone, whitespace, format and coverage findings belong to their gates. The scaffold-migration and emission-order units correct the plan; no implemented regression or weakened refusal is claimed (rulings 4, 9, 11). |
 
 ## Risks / Trade-offs
 
@@ -841,7 +841,7 @@ runtime and pure view. Minimal ledger writing is deliberately pulled into U6.
 as **the next realms version after v7** at U5c, including v7's fields. It is
 the only intentionally deferred filename number. Every other production path
 below is literal. New paths are proposed modules/schemas, not files created
-in this docs visit. Constructors/registration are counted in their row.
+by this document plan. Constructors/registration are counted in their row.
 Test files new to this plan include core/tests/realms.rs, CLI capability_broker
 and capability_artifacts, and runtime capability_ledger/capability_broker_launch.
 

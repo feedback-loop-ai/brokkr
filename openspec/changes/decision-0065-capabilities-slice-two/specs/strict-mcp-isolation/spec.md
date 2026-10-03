@@ -145,7 +145,7 @@ positive control and server lifecycle observations must distinguish absence
 from a model choosing not to call. The checked Codex adapter explicitly
 records ambient isolation as unproven; its hands fragment cannot certify it.
 
-S1: generated adapters are independent consumers; editing adapters/*.json
+Generated adapters are independent consumers; editing adapters/*.json
 alone cannot migrate them. A bounded scaffold unit precedes U1g; exact parity
 and real compile proofs bind copies to their source (0071 rulings 5 and 9).
 Universal strictness follows 0065 ruling 6's "never inherited", including

@@ -1,6 +1,6 @@
 Status: proposed specification and design; implementation awaits the operator.
 Change: decision-0065-capabilities-slice-two.
-Adopted: the existing slice-two change; provenance is in [evidence.md](evidence.md#visit-chronology).
+Provenance: [evidence.md](evidence.md#scope-and-source).
 Authority: [operator rulings R1–R5](operator-ruling-2026-10-03.md).
 
 ## Why
@@ -66,8 +66,8 @@ slice-one artifacts/evidence are not rewritten.
 
 ## Impact
 
-The repair changes proposal, deltas, design, tasks, proposed decision 0077 and
-[evidence.md](evidence.md#repair-adjudication). Production, tests and frozen
+The specification touches proposal, deltas, design, tasks, proposed decision
+0077 and [evidence.md](evidence.md#scope-and-source). Production, tests and frozen
 contracts remain unchanged. The operator record, decision index and 0065
 amendment pointer are preserved. U0 and runtime proofs remain implementation
 work; document gates qualify no harness and do not accept 0077.
@@ -80,9 +80,9 @@ preserves #487's reservation; tool-dialect v1 defines the needed fields. URL
 execution, native retention, wider boundaries, slice three and D11's nonempty
 restriction transport remain outside scope.
 
-S1 is answered by scaffold declarations and instruction migration before
-strict admission, with fresh-scaffold scenarios under SI2. S2 delays driver
-emission until the store and all attribution consumers exist, with CC1/SC4
-boundary proofs. C2 keeps one durable evidence record and behavioral delivery
-scenarios. Choices and rejected alternatives are in
+Generated scaffold declarations and instructions migrate before strict
+admission, with fresh-scaffold scenarios under SI2. Driver emission waits
+until the store and all attribution consumers exist, with CC1/SC4 boundary
+proofs. One durable evidence record holds specification history; delivery
+scenarios state behavior. Choices and rejected alternatives are in
 [design Decisions](design.md#decisions) (0071 rulings 3, 5 and 9).

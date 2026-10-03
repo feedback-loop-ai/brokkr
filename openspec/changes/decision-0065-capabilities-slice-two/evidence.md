@@ -265,3 +265,25 @@ formatting, typos and squash signing remain pending. This record retains
 history; task 49.3 preserves it in the archive and folds only behavior into
 living specifications. No upstream artifact change was needed to write the
 repaired breakdown.
+
+### Implement repair validation
+
+The implement seat confirmed the scaffold migration (SI2, D9, U1f2, tasks
+7.3–7.4 and 8.1–8.2) and consumer-first emission (CC1, SC4, D9, U4a–U4f2,
+tasks 13.1–18.4) already present, then finished the provenance repair. It
+removed the remaining review-finding labels and visit wording from the
+Decisions prose of four deltas (strict-mcp-isolation,
+capability-call-checkpoints, slice-two-contracts, slice-two-delivery), from
+design D1/D9/D11 and the unit preamble, from proposal's header, Impact and
+Decisions, and from the tasks preamble. Each reason is kept in behavioural
+terms; no requirement heading, SHALL statement, scenario or task changed.
+
+A grep of proposal, design, tasks, the deltas and 0077 for eight-hex commit
+identifiers outside the two base commits returned no match.
+`git diff --check` exited 0 without diagnostics. This seat's permission
+allowlist refused every `openspec validate` form tried (`--all --strict`,
+with `--no-interactive`, by absolute path and by change name), so strict
+OpenSpec was not re-run here. The last observed result is the tasks seat's
+`20 passed, 0 failed` above; it predates these prose-only edits. Re-running
+`openspec validate --all --strict` stays pending for the operator, alongside
+cargo formatting, typos and squash signing.
