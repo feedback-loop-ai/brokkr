@@ -141,7 +141,7 @@ fn a_killed_servers_tree_is_reaped_at_the_next_start_and_a_live_ones_kept() {
 
     let bundle = tmp.path().join("bundle");
     std::fs::create_dir_all(&bundle).unwrap();
-    let policy = r#"{"phases":["work","review","done","stop"],"initial":"work","terminal":["done","stop"],
+    let policy = r#"{"phases":["work","review","done"],"initial":"work","terminal":["done"],
         "rules":[{"id":"W","from":"work","result":"complete","next":"review","reason":"built"},
                  {"id":"R","from":"review","result":"clean","next":"done","reason":"done"}]}"#;
     std::fs::write(bundle.join("policy.json"), policy).unwrap();

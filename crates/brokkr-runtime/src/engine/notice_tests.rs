@@ -107,6 +107,7 @@ const POLICY: &str = r#"{
   "terminal": ["done", "stop"],
   "shippable_from": ["review"],
   "rules": [
+    {"id": "R-ROUTE", "from": "review", "result": "reroute", "next": "triage", "reason": "re-routed"},
     {"id": "T-ENGINE", "from": "triage", "result": "engine", "next": "work", "reason": "routed"},
     {"id": "W-PASS", "from": "work", "result": "pass", "next": "review", "reason": "work concluded"},
     {"id": "W-FAIL", "from": "work", "result": "fail", "next": "stop", "reason": "work failed"},
@@ -1194,8 +1195,8 @@ fn a_wrapped_inline_codex_verify_is_told_at_its_checks_step() {
                 {"id": "D", "from": "design", "result": "drafted", "next": "verify",
                     "reason": "drafted"},
                 {"id": "V", "from": "verify", "result": "pass", "next": "review", "reason": "pass"},
-                {"id": "VF", "from": "verify", "result": "fail", "next": "verify",
-                    "reason": "retry"},
+                {"id": "VF", "from": "verify", "result": "fail", "next": "verify", "reason": "retry"},
+                {"id": "VU", "from": "verify", "result": "up", "next": "design", "reason": "up"},
                 {"id": "R", "from": "review", "result": "clean", "next": "done",
                     "reason": "clean"},
             ]

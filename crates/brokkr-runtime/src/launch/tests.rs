@@ -24,7 +24,7 @@ fn bundle_at(root: &Path, boxed: bool) -> PathBuf {
     std::fs::write(dir.join("roles/seat.md"), "# seat\n").unwrap();
     let table = json!({
         "schema": "forge.phase-machine/v1", "initial": "work",
-        "phases": ["work", "review", "done", "stop"], "terminal": ["done", "stop"],
+        "phases": ["work", "review", "done"], "terminal": ["done"],
         "rules": [
             {"id": "WORKED", "from": "work", "result": "complete", "next": "review", "reason": "worked"},
             {"id": "CLEAN", "from": "review", "result": "clean", "next": "done", "reason": "clean"}
