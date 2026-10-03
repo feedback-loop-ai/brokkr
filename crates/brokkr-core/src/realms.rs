@@ -52,6 +52,9 @@
 //! every realm under v1 through v5 does (ruling 4: no grandfathering).
 //! This module judges the grant's SHAPE only; finding the dialect file,
 //! and everything the grant means for a seat, is `brokkr-runtime`'s work.
+//!
+//! v7 (proposed decision 0075 ruling 5) adds one WORLD-level list, the
+//! `provisional_offices`, judged in `realms/provisional.rs`.
 
 use std::fmt;
 use std::str::FromStr;
@@ -85,10 +88,14 @@ pub const SCHEMA_V5: &str = "forge.realms/v5";
 /// and grants nothing — there is no grandfathering (ruling 4).
 pub const SCHEMA_V6: &str = "forge.realms/v6";
 
+/// The provisional tier (proposed decision 0075 ruling 5): v6 plus one
+/// optional world-level `provisional_offices`, and nothing else.
+pub const SCHEMA_V7: &str = "forge.realms/v7";
+
 /// Every label this build reads, oldest first — the one list a refusal
 /// spells out and the version gates are written against.
-pub const SCHEMAS: [&str; 6] = [
-    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6,
+pub const SCHEMAS: [&str; 7] = [
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7,
 ];
 
 /// What stands between a box's hands and the machine (decision 0046
@@ -545,6 +552,10 @@ pub struct RealmMap {
     pub schema: String,
     pub realms: Vec<Realm>,
     pub journal: String,
+    /// The offices, agents by name, a provisional model may hold: v7
+    /// vocabulary, judged in `realms/provisional.rs`. Absent lists none.
+    #[serde(default, deserialize_with = "provisional::null_as_none")]
+    pub provisional_offices: Vec<String>,
 }
 
 /// A realm name is a journal key: lowercase, digits, and the three
@@ -594,9 +605,12 @@ impl RealmMap {
             })?;
         // A v6 map carries grants, and a grant written twice would be
         // granted as whichever copy came second (decision 0065). The rule
-        // arrives WITH the version: an older map keeps the reading it has
-        // always had.
-        if content.get("schema").and_then(Value::as_str) == Some(SCHEMA_V6) {
+        // arrives WITH the version, and v7 keeps it: an older map keeps the
+        // reading it has always had.
+        if matches!(
+            content.get("schema").and_then(Value::as_str),
+            Some(SCHEMA_V6 | SCHEMA_V7)
+        ) {
             crate::canonical::parse_strict(text).map_err(|detail| RealmsError::Malformed {
                 path: path.to_string(),
                 detail,
@@ -644,7 +658,7 @@ impl RealmMap {
         if !SCHEMAS.contains(&map.schema.as_str()) {
             return Err(invalid(format!(
                 "it calls itself '{}'; this build reads {SCHEMA_V1}, {SCHEMA_V2}, {SCHEMA_V3}, \
-                 {SCHEMA_V4}, {SCHEMA_V5} and {SCHEMA_V6}",
+                 {SCHEMA_V4}, {SCHEMA_V5}, {SCHEMA_V6} and {SCHEMA_V7}",
                 map.schema
             )));
         }
@@ -866,7 +880,7 @@ impl RealmMap {
                 }
             }
         }
-        Ok((map, content))
+        provisional::judge(path, &map, &content).map(|()| (map, content))
     }
 
     /// The journal one realm's runs live in: its own when it names one,
@@ -897,6 +911,8 @@ pub fn recorded_head<'a>(recorded: &'a Value, realm: Option<&str>) -> Option<&'a
         .or_else(|| heads.get(LEGACY_REALM_KEY))?
         .as_str()
 }
+
+mod provisional;
 
 #[cfg(test)]
 mod tests;

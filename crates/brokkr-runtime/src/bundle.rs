@@ -17,8 +17,10 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 
 pub mod compose;
+mod tier;
 
 use compose::{Ancestor, COMPOSE_PREFIX};
+pub use tier::{ProvisionalRefusal, RealmLaw};
 
 use crate::agents::{
     resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition,
@@ -52,6 +54,8 @@ pub enum CompileError {
     Json(#[from] serde_json::Error),
     #[error("bundle policy: {0}")]
     Policy(#[from] brokkr_core::PolicyError),
+    #[error("bundle: {0}")]
+    Provisional(ProvisionalRefusal),
 }
 
 /// How [`CompileError::Capability`] renders.
@@ -700,6 +704,8 @@ struct AgentContext {
     /// Every library charter's bound read, held until the bundle is sealed
     /// (rebuild unit 18-fix-b return, council F2).
     reads: Vec<LibraryRead>,
+    /// The offices a provisional model may hold ([`RealmLaw`]).
+    provisional_offices: Vec<String>,
 }
 
 /// One library charter a site was bound to, as its read holds it: the site
@@ -1320,18 +1326,19 @@ impl Bundle {
 
     /// Compile in no named realm but under a stated boundary — what
     /// `brokkr doctor` does for the realm it discovered, whose dialect it
-    /// reports separately.
+    /// reports separately — or under a stated law, which also names the
+    /// world's provisional offices.
     pub fn compile_under(
         dir: &Path,
         library_root: &Path,
         adapters_root: &Path,
-        boundary: Boundary,
+        law: impl Into<RealmLaw>,
     ) -> Result<Bundle, CompileError> {
         Self::compile_unmapped(
             dir,
             library_root,
             adapters_root,
-            boundary,
+            law,
             library_root.parent().unwrap_or(Path::new("")),
         )
     }
@@ -1347,7 +1354,7 @@ impl Bundle {
         dir: &Path,
         library_root: &Path,
         adapters_root: &Path,
-        boundary: Boundary,
+        law: impl Into<RealmLaw>,
         operator_root: &Path,
     ) -> Result<Bundle, CompileError> {
         let default_path = library_root
@@ -1369,7 +1376,7 @@ impl Bundle {
             adapters_root,
             None,
             default.as_ref(),
-            boundary,
+            law,
             &crate::capabilities::CapabilityContext::no_grants(
                 crate::capabilities::UNMAPPED,
                 operator_root,
@@ -1422,7 +1429,7 @@ impl Bundle {
         adapters_root: &Path,
         realm_name: Option<&str>,
         dialect: Option<&Dialect>,
-        boundary: Boundary,
+        law: impl Into<RealmLaw>,
         capabilities: &crate::capabilities::CapabilityContext,
     ) -> Result<Bundle, CompileError> {
         let dir = dir
@@ -1440,7 +1447,7 @@ impl Bundle {
             adapters_root,
             realm_name,
             dialect,
-            boundary,
+            law.into(),
             capabilities,
         ) {
             Ok(bundle) => Ok(bundle),
@@ -1475,7 +1482,10 @@ impl Bundle {
         adapters_root: &Path,
         realm_name: Option<&str>,
         dialect: Option<&Dialect>,
-        boundary: Boundary,
+        RealmLaw {
+            boundary,
+            provisional_offices,
+        }: RealmLaw,
         capabilities: &crate::capabilities::CapabilityContext,
     ) -> Result<Bundle, CompileError> {
         // Decision 0065 (design D4 steps 1 and 2): the operated realm's
@@ -1512,14 +1522,12 @@ impl Bundle {
         // Kept for the capability pass below (decision 0065): an inline
         // model seat in a bundle that seats no gate opens no agent
         // context, and its adapter's native declaration is still what
-        // says how its search is switched off.
+        // says how its search is switched off, as its model's tier is what
+        // says whether it may be seated (proposed decision 0075 ruling 5).
         let pin_adapters = load_pin_adapters(adapters_root, &resolved.seats);
-        let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) = enforce_model_pins(
-            &resolved.seats,
-            pin_adapters
-                .as_ref()
-                .and_then(|loaded| loaded.as_ref().ok()),
-        )?;
+        let inline_adapters = pin_adapters.as_ref().and_then(|l| l.as_ref().ok());
+        let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) =
+            enforce_model_pins(&resolved.seats, inline_adapters)?;
         // The one canonical family table (design D10 F1). Seeded with the
         // inline pins and assessments before any parse writes beside
         // them; every later fact is written into an entrant of this same
@@ -1590,7 +1598,7 @@ impl Bundle {
         // COMPOSED seats are what is scanned: a base may be what carries
         // the agent reference.
         let mut agents = match uses_dialect || resolved.seats.values().any(needs_adapters) {
-            false => None,
+            false => tier::inline_context(inline_adapters, egress_minimum),
             true => Some(AgentContext {
                 library: match resolved.seats.values().any(mentions_agent) {
                     false => None,
@@ -1610,6 +1618,7 @@ impl Bundle {
                 })?,
                 egress_minimum,
                 reads: Vec::new(),
+                provisional_offices,
             }),
         };
         // Decision 0065 ruling 1 (CQ2; design D3): a library this compile
@@ -4197,7 +4206,7 @@ fn enforce_route_policy(
     agents: &mut Option<AgentContext>,
     sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
-    let class = parse_class(what, raw)?;
+    let class = tier::admitted(what, raw, candidates, agents.as_ref())?;
     if class == SeatClass::Work && secrets.is_empty() {
         return Ok(());
     }

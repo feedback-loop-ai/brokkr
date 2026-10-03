@@ -24,6 +24,8 @@ use super::{
 };
 use crate::bundle::Limits;
 
+mod models;
+
 #[derive(Debug, Error)]
 pub enum LibraryError {
     #[error("{0}")]
@@ -824,7 +826,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     native
         .check_declared(&what, crate::capabilities::harness_of(&driver))
         .map_err(LibraryError::Invalid)?;
-    let models = name_map(map, "models", &what)?;
+    let (models, provisional) = models::models(map, &what)?;
     let judges = match map.get("judges") {
         Some(_) => string_array(map, "judges", &what)?,
         None => Vec::new(),
@@ -977,6 +979,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         hint,
         driver,
         models,
+        provisional,
         judges,
         model_flag,
         efforts,
