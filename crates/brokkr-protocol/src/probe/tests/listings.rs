@@ -293,7 +293,7 @@ fn disagreeing_and_clean() -> Vec<Row> {
                         "reason": format!(
                             "it is not shown to stand behind the box ({}; the turn's listings \
                              gave brokkr the statuses connected, failed: {two_listings}), and \
-                             the hands argv removed WebSearch, WebFetch",
+                             the declared OFF controls removed WebSearch, WebFetch",
                             listed(INIT, "tools", 1)
                         ),
                     }),

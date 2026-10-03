@@ -140,13 +140,15 @@ pub(crate) struct Refusals {
     pub(crate) outage: Fact<Refusal>,
 }
 
-/// One of the CLI's own tools, a native capability, and what switches it
-/// off: the flags that removed it from the boxed turn, or `unsupported`
-/// with the measured reason (decision 0065 ruling 4's declaration).
+/// One native capability the adapter declares, as a realm grants it, the
+/// tools it maps it to, and what switches it off: the declared OFF
+/// controls when the turn under them listed none of those tools, or
+/// `unsupported` with what the probe saw (decision 0065 ruling 4).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Capability {
-    pub(crate) tool: String,
+    pub(crate) capability: String,
+    pub(crate) tools: Vec<String>,
     pub(crate) off: Fact<Vec<String>>,
 }
 
@@ -173,9 +175,11 @@ pub(crate) struct Facts {
     /// The plain turn's egress tools; unmeasured when a tool is named that
     /// the probe knows neither as egress nor as local.
     pub(crate) native_egress: Fact<Vec<String>>,
-    /// True when no native egress tool is left under the hands argv.
+    /// True when no native egress tool is left under the declared OFF
+    /// controls.
     pub(crate) egress_off: Fact<bool>,
-    /// Each tool in `tools`, with what switches it off.
+    /// Each native capability the adapter declares, with what switches it
+    /// off; unmeasured when the plain turn lists a tool none of them maps.
     pub(crate) capabilities: Fact<Vec<Capability>>,
     /// True when no MCP server other than the hands server, the one
     /// planted in the scratch HOME's user-scope configuration included,
@@ -227,7 +231,7 @@ impl Facts {
         self.capabilities.clone().map(|capabilities| {
             capabilities
                 .into_iter()
-                .map(|capability| (capability.tool, capability.off.reading()))
+                .map(|capability| (capability.capability, capability.off.reading()))
                 .collect()
         })
     }

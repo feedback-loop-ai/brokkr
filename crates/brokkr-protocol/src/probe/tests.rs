@@ -18,6 +18,7 @@ mod evidence;
 #[path = "../../../../tests/support/executable.rs"]
 mod executable;
 mod listings;
+mod native;
 
 const DATE: &str = "2026-09-29T09:00:00Z";
 const DEADLINE: Duration = Duration::from_secs(60);
@@ -58,6 +59,11 @@ const BOXED_CLEAN: &str =
 /// failed, as a CLI does whose user scope is not isolated.
 const PLAIN_READS_THE_PLANT: &str = r#"grep -q brokkr-probe-user-scope "$HOME/.claude.json" && servers='{"name":"brokkr-probe-user-scope","status":"failed"}'"#;
 
+/// What a Claude-like CLI does under the OFF controls the engine composes
+/// for the claude adapter: its plain turn, less the two denied tools.
+const OFF_HONOURED: &str =
+    r#"tools=$(printf '%s' "$tools" | sed -e 's/,*"WebFetch"//' -e 's/,*"WebSearch"//')"#;
+
 /// A Claude-like CLI: stream-json whose `system/init` event lists its
 /// tools and MCP servers, and whose one assistant message restates its
 /// usage on each of its two events (#402). It reads the planted
@@ -89,6 +95,7 @@ echo '{"type":"user"}' >> "$dir/$sid.jsonl"
 echo '{}' > "$HOME/.claude/stats.json"
 case " $* " in
   *" --strict-mcp-config "*) @UNDER_HANDS@ ;;
+  *" --disallowedTools WebFetch,WebSearch "*) @PLAIN@; @UNDER_OFF@ ;;
   *) @PLAIN@ ;;
 esac
 printf '{"type":"system","subtype":"init","session_id":"%s","tools":[%s],"mcp_servers":[%s]}\n' "$sid" "$tools" "$servers"
@@ -99,6 +106,7 @@ printf '{"type":"result","subtype":"success","is_error":false,"session_id":"%s",
 "#
     .replace("@VERSION@", version)
     .replace("@UNDER_HANDS@", under_hands)
+    .replace("@UNDER_OFF@", OFF_HONOURED)
     .replace("@PLAIN@", plain)
     .replace("@SESSION@", CLAUDE_SESSION)
 }
@@ -157,6 +165,29 @@ fn claude_declared() -> Declared {
         hands_gap: None,
         passthrough: strings(&["--permission-mode", "acceptEdits"]),
         resume_versions: vec![("boxed-workspace".to_string(), "2.1.266".to_string())],
+        native: Native::Known {
+            powers: vec![
+                power("web-fetch", "WebFetch"),
+                power("web-search", "WebSearch"),
+            ],
+            off: OffControl::Argv(strings(&CLAUDE_OFF)),
+        },
+    }
+}
+
+/// The OFF argv the engine composes for the shipped claude adapter, and
+/// how a row names a capability it switched off.
+const CLAUDE_OFF: [&str; 2] = ["--disallowedTools", "WebFetch,WebSearch"];
+const CLAUDE_SWITCHED: &str = "switched off by --disallowedTools WebFetch,WebSearch";
+
+/// A native power, keyed by its capability, mapped to one tool and
+/// switched off by a declared control.
+fn power(capability: &str, tool: &str) -> NativePower {
+    NativePower {
+        key: capability.to_string(),
+        capability: capability.to_string(),
+        tools: strings(&[tool]),
+        off: DeclaredOff::Switched,
     }
 }
 
@@ -177,6 +208,10 @@ fn codex_declared() -> Declared {
         hands_gap: None,
         passthrough: Vec::new(),
         resume_versions: vec![("work-site".to_string(), "0.154.0".to_string())],
+        native: Native::Known {
+            powers: vec![power("web-search", "web_search")],
+            off: OffControl::Argv(strings(&["-c", "web_search=\"disabled\""])),
+        },
     }
 }
 
@@ -190,8 +225,11 @@ fn dsh_declared() -> Declared {
         hands_gap: Some(DSH_GAP.to_string()),
         passthrough: Vec::new(),
         resume_versions: vec![("headless-work".to_string(), "0.1.5-rc.1".to_string())],
+        native: Native::Unmeasured(DSH_NATIVE.to_string()),
     }
 }
+
+const DSH_NATIVE: &str = "no OFF control for its native egress has been measured";
 
 /// A directory of fakes, and a secrets store binding `FAKE_TOKEN`.
 struct World {
@@ -331,20 +369,30 @@ fn usage(locations: &[&str], counters: &[&str], counting: Value) -> Value {
     )
 }
 
-fn capability(tool: &str, off: Value) -> Value {
-    json!({"tool": tool, "off": off})
+fn capability(capability: &str, tool: &str, off: Value) -> Value {
+    json!({"capability": capability, "tools": [tool], "off": off})
 }
 
-/// A tool the claude adapter's hands argv removed from a boxed turn
-/// whose tool listing `listed` evidences.
-fn switched_off(tool: &str, listed: &str) -> Value {
+/// A capability of the claude adapter whose tool its declared OFF
+/// controls removed from a turn, whose tool listing `listed` evidences.
+fn switched_off(name: &str, tool: &str, listed: &str) -> Value {
     capability(
+        name,
         tool,
         measured(
-            json!(claude_declared().hands),
-            &format!("the boxed turn listed no {tool}: {listed}"),
+            json!(CLAUDE_OFF),
+            &format!("the turn under the declared OFF controls listed none of {tool}: {listed}"),
         ),
     )
+}
+
+/// The claude adapter's two capabilities, switched off by its declared
+/// OFF controls in a turn that listed `listed`.
+fn claude_switched_off(listed: &str) -> Value {
+    json!([
+        switched_off("web-fetch", "WebFetch", listed),
+        switched_off("web-search", "WebSearch", listed),
+    ])
 }
 
 const CLAUDE_TURN: [&str; 8] = [
@@ -419,10 +467,12 @@ fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() 
                     json!(["WebSearch", "WebFetch"]),
                     "the system/init event on line 1 of stdout listed tools: 4",
                 ),
-                "egress_off": measured(json!(true), "the hands argv removed WebSearch, WebFetch"),
+                "egress_off": measured(
+                    json!(true),
+                    "the declared OFF controls removed WebSearch, WebFetch",
+                ),
                 "capabilities": measured(
-                    json!(["Bash", "Read", "WebSearch", "WebFetch"]
-                        .map(|tool| switched_off(tool, "the system/init event on line 1 of stdout listed tools: 1"))),
+                    claude_switched_off("the system/init event on line 1 of stdout listed tools: 2"),
                     "the system/init event on line 1 of stdout listed tools: 4",
                 ),
                 "config_isolation": measured(
@@ -441,6 +491,9 @@ fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() 
                 field("efforts", "low, medium, high, xhigh, max", "low, medium, high, xhigh, max", "agrees"),
                 field("hands", "supported", "supported", "agrees"),
                 field("resume.boxed-workspace.identity.version", "2.1.266", "9.9.9 (Fake Claude)", "differs"),
+                field("native_capabilities.tools", "WebFetch, WebSearch", "WebFetch, WebSearch", "agrees"),
+                field("native_capabilities.known.web-fetch.off", "switched off", CLAUDE_SWITCHED, "agrees"),
+                field("native_capabilities.known.web-search.off", "switched off", CLAUDE_SWITCHED, "agrees"),
             ],
             "eligibility": {
                 "verdict": "boxed-only",
@@ -524,7 +577,7 @@ fn a_codex_like_cli_whose_stream_lists_no_mcp_servers_is_refused_for_want_of_iso
                 "egress_off": unmeasured(&format!(
                     "the plain turn's native egress was not read: {no_tools}"
                 )),
-                "capabilities": unmeasured(no_tools),
+                "capabilities": unmeasured(&format!("the plain turn's tools were not read: {no_tools}")),
                 "config_isolation": unmeasured(&not_isolated),
                 "user_mcp_unboxed": unmeasured(no_servers),
                 "user_mcp_boxed": unmeasured(no_servers),
@@ -543,6 +596,8 @@ fn a_codex_like_cli_whose_stream_lists_no_mcp_servers_is_refused_for_want_of_iso
                 ),
                 field("hands", "supported", "unmeasured", "not-compared"),
                 field("resume.work-site.identity.version", "0.154.0", "codex-cli 0.999.0", "differs"),
+                field("native_capabilities.tools", "web_search", "unmeasured", "not-compared"),
+                field("native_capabilities.known.web-search.off", "switched off", "unmeasured", "not-compared"),
             ],
             "eligibility": {
                 "verdict": "refused",
@@ -624,7 +679,9 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
                 "egress_off": unmeasured(&format!(
                     "the plain turn's native egress was not read: {tools}"
                 )),
-                "capabilities": unmeasured(&tools),
+                "capabilities": unmeasured(&format!(
+                    "the adapter declares its native capabilities unmeasured: {DSH_NATIVE}"
+                )),
                 "config_isolation": unmeasured(&not_isolated),
                 "user_mcp_unboxed": unmeasured(&unread),
                 "user_mcp_boxed": unmeasured(&no_hands),
@@ -635,6 +692,7 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
                 field("efforts", "low, medium, high, xhigh", "unmeasured", "not-compared"),
                 field("hands", "unsupported", "unmeasured", "not-compared"),
                 field("resume.headless-work.identity.version", "0.1.5-rc.1", "dsh 0.9.9", "differs"),
+                field("native_capabilities.tools", "unmeasured", "unmeasured", "not-compared"),
             ],
             "eligibility": {
                 "verdict": "refused",
@@ -653,7 +711,6 @@ fn under_hands(report: &Value) -> Value {
     json!({
         "boxed_tools": report["facts"]["boxed_tools"],
         "mcp_server": report["facts"]["mcp_server"],
-        "egress_off": report["facts"]["egress_off"],
         "user_mcp_boxed": report["facts"]["user_mcp_boxed"],
         "config_isolation": report["facts"]["config_isolation"],
         "hands": report["adapter_fields"][1],
@@ -672,12 +729,12 @@ fn a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed() {
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Keeps));
     let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
     let listed_servers = "the system/init event on line 1 of stdout listed mcp_servers: 1";
+    let kept = "the system/init event on line 1 of stdout listed tools: 3";
     assert_eq!(
         under_hands(&report),
         json!({
-            "boxed_tools": measured(json!(["Bash", "WebFetch"]), "the system/init event on line 1 of stdout listed tools: 3"),
+            "boxed_tools": measured(json!(["Bash", "WebFetch"]), kept),
             "mcp_server": measured(json!("connected"), listed_servers),
-            "egress_off": measured(json!(false), "the hands argv left WebFetch"),
             "user_mcp_boxed": measured(json!(false), listed_servers),
             "config_isolation": measured(
                 json!(true),
@@ -687,22 +744,19 @@ fn a_cli_that_keeps_its_tools_under_the_hands_argv_cannot_be_boxed() {
             "eligibility": {
                 "verdict": "refused",
                 "reason": format!(
-                    "{PLAIN_LEAK}{PLAIN_REACH}{HOLDS_NO_BOX}no off switch exists for its \
-                     native capabilities Bash, WebFetch, {GRANTING_REALMS}"
+                    "{PLAIN_LEAK}{PLAIN_REACH}{HOLDS_NO_BOX}it is not shown to stand behind the \
+                     box ({kept}; {listed_servers}), and the declared OFF controls removed \
+                     WebSearch, WebFetch"
                 ),
             },
         })
     );
-    let listed_tools = "the system/init event on line 1 of stdout listed tools: 3";
+    // The box keeping WebFetch says nothing of its off switch, which the
+    // declared OFF controls are (decision 0065 ruling 4).
     assert_eq!(
         report["facts"]["capabilities"],
         measured(
-            json!([
-                capability("Bash", unsupported("the hands argv left Bash")),
-                switched_off("Read", listed_tools),
-                switched_off("WebSearch", listed_tools),
-                capability("WebFetch", unsupported("the hands argv left WebFetch")),
-            ]),
+            claude_switched_off("the system/init event on line 1 of stdout listed tools: 2"),
             "the system/init event on line 1 of stdout listed tools: 4",
         )
     );
@@ -726,7 +780,6 @@ fn a_cli_that_refuses_the_hands_argv_reads_unsupported() {
         json!({
             "boxed_tools": unsupported(refused),
             "mcp_server": unsupported(refused),
-            "egress_off": unsupported(refused),
             "user_mcp_boxed": unsupported(refused),
             "config_isolation": measured(json!(false), &leaked),
             "hands": field("hands", "supported", "unsupported", "differs"),
@@ -809,7 +862,6 @@ fn a_boxed_launch_killed_at_its_deadline_is_unread_not_refused_and_takes_its_chi
         json!({
             "boxed_tools": unmeasured(unfinished),
             "mcp_server": unmeasured(unfinished),
-            "egress_off": unmeasured(&format!("the boxed turn was not read: {unfinished}")),
             "user_mcp_boxed": unmeasured(unfinished),
             "config_isolation": measured(json!(false), &leaked),
             "hands": field("hands", "supported", "unmeasured", "not-compared"),
@@ -873,19 +925,20 @@ fn a_tool_the_probe_does_not_recognise_is_never_read_as_local() {
             &json!({
                 "verdict": "refused",
                 "reason": format!(
-                    "{PLAIN_LEAK}{PLAIN_REACH}{HOLDS_NO_BOX}no off switch exists for its native \
-                     capabilities Search, {GRANTING_REALMS}"
+                    "{PLAIN_LEAK}{PLAIN_REACH}{HOLDS_NO_BOX}its native egress has no measured off \
+                     switch ({off_unread}), and no native capability is named for a realm to \
+                     grant: the plain turn listed Search, which no declared native capability \
+                     maps, so no realm can grant it"
                 ),
             }),
         )
     );
-    let boxed_only =
-        claude_like("9.9.9", Boxed::Keeps).replace(r#""Bash","WebFetch","mcp"#, r#""Search","mcp"#);
-    let cli = world.fake("claude-boxed", &boxed_only);
+    let off_only = claude_like("9.9.9", Boxed::Keeps).replace(OFF_HONOURED, r#"tools='"Search"'"#);
+    let cli = world.fake("claude-off", &off_only);
     let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
     assert_eq!(
         report["facts"]["egress_off"],
-        measured(json!(false), "the hands argv left Search")
+        measured(json!(false), "the declared OFF controls left Search")
     );
 }
 
@@ -1108,23 +1161,12 @@ fn a_rerun_on_a_new_cli_version_reports_its_drift_against_the_previous_report() 
     )
     .unwrap()
     .with_drift_from(&previous);
-    let hands = serde_json::to_string(&declared.hands).unwrap();
-    let offs = |reading: &str| {
-        json!(["Bash", "Read", "WebSearch", "WebFetch"].map(|tool| json!([tool, reading])))
-    };
-    let capabilities = format!(
-        "drift: capabilities: measured {} -> measured {}",
-        offs(&format!("measured {hands}")),
-        offs("unsupported")
-    );
     assert_eq!(
         after.drift_lines(),
         vec![
             r#"drift: cli.version: measured "9.9.9 (Fake Claude)" -> measured "10.0.0 (Fake Claude)""#,
             "drift: boxed_tools: measured [] -> unsupported",
             r#"drift: mcp_server: measured "connected" -> unsupported"#,
-            "drift: egress_off: measured true -> unsupported",
-            capabilities.as_str(),
             "drift: config_isolation: measured true -> measured false",
             "drift: user_mcp_boxed: measured false -> unsupported",
             r#"drift: eligibility: "boxed-only" -> "refused""#,
@@ -1200,7 +1242,8 @@ fn observed(turn: Observation) -> Observed {
         no_credentials: Trial::Observed(turn.clone()),
         bad_model: Trial::Observed(turn.clone()),
         bad_effort: Trial::Observed(turn.clone()),
-        boxed: Trial::Observed(turn),
+        boxed: Trial::Observed(turn.clone()),
+        native_off: Trial::Observed(turn),
     }
 }
 
@@ -1333,24 +1376,28 @@ fn unboxed_facts(kind: AdapterKind, declared: &Declared) -> super::facts::Facts 
 }
 
 #[test]
-fn a_cli_with_no_hands_argv_has_no_off_switch_and_its_isolation_is_read_from_the_plain_turn() {
+fn a_cli_with_no_hands_argv_is_switched_off_by_its_declared_controls_and_isolation_read_plain() {
     let declared = Declared {
         hands: None,
         hands_gap: Some(DSH_GAP.to_string()),
         ..claude_declared()
     };
     let facts = unboxed_facts(AdapterKind::Claude, &declared);
-    let no_hands = format!(
-        "the adapter declares no hands argv that switches the CLI's own tools off ({DSH_GAP})"
-    );
     let at_init = "the system/init event on line 1 of stdout listed";
+    let off = |capability: &str, tool: &str| {
+        Capability {
+        capability: capability.to_string(),
+        tools: strings(&[tool]),
+        off: Fact::measured(
+            strings(&CLAUDE_OFF),
+            format!("the turn under the declared OFF controls listed none of {tool}: {at_init} tools: 1"),
+        ),
+    }
+    };
     assert_eq!(
         facts.capabilities,
         Fact::measured(
-            vec![Capability {
-                tool: "Bash".to_string(),
-                off: Fact::Unsupported { evidence: no_hands },
-            }],
+            vec![off("web-fetch", "WebFetch"), off("web-search", "WebSearch")],
             format!("{at_init} tools: 1"),
         )
     );
@@ -1517,7 +1564,7 @@ fn a_hands_server_that_does_not_connect_is_not_boxed_and_removable_egress_is_unb
         &Fact::measured("v2.1.266 (Claude Code)".to_string(), "printed"),
     );
     assert_eq!(
-        serde_json::to_value(&rows[1..]).unwrap(),
+        serde_json::to_value(&rows[1..3]).unwrap(),
         json!([
             field("hands", "supported", "unsupported", "differs"),
             field(
@@ -1600,12 +1647,6 @@ fn an_unread_line_refuses_a_verdict_whose_every_fact_was_measured() {
 
 #[test]
 fn a_cli_whose_native_capabilities_have_no_off_switch_is_seated_only_where_a_realm_grants_them() {
-    let left = |tool: &str| Capability {
-        tool: tool.to_string(),
-        off: Fact::Unsupported {
-            evidence: format!("the hands argv left {tool}"),
-        },
-    };
     let mut facts = with_hands(
         Fact::measured(
             strings(&["Bash", "WebFetch"]),
@@ -1615,16 +1656,16 @@ fn a_cli_whose_native_capabilities_have_no_off_switch_is_seated_only_where_a_rea
             "connected".to_string(),
             "the init event listed mcp_servers: 1",
         ),
-        Fact::measured(false, "the hands argv left WebFetch"),
+        Fact::measured(false, "the declared OFF controls left WebFetch"),
     );
     facts.capabilities = Fact::measured(
         vec![
-            left("Bash"),
-            Capability {
-                tool: "Read".to_string(),
-                off: Fact::measured(strings(&["--tools", ""]), "the boxed turn listed no Read"),
-            },
-            left("WebFetch"),
+            native("web-fetch", "WebFetch", left("WebFetch")),
+            native(
+                "web-search",
+                "WebSearch",
+                Fact::measured(strings(&CLAUDE_OFF), "the turn listed none of WebSearch"),
+            ),
         ],
         "the init event listed tools: 3",
     );
@@ -1633,8 +1674,7 @@ fn a_cli_whose_native_capabilities_have_no_off_switch_is_seated_only_where_a_rea
         Eligibility {
             verdict: Verdict::GrantingRealmsOnly,
             reason: format!(
-                "no off switch exists for its native capabilities Bash, WebFetch, \
-                 {GRANTING_REALMS}"
+                "no off switch exists for its native capabilities web-fetch, {GRANTING_REALMS}"
             ),
         }
     );
@@ -1643,12 +1683,30 @@ fn a_cli_whose_native_capabilities_have_no_off_switch_is_seated_only_where_a_rea
         judge::eligibility(&facts, &[]),
         Eligibility {
             verdict: Verdict::Refused,
-            reason: "its native egress has no measured off switch (the hands argv left \
-                     WebFetch), and no native capability is named for a realm to grant: no \
+            reason: "its native egress has no measured off switch (the declared OFF controls \
+                     left WebFetch), and no native capability is named for a realm to grant: no \
                      event of the turn listed its tools"
                 .to_string(),
         }
     );
+}
+
+/// A declared native capability mapped to one tool, as the probe read
+/// its off switch.
+fn native(capability: &str, tool: &str, off: Fact<Vec<String>>) -> Capability {
+    Capability {
+        capability: capability.to_string(),
+        tools: strings(&[tool]),
+        off,
+    }
+}
+
+/// The off switch of a capability whose tool the declared OFF controls
+/// left.
+fn left(tool: &str) -> Fact<Vec<String>> {
+    Fact::Unsupported {
+        evidence: format!("the declared OFF controls left {tool}"),
+    }
 }
 
 #[test]
@@ -1658,35 +1716,28 @@ fn a_capability_without_an_off_switch_needs_a_grant_whatever_egress_reads_and_un
         Fact::measured("failed".to_string(), "the init event listed mcp_servers: 1"),
         Fact::measured(true, "the plain turn listed no native egress tool"),
     );
-    let bash = Capability {
-        tool: "Bash".to_string(),
-        off: Fact::Unsupported {
-            evidence: "the hands argv left Bash".to_string(),
-        },
-    };
-    facts.capabilities = Fact::measured(vec![bash.clone()], "the init event listed tools: 1");
+    let search = native("web-search", "WebSearch", left("WebSearch"));
+    facts.capabilities = Fact::measured(vec![search.clone()], "the init event listed tools: 1");
     assert_eq!(
         judge::eligibility(&facts, &[]),
         Eligibility {
             verdict: Verdict::GrantingRealmsOnly,
             reason: format!(
-                "no off switch exists for its native capabilities Bash, {GRANTING_REALMS}"
+                "no off switch exists for its native capabilities web-search, {GRANTING_REALMS}"
             ),
         }
     );
-    let read = Capability {
-        tool: "Read".to_string(),
-        off: Fact::unmeasured("the boxed turn was not read: the boxed turn did not finish"),
-    };
-    facts.capabilities = Fact::measured(vec![bash, read], "the init event listed tools: 2");
+    let unread = "the turn under the declared OFF controls was not read: it did not finish";
+    let fetch = native("web-fetch", "WebFetch", Fact::unmeasured(unread));
+    facts.capabilities = Fact::measured(vec![search, fetch], "the init event listed tools: 2");
     assert_eq!(
         judge::eligibility(&facts, &[]),
         Eligibility {
             verdict: Verdict::Refused,
-            reason: "the evidence for a seat in a realm that grants its capabilities is not \
-                     complete: Read's off switch is unmeasured: the boxed turn was not read: the \
-                     boxed turn did not finish"
-                .to_string(),
+            reason: format!(
+                "the evidence for a seat in a realm that grants its capabilities is not \
+                 complete: web-fetch's off switch is unmeasured: {unread}"
+            ),
         }
     );
 }

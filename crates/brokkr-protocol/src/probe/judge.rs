@@ -4,9 +4,11 @@
 
 use std::collections::BTreeSet;
 
-use super::facts::{Agreement, DriftRow, Eligibility, Fact, Facts, FieldRow, Report, Verdict};
+use super::facts::{
+    Agreement, Capability, DriftRow, Eligibility, Fact, Facts, FieldRow, Report, Verdict,
+};
 use super::measure::Unread;
-use super::Declared;
+use super::{Declared, DeclaredOff, Native, NativePower};
 
 /// The status a CLI gives an MCP server it started and reached.
 const CONNECTED: &str = "connected";
@@ -81,7 +83,7 @@ fn rests_on(verdict: Verdict, facts: &Facts) -> Option<(&'static str, Vec<String
     let switches = || {
         let each = facts.capabilities.value().into_iter().flatten();
         let offs = each.map(|capability| {
-            let name = format!("{}'s off switch", capability.tool);
+            let name = format!("{}'s off switch", capability.capability);
             gap(&name, &capability.off)
         });
         let listed = gap("capabilities", &facts.capabilities);
@@ -199,8 +201,8 @@ fn without_off_switch(facts: &Facts) -> Option<String> {
     for capability in facts.capabilities.value()? {
         match capability.off {
             Fact::Measured { .. } => {}
-            Fact::Unsupported { .. } => absent.push(capability.tool.as_str()),
-            Fact::Unmeasured { .. } => unread.push(capability.tool.as_str()),
+            Fact::Unsupported { .. } => absent.push(capability.capability.as_str()),
+            Fact::Unmeasured { .. } => unread.push(capability.capability.as_str()),
         }
     }
     let mut named = Vec::new();
@@ -293,6 +295,79 @@ fn version_row(shape: &str, declared: &str, version: &Fact<String>) -> FieldRow 
     )
 }
 
+fn joined(tools: &BTreeSet<&str>) -> String {
+    tools.iter().copied().collect::<Vec<_>>().join(", ")
+}
+
+/// The tools the declared native capabilities map, beside the plain
+/// turn's native egress tools (decision 0065 ruling 4).
+fn inventory_row(native: &Native, egress: &Fact<Vec<String>>) -> FieldRow {
+    let declared: Option<BTreeSet<&str>> = match native {
+        Native::Known { powers, .. } => Some(
+            powers
+                .iter()
+                .flat_map(|power| &power.tools)
+                .map(String::as_str)
+                .collect(),
+        ),
+        Native::Unmeasured(_) => None,
+    };
+    let implied = egress.value().map(|listed| {
+        let listed: BTreeSet<&str> = listed.iter().map(String::as_str).collect();
+        (joined(&listed), declared.as_ref() == Some(&listed))
+    });
+    let shown = match &declared {
+        Some(tools) => joined(tools),
+        None => "unmeasured".to_string(),
+    };
+    row("native_capabilities.tools".to_string(), shown, implied)
+}
+
+/// One power's declared OFF beside what the probe measured switching it
+/// off, compared only where the probe read a switch or its absence.
+fn off_row(power: &NativePower, off: Option<&Fact<Vec<String>>>) -> FieldRow {
+    let declared = match power.off {
+        DeclaredOff::Switched => "switched off",
+        DeclaredOff::Unsupported => "unsupported",
+        DeclaredOff::Unmeasured => "unmeasured",
+    };
+    let implied = match off {
+        Some(Fact::Measured { value, .. }) => Some((
+            format!("switched off by {}", value.join(" ")),
+            power.off == DeclaredOff::Switched,
+        )),
+        Some(Fact::Unsupported { .. }) => Some((
+            "unsupported".to_string(),
+            power.off == DeclaredOff::Unsupported,
+        )),
+        Some(Fact::Unmeasured { .. }) | None => None,
+    };
+    row(
+        format!("native_capabilities.known.{}.off", power.key),
+        declared.to_string(),
+        implied,
+    )
+}
+
+/// Each declared power's OFF row, read against the capability measured
+/// for it: `tools::capabilities` measures them in the declared order.
+fn off_rows(native: &Native, capabilities: &Fact<Vec<Capability>>) -> Vec<FieldRow> {
+    let Native::Known { powers, .. } = native else {
+        return Vec::new();
+    };
+    let measured = capabilities.value();
+    powers
+        .iter()
+        .enumerate()
+        .map(|(index, power)| {
+            let off = measured
+                .and_then(|each| each.get(index))
+                .map(|each| &each.off);
+            off_row(power, off)
+        })
+        .collect()
+}
+
 /// Each adapter field the probe can speak to, beside what it implies.
 pub(crate) fn adapter_fields(
     declared: &Declared,
@@ -309,6 +384,8 @@ pub(crate) fn adapter_fields(
             .iter()
             .map(|(shape, identity)| version_row(shape, identity, version)),
     );
+    rows.push(inventory_row(&declared.native, &facts.native_egress));
+    rows.extend(off_rows(&declared.native, &facts.capabilities));
     rows
 }
 

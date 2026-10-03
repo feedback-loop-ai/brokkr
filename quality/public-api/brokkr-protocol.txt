@@ -565,6 +565,18 @@ pub brokkr_protocol::overrides::OverrideError::Retired::current: &'static str
 pub brokkr_protocol::overrides::OverrideError::Retired::retired: alloc::string::String
 pub fn brokkr_protocol::overrides::read(brokkr_protocol::overrides::Override) -> core::result::Result<alloc::string::String, brokkr_protocol::overrides::OverrideError>
 pub mod brokkr_protocol::probe
+pub enum brokkr_protocol::probe::DeclaredOff
+pub brokkr_protocol::probe::DeclaredOff::Switched
+pub brokkr_protocol::probe::DeclaredOff::Unmeasured
+pub brokkr_protocol::probe::DeclaredOff::Unsupported
+pub enum brokkr_protocol::probe::Native
+pub brokkr_protocol::probe::Native::Known
+pub brokkr_protocol::probe::Native::Known::off: brokkr_protocol::probe::OffControl
+pub brokkr_protocol::probe::Native::Known::powers: alloc::vec::Vec<brokkr_protocol::probe::NativePower>
+pub brokkr_protocol::probe::Native::Unmeasured(alloc::string::String)
+pub enum brokkr_protocol::probe::OffControl
+pub brokkr_protocol::probe::OffControl::Argv(alloc::vec::Vec<alloc::string::String>)
+pub brokkr_protocol::probe::OffControl::Refused(alloc::string::String)
 pub enum brokkr_protocol::probe::ProbeError
 pub brokkr_protocol::probe::ProbeError::Credential(alloc::string::String)
 pub brokkr_protocol::probe::ProbeError::Io
@@ -582,8 +594,14 @@ pub brokkr_protocol::probe::Declared::efforts: alloc::vec::Vec<alloc::string::St
 pub brokkr_protocol::probe::Declared::hands: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub brokkr_protocol::probe::Declared::hands_gap: core::option::Option<alloc::string::String>
 pub brokkr_protocol::probe::Declared::model_flag: core::option::Option<alloc::string::String>
+pub brokkr_protocol::probe::Declared::native: brokkr_protocol::probe::Native
 pub brokkr_protocol::probe::Declared::passthrough: alloc::vec::Vec<alloc::string::String>
 pub brokkr_protocol::probe::Declared::resume_versions: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
+pub struct brokkr_protocol::probe::NativePower
+pub brokkr_protocol::probe::NativePower::capability: alloc::string::String
+pub brokkr_protocol::probe::NativePower::key: alloc::string::String
+pub brokkr_protocol::probe::NativePower::off: brokkr_protocol::probe::DeclaredOff
+pub brokkr_protocol::probe::NativePower::tools: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_protocol::probe::ProbeInput<'a>
 pub brokkr_protocol::probe::ProbeInput::bindings: &'a [brokkr_protocol::secret::BoundSecret]
 pub brokkr_protocol::probe::ProbeInput::brokkr: &'a std::path::Path

@@ -6,7 +6,8 @@ use super::listing::Listing;
 use super::{on_turn, Stream, Streams, Turn};
 use crate::hands::SERVER_NAME;
 use crate::probe::facts::{Capability, Fact};
-use crate::probe::plan::{Plan, Step, UserConfig, USER_SCOPE_SERVER};
+use crate::probe::plan::{Plan, UserConfig, USER_SCOPE_SERVER};
+use crate::probe::{Native, NativePower};
 
 /// What a native egress tool's name holds, once folded to lowercase
 /// letters and digits: web search, fetch, browsing and grounding.
@@ -131,49 +132,83 @@ pub(super) fn native_egress(tools: &Fact<Vec<String>>) -> Fact<Vec<String>> {
     Fact::measured(egress, evidence.clone())
 }
 
-/// Each of the plain turn's own tools as a native capability, with what
-/// switches it off (decision 0065 ruling 4, operator ruling A of
-/// 2026-09-29): the adapter's hands argv when the boxed turn listed the
-/// tool no more, `unsupported` with what the probe saw when the boxed
-/// turn kept it or the CLI refused the argv, `unsupported` with the
-/// adapter's reason when it declares no hands argv, and unmeasured when a
-/// boxed turn was launched but not read.
+/// Each native capability the adapter declares, keyed as a realm grants
+/// it and mapped to its tools, with what switches it off (decision 0065
+/// rulings 1 and 4, operator ruling A of 2026-09-29): the declared OFF
+/// controls when the turn under them listed none of its tools,
+/// `unsupported` with what the probe saw when that turn kept one or the
+/// CLI refused the controls, and unmeasured when no control was tried or
+/// its turn was not read. A plain turn that lists a tool the probe does
+/// not know as local, and no declared capability maps, leaves the
+/// inventory unmeasured, since no realm can grant that tool.
 pub(super) fn capabilities(
-    tools: &Fact<Vec<String>>,
-    boxed_tools: &Fact<Vec<String>>,
     plan: &Plan,
+    tools: &Fact<Vec<String>>,
+    off_tools: &Fact<Vec<String>>,
 ) -> Fact<Vec<Capability>> {
-    tools.clone().map(|tools| {
-        tools
-            .into_iter()
-            .map(|tool| Capability {
-                off: off_switch(&tool, boxed_tools, plan),
-                tool,
-            })
-            .collect()
-    })
-}
-
-fn off_switch(tool: &str, boxed_tools: &Fact<Vec<String>>, plan: &Plan) -> Fact<Vec<String>> {
-    let hands = match &plan.boxed {
-        Step::Launch(_) => &plan.hands,
-        Step::Untried(gap) => {
-            return Fact::Unsupported {
-                evidence: gap.clone(),
-            }
+    let powers = match &plan.native {
+        Native::Known { powers, .. } => powers,
+        Native::Unmeasured(why) => {
+            return Fact::unmeasured(format!(
+                "the adapter declares its native capabilities unmeasured: {why}"
+            ))
         }
     };
-    match boxed_tools {
-        Fact::Measured { value: left, .. } if left.iter().any(|kept| kept == tool) => {
-            Fact::Unsupported {
-                evidence: format!("the hands argv left {tool}"),
-            }
-        }
-        Fact::Measured { evidence, .. } => Fact::measured(
-            hands.to_vec(),
-            format!("the boxed turn listed no {tool}: {evidence}"),
-        ),
-        Fact::Unmeasured { why } => Fact::unmeasured(format!("the boxed turn was not read: {why}")),
+    let Fact::Measured {
+        value: listed,
+        evidence,
+    } = tools
+    else {
+        return Fact::unmeasured(format!(
+            "the plain turn's tools were not read: {}",
+            tools.account()
+        ));
+    };
+    let unmapped: Vec<&str> = listed
+        .iter()
+        .filter(|tool| tool_class(tool) != ToolClass::Local)
+        .filter(|tool| !powers.iter().any(|power| power.tools.contains(tool)))
+        .map(String::as_str)
+        .collect();
+    if !unmapped.is_empty() {
+        return Fact::unmeasured(format!(
+            "the plain turn listed {}, which no declared native capability maps, so no realm \
+             can grant it",
+            unmapped.join(", ")
+        ));
+    }
+    let each = powers.iter().map(|power| Capability {
+        capability: power.capability.clone(),
+        tools: power.tools.clone(),
+        off: off_switch(power, &plan.off, off_tools),
+    });
+    Fact::measured(each.collect(), evidence.clone())
+}
+
+fn off_switch(
+    power: &NativePower,
+    off: &[String],
+    off_tools: &Fact<Vec<String>>,
+) -> Fact<Vec<String>> {
+    match off_tools {
+        Fact::Measured {
+            value: left,
+            evidence,
+        } => match left.iter().find(|tool| power.tools.contains(tool)) {
+            Some(kept) => Fact::Unsupported {
+                evidence: format!("the declared OFF controls left {kept}: {evidence}"),
+            },
+            None => Fact::measured(
+                off.to_vec(),
+                format!(
+                    "the turn under the declared OFF controls listed none of {}: {evidence}",
+                    power.tools.join(", ")
+                ),
+            ),
+        },
+        Fact::Unmeasured { why } => Fact::unmeasured(format!(
+            "the turn under the declared OFF controls was not read: {why}"
+        )),
         Fact::Unsupported { evidence } => Fact::Unsupported {
             evidence: evidence.clone(),
         },
@@ -238,30 +273,99 @@ pub(super) fn unread_values(turn: &Turn) -> Vec<String> {
 /// the hands server.
 fn text_reach(streams: &[Stream]) -> Option<String> {
     streams.iter().find_map(|stream| {
-        stream.text.iter().find_map(|(line, text)| {
-            let named = named_in(text)?;
-            Some(format!("line {line} of {} names {named}", stream.source))
-        })
+        let (line, named) = stream.reaches.first()?;
+        Some(format!("line {line} of {} names {named}", stream.source))
     })
 }
 
-/// The MCP server other than the hands server a line of text names: the
-/// planted user-scope server, or the server of a tool it spells as
-/// `mcp__<server>__<tool>`.
-fn named_in(text: &str) -> Option<String> {
+/// What a line of text says of the MCP servers and tools that reached a
+/// turn (#484): the scanner refuses what it does not recognise.
+pub(super) enum Said {
+    /// It names no listing, MCP server or tool, or only the hands
+    /// server's.
+    Nothing,
+    /// It names an MCP server other than the hands server, as this says.
+    Reach(String),
+    /// It names a listing, JSON it does not hold whole, or an MCP server
+    /// or tool whose name it does not spell whole.
+    Unread,
+}
+
+/// The words a line of text names a listing of MCP servers by, folded to
+/// lowercase.
+const SERVER_LISTINGS: [&str; 4] = ["mcp_servers", "mcpservers", "mcp servers", "mcp-servers"];
+
+/// How a line names one MCP server: `MCP server <name>`, any case.
+const MCP_SERVER: &str = "mcp server";
+
+/// What `text` says: a reach when it names the planted server, a tool of
+/// another server or another `MCP server <name>`; else unread when it
+/// names any listing or a server or tool it does not spell whole.
+pub(super) fn said(text: &str) -> Said {
     if text.contains(USER_SCOPE_SERVER) {
-        return Some(format!(
+        return Said::Reach(format!(
             "the planted user-scope MCP server {USER_SCOPE_SERVER}"
         ));
     }
-    text.match_indices("mcp__").find_map(|(at, _)| {
-        let tool: String = text[at..]
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
-            .collect();
-        let server = tool_server(&tool).filter(|server| *server != SERVER_NAME)?;
-        Some(format!("{tool} of the MCP server {server}"))
-    })
+    let mut unread = names_a_listing(text);
+    for mention in mentions(text) {
+        match mention {
+            Some((server, named)) if server != SERVER_NAME => return Said::Reach(named),
+            Some(_) => {}
+            None => unread = true,
+        }
+    }
+    if unread {
+        Said::Unread
+    } else {
+        Said::Nothing
+    }
+}
+
+/// Whether `text` names a listing of MCP servers or tools, or starts JSON
+/// it does not hold whole, being no one JSON object.
+fn names_a_listing(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    let tools = lower.match_indices("tools").any(|(at, word)| {
+        lower[at + word.len()..]
+            .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '"' | '\''))
+            .starts_with([':', '=', '['])
+    });
+    tools
+        || SERVER_LISTINGS.iter().any(|words| lower.contains(words))
+        || lower.trim_start().starts_with(['{', '['])
+}
+
+/// A name as a line spells it: letters, digits, `_`, `-` and `.`.
+fn spelled(text: &str) -> String {
+    text.chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        .collect()
+}
+
+/// Each MCP server `text` names, by a tool it spells `mcp__<server>__…`
+/// or as `MCP server <name>`: the server and how the line names it, or
+/// `None` where the spelling names no server whole.
+fn mentions(text: &str) -> Vec<Option<(String, String)>> {
+    let tools = text.match_indices("mcp__").map(|(at, _)| {
+        let tool = spelled(&text[at..]);
+        let server = tool_server(&tool)?.to_string();
+        let named = format!("{tool} of the MCP server {server}");
+        Some((server, named))
+    });
+    let lower = text.to_ascii_lowercase();
+    let servers = lower.match_indices(MCP_SERVER).filter_map(|(at, word)| {
+        let rest = &text[at + word.len()..];
+        // `MCP servers` is a listing, which `names_a_listing` reads.
+        if rest.starts_with(|c: char| c.is_ascii_alphanumeric()) {
+            return None;
+        }
+        let name = spelled(rest.trim_start_matches(|c: char| {
+            c.is_whitespace() || matches!(c, ':' | '"' | '\'' | '`')
+        }));
+        Some((!name.is_empty()).then(|| (name.clone(), format!("the MCP server {name}"))))
+    });
+    tools.chain(servers).collect()
 }
 
 /// Where an MCP server other than the hands server was read reaching the
@@ -347,11 +451,11 @@ pub(super) fn config_isolation(unboxed: &Fact<bool>, boxed: &Fact<bool>) -> Fact
     }
 }
 
-/// Whether the hands argv left any native egress tool behind, a tool it
-/// does not recognise counted as egress.
+/// Whether the declared OFF controls left any native egress tool behind,
+/// a tool the probe does not recognise counted as egress.
 pub(super) fn egress_off(
     native_egress: &Fact<Vec<String>>,
-    boxed_tools: &Fact<Vec<String>>,
+    off_tools: &Fact<Vec<String>>,
 ) -> Fact<bool> {
     let Some(egress) = native_egress.value() else {
         return Fact::unmeasured(format!(
@@ -362,17 +466,17 @@ pub(super) fn egress_off(
     if egress.is_empty() {
         return Fact::measured(true, "the plain turn listed no native egress tool");
     }
-    match boxed_tools {
+    match off_tools {
         Fact::Measured { value: left, .. } => {
             let kept: Vec<&String> = left
                 .iter()
                 .filter(|tool| tool_class(tool) != ToolClass::Local)
                 .collect();
             let evidence = if kept.is_empty() {
-                format!("the hands argv removed {}", egress.join(", "))
+                format!("the declared OFF controls removed {}", egress.join(", "))
             } else {
                 format!(
-                    "the hands argv left {}",
+                    "the declared OFF controls left {}",
                     kept.iter()
                         .map(|t| t.as_str())
                         .collect::<Vec<_>>()
@@ -381,7 +485,9 @@ pub(super) fn egress_off(
             };
             Fact::measured(kept.is_empty(), evidence)
         }
-        Fact::Unmeasured { why } => Fact::unmeasured(format!("the boxed turn was not read: {why}")),
+        Fact::Unmeasured { why } => Fact::unmeasured(format!(
+            "the turn under the declared OFF controls was not read: {why}"
+        )),
         Fact::Unsupported { evidence } => Fact::Unsupported {
             evidence: evidence.clone(),
         },

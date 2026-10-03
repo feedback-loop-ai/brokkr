@@ -11,11 +11,12 @@ use std::fmt;
 
 use serde_json::{Map, Value};
 
-use super::facts::{Counting, Events, Fact, Facts, Headless, Refusal, Refusals, Session, Usage};
+use super::facts::{Counting, Events, Fact, Facts, Headless, Refusals, Session, Usage};
 use super::observe::{Captured, Observation, Transcript, Trial, Written, SCRATCH_PREFIX};
-use super::plan::{Plan, NO_SUCH_EFFORT};
+use super::plan::Plan;
 
 mod listing;
+mod refusals;
 mod strict;
 mod tools;
 
@@ -29,10 +30,6 @@ const SESSION_KEYS: [&str; 2] = ["session_id", "thread_id"];
 /// The keys a cost is reported under.
 const COST_KEYS: [&str; 2] = ["total_cost_usd", "cost_usd"];
 
-/// What refusals list the accepted levels after: clap's, commander's and
-/// serde's wording.
-const LEVEL_MARKERS: [&str; 3] = ["possible values:", "Allowed choices are", "expected one of"];
-
 /// Every launch of one probe run, observed or passed on.
 pub(crate) struct Observed {
     pub(crate) version: Observation,
@@ -41,6 +38,7 @@ pub(crate) struct Observed {
     pub(crate) bad_model: Trial,
     pub(crate) bad_effort: Trial,
     pub(crate) boxed: Trial,
+    pub(crate) native_off: Trial,
 }
 
 /// One JSON object a stream carried, and its line, counted from 1.
@@ -57,6 +55,9 @@ pub(crate) enum Fault {
     NotOneObject,
     /// Its bytes are not UTF-8, so it was never decoded, nor repaired.
     NotUtf8,
+    /// It is text naming a listing, an MCP server or a tool that the
+    /// probe cannot read whole.
+    Unrecognised,
 }
 
 impl fmt::Display for Fault {
@@ -64,6 +65,9 @@ impl fmt::Display for Fault {
         formatter.write_str(match self {
             Fault::NotOneObject => "is not one JSON object naming each key once",
             Fault::NotUtf8 => "is not UTF-8",
+            Fault::Unrecognised => {
+                "names a listing, an MCP server or a tool the probe cannot read whole"
+            }
         })
     }
 }
@@ -77,11 +81,13 @@ impl fmt::Display for Fault {
 ///   and refuses any admitting verdict;
 /// - (ii) a line that is one JSON object is read as an event, like a
 ///   line of stdout;
-/// - (iii) any other line is read as text, and searched for a reach by
-///   `tools::user_mcp`: the planted server's name, or a tool named
-///   `mcp__<server>__…` of a server other than the hands server;
-/// - (iv) a line of text showing no reach is read: it is not an unread
-///   line, and leaves no listing unmeasured.
+/// - (iii) any other line is text, read by `tools::said`: one naming the
+///   planted server, a tool `mcp__<server>__…` or an `MCP server <name>`
+///   of a server other than the hands server is a reach;
+/// - (iv) one that names a listing (`mcp_servers`, `tools:`), JSON it
+///   does not hold whole, or an MCP server or tool whose name it does not
+///   spell whole, and shows no reach, is unread like a line of (i);
+/// - (v) any other line of text is read: it leaves no listing unmeasured.
 #[derive(Clone, Copy, PartialEq)]
 enum Lines {
     Events,
@@ -89,14 +95,14 @@ enum Lines {
 }
 
 /// One stream a turn produced, stdout, a transcript or stderr: how its
-/// lines are read, its events, where they were read from, each line read
-/// as text, each line no reader read and why, and whether it held no
-/// bytes at all.
+/// lines are read, its events, where they were read from, each reach a
+/// line of its text showed, each line no reader read and why, and whether
+/// it held no bytes at all.
 struct Stream {
     source: String,
     lines: Lines,
     events: Vec<Event>,
-    text: Vec<(usize, String)>,
+    reaches: Vec<(usize, String)>,
     unread: Vec<(usize, Fault)>,
     empty: bool,
 }
@@ -256,7 +262,7 @@ pub(crate) fn version(observation: &Observation) -> Fact<String> {
 /// `lines` says.
 fn parse_lines(captured: &Captured, source: &str, first: usize, lines: Lines) -> Stream {
     let mut events = Vec::new();
-    let mut text = Vec::new();
+    let mut reaches = Vec::new();
     let mut unread: Vec<(usize, Fault)> = captured
         .not_utf8
         .iter()
@@ -272,7 +278,11 @@ fn parse_lines(captured: &Captured, source: &str, first: usize, lines: Lines) ->
                 fields,
             }),
             (None, Lines::Events) => unread.push((first + index, Fault::NotOneObject)),
-            (None, Lines::Text) => text.push((first + index, line.to_string())),
+            (None, Lines::Text) => match tools::said(line) {
+                tools::Said::Reach(reach) => reaches.push((first + index, reach)),
+                tools::Said::Unread => unread.push((first + index, Fault::Unrecognised)),
+                tools::Said::Nothing => {}
+            },
         }
     }
     unread.sort_unstable_by_key(|(line, _)| *line);
@@ -280,7 +290,7 @@ fn parse_lines(captured: &Captured, source: &str, first: usize, lines: Lines) ->
         source: source.to_string(),
         lines,
         events,
-        text,
+        reaches,
         unread,
         empty: captured.text.is_empty() && captured.not_utf8.is_empty(),
     }
@@ -353,11 +363,28 @@ fn read_base(observation: &Observation) -> Turn {
     }
 }
 
-/// The turn under the adapter's hands argv: a non-zero exit is the CLI
-/// refusing that argv, which is itself the measurement. A launch that
+/// A turn launched under an argv the adapter declares, by how the report
+/// names the turn and the argv.
+struct Under {
+    turn: &'static str,
+    argv: &'static str,
+}
+
+const HANDS: Under = Under {
+    turn: "the boxed turn",
+    argv: "the adapter's hands argv",
+};
+
+const OFF: Under = Under {
+    turn: "the turn under the declared OFF controls",
+    argv: "the declared OFF controls",
+};
+
+/// The turn under an argv the adapter declares: a non-zero exit is the
+/// CLI refusing that argv, which is itself the measurement. A launch that
 /// ended with no exit code, by a signal or the deadline, refused nothing.
 /// However it ended, every line it captured is read.
-fn read_boxed(trial: &Trial) -> Turn {
+fn read_under(trial: &Trial, under: Under) -> Turn {
     let observation = match trial {
         Trial::Untried(why) => return Turn::Unread(why.clone(), Vec::new()),
         Trial::Observed(observation) => observation,
@@ -367,14 +394,16 @@ fn read_boxed(trial: &Trial) -> Turn {
         Some(0) => read_stream(streams),
         None => Turn::Unread(
             format!(
-                "the boxed turn did not finish: {}",
+                "{} did not finish: {}",
+                under.turn,
                 exit_and_excerpt(observation)
             ),
             streams.0,
         ),
         Some(_) => Turn::Refused(
             format!(
-                "the CLI refused the adapter's hands argv: {}",
+                "the CLI refused {}: {}",
+                under.argv,
                 exit_and_excerpt(observation)
             ),
             streams.0,
@@ -588,78 +617,6 @@ fn cost(stream: &Stream) -> Fact<Vec<String>> {
     Fact::measured(locations, evidence)
 }
 
-/// The launch that refused a deliberate mistake, or why there is no
-/// refusal to read: `accepted` when it exited 0. A launch that ended with
-/// no exit code, by a signal or the probe's deadline, refused nothing.
-fn refused<T: serde::Serialize>(trial: &Trial, accepted: String) -> Result<&Observation, Fact<T>> {
-    let observation = match trial {
-        Trial::Untried(why) => return Err(Fact::unmeasured(why.clone())),
-        Trial::Observed(observation) => observation,
-    };
-    match observation.exit {
-        Some(0) => Err(Fact::unmeasured(accepted)),
-        None => Err(Fact::unmeasured(format!(
-            "no refusal was read: {}",
-            exit_and_excerpt(observation)
-        ))),
-        Some(_) => Ok(observation),
-    }
-}
-
-/// How one deliberate mistake was refused.
-fn refusal(trial: &Trial) -> Fact<Refusal> {
-    let accepted = "the CLI exited 0, so there was no refusal to read".to_string();
-    match refused(trial, accepted) {
-        Ok(observation) => Fact::measured(
-            Refusal {
-                exit: observation.exit,
-                excerpt: excerpt(observation),
-            },
-            exit_and_excerpt(observation),
-        ),
-        Err(fact) => fact,
-    }
-}
-
-/// The accepted levels a refusal lists after one of its markers.
-fn accepted_levels(text: &str) -> Option<Vec<String>> {
-    let rest = text.lines().find_map(|line| {
-        LEVEL_MARKERS
-            .iter()
-            .find_map(|marker| line.split_once(marker).map(|(_, rest)| rest))
-    })?;
-    let levels: Vec<String> = rest
-        .replace(" or ", ",")
-        .split(',')
-        .filter_map(|item| item.split_whitespace().next())
-        .map(|word| {
-            word.trim_matches(|c: char| !c.is_ascii_alphanumeric())
-                .to_string()
-        })
-        .filter(|level| !level.is_empty())
-        .collect();
-    Some(levels).filter(|levels| !levels.is_empty())
-}
-
-fn efforts(trial: &Trial) -> Fact<Vec<String>> {
-    let accepted = format!(
-        "the CLI accepted the unknown effort '{NO_SUCH_EFFORT}' and exited 0, so no refusal \
-         lists its levels"
-    );
-    let observation = match refused(trial, accepted) {
-        Ok(observation) => observation,
-        Err(fact) => return fact,
-    };
-    let text = format!("{}\n{}", observation.stderr.text, observation.stdout.text);
-    match accepted_levels(&text) {
-        Some(levels) => Fact::measured(levels, exit_and_excerpt(observation)),
-        None => Fact::unmeasured(format!(
-            "the refusal names no accepted levels: {}",
-            exit_and_excerpt(observation)
-        )),
-    }
-}
-
 /// A transcript path with this run's variable parts named: the session
 /// id, the component naming the scratch repository, and every digit run.
 pub(crate) fn normalise(path: &str, session: Option<&str>) -> String {
@@ -730,7 +687,7 @@ fn stream_facts(
 /// captured that no reader read.
 pub(crate) fn reading(plan: &Plan, observed: &Observed, bound: &[&str]) -> Reading {
     let base = read_base(&observed.turn);
-    let boxed = read_boxed(&observed.boxed);
+    let boxed = read_under(&observed.boxed, HANDS);
     let mut unread = unread_in(&base, TurnName::Plain);
     unread.extend(unread_in(&boxed, TurnName::Boxed));
     Reading {
@@ -739,14 +696,17 @@ pub(crate) fn reading(plan: &Plan, observed: &Observed, bound: &[&str]) -> Readi
     }
 }
 
-/// Every fact, from every observation and the two turns as read.
+/// Every fact, from every observation and the two turns as read. The
+/// turn under the declared OFF controls is read here, for the native
+/// facts alone: a line of it no reader read leaves its tools unmeasured.
 fn facts(plan: &Plan, observed: &Observed, bound: &[&str], base: &Turn, boxed: &Turn) -> Facts {
     let (events, session, transcripts) = stream_facts(base, &observed.turn);
     let tools = on_turn(base, tools::native_tools);
     let boxed_tools = on_turn(boxed, tools::native_tools);
+    let off_tools = on_turn(&read_under(&observed.native_off, OFF), tools::native_tools);
     let native_egress = tools::native_egress(&tools);
-    let egress_off = tools::egress_off(&native_egress, &boxed_tools);
-    let capabilities = tools::capabilities(&tools, &boxed_tools, plan);
+    let egress_off = tools::egress_off(&native_egress, &off_tools);
+    let capabilities = tools::capabilities(plan, &tools, &off_tools);
     let user_mcp_unboxed = tools::user_mcp(base, &plan.user_config);
     let user_mcp_boxed = tools::user_mcp(boxed, &plan.user_config);
     let config_isolation = on_turn(base, |_| {
@@ -771,14 +731,14 @@ fn facts(plan: &Plan, observed: &Observed, bound: &[&str], base: &Turn, boxed: &
         usage: on_turn(base, |streams| usage(streams.primary())),
         cost: on_turn(base, |streams| cost(streams.primary())),
         refusals: Refusals {
-            auth: refusal(&observed.no_credentials),
-            config: refusal(&observed.bad_model),
+            auth: refusals::refusal(&observed.no_credentials),
+            config: refusals::config_refusal(&observed.bad_model),
             rate_limit: Fact::unmeasured(
                 "not provoked: a rate limit spends quota and risks the account",
             ),
             outage: Fact::unmeasured("not provoked: a provider outage cannot be caused safely"),
         },
-        efforts: efforts(&observed.bad_effort),
+        efforts: refusals::efforts(&observed.bad_effort),
         tools,
         boxed_tools,
         mcp_server: on_turn(boxed, tools::mcp_server),

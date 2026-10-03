@@ -27,6 +27,10 @@ esac
 printf '{"type":"result","total_cost_usd":0.5,"usage":{"input_tokens":1,"output_tokens":1}}\n'
 "#;
 
+/// The OFF controls the engine composes from the shipped claude adapter's
+/// `native_capabilities`, as a row names them.
+const SWITCHED: &str = "switched off by --disallowedTools WebFetch,WebSearch";
+
 fn repo_adapters() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters")
 }
@@ -141,6 +145,24 @@ fn the_verb_writes_the_shipped_adapter_s_report_and_its_drift_on_a_new_version()
                 "1.0.0 (Fake)",
                 "differs"
             ],
+            [
+                "native_capabilities.tools",
+                "WebFetch, WebSearch",
+                "",
+                "differs"
+            ],
+            [
+                "native_capabilities.known.web-fetch.off",
+                "switched off",
+                SWITCHED,
+                "agrees"
+            ],
+            [
+                "native_capabilities.known.web-search.off",
+                "switched off",
+                SWITCHED,
+                "agrees"
+            ],
         ])
     );
     assert_eq!(
@@ -219,17 +241,96 @@ fn custom_adapters(host: &Host) -> PathBuf {
     dir
 }
 
-/// The report of the custom claude adapter, probed with `--cli` when
-/// `cli` names one.
-fn custom_claude_report(host: &Host, cli: Option<&Path>) -> Value {
-    let adapters = custom_adapters(host);
+/// The claude adapter's report from the adapters under `adapters`,
+/// probed with `--cli` when `cli` names one.
+fn claude_report_in(host: &Host, cli: Option<&Path>, adapters: &Path) -> Value {
     let output = host.launch(
         cli,
-        &adapters,
+        adapters,
         &["--adapter", "claude", "--credential", "FAKE_TOKEN"],
     );
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     serde_json::from_slice(&output.stdout).unwrap()
+}
+
+/// The report of the custom claude adapter, probed with `--cli` when
+/// `cli` names one.
+fn custom_claude_report(host: &Host, cli: Option<&Path>) -> Value {
+    claude_report_in(host, cli, &custom_adapters(host))
+}
+
+/// The report of the shipped claude adapter with `alter` applied to its
+/// `native_capabilities`, written under `dir`.
+fn altered_native_report(host: &Host, dir: &str, alter: impl Fn(&mut Value)) -> Value {
+    let adapters = host.path(dir);
+    std::fs::create_dir(&adapters).unwrap();
+    let text = std::fs::read_to_string(repo_adapters().join("claude.json")).unwrap();
+    let mut claude: Value = serde_json::from_str(&text).unwrap();
+    alter(&mut claude["native_capabilities"]);
+    std::fs::write(adapters.join("claude.json"), claude.to_string()).unwrap();
+    claude_report_in(host, Some(&host.cli), &adapters)
+}
+
+#[test]
+fn the_adapter_s_native_declaration_is_read_typed_and_its_uncomposed_off_is_unmeasured() {
+    let host = host();
+    let report = altered_native_report(&host, "no-off", |native| {
+        native["known"]["web-fetch"]["off"] = json!({"unmeasured": "never tried"});
+        native["known"]["web-search"]["off"] = json!({"unsupported": "no switch"});
+    });
+    let native_rows = report["adapter_fields"].as_array().unwrap();
+    assert_eq!(
+        json!(native_rows[3..]),
+        rows(&[
+            [
+                "native_capabilities.tools",
+                "WebFetch, WebSearch",
+                "",
+                "differs"
+            ],
+            [
+                "native_capabilities.known.web-fetch.off",
+                "unmeasured",
+                "unmeasured",
+                "not-compared"
+            ],
+            [
+                "native_capabilities.known.web-search.off",
+                "unsupported",
+                "unmeasured",
+                "not-compared"
+            ],
+        ])
+    );
+    assert_eq!(
+        report["facts"]["capabilities"]["value"][0]["off"],
+        json!({
+            "status": "unmeasured",
+            "why": "the turn under the declared OFF controls was not read: the engine composes \
+                    no OFF control for a seat granted nothing: seat 'adapter-plan' (office \
+                    'adapter-plan') in realm '<unmapped>': provider 'claude' is known to carry \
+                    native capability 'web-fetch', which this seat does not hold, and no valid \
+                    control denies it: its OFF control is unmeasured (never tried). A known \
+                    native power is launched only with a delivered denial, never on what \
+                    absence implies; repair the adapter data (decision 0066 ruling 1)",
+        })
+    );
+    let report = altered_native_report(&host, "unmeasured", |native| {
+        *native = json!({"unmeasured": "never measured"});
+    });
+    assert_eq!(
+        (
+            &report["adapter_fields"][3],
+            &report["facts"]["capabilities"]
+        ),
+        (
+            &rows(&[["native_capabilities.tools", "unmeasured", "", "differs"]])[0],
+            &json!({
+                "status": "unmeasured",
+                "why": "the adapter declares its native capabilities unmeasured: never measured",
+            }),
+        )
+    );
 }
 
 #[test]

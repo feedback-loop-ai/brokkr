@@ -52,6 +52,49 @@ pub struct Declared {
     pub passthrough: Vec<String>,
     /// Each resume shape's name and the CLI version it was measured on.
     pub resume_versions: Vec<(String, String)>,
+    pub native: Native,
+}
+
+/// What the adapter declares of its CLI's native capabilities (decision
+/// 0065 ruling 4), as the probe exercises and compares it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Native {
+    /// Each declared power, and the argv the engine composes to switch
+    /// every one of them off for a seat granted nothing.
+    Known {
+        powers: Vec<NativePower>,
+        off: OffControl,
+    },
+    /// The adapter declares its inventory unmeasured, for this reason.
+    Unmeasured(String),
+}
+
+/// One native power under the adapter's `native_capabilities.known`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativePower {
+    pub key: String,
+    /// The abstract capability a realm grants (decision 0065 ruling 1).
+    pub capability: String,
+    /// The provider's tools the adapter maps it to.
+    pub tools: Vec<String>,
+    pub off: DeclaredOff,
+}
+
+/// What a power's OFF disposition declares, as the engine reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeclaredOff {
+    /// A control, or the harness's default, switches it off.
+    Switched,
+    Unsupported,
+    Unmeasured,
+}
+
+/// The argv that switches every declared power off, or why the engine
+/// composes none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OffControl {
+    Argv(Vec<String>),
+    Refused(String),
 }
 
 /// One probe run's inputs.
@@ -122,6 +165,7 @@ pub fn run(input: &ProbeInput<'_>) -> Result<Report, ProbeError> {
         bad_model: runner.trial(&plan.bad_model)?,
         bad_effort: runner.trial(&plan.bad_effort)?,
         boxed: runner.trial(&plan.boxed)?,
+        native_off: runner.trial(&plan.native_off)?,
     };
     let bound: Vec<&str> = input.bindings.iter().map(BoundSecret::name).collect();
     let measure::Reading { facts, unread } = measure::reading(&plan, &observed, &bound);

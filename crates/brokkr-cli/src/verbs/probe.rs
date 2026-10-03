@@ -9,9 +9,14 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use brokkr_protocol::adapters::AdapterKind;
-use brokkr_protocol::probe::{self, Declared, ProbeInput, Report};
+use brokkr_protocol::probe::{
+    self, Declared, DeclaredOff, Native, NativePower, OffControl, ProbeInput, Report,
+};
 use brokkr_protocol::secret;
 use brokkr_runtime::agents::{Adapter, Adapters, ResumeIdentity};
+use brokkr_runtime::capabilities::{
+    Authority, Denial, NativeInventory, NativePlan, Requests, ADAPTER_SEAT, UNMAPPED,
+};
 
 use crate::cli_args::{ProbeCmd, ProbeHarnessArgs};
 use crate::now_rfc3339;
@@ -50,7 +55,52 @@ fn declared(adapter: &Adapter) -> Declared {
             .iter()
             .map(|(shape, assessed)| (shape.clone(), identity(&assessed.identity)))
             .collect(),
+        native: native(adapter),
     }
+}
+
+/// The adapter's native capabilities as the probe exercises them
+/// (decision 0065 ruling 4): each declared power, and the OFF argv the
+/// engine composes for a seat granted nothing, or why it composes none.
+fn native(adapter: &Adapter) -> Native {
+    let known = match &adapter.native {
+        NativeInventory::Known { known, .. } => known,
+        NativeInventory::Unmeasured(reason) => return Native::Unmeasured(reason.clone()),
+    };
+    let powers = known
+        .iter()
+        .map(|(key, power)| NativePower {
+            key: key.clone(),
+            capability: power.capability.clone(),
+            tools: power.tools.clone(),
+            off: match power.declared_denial() {
+                Denial::Delivered => DeclaredOff::Switched,
+                Denial::Impossible(_) => DeclaredOff::Unsupported,
+                Denial::Unmeasured(_) => DeclaredOff::Unmeasured,
+            },
+        })
+        .collect();
+    let assessed =
+        Authority::nothing(UNMAPPED, Path::new("")).assess(adapter, ADAPTER_SEAT, Requests::new());
+    let off = match assessed.as_ref().map(|outcome| (outcome, &outcome.native)) {
+        Ok((
+            outcome,
+            NativePlan::Known {
+                contribution,
+                expected,
+                ..
+            },
+        )) => OffControl::Argv(
+            contribution
+                .segment(&outcome.provider, &outcome.harness, expected)
+                .expect("resolve admitted the plan through the composer that lowers it")
+                .argv,
+        ),
+        Ok((_, NativePlan::Unmeasured { reason, .. })) | Err(reason) => {
+            OffControl::Refused(reason.clone())
+        }
+    };
+    Native::Known { powers, off }
 }
 
 /// The CLI version a resume shape was measured on, or why none was.

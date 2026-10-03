@@ -4,7 +4,7 @@
 //! `{prompt}` here, so the argv the report shows is the same on every
 //! host; `observe` fills them in at spawn.
 
-use super::{Declared, ProbeError};
+use super::{Declared, Native, OffControl, ProbeError};
 use crate::adapters::{codex_effort_config, AdapterKind};
 
 /// The one turn the probe asks for. It asks for no work, so a turn costs
@@ -47,9 +47,13 @@ pub(crate) struct Plan {
     pub(crate) bad_model: Step,
     pub(crate) bad_effort: Step,
     pub(crate) boxed: Step,
-    /// The adapter's hands argv, placeholders intact: the off switch a
-    /// tool the boxed turn no longer lists was measured under.
-    pub(crate) hands: Vec<String>,
+    /// The plain turn under the argv that switches every declared native
+    /// power off (decision 0065 ruling 4).
+    pub(crate) native_off: Step,
+    /// That argv, placeholders intact: what a power the turn under it no
+    /// longer lists was measured switched off by.
+    pub(crate) off: Vec<String>,
+    pub(crate) native: Native,
     pub(crate) user_config: UserConfig,
     /// How `turn` departs from the launch the adapter's driver composes.
     pub(crate) unlike_driver: &'static str,
@@ -177,13 +181,36 @@ pub(crate) fn plan(kind: AdapterKind, declared: &Declared) -> Result<Plan, Probe
                 .unwrap_or("no reason recorded")
         )),
     };
+    let (native_off, off) = match &declared.native {
+        Native::Known {
+            off: OffControl::Argv(argv),
+            ..
+        } => (Step::Launch(turn_with(argv)), argv.clone()),
+        Native::Known {
+            off: OffControl::Refused(why),
+            ..
+        } => (
+            Step::Untried(format!(
+                "the engine composes no OFF control for a seat granted nothing: {why}"
+            )),
+            Vec::new(),
+        ),
+        Native::Unmeasured(why) => (
+            Step::Untried(format!(
+                "the adapter declares its native capabilities unmeasured: {why}"
+            )),
+            Vec::new(),
+        ),
+    };
     Ok(Plan {
         version: vec!["{cli}".to_string(), "--version".to_string()],
         turn: turn_with(&[]),
         bad_model,
         bad_effort,
         boxed,
-        hands: declared.hands.clone().unwrap_or_default(),
+        native_off,
+        off,
+        native: declared.native.clone(),
         user_config: grammar.user_config,
         unlike_driver: grammar.unlike_driver,
     })
