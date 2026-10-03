@@ -63,20 +63,16 @@ slice-one artifacts/evidence are not rewritten.
 
 ## Impact
 
-This visit adopts proposal then deltas, clarifies their scenarios, writes
-design.md and tasks.md, and analyzes their consistency using the dialect's
-own instructions. Design records the unit order, every planned file, Hot
-files, alternatives and analysis. The design council's robustness and simplicity
-positions are reconciled explicitly in design D1. This specify revisit adopts
-the design return committed at b310e094. Its R-H finding begins in MB4/CR2:
-the existing masker preserves numeric scalars, so the broker needs an exact
-refusal when masking cannot preserve the response's meaning. R-G additionally
-requires durable session failure that engine settlement judges even when the
-harness reports success. Both repairs are adopted at their requirement owners,
-with the existing scenarios and dependent proposed 0077, design and tasks kept
-coherent. Design D11.2 records the owning review. The earlier clarify clear
-result on 7f36e922 keeps its historical scope; it is not a review of these
-later repairs. No unresolved earlier-owner defect remains from this return.
+This design visit adopts the committed change at 1c96ca2c. The supplied
+returned_from is clarify's clear review of the R-G/R-H repairs; preserve that
+answer and its scenarios. Both current council positions were read whole and
+reconciled against checked source in design D1. Robustness's startup-environment
+collision is a construction and proof obligation under existing MB3: protect
+the child environment through secret injection, using its existing refusal.
+Simplicity's discovery work moves into U7c/U7d without losing tests or task IDs.
+The owning scenario precedes the revised design and tasks. Design D11 records
+the current analysis; historical upstream findings and their adoption retain
+their dated scope. No unresolved earlier-owner defect was found this visit.
 
 Only these documents, the verbatim ruling record, proposed decision 0077,
 its index row and 0065's amendment pointer are committed. No production,
@@ -123,7 +119,7 @@ Council disposition, 2026-10-03, reviewed 7f36e922: adopt typed private
 session closure and conservative unsafe-response refusal, not the legacy numeric
 masking residual. Retain the existing masker and canonicalizer with a broker
 edge check. Adopt the four bounded PR combinations and two module cuts with
-all proof ownership preserved; design now contains 44 PRs. These proposals
+all proof ownership preserved; that design contained 44 PRs. These proposals
 claim no runtime protection or acceptance of 0077 (0071 rulings 2–9).
 
 Specify disposition of b310e094, 2026-10-03: adopt R-H's conservative refusal
@@ -137,3 +133,12 @@ numeric residual, changing scalar values, treating precision as secrecy or
 treating harness success as broker success (0071 rulings 3, 5, 8, 9).
 The specify result is drafted with inputs.change; all 100 implementation and
 measurement tasks remain open and 0077 remains proposed.
+
+Design disposition, 2026-10-03, reviewed 1c96ca2c: adopt R-I at MB3 with
+independent HOME/TMPDIR collision controls before store lookup or spawn.
+Reserve the broker builder's fixed environment keys without changing decision
+0012's shared name grammar or adding a plaintext accessor. Combine discovery
+selection with U7c and rendering with U7d because those rows already own the
+required files; retain the full proof inventory in 43 PRs and all 100 open
+tasks. R-G/R-H, R1–R5, contract reservations and U9b-only enablement stand
+(0071 rulings 2–6, 8–10). This is a proposed design, not operator acceptance.

@@ -25,15 +25,12 @@ The commission's rulings are preserved at
 [the operator record](../../openspec/changes/decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md).
 They govern the proposed slice; this decision remains proposed for acceptance
 by the operator. The proposal, deltas, design and tasks carry exact
-admission, refusal and evidence obligations. The council returned owning
-specification repairs upstream in 7aa9e9ff; the specify revisit adopts those
-repairs with explicit dispositions in the deltas and design D11. This revision
-does not accept this decision or certify runtime protections. The next council,
-reviewing 7f36e922, returned b310e094 upstream for the additional scalar-masking
-conflict and proposed durable failed-session closure. This specify revisit
-adopts those repairs at MB4/CR2 and MB3/MB5/CR3/CR4 after rechecking their source
-evidence. Design D11.2 records that owning disposition; the operator still
-alone accepts this proposed amendment.
+admission, refusal and evidence obligations. Historical upstream repairs at
+7aa9e9ff and b310e094 were adopted by the specify visits at 7f36e922 and
+1c96ca2c; design D11 preserves their owners and disposition. The current
+clarify result is clear. This council retains those masking/session protections
+and makes MB3's startup-environment collision proof explicit. No runtime
+protection or acceptance of this decision is claimed.
 
 The unbuilt marker links open [#467](https://github.com/feedback-loop-ai/brokkr/issues/467),
 the strict MCP prerequisite already commissioned as U1. It does not claim that
@@ -44,7 +41,10 @@ Closed slice-one PR #319 is historical delivery, not this slice's open work.
 0077 was unclaimed in the local decision-index gap table and the six open
 pull requests checked on 2026-10-03: #404, #452, #460, #486, #494 and #500.
 The second visit rechecked their titles, bodies and complete file lists/patches; none claims 0077. No remote reservation or merge is
-claimed by this document.
+claimed by this document. This council could not refresh that remote check:
+gh had no authentication and the public API hostname could not resolve in the
+box. The local index still names proposed 0077; recheck concurrent claims
+before its implementation PR.
 
 ## Rulings
 
@@ -103,8 +103,11 @@ claimed by this document.
    reads from both hands and model-native tools; read-only write containment
    does not establish that. Before secrets are resolved, the executable,
    startup inputs and working directory must be protected from seat writes.
-   An unprovable arrangement refuses; no whole-harness box or installer is
-   introduced to claim a proof.
+   The broker's fixed startup environment survives binding injection: names
+   colliding with its builder-owned keys, including HOME/TMPDIR, refuse before
+   store lookup or spawn with MB3's existing startup-input cause. This leaves
+   the shared name grammar and one injector intact. An unprovable startup
+   arrangement refuses; no whole-harness box or installer supplies a proof.
 
    **Enforcement binding:** typed identity-bound broker plan, tool-list/call
    checks, shared secret resolver/injector/masker, no-forward and leak-scan

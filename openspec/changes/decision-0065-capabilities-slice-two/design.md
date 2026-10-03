@@ -3,8 +3,8 @@
 Status: proposed design for operator ruling; documents only.
 Change: decision-0065-capabilities-slice-two.
 Source base: 2a23488b19f6dea271264f6a85b40d46a84af39e.
-Last council checked HEAD: 7f36e922, 2026-10-03.
-Specify return reviewed HEAD: b310e094, 2026-10-03.
+Council checked HEAD: 1c96ca2c37908e7900cbdc2a402331b051d85513, 2026-10-03.
+Run: build-decision-0065-slice-two-sp-cd8dd603.
 
 ## Context
 
@@ -15,16 +15,15 @@ runner. The two operator maps were read whole, as were the commissioned
 decisions and slice-one proposal/design/specs/operator rulings. D4's ordering
 and D11's deferral are constraints, not opportunities to redesign native power.
 
-This specify revisit adopts the returned design at b310e094, including its
-R-G/R-H repairs at MB3–MB5 and CR2–CR4. Both positions were read whole at
-.forge/design/positions/robustness.md and simplicity.md; D1.1's explicit council
-reconciliation and the bounded unit plan are preserved. The current
-returned_from is design's upstream result for R-H's scalar-masking conflict.
-D11.1 records that historical council return; D11.2 answers it at the owning
-specifications after rechecking the source. Clarify's earlier clear result on
-7f36e922 keeps its original scope. Proposal and deltas are adopted before
-updating this design and tasks. Nothing here accepts 0077, closes implementation
-or invents a new council or harness result.
+This design visit adopts the committed change at 1c96ca2c. The supplied
+returned_from is clarify's clear review of the adopted R-G/R-H repairs;
+there is no outstanding clarification finding to disguise downstream. Both
+current positions were read whole at .forge/design/positions/robustness.md
+and simplicity.md. D1 reconciles their claims against source, and D11 records
+the current analysis. R-I makes existing MB3 startup protection concrete;
+its scenario precedes this design and tasks. Historical upstream returns and
+their owning reviews remain identified by commit below. Nothing here accepts
+0077, closes implementation or invents a harness measurement.
 
 The following evidence was rechecked at this base. Paths use the crate name
 plus src unless prefixed with contracts; line facts are starting evidence,
@@ -41,7 +40,8 @@ not promised locations after another thread merges.
 | protocol/adapters.rs:1603–1620, :1836–1891 | Names are clamped and Codex emits only item type; normalize/correlate before display conversion. |
 | runtime/engine.rs:2091–2107, :2394–2406; engine/sequence.rs:395–416, :616 | Single/panel sinks and step dispatch/settlement all need the same attribution and evidence barrier. |
 | store/lib.rs:316–329; store/seat_record.rs:57–115 | Append and offline reading share engine-line contract dispatch; v6 must be additive on valid old records. |
-| protocol/adapters.rs:687–704; cli/tests/machine_proof.rs:3141–3184 | Exactly one plaintext injector; move and reuse it, preserving the proof's cardinality. |
+| protocol/adapters.rs:687–704; protocol/secret.rs:20–30, :105–137; cli/tests/machine_proof.rs:3141–3184 | One injector overwrites existing entries; HOME/TMPDIR remain globally valid. Protect broker-owned keys before lookup, and preserve injector cardinality. |
+| runtime/engine/marks.rs:25–55, :128–155; capabilities.rs:1314–1370; protocol/adapters.rs:226–269, :398–425 | Selection, stale-notice clearing and capability rendering already exist. Derive discovery from that selected intent in U7c/U7d. |
 | runtime/bundle.rs:4352–4362; contracts/tool-dialect.v1.schema.json | Binding minimum is an existing policy fact; MCP version/connection/secrets/retained already have a frozen schema. |
 | agents/charters/researcher.md:20–30 | Existing prose names both capabilities and the exact DATA clause in one paragraph. |
 
@@ -51,10 +51,11 @@ Their titles/bodies/file paths/patches contain no 0077 claim. The index gap
 table reserves 0072/0074/0075 and 0076 exists; retain proposed 0077. This is
 an observation, not a remote reservation. The commission's agreement that
 #487 takes realms v7 supersedes PR #494's historical v6 wording.
-The council preserved that dated observation. This specify revisit's fresh
-read-only gh query also could not authenticate in the box (GH_TOKEN absent);
-neither visit re-certifies open PRs or reserves 0077 remotely. The local index and amendment pointers still
-name proposed 0077; recheck concurrent claims before its implementation PR.
+This council preserves that dated observation. Its fresh gh query could not
+authenticate (GH_TOKEN absent), and the public API hostname could not resolve
+in the box. It does not re-certify open PRs or reserve 0077 remotely. The local
+index and amendment pointers still name proposed 0077; recheck concurrent
+claims before its implementation PR.
 
 ## Goals / Non-Goals
 
@@ -73,65 +74,38 @@ No production/test/schema/data edit or live U0 measurement occurs in this visit.
 
 ## Decisions
 
-### D1. Adopt and reconcile the available claims
+### D1. Current council reconciliation at 1c96ca2c
 
-The following is the adopted earlier council synthesis through 7f36e922;
-its run-local position paths have since been replaced. The current positions
-are reconciled separately below, not attributed to that historical review.
+Both positions in the supplied roster were read in full. Their pass results
+mean advice was produced, not that the design or runtime is accepted. Adopt,
+combine or reject the claims below on their checked evidence, not by vote.
 
-| Claim / source | Disposition and evidence |
+| Claim / source | Disposition, evidence and owner |
 | --- | --- |
-| R1 and map 1: harness owns the child, final proof is singleton | Adopt. Proposed 0077 amends the words "launched by the engine"; use one engine-configured broker child per holding, never an engine sibling outside #403. |
-| R2 and map 1: existing box channel only | Adopt namespace/workspace-hands/network-false checks. A wanted request cannot excuse a hard site refusal; provider carriage still follows 0065 ruling 5. |
-| R3 and first draft: Codex isolation unproven | Adopt measurement-first candidates. Reject choosing a private Codex home or table replacement from source inspection alone. |
-| R4 and map 2: no artifact store and only engine writes journal | Combine protected broker ledgers with engine publication/fold. Reject a writable worktree ledger or broker SQLite writer. |
-| R5: one PR per narrow unit, inert until enabling | Adopt. Interpret inert as no compiled MCP execution. U1–U4 can independently correct strictness, panics, native gates and native recording. |
-| Draft: realms v7 veto | Amend proposal/SC2/CR1 first: use the next realms version after v7, preserving #487's fields. |
-| Draft: tool-dialect v2 mandatory | Reject under 0071 ruling 6. Frozen v1 already has every needed field. Preserve its syntax and distinguish valid-but-unexecutable URL/reference connections through SC1 scenarios. |
-| Draft: local signing/format/typos must succeed here | Amend SD4 under the second commission: unsigned local commit, operator format/typos and squash signing outside the box. First-visit failures remain historical. |
-| Draft: retained data is always actually delivered | Refine CR2 before design: durable child outcome is not proof of harness receipt across a crash. Normal delivery uses exactly the persisted masked data; the crash scenario names the limit. |
-| Draft: U6 proxy precedes U8 ledger | Split: U6 includes minimum durable writer, otherwise forwarding violates MB3/CR3. U8 adds staging, publication, engine fold/recovery and inspect. |
-| Slice-one D4 / D11 | Adopt validation before compatibility and independent native OFF; reject a broker-specific nonempty restriction bypass. |
-| Both positions: preserve R1–R5, D4/D11, typed contracts, exact independent final intent and no new platform | Adopt. The checked launch tree and singleton check support this common foundation; no position permits weak native OFF, copied authority or broker journal writes (0071 rulings 1–3, 5, 8, 10). |
-| Robustness A: secret-read isolation | Adopt at MB2/MB4. hands.rs:1–13 and 0043 leave host reads outside the tool box; native read-only access and mode 0600 prove no confidentiality against the same user. U0 needs positive canary controls for store and child process state; unsupported secret-bearing holdings hard-refuse (rulings 3, 9; security). |
-| Robustness B: protected startup inputs | Adopt at MB3. process.rs:173–178 inherits workdir; a pinned argv/version cannot protect a replaceable script or config. Use private cwd and protected operator installation, refusing an unprovable startup arrangement. Reject heuristic interpreter-flag allowlists and a new installer/attestation service (rulings 2, 3, 9; security). |
-| Robustness C: all managed writers | Adopt at CR2. hands.rs:512–522 exposes the worktree writable and :574–604 layers binds afterward. A zero-grant sibling can attack another member's evidence. U8a2 separately owns dispatch/coordination; U8a protects mounts. Refuse unsafe writers before launch and protect historical artifacts (rulings 3, 9; security). |
-| Robustness D plus simplicity A: ledger/fold semantics | Combine at CR3/CR4/CC2/SC4. Keep strict private Opened/Started/Terminal/Closed and one lifetime. Adopt one public settled row and settlement-only folding. checkpoints.rs offer has no append receipt and its held queue can lose rows; use confirmed fenced append with disk-backed retry, not queued-as-committed evidence. A live pending/committed state machine is unnecessary once live folding is removed (rulings 3, 5, 7–9). |
-| Robustness E: response correlation and progress limits | Adopt at MB3. Match typed ID, method and phase, never a raw ID in journal identity; terminate uncertain sessions without replay. Absolute deadlines and a bounded notification budget prevent keepalive traffic defeating limits (rulings 3, 8, 9). |
-| Robustness F: aggregate retention | Adopt at CR3. The former 4,096 × 8 MiB per broker allowed 32 GiB before multiplying brokers. Fixed 256 MiB attempt shares and bounded publication copies reserve before forwarding; no new quota service or silent downgrade (rulings 3, 5, 9). |
-| Simplicity B: one DATA declaration | Adopt at GP2. 0065 says “in the same paragraph”, not in every later reference. One qualifying declaration per capability satisfies the rule and the existing researcher charter; later references pass. Lexical lint cannot judge prose obedience (rulings 5, 9). |
-| Simplicity C: reuse canonicalization and ownership | Adopt with robustness's numeric safeguard. core/canonical.rs already supplies ordered bytes/hash; its numeric parsing can round precise values, so the broker edge rejects a changed numeric value. One buffer, one sealed inventory and existing engine launch facts replace extra serializers/cursors/launch state. hands Session is unsuitable because it deletes scratch (rulings 1, 3, 5, 6). |
-| Simplicity D: consolidate two preparation PR pairs | Adopt U5a+U5b as U5a and U5c+U5d as U5c, preserving all tasks within three production files. Reject combining U4a/U4b, which requires four. A cohesive consumed extraction is still required for oversized parents; no speculative public scaffolding (rulings 4, 6). |
-| Both positions: binding proofs and bounded costs | Adopt exact variants, real compiling removal failures, fake-server compile-to-inspect proof and pending external gates. Accept serial calls/fsync, delayed MCP display, refusal of unmeasured shapes and known #403/0012 residuals. The compile fence is not protection for a directly invoked U6 command: its handler stays fail-closed until its own protections are complete (rulings 8–10). |
+| Both: preserve R1–R5, D4/D11 and the adopted repairs | Adopt. engine.rs:4434 and hands.rs:1119 establish harness launch; the singleton final check needs an independently sealed complete set. Proposed 0077 changes only the launch letter of 0065 ruling 6. Namespace-only admission, realm authority, engine-only journal and U9b enablement stand (0071 rulings 1–3, 5, 8, 10). |
+| Robustness R-I: injection can replace protected HOME/TMPDIR | Adopt under existing MB3. adapters.rs:687–704 overwrites names; secret.rs:20–30,105–137 permits both. One consumed base-environment builder owns fixed values and their reserved set, rejects collisions before store lookup/spawn, and forbids later replacement. Reject trusting current values, version pins, global name/schema edits or a second injector. D5/D6 and U6c/U6f/U9b bind each collision separately; no extra production path (rulings 2, 3, 5, 8–10; high security if bypassed). |
+| Robustness 1 and simplicity's bounded session: isolation facts differ | Combine unchanged at SI1/SI2/MB2 and D2/D3. Codex's own adapter says ambient exclusion is unmeasured. Carriage, ambient strictness, native write containment and store/process read isolation stay separate; retain all positive sentinels and invocation shapes. Reject guessed Codex precedence, borrowed wrapper evidence or a roster exemption when self cannot compile (rulings 2, 3, 8, 9). |
+| Robustness 2 and simplicity's one authority derivation | Adopt selected holding plus independent final equality, canonical gate class/stable office and independent native OFF. marks.rs selects one provider/model; realm reaches() cannot prove explicit gate egress scope. Preserve GP1/GP2's writes-first rule and one same-paragraph DATA declaration. No fallback union, argv-derived authority or equal-byte authored provenance (rulings 2, 3, 5, 8, 10). |
+| Robustness 3 and simplicity's private durability | Combine and preserve R-G at MB3/MB5/CR3/CR4, D7. process.rs:499–520 trusts driver status; checkpoints.rs:169–248 offers no append receipt. Keep latched Clean/Failed closure, independent engine judgment, durable acceptance, reserved closure space, confirmed fenced append and full-payload deduplication. Retain 0/1/4,096-call controls and native loss/stranding refusals; no live scanner, public lifecycle, cursor or uncertain replay (rulings 3, 5, 7–9). |
+| Robustness 4 and simplicity's one prepared buffer | Combine and preserve R-H at MB4/CR2, D5/D7. The shared masker leaves numeric scalars unchanged, including exact 876543210. Retain the exact unsafe-masking refusal independently of precision validation and retention policy, one masked canonical buffer, shared encoding definitions and fixed attempt shares. Persistence proves prepared output, not receipt; no coercion, truncation, silent downgrade or quota reset (rulings 3, 5, 8, 9). |
+| Robustness 5 and simplicity's accepted custody cost | Adopt CR2 and D6 unchanged. Writable hands mounts expose sibling/historical evidence; a digest does not establish custody. Keep private bound handles, all-writer U8a2, read-only publication, alias checks, writer lease through settlement, older-engine quiescing and verify-before-reuse/inspect. Accept same-root serialization; distinct roots still need alias-safe write reach (rulings 1, 3, 7–10). |
+| Simplicity: only required contracts and one read model | Adopt frozen tool-dialect v1, seat-record v6, manifest v12 and the next realms version after v7, with historical meaning intact. Keep attribution in view, inspect in readouts.rs and the shared injector in secret.rs; its cardinality proof must now inspect that module. D4/D8 and U4/U5/U6a/U8g own these choices (rulings 1, 3–8, 10). |
+| Simplicity: absorb standalone discovery U7e | Adopt. marks.rs already selects holdings/clears notice; adapters.rs already renders the fixed notice/capability contract. U7c carries and clears only selected server/tool/discovery identifiers as a projection of configuration intent. U7d renders them and closes tasks 37.1–37.2 with 36.1–36.2; U8a depends on U7d. Retain both runtime and protocol suites, separate selection/rendering removals, unchanged requested digest and native/no-MCP prompts. Reject another registry, full plan in the prompt or string-key state beyond the edge (rulings 3–6, 10). |
+| Both: bounded units and real consumers | Adopt 43 PRs and all 100 tasks. Keep U4a/U4b and U8a/U8a2 separate: their unions exceed three production files and the latter proves all writers. Keep U6's minimal ledger before forwarding and the public command's own incomplete-serving/retention refusals; the compile fence cannot protect manual CLI calls. U1–U4 remain independent as D9 states (rulings 4, 6, 9). |
+| Simplicity's exclusions; robustness's bounded extension seam | Reject URL execution, reconnect/retry/pooling, extra MCP methods, nonempty restriction transport, installers/attestation/interpreter analyzers, another box, dynamic quota/index/GC services, new discovery prose/registries, duplicate serializers/accessors and native response capture. They add authority, lifetime or public vocabulary without a commissioned consumer. Typed stdio data and existing process seams suffice (rulings 1–3, 5, 6, 8, 10). |
+| Simplicity: shorten history and repeated gate prose | Adopt one current reconciliation table, compact dated history below and in D10/D11, and one shared task-verification duty. Preserve commit identities, exact prior outcomes, all task IDs and proof-specific controls. No retrospective artifact or relabelled historical result (ruling 5). |
+| Both: costs and proof still owed | Accept serial/fsynced calls, delayed settled display, unused static quota, conservative masking and unsupported harness shapes. Preserve the named #403/0012 residuals and operator-installed-code boundary. Retain real compile→launch→broker→journal→inspect and independent removal controls for every refusal; external gates and operator acceptance remain pending. Gate-owned findings are informational under ruling 11; security refusals stay rated under rulings 3, 8, 9. |
 
-Clarification is encoded in the owning scenarios, not a separate ambiguous
-FAQ. The council amended GP2, MB2–MB4, CC2, CR2–CR4 and SC4 before dependent
-design/tasks, then returned upstream under SD1. The prior specify revisit adopted
-those repairs at their owners after rechecking the evidence, with reasons in
-each delta's Decisions. It also defines durable request acceptance so bounded
-input and exactly-once settled evidence agree. No R1–R5, D4 or D11 ruling is
-weakened; any future incompatible measurement returns to its owner. Acceptance
-of proposed 0077 remains the operator's.
+### D1.1. Historical council record
 
-### D1.1. Adopted council synthesis at 7f36e922
-
-Both current positions were checked against the source, not treated as votes.
-No additional position is present in the journal-derived roster. Their pass
-results mean the advice was produced; they prove no broker or harness behavior.
-
-| Current claim | Disposition, evidence and owner |
-| --- | --- |
-| Both: preserve R1–R5 and the returned safeguards | Adopt unchanged: independent complete server intent; D4 validation and native OFF; gate class/stable office and one DATA declaration; measured strictness/read isolation; protected startup/all managed writers; durable settled evidence; versioned historical meaning. The checked singleton final proof, writable hands mounts and unconfirmed checkpoint queue support D3–D8. No new resolver, broker journal writer or public lifecycle (0071 rulings 1–3, 5, 7–10). |
-| Robustness R-G: Closed must record session failure | Adopt typed Clean/Failed closure with first fatal safe cause, synced from reserved capacity and inspected by the engine. process.rs:499–520 takes driver status; child exit cannot override harness success by itself. Reject an end marker alone or deliberately missing closure as the ordinary fault channel. MB3/MB5, CR3/CR4, D7, U6d/U6e/U6f and U8d/U8e/U9b own the proof; no extra tool row for zero calls (rulings 2, 3, 8, 9). |
-| Robustness R-H: scalar secrets conflict with the broker promise | Adopt conservative output-edge refusal with exact cause "MCP response cannot be safely masked". secret.rs:637–668 and secrets.md:50–52 explicitly preserve numeric scalars; 876543210 also passes exact-number checks. Reject carrying that residual into MB4/CR2, coercing numbers, or a second encoding catalogue. Reuse masking/canonicalization and check before stage/delivery. Owning specifications and 0077 changed first, prompting the council return upstream (rulings 3, 5, 8, 9; high security if left fail-open). |
-| Simplicity cut 1: use secret.rs for the injector | Adopt: 677 lines and an existing secret-value responsibility versus a small injector at adapters.rs:695. U6a touches only adapters.rs and secret.rs, with typed errors and current harness consumers. machine_proof.rs:3141 currently excludes secret.rs; explicitly scan actual calls there too, exclude the accessor definition, assert one call in the shared injector and catch an added second invocation. Reject a move that merely hides the call from the proof (rulings 4–6, 8, 9). |
-| Simplicity cut 2: keep inspect dispatch in readouts.rs | Adopt: 346 lines, inspect already at :107. U8g touches cli_args.rs/readouts.rs; runtime still verifies files and view still derives provenance. Reject a new thin forwarding module without a measured size need (rulings 4–7, 10). |
-| Simplicity cut 3a: U5a absorbs U5e | Adopt their exact three-file union. Put independent U5c first, then U5a closes tasks 20/21/24; U5f depends on U5a. Frozen v1 and native consumers remain, all MCP compiles still refuse (rulings 4–6). |
-| Simplicity cut 3b: U6f absorbs U6g | Adopt: the cleanup row adds tests, no production path. Complete callable serving and its process proofs land together in the same three-file union; U7a depends on U6f. Keep every cleanup and output proof (rulings 4, 9). |
-| Simplicity cut 3c: U9b absorbs U9c | Adopt: enablement and its eight guide/contract documentation paths land together, three production files. Quiesce old same-worktree writers, explain the serialization cost, and enable only after all earlier proof (rulings 4–6, 9). |
-| Simplicity cut 3d: U10a absorbs U10b | Adopt: audit/removal restoration precedes final gates on that candidate within one test/evidence PR. No production files, no remote result presumed (rulings 4, 9, 11). |
-| Both: retain justified splits and bounded costs | Adopt separate U4a/U4b (four-path union) and U8a2 (different cross-writer proof). Accept static quota waste, serial/fsynced calls, delayed display and same-worktree run serialization. Reject dynamic quotas, live scanners, retries of uncertain effects, garbage collection, another box/installer/transport or a registry (rulings 1–6, 10). |
-| Robustness proof inventory; simplicity evidence owed | Combine: real compile through launch/broker/settlement/inspect, independent engine session-failure removal, scalar leak refusal removal and all prior negative/positive controls. Preserve native lost/stranded checkpoint failure handling; broker ledgers reconstruct no native observations. U0, external gates and operator acceptance remain pending; gate-owned findings stay informational (rulings 8, 9, 11). |
+The complete earlier reconciliations remain in committed design versions
+7aa9e9ff and b310e094. Their owning specify reviews are 7f36e922 and 1c96ca2c.
+They established secret-read/startup and all-writer protection, settled
+journal evidence, correlation/budgets, one DATA declaration, existing canonical
+and launch ownership, then R-G/R-H. The bounded U5/U6/U9/U10 combinations and
+secret/readouts module reuse remain in this plan. D11 records the original
+upstream reasons and their adoption; those outcomes are not this council's.
+R1–R5 remain verbatim and only the operator can accept proposed 0077.
 
 ### D2. U0 is an experiment with an explicit decision rule
 
@@ -311,8 +285,18 @@ Clock/deadline/process observations stay in the shell; tests inject clock
 facts and closure seams, not mock-only traits (0071 rulings 1, 2).
 
 The child gets a clean base environment containing a trusted executable
-search path, locale and engine-created private HOME/TMPDIR, plus the declared
-store bindings through the shared injector. No inherited harness credential,
+search path, locale and engine-created private HOME/TMPDIR, plus admitted
+store bindings through the shared injector. A single consumed builder in
+broker/session.rs owns both fixed startup values and their reserved-name set.
+Before any store lookup or spawn, compare the bound plan's binding names with
+that set; any collision, including HOME/TMPDIR, takes MB3's existing
+"MCP server startup inputs are not protected from seat writes" cause. Names
+are rejected even with currently benign values: secret rotation does not
+change dialect identity. No later assignment may replace a fixed value.
+This is broker-specific validation; U6a preserves the shared name grammar,
+frozen schema and single plaintext injector. Other startup-loading environment
+variables still need MB3's qualified protected arrangement; reserving two
+names is not proof about arbitrary installed server code. No inherited harness credential,
 LD variables or Brokkr control variables are copied. Driver spawn removes all
 dialect secret names from the harness and broker inherited environments;
 U0-measured authentication-name collisions take MB4's exact compatibility
@@ -326,6 +310,15 @@ An argument-string heuristic is not that proof. process.rs otherwise inherits
 the operated workdir; changing only HOME leaves this hole open. Version checking
 is an implementation assertion after execution, not executable authentication.
 No generic interpreter analyzer, installer or server sandbox is added.
+
+Bind R-I with separate HOME and TMPDIR cases: a protected installed fake server
+would read a marker from the chosen startup directory, but each colliding
+plan refuses with zero store lookups and zero child starts. Include benign
+values and a rotation without changed dialect bytes. A DOCS_TOKEN control
+reaches the child and observes the exact engine-private HOME/TMPDIR. U6c owns
+pre-secret admission; U6f proves the final spawn; U9b exercises the integrated
+path. Removing only the broker reserved-name check must independently fail
+each collision; removing environment clearing proves a different property.
 
 Decode complete bounded protocol messages before masking all text, including
 object keys and known encodings in textual content. Use existing
@@ -371,7 +364,9 @@ launch. Existing engine process observations establish proven never-started
 cases; uncertain missing evidence refuses. Do not add another independently
 editable capability inventory or Prepared/Started/Settled launch model.
 Evidence survives engine restart; hands Session's delete-on-drop scratch does
-not satisfy that lifetime. A missing/private-root mismatch parks, never rebuilds
+not satisfy that lifetime. D5's builder-owned startup values are never resolved
+from secret bindings; the host evidence root and child private directories
+retain their engine-bound ownership after the actual environment is assembled. A missing/private-root mismatch parks, never rebuilds
 from an untrusted worktree lookalike.
 
 Private plan, ledger and staging roots must be outside every seat's writable
@@ -541,6 +536,18 @@ boundary stamps are applied together. Missing MCP telemetry fields limit
 diagnostics but cannot erase the authoritative broker ledger; missing native
 identity blocks a completeness claim with CC2's exact cause.
 
+For discovery, U7c projects only this selected intent's server/tool identifiers
+and measured adapter hands.notice discovery identifier into the existing
+spawn-mark path. Clear stale primary/previous holdings on every selection,
+including wanted drops. Do not reconstruct them from emitted argv or expose
+the plan, secret-store or ledger locator. U7d parses the new typed edge once
+and renders fixed guidance in the existing capability contract; the workspace
+notice's contract stays unchanged. Configuration consumes the selected facts
+before rendering lands. Separate selection and rendering tests/removals bind
+Codex deferred discovery, fallback clearing, hostile prose and no-MCP/native
+controls, all outside the requested-effect digest. No new notice registry or
+parallel prompt carrier is needed (0071 rulings 3, 5, 6).
+
 One pure brokkr-view projection exposes each settled call's attribution
 and optional digest. CLI/TUI/browser can paint that common fact without
 re-deriving capability ownership. No new comparison behavior is introduced.
@@ -576,12 +583,13 @@ evidence; U2/U3 do not. The listed order serializes their merges and conflicts,
 not their logic. Later feature units explicitly join their outputs. U5c's
 versioned grant change and U6a's injector extraction also have independent roots.
 
-The earlier U5a/U5b and U5c/U5d combinations remain. This council additionally
-combines U5a/U5e, U6f/U6g, U9b/U9c and U10a/U10b within their listed unions:
-44 PRs, all 100 task IDs retained. U5c precedes U5a; U4a/U4b and U8a2 remain
-separate for their file/proof boundaries. secret.rs owns injection and readouts.rs
-owns inspect dispatch, removing two proposed helper modules and a registration
-edit. Existing size/clone/consumer gates retain authority, with no exemption.
+The previously adopted U5/U6/U9/U10 combinations and secret/readouts module
+reuse remain. This council folds discovery selection into U7c and rendering
+into U7d, which already own the necessary production files. That removes U7e
+and leaves 43 PRs with all 100 task IDs and every proof retained. U8a now
+depends on U7d. U5c precedes U5a; U4a/U4b and U8a/U8a2 remain separate for
+their file/proof boundaries. Existing size/clone/consumer gates retain
+authority; no exemption or fourth production file is implied.
 
 New production modules stay within 800 lines; new test modules within 2,000.
 Existing oversized files shrink or remain at/below their committed baseline,
@@ -632,171 +640,81 @@ outside the box and signs the single squash before pushing. The document
 commit is plain unsigned git commit. No push, PR creation, archive or
 decision acceptance is performed here.
 
-Historical council validation at 7aa9e9ff on 2026-10-03 passed both diff
-checks and strict OpenSpec (20 passed, 0 failed), auditing 26 requirements,
-97 scenarios, 48 PRs and 100 open tasks. Its eleven-file revision preserved
-the earlier index/pointer/ruling record. That result is not this revision's
-validation.
+Historical document results, all dated 2026-10-03, keep their original scope.
+Each recorded both diff checks and strict OpenSpec with 20 passed, zero failed;
+length/archive notices were informational. None executed U0 or runtime proof.
 
-Historical specify-return document validation at 7f36e922 on 2026-10-03: git diff --check and its
-cached form pass; openspec validate --all --strict reports 20 passed, 0 failed.
-Requirement-length and unrelated archive notices are informational. The static
-document audit confirms 26 requirements, 100 scenarios, 48 dependency-ordered
-PRs and 100 unique open tasks, at most three production paths per PR and all
-56 production paths represented in Hot files. Requirement/task links, local
-artifact links and 0077's proposed/index/amendment markers were checked; this
-is not execution of the Rust decision-index suite. The revised set is exactly
-eleven commissioned Markdown files, within fourteen total change artifacts
-against the base. No row gains production files or implementation completion.
-R1–R5 and production/test/frozen bytes are unchanged. Checks are repeated after
-staging this validation record. Runtime proofs, U0 measurements, external
-format/typos, operator acceptance and squash signing remain pending.
-
-Historical council document validation at b310e094 on 2026-10-03: both git diff --check
-forms pass; openspec validate --all --strict reports 20 passed, 0 failed.
-Its existing requirement-length/archive notices are informational. A static
-audit confirms 26 requirements, 106 scenarios, 44 dependency-ordered PR rows,
-100 preserved unique open task IDs, at most three production files per PR,
-and all 55 planned production paths in Hot files with matching ownership.
-Only seven commissioned Markdown artifacts change in this council commit;
-production, tests, frozen bytes, R1–R5, the adopted index row and amendment
-pointer are unchanged. Task dependencies and all 521 local Markdown links
-(including anchors) pass the pre-commit audit. These are documentary results;
-U0, Rust/namespace/mutation
-proofs, external format/typos and final-head gates, operator acceptance and
-squash signing remain pending. The result is upstream for D11.1's owning
-specification review, not a claim that the plan is approved for implementation.
-
-Specify-return document validation on 2026-10-03, adopting b310e094: both
-unstaged and cached git diff --check pass after removing two trailing blank
-lines. openspec validate --all --strict passes 20 items with zero failures;
-its existing length/archive notices remain informational. The static audit
-checks 26 requirements, 107 scenarios, 44 dependency-ordered PR rows, 100
-unchanged unique open task IDs, at most three production files per PR, all
-55 production paths with matching Hot files ownership, task dependencies and
-521 local Markdown links/anchors. The revision changes exactly seven
-commissioned Markdown artifacts. Production, tests, frozen bytes, R1–R5,
-the index row and 0065 amendment pointer are unchanged. Repeat the two
-in-box gates after staging this record. U0, implementation/removal proofs,
-external format/typos and runtime gates, operator acceptance and squash signing
-remain pending; no runtime gate was executed by this document review.
-
-### D11. Clarification and analysis disposition
-
-After proposal/deltas and before tasks, the following ambiguities are settled
-in scenarios: realm version ownership (SC2), v1 execution compatibility (SC1),
-hard R2 versus wants (MB2), gate precedence (GP1), paragraph identity (GP2),
-record-versus-receipt crash gap (CR2), deduplication and unexpected ledgers
-(CC2/CR4), bounded MCP (MB3), and the second-visit gate/signing change (SD4).
-
-| Analyze category | Finding and disposition at earliest owner |
+| Committed visit | Recorded static audit and disposition |
 | --- | --- |
-| Inconsistency, high if implemented | Draft's worktree evidence protection was only a promise. CR2 already required protection; D6 names host state, immutable publication, mount/alias checks and U8a/U9b proof. No runtime closure is claimed. 0071 rulings 1, 9. |
-| Underspecification, medium | Delivery/retention atomicity: corrected CR2 to distinguish prepared bytes from receipt, with a crash scenario; D7 and tasks follow. 0071 ruling 3. |
-| Unused surface, low | Draft-only tool-dialect v2 had no additional data consumer. Removed in proposal and SC1; retain frozen v1 with typed execution refusals. 0071 ruling 6. |
-| Inconsistency, medium | Realm v7 collision: corrected proposal/SC2/CR1 to the next realms version after v7, preserving #487. 0071 rulings 3, 5. |
-| Coverage gap, medium | U6 cannot forward before logging and U7 spans more than three files. Split minimal ledger before proxy, then retention/fold; explicit files and task owners below. 0071 rulings 4, 9. |
-| Ambiguity, medium | Broker turn correlation is not guaranteed by a harness. SC4 permits only attributed broker rows to omit turn; D7 never invents usage/turns and U4b tests the conditional schema. 0071 ruling 3. |
-| House alignment / deterministic gates | Format, OpenSpec structure and whitespace findings belong to their gates (info, 0071 ruling 11); planned runtime gates remain pending. No claimed green runtime from this document. |
-| Duplication / traceability | Requirement semantics live in deltas; design explains choices; numbered tasks reference every requirement and one unit. No copied agent or recipe, no parallel policy implementation. 0071 rulings 2, 5, 7, 10. |
+| 7aa9e9ff council | 26 requirements, 97 scenarios, 48 PRs, 100 open tasks; eleven-file repair; upstream for owning specification review. |
+| 7f36e922 specify | 26 requirements, 100 scenarios, 48 PRs, 100 open tasks, 56 production paths; eleven-file adoption, no runtime closure. |
+| b310e094 council | 26 requirements, 106 scenarios, 44 PRs, 100 open tasks, 55 production paths, 521 local links/anchors; seven-file repair; upstream for R-H owning review. |
+| 1c96ca2c specify | 26 requirements, 107 scenarios, 44 PRs, 100 open tasks, 55 production paths, 521 local links/anchors; seven-file adoption of R-G/R-H. |
 
-The earlier specify visit's returned_from carried the following council findings.
-That specify revisit adopted each proposed repair at its earliest requirement
-owner, then updated D1–D9 and tasks. The severity describes the implementation
-risk the requirement must prevent; this document claims no runtime closure.
+Current council document validation, 2026-10-03, based on 1c96ca2c: both
+unstaged and cached git diff --check pass; openspec validate --all --strict
+passes 20 items with zero failures and existing informational notices. The
+static audit finds 26 unchanged requirements, 108 scenarios, 43 ordered PRs,
+100 preserved unique open task IDs and at most three production files per PR.
+All 55 production paths match Hot files ownership; task dependencies, detailed
+closures and 530 local Markdown links/anchors resolve. Exactly six commissioned
+Markdown artifacts change. Production/test/frozen bytes, the verbatim R1–R5
+record, index row and 0065 amendment pointer remain unchanged. Final staged
+checks repeat after this record; no Rust or live harness test was executed.
+U0, implementation/removal proofs, external format/typos and runtime/host gates,
+operator acceptance and squash signing remain pending.
 
-| Returned council finding / severity | Earliest owner and adopted specification resolution |
+### D11. Current return and analysis disposition
+
+The supplied returned_from is clarify's clear review of the adopted change at
+1c96ca2c. Preserve its R-G/R-H answers and independent proofs. Both current
+positions report no new earlier-owner defect. R-I uses MB3's existing duty to
+protect startup inputs before secrets, including an unprovable arrangement's
+exact cause; its scenario makes the chosen construction testable. It neither
+changes global secret grammar nor weakens a requirement. The discovery cut
+changes delivery ownership only. No upstream return is warranted by these
+facts; a future incompatible measurement still returns to its earliest owner.
+
+| Analyze category | Judgment, owner and consequence |
 | --- | --- |
-| Secret-read/startup bypass, high security | MB2–MB4: separate read isolation, protect startup inputs before secrets. Rulings 3, 9. |
-| Sibling writer can forge evidence, high security | CR2: protect every managed writer and historical root; distinct U8a2 prerequisite. Rulings 3, 9. |
-| Incomplete or queued evidence may certify success, high security | CR3/CR4: strict lifecycle, confirmed settled append, every terminal path fenced. Rulings 3, 8, 9. |
-| Misattributed response or unbounded aggregate retention, high security | MB3/CR3: typed correlation, absolute deadlines, fixed quotas before forwarding. Rulings 3, 8, 9. |
-| Public lifecycle and every-mention DATA rule exceed intent, low duplication | CC2/SC4/GP2: one settled checkpoint and one qualifying declaration per capability. Rulings 5, 7. |
-| Duplicate canonicalizer/launch inventory and unnecessary PR splits, low | CR2/CR3 and design units: reuse canonical edge/inventory; combine only bounded unions. Rulings 4–6. |
+| Duplication | Remove the separate discovery PR and repeated gate/history prose. U7c selects once; U7d renders; D5's single builder owns fixed values and reserved keys. Preserve shared injector/canonicalizer and pure view (0071 rulings 1, 3–7). |
+| Ambiguity | MB3 now explicitly answers secret-name collisions before lookup, including benign values/rotation. Existing exact startup cause and one builder settle construction without another public vocabulary. R-G/R-H remain answered at MB3–MB5/CR2–CR4 (rulings 2, 3, 8, 9). |
+| Underspecification | No new unresolved choice changes the build. D2 leaves mechanisms to U0's specified measurements, with refusal on absent proof. Runtime enforcement remains a proof obligation, not a claimed result (rulings 3, 8, 9). |
+| House alignment | Keep three-production-file units, consumed extractions, native OFF, typed edges/errors, no new traits or suppressions, no copied recipe/agent and no Windows surface. Frozen versions and the next realms version after v7 remain coherent (rulings 1–10). |
+| Coverage | U6c/U6f/U9b own each R-I removal independently; U7c/U7d retain selection/rendering and all discovery suites. R-G's engine check and R-H's scalar check stay independent of cleanup/precision. All 26 requirements and 100 open task IDs retain owners; D10 records the inventory audit (ruling 9). |
+| Inconsistency | Current context, 43-row order, task groups 35–38 and Hot files agree. Historical 44-PR counts are explicitly dated. No scope, contract number, gate promise or enablement moved (rulings 3–6). |
+| Severity / gates | A bypass of R-I, R-G/R-H, strictness or custody would be high security because it weakens a refusal (rulings 3, 8, 9). This is design prevention, not a reproduced implemented exploit. Whitespace, format, file/clone and exact-coverage findings belong to their gates and are informational (ruling 11). |
 
-The council correctly returned upstream because these faults began in the
-requirements. Their owning review is now answered; the specify result is
-drafted with inputs.change decision-0065-capabilities-slice-two. Nothing in
-that disposition selects a next phase or accepts the decision.
+The design result is **drafted**, with inputs.change
+`decision-0065-capabilities-slice-two`. This disposition accepts no decision,
+closes no implementation task and selects no next phase.
 
-Two further consistency corrections belong to this revisit:
+### D11.1. Historical upstream returns
 
-- CC2's unbounded syntactically-valid-request promise conflicted with CR3's
-  finite ledger. CC2/CR3 now define acceptance at durable Started and preserve
-  all accepted local denials; MB3/SC4 reject unrepresentable request identities
-  before acceptance. Added scenarios distinguish limit exhaustion, failed
-  persistence, exact 256-byte identity and recorded ungranted-tool refusal.
-  U6d/U6e and U8b/U8d proofs follow (0071 rulings 3, 8, 9; medium
-  specification ambiguity).
-- Proposed 0077 lacked the issue marker required by decisions_index.rs:808–827.
-  Its header/index now link the existing open #467 strictness prerequisite;
-  the complete remaining scope stays in tasks.md, not closed slice-one #319.
-  This is the decision-index gate's informational finding (0071 ruling 11),
-  not a new remote issue or an acceptance claim.
+7aa9e9ff returned requirement gaps in secret-read/startup isolation (MB2–MB4),
+all-writer custody (CR2), durable/confirmed settlement (CR3/CR4), correlation
+and aggregate bounds (MB3/CR3), plus excess DATA/public-lifecycle requirements
+(GP2/CC2/SC4). 7f36e922 adopted them and clarified durable acceptance and the
+bounded request identity at CC2/CR3/MB3/SC4. These corrected earlier owners;
+they were not downstream implementation exceptions.
 
-That owning review answered the earlier return; the following council found
-the additional R-G/R-H gaps below. U0 and implementation proofs remain open prerequisites. If evidence makes R2 or protected evidence
-infeasible for a harness, keep it refused; never downgrade a high refusal
-finding to an informational gate result.
+b310e094 returned upstream because R-H exposed a specification conflict:
+shape-preserved secret-free output had no safe outcome for the shared masker's
+numeric residual. R-G also exposed the missing durable failed-session judgment.
+MB4/CR2 and MB3/MB5/CR3/CR4 were repaired first, then 0077, design and tasks.
+Leaving either fail-open would be high security under 0071 rulings 3, 8, 9.
 
-### D11.1. Council return and consistency judgment at b310e094
+### D11.2. Historical owning review at 1c96ca2c
 
-That council's returned_from was clarify's clear result on 7f36e922: the seven
-previous repair areas were reviewed without a new ambiguity. Preserve them;
-this council neither invents an outstanding clarify finding nor rewrites that
-historical result. Both new positions were reconciled in D1.1.
-
-R-G exposes a design enforcement omission beneath MB3/MB5 and CR3/CR4's
-mandatory failure semantics. R-H exposes an earlier specification conflict:
-MB4/CR2 promise secret-free, shape-preserved output yet specify no safe outcome
-for a known numeric secret left unchanged by the shared masker. Leaving either
-fail-open is high security under 0071 rulings 3, 8, 9. The owning deltas now
-propose typed failed closure and the explicit unsafe-response refusal, with
-scenarios; 0077, D5/D7 and tasks followed. That council returned **upstream**
-for owning review, with inputs.change `decision-0065-capabilities-slice-two`.
-A downstream drafted claim would have hidden R-H as an implementation exception.
-D11.2 records the subsequent owning specify review; neither disposition
-selects a next phase.
-
-The current analysis retains all 26 requirement owners. Duplication is reduced
-by reusing secret/readouts modules and combining bounded PRs; no proof or task
-is removed. Ambiguities have explicit refusal/failure scenarios, and task
-coverage includes the new 0/1/4,096-call barrier controls, scalar canary,
-retention-veto control and injector cardinality. No new contract version,
-public lifecycle, authority source, trait or platform is introduced. File
-ceilings, clones, formatting and other deterministic checks remain their
-gates' verdicts (ruling 11). Document validation is recorded in D10; none of
-this is implementation proof or operator acceptance.
-
-### D11.2. Specify disposition of the returned R-G/R-H repairs
-
-The supplied returned_from is design's upstream result committed at b310e094.
-Adopt it as a requirement repair, not an implementation exception. Rechecked
-source: protocol/secret.rs:637–668 and docs/guides/secrets.md:50–52 preserve
-numeric scalars; core/canonical.rs:9–14, :68–77 preserves the exact canary;
-protocol/process.rs:499–520 takes driver status; runtime/engine/checkpoints.rs:
-169–248 distinguishes an offered row from a confirmed append. These are source
-observations, not an executed broker or mutation proof.
-
-| Returned finding | Owning review and retained proof |
-| --- | --- |
-| R-H, high security if fail-open; MB4/CR2; 0071 rulings 3, 5, 8, 9 | Adopt the exact "MCP response cannot be safely masked" refusal before staging/delivery. Reject the numeric residual, scalar coercion and precision-only protection. Preserve numeric/text/unrelated-number, encoded-string, key-collision and unsafe-correlation scenarios. U6f/U8b/U9b and tasks 31, 39, 46 prove refusal independently of precision and under retention on/off/veto. |
-| R-G, high security if harness success hides failure; MB3/MB5/CR3/CR4; 0071 rulings 2, 3, 8, 9 | Adopt typed Clean/Failed closure and the engine's judgment of its latched safe cause. Reject treating an end marker, child exit or a complete call set as success. U6d/U6e/U8d/U8e/U9b and tasks 29, 30, 41, 42, 46 retain the exact 0/1/4,096-call controls, recovery, and an independent removal of the engine check. |
-
-Both owning Decisions sections now record adoption. SD1 adds a scenario for
-this returned visit; existing behavioral scenarios already specify the answer.
-Proposed 0077, D5/D7 and tasks retain the same exact behavior and proof owners.
-Simplicity's two module cuts and four PR combinations remain adopted: no new
-module, contract version, task ID or production path is needed for this review.
-All 26 requirements and 100 open task IDs remain accounted for; the single
-44-PR merge order and Hot files inventory stay coherent.
-
-No unresolved upstream specification fault remains from this return. The
-specify result is **drafted**, with inputs.change
-`decision-0065-capabilities-slice-two`. This is neither a fresh clarify/analyze
-verdict nor operator acceptance. R1–R5, D4/D11, contract reservations, U0's
-measurement requirement and all implementation/external proof obligations
-remain unchanged; the engine determines the next phase.
+That specify visit adopted b310e094 after checking secret.rs:637–668,
+secrets.md:50–52, process.rs:499–520 and checkpoints.rs:169–248. R-H keeps
+"MCP response cannot be safely masked", no unsafe delivered/staged body and
+no digest for the failed forwarded call; scalar refusal is independent of
+numeric precision and applies under retention veto. R-G keeps typed failed
+closure and engine judgment even after a successful harness result, with
+0/1/4,096-call controls and an independent engine-check removal. The result
+was drafted and 0077 remained proposed. The current clear clarification
+covers that adoption; neither review is an executed implementation proof.
 
 ## Risks / Trade-offs
 
@@ -852,8 +770,9 @@ are settled through the same journal/cleanup path, not left detached.
 
 ## Open Questions
 
-The earlier repairs and returned R-G/R-H repairs are adopted at their owning
-specifications (D11.2); operator acceptance remains required. The technical
+The supplied clarify result is clear, and D11 retains the adopted R-G/R-H
+answers. R-I's existing startup duty now has a concrete scenario and proof
+owners; operator acceptance remains required. The technical
 unknowns are measurements and external results: which of D2's named candidates
 qualifies each installed harness/shape; exact observed call identifiers; and
 host/CI evidence on each final unit head. Their failure outcome is already
@@ -869,11 +788,11 @@ At each PR recheck these paths and baseline counts against main.
 | File / baseline lines where oversized | Units | Coordination |
 | --- | --- | --- |
 | `crates/brokkr-protocol/src/native_controls.rs` (4539) | U1a, U1g, U7a | Recheck concurrent main edits and module registration before the row |
-| `crates/brokkr-protocol/src/native_controls/mcp.rs` | U1a, U1c, U6c, U6d, U7a, U7d, U7e, U8a | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-protocol/src/native_controls/mcp.rs` | U1a, U1c, U6c, U6d, U7a, U7d, U8a | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/agents.rs` (1671) | U1b, U1f, U3b, U7b | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/load.rs` (1334) | U1b, U3b | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/mcp.rs` | U1b, U7b | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U4c, U6a, U7d, U7e | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U4c, U6a, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1g, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `adapters/claude.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `adapters/codex.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
@@ -918,7 +837,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/broker/output.rs` | U6f, U8b | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-protocol/src/hands.rs` (1276) | U7a, U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/engine/broker.rs` | U7c, U8a2, U8c, U8d, U8e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/engine/marks.rs` | U7c, U7e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine/marks.rs` | U7c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-protocol/src/hands/evidence.rs` | U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/engine/artifacts.rs` | U8c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-cli/src/verbs/readouts.rs` | U8g | Recheck concurrent main edits and module registration before the row |
@@ -996,9 +915,8 @@ witness/compose pins accompany only rows that change their inputs.
 | U7a | U1g, U5f, U6f | Represent the complete server set; 33.1–33.2 | `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs`; `crates/brokkr-protocol/src/hands.rs` |
 | U7b | U7a | Consume adapter carriage and selected holdings; 34.1–34.2 | `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/agents/mcp.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U7c | U7b | Provision protected per-attempt plans; 35.1–35.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/marks.rs` |
-| U7d | U7c | Deliver checked multi-server configurations; 36.1–36.2 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
-| U7e | U7d | Render selected capability discovery; 37.1–37.2 | `crates/brokkr-runtime/src/engine/marks.rs`; `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
-| U8a | U7e | Protect artifact paths in workspace hands; 38.1–38.2 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/evidence.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
+| U7d | U7c | Deliver checked configurations and selected discovery; 36.1–37.2 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
+| U8a | U7d | Protect artifact paths in workspace hands; 38.1–38.2 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/evidence.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
 | U8a2 | U8a | Protect every managed writer before dispatch; 38.3–38.4 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/sequence.rs` |
 | U8b | U8a2 | Stage retained responses before delivery; 39.1–39.2 | `crates/brokkr-cli/src/broker/output.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-protocol/src/native_controls/mcp/ledger.rs` |
 | U8c | U8b | Publish verified content-addressed artifacts; 40.1–40.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/artifacts.rs` |
@@ -1243,10 +1161,10 @@ Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
 
 ### U6c — Define and consume the bound plan
 
-Define and consume the identity-bound BrokerPlan with owner-rooted reads, protected executable/startup inputs, private cwd, sanitized environment and shared injector. Keep the public path before spawn closed until U6f completes its protections; no exposed unconsumed helper.
+Define and consume the identity-bound BrokerPlan with owner-rooted reads, protected executable/startup inputs, private cwd, sanitized environment and shared injector. D5's consumed builder owns fixed startup values and reserved names; reject binding collisions before any store lookup or spawn, with no global grammar change. Keep the public path before spawn closed until U6f completes its protections; no exposed unconsumed helper.
 
 Closes tasks 28.1 and 28.2; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [MB5](specs/mcp-capability-broker/spec.md).
-Proof: Protected installed fake positive; repository executable, replaceable script/config/plugin/ancestor, missing/denied/store-only bindings and direct unsafe invocation refuse before secret disclosure or spawn.
+Proof: Protected installed fake positive; repository executable, replaceable script/config/plugin/ancestor, missing/denied/store-only bindings and direct unsafe invocation refuse before secret disclosure or spawn. Separate HOME/TMPDIR collisions, benign values and rotation refuse with MB3's exact cause, zero lookups and zero starts; DOCS_TOKEN preserves the exact private directories. Each collision binds removal of the broker check independently of ambient clearing.
 
 Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
 
@@ -1272,8 +1190,8 @@ Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
 
 Complete the serving protections in session.rs using existing secret masking and canonical byte/hash functions at the edge. Share one masked buffer, reject duplicate keys and numeric value changes, and independently refuse unsafe scalar/structural secret occurrences before staging or delivery with MB4's exact cause. Keep legacy masker semantics and shared encodings. Drain stderr with raw-byte overlap before lossy decoding. Only then can the bound public session serve; retained plans still refuse until U8b.
 
-Closes tasks 31.1 and 31.2; requirements [SD3](specs/slice-two-delivery/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md).
-Proof: Literal/encoded/split/multibyte leak scans, digits-only scalar refusal versus text-redaction/unrelated-number controls, masking-created key collisions, and unsafe-correlation failure without raw frames. Assert failed forwarded call with no digest and no unsafe body for retention on/off/veto; the refusal itself passes leak scans. Remove the scalar check independently of numeric-precision validation; direct command cannot bypass plan/ledger/startup/masking protections, and a retained plan never silently degrades.
+Closes tasks 31.1 and 31.2; requirements [MB3](specs/mcp-capability-broker/spec.md), [SD3](specs/slice-two-delivery/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md).
+Proof: Literal/encoded/split/multibyte leak scans, digits-only scalar refusal versus text-redaction/unrelated-number controls, masking-created key collisions, and unsafe-correlation failure without raw frames. Assert failed forwarded call with no digest and no unsafe body for retention on/off/veto; the refusal itself passes leak scans. Remove the scalar check independently of numeric-precision validation; direct command cannot bypass plan/ledger/startup/masking protections, and a retained plan never silently degrades. Repeat R-I's independent HOME/TMPDIR collision removals at the final public spawn boundary, including zero lookup/start and normal-binding/private-directory controls.
 
 Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
 
@@ -1304,30 +1222,21 @@ Owning tests: `crates/brokkr-runtime/src/agents/tests.rs`, `crates/brokkr-runtim
 
 ### U7c — Provision protected per-attempt plans
 
-Provision the single sealed plan inventory and private roots before launch, with complete owner identity and disjoint fixed retention shares including permitted fallback slots. Reuse existing launch facts; do not add a duplicate capability inventory or launch state machine.
+Provision the single sealed plan inventory and private roots before launch, with complete owner identity and disjoint fixed retention shares including permitted fallback slots. Reuse existing launch facts; do not add a duplicate capability inventory or launch state machine. In marks.rs project and clear selected server/tool/discovery identifiers from the same intent consumed by configuration, using existing adapter hands.notice facts. Carry no plan or storage locator into prompt rendering; parse new edge data once into types.
 
-Closes tasks 35.1 and 35.2; requirements [MB1](specs/mcp-capability-broker/spec.md), [MB3](specs/mcp-capability-broker/spec.md), [CR3](specs/capability-response-retention/spec.md).
-Proof: Substitution/missing inventory/pre-start uncertainty refuse exactly; simultaneous slots cannot share quota, oversized allocation refuses before launch, and resume cannot create fresh budget.
-
-Owning tests: `crates/brokkr-runtime/src/engine/capability_tests.rs`, `crates/brokkr-runtime/src/engine/resume_tests.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`.
-
-### U7d — Deliver checked multi-server configurations
-
-Wire the expanded server set and dialect-secret environment removals into each U0-supported builder and final consumption point; unsupported measured carriers refuse. No modifications after checked command creation.
-
-Closes tasks 36.1 and 36.2; requirements [MB1](specs/mcp-capability-broker/spec.md), [SI2](specs/strict-mcp-isolation/spec.md).
-Proof: Actual composed cold/resume/replacement commands match independent literal server intent, and mutations are refused at the final serving boundary.
-
-Owning tests: `crates/brokkr-protocol/src/adapters/tests.rs`, `crates/brokkr-protocol/src/native_controls/tests.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`.
-
-### U7e — Render selected capability discovery
-
-Reuse the measured discovery identifier from adapter hands.notice, since eligible MCP sites already have hands; render fixed capability/tool guidance per selected attempt outside the requested digest.
-
-Closes tasks 37.1 and 37.2; requirements [SD3](specs/slice-two-delivery/spec.md), [CC2](specs/capability-call-checkpoints/spec.md).
-Proof: Codex deferred tool notice, fallback clearing, optional drop and hostile prose tests; hands notice stays byte-coherent.
+Closes tasks 35.1 and 35.2; requirements [SD3](specs/slice-two-delivery/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [MB3](specs/mcp-capability-broker/spec.md), [CR3](specs/capability-response-retention/spec.md).
+Proof: Substitution/missing inventory/pre-start uncertainty refuse exactly; simultaneous slots cannot share quota, oversized allocation refuses before launch, and resume cannot create fresh budget. Bind selected-fact construction and clearing independently: fallback and wanted drop remove stale facts, original requested digest and native/no-MCP behavior stay unchanged, and prompt facts contain no secret-store/ledger locator.
 
 Owning tests: `crates/brokkr-runtime/src/engine/capability_tests.rs`, `crates/brokkr-runtime/src/engine/resume_tests.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`.
+
+### U7d — Deliver checked configurations and selected discovery
+
+Wire the expanded server set and dialect-secret environment removals into each U0-supported builder and final consumption point; unsupported measured carriers refuse. No modifications after checked command creation. Render fixed capability/tool discovery guidance from U7c's typed selected identifiers in the existing capability contract, reusing the measured hands.notice discovery identifier. No provider-name branch, new notice registry or parallel authority.
+
+Closes tasks 36.1, 36.2, 37.1 and 37.2; requirements [MB1](specs/mcp-capability-broker/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD3](specs/slice-two-delivery/spec.md), [CC2](specs/capability-call-checkpoints/spec.md).
+Proof: Actual composed cold/resume/replacement commands match independent literal server intent, and mutations refuse at the final serving boundary. Separately bind rendering and selection for Codex deferred discovery, fallback clearing, wanted drop and hostile prose; preserve hands notice, native/no-MCP prompts and requested-effect digest. No complete plan or storage locator reaches the renderer.
+
+Owning tests: `crates/brokkr-protocol/src/adapters/tests.rs`, `crates/brokkr-protocol/src/native_controls/tests.rs`, `crates/brokkr-runtime/src/engine/capability_tests.rs`, `crates/brokkr-runtime/src/engine/resume_tests.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`.
 
 ### U8a — Protect artifact paths in workspace hands
 
@@ -1414,12 +1323,13 @@ Owning tests: `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 
 Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, startup, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination.
 
-Closes tasks 46.1 and 46.2; requirements [MB2](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD3](specs/slice-two-delivery/spec.md).
+Closes tasks 46.1 and 46.2; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD3](specs/slice-two-delivery/spec.md).
 Proof: Real compile/launch/broker/fold/inspect with fake dialect; same-name MCP holding keeps native power OFF, zero-grant sibling and exec cannot alter evidence, unsafe secret reads refuse, and quota/recovery/cold/fallback/member/step cases bind. Include the success-reporting harness after zero-call version failure, post-call fatal protocol and 4,096-call exhaustion, plus scalar-secret refusal on the real retention/inspect path; pin exact causes, counts and absent unsafe bodies.
+Add R-I's separate HOME/TMPDIR collisions through real compile and selected launch, asserting the startup cause, zero store lookup/child start, and normal DOCS_TOKEN/private-directory control. Independent removal of reserved-name validation must fail.
 
 Owning tests: `crates/brokkr-runtime/tests/capability_broker_launch.rs`, `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 
-Publish grant/veto migration and measured namespace/stdio/empty-restriction limits, secret-read refusal, protected startup requirements, delayed settled checkpoints, fixed retention budgets, historical evidence protection and same-root run serialization. Explain durable session failures and the broker's scalar/structural masking refusal without claiming a change to legacy mask_json semantics.
+Publish grant/veto migration and measured namespace/stdio/empty-restriction limits, secret-read refusal, protected startup requirements, delayed settled checkpoints, fixed retention budgets, historical evidence protection and same-root run serialization. Explain durable session failures, the broker's scalar/structural masking refusal and its fixed startup-key collisions; distinguish broker validation from the unchanged shared secret grammar and legacy mask_json semantics.
 
 Closes tasks 47.1 and 47.2; requirements [SD3](specs/slice-two-delivery/spec.md), [SC1](specs/slice-two-contracts/spec.md), [SC2](specs/slice-two-contracts/spec.md), [SC3](specs/slice-two-contracts/spec.md), [SC4](specs/slice-two-contracts/spec.md).
 Proof: Guides agree with actual compile/report/inspect evidence and explain quiescing old writers; no new realm grant, MCP server or unmeasured support claim is shipped.

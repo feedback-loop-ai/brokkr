@@ -137,6 +137,15 @@ seat-writable reach, including aliases and replaceable ancestors. An executable
 inside that reach SHALL refuse "MCP server launch resolves inside seat-writable reach"; unprotected scripts, configuration, package/plugin loading or an
 unprovable startup arrangement SHALL refuse "MCP server startup inputs are not protected from seat writes". Direct argv and a server-reported version alone
 are insufficient. No heuristic interpreter-flag parser can grant an exception.
+The protected startup environment SHALL remain protected after secret injection.
+Before store lookup or spawn, the broker SHALL reject a bound secret name that
+collides with any fixed startup key owned by its environment builder, including
+HOME and TMPDIR, with the startup-input cause above. The builder SHALL own both
+those fixed values and their reserved-name set; later assignments SHALL NOT
+replace them. This is broker launch validation, not a change to the shared
+secret-name grammar. Other environment-driven startup loading still requires
+the protected arrangement above; reserving these keys alone proves no such
+arrangement for arbitrary server code.
 
 Only MCP initialization and the measured protocol operations necessary for
 listing/calling granted tools SHALL be proxied. Tool listing SHALL expose
@@ -212,6 +221,13 @@ alone SHALL remain a call outcome, not a fatal session failure.
 - **WHEN** a seat substitutes a repository-relative executable, interpreter script, startup config, plugin, package or ancestor before launch
 - **THEN** launch refuses the corresponding executable or startup-input cause before reading or injecting a secret
 - **AND** a protected installed fake-server control starts with a private working directory and the permitted binding; serverInfo.version alone never admits the replacement
+
+#### Scenario: Secret bindings cannot replace protected startup directories
+
+- **WHEN** separate bound plans declare HOME or TMPDIR and the corresponding store value would point the protected installed fake server at a seat-writable startup marker
+- **THEN** each refuses "MCP server startup inputs are not protected from seat writes" before any store lookup or child start
+- **AND** a currently benign value and rotation to a different value without changing dialect bytes receive the same name-based refusal
+- **AND** a DOCS_TOKEN control reaches the child through the shared injector while the child observes the exact engine-private HOME and TMPDIR; each collision has an independent removal proof
 
 #### Scenario: Correlation and deadlines survive hostile protocol traffic
 
@@ -377,3 +393,15 @@ R-G's MB3/MB5 failure semantics are adopted with CR3/CR4: driver-reported
 success alone cannot discharge a broker's latched failure. U6f/U8b/U9b own
 the masking proofs; U6d/U6e/U8d/U8e/U9b own session and settlement proofs.
 Those proofs remain open; specification adoption is not operator acceptance.
+
+Council R-I, 2026-10-03, reviewed 1c96ca2c: adopt the startup-environment
+scenario under MB3's existing protection and exact cause. Checked
+adapters.rs:687–704 overwrites existing entries; secret.rs:20–30,105–137
+allows HOME/TMPDIR. A version pin or a check before injection cannot protect
+the actual child environment. Reserve every builder-owned startup key before
+lookup, including names whose current values seem safe; rotation is outside
+dialect identity. Reject global store/schema changes and a second injector.
+U6c/U6f/U9b own separate collision-removal controls and the ordinary binding
+positive. This specifies construction and proof of an existing requirement,
+not a new authority or a defect in clarify's adopted R-G/R-H answer
+(0071 rulings 2, 3, 5, 8–10; high security if bypassed in implementation).

@@ -222,10 +222,10 @@ in one visit. This does not decide the engine's next phase or invent absent
 council positions. Design records the positions actually available and the
 analysis; all implementation checkboxes stay open.
 
-Specify return, 2026-10-03: the supplied design return from 7aa9e9ff is
-answered at the requirement owners named in its notes; design D1's full
-robustness/simplicity reconciliation is preserved, and D11 records the current
-disposition. The missing issue marker on proposed 0077 is an informational
+Specify return at 7f36e922, 2026-10-03: that visit's design return from
+7aa9e9ff was answered at its requirement owners. The full council
+reconciliation remains in that committed design; current D1.1/D11 identify
+the historical record and its disposition. The missing issue marker on proposed 0077 is an informational
 finding owned by the decision-index gate (0071 ruling 11). Link the existing
 open #467 strictness prerequisite and this change's complete tasks; do not
 pretend closed slice-one PR #319 carries slice two or create an unsolicited
@@ -239,11 +239,20 @@ owning review even though the council supplies coherent proposed repairs.
 Simplicity's four PR combinations preserve every task and proof within the
 three-production-file ceiling; the final design alone defines their merge order.
 
-Specify review of b310e094, 2026-10-03: the current returned_from is design's
-upstream result, answered here and at MB4/CR2 with the accompanying R-G owners.
-Adopt its repairs with checked reasons, preserving D1.1's complete reconciliation
-of both positions and the 44-PR/100-task plan. The prior upstream disposition
-and clarify result remain historical. This visit returns drafted with
+Specify review at 1c96ca2c, 2026-10-03: that visit's returned_from was design's
+upstream result at b310e094, answered here and at MB4/CR2 with the accompanying R-G owners.
+Adopt its repairs with checked reasons; the complete reconciliation of both
+positions and the then-current 44-PR/100-task plan remain in committed design
+b310e094. Current design D1.1 identifies that historical record. The prior upstream
+disposition and clarify result remain historical. That visit returned drafted with
 inputs.change decision-0065-capabilities-slice-two; the engine alone determines
 its next phase. No task, measurement, external gate or proposed decision is
 marked accepted or complete by this owning review.
+
+Council design, 2026-10-03, reviewed 1c96ca2c: the supplied clarify return is
+clear on R-G/R-H. Retain those repairs. MB3's startup scenario binds an existing
+protection to the checked injector collision; it changes no grant authority
+or shared secret grammar. Adopt simplicity's U7c/U7d discovery consolidation
+with all 100 task IDs, separate selection/rendering proofs and unchanged
+three-file inventories. The current plan is 43 PRs; the earlier counts stay
+historical. D1/D11 record both positions and analysis; only U9b enables MCP.
