@@ -807,11 +807,26 @@ fn a_boxed_turn_that_fails_naming_no_hands_flag_is_unread_not_unsupported() {
     );
     let cli = world.fake("claude", &script);
     let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
-    let failed = format!(
-        "the boxed turn failed, naming no flag or key of the adapter's hands argv: exit 1: \
-         {outage}"
+    let failed = failed_under(
+        "the boxed turn",
+        "the adapter's hands argv",
+        &format!("exit 1: {outage}"),
     );
     assert_eq!(under_hands(&report), boxed_unread(&failed));
+}
+
+/// How a report names a line no reader consumes and the probe does not
+/// recognise whole.
+const UNRECOGNISED: &str =
+    "holds text no reader consumes in a form the probe does not recognise whole";
+
+/// Why a turn under `argv` that failed, as `ended` says, refused nothing:
+/// no line it printed is itself a refusal of one of its controls (#484).
+fn failed_under(turn: &str, argv: &str, ended: &str) -> String {
+    format!(
+        "{turn} failed, and no line it printed refuses a flag or key of {argv} in a refusal's \
+         words and no other class's: {ended}"
+    )
 }
 
 /// What [`under_hands`] shows of a boxed turn not read, as `why` says,

@@ -128,7 +128,8 @@ fn rests_on(verdict: Verdict, facts: &Facts) -> Option<(&'static str, Vec<String
 /// refuses the harness. An office outside the box launches
 /// the plain turn, so a plain turn not shown to keep the planted server
 /// out holds a boxable harness to boxed offices (operator ruling B,
-/// 2026-09-29) and refuses any other.
+/// 2026-09-29) and refuses any other; a seat granted nothing launches the
+/// turn under the declared OFF controls, which holds it the same way.
 fn verdict(facts: &Facts) -> Eligibility {
     let (verdict, reason) = if facts.config_isolation.value() != Some(&true) {
         (
@@ -140,7 +141,7 @@ fn verdict(facts: &Facts) -> Eligibility {
         )
     } else if boxable(facts) == Some(true) {
         let reason = "its own tools switch off and the hands MCP server connects";
-        match plain_leak(facts) {
+        match plain_leak(facts).or_else(|| off_unshown(facts)) {
             None => (Verdict::Boxed, reason.to_string()),
             Some(leak) => (
                 Verdict::BoxedOnly,
@@ -210,6 +211,24 @@ fn off_leak(facts: &Facts) -> Option<String> {
          loaded an MCP server the probe did not give it (#467): {}",
         facts.user_mcp_off.account()
     ))
+}
+
+/// How the turn under the declared OFF controls, the launch a seat
+/// granted nothing uses, failed to show another MCP server kept out: it
+/// loaded one, or it was not read keeping them out, which holds a boxable
+/// harness to boxed offices, as [`plain_leak`] does (#484, the
+/// fail-closed reading of operator ruling B); `None` when it showed no
+/// MCP server reached it.
+fn off_unshown(facts: &Facts) -> Option<String> {
+    match facts.user_mcp_off {
+        Fact::Measured { value: false, .. } => None,
+        Fact::Measured { value: true, .. } => off_leak(facts),
+        Fact::Unmeasured { .. } | Fact::Unsupported { .. } => Some(format!(
+            "its turn under the declared OFF controls, the launch a seat granted nothing uses, \
+             is not shown to keep another MCP server out (#467): {}",
+            facts.user_mcp_off.account()
+        )),
+    }
 }
 
 /// The native capabilities without a measured off switch, those measured

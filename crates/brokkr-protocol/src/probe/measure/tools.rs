@@ -63,25 +63,6 @@ pub(super) fn tool_server(tool: &str) -> Option<&str> {
     Some(server)
 }
 
-/// Every tool any stream of a turn lists, read or not: the names a line
-/// of its stderr text is checked for (#484).
-pub(super) fn listed_tools(streams: &[Stream]) -> Vec<String> {
-    let listing = Listing::read(streams, "tools", tool_name);
-    let entries = listing.entries().iter();
-    entries.map(|entry| entry.value.clone()).collect()
-}
-
-/// The tools the adapter declares its native capabilities by.
-pub(super) fn declared_tools(plan: &Plan) -> Vec<String> {
-    match &plan.native {
-        Native::Known { powers, .. } => powers
-            .iter()
-            .flat_map(|power| power.tools.clone())
-            .collect(),
-        Native::Unmeasured(_) => Vec::new(),
-    }
-}
-
 /// The CLI's own tools: every listed tool that names no MCP server. A
 /// tool naming one is read by [`user_mcp`], never dropped unread: the
 /// plain, boxed and OFF turns are each read by it (#484).

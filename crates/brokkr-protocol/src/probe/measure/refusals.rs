@@ -28,8 +28,8 @@ fn refused<T: serde::Serialize>(trial: &Trial, accepted: String) -> Result<&Obse
     }
 }
 
-/// How one deliberate mistake was refused.
-pub(super) fn refusal(trial: &Trial) -> Fact<Refusal> {
+/// How one deliberate mistake was refused, whatever the refusal says.
+fn refusal(trial: &Trial) -> Fact<Refusal> {
     let accepted = "the CLI exited 0, so there was no refusal to read".to_string();
     match refused(trial, accepted) {
         Ok(observation) => Fact::measured(
@@ -52,58 +52,146 @@ const MODEL_REFUSALS: [&str; 5] = [
     "not supported",
 ];
 
-/// The words that mark a line as another class's refusal, an auth
-/// failure, a rate limit or an outage, folded to lowercase.
-const OTHER_CLASSES: [&str; 9] = [
-    "unauthorized",
-    "api key",
-    "x-api-key",
-    "login",
-    "rate limit",
-    "quota",
-    "overloaded",
-    "unavailable",
-    "timeout",
+/// The words a refusal of a flag or a config key is put in, folded to
+/// lowercase.
+const CONTROL_REFUSALS: [&str; 9] = [
+    "unknown option",
+    "unknown key",
+    "unknown argument",
+    "unknown flag",
+    "unexpected argument",
+    "unrecognized",
+    "unrecognised",
+    "invalid option",
+    "not supported",
 ];
 
-/// The HTTP statuses of another class's refusal, read as whole words.
-const OTHER_STATUSES: [&str; 8] = ["401", "403", "429", "500", "502", "503", "504", "529"];
-
-/// Whether `line` is itself the unknown model's refusal: it names the
-/// model in a model refusal's words, and carries no other class's mark.
-fn refuses_the_model(line: &str) -> bool {
-    let lower = line.to_ascii_lowercase();
-    let mut words = lower.split(|c: char| !c.is_ascii_alphanumeric());
-    line.contains(NO_SUCH_MODEL)
-        && MODEL_REFUSALS.iter().any(|refusal| lower.contains(refusal))
-        && !OTHER_CLASSES.iter().any(|mark| lower.contains(mark))
-        && !words.any(|word| OTHER_STATUSES.contains(&word))
+/// The refusal classes a line marks by its words alone: an auth failure,
+/// a rate limit or an outage.
+#[derive(Clone, Copy, PartialEq)]
+enum Class {
+    Auth,
+    RateLimit,
+    Outage,
 }
 
-/// How the unknown model was refused: measured only when a line the
-/// launch printed is itself that refusal, by [`refuses_the_model`], since
-/// a line that merely echoes the model, or names it beside an outage or
-/// the account, does not show the model was what it refused (decision
-/// 0071 ruling 3).
-pub(super) fn config_refusal(trial: &Trial) -> Fact<Refusal> {
+/// Each class's words, folded to lowercase, and its HTTP statuses, read
+/// as whole words.
+const CLASSES: [(Class, &[&str], &[&str]); 3] = [
+    (
+        Class::Auth,
+        &[
+            "unauthorized",
+            "api key",
+            "api_key",
+            "x-api-key",
+            "login",
+            "logged in",
+        ],
+        &["401", "403"],
+    ),
+    (Class::RateLimit, &["rate limit", "quota"], &["429"]),
+    (
+        Class::Outage,
+        &["overloaded", "unavailable", "timeout"],
+        &["500", "502", "503", "504", "529"],
+    ),
+];
+
+/// Every class whose mark `line` carries.
+fn marked(line: &str) -> Vec<Class> {
+    let lower = line.to_ascii_lowercase();
+    let words: Vec<&str> = lower.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+    CLASSES
+        .iter()
+        .filter(|(_, marks, statuses)| {
+            marks.iter().any(|mark| lower.contains(mark))
+                || words.iter().any(|word| statuses.contains(word))
+        })
+        .map(|(class, _, _)| *class)
+        .collect()
+}
+
+/// Whether `line` is itself the unknown model's refusal: it names the
+/// model in a model refusal's words, and carries no class's mark.
+fn refuses_the_model(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    line.contains(NO_SUCH_MODEL)
+        && MODEL_REFUSALS.iter().any(|refusal| lower.contains(refusal))
+        && marked(line).is_empty()
+}
+
+/// Whether `line` is itself an auth refusal: it carries an auth
+/// refusal's mark and no other class's.
+fn refuses_the_credentials(line: &str) -> bool {
+    marked(line) == [Class::Auth]
+}
+
+/// Every line a launch printed, stderr's first.
+fn lines(observation: &Observation) -> impl Iterator<Item = &str> {
+    let stderr = observation.stderr.text.lines();
+    stderr.chain(observation.stdout.text.lines())
+}
+
+/// The flags and `-c` keys of `controls`, by which a refusal names them.
+fn control_words(controls: &[String]) -> Vec<&str> {
+    let words = controls
+        .iter()
+        .filter_map(|part| match part.strip_prefix('-') {
+            Some(_) => Some(part.as_str()),
+            None => part.split_once('=').map(|(key, _)| key),
+        });
+    words.collect()
+}
+
+/// Whether a line the launch printed is itself the refusal of one of
+/// `controls`' flags or keys: it names one in a control refusal's words,
+/// and carries no class's mark (#484). A line that only echoes a control,
+/// or names it beside an outage or the account, refuses nothing.
+pub(super) fn refuses_a_control(observation: &Observation, controls: &[String]) -> bool {
+    let named = control_words(controls);
+    lines(observation).any(|line| {
+        let lower = line.to_ascii_lowercase();
+        let mut words = line.split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)));
+        words.any(|word| named.contains(&word))
+            && CONTROL_REFUSALS
+                .iter()
+                .any(|refusal| lower.contains(refusal))
+            && marked(line).is_empty()
+    })
+}
+
+/// How a deliberate mistake was refused, measured only when a line the
+/// launch printed is itself that refusal by `is_one`, since a line that
+/// echoes the mistake, or a failure of another class, does not show the
+/// mistake was what it refused (decision 0071 ruling 3); otherwise
+/// unmeasured, `not_shown` saying why.
+fn classed(trial: &Trial, is_one: fn(&str) -> bool, not_shown: &str) -> Fact<Refusal> {
     let read = refusal(trial);
     match (trial, read.value()) {
-        (Trial::Observed(observation), Some(_))
-            if !observation
-                .stderr
-                .text
-                .lines()
-                .chain(observation.stdout.text.lines())
-                .any(refuses_the_model) =>
-        {
-            Fact::unmeasured(format!(
-                "no line of the refusal names the model {NO_SUCH_MODEL} in a model refusal's \
-                 words and no other class's, so it is not shown to be the configuration's: {}",
-                exit_and_excerpt(observation)
-            ))
+        (Trial::Observed(observation), Some(_)) if !lines(observation).any(is_one) => {
+            Fact::unmeasured(format!("{not_shown}: {}", exit_and_excerpt(observation)))
         }
         _ => read,
     }
+}
+
+/// How the unknown model was refused, by [`refuses_the_model`].
+pub(super) fn config_refusal(trial: &Trial) -> Fact<Refusal> {
+    let not_shown = format!(
+        "no line of the refusal names the model {NO_SUCH_MODEL} in a model refusal's words and \
+         no other class's, so it is not shown to be the configuration's"
+    );
+    classed(trial, refuses_the_model, &not_shown)
+}
+
+/// How the launch without credentials was refused, by
+/// [`refuses_the_credentials`]: removing them is the trigger, not proof
+/// of the class (#484).
+pub(super) fn auth_refusal(trial: &Trial) -> Fact<Refusal> {
+    let not_shown = "no line of the refusal carries an auth refusal's mark and no other \
+                     class's, so it is not shown to be an auth failure";
+    classed(trial, refuses_the_credentials, not_shown)
 }
 
 /// The accepted levels a refusal lists after one of its markers.

@@ -38,6 +38,11 @@ fn kept_report(world: &World, name: &str, under_off: &str) -> Value {
     probe(AdapterKind::Claude, &cli, &claude_declared(), world)
 }
 
+/// How a report names the turn under the declared OFF controls, and the
+/// argv itself.
+const OFF_TURN: &str = "the turn under the declared OFF controls";
+const OFF_ARGV: &str = "the declared OFF controls";
+
 const ALL_TOOLS: &str = "the system/init event on line 1 of stdout listed tools: 3";
 const INVENTORY_AGREES: [&str; 3] = ["WebFetch, WebSearch", "WebFetch, WebSearch", "agrees"];
 const BOXED_KEEPS: &str = "the system/init event on line 1 of stdout listed tools: 3; the \
@@ -190,13 +195,24 @@ fn off_controls_the_cli_refuses_are_unsupported_and_off_controls_never_composed_
                 off_row("web-fetch", "unmeasured", "unmeasured", "not-compared"),
                 off_row("web-search", "unsupported", "unmeasured", "not-compared"),
             ],
+            // A seat granted nothing has no OFF turn shown to keep another
+            // MCP server out, so the box is all it may hold (#484).
             "eligibility": {
-                "verdict": "boxed",
-                "reason": "its own tools switch off and the hands MCP server connects",
+                "verdict": "boxed-only",
+                "reason": format!(
+                    "its own tools switch off and the hands MCP server connects, but {OFF_UNSHOWN}: \
+                     the engine composes no OFF control for a seat granted nothing: {never}, so it \
+                     may hold boxed offices only"
+                ),
             },
         })
     );
 }
+
+/// How a verdict names an OFF turn not shown to keep other MCP servers
+/// out.
+const OFF_UNSHOWN: &str = "its turn under the declared OFF controls, the launch a seat granted \
+                           nothing uses, is not shown to keep another MCP server out (#467)";
 
 /// The chief's OFF turns on 25a0ea04 (#484): the turn under the declared
 /// OFF controls, which a seat outside the box granted nothing launches,
@@ -335,10 +351,7 @@ fn an_off_turn_that_fails_naming_no_control_is_unread_not_a_missing_off_switch()
     {
         let under_off = format!(r#"echo "{line}" >&2; exit 1"#);
         let view = kept_by_the_box(&world, &format!("claude-off-fails-{index}"), &under_off);
-        let failed = format!(
-            "the turn under the declared OFF controls failed, naming no flag or key of the \
-             declared OFF controls: exit 1: {line}"
-        );
+        let failed = failed_under(OFF_TURN, OFF_ARGV, &format!("exit 1: {line}"));
         let unread = format!("the turn under the declared OFF controls was not read: {failed}");
         assert_eq!(
             view,
@@ -360,8 +373,9 @@ fn an_off_turn_that_fails_naming_no_control_is_unread_not_a_missing_off_switch()
                     "verdict": "refused",
                     "reason": format!(
                         "the evidence for a seat in a realm that grants its capabilities is not \
-                         complete: user_mcp_off is unmeasured: {failed}; web-fetch's off switch \
-                         is unmeasured: {unread}; web-search's off switch is unmeasured: {unread}"
+                         complete: line 1 of the OFF turn's stderr {UNRECOGNISED}; user_mcp_off \
+                         is unmeasured: {failed}; web-fetch's off switch is unmeasured: \
+                         {unread}; web-search's off switch is unmeasured: {unread}"
                     ),
                 },
             })
@@ -389,9 +403,10 @@ fn an_off_refusal_is_read_by_the_config_key_it_names() {
             Fact::Unsupported {
                 evidence: format!("the CLI refused the declared OFF controls: exit 1: {named}"),
             },
-            Fact::unmeasured(format!(
-                "the turn under the declared OFF controls failed, naming no flag or key of the \
-                 declared OFF controls: exit 1: {other}"
+            Fact::unmeasured(failed_under(
+                OFF_TURN,
+                OFF_ARGV,
+                &format!("exit 1: {other}")
             )),
         )
     );
@@ -555,4 +570,152 @@ fn a_model_named_beside_another_class_s_refusal_or_echoed_is_not_a_configuration
             format!("exit 1: {refused}"),
         )
     );
+}
+
+/// The facts a Claude-like plan reads when the launch `at` picks exited 1
+/// printing `stdout` and `stderr`, and every other exited clean and
+/// silent.
+fn one_failed(at: fn(&mut Observed) -> &mut Trial, stdout: &str, stderr: &str) -> facts::Facts {
+    let plan = plan::plan(AdapterKind::Claude, &claude_declared()).unwrap();
+    let mut observed = observed(observation(Some(0), "", ""));
+    *at(&mut observed) = Trial::Observed(observation(Some(1), stdout, stderr));
+    measure::reading(&plan, &observed, &[]).facts
+}
+
+/// The chief's shapes on 5f1623d9 (#484): a control echoed beside a
+/// failure of another class, or named in a refusal's words beside an
+/// outage's mark, is not the CLI refusing it, on the turn under the
+/// declared OFF controls and on the boxed turn alike.
+#[test]
+fn a_control_echoed_or_named_beside_another_class_s_failure_is_not_the_cli_refusing_it() {
+    let echo = |argv: &str| format!(r#"{{"type":"system","subtype":"init","argv":[{argv}]}}"#);
+    let off_echo = echo(r#""--disallowedTools","WebFetch,WebSearch""#);
+    let outage = "API Error: 503 provider temporarily unavailable";
+    let off = |stdout: &str, stderr: &str| {
+        one_failed(|observed| &mut observed.native_off, stdout, stderr).user_mcp_off
+    };
+    let rows = [
+        (off_echo.as_str(), outage),
+        (off_echo.as_str(), "API Error: 401 invalid x-api-key"),
+        ("", "error: unknown option '--disallowedTools' (HTTP 503)"),
+    ];
+    assert_eq!(
+        rows.map(|(stdout, stderr)| off(stdout, stderr)),
+        rows.map(|(_, stderr)| Fact::unmeasured(failed_under(
+            OFF_TURN,
+            OFF_ARGV,
+            &format!("exit 1: {stderr}")
+        )))
+    );
+    let hands_echo = echo(r#""--tools","","--strict-mcp-config""#);
+    assert_eq!(
+        one_failed(|observed| &mut observed.boxed, &hands_echo, outage).boxed_tools,
+        Fact::unmeasured(failed_under(
+            "the boxed turn",
+            "the adapter's hands argv",
+            &format!("exit 1: {outage}")
+        ))
+    );
+}
+
+/// The chief's shapes on 5f1623d9 (#484): removing the credentials is the
+/// trigger, not proof of the class, so an auth refusal is measured only
+/// on a line that carries an auth refusal's mark and no other class's.
+#[test]
+fn an_auth_refusal_is_measured_only_on_a_line_carrying_its_mark_alone() {
+    let auth = |stderr: &str| {
+        one_failed(|observed| &mut observed.no_credentials, "", stderr)
+            .refusals
+            .auth
+    };
+    let others = [
+        "API Error: 503 provider temporarily unavailable",
+        "API Error: 429 rate limit exceeded, retry later",
+        "Invalid API key: the provider is overloaded",
+    ];
+    assert_eq!(
+        others.map(auth),
+        others.map(|line| Fact::unmeasured(format!(
+            "no line of the refusal carries an auth refusal's mark and no other class's, so it \
+             is not shown to be an auth failure: exit 1: {line}"
+        )))
+    );
+    let refused = "Invalid API key · Please run /login";
+    assert_eq!(
+        auth(refused),
+        Fact::measured(
+            facts::Refusal {
+                exit: Some(1),
+                excerpt: refused.to_string(),
+            },
+            format!("exit 1: {refused}"),
+        )
+    );
+}
+
+/// The chief's OFF turns on 5f1623d9 (#484, the fail-closed reading of
+/// operator ruling B): a boxable harness whose turn under the declared
+/// OFF controls, the launch a seat granted nothing uses, loads another
+/// MCP server, or is not read, holds boxed offices only, as one whose
+/// plain turn leaks does; a line of it no reader reads refuses even that.
+#[test]
+fn an_off_turn_not_shown_to_keep_other_servers_out_holds_a_boxable_cli_to_the_box() {
+    if !in_its_own_engine(
+        "probe::tests::native::an_off_turn_not_shown_to_keep_other_servers_out_holds_a_boxable_cli_to_the_box",
+    ) {
+        return;
+    }
+    let world = world();
+    let held = |why: String| {
+        json!({
+            "verdict": "boxed-only",
+            "reason": format!(
+                "its own tools switch off and the hands MCP server connects, but {why}, so it may \
+                 hold boxed offices only"
+            ),
+        })
+    };
+    let loaded = |account: &str| {
+        held(format!(
+            "its turn under the declared OFF controls, the launch a seat granted nothing uses, \
+             loaded an MCP server the probe did not give it (#467): {account}"
+        ))
+    };
+    let silent = failed_under(OFF_TURN, OFF_ARGV, "exit 1: (no output)");
+    let rows = [
+        (
+            "q2",
+            r#"tools='"Bash","mcp__github__search"'; servers='{"name":"github","status":"connected"}'"#,
+            loaded(
+                "mcp__github__search of the MCP server github was listed by the system/init event \
+                 on line 1 of stdout at /tools/1",
+            ),
+        ),
+        (
+            "q2b",
+            r#"tools='"Bash"'; servers='{"name":"brokkr-probe-user-scope","status":"connected"}'"#,
+            loaded(
+                "the MCP server brokkr-probe-user-scope was listed connected by the system/init \
+                 event on line 1 of stdout at /mcp_servers/0",
+            ),
+        ),
+        ("q2c", "exit 1", held(format!("{OFF_UNSHOWN}: {silent}"))),
+        (
+            "q2c with its outage on stderr",
+            r#"echo "API Error: 503 provider temporarily unavailable" >&2; exit 1"#,
+            json!({
+                "verdict": "refused",
+                "reason": format!(
+                    "the evidence for boxed offices only is not complete: line 1 of the OFF \
+                     turn's stderr {UNRECOGNISED}"
+                ),
+            }),
+        ),
+    ];
+    for (index, (shape, under_off, eligibility)) in rows.into_iter().enumerate() {
+        let script = claude_with("9.9.9", PLAIN_WEB, BOXED_CLEAN).replace(OFF_HONOURED, under_off);
+        let cli = world.fake(&format!("claude-off-{index}"), &script);
+        let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
+        assert_eq!((shape, &report["eligibility"]), (shape, &eligibility));
+    }
 }

@@ -56,8 +56,8 @@ pub(crate) enum Fault {
     NotOneObject,
     /// Its bytes are not UTF-8, so it was never decoded, nor repaired.
     NotUtf8,
-    /// It is text naming a listing, an MCP server or a tool that the
-    /// probe cannot read whole.
+    /// It holds text that no reader consumes and that is not one of the
+    /// forms the probe recognises whole.
     Unrecognised,
 }
 
@@ -67,30 +67,32 @@ impl fmt::Display for Fault {
             Fault::NotOneObject => "is not one JSON object naming each key once",
             Fault::NotUtf8 => "is not UTF-8",
             Fault::Unrecognised => {
-                "names a listing, an MCP server or a tool the probe cannot read whole"
+                "holds text no reader consumes in a form the probe does not recognise whole"
             }
         })
     }
 }
 
-/// How a stream's lines are read (#484). Stdout and a transcript are
-/// event streams, where a line that is not one JSON object is unread.
-/// Stderr is text, read line by line, since a CLI prints its ordinary
-/// warnings there:
+/// How a stream's lines are read (#484), closed-world: every line is an
+/// event whose every string a reader consumes or `text::said` recognises
+/// whole, or a line of text `text::said` recognises whole. Stdout and a
+/// transcript are event streams, where a line that is not one JSON object
+/// is unread. Stderr is text, read line by line, since a CLI prints its
+/// ordinary warnings there:
 ///
 /// - (i) a line that is not UTF-8 is unread, named by stream and line,
 ///   and refuses any admitting verdict;
 /// - (ii) a line that is one JSON object is read as an event, like a
-///   line of stdout;
-/// - (iii) any other line is text, its whitespace runs folded, read by
-///   `text::said`: one naming the planted server, a tool
+///   line of stdout, and each string it holds that no listing reader
+///   consumes and no tag key names is read by `text::said`, so wrapping
+///   text in JSON changes nothing;
+/// - (iii) any other line is text read by `text::said`, its words
+///   normalised: one naming the planted server, a tool
 ///   `mcp__<server>__…` or an `MCP server <name>` of a server other than
 ///   the hands server is a reach;
-/// - (iv) one that starts JSON it does not hold whole, or mentions MCP or
-///   a tool in any case, or names a tool the plain turn listed or the
-///   adapter declares, and shows no reach, is unread like a line of (i)
-///   unless it is one of the forms `text::said` reads to its end;
-/// - (v) any other line of text is read: it leaves no listing unmeasured.
+/// - (iv) any other line, or string, that is not blank, one of the forms
+///   `text::said` reads whole, the probe's prompt or its reply, is unread
+///   like a line of (i).
 #[derive(Clone, Copy, PartialEq)]
 enum Lines {
     Events,
@@ -265,15 +267,9 @@ pub(crate) fn version(observation: &Observation) -> Fact<String> {
 
 /// `captured` read as the stream `source`, its first line being line
 /// `first` of what it came from: a line that did not decode is unread,
-/// and never parsed, and one that is no event is unread or text, as
-/// `lines` says, text checked for the names in `tools`.
-fn parse_lines(
-    captured: &Captured,
-    source: &str,
-    first: usize,
-    lines: Lines,
-    tools: &[String],
-) -> Stream {
+/// and never parsed, one that is no event is unread or text, as `lines`
+/// says, and an event's strings and a line of text are read by `text`.
+fn parse_lines(captured: &Captured, source: &str, first: usize, lines: Lines) -> Stream {
     let mut events = Vec::new();
     let mut reaches = Vec::new();
     let mut unread: Vec<(usize, Fault)> = captured
@@ -285,17 +281,26 @@ fn parse_lines(
         if captured.not_utf8.contains(&(index + 1)) {
             continue;
         }
-        match (strict::object(line), lines) {
-            (Some(fields), _) => events.push(Event {
-                line: first + index,
-                fields,
-            }),
-            (None, Lines::Events) => unread.push((first + index, Fault::NotOneObject)),
-            (None, Lines::Text) => match text::said(line, tools) {
-                text::Said::Reach(reach) => reaches.push((first + index, reach)),
-                text::Said::Unread => unread.push((first + index, Fault::Unrecognised)),
-                text::Said::Nothing => {}
+        let at = first + index;
+        let (reach, unrecognised) = match (strict::object(line), lines) {
+            (Some(fields), _) => {
+                let heard = text::heard(&fields);
+                events.push(Event { line: at, fields });
+                heard
+            }
+            (None, Lines::Events) => {
+                unread.push((at, Fault::NotOneObject));
+                continue;
+            }
+            (None, Lines::Text) => match text::said(line) {
+                text::Said::Reach(reach) => (Some(reach), false),
+                text::Said::Unread => (None, true),
+                text::Said::Nothing => (None, false),
             },
+        };
+        reaches.extend(reach.map(|reach| (at, reach)));
+        if unrecognised {
+            unread.push((at, Fault::Unrecognised));
         }
     }
     unread.sort_unstable_by_key(|(line, _)| *line);
@@ -317,17 +322,16 @@ fn transcript_stream(transcript: &Transcript) -> Stream {
         Written::Appended { from_line } => (transcript.path.clone(), from_line),
         Written::Rewritten => (format!("{}, which the turn rewrote,", transcript.path), 1),
     };
-    parse_lines(&transcript.text, &source, first, Lines::Events, &[])
+    parse_lines(&transcript.text, &source, first, Lines::Events)
 }
 
 /// Every stream a launch captured, read whatever its exit (#484):
 /// stdout's and each transcript's, each named with this run's variable
-/// parts, then stderr's when it holds any byte, its text checked for
-/// `tools` and for every tool those streams list. With them, the one the
+/// parts, then stderr's when it holds any byte. With them, the one the
 /// turn's own events are read from: stdout, or, when stdout carried none,
 /// the first transcript that holds some. Stderr is never that one.
-fn captured(observation: &Observation, tools: &[String]) -> (Vec<Stream>, Option<usize>) {
-    let stdout = parse_lines(&observation.stdout, "stdout", 1, Lines::Events, &[]);
+fn captured(observation: &Observation) -> (Vec<Stream>, Option<usize>) {
+    let stdout = parse_lines(&observation.stdout, "stdout", 1, Lines::Events);
     let mut all: Vec<Stream> = std::iter::once(stdout)
         .chain(observation.transcripts.iter().map(transcript_stream))
         .collect();
@@ -336,9 +340,7 @@ fn captured(observation: &Observation, tools: &[String]) -> (Vec<Stream>, Option
     for stream in &mut all {
         stream.source = normalise(&stream.source, id.as_deref());
     }
-    let mut names = tools.to_vec();
-    names.extend(tools::listed_tools(&all));
-    let stderr = parse_lines(&observation.stderr, "stderr", 1, Lines::Text, &names);
+    let stderr = parse_lines(&observation.stderr, "stderr", 1, Lines::Text);
     if !stderr.empty {
         all.push(stderr);
     }
@@ -360,8 +362,8 @@ fn read_stream((all, primary): (Vec<Stream>, Option<usize>)) -> Turn {
 
 /// The plain turn: read when it exited clean, otherwise nothing it shows
 /// is a measurement, though every line it captured is still read.
-fn read_base(observation: &Observation, tools: &[String]) -> Turn {
-    let streams = captured(observation, tools);
+fn read_base(observation: &Observation) -> Turn {
+    let streams = captured(observation);
     if observation.exit == Some(0) {
         read_stream(streams)
     } else {
@@ -390,45 +392,28 @@ const OFF: Under = Under {
     argv: "the declared OFF controls",
 };
 
-/// The flags and `-c` keys of `controls`, by which a refusal names them.
-fn control_words(controls: &[String]) -> Vec<&str> {
-    let words = controls
-        .iter()
-        .filter_map(|part| match part.strip_prefix('-') {
-            Some(_) => Some(part.as_str()),
-            None => part.split_once('=').map(|(key, _)| key),
-        });
-    words.collect()
-}
-
-/// Whether what a launch printed names one of `controls`' flags or keys.
-fn names_a_control(observation: &Observation, controls: &[String]) -> bool {
-    let named = control_words(controls);
-    [&observation.stderr.text, &observation.stdout.text]
-        .into_iter()
-        .flat_map(|text| text.split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c))))
-        .any(|word| named.contains(&word))
-}
-
 /// The turn under `controls`, an argv the adapter declares: a non-zero
-/// exit whose text names one of their flags or keys is the CLI refusing
-/// them, which is itself the measurement; any other non-zero exit, like
-/// a launch that ended with no exit code, by a signal or the deadline,
+/// exit one of whose lines is itself the refusal of one of their flags
+/// or keys, by `refusals::refuses_a_control`, is the CLI refusing them,
+/// which is itself the measurement; any other non-zero exit, like a
+/// launch that ended with no exit code, by a signal or the deadline,
 /// refused nothing the probe can name (#484). However it ended, every
-/// line it captured is read, its stderr checked for `tools`.
-fn read_under(trial: &Trial, under: Under, controls: &[String], tools: &[String]) -> Turn {
+/// line it captured is read.
+fn read_under(trial: &Trial, under: Under, controls: &[String]) -> Turn {
     let observation = match trial {
         Trial::Untried(why) => return Turn::Unread(why.clone(), Vec::new()),
         Trial::Observed(observation) => observation,
     };
-    let streams = captured(observation, tools);
+    let streams = captured(observation);
     let ended = exit_and_excerpt(observation);
     let how = match observation.exit {
         Some(0) => return read_stream(streams),
         None => "did not finish".to_string(),
-        Some(_) if !names_a_control(observation, controls) => {
-            format!("failed, naming no flag or key of {}", under.argv)
-        }
+        Some(_) if !refusals::refuses_a_control(observation, controls) => format!(
+            "failed, and no line it printed refuses a flag or key of {} in a refusal's words \
+             and no other class's",
+            under.argv
+        ),
         Some(_) => {
             let refused = format!("the CLI refused {}: {ended}", under.argv);
             return Turn::Refused(refused, streams.0);
@@ -710,14 +695,11 @@ fn stream_facts(
 }
 
 /// Every fact, from every observation, and everything the three turns
-/// captured that no reader read. The stderr of each is checked for the
-/// tools the adapter declares and those the plain turn listed.
+/// captured that no reader read.
 pub(crate) fn reading(plan: &Plan, observed: &Observed, bound: &[&str]) -> Reading {
-    let mut named = tools::declared_tools(plan);
-    let base = read_base(&observed.turn, &named);
-    named.extend(tools::listed_tools(base.streams()));
-    let boxed = read_under(&observed.boxed, HANDS, &plan.hands, &named);
-    let off = read_under(&observed.native_off, OFF, &plan.off, &named);
+    let base = read_base(&observed.turn);
+    let boxed = read_under(&observed.boxed, HANDS, &plan.hands);
+    let off = read_under(&observed.native_off, OFF, &plan.off);
     let mut unread = unread_in(&base, TurnName::Plain);
     unread.extend(unread_in(&boxed, TurnName::Boxed));
     unread.extend(unread_in(&off, TurnName::Off));
@@ -768,7 +750,7 @@ fn facts(
         usage: on_turn(base, |streams| usage(streams.primary())),
         cost: on_turn(base, |streams| cost(streams.primary())),
         refusals: Refusals {
-            auth: refusals::refusal(&observed.no_credentials),
+            auth: refusals::auth_refusal(&observed.no_credentials),
             config: refusals::config_refusal(&observed.bad_model),
             rate_limit: Fact::unmeasured(
                 "not provoked: a rate limit spends quota and risks the account",

@@ -7,9 +7,24 @@
 use super::{Declared, Native, OffControl, ProbeError};
 use crate::adapters::{codex_effort_config, AdapterKind};
 
+/// The reply the one turn asks for, spelled once for [`REPLY`] and
+/// [`PROMPT`].
+macro_rules! reply {
+    () => {
+        "PROBE-OK"
+    };
+}
+
+/// The reply the one turn asks for, which a stream may carry back.
+pub(crate) const REPLY: &str = reply!();
+
 /// The one turn the probe asks for. It asks for no work, so a turn costs
 /// as little as the CLI allows.
-pub(crate) const PROMPT: &str = "Reply with exactly PROBE-OK and nothing else. Use no tool.";
+pub(crate) const PROMPT: &str = concat!(
+    "Reply with exactly ",
+    reply!(),
+    " and nothing else. Use no tool."
+);
 
 /// A model id no provider serves: the configuration refusal's trigger.
 pub(crate) const NO_SUCH_MODEL: &str = "brokkr-probe-no-such-model";
