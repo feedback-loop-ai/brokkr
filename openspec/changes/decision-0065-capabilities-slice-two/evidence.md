@@ -211,3 +211,57 @@ references outside this record, and the four-file design repair scope:
 design, this evidence record, SI2 and dependent tasks. All 15 paths changed
 by the commission remain Markdown; production, tests and frozen artifacts
 are untouched. The external and runtime obligations above remain pending.
+
+
+### Tasks repair validation
+
+The tasks seat adopted the repaired design and deltas, then made S1's proof
+ownership follow design.md section D9: U1f2 proves generated/shipped metadata
+parity, instructions and legacy compilation; U1g owns the active-admission
+success and exact unsupported/missing-evidence matrix at both real compile
+consumers, including the independently failing dsh roster's Claude reviewer.
+S2's CC1/CC3/SC4 boundary obligations are now cited on every U4 preparation
+task. Their coverage rows follow execution order, and repaired groups link
+directly to their bounded design inventories. No requirement, unit dependency,
+production inventory or task ID changed (0071 rulings 3, 5 and 9).
+
+Source checks used foreground `sed -n` reads of init.rs at 665–690,
+736–753, 850–870, 1755–1810 and 1810–1895, setup.rs at 28–64, init_doctor.rs at
+1–115 and init_stacks.rs at 1–170. They confirmed independent generated
+Claude/Codex/dsh declarations, the inherited-MCP instruction and both scaffold
+compile consumers. Reads of process.rs at 480–502, engine.rs at 2082–2115,
+engine/checkpoints.rs at 205–242 and store/lib.rs at 307–335 confirmed the
+forwarding/append-fence seams behind delayed emission. These were source
+observations, not executed Rust proofs.
+
+The foreground `python3 - <<'PY'` task/coverage/dependency/link audit reported:
+
+```text
+PASS: 26 requirements, 114 scenarios, 105 unchecked tasks; all requirement citations and coverage owners resolve.
+PASS: 45 dependency-ordered PRs; maximum three production files; 58 production paths exactly match Hot files.
+PASS: All design task closures, task dependencies and stable task IDs agree; the 101 original task IDs remain present.
+PASS: 596 local Markdown links/anchors resolve; no branch-commit references outside evidence.md.
+PASS: R1–R5 bytes preserved, 0077 proposed, archive is the pending final task.
+```
+
+The audit also checked the commission diff: all 15 changed paths are Markdown,
+with no production, test or frozen artifact edit. The task repair itself
+changes tasks.md and this evidence record only. Its first audit drafts needed
+parser corrections for the earlier handoff table and the numeric-secret
+example; the corrected audit exited 0 without changing those artifacts.
+
+`openspec validate --all --strict` exited 0 with `20 passed, 0 failed
+(20 items)`. Its notices remain informational: long requirements and the two
+unrelated archive-target notices already recorded above. `git diff --check`
+exited 0 without diagnostics. `git diff --cached --check` and
+`git diff --check` also exited 0 without diagnostics after staging both
+documents. `git diff --check 2a23488b..HEAD` exited 0. The plain unsigned
+commit is authorized; `git config --get commit.gpgsign` returned `false`.
+`command -v cargo` and `command -v typos` found neither tool.
+
+All 105 future implementation tasks, including the final fold, remain open.
+No runtime, harness measurement or mutation result is claimed; operator
+formatting, typos and squash signing remain pending. This record retains
+history; task 49.3 preserves it in the archive and folds only behavior into
+living specifications. No upstream artifact change was needed to write the
+repaired breakdown.

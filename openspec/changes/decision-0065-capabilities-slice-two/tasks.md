@@ -40,13 +40,16 @@ until results exist. No test or production edits are authorized in this
 document visit. The dialect's final fold is future task 49.3, inside U10a;
 this planning visit neither archives the change nor edits living specs.
 
-For each U4a–U4f group, both tasks additionally own D9's native legacy
-compile→driver/process→engine→store append→export/verify matrix. U4c preserves
-outward legacy shape; U4e/U4f also test normalized input from a deterministic
-driver fixture through real consumers. Only U4f2 enables shipped emission.
-Pin private-field absence and exact payloads/counts; independently remove the
-delay and each consumer. This verification serves CC1/CC3/SC4 and SD2/SD4,
-without adding a production file or relaxing the MCP fence.
+For each U4a–U4f group, both tasks own [D9's native boundary matrix](design.md#d9-unit-boundaries-consumers-and-merge-safety)
+under their explicit CC1/CC3/SC4 citations. Run the legacy
+compile→driver/process→engine→store append→export/verify path at each merge,
+covering ordinary, inline, fallback, panel, sequence and eligible
+resume/replacement sites. U4c preserves outward legacy shape; U4e/U4f also
+test normalized input from a deterministic driver fixture through real
+consumers. Only U4f2 enables shipped emission. Pin private-field absence and
+exact payloads/counts; independently remove the delay and each consumer at
+its owning stage. Keep the intermediate-head evidence when activation lands.
+No extra production file or relaxation of the MCP fence is implied.
 
 ## 1. U0 — Measure isolation and telemetry
 
@@ -99,17 +102,17 @@ Dependencies: U1e. Files and scope: [design.md](design.md#slice-two-units).
 
 ## 7a. U1f2 — Migrate generated declarations and instructions
 
-Dependencies: U1f. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U1f. Files and scope: [design.md](design.md#u1f2--migrate-generated-declarations-and-instructions).
 
 - [ ] 7.3 (U1f2; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Extract the generated adapter definitions into init/adapters.rs with immediate init.rs consumers and registration; keep init.rs at or below its 1,895-line baseline. Migrate Claude/Codex/dsh strict metadata and limitations from U0 and U1d/U1e. Bound copied facts by exact parity tests; keep native OFF, empty grants, dsh's Claude reviewer and unmeasured resume facts. Update generated agents/README.md prose in init.rs and printed instructions in verbs/setup.rs; no instruction promises ambient MCP inheritance. These are three production files, including the consumed extraction. Verify: Each generated provider's applicable strict metadata and limitations equal its shipped source without requiring equality of stack-specific tools; legacy compile still works before activation. Under U1g repeat fresh-scaffold success for each qualified roster/shape/stack, plus SI2's exact unsupported and missing-evidence diagnostics at init's unmapped and workspace starter compile paths. Pin instruction text once; independently removing generated metadata, drifting a copied assessment or restoring the ambient-inheritance instruction fails its intended assertion. Synthetic test assessments prove plumbing, not live U0 qualification.
-- [ ] 7.4 (U1f2; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Extend init_doctor.rs and init_stacks.rs with exact generated/shipped metadata parity for Claude/Codex/dsh and scaffold instruction assertions. Verify fresh-scaffold compile success for U0-qualified shapes, unsupported and missing-evidence diagnostics at both real compile consumers, empty grants/native OFF and dsh's independent Claude reviewer. For SI2's reviewer scenario, qualify the dsh work candidates and make the Claude reviewer the first failing site for each exact unsupported/missing cause; an intake failure does not prove this case. Repeat under active U1g, retain shared builders and independent compiling removals, and update inventoried guide transcripts. Apply the shared verification duty above.
+- [ ] 7.4 (U1f2; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Extend init_doctor.rs and init_stacks.rs with exact generated/shipped metadata parity for Claude/Codex/dsh and scaffold instruction assertions. At this pre-admission merge, verify legacy compilation through both init's self-check and compilation inside the generated workspace, with empty grants, native OFF, stack-specific tools and dsh's separately hired Claude reviewer preserved. Bind metadata removal, copied-assessment drift and restored ambient-inheritance prose independently; restore each mutation and record the intended failure and pass. Update the inventoried guide transcripts. Mandatory measured-support success and unsupported/missing-evidence refusal proofs belong to 8.1–8.2 after activation; legacy success here certifies no strictness. Apply the shared verification duty above.
 
 ## 8. U1g — Seal and enforce every launch
 
-Dependencies: U1f2. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U1f2. Files and scope: [design.md](design.md#u1g--seal-and-enforce-every-launch).
 
 - [ ] 8.1 (U1g; [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Bind U1f facts at dispatch and consume the final checked isolated configuration at all serving builders. Mandatory strict admission activates only after U1f2 migrates every generated declaration/instruction, including no-ask sites. Shrink engine composition by using existing extracted helpers. Verify: All SI2 shapes and final isolation removal fail exactly; every shipped and fresh-scaffold compile either passes measured support or reports its exact unsupported/unmeasured refusal, never a filename exemption. Repeat U1f2's init_doctor/init_stacks matrix with strict admission active.
-- [ ] 8.2 (U1g; [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 8.1. Apply the shared verification duty above.
+- [ ] 8.2 (U1g; [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) With mandatory admission active, run init_doctor.rs and init_stacks.rs for fresh Claude/Codex/dsh scaffolds through init's unmapped self-check and explicit workspace compilation in starter. For each qualified roster/shape/stack prove measured-support success; for each unsupported or missing assessment pin the entire SI2 diagnostic, including init's "scaffolded bundle failed to compile" wrapper. Isolate intake first, then separately qualify the dsh work candidates and make the Claude reviewer the first failing site for each cause; an earlier intake refusal proves no reviewer check. Retain exact parity/instruction controls and distinguish synthetic plumbing assessments from live U0 qualification. In all owning suites, record independent compiling removals and restored passes for these checks and task 8.1's final isolation checks. If U0 leaves self unseatable, follow D9's operator roster prerequisite without weakening admission or claiming the compile gate passed. Apply the shared verification duty above.
 
 ## 9. U2 — Remove both native-binding panics
 
@@ -141,49 +144,49 @@ Dependencies: U3b. Files and scope: [design.md](design.md#slice-two-units).
 
 ## 13. U4a — Make room for additive record validation
 
-Dependencies: U0. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U0. Files and scope: [design.md](design.md#u4a--make-room-for-additive-record-validation).
 
-- [ ] 13.1 (U4a; [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Extract existing validation functions into a consumed child module; preserve dispatch and export/verify behavior. Verify: D9's native legacy compile-to-journal matrix passes at this merge. Historical version and exact refusal tests stay green; the oversized parent shrinks.
-- [ ] 13.2 (U4a; [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 13.1. Apply the shared verification duty above.
+- [ ] 13.1 (U4a; [CC1](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Extract existing validation functions into a consumed child module; preserve dispatch and export/verify behavior. Verify: D9's native legacy compile-to-journal matrix passes at this merge. Historical version and exact refusal tests stay green; the oversized parent shrinks.
+- [ ] 13.2 (U4a; [CC1](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 13.1. Apply the shared verification duty above.
 
 ## 14. U4b — Publish and consume seat-record v6
 
-Dependencies: U4a. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U4a. Files and scope: [design.md](design.md#u4b--publish-and-consume-seat-record-v6).
 
-- [ ] 14.1 (U4b; [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Add the public/embedded v6 schemas and consume them in version dispatch. Admit one native observed or broker settled attribution group; public started is invalid. Preserve old-shaped rows and conditional broker turn absence. Verify: D9's native legacy compile-to-journal matrix passes at this merge. Exact old/new boundary cases, full group dependencies, digest-state restrictions, no invented turn and explicit started rejection; embedded bytes match their source.
-- [ ] 14.2 (U4b; [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 14.1. Apply the shared verification duty above.
+- [ ] 14.1 (U4b; [CC1](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Add the public/embedded v6 schemas and consume them in version dispatch. Admit one native observed or broker settled attribution group; public started is invalid. Preserve old-shaped rows and conditional broker turn absence. Verify: D9's native legacy compile-to-journal matrix passes at this merge. Exact old/new boundary cases, full group dependencies, digest-state restrictions, no invented turn and explicit started rejection; embedded bytes match their source.
+- [ ] 14.2 (U4b; [CC1](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 14.1. Apply the shared verification duty above.
 
 ## 15. U4c — Normalize calls while retaining legacy emission
 
-Dependencies: U4b. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U4b. Files and scope: [design.md](design.md#u4c--normalize-calls-while-retaining-legacy-emission).
 
-- [ ] 15.1 (U4c; [CC1](specs/capability-call-checkpoints/spec.md), [CC2](specs/capability-call-checkpoints/spec.md)) Extract telemetry normalization at the harness edge into the shared typed observation module. Consume it immediately in existing telemetry lowering, preserving the exact legacy checkpoint shape and behavior: no private observation, new key, partial call identity or attributed group is emitted. Parse measured identity before display clamping; new emission and outward deduplication activate only in U4f2 after every engine consumer. No unused public staging API. Verify: Claude/Codex/dsh measured fixtures prove normalization internally and exact legacy output externally. D9's native compile-to-journal matrix pins no new field, valid append/export/verify and ordinary checkpoints. A compiling mutation that emits a private observation early must fail the legacy boundary assertion; this is not waived by the MCP fence.
-- [ ] 15.2 (U4c; [CC1](specs/capability-call-checkpoints/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 15.1. Apply the shared verification duty above.
+- [ ] 15.1 (U4c; [CC1](specs/capability-call-checkpoints/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Extract telemetry normalization at the harness edge into the shared typed observation module. Consume it immediately in existing telemetry lowering, preserving the exact legacy checkpoint shape and behavior: no private observation, new key, partial call identity or attributed group is emitted. Parse measured identity before display clamping; new emission and outward deduplication activate only in U4f2 after every engine consumer. No unused public staging API. Verify: Claude/Codex/dsh measured fixtures prove normalization internally and exact legacy output externally. D9's native compile-to-journal matrix pins no new field, valid append/export/verify and ordinary checkpoints. A compiling mutation that emits a private observation early must fail the legacy boundary assertion; this is not waived by the MCP fence.
+- [ ] 15.2 (U4c; [CC1](specs/capability-call-checkpoints/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 15.1. Apply the shared verification duty above.
 
 ## 16. U4d — Bind attribution to compiled holdings
 
-Dependencies: U4c. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U4c. Files and scope: [design.md](design.md#u4d--bind-attribution-to-compiled-holdings).
 
-- [ ] 16.1 (U4d; [CC1](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Build a typed reverse attribution index from each selected native holding and adapter inventory; compile-refuse ambiguous or unrepresentable names. Extract existing projection logic to keep parents below baseline. Verify: D9's native legacy compile-to-journal matrix passes at this merge. Exact selected dialect/tool, long-name and ambiguous-map cases, no substring matching or inventory-only grant.
-- [ ] 16.2 (U4d; [CC1](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 16.1. Apply the shared verification duty above.
+- [ ] 16.1 (U4d; [CC1](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Build a typed reverse attribution index from each selected native holding and adapter inventory; compile-refuse ambiguous or unrepresentable names. Extract existing projection logic to keep parents below baseline. Verify: D9's native legacy compile-to-journal matrix passes at this merge. Exact selected dialect/tool, long-name and ambiguous-map cases, no substring matching or inventory-only grant.
+- [ ] 16.2 (U4d; [CC1](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 16.1. Apply the shared verification duty above.
 
 ## 17. U4e — Stamp single and panel calls
 
-Dependencies: U4d. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U4d. Files and scope: [design.md](design.md#u4e--stamp-single-and-panel-calls).
 
-- [ ] 17.1 (U4e; [CC1](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md)) Install the shared typed observation consumer beside current boundary/site stamps. Consume/remove private transport fields before Checkpoints::offer, erase driver authority, derive the full SC4 group and assign attempt-owned native IDs; local calls stay ordinary and known-unheld observations refuse. Preserve legacy input unchanged while shipped drivers still emit it; no producer activation in this PR. Verify: D9's legacy matrix plus deterministic driver observations through the real process/engine/store boundary for ordinary, inline, fallback and panel calls. Exact full payloads/counts, no private or spoofed fields, and append/export/verify success are required. Bypassing observation consumption independently fails the schema boundary proof.
-- [ ] 17.2 (U4e; [CC1](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 17.1. Apply the shared verification duty above.
+- [ ] 17.1 (U4e; [CC1](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Install the shared typed observation consumer beside current boundary/site stamps. Consume/remove private transport fields before Checkpoints::offer, erase driver authority, derive the full SC4 group and assign attempt-owned native IDs; local calls stay ordinary and known-unheld observations refuse. Preserve legacy input unchanged while shipped drivers still emit it; no producer activation in this PR. Verify: D9's legacy matrix plus deterministic driver observations through the real process/engine/store boundary for ordinary, inline, fallback and panel calls. Exact full payloads/counts, no private or spoofed fields, and append/export/verify success are required. Bypassing observation consumption independently fails the schema boundary proof.
+- [ ] 17.2 (U4e; [CC1](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 17.1. Apply the shared verification duty above.
 
 ## 18. U4f — Bind sequence and resumed observations
 
-Dependencies: U4e. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U4e. Files and scope: [design.md](design.md#u4f--bind-sequence-and-resumed-observations).
 
-- [ ] 18.1 (U4f; [CC1](specs/capability-call-checkpoints/spec.md), [CC2](specs/capability-call-checkpoints/spec.md)) Install that same observation consumer for sequence, eligible resume and replacement, using U0-measured new-call identity and ignoring replayed history. Consume private fields before append and preserve selected fallback ownership. Shipped drivers still emit valid legacy records until U4f2; both paths remain tested. Verify: D9's legacy boundary matrix and injected-observation compile-to-journal tests for sequence/resume/replacement assert exact payloads and append/export/verify. Fresh calls stay distinct, history creates no new use, start/completion count once; missing identity takes CC2's exact cause. Independent consumer/history/deduplication removals each fail their assertion.
-- [ ] 18.2 (U4f; [CC1](specs/capability-call-checkpoints/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 18.1. Apply the shared verification duty above.
+- [ ] 18.1 (U4f; [CC1](specs/capability-call-checkpoints/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Install that same observation consumer for sequence, eligible resume and replacement, using U0-measured new-call identity and ignoring replayed history. Consume private fields before append and preserve selected fallback ownership. Shipped drivers still emit valid legacy records until U4f2; both paths remain tested. Verify: D9's legacy boundary matrix and injected-observation compile-to-journal tests for sequence/resume/replacement assert exact payloads and append/export/verify. Fresh calls stay distinct, history creates no new use, start/completion count once; missing identity takes CC2's exact cause. Independent consumer/history/deduplication removals each fail their assertion.
+- [ ] 18.2 (U4f; [CC1](specs/capability-call-checkpoints/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 18.1. Apply the shared verification duty above.
 
 ## 18a. U4f2 — Activate native observation emission after all consumers
 
-Dependencies: U4f (and its U4b/U4e prerequisites). Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U4f (and its U4b/U4e prerequisites). Files and scope: [design.md](design.md#u4f2--activate-native-observation-emission-after-all-consumers).
 
 - [ ] 18.3 (U4f2; [CC1](specs/capability-call-checkpoints/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Switch the existing adapter serializer from legacy lowering to normalized observation output only after U4b, U4e and U4f are installed. This edits just adapters.rs and adapters/capability_calls.rs. The engine alone derives complete public attribution; no private field or partial group reaches the store. Unrelated legacy checkpoints stay valid. Missing required identity after activation takes CC2's refusal, never an unattributed downgrade or guessed ID. Verify: Real native compile→actual adapter→process→engine→fenced journal append, export and verify for ordinary, inline, fallback, panel, sequence and eligible resume/replacement. Assert exact full groups/selected owners and call counts, no observation or forged fields, duplicate start/completion once, distinct new calls, no restamped history, exact unheld/missing causes and local-tool legacy controls. Preserve earlier-merge legacy proofs. Independently bypass the engine consumer and remove selected attribution, deduplication and history filtering; each compiling mutation must fail its own boundary assertion. No MCP grant or broker is needed; U9 remains fenced.
 - [ ] 18.4 (U4f2; [CC1](specs/capability-call-checkpoints/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Run the D9 native boundary matrix through actual adapters after activation, retaining prior-merge legacy evidence. Verify exact append/export/verify payloads and counts for all sites, separate private-field consumption, selected attribution, deduplication and history-removal failures, restore and record each pass. No MCP integration result substitutes for these native proofs. Apply the shared verification duty above.
@@ -420,9 +423,9 @@ never erases the individual unit ownership above.
 
 | Requirement | Task groups / PR rows |
 | --- | --- |
-| [CC1](specs/capability-call-checkpoints/spec.md) | 15 (U4c), 16 (U4d), 17 (U4e), 18 (U4f), 18a (U4f2) |
-| [CC2](specs/capability-call-checkpoints/spec.md) | 15 (U4c), 18 (U4f), 19 (U4g), 29 (U6d), 30 (U6e), 37 (U7d), 39 (U8b), 41 (U8d), 43 (U8f), 18a (U4f2) |
-| [CC3](specs/capability-call-checkpoints/spec.md) | 13 (U4a), 14 (U4b), 17 (U4e), 19 (U4g), 15 (U4c), 16 (U4d), 18 (U4f), 18a (U4f2) |
+| [CC1](specs/capability-call-checkpoints/spec.md) | 13 (U4a), 14 (U4b), 15 (U4c), 16 (U4d), 17 (U4e), 18 (U4f), 18a (U4f2) |
+| [CC2](specs/capability-call-checkpoints/spec.md) | 15 (U4c), 18 (U4f), 18a (U4f2), 19 (U4g), 29 (U6d), 30 (U6e), 37 (U7d), 39 (U8b), 41 (U8d), 43 (U8f) |
+| [CC3](specs/capability-call-checkpoints/spec.md) | 13 (U4a), 14 (U4b), 15 (U4c), 16 (U4d), 17 (U4e), 18 (U4f), 18a (U4f2), 19 (U4g) |
 | [CR1](specs/capability-response-retention/spec.md) | 23 (U5c), 24 (U5a), 25 (U5f), 39 (U8b) |
 | [CR2](specs/capability-response-retention/spec.md) | 31 (U6f), 38 (U8a), 38a (U8a2), 39 (U8b), 40 (U8c), 46 (U9b) |
 | [CR3](specs/capability-response-retention/spec.md) | 29 (U6d), 30 (U6e), 35 (U7c), 39 (U8b), 41 (U8d), 42 (U8e) |
@@ -438,14 +441,14 @@ never erases the individual unit ownership above.
 | [SC1](specs/slice-two-contracts/spec.md) | 20 (U5a), 21 (U5a), 47 (U9b) |
 | [SC2](specs/slice-two-contracts/spec.md) | 22 (U5c), 23 (U5c), 24 (U5a), 47 (U9b) |
 | [SC3](specs/slice-two-contracts/spec.md) | 25 (U5f), 47 (U9b) |
-| [SC4](specs/slice-two-contracts/spec.md) | 13 (U4a), 14 (U4b), 16 (U4d), 30 (U6e), 47 (U9b), 15 (U4c), 17 (U4e), 18 (U4f), 18a (U4f2) |
+| [SC4](specs/slice-two-contracts/spec.md) | 13 (U4a), 14 (U4b), 15 (U4c), 16 (U4d), 17 (U4e), 18 (U4f), 18a (U4f2), 30 (U6e), 47 (U9b) |
 | [SC5](specs/slice-two-contracts/spec.md) | 9 (U2), 45 (U9a) |
 | [SD1](specs/slice-two-delivery/spec.md) | 1 (U0), 49 (U10a) |
-| [SD2](specs/slice-two-delivery/spec.md) | 2 (U1a), 8 (U1g), 9 (U2), 20 (U5a), 48 (U10a), 7a (U1f2), 18a (U4f2) |
+| [SD2](specs/slice-two-delivery/spec.md) | 2 (U1a), 7a (U1f2), 8 (U1g), 9 (U2), 18a (U4f2), 20 (U5a), 48 (U10a) |
 | [SD3](specs/slice-two-delivery/spec.md) | 27 (U6b), 31 (U6f), 35 (U7c), 37 (U7d), 45 (U9a), 46 (U9b), 47 (U9b) |
 | [SD4](specs/slice-two-delivery/spec.md) | 32 (U6f), 48 (U10a), 49 (U10a) |
 | [SI1](specs/strict-mcp-isolation/spec.md) | 1 (U0), 3 (U1b), 5 (U1d), 6 (U1e), 7a (U1f2) |
-| [SI2](specs/strict-mcp-isolation/spec.md) | 2 (U1a), 3 (U1b), 4 (U1c), 5 (U1d), 6 (U1e), 7 (U1f), 8 (U1g), 33 (U7a), 34 (U7b), 36 (U7d), 7a (U1f2) |
+| [SI2](specs/strict-mcp-isolation/spec.md) | 2 (U1a), 3 (U1b), 4 (U1c), 5 (U1d), 6 (U1e), 7 (U1f), 7a (U1f2), 8 (U1g), 33 (U7a), 34 (U7b), 36 (U7d) |
 
 SD1 additionally owns artifact order, durable provenance and
 49.3's final dialect fold; SD4 keeps its validation and final-head evidence
