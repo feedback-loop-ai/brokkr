@@ -1,14 +1,16 @@
 # Decision 0065 slice two — implementation tasks
 
 Status: proposed; all implementation and measurement tasks remain open.
-The existing documents and council repairs are adopted by the 2026-10-03
-specify return; design D11 records its disposition. That does not complete U0,
+The 7f36e922 specification repairs remain adopted. The current council
+proposes R-G/R-H owner repairs and returns upstream; design D11 records why. That does not complete U0,
 qualify a harness, accept decision 0077 or close any checkbox below.
 
 Follow design.md's final **Slice two units** section: one PR per row, from
 main, signed and through the merge queue after the operator rules. Each group
-below belongs to exactly one row (20/21 share U5a; 22/23 share U5c), with its exact production/test/evidence
-inventory and three-production-file ceiling. Additional files require a
+below belongs to exactly one row (20/21/24 share U5a; 22/23 share U5c; 31/32 share U6f;
+46/47 share U9b; 48/49 share U10a), with its exact production/test/evidence
+inventory and three-production-file ceiling. Task numbers remain stable for traceability; U5c groups precede U5a in the
+merge order. Additional files require a
 documented split before editing. U1–U4 are independent of each other; U1/U4
 need U0 measurements, U2/U3 do not. U9b alone enables compilation of MCP grants.
 
@@ -22,7 +24,7 @@ SD4's applicable gates; the verification task in each group names this duty.
 Implementation gates: cargo test --workspace; cargo run --locked -p
 brokkr-cli -- compile --bundle bundles/self; cargo fmt --all -- --check;
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings;
-unchanged exact coverage on a capable external host. Final U10b adds locked
+unchanged exact coverage on a capable external host. Final U10a adds locked
 all-feature workspace tests, bundles/verify, strict OpenSpec, diff check,
 supported-host/remote evidence and pinned-toolchain agreement. Measure changed
 witness/compose identities in their owning rows. External gates stay pending
@@ -162,20 +164,6 @@ Dependencies: U4f. Files and scope: [design.md](design.md#slice-two-units).
 - [ ] 19.1 (U4g; [CC2](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [CR5](specs/capability-response-retention/spec.md)) Consume a pure call projection in existing view construction, representing native observations and the new settled broker states without stage grouping or grant lookup. Verify: Exact observed/succeeded/failed/refused/interrupted values and honest historical absence; no view I/O, clock or authority decision.
 - [ ] 19.2 (U4g; [CC2](specs/capability-call-checkpoints/spec.md), [CC3](specs/capability-call-checkpoints/spec.md), [CR5](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 19.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
-## 20. U5a — Extract dialect loading
-
-Dependencies: U2. Files and scope: [design.md](design.md#slice-two-units).
-
-- [ ] 20.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Move the current dialect edge loader and contained read use to a consumed module without changing v1 acceptance or the MCP fence. Verify: Existing schema/duplicate/containment and refusal tests prove extraction parity.
-- [ ] 20.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 20.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
-
-## 21. U5a — Retain typed MCP connection and policy
-
-Dependencies: U2; same PR as group 20, not a second merge. Files and scope: [design.md](design.md#slice-two-units).
-
-- [ ] 21.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md)) Carry typed v1 connection, version, names, retained, egress and sends. Use exhaustive kind and retention variants; reject runtime use of references/URL only through the specified compatibility causes after enablement. Verify: Exact field retention/digests, no process/store read, old native data and pre-U9 refusal intact.
-- [ ] 21.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 21.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
-
 ## 22. U5c — Extract version-aware realm grants
 
 Dependencies: none; independent objective. Files and scope: [design.md](design.md#slice-two-units).
@@ -190,16 +178,30 @@ Dependencies: none; same PR as group 22, not a second merge. Files and scope: [d
 - [ ] 23.1 (U5c; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md)) N denotes the next realms version after v7, allocated against main at this PR; preserve #487's v7 fields. Decode retain false as Veto only in that new version; prior spellings stay restrictions. Verify: New/old round trips, bad veto values and provisional-office compatibility; frozen pins do not move.
 - [ ] 23.2 (U5c; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 23.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
-## 24. U5e — Bind reservation and effective retention
+## 20. U5a — Extract dialect loading
 
-Dependencies: U5a, U5c. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U2, U5c. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 24.1 (U5e; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md)) Make dialect restriction-reservation checks use the grant's version, carry inherit/veto into the typed holding and preserve D11. Bound identifiers and egress minimum without granting secret clearance. Verify: Four retention outcomes, legacy retain as restriction, reserved collisions through refs/composition and unchanged inactive grants.
-- [ ] 24.2 (U5e; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 24.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
+- [ ] 20.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Move the current dialect edge loader and contained read use to a consumed module without changing v1 acceptance or the MCP fence. Verify: Existing schema/duplicate/containment and refusal tests prove extraction parity.
+- [ ] 20.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 20.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
+
+## 21. U5a — Retain typed MCP connection and policy
+
+Dependencies: U2, U5c; same PR as groups 20 and 24, not a second merge. Files and scope: [design.md](design.md#slice-two-units).
+
+- [ ] 21.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md)) Carry typed v1 connection, version, names, retained, egress and sends. Use exhaustive kind and retention variants; reject runtime use of references/URL only through the specified compatibility causes after enablement. Verify: Exact field retention/digests, no process/store read, old native data and pre-U9 refusal intact.
+- [ ] 21.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 21.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
+
+## 24. U5a — Bind reservation and effective retention
+
+Dependencies: U2, U5c; same PR as groups 20 and 21, not a second merge. Files and scope: [design.md](design.md#slice-two-units).
+
+- [ ] 24.1 (U5a; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md)) Make dialect restriction-reservation checks use the grant's version, carry inherit/veto into the typed holding and preserve D11. Bound identifiers and egress minimum without granting secret clearance. Verify: Four retention outcomes, legacy retain as restriction, reserved collisions through refs/composition and unchanged inactive grants.
+- [ ] 24.2 (U5a; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 24.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
 ## 25. U5f — Publish manifest v12 with its live native consumer
 
-Dependencies: U5e. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U5a. Files and scope: [design.md](design.md#slice-two-units).
 
 - [ ] 25.1 (U5f; [SC3](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md)) Extract manifest projections and emit v12 native implementation/retention plus the typed MCP shape while MCP still refuses compilation. Keep every consulted and inactive grant identity fact. Verify: Real native compiles validate v12; internal MCP projection is typed; independent identity changes and old manifest reads are exact.
 - [ ] 25.2 (U5f; [SC3](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 25.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
@@ -208,7 +210,7 @@ Dependencies: U5e. Files and scope: [design.md](design.md#slice-two-units).
 
 Dependencies: none; independent objective. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 26.1 (U6a; [MB4](specs/mcp-capability-broker/spec.md)) Move bind_environment to the named shared module and keep the single expose_for_spawn production call there; existing harness spawns consume it immediately. New errors are typed. Verify: Existing secret machine proof is updated to the one new location, not weakened; no second accessor or environment fallback.
+- [ ] 26.1 (U6a; [MB4](specs/mcp-capability-broker/spec.md)) Move bind_environment into existing protocol/secret.rs with a narrow typed error; existing harness spawns consume it immediately and location comments follow it. Keep exactly one expose_for_spawn production invocation, counting secret.rs too. No new module or lib registration. Verify: The machine proof counts actual accessor calls across all production modules including secret.rs, distinguishes the method definition, and asserts the one injector location. Adding a second call inside secret.rs and separately outside it must fail; existing leak scans and safe diagnostic text remain bound. No environment fallback.
 - [ ] 26.2 (U6a; [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 26.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
 ## 27. U6b — Introduce the broker command as a closed handler
@@ -229,33 +231,33 @@ Dependencies: U6b, U1a. Files and scope: [design.md](design.md#slice-two-units).
 
 Dependencies: U6c. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 29.1 (U6d; [CR3](specs/capability-response-retention/spec.md), [CC2](specs/capability-call-checkpoints/spec.md)) Define and consume the shared closed ledger variants and durable writer, with exclusive single plan lifetime, contiguous record/call sequences and reserved terminal/closure capacity. Local refusals also have private Started/Terminal. Verify: Missing/duplicate Opened, Terminal-before-Started, post-Closed records, missing closure, restart of the same plan and each write/sync failure take exact variants; no journal writer. At 4,096 calls the next frame stays unread; durable local refusals each have one Started/Terminal pair, and failed Started persistence admits neither forwarding nor successful completion.
+- [ ] 29.1 (U6d; [CR3](specs/capability-response-retention/spec.md), [CC2](specs/capability-call-checkpoints/spec.md)) Define and consume the shared closed ledger variants and durable writer, with exclusive single plan lifetime, contiguous record/call sequences and reserved terminal/closure capacity. Closed carries Clean or Failed with a latched typed safe cause, synced before normal exit; EOF cannot clear it. Local refusals also have private Started/Terminal. Verify: Missing/duplicate Opened, Terminal-before-Started, post-Closed records, missing closure, restart of the same plan and each write/sync failure take exact variants; no journal writer. At 4,096 calls the next frame stays unread and closure carries the ledger-limit failure. Wrong-version zero-call and fatal-protocol after-call sessions retain their first cause; healthy zero-call and recoverable call errors may close Clean. Closure write/sync failure preserves verified-prefix recovery, never invented success. Durable local refusals each have one Started/Terminal pair; failed Started persistence admits neither forwarding nor successful completion.
 - [ ] 29.2 (U6d; [CR3](specs/capability-response-retention/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 29.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
 ## 30. U6e — Serve the filtered protocol
 
 Dependencies: U6d. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 30.1 (U6e; [MB3](specs/mcp-capability-broker/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [CR3](specs/capability-response-retention/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Implement the bounded filtered protocol with private Started/Terminal records. Correlate typed response IDs to method/session state, fix absolute deadlines and bound non-response traffic. Public serving remains closed until U6f; no unsafe intermediate proxy. Verify: Allow/deny/catalog/version/method controls; wrong-type/late/duplicate/phase IDs, endless progress, cancellation, concurrent calls and persistence failures never forward an unrecorded or uncertain retry. Invalid request shapes/vocabulary and 257-byte names refuse before acceptance; a valid 256-byte ungranted name records one exact denial without truncation.
+- [ ] 30.1 (U6e; [MB3](specs/mcp-capability-broker/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [CR3](specs/capability-response-retention/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Implement the bounded filtered protocol with private Started/Terminal records. Correlate typed response IDs to method/session state, fix absolute deadlines and bound non-response traffic. Fatal protocol/init/version/limit/timeout outcomes latch CR3 session failure; ordinary tool errors and local denials remain call outcomes. Public serving remains closed until U6f; no unsafe intermediate proxy. Verify: Allow/deny/catalog/version/method controls; wrong-type/late/duplicate/phase IDs, endless progress, cancellation, concurrent calls and persistence failures never forward an unrecorded or uncertain retry. Invalid request shapes/vocabulary and 257-byte names refuse before acceptance; a valid 256-byte ungranted name records one exact denial without truncation.
 - [ ] 30.2 (U6e; [MB3](specs/mcp-capability-broker/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [CR3](specs/capability-response-retention/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 30.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
 ## 31. U6f — Mask and canonicalize all output
 
 Dependencies: U6e. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 31.1 (U6f; [SD3](specs/slice-two-delivery/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md)) Complete the serving protections in session.rs using existing secret masking and canonical byte/hash functions at the edge. Share one masked buffer, reject duplicate keys and numeric value changes, and drain stderr with raw-byte overlap before lossy decoding. Only then can the bound public session serve; retained plans still refuse until U8b. Verify: Literal/encoded/split/multibyte leak scans, precise-number rejection and exact representable controls; direct command cannot bypass plan/ledger/startup/masking protections, and a retained plan never silently degrades.
+- [ ] 31.1 (U6f; [SD3](specs/slice-two-delivery/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md)) Complete the serving protections in session.rs using existing secret masking and canonical byte/hash functions at the edge. Share one masked buffer, reject duplicate keys and numeric value changes, and independently refuse unsafe scalar/structural secret occurrences before staging or delivery with MB4's exact cause. Keep legacy masker semantics and shared encodings. Drain stderr with raw-byte overlap before lossy decoding. Only then can the bound public session serve; retained plans still refuse until U8b. Verify: Literal/encoded/split/multibyte leak scans, digits-only scalar refusal versus text-redaction/unrelated-number controls, masking-created key collisions, and unsafe-correlation failure without raw frames. Assert failed forwarded call with no digest and no unsafe body for retention on/off/veto; the refusal itself passes leak scans. Remove the scalar check independently of numeric-precision validation; direct command cannot bypass plan/ledger/startup/masking protections, and a retained plan never silently degrades.
 - [ ] 31.2 (U6f; [SD3](specs/slice-two-delivery/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 31.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
-## 32. U6g — Prove attempt cleanup
+## 32. U6f — Prove attempt cleanup
 
-Dependencies: U6f. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U6e; same PR as group 31, not a second merge. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 32.1 (U6g; [MB5](specs/mcp-capability-broker/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Exercise existing #403 process ownership with fake servers that block, fail init and die mid-call. Make no production tree rewrite. Verify: Linux real-process positive and cancellation/timeout tests; report existing subreaper/cgroup residuals without claiming them fixed.
-- [ ] 32.2 (U6g; [MB5](specs/mcp-capability-broker/spec.md), [SD4](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 32.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
+- [ ] 32.1 (U6f; [MB5](specs/mcp-capability-broker/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Exercise existing #403 process ownership with fake servers that block, fail init and die mid-call. Make no production tree rewrite. Verify: Linux real-process positive and cancellation/timeout tests; report existing subreaper/cgroup residuals without claiming them fixed.
+- [ ] 32.2 (U6f; [MB5](specs/mcp-capability-broker/spec.md), [SD4](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 32.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
 ## 33. U7a — Represent the complete server set
 
-Dependencies: U1g, U5f, U6g. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U1g, U5f, U6f. Files and scope: [design.md](design.md#slice-two-units).
 
 - [ ] 33.1 (U7a; [MB1](specs/mcp-capability-broker/spec.md), [SI2](specs/strict-mcp-isolation/spec.md)) Move hands config helpers into the common typed MCP builder and replace singleton transport intent with exact named server intent. Parse final config independently; preserve authored provenance and native OFF. Verify: Zero/hands/three-server exact positives and independent missing/extra/changed/counterfeit negatives.
 - [ ] 33.2 (U7a; [MB1](specs/mcp-capability-broker/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 33.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
@@ -306,7 +308,7 @@ Dependencies: U8a. Files and scope: [design.md](design.md#slice-two-units).
 
 Dependencies: U8a2. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 39.1 (U8b; [CR1](specs/capability-response-retention/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR3](specs/capability-response-retention/spec.md), [CC2](specs/capability-call-checkpoints/spec.md)) Stage only opted-in masked bytes under the sealed disjoint attempt share; reserve 8 MiB before forwarding, charge actual durable bytes and retain completed charges through settlement. Fsync staged content before Terminal/delivery; veto never writes a body. Verify: Four retention outcomes, multi-broker/fallback exhaustion and exact-bound controls, no same-digest quota reset, stage/sync/terminal/delivery failures, and no silent metadata downgrade.
+- [ ] 39.1 (U8b; [CR1](specs/capability-response-retention/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR3](specs/capability-response-retention/spec.md), [CC2](specs/capability-call-checkpoints/spec.md)) Stage only opted-in masked bytes under the sealed disjoint attempt share; reserve 8 MiB before forwarding, charge actual durable bytes and retain completed charges through settlement. Fsync staged content before Terminal/delivery; veto never writes a body. MB4's unsafe-output refusal occurs before staging, regardless of retention disposition. Verify: Four retention outcomes, multi-broker/fallback exhaustion and exact-bound controls, no same-digest quota reset, stage/sync/terminal/delivery failures, and no silent metadata downgrade; an unsafe scalar response yields the exact failed call without staged/published bytes or digest.
 - [ ] 39.2 (U8b; [CR1](specs/capability-response-retention/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR3](specs/capability-response-retention/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 39.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
 ## 40. U8c — Publish verified content-addressed artifacts
@@ -320,14 +322,14 @@ Dependencies: U8b. Files and scope: [design.md](design.md#slice-two-units).
 
 Dependencies: U8c, U4g. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 41.1 (U8d; [CC2](specs/capability-call-checkpoints/spec.md), [CR3](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md)) After process settlement, validate the private lifecycle and project one checkpoint per accepted call through commit-confirmed fenced append. Stream from disk with bounded memory; the committed journal and full call payload determine deduplication. Bypass the lossy held-event queue. Verify: Journal lock across repeated attempts, exhaustion, commit-before-ack crash, duplicate/conflict/gap/partial/missing/unexpected/lifecycle faults, and interrupted calls each have exact counts/outcomes and no replay. A capacity-ending ledger yields exactly 4,096 checkpoints and no invented 4,097th; tool/active-call/budget refusals each yield one refused checkpoint.
+- [ ] 41.1 (U8d; [CC2](specs/capability-call-checkpoints/spec.md), [CR3](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md)) After process settlement, validate the private lifecycle and project one checkpoint per accepted call through commit-confirmed fenced append. Stream from disk with bounded memory; the committed journal and full call payload determine deduplication. Bypass the lossy held-event queue. Validate Closed disposition independently of call completeness; a latched Failed cause overrides harness success without a synthetic call. Verify: Journal lock across repeated attempts, exhaustion, commit-before-ack crash, duplicate/conflict/gap/partial/missing/unexpected/lifecycle faults, and interrupted calls each have exact counts/outcomes and no replay. A capacity-ending ledger yields exactly 4,096 checkpoints and no invented 4,097th; tool/active-call/budget refusals each yield one refused checkpoint. Wrong-version, post-call fatal protocol and capacity-ending sessions preserve their exact failed-attempt causes despite complete ledgers; healthy zero-call and recoverable-error controls can succeed.
 - [ ] 41.2 (U8d; [CC2](specs/capability-call-checkpoints/spec.md), [CR3](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 41.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
 ## 42. U8e — Settle and recover every attempt's evidence
 
 Dependencies: U8d. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 42.1 (U8e; [CR3](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [MB5](specs/mcp-capability-broker/spec.md)) Fold only after owned processes settle and before every ordinary/panel/step terminal result, including failed, cancelled, timed-out and engine-restart paths. Reuse existing append patiences and failed/indeterminate transitions; preserve disk evidence on failure. Verify: Live half-record causes no premature corruption finding; settled half-record fails exactly, every terminal route meets the barrier, and restart appends each call once without replaying external work.
+- [ ] 42.1 (U8e; [CR3](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [MB5](specs/mcp-capability-broker/spec.md)) Fold only after owned processes settle and before every ordinary/panel/step terminal result, including failed, cancelled, timed-out and engine-restart paths. Reuse existing append patiences and failed/indeterminate transitions; preserve disk evidence on failure. Verify: Live half-record causes no premature corruption finding; settled half-record fails exactly, every terminal route meets the barrier, and restart appends each call once without replaying external work. A deterministic harness deliberately reports success after fatal broker failure; assert CR4's exact 0/1/4,096 call counts and causes, and catch an independent compiling removal of the engine disposition check. Preserve native lost/stranded failure handling too.
 - [ ] 42.2 (U8e; [CR3](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [MB5](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 42.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
 ## 43. U8f — Expose retained evidence in the pure view
@@ -341,7 +343,7 @@ Dependencies: U8e. Files and scope: [design.md](design.md#slice-two-units).
 
 Dependencies: U8f. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 44.1 (U8g; [CR5](specs/capability-response-retention/spec.md)) Add inspect --capability-call <call_id>; read the selected run's derived call, use shared runtime artifact reader and emit verified bytes/provenance. Register the handler as a submodule of readouts.rs so no fourth file is needed. Verify: Complete exact bytes and missing/no-digest/corrupt/path/foreign-run refusal tests; no refetch and no view I/O.
+- [ ] 44.1 (U8g; [CR5](specs/capability-response-retention/spec.md)) Add inspect --capability-call <call_id>; read the selected run's derived call, use shared runtime artifact reader and emit verified bytes/provenance. Keep the thin selection/printing helper in existing readouts.rs beside inspect; runtime owns file verification and view owns provenance, with no new capability_artifact module. Verify: Complete exact bytes and missing/no-digest/corrupt/path/foreign-run refusal tests; no refetch and no view I/O.
 - [ ] 44.2 (U8g; [CR5](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 44.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
 ## 45. U9a — Prepare whole-plan MCP doctor reporting
@@ -355,29 +357,29 @@ Dependencies: U8g, U2, U3c. Files and scope: [design.md](design.md#slice-two-uni
 
 Dependencies: U9a. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 46.1 (U9b; [MB2](specs/mcp-capability-broker/spec.md), [SD3](specs/slice-two-delivery/spec.md)) Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, startup, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination. Verify: Real compile/launch/broker/fold/inspect with fake dialect; same-name MCP holding keeps native power OFF, zero-grant sibling and exec cannot alter evidence, unsafe secret reads refuse, and quota/recovery/cold/fallback/member/step cases bind.
-- [ ] 46.2 (U9b; [MB2](specs/mcp-capability-broker/spec.md), [SD3](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 46.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
+- [ ] 46.1 (U9b; [MB2](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD3](specs/slice-two-delivery/spec.md)) Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, startup, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination. Verify: Real compile/launch/broker/fold/inspect with fake dialect; same-name MCP holding keeps native power OFF, zero-grant sibling and exec cannot alter evidence, unsafe secret reads refuse, and quota/recovery/cold/fallback/member/step cases bind. Include the success-reporting harness after zero-call version failure, post-call fatal protocol and 4,096-call exhaustion, plus scalar-secret refusal on the real retention/inspect path; pin exact causes, counts and absent unsafe bodies.
+- [ ] 46.2 (U9b; [MB2](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD3](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 46.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
-## 47. U9c — Publish implemented scope and contract guidance
+## 47. U9b — Publish implemented scope and contract guidance
 
-Dependencies: U9b. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U9a; same PR as group 46, not a second merge. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 47.1 (U9c; [SD3](specs/slice-two-delivery/spec.md), [SC1](specs/slice-two-contracts/spec.md), [SC2](specs/slice-two-contracts/spec.md), [SC3](specs/slice-two-contracts/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Publish grant/veto migration and measured namespace/stdio/empty-restriction limits, secret-read refusal, protected startup requirements, delayed settled checkpoints, fixed retention budgets, historical evidence protection and same-root run serialization. Verify: Guides agree with actual compile/report/inspect evidence and explain quiescing old writers; no new realm grant, MCP server or unmeasured support claim is shipped.
-- [ ] 47.2 (U9c; [SD3](specs/slice-two-delivery/spec.md), [SC1](specs/slice-two-contracts/spec.md), [SC2](specs/slice-two-contracts/spec.md), [SC3](specs/slice-two-contracts/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Review the listed documents/evidence against the named requirements and retain explicit unmeasured/pending outcomes. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
+- [ ] 47.1 (U9b; [SD3](specs/slice-two-delivery/spec.md), [SC1](specs/slice-two-contracts/spec.md), [SC2](specs/slice-two-contracts/spec.md), [SC3](specs/slice-two-contracts/spec.md), [SC4](specs/slice-two-contracts/spec.md)) Publish grant/veto migration and measured namespace/stdio/empty-restriction limits, secret-read refusal, protected startup requirements, delayed settled checkpoints, fixed retention budgets, historical evidence protection and same-root run serialization. Explain durable session failures and the broker's scalar/structural masking refusal without claiming a change to legacy mask_json semantics. Verify: Guides agree with actual compile/report/inspect evidence and explain quiescing old writers; no new realm grant, MCP server or unmeasured support claim is shipped.
+- [ ] 47.2 (U9b; [SD3](specs/slice-two-delivery/spec.md), [SC1](specs/slice-two-contracts/spec.md), [SC2](specs/slice-two-contracts/spec.md), [SC3](specs/slice-two-contracts/spec.md), [SC4](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Review the listed documents/evidence against the named requirements and retain explicit unmeasured/pending outcomes. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
 ## 48. U10a — Audit every removal proof and scope
 
-Dependencies: U9c. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U9b. Files and scope: [design.md](design.md#slice-two-units).
 
 - [ ] 48.1 (U10a; [SD4](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Audit requirement/task/test mapping, each compiling removal/restored pass, no new suppression/clone/unused API and frozen bytes against each unit's main. Repair a missing proof in its assigned suite, not by declaring it proved. Verify: All 26 requirement IDs covered; typed refusal text pins once per module; no frozen fixture regeneration or unrecorded windows.
 - [ ] 48.2 (U10a; [SD4](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 48.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
-## 49. U10b — Run final candidate gates and hand off
+## 49. U10a — Run final candidate gates and hand off
 
-Dependencies: U10a. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U9b; same PR as group 48, after its audit and mutation restoration. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 49.1 (U10b; [SD4](specs/slice-two-delivery/spec.md), [SD1](specs/slice-two-delivery/spec.md)) Run the complete D10 validation set on the restored final candidate, obtain external exact coverage and Linux/macOS/remote results naming its head; keep missing results pending. Verify: Literal nonzero covered/total equality for lines/branches/functions, pinned compiler agreement, self/verify compiles, measured identities and signed merge-queue delivery; never push from a seat.
-- [ ] 49.2 (U10b; [SD4](specs/slice-two-delivery/spec.md), [SD1](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 49.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
+- [ ] 49.1 (U10a; [SD4](specs/slice-two-delivery/spec.md), [SD1](specs/slice-two-delivery/spec.md)) Run the complete D10 validation set on the restored final candidate, obtain external exact coverage and Linux/macOS/remote results naming its head; keep missing results pending. Verify: Literal nonzero covered/total equality for lines/branches/functions, pinned compiler agreement, self/verify compiles, measured identities and signed merge-queue delivery; never push from a seat.
+- [ ] 49.2 (U10a; [SD4](specs/slice-two-delivery/spec.md), [SD1](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 49.1. Verify the row's production inventory and size/clone/consumer constraints, measure affected pins, run applicable gates, and record their tested head. Do not close unavailable external checks or remove the MCP fence before U9b.
 
 ## Requirement coverage audit
 
@@ -389,27 +391,27 @@ never erases the individual unit ownership above.
 | [CC1](specs/capability-call-checkpoints/spec.md) | 15 (U4c), 16 (U4d), 17 (U4e), 18 (U4f) |
 | [CC2](specs/capability-call-checkpoints/spec.md) | 15 (U4c), 18 (U4f), 19 (U4g), 29 (U6d), 30 (U6e), 37 (U7e), 39 (U8b), 41 (U8d), 43 (U8f) |
 | [CC3](specs/capability-call-checkpoints/spec.md) | 13 (U4a), 14 (U4b), 17 (U4e), 19 (U4g) |
-| [CR1](specs/capability-response-retention/spec.md) | 23 (U5c), 24 (U5e), 25 (U5f), 39 (U8b) |
-| [CR2](specs/capability-response-retention/spec.md) | 31 (U6f), 38 (U8a), 38a (U8a2), 39 (U8b), 40 (U8c) |
+| [CR1](specs/capability-response-retention/spec.md) | 23 (U5c), 24 (U5a), 25 (U5f), 39 (U8b) |
+| [CR2](specs/capability-response-retention/spec.md) | 31 (U6f), 38 (U8a), 38a (U8a2), 39 (U8b), 40 (U8c), 46 (U9b) |
 | [CR3](specs/capability-response-retention/spec.md) | 29 (U6d), 30 (U6e), 35 (U7c), 39 (U8b), 41 (U8d), 42 (U8e) |
-| [CR4](specs/capability-response-retention/spec.md) | 41 (U8d), 42 (U8e) |
+| [CR4](specs/capability-response-retention/spec.md) | 41 (U8d), 42 (U8e), 46 (U9b) |
 | [CR5](specs/capability-response-retention/spec.md) | 19 (U4g), 40 (U8c), 43 (U8f), 44 (U8g) |
 | [GP1](specs/gate-capability-policy/spec.md) | 10 (U3a) |
 | [GP2](specs/gate-capability-policy/spec.md) | 11 (U3b), 12 (U3c) |
 | [MB1](specs/mcp-capability-broker/spec.md) | 2 (U1a), 4 (U1c), 7 (U1f), 33 (U7a), 34 (U7b), 35 (U7c), 36 (U7d) |
-| [MB2](specs/mcp-capability-broker/spec.md) | 1 (U0), 3 (U1b), 24 (U5e), 34 (U7b), 46 (U9b) |
+| [MB2](specs/mcp-capability-broker/spec.md) | 1 (U0), 3 (U1b), 24 (U5a), 34 (U7b), 46 (U9b) |
 | [MB3](specs/mcp-capability-broker/spec.md) | 27 (U6b), 28 (U6c), 30 (U6e), 35 (U7c), 38 (U8a), 38a (U8a2) |
-| [MB4](specs/mcp-capability-broker/spec.md) | 21 (U5a), 26 (U6a), 27 (U6b), 28 (U6c), 31 (U6f) |
-| [MB5](specs/mcp-capability-broker/spec.md) | 28 (U6c), 32 (U6g), 42 (U8e) |
-| [SC1](specs/slice-two-contracts/spec.md) | 20 (U5a), 21 (U5a), 47 (U9c) |
-| [SC2](specs/slice-two-contracts/spec.md) | 22 (U5c), 23 (U5c), 24 (U5e), 47 (U9c) |
-| [SC3](specs/slice-two-contracts/spec.md) | 25 (U5f), 47 (U9c) |
-| [SC4](specs/slice-two-contracts/spec.md) | 13 (U4a), 14 (U4b), 16 (U4d), 30 (U6e), 47 (U9c) |
+| [MB4](specs/mcp-capability-broker/spec.md) | 21 (U5a), 26 (U6a), 27 (U6b), 28 (U6c), 31 (U6f), 46 (U9b) |
+| [MB5](specs/mcp-capability-broker/spec.md) | 28 (U6c), 32 (U6f), 42 (U8e) |
+| [SC1](specs/slice-two-contracts/spec.md) | 20 (U5a), 21 (U5a), 47 (U9b) |
+| [SC2](specs/slice-two-contracts/spec.md) | 22 (U5c), 23 (U5c), 24 (U5a), 47 (U9b) |
+| [SC3](specs/slice-two-contracts/spec.md) | 25 (U5f), 47 (U9b) |
+| [SC4](specs/slice-two-contracts/spec.md) | 13 (U4a), 14 (U4b), 16 (U4d), 30 (U6e), 47 (U9b) |
 | [SC5](specs/slice-two-contracts/spec.md) | 9 (U2), 45 (U9a) |
-| [SD1](specs/slice-two-delivery/spec.md) | 1 (U0), 49 (U10b) |
+| [SD1](specs/slice-two-delivery/spec.md) | 1 (U0), 49 (U10a) |
 | [SD2](specs/slice-two-delivery/spec.md) | 2 (U1a), 8 (U1g), 9 (U2), 20 (U5a), 48 (U10a) |
-| [SD3](specs/slice-two-delivery/spec.md) | 27 (U6b), 31 (U6f), 37 (U7e), 45 (U9a), 46 (U9b), 47 (U9c) |
-| [SD4](specs/slice-two-delivery/spec.md) | 32 (U6g), 48 (U10a), 49 (U10b) |
+| [SD3](specs/slice-two-delivery/spec.md) | 27 (U6b), 31 (U6f), 37 (U7e), 45 (U9a), 46 (U9b), 47 (U9b) |
+| [SD4](specs/slice-two-delivery/spec.md) | 32 (U6f), 48 (U10a), 49 (U10a) |
 | [SI1](specs/strict-mcp-isolation/spec.md) | 1 (U0), 3 (U1b), 5 (U1d), 6 (U1e) |
 | [SI2](specs/strict-mcp-isolation/spec.md) | 2 (U1a), 3 (U1b), 4 (U1c), 5 (U1d), 6 (U1e), 7 (U1f), 8 (U1g), 33 (U7a), 34 (U7b), 36 (U7d) |
 

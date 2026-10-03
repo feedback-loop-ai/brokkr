@@ -43,6 +43,12 @@ MCP grants SHALL enter this run.
 - **THEN** specify rechecks their evidence, adopts or refutes each at its owning Decisions section, encodes remaining ambiguity as scenarios and updates proposal/design/tasks in dependency order
 - **AND** a drafted result records that owning review, not runtime proof, decision acceptance or a second council vote; any unresolved earlier-owner fault still returns upstream with its cause
 
+#### Scenario: New evidence after clear clarification has its own owner
+
+- **WHEN** clarify returned clear at 7f36e922 and the next council identifies R-G's missing session disposition and R-H's conflict between unconditional masking and scalar preservation
+- **THEN** design preserves clarify's historical scope, repairs MB3–MB5 and CR2–CR4 before their dependent design/tasks, and returns upstream for the owning specification review
+- **AND** the proposed repairs keep all implementation proofs pending; a clear earlier review or a current document gate does not accept new semantics or certify runtime behavior
+
 ### Requirement: SD2 one ordered plan splits every oversized implementation unit
 
 The final design SHALL publish one true dependency order based on the
@@ -218,3 +224,10 @@ finding owned by the decision-index gate (0071 ruling 11). Link the existing
 open #467 strictness prerequisite and this change's complete tasks; do not
 pretend closed slice-one PR #319 carries slice two or create an unsolicited
 remote tracker. No implementation checkbox closes in this review.
+
+Current council return, 2026-10-03: the supplied returned_from is clarify's
+clear judgment of 7f36e922, not another copy of the earlier upstream findings.
+R-G/R-H are new evidence. R-H begins at MB4/CR2, so SD1 requires upstream
+owning review even though the council supplies coherent proposed repairs.
+Simplicity's four PR combinations preserve every task and proof within the
+three-production-file ceiling; the final design alone defines their merge order.

@@ -28,7 +28,10 @@ by the operator. The proposal, deltas, design and tasks carry exact
 admission, refusal and evidence obligations. The council returned owning
 specification repairs upstream in 7aa9e9ff; the specify revisit adopts those
 repairs with explicit dispositions in the deltas and design D11. This revision
-does not accept this decision or certify runtime protections.
+does not accept this decision or certify runtime protections. The next council
+at 7f36e922 additionally proposes durable failed-session closure and refusal
+of a response that cannot be safely masked. Those owning specification repairs
+return upstream under the change's SD1; design D11 records their evidence.
 
 The unbuilt marker links open [#467](https://github.com/feedback-loop-ai/brokkr/issues/467),
 the strict MCP prerequisite already commissioned as U1. It does not claim that
@@ -82,10 +85,14 @@ claimed by this document.
    the broker from the operator's store at spawn and injected into that
    child's environment. Values never enter argv, the harness environment,
    a manifest or a seat's box. The decision 0012 single plaintext injector
-   is reused or factored without a second disclosure call site.
+   is reused or factored without a second disclosure call site, including
+   calls inside the secret module in the machine proof.
    The broker lists only the realm-admitted tools and refuses an ungranted
    call before forwarding it. Its output is masked before delivery or
-   persistence. Neither tool arguments nor returned content can change
+   persistence. A known secret in a scalar or structural field that cannot
+   be redacted without changing the admitted shape causes a safe refusal;
+   it is not delivered or retained by inheriting the legacy numeric residual.
+   Neither tool arguments nor returned content can change
    connection, grants, restrictions, secrets or retention. Secret-bearing
    holdings additionally require measured exclusion of store and child-process
    reads from both hands and model-native tools; read-only write containment
@@ -112,6 +119,11 @@ claimed by this document.
    journal commit, not a queued offer, confirms evidence. An uncertain action
    is never replayed. A fixed attempt-wide retention budget is reserved before
    forwarding, with no silent downgrade on exhaustion.
+   Private Closed carries Clean or a latched typed failure cause. The engine
+   checks it even when the harness reports success, including zero accepted
+   calls and ledger exhaustion. A fatal session cannot become a clean attempt;
+   ordinary tool errors remain call outcomes. If closure cannot persist,
+   existing incomplete-evidence refusals apply without invented success.
    A broker never opens the journal for writing. Missing, malformed, partial
    or conflicting evidence cannot produce a successful complete attempt.
    Retained responses are masked data prepared for delivery, stored content-addressed

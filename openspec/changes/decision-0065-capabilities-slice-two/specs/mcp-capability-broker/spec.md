@@ -174,6 +174,12 @@ progress or notification traffic. Cancellation/timeout ends an uncertain child
 session; its external action SHALL NOT be replayed. Non-response frames share
 a fixed 1 MiB cumulative byte budget per initialization/list or call operation;
 exhaustion SHALL return "MCP server response exceeds the broker limit".
+Fatal initialization, version, protocol, response-limit or timeout endings
+SHALL latch a typed session failure in CR3's private Closed disposition,
+even before the first call or after every accepted call has terminated.
+Neither orderly EOF nor a successful harness result SHALL clear that fault;
+CR4 owns attempt settlement. A normal tool error or recorded local denial
+alone SHALL remain a call outcome, not a fatal session failure.
 
 #### Scenario: Filtering is enforced at both list and call
 
@@ -240,8 +246,18 @@ The child SHALL receive a bounded base environment plus declared bindings,
 not inherited harness credentials. Known literals and common encodings SHALL
 be masked before any response, stderr, ledger, artifact or diagnostic leaves
 the broker. Masking SHALL preserve protocol structure and work across stream
-chunk boundaries. A masked identifier that can no longer be matched safely
-SHALL refuse protocol handling rather than use raw bytes.
+chunk boundaries. Before staging or delivery, the broker SHALL check bounded
+prepared output, including correlation/structural fields, for known literals
+or common encodings that string/key masking cannot safely remove. If removing
+an occurrence would change a non-string scalar or required protocol/data shape,
+it SHALL refuse with "MCP response cannot be safely masked", without the value.
+It SHALL neither coerce a number to text, substitute another scalar nor deliver
+or persist the unsafe response. An already forwarded call SHALL have a failed
+Terminal with that safe cause and no response digest, not a pre-forward refused
+outcome. When safe correlation is impossible, no unsafe frame is emitted and
+the session closes failed with that cause. Legacy mask_json scalar semantics
+remain unchanged; this is an additional broker output-edge check using the
+shared encoding definitions. Exact-number preservation is a separate check.
 
 #### Scenario: Secret values stop at the child environment
 
@@ -269,9 +285,22 @@ SHALL refuse protocol handling rather than use raw bytes.
 
 #### Scenario: Known encodings are masked before persistence and delivery
 
-- **WHEN** the fake child returns a bound literal, its common encodings or a split-stream occurrence in result data or stderr
+- **WHEN** the fake child returns a bound literal, its common encodings or a split-stream occurrence in safely redactable result text/keys or stderr
 - **THEN** every delivered/persisted surface contains the declared redaction instead, and the retained digest is over the masked bytes
 - **AND** a real compiling removal of masking makes the full leak-scan test fail; an arbitrary transformed secret remains outside 0012's claimed guarantee
+
+#### Scenario: A numeric secret cannot pass through structured output
+
+- **WHEN** the fake child returns the digits-only canary 876543210 as a bare number in structuredContent, with effective retention either true or false
+- **THEN** the broker returns "MCP response cannot be safely masked" without the value, records that forwarded call as failed with no digest, and stages/delivers none of the unsafe response
+- **AND** the same canary as text is redacted, an unrelated exact numeric value is preserved, and escaped/encoded strings are masked; masking-created duplicate keys retain the protocol refusal
+- **AND** the refusal itself passes the leak scan, and independently removing the scalar check makes the canary assertion fail; numeric precision tests remain separate
+
+#### Scenario: A protocol field cannot be repaired into a different response
+
+- **WHEN** a known secret occurs in a correlation or structural field that cannot be redacted while preserving its admitted meaning
+- **THEN** the broker emits no unsafe frame and closes with failed disposition and cause "MCP response cannot be safely masked"
+- **AND** accepted calls keep their verified outcomes or become interrupted if no terminal was durable; no raw identifier is copied into diagnostics or evidence
 
 ### Requirement: MB5 attempt cleanup covers broker and child
 
@@ -280,7 +309,11 @@ with cancellation, timeout, normal shutdown and failed initialization using
 the existing #403 ownership and cleanup machinery. No broker daemon,
 detached server or separate untracked engine group SHALL be introduced.
 Each new child failure SHALL leave an attributable ledger outcome even when
-its result cannot be delivered. Existing #403 residuals SHALL remain named;
+its result cannot be delivered: call evidence when a call was accepted, and
+CR3's failed session disposition for a fatal ending, including zero-call
+initialization failure. The engine SHALL judge that disposition under CR4
+before accepting a harness success; child stderr or process exit alone does
+not prove the harness reported failure. Existing #403 residuals SHALL remain named;
 a process-group assertion SHALL not claim cgroup guarantees.
 
 #### Scenario: Cancellation leaves no owned child running
@@ -319,3 +352,15 @@ The code facts above support the security requirements; no downstream exception
 can substitute read-only mode, a version string or a matching raw request ID
 (0071 rulings 3, 8, 9). MB3 distinguishes bounded valid refusals that need
 ledger evidence from invalid request data that cannot fit SC4's identity.
+
+Council return R-G/R-H, 2026-10-03: adopt a durable session-failure disposition
+and the explicit unsafe-response refusal. process.rs:499–520 consumes driver
+status, so a broker child exit cannot stand in for CR4's engine judgment.
+secret.rs:637–668 deliberately leaves numeric scalars unchanged, and the
+secrets guide records that residual. MB4's stronger broker promise needs an
+explicit refusal where redaction and shape preservation conflict. Reject
+inheriting the numeric residual, scalar coercion, or reliance on precision
+checking: 876543210 is exactly representable. Preserve ordinary text masking,
+shared encodings and existing masker semantics (0071 rulings 3, 5, 8, 9).
+This earlier-owner repair returns upstream for specification review; it is
+not a reproduced defect in an implemented broker or a runtime closure.

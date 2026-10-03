@@ -45,7 +45,12 @@ canonical::to_bytes and canonical::sha256_bytes at the bounded edge, with one
 masked buffer for staging and forwarding. Parsing/serialization SHALL preserve
 JSON numeric values exactly; an unrepresentable number SHALL refuse "MCP server
 protocol is invalid", never round into different evidence. This is a strict
-edge check, not a second canonicalizer or normalization of embedded documents. The same masked object
+edge check, not a second canonicalizer or normalization of embedded documents.
+MB4's output-edge check SHALL additionally refuse an unsafe scalar/structural
+secret with "MCP response cannot be safely masked" before staging or delivery,
+regardless of retention policy. Such a forwarded call is failed without a
+response digest; no unsafe child bytes or substituted scalar are retained.
+For a response admitted by both checks, the same masked object
 SHALL be delivered to the harness with the original correlation envelope.
 Retention SHALL cite these prepared data bytes, not raw secret-bearing
 wire bytes or a later interpretation. On a completed delivery they SHALL be
@@ -84,7 +89,7 @@ Read/write verification belongs above pure core/view.
 
 #### Scenario: Error responses may be retained but absent responses may not
 
-- **WHEN** an admitted child call returns a complete MCP error or result with isError true under effective retention
+- **WHEN** an admitted child call returns a complete, safely maskable MCP error or result with isError true under effective retention
 - **THEN** it has a failed terminal outcome and a digest of its complete masked response object
 - **AND** broker-local refusal, timeout, truncated response or interruption has no response digest and cannot cite fabricated child bytes
 
@@ -116,7 +121,13 @@ Read/write verification belongs above pure core/view.
 
 - **WHEN** a response contains a large integer or precise decimal that the existing serializer would round
 - **THEN** the edge refuses "MCP server protocol is invalid" with no delivered substitute or retained digest
-- **AND** exact representable values retain their value and use the existing canonical byte/hash functions; masking-created duplicate keys also refuse
+- **AND** exact representable values retain their value and use the existing canonical byte/hash functions unless MB4's independent masking check refuses; masking-created duplicate keys also refuse
+
+#### Scenario: Exact numeric representation does not prove secret safety
+
+- **WHEN** an exactly representable numeric secret is returned under retained true without a veto
+- **THEN** MB4's exact unsafe-masking cause produces a failed call with no response_sha256, staged body or published artifact
+- **AND** text-redaction and unrelated-number controls retain their exact canonical masked bytes; disabling retention or vetoing it never permits the unsafe response to be delivered
 
 ### Requirement: CR3 the ledger is durable and belongs to one attempt
 
@@ -138,6 +149,17 @@ last, after all accepted calls have terminal records. A missing Closed after
 process settlement SHALL refuse "broker ledger lifecycle is invalid", as do
 illegal state transitions; owner mismatch retains its more specific cause.
 Verified begun calls without terminal become interrupted under CR4.
+Closed SHALL carry a closed typed disposition, Clean or Failed with a bounded
+broker cause. A fatal initialization/version/protocol, response-limit, timeout,
+unsafe-correlation or ledger-limit ending SHALL latch Failed, including when
+there were no accepted calls. Keep the first observed fatal cause; later EOF
+or orderly cleanup cannot overwrite it. Causes use the owning MB3/MB4/CR3
+fixed text, never raw child output. Ordinary child tool errors and durable
+local tool/active-call/budget denials alone do not latch session failure.
+Reserve closure capacity before acceptance and fsync its disposition before
+normal exit. If closure cannot be persisted, preserve the verified prefix
+and the existing missing/partial/lifecycle refusal; do not invent Clean or a
+precise persistence cause absent from recovery evidence.
 
 Records SHALL be at most 4 KiB, each ledger at most 64 MiB and each broker
 attempt at most 4,096 accepted calls. Reserve terminal and closure capacity
@@ -171,7 +193,8 @@ Nonretaining responses remain bounded in-memory forwarding only.
 #### Scenario: No-call and missing evidence differ
 
 - **WHEN** an expected broker starts and makes no calls
-- **THEN** exactly Opened then Closed proves zero calls
+- **THEN** exactly Opened then Closed proves zero accepted calls, and only a Clean disposition proves the broker reported a healthy session
+- **AND** Failed closure with zero calls retains the fatal cause and cannot certify success
 - **AND** an absent expected ledger produces "broker ledger is missing for this attempt"; a proven never-started broker records failed start, not successful empty use
 
 #### Scenario: Lifecycle order and one lifetime are enforced
@@ -205,6 +228,13 @@ Nonretaining responses remain bounded in-memory forwarding only.
 - **THEN** folding refuses respectively "broker ledger owner does not match this attempt", "broker ledger contains a conflicting duplicate" or "broker ledger claims an ungranted tool"
 - **AND** no successful result is admitted; hash equality cannot authenticate writable evidence
 
+#### Scenario: Session failure survives orderly closure
+
+- **WHEN** the child's pinned version mismatches before any call, fatal protocol handling fails after a terminal call, or the ledger reaches exactly 4,096 accepted calls
+- **THEN** Closed durably carries Failed and respectively the pinned-version/protocol/ledger-limit cause, with exact accepted-call counts 0, 1 and 4,096
+- **AND** later EOF cannot replace the failure with Clean; failed closure persistence leaves only verified-prefix recovery with its exact evidence refusal
+- **AND** a healthy unused session and a session with only recoverable tool errors or ungranted-tool denials may close Clean without relabeling their individual call outcomes
+
 ### Requirement: CR4 folding is idempotent and failures remain visible
 
 After the owned process tree settles, the engine SHALL fold each inventoried
@@ -212,7 +242,13 @@ ledger through the existing checkpoint settlement barrier before admitting any
 terminal seat result: success, failure, cancellation, timeout or recovery.
 It SHALL append exactly one settled checkpoint per accepted call, using known
 Terminal or interrupted when only a verified Started exists. No live ledger
-scan or public started checkpoint is required. Live telemetry is diagnostic;
+scan or public started checkpoint is required. Settlement SHALL also inspect
+each validated Closed disposition before admitting the harness result. A known
+Failed session overrides harness success through existing failed/indeterminate
+attempt handling, retaining its exact typed cause and verified call outcomes.
+A zero-call Failed session creates no fictitious tool checkpoint. Clean closure
+is necessary but not sufficient: all other evidence checks must still pass.
+Live telemetry is diagnostic;
 a partial write while its broker is running SHALL NOT be judged corruption.
 
 Fold identity is call_id, with full typed payload comparison. The committed
@@ -235,6 +271,13 @@ middle records refuse "broker ledger record is malformed"; gaps refuse "broker
 ledger sequence is not contiguous". Do not invent a missing call or infer
 success from an orphan artifact. Validate framing/owner/order before projecting
 verified calls; stop at the first invalid transition and preserve its cause.
+
+#### Scenario: A successful harness cannot hide a fatal broker session
+
+- **WHEN** a deterministic harness ignores broker failure and reports success after a pinned-version mismatch before any call, a fatal protocol failure after one completed call, or exhaustion at exactly 4,096 accepted calls
+- **THEN** the real engine settlement barrier rejects that success with respectively "MCP server version does not match the dialect's pinned version", "MCP server protocol is invalid" or "broker ledger exceeds the attempt limit", retaining exactly 0, 1 or 4,096 call checkpoints
+- **AND** it invents no extra call; recovery makes the same judgment from the durable disposition without replay, while healthy zero-call and recoverable-tool-error controls can complete
+- **AND** independently removing the engine disposition check makes these exact attempt-outcome assertions fail; a cleanup-only mutation proves a different property
 
 #### Scenario: Crash after append does not append twice
 
@@ -321,3 +364,15 @@ quotas, exact-number validation and reuse of canonical bytes (rulings 3, 5).
 CR3 now states the acceptance point shared with CC2; neither ledger exhaustion
 nor a failed Started write creates a fictitious recorded call. Runtime security
 proofs remain tasks, not findings closed by prose.
+
+Council return R-G/R-H, 2026-10-03: adopt typed Clean/Failed private closure
+and engine settlement of that outcome. Presence of Closed, a complete call
+set and harness success cannot distinguish a healthy zero-call session from
+failed initialization; an end marker is not a session result. Reject using
+missing closure to encode a known fault when its safe cause can be synced.
+Reuse existing failure transitions and confirmed append; no public lifecycle,
+new journal writer or policy-table input is required (0071 rulings 2, 3, 8, 9).
+CR2 also adopts MB4's scalar/structural masking refusal. The legacy numeric
+residual conflicts with the stronger retention promise; exact numeric identity
+alone cannot discharge secrecy. These owning repairs and scenarios go upstream
+for review, with all dependent design/proof tasks retained.

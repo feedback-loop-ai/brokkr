@@ -30,7 +30,9 @@ remaining protections before narrow implementation PRs begin.
   holdings require measured read isolation; executable startup inputs and
   evidence across every managed writer require protection. Opted-in,
   non-vetoed responses have a fixed aggregate budget, are masked, content-addressed at
-  `.forge/artifacts/sha256/<hex>`, and openable through inspect.
+  `.forge/artifacts/sha256/<hex>`, and openable through inspect. Fatal broker
+  session outcomes remain durable even when the harness reports success;
+  responses that cannot be masked without changing their data shape refuse.
 - Later implementation adds seat-record v6, run-manifest v12 and **the next
   realms version after v7** for `retain: false`. Tool-dialect v1 already
   defines connection/version/secrets/retained; retain those fields in typed
@@ -65,12 +67,15 @@ This visit adopts proposal then deltas, clarifies their scenarios, writes
 design.md and tasks.md, and analyzes their consistency using the dialect's
 own instructions. Design records the unit order, every planned file, Hot
 files, alternatives and analysis. The design council's robustness and simplicity
-positions are reconciled explicitly in design D1. This specify return adopts
-7aa9e9ff's proposed repairs to MB2–MB4, CR2–CR4, CC2, SC4 and GP2 after checking
-the council's evidence. The supplied returned_from is design's upstream result;
-its requirement faults are answered here and in the owning deltas. Design and
-tasks remain coherent dependent proposals, not newly completed council or
-implementation work.
+positions are reconciled explicitly in design D1. The specify return at
+7f36e922 adopted 7aa9e9ff's repairs; the current returned_from is clarify's
+clear result on that revision, which remains valid within its reviewed scope.
+The new council identifies two further gaps, R-G (durable session failure)
+and R-H (shape-preserving masking). Their owning MB3–MB5 and CR2–CR4 scenarios
+are repaired before design/tasks. Because R-H corrects an earlier requirement's
+unconditional masking promise, this design visit returns upstream for owning
+review under SD1; it does not call that specification choice a downstream
+exception. Design D11 records the evidence and disposition.
 
 Only these documents, the verbatim ruling record, proposed decision 0077,
 its index row and 0065's amendment pointer are committed. No production,
@@ -112,3 +117,10 @@ record the returned finding's closure in SD1 and design D11. Repair 0077's
 missing Built issue marker using its existing open strictness prerequisite
 #467; the complete remaining work is this change's tasks, not closed slice-one
 PR #319. The operator alone accepts decision 0077 and the completed plan.
+
+Current council disposition, 2026-10-03, reviewed 7f36e922: adopt typed private
+session closure and conservative unsafe-response refusal, not the legacy numeric
+masking residual. Retain the existing masker and canonicalizer with a broker
+edge check. Adopt the four bounded PR combinations and two module cuts with
+all proof ownership preserved; design now contains 44 PRs. These proposals
+claim no runtime protection or acceptance of 0077 (0071 rulings 2–9).
