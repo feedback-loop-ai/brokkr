@@ -5,12 +5,14 @@
 //! words are one form's, one for one: anything else is unread, whatever
 //! it names. Pure, like `measure`.
 
-use super::read::{Class, Refused, Said};
+use super::read::{Class, Levels, Refused, Said};
 use crate::probe::plan::REPLY;
 
 /// One form a harness prints, its words written normalised, with what it
 /// says. A word written `{...}` is a slot: any one word, and the object
-/// of the refusal the form states. `{option}` holds a flag alone.
+/// of the refusal the form states. `{option}` holds a flag alone, and
+/// [`LIST`], the form's last word, every word after the others, one or
+/// more: the levels an effort refusal lists.
 pub(super) struct Form {
     pub(super) words: &'static str,
     pub(super) says: Says,
@@ -27,7 +29,13 @@ pub(super) enum Says {
     /// A refusal of this class, of this object, which the form names in
     /// its own words.
     RefusesThe(Class, &'static str),
+    /// An effort refusal: the level refused is the form's one slot, and
+    /// the levels accepted its [`LIST`].
+    RefusesLevel,
 }
+
+/// The slot that ends a form and holds every word after the others.
+pub(super) const LIST: &str = "{levels}";
 
 /// commander's refusal of a flag it does not know, which claude and dsh
 /// print; dsh's recorded 2026-10-03 as "error: unknown option '--model'".
@@ -71,12 +79,32 @@ pub(super) fn read(text: &str, forms: &[Form]) -> Option<Vec<Said>> {
     }
 }
 
-/// What `form` says of `said`, when the words are the form's one for one.
+/// What `form` says of `said`, when the words are the form's one for one,
+/// a [`LIST`] that ends it holding the rest.
 fn matched(form: &Form, said: &[Word]) -> Option<Vec<Said>> {
     let wanted: Vec<&str> = form.words.split_whitespace().collect();
-    if wanted.len() != said.len() {
-        return None;
-    }
+    let (fixed, listed) = match wanted.split_last() {
+        Some((&LIST, fixed)) if said.len() > fixed.len() => (fixed, &said[fixed.len()..]),
+        Some((&LIST, _)) => return None,
+        _ if wanted.len() == said.len() => (wanted.as_slice(), &said[said.len()..]),
+        _ => return None,
+    };
+    let object = slots(fixed, said)?.concat();
+    let refused = |class, object: String| vec![Said::Refusal(Refused { class, object })];
+    Some(match form.says {
+        Says::Nothing => Vec::new(),
+        Says::Refuses(class) => refused(class, object),
+        Says::RefusesThe(class, object) => refused(class, object.to_string()),
+        Says::RefusesLevel => vec![Said::Levels(Levels {
+            refused: object,
+            accepted: listed.iter().map(|word| word.spelled.clone()).collect(),
+        })],
+    })
+}
+
+/// The words `said` holds in `wanted`'s slots, when each other word is
+/// `wanted`'s, `said` read from its start.
+fn slots<'a>(wanted: &[&str], said: &'a [Word]) -> Option<Vec<&'a str>> {
     let mut slots = Vec::new();
     for (want, word) in wanted.iter().zip(said) {
         let fits = match *want {
@@ -91,10 +119,5 @@ fn matched(form: &Form, said: &[Word]) -> Option<Vec<Said>> {
             slots.push(word.spelled.as_str());
         }
     }
-    let refused = |class, object: String| vec![Said::Refusal(Refused { class, object })];
-    Some(match form.says {
-        Says::Nothing => Vec::new(),
-        Says::Refuses(class) => refused(class, slots.concat()),
-        Says::RefusesThe(class, object) => refused(class, object.to_string()),
-    })
+    Some(slots)
 }

@@ -12,7 +12,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value};
 
-use super::{claude, codex, dsh, Fault, Lines};
+use super::{claude, claude_log, codex, codex_log, dsh, Fault, Lines};
+use crate::probe::plan::PROMPT;
 
 /// The harnesses whose streams the probe has a typed reader for.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -51,13 +52,31 @@ impl Harness {
         }
     }
 
+    /// One JSON object of a transcript, decoded by the harness's rows:
+    /// claude's project log, codex's rollout, and dsh's session log, whose
+    /// rows are its events.
+    pub(super) fn row(self, fields: Map<String, Value>) -> Result<Decoded, Fault> {
+        match self {
+            Harness::Claude => claude_log::row(fields),
+            Harness::Codex => codex_log::row(fields),
+            Harness::Dsh => dsh::event(fields),
+        }
+    }
+
     /// One line of text, read whole against the harness's forms; `None`
     /// when it is none of them.
     pub(super) fn text(self, line: &str) -> Option<Vec<Said>> {
+        self.text_in(line, &mut Block::Plain)
+    }
+
+    /// One line of text in a stream whose earlier lines left it in
+    /// `block`: only dsh opens one, its reasoning, whose lines are read as
+    /// the model's thinking unless a form reads them whole.
+    pub(super) fn text_in(self, line: &str, block: &mut Block) -> Option<Vec<Said>> {
         match self {
             Harness::Claude => claude::text(line),
             Harness::Codex => codex::text(line),
-            Harness::Dsh => dsh::text(line),
+            Harness::Dsh => dsh::text(line, block),
         }
     }
 
@@ -70,6 +89,14 @@ impl Harness {
         };
         said.unwrap_or_default()
     }
+}
+
+/// Where a stream of text stands: in no block, or in dsh's reasoning,
+/// which runs from its header to the stream's end.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Block {
+    Plain,
+    Reasoning,
 }
 
 /// An event a reader decoded: its type, `type/subtype` where the harness
@@ -105,6 +132,30 @@ pub(super) enum Said {
     /// The reply the probe's prompt asks for.
     Reply,
     Refusal(Refused),
+    /// An effort refusal: the level refused, and the levels it lists.
+    Levels(Levels),
+    /// The turn failed, as the event states at the pointer `at`: an error
+    /// flag or status, a rejected rate limit, or no turn taken (#484).
+    Failed {
+        at: &'static str,
+    },
+    /// A tool ran, as a count or a stop at the pointer `at` states:
+    /// `tool` names it where the count does, and is `None` where only a
+    /// tool use was stated (#484).
+    Ran {
+        tool: Option<&'static str>,
+        at: &'static str,
+    },
+    /// The model the turn ran, as the event names it.
+    Model(String),
+}
+
+/// An effort refusal a recognised form states: the level it refused,
+/// and the levels it lists as accepted.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Levels {
+    pub(super) refused: String,
+    pub(super) accepted: Vec<String>,
 }
 
 /// An MCP server a listing names, and the status it gives it.
@@ -168,6 +219,21 @@ pub(super) fn decode<T: DeserializeOwned>(
     serde_json::from_value(Value::Object(fields)).map_err(|_| Fault::Undecoded(harness))
 }
 
+/// The keys of `envelope` taken out of `fields` and decoded as `E`: the
+/// keys every row of a transcript may carry, which its type's struct
+/// then does not name again. The rest stay in `fields`.
+pub(super) fn envelope<E: DeserializeOwned>(
+    harness: Harness,
+    fields: &mut Map<String, Value>,
+    envelope: &[&str],
+) -> Result<E, Fault> {
+    let taken = envelope
+        .iter()
+        .filter_map(|key| fields.remove_entry(*key))
+        .collect();
+    decode(harness, taken)
+}
+
 /// A key that may be absent, but holds a `T` when it is given: `null` is
 /// not one, so a listing given as `null` is not read as no listing. A
 /// field of this type is `#[serde(default)]`, by its own attribute or its
@@ -198,6 +264,22 @@ pub(super) type Empty = Given<Vec<Never>>;
 /// What no value deserializes to.
 #[derive(Debug, Deserialize)]
 pub(super) enum Never {}
+
+/// The probe's own prompt, as a transcript echoes it: any other string
+/// is not one, so an echo never carries a prompt the probe did not give.
+#[derive(Debug)]
+pub(super) struct Prompt;
+
+impl<'de> Deserialize<'de> for Prompt {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Prompt, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        if text == PROMPT {
+            Ok(Prompt)
+        } else {
+            Err(serde::de::Error::custom("not the probe's prompt"))
+        }
+    }
+}
 
 /// A UUID in its canonical form: a session, an event or a hook as a
 /// harness names it. Any other string under its key is not one.

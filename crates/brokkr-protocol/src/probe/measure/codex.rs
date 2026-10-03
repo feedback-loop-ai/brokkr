@@ -3,9 +3,8 @@
 //! controller recorded from codex on 2026-10-03 (`tests/streams/codex-*`):
 //! `thread.started`, `turn.started`, `item.completed` (an `agent_message`
 //! or an `error` item), `turn.completed`, `error` and `turn.failed`, and
-//! the notice on stderr every launch prints. `session_meta` is the type
-//! its rollout transcripts open with, read with no key of its own. A key
-//! is consumed, or inert, as in `claude`.
+//! the notice on stderr every launch prints; its rollouts are
+//! `codex_log`'s. A key is consumed, or inert, as in `claude`.
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -15,7 +14,12 @@ use super::read::{decode, Class, Counted, Decoded, Given, Harness, Said, Uuid};
 use super::Fault;
 
 /// What codex prints that the probe reads whole.
-const FORMS: [Form; 5] = [
+const FORMS: [Form; 6] = [
+    // serde's refusal of a level `model_reasoning_effort` does not take.
+    Form {
+        words: "error loading config unknown variant {level} expected one of {levels}",
+        says: Says::RefusesLevel,
+    },
     // On stderr, at every launch, recorded 2026-10-03.
     Form {
         words: "reading additional input from stdin",
@@ -55,13 +59,12 @@ enum Event {
     ItemCompleted { item: Item },
     #[serde(rename = "turn.completed")]
     TurnCompleted { usage: Usage },
-    /// Read whole, as a refusal.
+    /// A failure, its message read whole, as a refusal.
     #[serde(rename = "error")]
     Error { message: String },
+    /// A failure, as `error`.
     #[serde(rename = "turn.failed")]
     TurnFailed { error: Failure },
-    #[serde(rename = "session_meta")]
-    SessionMeta {},
 }
 
 #[derive(Deserialize)]
@@ -109,7 +112,8 @@ struct Failure {
 struct ApiFailure {
     #[serde(rename = "type")]
     _kind: ErrorTag,
-    /// Inert: the HTTP status; the message says what was refused.
+    /// Inert: the HTTP status of an event that is a failure whatever it
+    /// holds; the message says what was refused.
     #[serde(rename = "status")]
     _status: u16,
     error: ApiError,
@@ -124,7 +128,7 @@ enum ErrorTag {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ApiError {
-    /// Inert: the provider's class; the message says what was refused.
+    /// Inert: the provider's class, as `status`.
     #[serde(rename = "type")]
     _kind: String,
     /// Read whole, as a refusal.
@@ -146,14 +150,22 @@ pub(super) fn event(fields: Map<String, Value>) -> Result<Decoded, Fault> {
             item: Item::AgentMessage { text, .. } | Item::Error { message: text, .. },
         } => ("item.completed", message(&text)?),
         Event::TurnCompleted { usage } => ("turn.completed", vec![usage_said(usage)]),
-        Event::Error { message: text } => ("error", message(&text)?),
-        Event::TurnFailed { error } => ("turn.failed", message(&error.message)?),
-        Event::SessionMeta {} => ("session_meta", Vec::new()),
+        Event::Error { message: text } => ("error", failed(message(&text)?, "/message")),
+        Event::TurnFailed { error } => (
+            "turn.failed",
+            failed(message(&error.message)?, "/error/message"),
+        ),
     };
     Ok(Decoded {
         label: label.to_string(),
         said,
     })
+}
+
+/// What a failure's message says, and the failure, stated at `at`.
+fn failed(mut said: Vec<Said>, at: &'static str) -> Vec<Said> {
+    said.push(Said::Failed { at });
+    said
 }
 
 fn usage_said(usage: Usage) -> Said {

@@ -75,7 +75,7 @@ fn found_by_the_chief_on_891c3c9f() -> Vec<Row> {
     vec![
         Row {
             shape: "a plain init with no tools key beside a clean box",
-            plain: r#"printf '{"type":"system","subtype":"init","session_id":"%s","mcp_servers":[]}\n' "$sid"; exit 0"#.to_string(),
+            plain: r#"printf '{"type":"system","subtype":"init","session_id":"%s","mcp_servers":[]}\n{"type":"result","subtype":"success","result":"PROBE-OK"}\n' "$sid"; exit 0"#.to_string(),
             boxed: BOXED_CLEAN.to_string(),
             eligibility: refused(
                 BOXED,
@@ -523,7 +523,7 @@ fn found_by_the_chief_on_d77a2b6e() -> Vec<Row> {
 fn clean_with_stderr() -> Vec<Row> {
     let refused = "the CLI refused the adapter's hands argv: exit 1: error: unknown option \
                    '--strict-mcp-config'";
-    let read = r#"printf '%s\n' '' '   ' 'PROBE-OK' '{"type":"user"}' >&2"#;
+    let read = r#"printf '%s\n' '' '   ' 'PROBE-OK' '{"type":"result","subtype":"success"}' >&2"#;
     vec![
         Row {
             shape: "blank lines, the reply and an event on the stderr of both turns",
@@ -547,12 +547,13 @@ fn clean_with_stderr() -> Vec<Row> {
 const INIT: &str = r#"{"type":"system","subtype":"init","tools":["Bash"],"mcp_servers":[]}"#;
 
 /// The reading of a plain turn that printed `stdout` and `stderr`, beside
-/// other turns that printed [`INIT`] alone.
+/// other turns that printed [`INIT`] alone, each turn's stdout ending in
+/// the reply, so only what a test prints keeps a turn from being read.
 fn plain_reading(stdout: &str, stderr: &str) -> measure::Reading {
     let plan = plan::plan(AdapterKind::Claude, &claude_declared()).unwrap();
     let observed = Observed {
-        turn: observation(Some(0), stdout, stderr),
-        ..observed(observation(Some(0), INIT, ""))
+        turn: observation(Some(0), &replied(stdout), stderr),
+        ..observed(observation(Some(0), &replied(INIT), ""))
     };
     measure::reading(&plan, &observed, &[])
 }
@@ -617,7 +618,11 @@ fn a_stderr_line_is_read_only_in_a_form_read_whole_to_its_end() {
         ("MCP server brokkr connected", "unread".to_string()),
         ("warn:   12 tools available", "unread".to_string()),
         ("warn:", "unread".to_string()),
-        (r#"{"type":"user"}"#, "read".to_string()),
+        (
+            r#"{"type":"result","subtype":"success"}"#,
+            "read".to_string(),
+        ),
+        (r#"{"type":"user"}"#, "undecoded".to_string()),
         (r#"{"type":"user","note":"x"}"#, "undecoded".to_string()),
     ];
     let tagged_rows = [

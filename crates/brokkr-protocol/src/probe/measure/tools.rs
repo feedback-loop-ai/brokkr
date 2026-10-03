@@ -3,8 +3,8 @@
 //! reached the turn beside the hands server (#467). Pure, like `measure`.
 
 use super::listing::{Listing, SERVERS, TOOLS};
-use super::read::Server;
-use super::{on_turn, Streams, Turn};
+use super::read::{Said, Server};
+use super::{on_turn, Stream, Streams, Turn};
 use crate::hands::SERVER_NAME;
 use crate::probe::facts::{Capability, Fact};
 use crate::probe::plan::{Plan, UserConfig, USER_SCOPE_SERVER};
@@ -53,14 +53,60 @@ fn tool_server(tool: &str) -> Option<&str> {
 
 /// The CLI's own tools: every listed tool that names no MCP server. A
 /// tool naming one is read by [`user_mcp`], never dropped unread: the
-/// plain, boxed and OFF turns are each read by it (#484).
+/// plain, boxed and OFF turns are each read by it (#484). A tool the turn
+/// ran that its listing shows absent contradicts the listing, which is
+/// then unmeasured.
 pub(super) fn native_tools(streams: &Streams) -> Fact<Vec<String>> {
-    Listing::read(&streams.all, TOOLS).fact().map(|tools| {
+    let listed = Listing::read(&streams.all, TOOLS).fact();
+    let listed = match listed
+        .value()
+        .and_then(|tools| ran_unlisted(&streams.all, tools))
+    {
+        Some(ran) => Fact::unmeasured(ran),
+        None => listed,
+    };
+    listed.map(|tools| {
         tools
             .into_iter()
             .filter(|tool| tool_server(tool).is_none())
             .collect()
     })
+}
+
+/// Where a turn ran a tool its listing, `listed`, shows absent: a count
+/// naming a tool not listed, or a tool use where no tool is listed.
+fn ran_unlisted(streams: &[Stream], listed: &[String]) -> Option<String> {
+    let events = streams
+        .iter()
+        .flat_map(|stream| stream.events.iter().map(move |event| (stream, event)));
+    let mut said = events.flat_map(|(stream, event)| {
+        let said = event.said.iter();
+        said.map(move |said| (stream, event, said))
+    });
+    said.find_map(|(stream, event, said)| {
+        let Said::Ran { tool, at } = said else {
+            return None;
+        };
+        let what = absent(*tool, listed)?;
+        let names = if listed.is_empty() {
+            "none".to_string()
+        } else {
+            listed.join(", ")
+        };
+        Some(format!(
+            "the turn's tools listed {names}, but the {} event on line {} of {} ran {what} at {at}",
+            event.label, event.line, stream.source
+        ))
+    })
+}
+
+/// What ran that `listed` shows absent: `tool` when it is not listed, or
+/// a tool unnamed when none is.
+fn absent(tool: Option<&'static str>, listed: &[String]) -> Option<&'static str> {
+    match tool {
+        Some(tool) => (!listed.iter().any(|name| name == tool)).then_some(tool),
+        None => listed.is_empty().then_some("a tool"),
+    }
 }
 
 /// What the probe knows a tool's name to be.

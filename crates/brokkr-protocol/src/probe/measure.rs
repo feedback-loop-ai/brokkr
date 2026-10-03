@@ -13,10 +13,14 @@ use std::fmt;
 use super::facts::{Counting, Events, Fact, Facts, Headless, Refusals, Session, Usage};
 use super::observe::{Captured, Observation, Transcript, Trial, Written, SCRATCH_PREFIX};
 use super::plan::Plan;
-use read::{Counted, Harness, Said};
+use read::{Block, Counted, Harness, Said};
 
+mod answer;
 mod claude;
+mod claude_log;
+mod claude_message;
 mod codex;
+mod codex_log;
 mod dsh;
 mod forms;
 mod listing;
@@ -83,32 +87,50 @@ impl fmt::Display for Fault {
 }
 
 /// How a stream's lines are read (#484), closed-world, by the harness's
-/// typed reader: an event stream, stdout and a transcript, holds one
-/// event per line, and a line that is not one JSON object is unread.
-/// Text, stderr and dsh's stdout, is read line by line, since a CLI
-/// prints its ordinary warnings there:
+/// typed reader: an event stream, stdout or a transcript, holds one
+/// event per line, decoded by the harness's events or its transcript's
+/// rows, and a line that is not one JSON object is unread. Text, stderr
+/// and dsh's stdout, is read line by line, since a CLI prints its
+/// ordinary warnings there:
 ///
 /// - (i) a line that is not UTF-8 is unread, named by stream and line,
 ///   and refuses any admitting verdict;
 /// - (ii) a line that is one JSON object is decoded as an event, like a
 ///   line of stdout, so wrapping text in JSON changes nothing;
 /// - (iii) any other line is unread unless it is blank, the reply the
-///   probe asks for, or one of the forms the reader recognises whole.
+///   probe asks for, or one of the forms the reader recognises whole,
+///   and what that form says is kept.
 #[derive(Clone, Copy, PartialEq)]
 enum Lines {
     Events,
+    Transcript,
     Text,
 }
 
+/// The name stderr is read under.
+const STDERR: &str = "stderr";
+
 /// One stream a turn produced, stdout, a transcript or stderr: how its
-/// lines are read, its events, where they were read from, each line no
-/// reader read and why, and whether it held no bytes at all.
+/// lines are read, its events, what its lines of text said, where they
+/// were read from, each line no reader read and why, and whether it held
+/// no bytes at all.
 struct Stream {
     source: String,
     lines: Lines,
     events: Vec<Event>,
+    text: Vec<(usize, Said)>,
     unread: Vec<(usize, Fault)>,
     empty: bool,
+}
+
+/// Everything `stream`'s lines said, each beside its line: its events'
+/// and its text's.
+fn said_in(stream: &Stream) -> impl Iterator<Item = (usize, &Said)> {
+    let events = stream.events.iter().flat_map(|event| {
+        let line = event.line;
+        event.said.iter().map(move |said| (line, said))
+    });
+    events.chain(stream.text.iter().map(|(line, said)| (*line, said)))
 }
 
 /// The three turns whose streams are read as events: the plain turn, the
@@ -259,12 +281,38 @@ struct Reader {
     lines: Lines,
 }
 
+/// What one line was read to be: an event, or text and what it says.
+enum Line {
+    Event(read::Decoded),
+    Text(Vec<Said>),
+}
+
+/// One UTF-8 line, read as `reader` says, `block` carrying what the
+/// stream's earlier lines of text opened: one JSON object is decoded as
+/// an event or a transcript's row, and any other line is unread, or read
+/// as text.
+fn read_line(line: &str, reader: Reader, block: &mut Block) -> Result<Line, Fault> {
+    match (strict::object(line), reader.lines) {
+        (Some(fields), Lines::Transcript) => reader.harness.row(fields).map(Line::Event),
+        (Some(fields), Lines::Events | Lines::Text) => {
+            reader.harness.event(fields).map(Line::Event)
+        }
+        (None, Lines::Events | Lines::Transcript) => Err(Fault::NotOneObject),
+        (None, Lines::Text) => reader
+            .harness
+            .text_in(line, block)
+            .map(Line::Text)
+            .ok_or(Fault::Unrecognised),
+    }
+}
+
 /// `captured` read as the stream `source`, its first line being line
 /// `first` of what it came from: a line that is not UTF-8 is unread, and
-/// never parsed; one that is one JSON object is decoded as an event; and
-/// any other is unread, or read as text, as `reader` says.
+/// never parsed; and any other is read by [`read_line`].
 fn parse_lines(captured: &Captured, source: &str, first: usize, reader: Reader) -> Stream {
     let mut events = Vec::new();
+    let mut text = Vec::new();
+    let mut block = Block::Plain;
     let mut unread: Vec<(usize, Fault)> = captured
         .not_utf8
         .iter()
@@ -275,29 +323,22 @@ fn parse_lines(captured: &Captured, source: &str, first: usize, reader: Reader) 
             continue;
         }
         let at = first + index;
-        let fault = match (strict::object(line), reader.lines) {
-            (Some(fields), _) => match reader.harness.event(fields) {
-                Ok(decoded) => {
-                    events.push(Event {
-                        line: at,
-                        label: decoded.label,
-                        said: decoded.said,
-                    });
-                    continue;
-                }
-                Err(fault) => fault,
-            },
-            (None, Lines::Events) => Fault::NotOneObject,
-            (None, Lines::Text) if reader.harness.text(line).is_some() => continue,
-            (None, Lines::Text) => Fault::Unrecognised,
-        };
-        unread.push((at, fault));
+        match read_line(line, reader, &mut block) {
+            Ok(Line::Event(decoded)) => events.push(Event {
+                line: at,
+                label: decoded.label,
+                said: decoded.said,
+            }),
+            Ok(Line::Text(said)) => text.extend(said.into_iter().map(|said| (at, said))),
+            Err(fault) => unread.push((at, fault)),
+        }
     }
     unread.sort_unstable_by_key(|(line, _)| *line);
     Stream {
         source: source.to_string(),
         lines: reader.lines,
         events,
+        text,
         unread,
         empty: captured.text.is_empty() && captured.not_utf8.is_empty(),
     }
@@ -313,7 +354,7 @@ fn transcript_stream(transcript: &Transcript, harness: Harness) -> Stream {
     };
     let reader = Reader {
         harness,
-        lines: Lines::Events,
+        lines: Lines::Transcript,
     };
     parse_lines(&transcript.text, &source, first, reader)
 }
@@ -340,32 +381,46 @@ fn captured(observation: &Observation, harness: Harness) -> (Vec<Stream>, Option
     for stream in &mut all {
         stream.source = normalise(&stream.source, id.as_deref());
     }
-    let stderr = parse_lines(&observation.stderr, "stderr", 1, reader(Lines::Text));
+    let stderr = parse_lines(&observation.stderr, STDERR, 1, reader(Lines::Text));
     if !stderr.empty {
         all.push(stderr);
     }
     (all, primary)
 }
 
-/// A turn that exited clean: read when any of its streams holds an event.
-fn read_stream((all, primary): (Vec<Stream>, Option<usize>)) -> Turn {
-    match primary {
-        Some(primary) => Turn::Read(Streams { all, primary }),
-        None => Turn::Unread(
-            "the turn printed no JSON event and wrote no .jsonl transcript under the scratch \
-             HOME"
-                .to_string(),
-            all,
-        ),
+/// A turn that exited clean, launched under `controls`: unread when none
+/// of its streams holds an event; refused when a line refuses one of
+/// `controls`; unread when a line states any other refusal or a failure,
+/// or none is the reply, since a clean exit is not the turn answering
+/// (#484); and otherwise read.
+fn read_stream(
+    (all, primary): (Vec<Stream>, Option<usize>),
+    under: &Under,
+    controls: &[String],
+    observation: &Observation,
+) -> Turn {
+    let Some(primary) = primary else {
+        let why = "the turn printed no JSON event and wrote no .jsonl transcript under the \
+                   scratch HOME";
+        return Turn::Unread(why.to_string(), all);
+    };
+    let ended = exit_and_excerpt(observation);
+    if refusals::refuses_a_control(&all, controls) {
+        return Turn::Refused(format!("the CLI refused {}: {ended}", under.argv), all);
+    }
+    match answer::unanswered(&all) {
+        Some(why) => Turn::Unread(format!("{} exited 0, but {why}: {ended}", under.turn), all),
+        None => Turn::Read(Streams { all, primary }),
     }
 }
 
-/// The plain turn: read when it exited clean, otherwise nothing it shows
-/// is a measurement, though every line it captured is still read.
+/// The plain turn: read as [`read_stream`] says when it exited clean,
+/// otherwise nothing it shows is a measurement, though every line it
+/// captured is still read.
 fn read_base(observation: &Observation, harness: Harness) -> Turn {
     let streams = captured(observation, harness);
     if observation.exit == Some(0) {
-        read_stream(streams)
+        read_stream(streams, &PLAIN, &[], observation)
     } else {
         let why = format!(
             "the headless turn did not succeed: {}",
@@ -382,6 +437,11 @@ struct Under {
     argv: &'static str,
 }
 
+const PLAIN: Under = Under {
+    turn: "the headless turn",
+    argv: "the headless argv",
+};
+
 const HANDS: Under = Under {
     turn: "the boxed turn",
     argv: "the adapter's hands argv",
@@ -397,8 +457,9 @@ const OFF: Under = Under {
 /// keys, a form `harness`'s reader recognises as one, is the CLI refusing
 /// them, which is itself the measurement; any other non-zero exit, like a
 /// launch that ended with no exit code, by a signal or the deadline,
-/// refused nothing the probe can name (#484). However it ended, every
-/// line it captured is read.
+/// refused nothing the probe can name (#484); and a clean exit is read as
+/// [`read_stream`] says. However it ended, every line it captured is
+/// read.
 fn read_under(trial: &Trial, under: Under, controls: &[String], harness: Harness) -> Turn {
     let observation = match trial {
         Trial::Untried(why) => return Turn::Unread(why.clone(), Vec::new()),
@@ -407,9 +468,9 @@ fn read_under(trial: &Trial, under: Under, controls: &[String], harness: Harness
     let streams = captured(observation, harness);
     let ended = exit_and_excerpt(observation);
     let how = match observation.exit {
-        Some(0) => return read_stream(streams),
+        Some(0) => return read_stream(streams, &under, controls, observation),
         None => "did not finish".to_string(),
-        Some(_) if !refusals::refuses_a_control(observation, controls, harness) => format!(
+        Some(_) if !refusals::refuses_a_control(&streams.0, controls) => format!(
             "failed, and no line it printed is the CLI's refusal of a flag or key of {}",
             under.argv
         ),
@@ -690,10 +751,11 @@ fn facts(
             },
             format!(
                 "one turn ran under a scratch HOME with only these credentials bound: [{}]; \
-                 {}: {}",
+                 {}: {}{}",
                 bound.join(", "),
                 plan.unlike_driver,
-                exit_text(observed.turn.exit)
+                exit_text(observed.turn.exit),
+                answer::models(base)
             ),
         ),
         events,
@@ -708,7 +770,7 @@ fn facts(
             ),
             outage: Fact::unmeasured("not provoked: a provider outage cannot be caused safely"),
         },
-        efforts: refusals::efforts(&observed.bad_effort),
+        efforts: refusals::efforts(&observed.bad_effort, plan.reader),
         tools,
         boxed_tools,
         mcp_server: on_turn(boxed, tools::mcp_server),

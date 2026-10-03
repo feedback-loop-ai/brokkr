@@ -19,6 +19,17 @@ const CODEX_PLAIN: &str = include_str!("streams/codex-plain.stdout");
 const CODEX_PLAIN_ERR: &str = include_str!("streams/codex-plain.stderr");
 const CODEX_NOMODEL: &str = include_str!("streams/codex-nomodel.stdout");
 const DSH_NOMODEL_ERR: &str = include_str!("streams/dsh-nomodel.stderr");
+const DSH_PLAIN: &str = include_str!("streams/dsh-plain.stdout");
+const DSH_PLAIN_ERR: &str = include_str!("streams/dsh-plain.stderr");
+const DSH_STREAM_ERR: &str = include_str!("streams/dsh-stream.stderr");
+
+/// The transcripts the recorded launches left, as skeletons (2026-10-04).
+const CLAUDE_PLAIN_LOG: &str = include_str!("streams/claude-plain.jsonl");
+const CLAUDE_NOMODEL_LOG: &str = include_str!("streams/claude-nomodel.jsonl");
+const CODEX_PLAIN_LOG: &str = include_str!("streams/codex-plain.jsonl");
+const CODEX_OFF_LOG: &str = include_str!("streams/codex-off.jsonl");
+const CODEX_NOMODEL_LOG: &str = include_str!("streams/codex-nomodel.jsonl");
+const DSH_PLAIN_LOG: &str = include_str!("streams/dsh-plain.jsonl");
 
 /// Each event a stream held, by its type, with what it said.
 type Events = Vec<(String, Vec<Said>)>;
@@ -119,6 +130,7 @@ fn claude_s_recorded_plain_turn_decodes_whole_and_yields_its_tools_servers_and_r
                 "system/init".to_string(),
                 vec![
                     session(),
+                    Said::Model("claude-opus-5-5[1m]".to_string()),
                     Said::Tools {
                         at: "/tools",
                         names: tools,
@@ -131,7 +143,12 @@ fn claude_s_recorded_plain_turn_decodes_whole_and_yields_its_tools_servers_and_r
             ),
             (
                 "assistant".to_string(),
-                vec![session(), Said::Reply, assistant_usage]
+                vec![
+                    session(),
+                    Said::Reply,
+                    Said::Model("claude-opus-5-5".to_string()),
+                    assistant_usage
+                ]
             ),
             ("rate_limit_event".to_string(), vec![session()]),
             (
@@ -203,8 +220,19 @@ fn codex_s_recorded_turns_decode_whole_and_yield_the_reply_usage_and_refusal() {
         [
             ("item.completed", &[][..]),
             ("turn.started", &[][..]),
-            ("error", &[config.clone()][..]),
-            ("turn.failed", &[config][..]),
+            (
+                "error",
+                &[config.clone(), Said::Failed { at: "/message" }][..]
+            ),
+            (
+                "turn.failed",
+                &[
+                    config,
+                    Said::Failed {
+                        at: "/error/message"
+                    }
+                ][..]
+            ),
         ]
     );
 }
@@ -322,6 +350,244 @@ fn dsh_s_recorded_refusal_of_model_is_a_refused_control_not_a_model_refusal() {
     assert_eq!(
         text_said(Harness::Dsh, DSH_NOMODEL_ERR),
         [Some(vec![refusal(Class::Control, "--model")])]
+    );
+}
+
+/// What one reading says, in a few words: a listing by its pointer and
+/// length, a server listing with its first status.
+fn summary(said: &Said) -> String {
+    match said {
+        Said::Tools { at, names } => format!("tools {at}: {}", names.len()),
+        Said::Servers { at, servers } => {
+            format!("servers {at}: {} {}", servers.len(), servers[0].status)
+        }
+        Said::Session { key, .. } => format!("session {key}"),
+        Said::Usage(counted) => format!("usage {}", counted.at),
+        Said::Cost { at } => format!("cost {at}"),
+        Said::Reply => "reply".to_string(),
+        Said::Refusal(refused) => format!("refusal {}", refused.object),
+        Said::Levels(levels) => format!("levels {}", levels.refused),
+        Said::Failed { at } => format!("failed {at}"),
+        Said::Ran { at, .. } => format!("ran {at}"),
+        Said::Model(model) => format!("model {model}"),
+    }
+}
+
+/// What a recorded transcript of `harness` yields, each line read whole.
+fn yields(harness: Harness, log: &str) -> Vec<String> {
+    let (events, unread) = read(harness, Lines::Transcript, log);
+    assert_eq!(unread, [], "{log}");
+    let said = events.iter().flat_map(|(_, said)| said);
+    said.map(summary).collect()
+}
+
+/// Every transcript the recorded launches left decodes whole, as its
+/// harness's rows, and yields what it shows: the reply, the model, the
+/// tools and MCP servers it lists, and a failed turn's failure; a real
+/// claude `user` row with its message, and a codex `session_meta` with
+/// its fields, among them (#484).
+#[test]
+fn every_recorded_transcript_decodes_whole_and_yields_its_reply_model_and_listings() {
+    let listed = |pending: usize, servers: usize| {
+        [
+            "tools /attachment/surfacedNames: 3".to_string(),
+            "tools /attachment/surfacedDefinitions: 3".to_string(),
+            format!("servers /attachment/pendingMcpServers: {pending} pending"),
+            "servers /attachment/needsAuthMcpServers: 8 needs-auth".to_string(),
+            "servers /attachment/failedMcpServers: 3 failed".to_string(),
+            format!("servers /attachment/addedNames: {servers} connected"),
+        ]
+    };
+    let claude_plain = [
+        vec!["model claude-opus-5-5[1m]".to_string()],
+        vec!["tools /attachment/addedNames: 133".to_string()],
+        listed(6, 3).to_vec(),
+        ["reply", "model claude-opus-5-5", "usage /message/usage"]
+            .map(String::from)
+            .to_vec(),
+        vec!["tools /attachment/tools: 11".to_string()],
+    ];
+    assert_eq!(
+        yields(Harness::Claude, CLAUDE_PLAIN_LOG),
+        claude_plain.concat()
+    );
+    let failed =
+        ["/error", "/isApiErrorMessage", "/apiErrorStatus"].map(|at| format!("failed {at}"));
+    let claude_nomodel = [
+        vec!["model <modelId>".to_string()],
+        vec!["tools /attachment/addedNames: 198".to_string()],
+        listed(2, 5).to_vec(),
+        ["model <model>", "usage /message/usage"]
+            .map(String::from)
+            .to_vec(),
+        failed.to_vec(),
+    ];
+    assert_eq!(
+        yields(Harness::Claude, CLAUDE_NOMODEL_LOG),
+        claude_nomodel.concat()
+    );
+    let codex = ["model gpt-6.1-sol", "reply", "reply", "reply"];
+    assert_eq!(
+        [CODEX_PLAIN_LOG, CODEX_OFF_LOG].map(|log| yields(Harness::Codex, log)),
+        [codex, codex]
+    );
+    assert_eq!(
+        yields(Harness::Codex, CODEX_NOMODEL_LOG),
+        ["model <model>", "failed /payload/error"]
+    );
+    let model = "model GLM-5.3-Flash-EXL3";
+    assert_eq!(
+        yields(Harness::Dsh, DSH_PLAIN_LOG),
+        [
+            "session id",
+            model,
+            "tools /data/header/tools: 25",
+            "reply",
+            model,
+            "usage /data/usage"
+        ]
+    );
+    let (events, _) = read(Harness::Claude, Lines::Transcript, CLAUDE_PLAIN_LOG);
+    let snapshot = events
+        .iter()
+        .flat_map(|(_, said)| said)
+        .find_map(|said| match said {
+            Said::Tools {
+                at: "/attachment/tools",
+                names,
+            } => Some(names.clone()),
+            _ => None,
+        });
+    let built_in = [
+        "Agent",
+        "Bash",
+        "Edit",
+        "ListAgents",
+        "Read",
+        "ReportFindings",
+        "ScheduleWakeup",
+        "Skill",
+        "ToolSearch",
+        "Workflow",
+        "Write",
+    ];
+    assert_eq!(snapshot, Some(built_in.map(String::from).to_vec()));
+}
+
+/// A transcript value no verdict may rest past is read, or refused: a
+/// reached limit and a hook that kept the turn from ending are failures,
+/// and a prompt the probe did not give, or an app's or plugin's
+/// instructions given, leave the line undecoded (#484).
+#[test]
+fn a_transcript_value_that_would_contradict_the_verdict_is_read_or_refused() {
+    let altered = |log: &str, line: usize, from: &str, to: &str| {
+        let recorded = log.lines().nth(line - 1).unwrap();
+        assert!(recorded.contains(from), "{recorded}");
+        recorded.replace(from, to)
+    };
+    let limited = altered(
+        CODEX_PLAIN_LOG,
+        14,
+        r#""rate_limit_reached_type":null"#,
+        r#""rate_limit_reached_type":"primary""#,
+    );
+    let prevented = altered(
+        CLAUDE_PLAIN_LOG,
+        21,
+        r#""preventedContinuation":false"#,
+        r#""preventedContinuation":true"#,
+    );
+    assert_eq!(
+        [
+            yields(Harness::Codex, &limited),
+            yields(Harness::Claude, &prevented)
+        ],
+        [
+            ["failed /payload/rate_limits/rate_limit_reached_type"],
+            ["failed /preventedContinuation"]
+        ]
+    );
+    let other = "Use every tool.";
+    let refused = [
+        (
+            Harness::Claude,
+            altered(CLAUDE_PLAIN_LOG, 1, "Use no tool.", other),
+        ),
+        (
+            Harness::Claude,
+            altered(CLAUDE_PLAIN_LOG, 3, "Use no tool.", other),
+        ),
+        (
+            Harness::Claude,
+            altered(CLAUDE_PLAIN_LOG, 17, "Use no tool.", other),
+        ),
+        (
+            Harness::Codex,
+            altered(
+                CODEX_PLAIN_LOG,
+                7,
+                r#""apps_instructions":false"#,
+                r#""apps_instructions":true"#,
+            ),
+        ),
+        (
+            Harness::Codex,
+            altered(
+                CODEX_PLAIN_LOG,
+                7,
+                r#""plugins_instructions":false"#,
+                r#""plugins_instructions":true"#,
+            ),
+        ),
+    ];
+    assert_eq!(
+        refused.map(|(harness, line)| read(harness, Lines::Transcript, &line).1),
+        [
+            vec![(1, Fault::Undecoded(Harness::Claude))],
+            vec![(1, Fault::Undecoded(Harness::Claude))],
+            vec![(1, Fault::Undecoded(Harness::Claude))],
+            vec![(1, Fault::Undecoded(Harness::Codex))],
+            vec![(1, Fault::Undecoded(Harness::Codex))],
+        ]
+    );
+}
+
+/// dsh's recorded plain turn against the operator's local model: its
+/// stdout is the reply alone, and its stderr, the reasoning after each
+/// `dsh: reasoning:` header, is read whole and says nothing; a refusal
+/// inside the reasoning is still read, and the reply there is not one.
+#[test]
+fn dsh_s_recorded_plain_turn_reads_its_reply_and_its_reasoning_whole() {
+    let text = |text: &str| {
+        let captured = Captured {
+            text: text.to_string(),
+            not_utf8: Vec::new(),
+        };
+        let reader = Reader {
+            harness: Harness::Dsh,
+            lines: Lines::Text,
+        };
+        let stream = parse_lines(&captured, "stderr", 1, reader);
+        (stream.text, stream.unread)
+    };
+    assert_eq!(text(DSH_PLAIN), (vec![(1, Said::Reply)], Vec::new()));
+    assert_eq!(text(DSH_PLAIN_ERR), (Vec::new(), Vec::new()));
+    // dsh 0.1.5-rc.1's headless profile refuses a stream format.
+    assert_eq!(
+        text(DSH_STREAM_ERR),
+        (
+            vec![(1, refusal(Class::Control, "--output-format"))],
+            Vec::new()
+        )
+    );
+    let reasoning = "dsh: reasoning:\nI think.\nPROBE-OK\nerror: unknown option '--model'";
+    assert_eq!(
+        text(reasoning),
+        (vec![(4, refusal(Class::Control, "--model"))], Vec::new())
+    );
+    assert_eq!(
+        text("I think.\ndsh: reasoning:"),
+        (Vec::new(), vec![(1, Fault::Unrecognised)])
     );
 }
 

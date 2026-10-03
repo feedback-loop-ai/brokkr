@@ -14,6 +14,7 @@ use super::*;
 use crate::process::in_its_own_engine;
 use crate::secret;
 
+mod answered;
 mod evidence;
 #[path = "../../../../tests/support/executable.rs"]
 mod executable;
@@ -275,6 +276,16 @@ fn probe_with(
 fn probe(kind: AdapterKind, cli: &Path, declared: &Declared, world: &World) -> Value {
     let report = probe_with(kind, cli, declared, &world.bindings, DEADLINE).unwrap();
     serde_json::to_value(report).unwrap()
+}
+
+/// The report of the `index`th Claude-like fake of `world`, running
+/// `plain` on its plain turn and `boxed` under the hands argv.
+fn claude_report(world: &World, index: usize, plain: &str, boxed: &str) -> Value {
+    let cli = world.fake(
+        &format!("claude-{index}"),
+        &claude_with("9.9.9", plain, boxed),
+    );
+    probe(AdapterKind::Claude, &cli, &claude_declared(), world)
 }
 
 fn measured(value: Value, evidence: &str) -> Value {
@@ -1269,6 +1280,15 @@ fn sample_report() -> Report {
     }
 }
 
+/// `stdout`, a claude stream, with a last event carrying the reply, which
+/// a clean turn must hold to be read (#484).
+fn replied(stdout: &str) -> String {
+    format!(
+        r#"{stdout}{}{{"type":"result","subtype":"success","result":"PROBE-OK"}}"#,
+        '\n'
+    )
+}
+
 fn observation(exit: Option<i32>, stdout: &str, stderr: &str) -> Observation {
     let captured = |text: &str| Captured {
         text: text.to_string(),
@@ -1326,21 +1346,48 @@ fn a_clean_exit_that_prints_nothing_measures_no_version_and_no_refusal() {
     );
 }
 
+/// The efforts are read only from the harness's typed effort refusal of
+/// the unknown effort, never from a list a line gives in other words
+/// (#484): the chief's e1 and e2, a list after a marker on another line
+/// and inside an event no reader decodes, a clap listing, and a typed
+/// refusal of another level all leave them unmeasured.
 #[test]
-fn a_refusal_that_lists_no_levels_leaves_efforts_unmeasured_and_clap_s_listing_is_read() {
+fn efforts_are_read_only_from_the_typed_refusal_of_the_unknown_effort() {
+    let none = |ended: &str| {
+        Fact::unmeasured(format!(
+            "no line of the refusal is an effort refusal of brokkr-probe-no-such-effort \
+             listing the levels accepted: {ended}"
+        ))
+    };
     let facts = facts_of(observation(Some(2), "", "error: unexpected argument"));
-    assert_eq!(
-        facts.efforts,
-        Fact::unmeasured(
-            "the refusal names no accepted levels: exit 2: error: unexpected argument"
-        )
-    );
+    assert_eq!(facts.efforts, none("exit 2: error: unexpected argument"));
+    let e1 = "error: unknown option '--frobnicate'\ndebug possible values: banana, kumquat";
+    let e2 = r#"{"type":"log","note":"expected one of WebSearch, github"}"#;
     let clap =
         "error: invalid value 'x' for '--effort <EFFORT>'\n  [possible values: low, high or max]";
-    let facts = facts_of(observation(Some(2), "", clap));
+    let other = "error: option '--effort <level>' argument 'x' is invalid. Allowed choices are \
+                 low, max.";
+    let unlisted = "error: option '--effort <level>' argument 'brokkr-probe-no-such-effort' is \
+                    invalid. Allowed choices are";
     assert_eq!(
-        facts.efforts.value(),
-        Some(&strings(&["low", "high", "max"]))
+        [e1, clap, other, unlisted]
+            .map(|stderr| facts_of(observation(Some(1), "", stderr)).efforts),
+        [
+            none("exit 1: error: unknown option '--frobnicate'"),
+            none("exit 1: error: invalid value 'x' for '--effort <EFFORT>'"),
+            none(&format!("exit 1: {other}")),
+            none(&format!("exit 1: {unlisted}")),
+        ]
+    );
+    assert_eq!(
+        facts_of(observation(Some(1), e2, "")).efforts,
+        none(&format!("exit 1: {e2}"))
+    );
+    let typed = "error: option '--effort <level>' argument 'brokkr-probe-no-such-effort' is \
+                 invalid. Allowed choices are low, max.";
+    assert_eq!(
+        facts_of(observation(Some(1), "", typed)).efforts,
+        Fact::measured(strings(&["low", "max"]), format!("exit 1: {typed}"))
     );
     let facts = facts_of(observation(None, "", clap));
     assert_eq!(
@@ -1361,7 +1408,7 @@ fn an_unreadable_listing_or_usage_is_not_read_as_an_empty_one() {
         "not json",
     ]
     .join("\n");
-    let facts = facts_of(observation(Some(0), &stream, ""));
+    let facts = facts_of(observation(Some(0), &replied(&stream), ""));
     let lines = format!(
         "line 2 of stdout {UNDECODED}; line 3 of stdout {UNDECODED}; line 4 of stdout is not one \
          JSON object naming each key once"
@@ -1401,7 +1448,7 @@ fn an_unreadable_listing_or_usage_is_not_read_as_an_empty_one() {
 fn usage_that_names_its_message_on_one_event_is_unmeasured_with_nothing_listed_as_unnamed() {
     let stream =
         r#"{"type":"assistant","message":{"id":"msg_1","content":[],"usage":{"output_tokens":2}}}"#;
-    let facts = facts_of(observation(Some(0), stream, ""));
+    let facts = facts_of(observation(Some(0), &replied(stream), ""));
     assert_eq!(
         facts.usage.value().map(|usage| &usage.counting),
         Some(&Fact::unmeasured(NOT_REPEATED))
@@ -1420,7 +1467,7 @@ fn unboxed_facts(kind: AdapterKind, declared: &Declared) -> super::facts::Facts 
     let init = |tools: &str| {
         let init =
             format!(r#"{{"type":"system","subtype":"init","tools":[{tools}],"mcp_servers":[]}}"#);
-        observation(Some(0), &init, "")
+        observation(Some(0), &replied(&init), "")
     };
     let observed = Observed {
         boxed: Trial::Untried(gap),
@@ -1608,7 +1655,7 @@ fn with_hands(
 ) -> super::facts::Facts {
     let mut facts = facts_of(observation(
         Some(0),
-        r#"{"type":"system","subtype":"init","tools":[],"mcp_servers":[]}"#,
+        &replied(r#"{"type":"system","subtype":"init","tools":[],"mcp_servers":[]}"#),
         "",
     ));
     facts.boxed_tools = boxed_tools;

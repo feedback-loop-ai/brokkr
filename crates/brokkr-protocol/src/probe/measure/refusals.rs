@@ -2,15 +2,11 @@
 //! harness's reader recognises, and the accepted efforts one of them
 //! lists. Pure, like `measure`.
 
-use super::read::{Class, Harness, Refused, Said};
-use super::{exit_and_excerpt, exit_text, EXCERPT_CHARS};
+use super::read::{Class, Harness, Levels, Refused, Said};
+use super::{exit_and_excerpt, exit_text, said_in, Stream, EXCERPT_CHARS};
 use crate::probe::facts::{Fact, Refusal};
 use crate::probe::observe::{Observation, Trial};
 use crate::probe::plan::{NO_SUCH_EFFORT, NO_SUCH_MODEL};
-
-/// What refusals list the accepted levels after: clap's, commander's and
-/// serde's wording.
-const LEVEL_MARKERS: [&str; 3] = ["possible values:", "Allowed choices are", "expected one of"];
 
 /// The launch that refused a deliberate mistake, or why there is no
 /// refusal to read: `accepted` when it exited 0. A launch that ended with
@@ -30,20 +26,28 @@ fn refused<T: serde::Serialize>(trial: &Trial, accepted: String) -> Result<&Obse
     }
 }
 
-/// Every refusal a line the launch printed states, stderr's lines first,
-/// each beside its line: a refusal is a form `harness`'s reader
-/// recognises, which names its class and its object (#484), and a line
-/// the reader does not read states none.
-fn refusals(observation: &Observation, harness: Harness) -> Vec<(&str, Refused)> {
+/// Everything a line the launch printed states, stderr's lines first,
+/// each beside its line, as `harness`'s reader reads it; a line the
+/// reader does not read states nothing.
+fn said(observation: &Observation, harness: Harness) -> Vec<(&str, Said)> {
     let stderr = observation.stderr.text.lines();
     let lines = stderr.chain(observation.stdout.text.lines());
     let said = lines.flat_map(|line| harness.said(line).into_iter().map(move |said| (line, said)));
-    let refused = said.filter_map(|(line, said)| {
-        let Said::Refusal(refused) = said else {
-            return None;
-        };
-        Some((line, refused))
-    });
+    said.collect()
+}
+
+/// Every refusal a line the launch printed states, each beside its line:
+/// a refusal is a form `harness`'s reader recognises, which names its
+/// class and its object (#484).
+fn refusals(observation: &Observation, harness: Harness) -> Vec<(&str, Refused)> {
+    let refused = said(observation, harness)
+        .into_iter()
+        .filter_map(|(line, said)| {
+            let Said::Refusal(refused) = said else {
+                return None;
+            };
+            Some((line, refused))
+        });
     refused.collect()
 }
 
@@ -58,18 +62,16 @@ fn control_words(controls: &[String]) -> Vec<&str> {
     words.collect()
 }
 
-/// Whether a line the launch printed is the CLI's refusal of one of
+/// Whether a line of a turn's `streams` is the CLI's refusal of one of
 /// `controls`' flags or keys: a control refusal whose object is one of
-/// them. A line that echoes a control, or names it in any other words,
-/// refuses nothing (#484).
-pub(super) fn refuses_a_control(
-    observation: &Observation,
-    controls: &[String],
-    harness: Harness,
-) -> bool {
+/// them, as the turn's reader read it. A line that echoes a control, or
+/// names it in any other words, refuses nothing (#484).
+pub(super) fn refuses_a_control(streams: &[Stream], controls: &[String]) -> bool {
     let named = control_words(controls);
-    refusals(observation, harness).iter().any(|(_, refused)| {
-        refused.class == Class::Control && named.contains(&refused.object.as_str())
+    let said = streams.iter().flat_map(said_in);
+    said.into_iter().any(|(_, said)| {
+        matches!(said, Said::Refusal(Refused { class: Class::Control, object })
+            if named.contains(&object.as_str()))
     })
 }
 
@@ -131,27 +133,12 @@ pub(super) fn auth_refusal(trial: &Trial, harness: Harness) -> Fact<Refusal> {
     )
 }
 
-/// The accepted levels a refusal lists after one of its markers.
-fn accepted_levels(text: &str) -> Option<Vec<String>> {
-    let rest = text.lines().find_map(|line| {
-        LEVEL_MARKERS
-            .iter()
-            .find_map(|marker| line.split_once(marker).map(|(_, rest)| rest))
-    })?;
-    let levels: Vec<String> = rest
-        .replace(" or ", ",")
-        .split(',')
-        .filter_map(|item| item.split_whitespace().next())
-        .map(|word| {
-            word.trim_matches(|c: char| !c.is_ascii_alphanumeric())
-                .to_string()
-        })
-        .filter(|level| !level.is_empty())
-        .collect();
-    Some(levels).filter(|levels| !levels.is_empty())
-}
-
-pub(super) fn efforts(trial: &Trial) -> Fact<Vec<String>> {
+/// The levels the unknown effort's launch was refused with: measured
+/// only when a line is `harness`'s typed effort refusal whose object is
+/// that effort, its evidence being that line, and its levels the list
+/// that form reads (#484); a line that lists levels in any other words,
+/// or refuses another level, lists none.
+pub(super) fn efforts(trial: &Trial, harness: Harness) -> Fact<Vec<String>> {
     let accepted = format!(
         "the CLI accepted the unknown effort '{NO_SUCH_EFFORT}' and exited 0, so no refusal \
          lists its levels"
@@ -160,11 +147,25 @@ pub(super) fn efforts(trial: &Trial) -> Fact<Vec<String>> {
         Ok(observation) => observation,
         Err(fact) => return fact,
     };
-    let text = format!("{}\n{}", observation.stderr.text, observation.stdout.text);
-    match accepted_levels(&text) {
-        Some(levels) => Fact::measured(levels, exit_and_excerpt(observation)),
+    let listed = said(observation, harness)
+        .into_iter()
+        .find_map(|(line, said)| {
+            let Said::Levels(Levels { refused, accepted }) = said else {
+                return None;
+            };
+            (refused == NO_SUCH_EFFORT).then_some((line, accepted))
+        });
+    match listed {
+        Some((line, levels)) => {
+            let excerpt: String = line.trim().chars().take(EXCERPT_CHARS).collect();
+            Fact::measured(
+                levels,
+                format!("{}: {excerpt}", exit_text(observation.exit)),
+            )
+        }
         None => Fact::unmeasured(format!(
-            "the refusal names no accepted levels: {}",
+            "no line of the refusal is an effort refusal of {NO_SUCH_EFFORT} listing the levels \
+             accepted: {}",
             exit_and_excerpt(observation)
         )),
     }

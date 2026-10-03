@@ -423,7 +423,9 @@ fn an_off_refusal_is_read_by_the_config_key_it_names() {
 /// under the declared OFF controls listed `off_tools`, against `declared`.
 fn declared_against(declared: &Declared, plain_tools: &str, off_tools: &str) -> Value {
     let init = |tools: &str| {
-        format!(r#"{{"type":"system","subtype":"init","tools":[{tools}],"mcp_servers":[]}}"#)
+        replied(&format!(
+            r#"{{"type":"system","subtype":"init","tools":[{tools}],"mcp_servers":[]}}"#
+        ))
     };
     let plan = plan::plan(AdapterKind::Claude, declared).unwrap();
     let observed = Observed {

@@ -14,8 +14,9 @@ mod executable;
 /// One Claude-shaped turn, in the events claude's reader decodes: the
 /// init event names the hands server when the hands argv is given, lists
 /// the two network tools unless the OFF controls are, and every
-/// deliberate mistake is refused. It reads its version from the file
-/// beside it, so a rerun can change it.
+/// deliberate mistake is refused; its result carries the reply, as a turn
+/// must to be read. It reads its version from the file beside it, so a
+/// rerun can change it.
 const FAKE: &str = r#"#!/bin/sh
 case " $* " in
   *" --version "*) cat "$(dirname "$0")/version"; exit 0 ;;
@@ -29,7 +30,7 @@ case " $* " in
   *) tools='"Bash","WebFetch","WebSearch"'; servers='' ;;
 esac
 printf '{"type":"system","subtype":"init","session_id":"%s","tools":[%s],"mcp_servers":[%s]}\n' "$sid" "$tools" "$servers"
-printf '{"type":"result","subtype":"success","total_cost_usd":0.5,"usage":{"input_tokens":1,"output_tokens":1}}\n'
+printf '{"type":"result","subtype":"success","result":"PROBE-OK","total_cost_usd":0.5,"usage":{"input_tokens":1,"output_tokens":1}}\n'
 "#;
 
 /// The OFF controls the engine composes from the shipped claude adapter's

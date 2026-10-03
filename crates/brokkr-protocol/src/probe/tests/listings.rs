@@ -8,7 +8,7 @@ use super::*;
 
 const INIT: &str = "the system/init event on line 1 of stdout";
 const LATER: &str = "the system/init event on line 2 of stdout";
-const TRANSCRIPT: &str = "the system/init event on line 1 of ~/.claude/projects/{workdir}";
+const TRANSCRIPT: &str = "the attachment event on line 1 of ~/.claude/projects/{workdir}";
 const PLANTED_TOOL: &str =
     "mcp__brokkr-probe-user-scope__probe of the MCP server brokkr-probe-user-scope";
 pub(super) const PLANTED_SERVER: &str =
@@ -200,10 +200,7 @@ fn found_by_the_chief() -> Vec<Row> {
         Row {
             shape: "a reach only in the boxed turn's transcript",
             plain: PLAIN_READS_THE_PLANT,
-            boxed: boxed(&written(
-                "boxed.jsonl",
-                r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr-probe-user-scope","status":"connected"}]}"#,
-            )),
+            boxed: boxed(&written("boxed.jsonl", PLANTED_ROW)),
             expected: expect(
                 tools_emptied(&listed(INIT, "tools", 1)),
                 connected(&format!(
@@ -213,7 +210,7 @@ fn found_by_the_chief() -> Vec<Row> {
                 )),
                 leaked_plain(),
                 reached_in_the_box(&format!(
-                    "{PLANTED_SERVER} {TRANSCRIPT}/boxed.jsonl at /mcp_servers/0"
+                    "{PLANTED_SERVER} {TRANSCRIPT}/boxed.jsonl at {ADDED}/0"
                 )),
             ),
         },
@@ -349,6 +346,14 @@ const ESCAPED_O: &str = concat!("\\", "u006f");
 /// The planted server's init event.
 pub(super) const PLANTED_INIT: &str = r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr-probe-user-scope","status":"connected"}]}"#;
 
+/// A row of claude's log naming the planted server among those whose
+/// instructions reached the turn, in its recorded transcripts' vocabulary
+/// (#484).
+const PLANTED_ROW: &str = r#"{"type":"attachment","attachment":{"type":"mcp_instructions_delta","addedNames":["brokkr-probe-user-scope"],"addedBlocks":["b"],"removedNames":[]}}"#;
+
+/// Where that row names its servers.
+const ADDED: &str = "/attachment/addedNames";
+
 /// A boxed turn whose `event` lands in the session file the plain turn
 /// wrote, which `redirect` appends to or rewrites, and is read at `at`.
 fn in_the_session_file(shape: &'static str, redirect: &str, at: &str) -> Row {
@@ -356,7 +361,7 @@ fn in_the_session_file(shape: &'static str, redirect: &str, at: &str) -> Row {
         shape,
         plain: PLAIN_READS_THE_PLANT,
         boxed: boxed(&format!(
-            "printf '%s\\n' '{PLANTED_INIT}' {redirect} {SESSION_FILE}"
+            "printf '%s\\n' '{PLANTED_ROW}' {redirect} {SESSION_FILE}"
         )),
         expected: expect(
             tools_emptied(&listed(INIT, "tools", 1)),
@@ -366,7 +371,7 @@ fn in_the_session_file(shape: &'static str, redirect: &str, at: &str) -> Row {
                 listed(at, "mcp_servers", 1)
             )),
             leaked_plain(),
-            reached_in_the_box(&format!("{PLANTED_SERVER} {at} at /mcp_servers/0")),
+            reached_in_the_box(&format!("{PLANTED_SERVER} {at} at {ADDED}/0")),
         ),
     }
 }
@@ -375,7 +380,7 @@ fn in_the_session_file(shape: &'static str, redirect: &str, at: &str) -> Row {
 /// file the plain turn wrote, and lines strict.rs refuses that do not
 /// spell a listing's key.
 fn found_by_the_chief_on_e5e196ab() -> Vec<Row> {
-    let rewrote = format!("the system/init event on line 1 of {SESSION}, which the turn rewrote,");
+    let rewrote = format!("the attachment event on line 1 of {SESSION}, which the turn rewrote,");
     let no_event = format!(
         "{}; {BOXED_FILE} holds no JSON event",
         unparsed(1, BOXED_FILE)
@@ -384,7 +389,7 @@ fn found_by_the_chief_on_e5e196ab() -> Vec<Row> {
         in_the_session_file(
             "a boxed turn appending to the plain turn's transcript",
             ">>",
-            &format!("the system/init event on line 3 of {SESSION}"),
+            &format!("the attachment event on line 3 of {SESSION}"),
         ),
         in_the_session_file(
             "one session file the fake rewrites on each launch",
@@ -437,15 +442,17 @@ fn implied_lines_and_streams() -> Vec<Row> {
         format!("{TRANSCRIPT}/a.jsonl"),
         format!("{TRANSCRIPT}/b.jsonl"),
     );
+    let b_later = b.replace("line 1", "line 2");
     let disagreeing = format!(
-        "{}, and {}, and {}",
+        "{}, and {}, and {}, and {}",
         listed(INIT, "mcp_servers", 1),
         listed(&a, "mcp_servers", 1),
-        listed(&b, "mcp_servers", 2)
+        listed(&b, "mcp_servers", 1),
+        listed(&b_later, "mcp_servers", 1)
     );
     let plain_transcript_reach = format!(
-        "{PLANTED_SERVER} the system/init event on line 2 of \
-         ~/.claude/projects/{{workdir}}/{{session}}.jsonl at /mcp_servers/0"
+        "{PLANTED_SERVER} the attachment event on line 2 of \
+         ~/.claude/projects/{{workdir}}/{{session}}.jsonl at {ADDED}/0"
     );
     vec![
         unread_row(
@@ -481,7 +488,7 @@ fn implied_lines_and_streams() -> Vec<Row> {
         },
         Row {
             shape: "a reach only in a transcript of the plain turn",
-            plain: r#"printf '%s\n' '{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr-probe-user-scope","status":"connected"}]}' >> "$dir/$sid.jsonl""#,
+            plain: r#"printf '%s\n' '{"type":"attachment","attachment":{"type":"mcp_instructions_delta","addedNames":["brokkr-probe-user-scope"],"addedBlocks":["b"],"removedNames":[]}}' >> "$dir/$sid.jsonl""#,
             boxed: BOXED_CLEAN.to_string(),
             expected: expect(
                 tools_emptied(&listed(INIT, "tools", 1)),
@@ -507,11 +514,13 @@ fn implied_lines_and_streams() -> Vec<Row> {
                 "{}; {}",
                 written(
                     "a.jsonl",
-                    r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr","status":"connected"}]}"#
+                    r#"{"type":"attachment","attachment":{"type":"mcp_instructions_delta","addedNames":["brokkr"],"addedBlocks":["b"],"removedNames":[]}}"#
                 ),
                 written(
                     "b.jsonl",
-                    r#"{"type":"system","subtype":"init","mcp_servers":[{"name":"brokkr","status":"failed"},{"name":"brokkr-probe-user-scope","status":"connected"}]}"#
+                    &format!(
+                        r#"{{"type":"attachment","attachment":{{"type":"deferred_tools_delta","addedNames":[],"addedLines":[],"removedNames":[],"wireHiddenNames":[],"readdedNames":[],"pendingMcpServers":[],"needsAuthMcpServers":[],"failedMcpServers":[{{"name":"brokkr","errorCode":"e","error":"e"}}],"surfacedNames":[],"surfacedDefinitions":[]}}}}' '{PLANTED_ROW}"#
+                    )
                 ),
             )),
             expected: expect(
@@ -520,7 +529,7 @@ fn implied_lines_and_streams() -> Vec<Row> {
                     "the turn's listings gave brokkr the statuses connected, failed: {disagreeing}"
                 )),
                 leaked_plain(),
-                reached_in_the_box(&format!("{PLANTED_SERVER} {b} at /mcp_servers/1")),
+                reached_in_the_box(&format!("{PLANTED_SERVER} {b_later} at {ADDED}/0")),
             ),
         },
     ]

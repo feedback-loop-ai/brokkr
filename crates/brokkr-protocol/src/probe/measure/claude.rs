@@ -4,26 +4,37 @@
 //! claude 2.1.287 on 2026-10-03 (`tests/streams/claude-*`): the events
 //! `system/hook_started`, `system/hook_response`, `system/init`,
 //! `assistant`, `rate_limit_event` and `result/success`, and the
-//! unrecognised-model line on stderr. `user` is the type its transcripts
-//! open with, read with no key of its own. Every struct denies a key it
-//! does not name. A key is consumed, or inert: a field named with a
-//! leading `_`, decoded for its type and dropped, its comment saying why.
+//! unrecognised-model line on stderr; its transcripts are `claude_log`'s.
+//! Every struct denies a key it does not name. A key is consumed, or
+//! inert: a field named with a leading `_`, decoded for its type and
+//! dropped, its comment saying why. A key is inert only when no value of
+//! it can contradict a fact the verdict rests on (#484): the turn's
+//! reply, its failure, the tools it listed and ran, and the MCP servers
+//! that reached it.
 
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
+use super::claude_message::{
+    message_said, searched, stopped, usage_said, Ending, Message, ModelUsage, Usage, IN_RESULT,
+};
 use super::forms::{self, Form, Says, UNKNOWN_OPTION};
 use super::read::{
-    decode, Class, Counted, Decoded, Empty, Given, Harness, Never, Null, Refused, Said, Server,
-    Uuid,
+    decode, Class, Decoded, Empty, Given, Harness, Never, Null, Refused, Said, Server, Uuid,
 };
 use super::Fault;
 
 /// What claude prints that the probe reads whole.
-const FORMS: [Form; 3] = [
+const FORMS: [Form; 4] = [
     UNKNOWN_OPTION,
+    // commander's refusal of a level `--effort` does not take.
+    Form {
+        words: "error option --effort level argument {level} is invalid allowed choices are \
+                {levels}",
+        says: Says::RefusesLevel,
+    },
     // A turn's reply to an unknown model, recorded 2026-10-03.
     Form {
         words: "there's an issue with the selected model {model} it may not exist or you may not \
@@ -44,9 +55,7 @@ enum Event {
     Assistant(Box<Assistant>),
     #[serde(rename = "rate_limit_event")]
     RateLimit {
-        /// Inert: the account's quota, which no fact rests on.
-        #[serde(rename = "rate_limit_info")]
-        _rate_limit_info: Quota,
+        rate_limit_info: Quota,
         #[serde(default)]
         session_id: Given<Uuid>,
         /// Inert: the event's own id.
@@ -54,7 +63,6 @@ enum Event {
         _uuid: Given<Uuid>,
     },
     Result(Outcome),
-    User {},
 }
 
 #[derive(Deserialize)]
@@ -92,7 +100,8 @@ struct Hook {
     /// Inert: the event's own id.
     #[serde(rename = "uuid")]
     _uuid: Uuid,
-    /// Inert: how the hook exited.
+    /// Inert: how the hook exited; a hook runs beside the turn, and its
+    /// exit neither lists a tool nor fails the turn.
     #[serde(default, rename = "exit_code")]
     _exit_code: Given<i32>,
     /// Inert: as `exit_code`.
@@ -107,9 +116,11 @@ struct Init {
     session_id: Given<Uuid>,
     tools: Given<Vec<String>>,
     mcp_servers: Given<Vec<ServerEntry>>,
-    /// Inert: the model the turn runs; an echo of it refuses nothing.
-    #[serde(rename = "model")]
-    _model: Given<String>,
+    model: Given<String>,
+    /// An entry `mcp__<server>__<prompt>` is that server's prompt, so it
+    /// reached the turn; every other is the CLI's or a prompt run under
+    /// the tools listed.
+    slash_commands: Given<Vec<String>>,
     /// Inert: the scratch repository the turn runs in.
     #[serde(rename = "cwd")]
     _cwd: Given<String>,
@@ -134,20 +145,20 @@ struct Init {
     /// Inert: the SDK's socket.
     #[serde(rename = "messaging_socket_path")]
     _messaging_socket_path: Given<String>,
-    /// Inert: a subagent runs under the tools listed.
+    /// Inert: a subagent runs under the tools listed, and reaches only
+    /// the servers listed, so no name of one contradicts either listing.
     #[serde(rename = "agents")]
     _agents: Given<Vec<String>>,
-    /// Inert: a skill is a prompt, run under the tools listed.
+    /// Inert: a skill is a prompt, run under the tools listed, so no name
+    /// of one contradicts a listing.
     #[serde(rename = "skills")]
     _skills: Given<Vec<String>>,
-    /// Inert: a command is a prompt, run under the tools listed.
-    #[serde(rename = "slash_commands")]
-    _slash_commands: Given<Vec<String>>,
-    /// Inert: the terminal's own commands.
+    /// Inert: the terminal's own commands, which no headless turn runs.
     #[serde(rename = "terminal_slash_commands")]
     _terminal_slash_commands: Given<Vec<String>>,
-    /// Inert: a plugin's MCP servers and tools are listed under
-    /// `mcp_servers` and `tools`, which are read.
+    /// Inert: a plugin reaches a turn only through the MCP servers and
+    /// tools it adds, which `mcp_servers` and `tools` list and the probe
+    /// reads, so no plugin's name contradicts a listing.
     #[serde(rename = "plugins")]
     _plugins: Given<Vec<Plugin>>,
     /// Inert: the SDK protocol's capabilities, not the turn's.
@@ -226,7 +237,7 @@ struct Assistant {
     /// Inert: the event's own id.
     #[serde(default, rename = "uuid")]
     _uuid: Given<Uuid>,
-    /// Inert: no tool ran.
+    /// Inert: `null` is the only value read, so no tool ran.
     #[serde(rename = "parent_tool_use_id")]
     _parent_tool_use_id: Null,
     /// Inert: when the message was sent.
@@ -235,161 +246,27 @@ struct Assistant {
     /// Inert: the provider's request id.
     #[serde(default, rename = "request_id")]
     _request_id: Given<String>,
-    /// Inert: the class the message's text states, which is read.
-    #[serde(default, rename = "error")]
-    _error: Given<ApiError>,
-    /// Inert: as `error`.
-    #[serde(default, rename = "is_api_error_message")]
-    _is_api_error_message: Given<bool>,
+    /// Any value is a failure.
+    #[serde(default)]
+    error: Given<ApiError>,
+    /// `true` is a failure.
+    #[serde(default)]
+    is_api_error_message: Given<bool>,
 }
 
+/// The class of an API error claude names a message by.
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum ApiError {
     ModelNotFound,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Message {
-    /// The message the usage counts.
-    #[serde(default)]
-    id: Given<String>,
-    content: Vec<Block>,
-    #[serde(default)]
-    usage: Given<Usage>,
-    /// Inert: the model the turn ran.
-    #[serde(default, rename = "model")]
-    _model: Given<String>,
-    /// Inert: a tag.
-    #[serde(default, rename = "type")]
-    _kind: Given<MessageTag>,
-    /// Inert: a tag.
-    #[serde(default, rename = "role")]
-    _role: Given<Role>,
-    /// Inert: why the message ended, `null` while it streams.
-    #[serde(rename = "stop_reason")]
-    _stop_reason: Option<String>,
-    /// Inert: as `stop_reason`.
-    #[serde(rename = "stop_sequence")]
-    _stop_sequence: Option<String>,
-    #[serde(rename = "stop_details")]
-    _stop_details: Null,
-    #[serde(rename = "container")]
-    _container: Null,
-    #[serde(rename = "diagnostics")]
-    _diagnostics: Null,
-    #[serde(rename = "context_management")]
-    _context_management: Null,
-    #[serde(default, rename = "input_transformations")]
-    _input_transformations: Empty,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum MessageTag {
-    Message,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum Role {
-    Assistant,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-enum Block {
-    /// Read whole, as the reply or a refusal.
-    Text { text: String },
-}
-
-/// Every key may be absent, so the struct defaults each one; those the
-/// recordings show `null` are `Option`s.
-#[derive(Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-struct Usage {
-    input_tokens: Given<u64>,
-    cache_creation_input_tokens: Given<u64>,
-    cache_read_input_tokens: Given<u64>,
-    output_tokens: Given<u64>,
-    /// Inert: `cache_creation_input_tokens` split by lifetime.
-    #[serde(rename = "cache_creation")]
-    _cache_creation: Given<CacheCreation>,
-    /// Inert: counts of use; the tool listing says what was offered.
-    #[serde(rename = "server_tool_use")]
-    _server_tool_use: Given<ServerToolUse>,
-    /// Inert: the counts restated per request.
-    #[serde(rename = "iterations")]
-    _iterations: Option<Vec<Iteration>>,
-    /// Inert: part of `output_tokens`.
-    #[serde(rename = "output_tokens_details")]
-    _output_tokens_details: Option<OutputDetails>,
-    /// Inert: a billing tag.
-    #[serde(rename = "service_tier")]
-    _service_tier: Option<String>,
-    /// Inert: a billing tag.
-    #[serde(rename = "inference_geo")]
-    _inference_geo: Option<String>,
-    /// Inert: a billing tag.
-    #[serde(rename = "speed")]
-    _speed: Option<String>,
-    #[serde(rename = "fallback_credit")]
-    _fallback_credit: Null,
-}
-
-/// Inert, every key: `cache_creation_input_tokens` by lifetime.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CacheCreation {
-    #[serde(rename = "ephemeral_1h_input_tokens")]
-    _hour: u64,
-    #[serde(rename = "ephemeral_5m_input_tokens")]
-    _minutes: u64,
-}
-
-/// Inert, every key: counts of use.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ServerToolUse {
-    #[serde(rename = "web_search_requests")]
-    _searches: u64,
-    #[serde(rename = "web_fetch_requests")]
-    _fetches: u64,
-}
-
-/// Inert, every key: the usage restated for one request.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Iteration {
-    #[serde(rename = "input_tokens")]
-    _input: u64,
-    #[serde(rename = "output_tokens")]
-    _output: u64,
-    #[serde(rename = "cache_read_input_tokens")]
-    _cache_read: u64,
-    #[serde(rename = "cache_creation_input_tokens")]
-    _cache_creation: u64,
-    #[serde(rename = "cache_creation")]
-    _by_lifetime: CacheCreation,
-    #[serde(rename = "type")]
-    _kind: MessageTag,
-}
-
-/// Inert, every key: part of `output_tokens`.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OutputDetails {
-    #[serde(rename = "thinking_tokens")]
-    _thinking: u64,
-}
-
-/// Inert, every key: the account's quota.
+/// The account's quota: a rejected turn failed, and every other key is
+/// inert, a measure of the quota that fails nothing.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Quota {
-    #[serde(rename = "status")]
-    _status: String,
+    status: QuotaStatus,
     #[serde(rename = "resetsAt")]
     _resets_at: u64,
     #[serde(rename = "rateLimitType")]
@@ -402,6 +279,14 @@ struct Quota {
     _threshold: Given<f64>,
     #[serde(default, rename = "unifiedWindows")]
     _windows: Given<BTreeMap<String, Window>>,
+}
+
+#[derive(Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum QuotaStatus {
+    Allowed,
+    AllowedWarning,
+    Rejected,
 }
 
 /// Inert, every key: one window of the quota.
@@ -430,24 +315,22 @@ struct Finished {
     usage: Given<Usage>,
     /// Read whole, as the reply or a refusal.
     result: Given<String>,
-    /// Inert: the text in `result` says what failed.
-    #[serde(rename = "is_error")]
-    _is_error: Given<bool>,
-    /// Inert: as `is_error`.
-    #[serde(rename = "api_error_status")]
-    _api_error_status: Option<u16>,
-    /// Inert: `usage` and `total_cost_usd` restated per model.
+    /// `true` is a failure.
+    is_error: Given<bool>,
+    /// Any status is a failure.
+    api_error_status: Option<u16>,
+    /// Each model's share of the turn: its searches are a tool run.
     #[serde(rename = "modelUsage")]
-    _model_usage: Given<BTreeMap<String, ModelUsage>>,
-    /// Inert: why the turn ended.
-    #[serde(rename = "stop_reason")]
-    _stop_reason: Given<String>,
-    /// Inert: as `stop_reason`.
-    #[serde(rename = "terminal_reason")]
-    _terminal_reason: Given<String>,
-    /// Inert: no subagent ran.
+    model_usage: Given<BTreeMap<String, ModelUsage>>,
+    /// Why the turn ended: a tool use is a tool run.
+    stop_reason: Given<Ending>,
+    /// How the turn ended: an API error is a failure.
+    terminal_reason: Given<Terminal>,
+    /// Inert: counts of subagents, each run under the tools and servers
+    /// listed, and counted in `modelUsage` when it searched.
     #[serde(rename = "subagent_stats")]
     _subagent_stats: Given<Subagents>,
+    /// Inert: an empty list is the only value read.
     #[serde(rename = "permission_denials")]
     _permission_denials: Empty,
     /// Inert: a preference.
@@ -459,9 +342,10 @@ struct Finished {
     /// Inert: the event's own id.
     #[serde(rename = "uuid")]
     _uuid: Given<Uuid>,
-    /// Inert, like each count and timing after it.
-    #[serde(rename = "num_turns")]
-    _num_turns: Given<u64>,
+    /// None taken is a failure.
+    num_turns: Given<u64>,
+    /// Inert, like each timing and count after it: how long, or in what
+    /// order, a turn ran says nothing of what it did.
     #[serde(rename = "duration_ms")]
     _duration_ms: Given<u64>,
     #[serde(rename = "duration_api_ms")]
@@ -480,37 +364,16 @@ struct Finished {
     _result_index: Given<u64>,
 }
 
-/// Inert, every key: one model's share of the turn.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ModelUsage {
-    #[serde(rename = "inputTokens")]
-    _input: u64,
-    #[serde(rename = "outputTokens")]
-    _output: u64,
-    #[serde(rename = "cacheReadInputTokens")]
-    _cache_read: u64,
-    #[serde(rename = "cacheCreationInputTokens")]
-    _cache_creation: u64,
-    #[serde(rename = "webSearchRequests")]
-    _searches: u64,
-    #[serde(rename = "costUSD")]
-    _cost: f64,
-    #[serde(rename = "contextWindow")]
-    _context_window: u64,
-    #[serde(rename = "maxOutputTokens")]
-    _max_output: u64,
-    #[serde(rename = "thinkingTokens")]
-    _thinking: u64,
-    #[serde(rename = "canonicalModel")]
-    _canonical_model: String,
-    #[serde(rename = "provider")]
-    _provider: String,
-    #[serde(rename = "costBasis")]
-    _cost_basis: String,
+/// How a turn ended.
+#[derive(Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum Terminal {
+    Completed,
+    ApiError,
 }
 
-/// Inert, every key: counts of subagents, none of which ran.
+/// Inert, every key: counts of subagents, each run under the tools and
+/// servers listed.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Subagents {
@@ -579,11 +442,17 @@ pub(super) fn event(fields: Map<String, Value>) -> Result<Decoded, Fault> {
         Event::System(System::HookStarted(hook)) => hook_said("system/hook_started", hook),
         Event::System(System::HookResponse(hook)) => hook_said("system/hook_response", hook),
         Event::Assistant(assistant) => assistant_said(*assistant),
-        Event::RateLimit { session_id, .. } => {
-            Ok(labelled("rate_limit_event", sessions(session_id)))
+        Event::RateLimit {
+            rate_limit_info,
+            session_id,
+            ..
+        } => {
+            let mut said = sessions(session_id);
+            let rejected = rate_limit_info.status == QuotaStatus::Rejected;
+            said.extend(failures([(rejected, "/rate_limit_info/status")]));
+            Ok(labelled("rate_limit_event", said))
         }
         Event::Result(outcome) => outcome_said(outcome),
-        Event::User {} => Ok(labelled("user", Vec::new())),
     }
 }
 
@@ -604,10 +473,19 @@ fn sessions(id: Given<Uuid>) -> Vec<Said> {
 
 fn init_said(init: Init) -> Decoded {
     let mut said = sessions(init.session_id);
+    said.extend(init.model.0.map(Said::Model));
     if let Some(names) = init.tools.0 {
         said.push(Said::Tools {
             at: "/tools",
             names,
+        });
+    }
+    let prompts = init.slash_commands.0.into_iter().flatten();
+    let served: Vec<String> = prompts.filter(|name| name.starts_with("mcp__")).collect();
+    if !served.is_empty() {
+        said.push(Said::Tools {
+            at: "/slash_commands",
+            names: served,
         });
     }
     if let Some(entries) = init.mcp_servers.0 {
@@ -636,35 +514,26 @@ fn hook_said(label: &str, hook: Hook) -> Result<Decoded, Fault> {
 }
 
 /// A string the event carries, read whole by claude's forms.
-fn texts(text: &str) -> Result<Vec<Said>, Fault> {
+pub(super) fn texts(text: &str) -> Result<Vec<Said>, Fault> {
     forms::read(text, &FORMS).ok_or(Fault::Unrecognised)
 }
 
-fn usage_said(at: &'static str, message: Option<String>, usage: Usage) -> Said {
-    Counted::of(
-        at,
-        message,
-        [
-            ("input_tokens", usage.input_tokens.0),
-            (
-                "cache_creation_input_tokens",
-                usage.cache_creation_input_tokens.0,
-            ),
-            ("cache_read_input_tokens", usage.cache_read_input_tokens.0),
-            ("output_tokens", usage.output_tokens.0),
-        ],
-    )
+/// A failure at each pointer whose test holds.
+fn failures<const N: usize>(tests: [(bool, &'static str); N]) -> impl Iterator<Item = Said> {
+    let failed = tests.into_iter().filter(|(failed, _)| *failed);
+    failed.map(|(_, at)| Said::Failed { at })
 }
 
 fn assistant_said(assistant: Assistant) -> Result<Decoded, Fault> {
-    let message = assistant.message;
     let mut said = sessions(assistant.session_id);
-    for Block::Text { text } in &message.content {
-        said.extend(texts(text)?);
-    }
-    if let Some(usage) = message.usage.0 {
-        said.push(usage_said("/message/usage", message.id.0, usage));
-    }
+    said.extend(message_said(assistant.message, false)?);
+    said.extend(failures([
+        (assistant.error.0.is_some(), "/error"),
+        (
+            assistant.is_api_error_message.0 == Some(true),
+            "/is_api_error_message",
+        ),
+    ]));
     Ok(labelled("assistant", said))
 }
 
@@ -676,9 +545,21 @@ fn outcome_said(outcome: Outcome) -> Result<Decoded, Fault> {
     if let Some(text) = &outcome.result.0 {
         said.extend(texts(text)?);
     }
+    said.extend(failures([
+        (outcome.is_error.0 == Some(true), "/is_error"),
+        (outcome.api_error_status.is_some(), "/api_error_status"),
+        (outcome.num_turns.0 == Some(0), "/num_turns"),
+        (
+            outcome.terminal_reason.0 == Some(Terminal::ApiError),
+            "/terminal_reason",
+        ),
+    ]));
     if let Some(usage) = outcome.usage.0 {
-        said.push(usage_said("/usage", None, usage));
+        said.extend(usage_said(&IN_RESULT, None, usage));
     }
+    said.extend(stopped(outcome.stop_reason.0.as_ref(), IN_RESULT.stop));
+    let models = outcome.model_usage.0.unwrap_or_default();
+    said.extend(searched(&models));
     if outcome.total_cost_usd.0.is_some() {
         said.push(Said::Cost {
             at: "/total_cost_usd",
