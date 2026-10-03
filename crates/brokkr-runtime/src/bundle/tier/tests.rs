@@ -43,16 +43,24 @@ impl Workspace {
     /// seat can spawn, and what the optional inline read loads the adapters
     /// for.
     fn adapter_as(&self, provider: &str, fresh: Value, efforts: &[&str]) {
+        let models = json!({"steady": "steady-1", "fresh": fresh});
+        self.adapter_with(provider, models, "--model", efforts);
+    }
+
+    /// An adapter of `provider` mapping `models`, every one a judge, told
+    /// a model on `model_flag`.
+    fn adapter_with(&self, provider: &str, models: Value, model_flag: &str, efforts: &[&str]) {
         let effort_flag = if efforts.is_empty() {
             "unsupported"
         } else {
             "--effort"
         };
+        let judges: Vec<&String> = models.as_object().unwrap().keys().collect();
         let adapter = json!({
             "provider": provider, "binary": provider, "trust_tier": "trusted",
             "egress": "contracted", "driver": ["{brokkr}", "driver", provider, "--"],
-            "models": {"steady": "steady-1", "fresh": fresh}, "judges": ["steady", "fresh"],
-            "model_flag": "--model", "efforts": efforts, "effort_flag": effort_flag,
+            "models": models, "judges": judges,
+            "model_flag": model_flag, "efforts": efforts, "effort_flag": effort_flag,
             "tool_permissions": "unsupported", "mcp": "unsupported",
         });
         let file = self.path(&format!("adapters/{provider}.json"));
@@ -125,10 +133,15 @@ fn seat(agent: &str, class: &str) -> Value {
 }
 
 fn inline(class: &str, model: &str) -> Value {
-    json!({
-        "role": "roles/role.md", "results": ["pass"], "class": class,
-        "driver": {"command": ["{brokkr}", "driver", "newcomer", "--", "--model", model]},
-    })
+    inline_on("newcomer", class, &["--model", model])
+}
+
+/// An inline seat on `driver`, its tail as given.
+fn inline_on(driver: &str, class: &str, tail: &[&str]) -> Value {
+    let mut command = vec!["{brokkr}", "driver", driver, "--"];
+    command.extend(tail);
+    json!({"role": "roles/role.md", "results": ["pass"], "class": class,
+           "driver": {"command": command}})
 }
 
 fn chain(bundle: &Bundle) -> Vec<&str> {
@@ -235,8 +248,9 @@ fn a_provisional_model_reached_only_by_fallback_is_refused_the_same_way() {
 
 /// An inline command names no agent, so it holds no office: its pinned
 /// provisional model is seatable nowhere, and never at a gate. A pin on
-/// a promoted model and a command no adapter answers are not the tier's
-/// to judge.
+/// a promoted model and a command that dispatches no driver are not the
+/// tier's to judge; a driver no adapter declares declares no id, so its
+/// pin is refused.
 #[test]
 fn an_inline_command_pinning_a_provisional_model_holds_no_office() {
     let workspace = Workspace::new();
@@ -264,12 +278,19 @@ fn an_inline_command_pinning_a_provisional_model_holds_no_office() {
         workspace.refusal(inline("gate", "fresh-1"), &[]),
         ProvisionalRefusal::Gate { link: 1, .. }
     ));
+    assert_eq!(
+        workspace.refusal(inline_on("ghost", "gate", &["--model", "fresh-1"]), &[]),
+        ProvisionalRefusal::Undeclared {
+            seat: "work".into(),
+            adapter: "newcomer".into(),
+            flags: vec!["--model".into()],
+            value: "fresh-1".into(),
+        }
+    );
     for admitted in [
         inline("gate", "steady-1"),
         json!({"role": "roles/role.md", "results": ["pass"], "class": "gate",
                "driver": {"command": ["./judge.sh"]}}),
-        json!({"role": "roles/role.md", "results": ["pass"], "class": "gate",
-               "driver": {"command": ["{brokkr}", "driver", "ghost", "--", "--model", "fresh-1"]}}),
     ] {
         assert!(
             !matches!(
@@ -398,10 +419,10 @@ fn an_inline_pin_on_no_declared_id_is_refused_where_the_adapter_declares_a_provi
     );
     assert_eq!(
         refusal.to_string(),
-        "seat 'work' pins 'fresh' on '--model', which is the id of no model adapter 'newcomer' \
-         declares, and the adapter declares a provisional model; an alias or an undeclared id \
-         may reach that model, so a pin the tier cannot map to a declared id is refused, never \
-         read as promoted (proposed decision 0075 ruling 5)"
+        "seat 'work' pins 'fresh' on '--model', which is the id of no model the seat's own \
+         adapter declares, and adapter 'newcomer' declares a provisional model; an alias or an \
+         undeclared id may reach that model, so a pin the tier cannot map to a declared id is \
+         refused, never read as promoted (proposed decision 0075 ruling 5)"
     );
     assert_eq!(workspace.refusal(inline("gate", "fresh"), &[]), refusal);
     let mut falling = inline("work", "steady-1");
@@ -534,12 +555,7 @@ fn a_shipped_recipe_is_refused_once_its_adapter_tail_names_a_model() {
 fn an_inline_command_that_pins_no_model_is_refused_where_the_adapter_declares_a_provisional_model()
 {
     let workspace = Workspace::new();
-    let unpinned = |class: &str, tail: &[&str]| {
-        let mut command = vec!["{brokkr}", "driver", "newcomer", "--"];
-        command.extend(tail);
-        json!({"role": "roles/role.md", "results": ["pass"], "class": class,
-               "driver": {"command": command}})
-    };
+    let unpinned = |class: &str, tail: &[&str]| inline_on("newcomer", class, tail);
     let refusal = workspace.refusal(unpinned("work", &[]), &[]);
     assert_eq!(
         refusal,
@@ -550,10 +566,10 @@ fn an_inline_command_that_pins_no_model_is_refused_where_the_adapter_declares_a_
     );
     assert_eq!(
         refusal.to_string(),
-        "seat 'work' pins no model, and adapter 'newcomer' declares a provisional model its own \
-         default may be; pin a promoted model's id on the adapter's model flag, because a seat \
-         whose model the tier cannot read is refused, never read as promoted (proposed decision \
-         0075 ruling 5)"
+        "seat 'work' pins no model, and adapter 'newcomer' declares a provisional model the \
+         harness's own default may be; pin a promoted model's id on the adapter's model flag, \
+         because a seat whose model the tier cannot read is refused, never read as promoted \
+         (proposed decision 0075 ruling 5)"
     );
     assert_eq!(workspace.refusal(unpinned("gate", &[]), &[]), refusal);
     // A flag the model read walks past pins nothing either.
@@ -614,6 +630,92 @@ fn an_inline_seat_is_judged_where_the_bundle_names_no_agent_and_no_gate() {
     assert_eq!(compile(unclassed("steady-1")).unwrap().name, "tier");
     std::fs::remove_dir_all(workspace.path("adapters")).unwrap();
     assert_eq!(compile(unclassed("fresh-1")).unwrap().name, "tier");
+}
+
+/// The tier is the id's, not the entry's. `sibling` declares nothing
+/// provisional but maps `borrowed` to `fresh-1`, the id `newcomer` declares
+/// provisional, so an inline pin on it, a gate's fallback on it, and an
+/// agent hiring it are each refused naming `newcomer` and its `fresh`, as
+/// a second alias of the id inside `newcomer` itself is.
+#[test]
+fn a_model_is_judged_by_the_adapter_that_declares_its_id_provisional_whichever_serves_it() {
+    let workspace = Workspace::new();
+    let sibling = json!({"plain": "steady-1", "borrowed": "fresh-1"});
+    workspace.adapter_with("sibling", sibling, "--model", &[]);
+    let unlisted = |link: usize, office: Option<&str>| ProvisionalRefusal::Unlisted {
+        seat: "work".into(),
+        link,
+        model: "fresh".into(),
+        adapter: "newcomer".into(),
+        office: office.map(str::to_string),
+    };
+    let pinned = inline_on("sibling", "work", &["--model", "fresh-1"]);
+    assert_eq!(workspace.refusal(pinned, &[]), unlisted(1, None));
+    let falling = ["--model", "steady-1", "--fallback-model", "fresh-1"];
+    assert_eq!(
+        workspace.refusal(inline_on("sibling", "gate", &falling), &[]),
+        ProvisionalRefusal::Gate {
+            seat: "work".into(),
+            link: 2,
+            model: "fresh".into(),
+            adapter: "newcomer".into(),
+        }
+    );
+    workspace.agent("borrower", &["plain", "borrowed"]);
+    let borrower = seat("borrower", "work");
+    assert_eq!(
+        workspace.refusal(borrower.clone(), &[]),
+        unlisted(2, Some("borrower"))
+    );
+    let listed = workspace.compile(borrower, &["borrower"]).unwrap();
+    assert_eq!(chain(&listed), ["plain", "borrowed"]);
+
+    let aliased = json!({"steady": "steady-1", "fresh": {"id": "fresh-1", "tier": "provisional"},
+                         "fresh-b": "fresh-1"});
+    workspace.adapter_with("newcomer", aliased, "--model", &[]);
+    workspace.agent("aliaser", &["fresh-b"]);
+    assert_eq!(
+        workspace.refusal(seat("aliaser", "work"), &[]),
+        unlisted(1, Some("aliaser"))
+    );
+}
+
+/// Once any loaded adapter declares a provisional model, an inline seat on
+/// an adapter that declares none must pin an id its own adapter declares:
+/// the alias `fresh` may resolve to the provisional id, so it is refused
+/// naming the adapter that declares one, and no pin is refused as it is on
+/// `newcomer`. A driver that declares no model and can be told none,
+/// exec's shape, is not the tier's, and with the model promoted neither
+/// refusal stands.
+#[test]
+fn an_inline_pin_its_own_adapter_does_not_declare_is_refused_once_any_adapter_declares_one() {
+    let workspace = Workspace::new();
+    workspace.adapter_with("sibling", json!({"plain": "steady-1"}), "--model", &[]);
+    workspace.adapter_with("shell", json!({}), "unsupported", &[]);
+    let alias = inline_on("sibling", "work", &["--model", "fresh"]);
+    assert_eq!(
+        workspace.refusal(alias.clone(), &[]),
+        ProvisionalRefusal::Undeclared {
+            seat: "work".into(),
+            adapter: "newcomer".into(),
+            flags: vec!["--model".into()],
+            value: "fresh".into(),
+        }
+    );
+    assert_eq!(
+        workspace.refusal(inline_on("sibling", "work", &[]), &[]),
+        ProvisionalRefusal::Unpinned {
+            seat: "work".into(),
+            adapter: "newcomer".into(),
+        }
+    );
+    let declared = inline_on("sibling", "work", &["--model", "steady-1"]);
+    assert_eq!(workspace.compile(declared, &[]).unwrap().name, "tier");
+    let shell = inline_on("shell", "work", &["bash", "./verify.sh"]);
+    assert_eq!(workspace.compile(shell, &[]).unwrap().name, "tier");
+
+    workspace.adapter(json!("fresh-1"));
+    assert_eq!(workspace.compile(alias, &[]).unwrap().name, "tier");
 }
 
 /// Promotion is data only: the provisional entry with its tier removed,

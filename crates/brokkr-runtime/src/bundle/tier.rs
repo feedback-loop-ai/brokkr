@@ -9,7 +9,10 @@
 //! An office is an agent, by name. An inline command names no agent, so
 //! it holds no office: a provisional model pinned inline is seatable
 //! nowhere, and an inline pin that cannot be read as one id, or no pin at
-//! all, is refused wherever its adapter declares a provisional model.
+//! all, is refused wherever a loaded adapter declares a provisional model.
+//! The tier belongs to a concrete id, so a link is judged against every
+//! loaded adapter's provisional ids, not only those of the adapter that
+//! serves it.
 //!
 //! The check reads the adapters the compile opened for an agent, a gate,
 //! a secret or typed tools, and otherwise [`inline_context`] opens the
@@ -108,17 +111,17 @@ pub enum ProvisionalRefusal {
         flags: Vec<String>,
     },
     #[error(
-        "seat '{seat}' pins no model, and adapter '{adapter}' declares a provisional model its \
-         own default may be; pin a promoted model's id on the adapter's model flag, because a \
-         seat whose model the tier cannot read is refused, never read as promoted (proposed \
-         decision 0075 ruling 5)"
+        "seat '{seat}' pins no model, and adapter '{adapter}' declares a provisional model the \
+         harness's own default may be; pin a promoted model's id on the adapter's model flag, \
+         because a seat whose model the tier cannot read is refused, never read as promoted \
+         (proposed decision 0075 ruling 5)"
     )]
     Unpinned { seat: String, adapter: String },
     #[error(
-        "seat '{seat}' pins '{value}' on {}, which is the id of no model adapter '{adapter}' \
-         declares, and the adapter declares a provisional model; an alias or an undeclared id \
-         may reach that model, so a pin the tier cannot map to a declared id is refused, never \
-         read as promoted (proposed decision 0075 ruling 5)",
+        "seat '{seat}' pins '{value}' on {}, which is the id of no model the seat's own adapter \
+         declares, and adapter '{adapter}' declares a provisional model; an alias or an \
+         undeclared id may reach that model, so a pin the tier cannot map to a declared id is \
+         refused, never read as promoted (proposed decision 0075 ruling 5)",
         flags_named(.flags)
     )]
     Undeclared {
@@ -227,20 +230,38 @@ fn provisional_links<'a>(
         .iter()
         .enumerate()
         .filter_map(|(index, candidate)| {
-            let (adapter, _) = adapters
+            let (serving, id) = adapters
                 .serving(&candidate.model)
                 .expect("resolution mapped every link of the chain");
-            adapter
-                .provisional
-                .contains(&candidate.model)
-                .then_some(Link {
-                    number: index + 1,
-                    office: Some(candidate.agent.as_str()),
-                    adapter,
-                    model: candidate.model.as_str(),
-                })
+            declaring(adapters, Some(serving), id).map(|(adapter, model)| Link {
+                number: index + 1,
+                office: Some(candidate.agent.as_str()),
+                adapter,
+                model,
+            })
         })
         .collect())
+}
+
+/// The adapter that declares the concrete `id` provisional, and the name
+/// it declares it under, the seat's own adapter read first. The tier is
+/// the id's, not the entry's: a model one adapter declares provisional is
+/// provisional whichever adapter serves it and under whichever name, a
+/// sibling's tierless entry or a second alias of the same id included.
+fn declaring<'a>(
+    adapters: &'a Adapters,
+    own: Option<&'a Adapter>,
+    id: &str,
+) -> Option<(&'a Adapter, &'a str)> {
+    own.into_iter()
+        .chain(adapters.providers())
+        .find_map(|adapter| {
+            adapter
+                .provisional
+                .iter()
+                .find(|name| adapter.models[name.as_str()] == id)
+                .map(|name| (adapter, name.as_str()))
+        })
 }
 
 /// The flag a harness reads a second model from, the one it falls to at
@@ -248,42 +269,91 @@ fn provisional_links<'a>(
 /// walks past it, and the tier reads it as link 2 of an inline chain.
 const FALLBACK_FLAG: &str = "--fallback-model";
 
-/// An inline command's provisional models: the ones its adapter maps to
-/// the concrete ids the command pins, link 1 read on the flags the model
-/// policy reads (decision 0040 ruling 1) and link 2 on [`FALLBACK_FLAG`].
-/// A pin those flags cannot read as one id, pinned twice or illegible,
-/// may name the provisional model as well as any other, so where the
-/// adapter declares one it is refused naming the flags read; the tier
-/// fails closed on what it cannot read. No primary pin at all leaves the
-/// model to the harness's own default, which may be the provisional one,
-/// so it is refused the same way: the tier does not lean on another rule
-/// to demand a pin. No fallback pin is no second link. A pin that is the
-/// id of no model the adapter declares, an alias the harness resolves
-/// itself or an id the file never names, may be the provisional model
-/// too, so it is refused naming the flags its link is read on.
+/// An inline command's provisional models: the ones any loaded adapter
+/// declares provisional at the concrete ids the command pins, link 1 read
+/// on the flags the model policy reads (decision 0040 ruling 1) and link 2
+/// on [`FALLBACK_FLAG`]. The tier is the id's, so once any loaded adapter
+/// declares a provisional model every inline model seat is judged, not
+/// only those its own adapter serves: a sibling adapter, or a second file
+/// over the same driver kind, may route to the same id. A pin those flags
+/// cannot read as one id, pinned twice or illegible, may name the
+/// provisional model as well as any other, so it is refused naming the
+/// flags read; the tier fails closed on what it cannot read. No primary
+/// pin at all leaves the model to the harness's own default, which may be
+/// the provisional one, so it is refused the same way: the tier does not
+/// lean on another rule to demand a pin. No fallback pin is no second
+/// link. A pin that is the id of no model the seat's own adapter declares,
+/// an alias the harness resolves itself or an id the file never names, may
+/// be the provisional model too, so it is refused naming the flags its
+/// link is read on; a driver no adapter declares declares no id. Each
+/// refusal names the adapter that declares a provisional model, the
+/// seat's own where it does. A driver that declares no model and can be
+/// told none, exec's shape, seats nothing the tier can name: what an
+/// arbitrary command runs is decisions 0043 and 0046's.
 fn inline_link<'a>(
     what: &str,
     raw: &Value,
     adapters: &'a Adapters,
 ) -> Result<Vec<Link<'a>>, ProvisionalRefusal> {
-    let Some(adapter) = dispatch_driver(&command_parts(raw))
-        .and_then(|driver| adapters.adapter(&driver))
-        .filter(|adapter| !adapter.provisional.is_empty())
+    let Some(driver) = dispatch_driver(&command_parts(raw)) else {
+        return Ok(Vec::new());
+    };
+    let own = adapters.adapter(&driver);
+    let declares = |adapter: &&Adapter| !adapter.provisional.is_empty();
+    let Some(declarer) = own
+        .filter(declares)
+        .or_else(|| adapters.providers().find(declares))
     else {
         return Ok(Vec::new());
     };
+    if own.is_some_and(|own| own.models.is_empty() && own.model_flag.is_none()) {
+        return Ok(Vec::new());
+    }
+    let pins = inline_pins(what, raw, own, &declarer.provider)?;
+    let mut links = Vec::new();
+    for (index, (flags, concrete)) in pins.into_iter().enumerate() {
+        if !own.is_some_and(|own| own.models.values().any(|id| *id == concrete)) {
+            return Err(ProvisionalRefusal::Undeclared {
+                seat: what.to_string(),
+                adapter: declarer.provider.clone(),
+                flags,
+                value: concrete,
+            });
+        }
+        links.extend(
+            declaring(adapters, own, &concrete).map(|(adapter, model)| Link {
+                number: index + 1,
+                office: None,
+                adapter,
+                model,
+            }),
+        );
+    }
+    Ok(links)
+}
+
+/// An inline command's pins in link order, each with the flags it was
+/// read on: the primary, which must be there, and the fallback, where
+/// there is one. A pin that cannot be read, or no primary, is refused
+/// naming `declarer`, the adapter whose provisional model it may reach.
+fn inline_pins(
+    what: &str,
+    raw: &Value,
+    own: Option<&Adapter>,
+    declarer: &str,
+) -> Result<Vec<(Vec<String>, String)>, ProvisionalRefusal> {
     let unreadable = |flags| ProvisionalRefusal::Unreadable {
         seat: what.to_string(),
-        adapter: adapter.provider.clone(),
+        adapter: declarer.to_string(),
         flags,
     };
-    let primary = match inline_route_pin(raw, Some(adapter)) {
+    let primary = match inline_route_pin(raw, own) {
         ModelPin::Concrete(concrete) => concrete,
         ModelPin::Unreadable(flags) => return Err(unreadable(flags)),
         ModelPin::Absent => {
             return Err(ProvisionalRefusal::Unpinned {
                 seat: what.to_string(),
-                adapter: adapter.provider.clone(),
+                adapter: declarer.to_string(),
             });
         }
     };
@@ -292,40 +362,16 @@ fn inline_link<'a>(
         ModelPin::Unreadable(flags) => return Err(unreadable(flags)),
         ModelPin::Absent => None,
     };
-    let primary_flags = adapter
-        .model_flag
-        .iter()
-        .map(String::as_str)
+    let primary_flags = own
+        .and_then(|own| own.model_flag.as_deref())
         .filter(|flag| *flag != MODEL_FLAG)
+        .into_iter()
         .chain([MODEL_FLAG]);
     let pins = [
         Some((primary_flags.map(str::to_string).collect(), primary)),
         fallback.map(|concrete| (vec![FALLBACK_FLAG.to_string()], concrete)),
     ];
-    let mut links = Vec::new();
-    for (index, (flags, concrete)) in pins.into_iter().flatten().enumerate() {
-        if !adapter.models.values().any(|id| *id == concrete) {
-            return Err(ProvisionalRefusal::Undeclared {
-                seat: what.to_string(),
-                adapter: adapter.provider.clone(),
-                flags,
-                value: concrete,
-            });
-        }
-        links.extend(
-            adapter
-                .provisional
-                .iter()
-                .find(|model| adapter.models[model.as_str()] == concrete)
-                .map(|model| Link {
-                    number: index + 1,
-                    office: None,
-                    adapter,
-                    model,
-                }),
-        );
-    }
-    Ok(links)
+    Ok(pins.into_iter().flatten().collect())
 }
 
 #[cfg(test)]
