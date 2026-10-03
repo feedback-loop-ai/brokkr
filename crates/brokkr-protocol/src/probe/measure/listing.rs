@@ -27,7 +27,7 @@ pub(super) struct Entry<T> {
 ///   one JSON object naming each key once, leaves every listing of the turn
 ///   unread, named by stream and line, whatever the line holds, and so
 ///   does a stream that holds bytes but no event. Stderr alone is text: a
-///   line of it that is UTF-8 and no event is read by `tools::said`, and
+///   line of it that is UTF-8 and no event is read by `text::said`, and
 ///   leaves every listing unread only when it names a listing, a server or
 ///   a tool the probe cannot read whole. Only a stream of no bytes is read
 ///   as nothing, and named. Nothing is skipped;

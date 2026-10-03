@@ -18,6 +18,7 @@ use super::plan::Plan;
 mod listing;
 mod refusals;
 mod strict;
+mod text;
 mod tools;
 
 /// How much of a refusal's line, or of a value it cannot read, a report
@@ -81,12 +82,14 @@ impl fmt::Display for Fault {
 ///   and refuses any admitting verdict;
 /// - (ii) a line that is one JSON object is read as an event, like a
 ///   line of stdout;
-/// - (iii) any other line is text, read by `tools::said`: one naming the
-///   planted server, a tool `mcp__<server>__…` or an `MCP server <name>`
-///   of a server other than the hands server is a reach;
-/// - (iv) one that names a listing (`mcp_servers`, `tools:`), JSON it
-///   does not hold whole, or an MCP server or tool whose name it does not
-///   spell whole, and shows no reach, is unread like a line of (i);
+/// - (iii) any other line is text, its whitespace runs folded, read by
+///   `text::said`: one naming the planted server, a tool
+///   `mcp__<server>__…` or an `MCP server <name>` of a server other than
+///   the hands server is a reach;
+/// - (iv) one that starts JSON it does not hold whole, or mentions MCP or
+///   a tool in any case, or names a tool the plain turn listed or the
+///   adapter declares, and shows no reach, is unread like a line of (i)
+///   unless it is one of the forms `text::said` reads to its end;
 /// - (v) any other line of text is read: it leaves no listing unmeasured.
 #[derive(Clone, Copy, PartialEq)]
 enum Lines {
@@ -107,11 +110,13 @@ struct Stream {
     empty: bool,
 }
 
-/// The two turns whose streams are read as events.
+/// The three turns whose streams are read as events: the plain turn, the
+/// boxed one and the one under the declared OFF controls.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum TurnName {
     Plain,
     Boxed,
+    Off,
 }
 
 /// Something a turn captured that no reader read, which leaves the
@@ -134,6 +139,7 @@ impl fmt::Display for Unread {
         let named = |turn: &TurnName| match turn {
             TurnName::Plain => "the plain turn",
             TurnName::Boxed => "the boxed turn",
+            TurnName::Off => "the OFF turn",
         };
         match self {
             Unread::Line {
@@ -151,7 +157,8 @@ impl fmt::Display for Unread {
     }
 }
 
-/// Every fact, and everything the two turns captured that no reader read.
+/// Every fact, and everything the three turns captured that no reader
+/// read.
 pub(crate) struct Reading {
     pub(crate) facts: Facts,
     pub(crate) unread: Vec<Unread>,
@@ -259,8 +266,14 @@ pub(crate) fn version(observation: &Observation) -> Fact<String> {
 /// `captured` read as the stream `source`, its first line being line
 /// `first` of what it came from: a line that did not decode is unread,
 /// and never parsed, and one that is no event is unread or text, as
-/// `lines` says.
-fn parse_lines(captured: &Captured, source: &str, first: usize, lines: Lines) -> Stream {
+/// `lines` says, text checked for the names in `tools`.
+fn parse_lines(
+    captured: &Captured,
+    source: &str,
+    first: usize,
+    lines: Lines,
+    tools: &[String],
+) -> Stream {
     let mut events = Vec::new();
     let mut reaches = Vec::new();
     let mut unread: Vec<(usize, Fault)> = captured
@@ -278,10 +291,10 @@ fn parse_lines(captured: &Captured, source: &str, first: usize, lines: Lines) ->
                 fields,
             }),
             (None, Lines::Events) => unread.push((first + index, Fault::NotOneObject)),
-            (None, Lines::Text) => match tools::said(line) {
-                tools::Said::Reach(reach) => reaches.push((first + index, reach)),
-                tools::Said::Unread => unread.push((first + index, Fault::Unrecognised)),
-                tools::Said::Nothing => {}
+            (None, Lines::Text) => match text::said(line, tools) {
+                text::Said::Reach(reach) => reaches.push((first + index, reach)),
+                text::Said::Unread => unread.push((first + index, Fault::Unrecognised)),
+                text::Said::Nothing => {}
             },
         }
     }
@@ -299,27 +312,22 @@ fn parse_lines(captured: &Captured, source: &str, first: usize, lines: Lines) ->
 /// What a launch wrote to a transcript, as a stream: lines it appended
 /// keep their numbers in the file, and a file it rewrote is named so.
 fn transcript_stream(transcript: &Transcript) -> Stream {
-    match transcript.written {
-        Written::Created => parse_lines(&transcript.text, &transcript.path, 1, Lines::Events),
-        Written::Appended { from_line } => {
-            parse_lines(&transcript.text, &transcript.path, from_line, Lines::Events)
-        }
-        Written::Rewritten => parse_lines(
-            &transcript.text,
-            &format!("{}, which the turn rewrote,", transcript.path),
-            1,
-            Lines::Events,
-        ),
-    }
+    let (source, first) = match transcript.written {
+        Written::Created => (transcript.path.clone(), 1),
+        Written::Appended { from_line } => (transcript.path.clone(), from_line),
+        Written::Rewritten => (format!("{}, which the turn rewrote,", transcript.path), 1),
+    };
+    parse_lines(&transcript.text, &source, first, Lines::Events, &[])
 }
 
 /// Every stream a launch captured, read whatever its exit (#484):
 /// stdout's and each transcript's, each named with this run's variable
-/// parts, then stderr's when it holds any byte. With them, the one the
+/// parts, then stderr's when it holds any byte, its text checked for
+/// `tools` and for every tool those streams list. With them, the one the
 /// turn's own events are read from: stdout, or, when stdout carried none,
 /// the first transcript that holds some. Stderr is never that one.
-fn captured(observation: &Observation) -> (Vec<Stream>, Option<usize>) {
-    let stdout = parse_lines(&observation.stdout, "stdout", 1, Lines::Events);
+fn captured(observation: &Observation, tools: &[String]) -> (Vec<Stream>, Option<usize>) {
+    let stdout = parse_lines(&observation.stdout, "stdout", 1, Lines::Events, &[]);
     let mut all: Vec<Stream> = std::iter::once(stdout)
         .chain(observation.transcripts.iter().map(transcript_stream))
         .collect();
@@ -328,7 +336,9 @@ fn captured(observation: &Observation) -> (Vec<Stream>, Option<usize>) {
     for stream in &mut all {
         stream.source = normalise(&stream.source, id.as_deref());
     }
-    let stderr = parse_lines(&observation.stderr, "stderr", 1, Lines::Text);
+    let mut names = tools.to_vec();
+    names.extend(tools::listed_tools(&all));
+    let stderr = parse_lines(&observation.stderr, "stderr", 1, Lines::Text, &names);
     if !stderr.empty {
         all.push(stderr);
     }
@@ -350,8 +360,8 @@ fn read_stream((all, primary): (Vec<Stream>, Option<usize>)) -> Turn {
 
 /// The plain turn: read when it exited clean, otherwise nothing it shows
 /// is a measurement, though every line it captured is still read.
-fn read_base(observation: &Observation) -> Turn {
-    let streams = captured(observation);
+fn read_base(observation: &Observation, tools: &[String]) -> Turn {
+    let streams = captured(observation, tools);
     if observation.exit == Some(0) {
         read_stream(streams)
     } else {
@@ -380,35 +390,51 @@ const OFF: Under = Under {
     argv: "the declared OFF controls",
 };
 
-/// The turn under an argv the adapter declares: a non-zero exit is the
-/// CLI refusing that argv, which is itself the measurement. A launch that
-/// ended with no exit code, by a signal or the deadline, refused nothing.
-/// However it ended, every line it captured is read.
-fn read_under(trial: &Trial, under: Under) -> Turn {
+/// The flags and `-c` keys of `controls`, by which a refusal names them.
+fn control_words(controls: &[String]) -> Vec<&str> {
+    let words = controls
+        .iter()
+        .filter_map(|part| match part.strip_prefix('-') {
+            Some(_) => Some(part.as_str()),
+            None => part.split_once('=').map(|(key, _)| key),
+        });
+    words.collect()
+}
+
+/// Whether what a launch printed names one of `controls`' flags or keys.
+fn names_a_control(observation: &Observation, controls: &[String]) -> bool {
+    let named = control_words(controls);
+    [&observation.stderr.text, &observation.stdout.text]
+        .into_iter()
+        .flat_map(|text| text.split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c))))
+        .any(|word| named.contains(&word))
+}
+
+/// The turn under `controls`, an argv the adapter declares: a non-zero
+/// exit whose text names one of their flags or keys is the CLI refusing
+/// them, which is itself the measurement; any other non-zero exit, like
+/// a launch that ended with no exit code, by a signal or the deadline,
+/// refused nothing the probe can name (#484). However it ended, every
+/// line it captured is read, its stderr checked for `tools`.
+fn read_under(trial: &Trial, under: Under, controls: &[String], tools: &[String]) -> Turn {
     let observation = match trial {
         Trial::Untried(why) => return Turn::Unread(why.clone(), Vec::new()),
         Trial::Observed(observation) => observation,
     };
-    let streams = captured(observation);
-    match observation.exit {
-        Some(0) => read_stream(streams),
-        None => Turn::Unread(
-            format!(
-                "{} did not finish: {}",
-                under.turn,
-                exit_and_excerpt(observation)
-            ),
-            streams.0,
-        ),
-        Some(_) => Turn::Refused(
-            format!(
-                "the CLI refused {}: {}",
-                under.argv,
-                exit_and_excerpt(observation)
-            ),
-            streams.0,
-        ),
-    }
+    let streams = captured(observation, tools);
+    let ended = exit_and_excerpt(observation);
+    let how = match observation.exit {
+        Some(0) => return read_stream(streams),
+        None => "did not finish".to_string(),
+        Some(_) if !names_a_control(observation, controls) => {
+            format!("failed, naming no flag or key of {}", under.argv)
+        }
+        Some(_) => {
+            let refused = format!("the CLI refused {}: {ended}", under.argv);
+            return Turn::Refused(refused, streams.0);
+        }
+    };
+    Turn::Unread(format!("{} {how}: {ended}", under.turn), streams.0)
 }
 
 /// Everything `turn` captured that no reader read: each such line of
@@ -683,32 +709,43 @@ fn stream_facts(
     (events, session, transcripts)
 }
 
-/// Every fact, from every observation, and everything the two turns
-/// captured that no reader read.
+/// Every fact, from every observation, and everything the three turns
+/// captured that no reader read. The stderr of each is checked for the
+/// tools the adapter declares and those the plain turn listed.
 pub(crate) fn reading(plan: &Plan, observed: &Observed, bound: &[&str]) -> Reading {
-    let base = read_base(&observed.turn);
-    let boxed = read_under(&observed.boxed, HANDS);
+    let mut named = tools::declared_tools(plan);
+    let base = read_base(&observed.turn, &named);
+    named.extend(tools::listed_tools(base.streams()));
+    let boxed = read_under(&observed.boxed, HANDS, &plan.hands, &named);
+    let off = read_under(&observed.native_off, OFF, &plan.off, &named);
     let mut unread = unread_in(&base, TurnName::Plain);
     unread.extend(unread_in(&boxed, TurnName::Boxed));
+    unread.extend(unread_in(&off, TurnName::Off));
     Reading {
-        facts: facts(plan, observed, bound, &base, &boxed),
+        facts: facts(plan, observed, bound, &base, &boxed, &off),
         unread,
     }
 }
 
-/// Every fact, from every observation and the two turns as read. The
-/// turn under the declared OFF controls is read here, for the native
-/// facts alone: a line of it no reader read leaves its tools unmeasured.
-fn facts(plan: &Plan, observed: &Observed, bound: &[&str], base: &Turn, boxed: &Turn) -> Facts {
+/// Every fact, from every observation and the three turns as read.
+fn facts(
+    plan: &Plan,
+    observed: &Observed,
+    bound: &[&str],
+    base: &Turn,
+    boxed: &Turn,
+    off: &Turn,
+) -> Facts {
     let (events, session, transcripts) = stream_facts(base, &observed.turn);
     let tools = on_turn(base, tools::native_tools);
     let boxed_tools = on_turn(boxed, tools::native_tools);
-    let off_tools = on_turn(&read_under(&observed.native_off, OFF), tools::native_tools);
+    let off_tools = on_turn(off, tools::native_tools);
     let native_egress = tools::native_egress(&tools);
     let egress_off = tools::egress_off(&native_egress, &off_tools);
     let capabilities = tools::capabilities(plan, &tools, &off_tools);
     let user_mcp_unboxed = tools::user_mcp(base, &plan.user_config);
     let user_mcp_boxed = tools::user_mcp(boxed, &plan.user_config);
+    let user_mcp_off = tools::user_mcp(off, &plan.user_config);
     let config_isolation = on_turn(base, |_| {
         tools::config_isolation(&user_mcp_unboxed, &user_mcp_boxed)
     });
@@ -748,6 +785,7 @@ fn facts(plan: &Plan, observed: &Observed, bound: &[&str], base: &Turn, boxed: &
         config_isolation,
         user_mcp_unboxed,
         user_mcp_boxed,
+        user_mcp_off,
         transcripts,
         resume: Fact::unmeasured(
             "the probe does not drive a resume turn yet; decision 0056's per-shape \

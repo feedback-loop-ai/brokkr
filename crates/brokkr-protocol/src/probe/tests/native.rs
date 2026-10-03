@@ -2,7 +2,7 @@
 //! as a realm grants them, switched off by the adapter's declared OFF
 //! controls, which the probe launches, and compared against the
 //! declaration, with each difference named. The configuration refusal
-//! is measured only when its text names the unknown model.
+//! is measured only when a line is itself the unknown model's refusal.
 
 use serde_json::{json, Value};
 
@@ -27,10 +27,15 @@ fn native_view(report: &Value) -> Value {
 /// [`PLAIN_WEB`], and which does `under_off` under the declared OFF
 /// controls in place of honouring them.
 fn kept_by_the_box(world: &World, name: &str, under_off: &str) -> Value {
+    native_view(&kept_report(world, name, under_off))
+}
+
+/// The whole report of [`kept_by_the_box`]'s CLI.
+fn kept_report(world: &World, name: &str, under_off: &str) -> Value {
     let script =
         claude_with("9.9.9", PLAIN_WEB, Boxed::Keeps.shell()).replace(OFF_HONOURED, under_off);
     let cli = world.fake(name, &script);
-    native_view(&probe(AdapterKind::Claude, &cli, &claude_declared(), world))
+    probe(AdapterKind::Claude, &cli, &claude_declared(), world)
 }
 
 const ALL_TOOLS: &str = "the system/init event on line 1 of stdout listed tools: 3";
@@ -193,6 +198,205 @@ fn off_controls_the_cli_refuses_are_unsupported_and_off_controls_never_composed_
     );
 }
 
+/// The chief's OFF turns on 25a0ea04 (#484): the turn under the declared
+/// OFF controls, which a seat outside the box granted nothing launches,
+/// is read like the plain and boxed turns. Another MCP server read
+/// reaching it, by a listed tool, a listed server or a line of stderr,
+/// refuses that seat, and a listing value it leaves unread is a gap.
+#[test]
+fn the_turn_under_the_declared_off_controls_is_read_like_the_plain_and_boxed_turns() {
+    if !in_its_own_engine(
+        "probe::tests::native::the_turn_under_the_declared_off_controls_is_read_like_the_plain_and_boxed_turns",
+    ) {
+        return;
+    }
+    let world = world();
+    let leaked = |reach: &str| {
+        json!({
+            "verdict": "refused",
+            "reason": format!(
+                "its turn under the declared OFF controls, the launch a seat granted nothing \
+                 uses, loaded an MCP server the probe did not give it (#467): {reach}\
+                 {HOLDS_NO_BOX}it is not shown to stand behind the box ({BOXED_KEEPS}), and the \
+                 declared OFF controls removed WebSearch, WebFetch"
+            ),
+        })
+    };
+    let string = "the system event on line 2 of stdout holds at /mcp_servers a value that is not \
+                  a list: \"github\"";
+    let rows = [
+        (
+            r#"tools='"mcp__github__search"'; servers='{"name":"github","status":"connected"}'"#,
+            leaked(
+                "mcp__github__search of the MCP server github was listed by the system/init \
+                 event on line 1 of stdout at /tools/0",
+            ),
+        ),
+        (
+            r#"tools='"Bash"'; echo "MCP server github connected" >&2"#,
+            leaked("line 1 of stderr names the MCP server github"),
+        ),
+        (
+            r#"tools='"Bash"'; later='{"type":"system","mcp_servers":"github"}'"#,
+            json!({
+                "verdict": "refused",
+                "reason": format!(
+                    "the evidence for unboxed offices is not complete: in the OFF turn, {string}; \
+                     user_mcp_off is unmeasured: no MCP server other than brokkr was read \
+                     reaching the turn, but the turn's mcp_servers could not be read whole: \
+                     {string}"
+                ),
+            }),
+        ),
+        (
+            r#"tools='"Bash"'; servers='{"name":"brokkr-probe-user-scope","status":"connected"}'"#,
+            leaked(
+                "the MCP server brokkr-probe-user-scope was listed connected by the system/init \
+                 event on line 1 of stdout at /mcp_servers/0",
+            ),
+        ),
+    ];
+    for (index, (under_off, eligibility)) in rows.into_iter().enumerate() {
+        let report = kept_report(&world, &format!("claude-off-{index}"), under_off);
+        assert_eq!(
+            (under_off, &report["eligibility"]),
+            (under_off, &eligibility)
+        );
+    }
+}
+
+/// The chief's absent baseline on 25a0ea04 (#484): with the plain, boxed
+/// and OFF turns all listing `Bash` alone, no control was seen switching
+/// either capability off, so neither off switch is measured, neither OFF
+/// row is compared, and the harness is refused for want of them.
+#[test]
+fn a_capability_the_plain_turn_never_listed_has_no_measured_off_switch() {
+    if !in_its_own_engine(
+        "probe::tests::native::a_capability_the_plain_turn_never_listed_has_no_measured_off_switch",
+    ) {
+        return;
+    }
+    let world = world();
+    let bash = r#"tools='"Bash"'"#;
+    let cli = world.fake("claude-absent", &claude_with("9.9.9", bash, bash));
+    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
+    let listed = "the system/init event on line 1 of stdout listed tools: 1";
+    let never = |power: &str, tool: &str| {
+        let why = format!(
+            "the plain turn listed none of {tool}, so no control was seen switching it off: \
+             {listed}"
+        );
+        (
+            capability(power, tool, unmeasured(&why)),
+            format!("{power}'s off switch is unmeasured: {why}"),
+        )
+    };
+    let (fetch, fetch_gap) = never("web-fetch", "WebFetch");
+    let (search, search_gap) = never("web-search", "WebSearch");
+    assert_eq!(
+        native_view(&report),
+        json!({
+            "capabilities": measured(json!([fetch, search]), listed),
+            "egress_off": measured(json!(true), "the plain turn listed no native egress tool"),
+            "rows": [
+                inventory_row(["WebFetch, WebSearch", "", "differs"]),
+                off_row("web-fetch", "switched off", "unmeasured", "not-compared"),
+                off_row("web-search", "switched off", "unmeasured", "not-compared"),
+            ],
+            "eligibility": {
+                "verdict": "refused",
+                "reason": format!(
+                    "the evidence for a seat in a realm that grants its capabilities is not \
+                     complete: {fetch_gap}; {search_gap}"
+                ),
+            },
+        })
+    );
+}
+
+/// The chief's OFF turns on 25a0ea04 that fail for want of the provider
+/// or the account (#484): a failure that names no flag or key of the
+/// declared OFF controls is not the CLI refusing them, so no off switch
+/// is read absent, and the harness is refused for want of one.
+#[test]
+fn an_off_turn_that_fails_naming_no_control_is_unread_not_a_missing_off_switch() {
+    if !in_its_own_engine(
+        "probe::tests::native::an_off_turn_that_fails_naming_no_control_is_unread_not_a_missing_off_switch",
+    ) {
+        return;
+    }
+    let world = world();
+    for (index, line) in [
+        "API Error: 503 provider temporarily unavailable",
+        "Invalid API key",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let under_off = format!(r#"echo "{line}" >&2; exit 1"#);
+        let view = kept_by_the_box(&world, &format!("claude-off-fails-{index}"), &under_off);
+        let failed = format!(
+            "the turn under the declared OFF controls failed, naming no flag or key of the \
+             declared OFF controls: exit 1: {line}"
+        );
+        let unread = format!("the turn under the declared OFF controls was not read: {failed}");
+        assert_eq!(
+            view,
+            json!({
+                "capabilities": measured(
+                    json!([
+                        capability("web-fetch", "WebFetch", unmeasured(&unread)),
+                        capability("web-search", "WebSearch", unmeasured(&unread)),
+                    ]),
+                    ALL_TOOLS,
+                ),
+                "egress_off": unmeasured(&unread),
+                "rows": [
+                    inventory_row(INVENTORY_AGREES),
+                    off_row("web-fetch", "switched off", "unmeasured", "not-compared"),
+                    off_row("web-search", "switched off", "unmeasured", "not-compared"),
+                ],
+                "eligibility": {
+                    "verdict": "refused",
+                    "reason": format!(
+                        "the evidence for a seat in a realm that grants its capabilities is not \
+                         complete: user_mcp_off is unmeasured: {failed}; web-fetch's off switch \
+                         is unmeasured: {unread}; web-search's off switch is unmeasured: {unread}"
+                    ),
+                },
+            })
+        );
+    }
+}
+
+/// A refusal of Codex's declared OFF control names its config key, and
+/// only a failure that names it is the CLI refusing that control.
+#[test]
+fn an_off_refusal_is_read_by_the_config_key_it_names() {
+    let plan = plan::plan(AdapterKind::Codex, &codex_declared()).unwrap();
+    let off_turn = |stderr: &str| {
+        let observed = Observed {
+            native_off: Trial::Observed(observation(Some(1), "", stderr)),
+            ..observed(observation(Some(0), "", ""))
+        };
+        measure::reading(&plan, &observed, &[]).facts.user_mcp_off
+    };
+    let named = "Error loading config: unknown key `web_search`";
+    let other = "Error loading config: unknown key `web_fetch`";
+    assert_eq!(
+        (off_turn(named), off_turn(other)),
+        (
+            Fact::Unsupported {
+                evidence: format!("the CLI refused the declared OFF controls: exit 1: {named}"),
+            },
+            Fact::unmeasured(format!(
+                "the turn under the declared OFF controls failed, naming no flag or key of the \
+                 declared OFF controls: exit 1: {other}"
+            )),
+        )
+    );
+}
+
 /// The facts and rows of a plain turn listing `plain_tools`, whose turn
 /// under the declared OFF controls listed `off_tools`, against `declared`.
 fn declared_against(declared: &Declared, plain_tools: &str, off_tools: &str) -> Value {
@@ -291,11 +495,64 @@ fn a_model_refusal_that_does_not_name_the_model_is_not_a_configuration_refusal()
     assert_eq!(
         (refusals.config, refusals.outage),
         (
-            Fact::unmeasured(format!(
-                "the refusal does not name the model brokkr-probe-no-such-model, so it is not \
-                 shown to be the configuration's: exit 1: {outage}"
-            )),
+            Fact::unmeasured(not_the_configuration(&format!("exit 1: {outage}"))),
             Fact::unmeasured("not provoked: a provider outage cannot be caused safely"),
+        )
+    );
+}
+
+fn not_the_configuration(ended: &str) -> String {
+    format!(
+        "no line of the refusal names the model brokkr-probe-no-such-model in a model refusal's \
+         words and no other class's, so it is not shown to be the configuration's: {ended}"
+    )
+}
+
+/// The chief's shapes on 25a0ea04: a line that names the model beside
+/// another class's mark, or an event that only echoes it, is not the
+/// model's refusal; a model refusal in any case of its words is.
+#[test]
+fn a_model_named_beside_another_class_s_refusal_or_echoed_is_not_a_configuration_refusal() {
+    let plan = plan::plan(AdapterKind::Claude, &claude_declared()).unwrap();
+    let echo = r#"{"type":"system","subtype":"init","model":"brokkr-probe-no-such-model"}"#;
+    let config = |stdout: &str, stderr: &str| {
+        let observed = Observed {
+            bad_model: Trial::Observed(observation(Some(1), stdout, stderr)),
+            ..observed(observation(Some(0), "", ""))
+        };
+        measure::reading(&plan, &observed, &[])
+            .facts
+            .refusals
+            .config
+    };
+    let rows = [
+        (
+            "",
+            "API Error: 503 provider temporarily unavailable for model brokkr-probe-no-such-model",
+        ),
+        (echo, "API Error: 503 provider temporarily unavailable"),
+        (echo, "API Error: 401 invalid x-api-key"),
+        (
+            "",
+            "model brokkr-probe-no-such-model not found: the provider is overloaded",
+        ),
+        ("", "model brokkr-probe-no-such-model not found (HTTP 529)"),
+    ];
+    assert_eq!(
+        rows.map(|(stdout, stderr)| config(stdout, stderr)),
+        rows.map(
+            |(_, stderr)| Fact::unmeasured(not_the_configuration(&format!("exit 1: {stderr}")))
+        )
+    );
+    let refused = "Model brokkr-probe-no-such-model Not Found (HTTP 404)";
+    assert_eq!(
+        config("", refused),
+        Fact::measured(
+            facts::Refusal {
+                exit: Some(1),
+                excerpt: refused.to_string(),
+            },
+            format!("exit 1: {refused}"),
         )
     );
 }

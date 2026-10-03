@@ -416,6 +416,7 @@ fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() 
     let world = world();
     let cli = world.fake("claude", &claude_like("9.9.9", Boxed::Empties));
     let listed_servers = "the system/init event on line 1 of stdout listed mcp_servers: 1";
+    let listed_tools = "the system/init event on line 1 of stdout listed tools: 4";
     let expected = envelope(
         "claude",
         &cli,
@@ -457,23 +458,17 @@ fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() 
                     "exit 1: error: option '--effort <level>' argument 'brokkr-probe-no-such-effort' \
                      is invalid. Allowed choices are low, medium, high, xhigh, max.",
                 ),
-                "tools": measured(
-                    json!(["Bash", "Read", "WebSearch", "WebFetch"]),
-                    "the system/init event on line 1 of stdout listed tools: 4",
-                ),
+                "tools": measured(json!(["Bash", "Read", "WebSearch", "WebFetch"]), listed_tools),
                 "boxed_tools": measured(json!([]), "the system/init event on line 1 of stdout listed tools: 1"),
                 "mcp_server": measured(json!("connected"), listed_servers),
-                "native_egress": measured(
-                    json!(["WebSearch", "WebFetch"]),
-                    "the system/init event on line 1 of stdout listed tools: 4",
-                ),
+                "native_egress": measured(json!(["WebSearch", "WebFetch"]), listed_tools),
                 "egress_off": measured(
                     json!(true),
                     "the declared OFF controls removed WebSearch, WebFetch",
                 ),
                 "capabilities": measured(
                     claude_switched_off("the system/init event on line 1 of stdout listed tools: 2"),
-                    "the system/init event on line 1 of stdout listed tools: 4",
+                    listed_tools,
                 ),
                 "config_isolation": measured(
                     json!(true),
@@ -481,6 +476,7 @@ fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() 
                 ),
                 "user_mcp_unboxed": measured(json!(true), PLAIN_REACH),
                 "user_mcp_boxed": measured(json!(false), listed_servers),
+                "user_mcp_off": measured(json!(true), PLAIN_REACH),
                 "transcripts": measured(
                     json!(["~/.claude/projects/{workdir}/{session}.jsonl"]),
                     TRANSCRIPTS,
@@ -581,6 +577,7 @@ fn a_codex_like_cli_whose_stream_lists_no_mcp_servers_is_refused_for_want_of_iso
                 "config_isolation": unmeasured(&not_isolated),
                 "user_mcp_unboxed": unmeasured(no_servers),
                 "user_mcp_boxed": unmeasured(no_servers),
+                "user_mcp_off": unmeasured(no_servers),
                 "transcripts": measured(
                     json!(["~/.codex/sessions/{n}/{n}/{n}/rollout-{n}-{n}-{n}T{n}-{n}-{n}-{session}.jsonl"]),
                     TRANSCRIPTS,
@@ -685,6 +682,9 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
                 "config_isolation": unmeasured(&not_isolated),
                 "user_mcp_unboxed": unmeasured(&unread),
                 "user_mcp_boxed": unmeasured(&no_hands),
+                "user_mcp_off": unmeasured(&format!(
+                    "the adapter declares its native capabilities unmeasured: {DSH_NATIVE}"
+                )),
                 "transcripts": measured(json!(["~/.dsh/sessions/{session}.jsonl"]), TRANSCRIPTS),
                 "resume": unmeasured(RESUME),
             },
@@ -791,6 +791,48 @@ fn a_cli_that_refuses_the_hands_argv_reads_unsupported() {
     );
 }
 
+#[test]
+fn a_boxed_turn_that_fails_naming_no_hands_flag_is_unread_not_unsupported() {
+    if !in_its_own_engine(
+        "probe::tests::a_boxed_turn_that_fails_naming_no_hands_flag_is_unread_not_unsupported",
+    ) {
+        return;
+    }
+    let world = world();
+    let outage = "API Error: 503 provider temporarily unavailable";
+    let script = claude_with(
+        "9.9.9",
+        PLAIN_READS_THE_PLANT,
+        &format!(r#"echo "{outage}" >&2; exit 1"#),
+    );
+    let cli = world.fake("claude", &script);
+    let report = probe(AdapterKind::Claude, &cli, &claude_declared(), &world);
+    let failed = format!(
+        "the boxed turn failed, naming no flag or key of the adapter's hands argv: exit 1: \
+         {outage}"
+    );
+    assert_eq!(under_hands(&report), boxed_unread(&failed));
+}
+
+/// What [`under_hands`] shows of a boxed turn not read, as `why` says,
+/// beside the Claude-like plain turn that reads the planted server.
+fn boxed_unread(why: &str) -> Value {
+    let leaked = format!(
+        "{OTHER_SERVER} reached the plain turn, and no boxed turn showed it kept out: {why}"
+    );
+    json!({
+        "boxed_tools": unmeasured(why),
+        "mcp_server": unmeasured(why),
+        "user_mcp_boxed": unmeasured(why),
+        "config_isolation": measured(json!(false), &leaked),
+        "hands": field("hands", "supported", "unmeasured", "not-compared"),
+        "eligibility": {
+            "verdict": "refused",
+            "reason": format!("{NOT_ISOLATED}{leaked}"),
+        },
+    })
+}
+
 /// `probe`'s result, or a failure once 20 seconds pass without one: a
 /// fake's forked `sleep 30` outlives that bound only if the probe waits
 /// for it.
@@ -854,23 +896,7 @@ fn a_boxed_launch_killed_at_its_deadline_is_unread_not_refused_and_takes_its_chi
     let unfinished =
         "the boxed turn did not finish: no exit code (a signal, or the probe's deadline): \
          (no output)";
-    let leaked = format!(
-        "{OTHER_SERVER} reached the plain turn, and no boxed turn showed it kept out: {unfinished}"
-    );
-    assert_eq!(
-        under_hands(&report),
-        json!({
-            "boxed_tools": unmeasured(unfinished),
-            "mcp_server": unmeasured(unfinished),
-            "user_mcp_boxed": unmeasured(unfinished),
-            "config_isolation": measured(json!(false), &leaked),
-            "hands": field("hands", "supported", "unmeasured", "not-compared"),
-            "eligibility": {
-                "verdict": "refused",
-                "reason": format!("{NOT_ISOLATED}{leaked}"),
-            },
-        })
-    );
+    assert_eq!(under_hands(&report), boxed_unread(unfinished));
 }
 
 #[test]
@@ -1360,17 +1386,24 @@ fn usage_that_names_its_message_on_one_event_is_unmeasured_with_nothing_listed_a
     );
 }
 
-/// The facts of a turn listing `Bash` and no MCP server, for an adapter
-/// with no hands argv, whose boxed turn was therefore never tried.
+/// The facts of a turn listing `Bash` and Claude Code's two network tools
+/// and no MCP server, and `Bash` alone under the declared OFF controls,
+/// for an adapter with no hands argv, whose boxed turn was therefore
+/// never tried.
 fn unboxed_facts(kind: AdapterKind, declared: &Declared) -> super::facts::Facts {
     let plan = plan::plan(kind, declared).unwrap();
     let plan::Step::Untried(gap) = plan.boxed.clone() else {
         panic!("{:?} has a hands argv", declared.adapter);
     };
-    let init = r#"{"type":"system","subtype":"init","tools":["Bash"],"mcp_servers":[]}"#;
+    let init = |tools: &str| {
+        let init =
+            format!(r#"{{"type":"system","subtype":"init","tools":[{tools}],"mcp_servers":[]}}"#);
+        observation(Some(0), &init, "")
+    };
     let observed = Observed {
         boxed: Trial::Untried(gap),
-        ..observed(observation(Some(0), init, ""))
+        native_off: Trial::Observed(init(r#""Bash""#)),
+        ..observed(init(r#""Bash","WebSearch","WebFetch""#))
     };
     measure::reading(&plan, &observed, &[]).facts
 }
@@ -1398,7 +1431,7 @@ fn a_cli_with_no_hands_argv_is_switched_off_by_its_declared_controls_and_isolati
         facts.capabilities,
         Fact::measured(
             vec![off("web-fetch", "WebFetch"), off("web-search", "WebSearch")],
-            format!("{at_init} tools: 1"),
+            format!("{at_init} tools: 3"),
         )
     );
     let servers = format!("{at_init} mcp_servers: 0");
@@ -1526,8 +1559,8 @@ fn a_plan_without_a_model_or_effort_flag_or_a_hands_reason_says_so() {
     );
 }
 
-/// Facts with the hands argv's two readings set, the rest as a clean,
-/// tool-less turn left them.
+/// Facts with the hands argv's two readings set and no native capability
+/// declared, the rest as a clean, tool-less turn left them.
 fn with_hands(
     boxed_tools: Fact<Vec<String>>,
     mcp_server: Fact<String>,
@@ -1541,6 +1574,7 @@ fn with_hands(
     facts.boxed_tools = boxed_tools;
     facts.mcp_server = mcp_server;
     facts.egress_off = egress_off;
+    facts.capabilities = Fact::measured(Vec::new(), "the init event listed tools: 0");
     facts
 }
 

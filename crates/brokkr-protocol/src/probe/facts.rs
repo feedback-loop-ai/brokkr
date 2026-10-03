@@ -191,6 +191,9 @@ pub(crate) struct Facts {
     /// listed `mcp__<server>__` tool (#467).
     pub(crate) user_mcp_unboxed: Fact<bool>,
     pub(crate) user_mcp_boxed: Fact<bool>,
+    /// The same of the turn under the declared OFF controls, the launch a
+    /// seat outside the box granted nothing makes (#484).
+    pub(crate) user_mcp_off: Fact<bool>,
     /// The transcript files a turn wrote under HOME, `~`-relative, with
     /// the session id as `{session}` and every digit run as `{n}`.
     pub(crate) transcripts: Fact<Vec<String>>,
@@ -221,6 +224,7 @@ impl Facts {
             ("config_isolation", self.config_isolation.reading()),
             ("user_mcp_unboxed", self.user_mcp_unboxed.reading()),
             ("user_mcp_boxed", self.user_mcp_boxed.reading()),
+            ("user_mcp_off", self.user_mcp_off.reading()),
             ("transcripts", self.transcripts.reading()),
             ("resume", self.resume.reading()),
         ]

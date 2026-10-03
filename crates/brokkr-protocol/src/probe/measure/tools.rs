@@ -58,13 +58,33 @@ fn server_entry(item: &serde_json::Value) -> Option<(String, String)> {
 
 /// The MCP server a tool's `mcp__<server>__<tool>` name reaches; `None`
 /// for any other name, which is then the CLI's own tool.
-fn tool_server(tool: &str) -> Option<&str> {
+pub(super) fn tool_server(tool: &str) -> Option<&str> {
     let (server, _) = tool.strip_prefix("mcp__")?.split_once("__")?;
     Some(server)
 }
 
+/// Every tool any stream of a turn lists, read or not: the names a line
+/// of its stderr text is checked for (#484).
+pub(super) fn listed_tools(streams: &[Stream]) -> Vec<String> {
+    let listing = Listing::read(streams, "tools", tool_name);
+    let entries = listing.entries().iter();
+    entries.map(|entry| entry.value.clone()).collect()
+}
+
+/// The tools the adapter declares its native capabilities by.
+pub(super) fn declared_tools(plan: &Plan) -> Vec<String> {
+    match &plan.native {
+        Native::Known { powers, .. } => powers
+            .iter()
+            .flat_map(|power| power.tools.clone())
+            .collect(),
+        Native::Unmeasured(_) => Vec::new(),
+    }
+}
+
 /// The CLI's own tools: every listed tool that names no MCP server. A
-/// tool naming one is read by [`user_mcp`], never dropped unread.
+/// tool naming one is read by [`user_mcp`], never dropped unread: the
+/// plain, boxed and OFF turns are each read by it (#484).
 pub(super) fn native_tools(streams: &Streams) -> Fact<Vec<String>> {
     Listing::read(&streams.all, "tools", tool_name)
         .fact()
@@ -135,10 +155,11 @@ pub(super) fn native_egress(tools: &Fact<Vec<String>>) -> Fact<Vec<String>> {
 /// Each native capability the adapter declares, keyed as a realm grants
 /// it and mapped to its tools, with what switches it off (decision 0065
 /// rulings 1 and 4, operator ruling A of 2026-09-29): the declared OFF
-/// controls when the turn under them listed none of its tools,
-/// `unsupported` with what the probe saw when that turn kept one or the
-/// CLI refused the controls, and unmeasured when no control was tried or
-/// its turn was not read. A plain turn that lists a tool the probe does
+/// controls when the plain turn listed one of its tools and the turn
+/// under them listed none, `unsupported` with what the probe saw when
+/// that turn kept one or the CLI refused the controls by name, and
+/// unmeasured when the plain turn listed none of its tools, no control
+/// was tried or its turn was not read. A plain turn that lists a tool the probe does
 /// not know as local, and no declared capability maps, leaves the
 /// inventory unmeasured, since no realm can grant that tool.
 pub(super) fn capabilities(
@@ -180,16 +201,32 @@ pub(super) fn capabilities(
     let each = powers.iter().map(|power| Capability {
         capability: power.capability.clone(),
         tools: power.tools.clone(),
-        off: off_switch(power, &plan.off, off_tools),
+        off: off_switch(
+            power,
+            &plan.off,
+            (listed.as_slice(), evidence.as_str()),
+            off_tools,
+        ),
     });
     Fact::measured(each.collect(), evidence.clone())
 }
 
+/// What switches `power` off, read against the plain turn's `listed`
+/// tools: a power whose tools the plain turn did not list was never seen
+/// switched off, so its OFF is unmeasured (#484).
 fn off_switch(
     power: &NativePower,
     off: &[String],
+    (listed, evidence): (&[String], &str),
     off_tools: &Fact<Vec<String>>,
 ) -> Fact<Vec<String>> {
+    if !power.tools.iter().any(|tool| listed.contains(tool)) {
+        return Fact::unmeasured(format!(
+            "the plain turn listed none of {}, so no control was seen switching it off: \
+             {evidence}",
+            power.tools.join(", ")
+        ));
+    }
     match off_tools {
         Fact::Measured {
             value: left,
@@ -276,96 +313,6 @@ fn text_reach(streams: &[Stream]) -> Option<String> {
         let (line, named) = stream.reaches.first()?;
         Some(format!("line {line} of {} names {named}", stream.source))
     })
-}
-
-/// What a line of text says of the MCP servers and tools that reached a
-/// turn (#484): the scanner refuses what it does not recognise.
-pub(super) enum Said {
-    /// It names no listing, MCP server or tool, or only the hands
-    /// server's.
-    Nothing,
-    /// It names an MCP server other than the hands server, as this says.
-    Reach(String),
-    /// It names a listing, JSON it does not hold whole, or an MCP server
-    /// or tool whose name it does not spell whole.
-    Unread,
-}
-
-/// The words a line of text names a listing of MCP servers by, folded to
-/// lowercase.
-const SERVER_LISTINGS: [&str; 4] = ["mcp_servers", "mcpservers", "mcp servers", "mcp-servers"];
-
-/// How a line names one MCP server: `MCP server <name>`, any case.
-const MCP_SERVER: &str = "mcp server";
-
-/// What `text` says: a reach when it names the planted server, a tool of
-/// another server or another `MCP server <name>`; else unread when it
-/// names any listing or a server or tool it does not spell whole.
-pub(super) fn said(text: &str) -> Said {
-    if text.contains(USER_SCOPE_SERVER) {
-        return Said::Reach(format!(
-            "the planted user-scope MCP server {USER_SCOPE_SERVER}"
-        ));
-    }
-    let mut unread = names_a_listing(text);
-    for mention in mentions(text) {
-        match mention {
-            Some((server, named)) if server != SERVER_NAME => return Said::Reach(named),
-            Some(_) => {}
-            None => unread = true,
-        }
-    }
-    if unread {
-        Said::Unread
-    } else {
-        Said::Nothing
-    }
-}
-
-/// Whether `text` names a listing of MCP servers or tools, or starts JSON
-/// it does not hold whole, being no one JSON object.
-fn names_a_listing(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
-    let tools = lower.match_indices("tools").any(|(at, word)| {
-        lower[at + word.len()..]
-            .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '"' | '\''))
-            .starts_with([':', '=', '['])
-    });
-    tools
-        || SERVER_LISTINGS.iter().any(|words| lower.contains(words))
-        || lower.trim_start().starts_with(['{', '['])
-}
-
-/// A name as a line spells it: letters, digits, `_`, `-` and `.`.
-fn spelled(text: &str) -> String {
-    text.chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
-        .collect()
-}
-
-/// Each MCP server `text` names, by a tool it spells `mcp__<server>__…`
-/// or as `MCP server <name>`: the server and how the line names it, or
-/// `None` where the spelling names no server whole.
-fn mentions(text: &str) -> Vec<Option<(String, String)>> {
-    let tools = text.match_indices("mcp__").map(|(at, _)| {
-        let tool = spelled(&text[at..]);
-        let server = tool_server(&tool)?.to_string();
-        let named = format!("{tool} of the MCP server {server}");
-        Some((server, named))
-    });
-    let lower = text.to_ascii_lowercase();
-    let servers = lower.match_indices(MCP_SERVER).filter_map(|(at, word)| {
-        let rest = &text[at + word.len()..];
-        // `MCP servers` is a listing, which `names_a_listing` reads.
-        if rest.starts_with(|c: char| c.is_ascii_alphanumeric()) {
-            return None;
-        }
-        let name = spelled(rest.trim_start_matches(|c: char| {
-            c.is_whitespace() || matches!(c, ':' | '"' | '\'' | '`')
-        }));
-        Some((!name.is_empty()).then(|| (name.clone(), format!("the MCP server {name}"))))
-    });
-    tools.chain(servers).collect()
 }
 
 /// Where an MCP server other than the hands server was read reaching the

@@ -47,11 +47,15 @@ pub(crate) struct Plan {
     pub(crate) bad_model: Step,
     pub(crate) bad_effort: Step,
     pub(crate) boxed: Step,
+    /// The adapter's hands argv, placeholders intact, empty when it
+    /// declares none: what a refusal of the boxed turn must name.
+    pub(crate) hands: Vec<String>,
     /// The plain turn under the argv that switches every declared native
     /// power off (decision 0065 ruling 4).
     pub(crate) native_off: Step,
     /// That argv, placeholders intact: what a power the turn under it no
-    /// longer lists was measured switched off by.
+    /// longer lists was measured switched off by, and what a refusal of
+    /// that turn must name.
     pub(crate) off: Vec<String>,
     pub(crate) native: Native,
     pub(crate) user_config: UserConfig,
@@ -208,6 +212,7 @@ pub(crate) fn plan(kind: AdapterKind, declared: &Declared) -> Result<Plan, Probe
         bad_model,
         bad_effort,
         boxed,
+        hands: declared.hands.clone().unwrap_or_default(),
         native_off,
         off,
         native: declared.native.clone(),

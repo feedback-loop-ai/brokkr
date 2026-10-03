@@ -12,8 +12,9 @@ use serde_json::{json, Value};
 mod executable;
 
 /// One Claude-shaped turn: the init event names the hands server when the
-/// hands argv is given, and every deliberate mistake is refused. It reads
-/// its version from the file beside it, so a rerun can change it.
+/// hands argv is given, lists the two network tools unless the OFF
+/// controls are, and every deliberate mistake is refused. It reads its
+/// version from the file beside it, so a rerun can change it.
 const FAKE: &str = r#"#!/bin/sh
 case " $* " in
   *" --version "*) cat "$(dirname "$0")/version"; exit 0 ;;
@@ -22,7 +23,8 @@ esac
 [ -n "$FAKE_TOKEN" ] || { echo "not logged in" >&2; exit 1; }
 case " $* " in
   *" --strict-mcp-config "*) printf '{"type":"system","subtype":"init","session_id":"s-1","tools":[],"mcp_servers":[{"name":"brokkr","status":"connected"}]}\n' ;;
-  *) printf '{"type":"system","subtype":"init","session_id":"s-1","tools":["Bash"],"mcp_servers":[]}\n' ;;
+  *" --disallowedTools "*) printf '{"type":"system","subtype":"init","session_id":"s-1","tools":["Bash"],"mcp_servers":[]}\n' ;;
+  *) printf '{"type":"system","subtype":"init","session_id":"s-1","tools":["Bash","WebFetch","WebSearch"],"mcp_servers":[]}\n' ;;
 esac
 printf '{"type":"result","total_cost_usd":0.5,"usage":{"input_tokens":1,"output_tokens":1}}\n'
 "#;
@@ -148,8 +150,8 @@ fn the_verb_writes_the_shipped_adapter_s_report_and_its_drift_on_a_new_version()
             [
                 "native_capabilities.tools",
                 "WebFetch, WebSearch",
-                "",
-                "differs"
+                "WebFetch, WebSearch",
+                "agrees"
             ],
             [
                 "native_capabilities.known.web-fetch.off",
@@ -285,8 +287,8 @@ fn the_adapter_s_native_declaration_is_read_typed_and_its_uncomposed_off_is_unme
             [
                 "native_capabilities.tools",
                 "WebFetch, WebSearch",
-                "",
-                "differs"
+                "WebFetch, WebSearch",
+                "agrees"
             ],
             [
                 "native_capabilities.known.web-fetch.off",
@@ -324,7 +326,12 @@ fn the_adapter_s_native_declaration_is_read_typed_and_its_uncomposed_off_is_unme
             &report["facts"]["capabilities"]
         ),
         (
-            &rows(&[["native_capabilities.tools", "unmeasured", "", "differs"]])[0],
+            &rows(&[[
+                "native_capabilities.tools",
+                "unmeasured",
+                "WebFetch, WebSearch",
+                "differs"
+            ]])[0],
             &json!({
                 "status": "unmeasured",
                 "why": "the adapter declares its native capabilities unmeasured: never measured",

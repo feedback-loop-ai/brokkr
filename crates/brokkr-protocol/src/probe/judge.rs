@@ -33,13 +33,14 @@ fn boxable(facts: &Facts) -> Option<bool> {
 
 /// Ruling 4's verdict, admitted only on complete evidence (#484): a
 /// verdict that admits the harness anywhere stands only when every line
-/// both turns captured was read, on stdout, in a transcript or on stderr
-/// and however the turn exited, none of them undecoded, cut short or
-/// joined; every value their listings hold was named; and every fact that
-/// verdict rests on was measured. A fact the CLI refused counts as
-/// measured, its refusal being what the probe read; an unmeasured one
-/// never does. Otherwise the harness is refused, and the reason names each
-/// unread line, each unread value and each unmeasured fact.
+/// the plain, boxed and OFF turns captured was read, on stdout, in a
+/// transcript or on stderr and however the turn exited, none of them
+/// undecoded, cut short or joined; every value their listings hold was
+/// named; and every fact that verdict rests on was measured. A fact the
+/// CLI refused counts as measured, its refusal being what the probe read;
+/// an unmeasured one never does. Otherwise the harness is refused, and the
+/// reason names each unread line, each unread value and each unmeasured
+/// fact.
 pub(crate) fn eligibility(facts: &Facts, unread: &[Unread]) -> Eligibility {
     let proposed = verdict(facts);
     let Some((admits, unmeasured)) = rests_on(proposed.verdict, facts) else {
@@ -75,9 +76,12 @@ fn gap<T: serde::Serialize>(name: &str, fact: &Fact<T>) -> Option<String> {
 /// rests on the plain turn's tool inventory too, since its own tools are
 /// shown switched off only against the tools it has; a seat outside the
 /// box rests on each native capability's off switch, a grant on those it
-/// lacks and an unboxed office on those it has.
+/// lacks and an unboxed office on those it has, and both on the turn
+/// under the declared OFF controls keeping other MCP servers out, since a
+/// seat granted nothing launches it (#484).
 fn rests_on(verdict: Verdict, facts: &Facts) -> Option<(&'static str, Vec<String>)> {
     let plain = || gap("user_mcp_unboxed", &facts.user_mcp_unboxed);
+    let off = || gap("user_mcp_off", &facts.user_mcp_off);
     let boxed_tools = || gap("boxed_tools", &facts.boxed_tools);
     let server = || gap("mcp_server", &facts.mcp_server);
     let switches = || {
@@ -95,14 +99,14 @@ fn rests_on(verdict: Verdict, facts: &Facts) -> Option<(&'static str, Vec<String
         Verdict::BoxedOnly => ("boxed offices only", vec![boxed_tools(), server()]),
         Verdict::GrantingRealmsOnly => (
             "a seat in a realm that grants its capabilities",
-            [vec![plain()], switches()].concat(),
+            [vec![plain(), off()], switches()].concat(),
         ),
         Verdict::UnboxedOnly => {
             let egress = gap("native_egress", &facts.native_egress);
-            let off = gap("egress_off", &facts.egress_off);
+            let removed = gap("egress_off", &facts.egress_off);
             (
                 "unboxed offices",
-                [vec![plain(), egress, off], switches()].concat(),
+                [vec![plain(), off(), egress, removed], switches()].concat(),
             )
         }
     };
@@ -150,9 +154,11 @@ fn verdict(facts: &Facts) -> Eligibility {
 }
 
 /// The rungs below the box: each launches the plain turn, so a plain
-/// turn not shown to keep the planted server out refuses the harness. A
-/// native capability without a measured off switch demands a grant
-/// whatever the egress reading says.
+/// turn not shown to keep the planted server out refuses the harness, and
+/// a seat granted nothing launches the turn under the declared OFF
+/// controls, so another MCP server read reaching that turn refuses it
+/// too (#484). A native capability without a measured off switch demands
+/// a grant whatever the egress reading says.
 fn outside_the_box(facts: &Facts) -> (Verdict, String) {
     let (verdict, reason) = if let Some(ungranted) = without_off_switch(facts) {
         (
@@ -183,13 +189,27 @@ fn outside_the_box(facts: &Facts) -> (Verdict, String) {
             ),
         )
     };
-    match plain_leak(facts) {
+    match plain_leak(facts).or_else(|| off_leak(facts)) {
         None => (verdict, reason),
         Some(leak) => (
             Verdict::Refused,
             format!("{leak}, and it may hold no boxed office: {reason}"),
         ),
     }
+}
+
+/// How the turn under the declared OFF controls was read loading an MCP
+/// server the probe did not give it; whether it was read at all is a fact
+/// the rungs outside the box rest on.
+fn off_leak(facts: &Facts) -> Option<String> {
+    let Fact::Measured { value: true, .. } = facts.user_mcp_off else {
+        return None;
+    };
+    Some(format!(
+        "its turn under the declared OFF controls, the launch a seat granted nothing uses, \
+         loaded an MCP server the probe did not give it (#467): {}",
+        facts.user_mcp_off.account()
+    ))
 }
 
 /// The native capabilities without a measured off switch, those measured
