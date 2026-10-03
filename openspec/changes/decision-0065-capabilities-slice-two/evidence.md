@@ -287,3 +287,92 @@ OpenSpec was not re-run here. The last observed result is the tasks seat's
 `20 passed, 0 failed` above; it predates these prose-only edits. Re-running
 `openspec validate --all --strict` stays pending for the operator, alongside
 cargo formatting, typos and squash signing.
+
+## U6a implementation evidence
+
+Branch `s2/U6a` from main `7f0aa4ad`, run
+`0065-slice-two-unit-u6a-see-the--cd11b416`, recorded 2026-10-03. Tasks 26.1
+and 26.2; MB4 (single plaintext injector), SD2, SD4.
+
+**Change.** `bind_environment` moved from protocol `adapters.rs` into the
+existing `secret.rs` as `pub(crate)`, returning the narrow
+`secret::BindError::NotUtf8(name)`, whose `Display` keeps the operator text
+`secret '<name>' is not valid UTF-8` (name only, never the value). The four
+existing harness spawns (`run_cli` for exec, `invoke_stream_json` for
+claude/lanetally, `invoke_codex`, `spawn_dsh`) call
+`secret::bind_environment(..).map_err(|error| error.to_string())?`. The
+injection-discipline comment moved with the function. The module doc and
+the `expose_for_spawn` doc now name the injector and count secret.rs. There
+is no new module, `lib.rs` registration, dependency or public item.
+`resolve_bindings` is unchanged, so a missing binding is still refused
+before spawn, and the injector reads only resolved bindings: no ambient
+environment fallback exists.
+
+**SD2 audit.** Production files touched: exactly the row's two. Lines:
+`adapters.rs` 7268 → 7249, `secret.rs` 677 → 706 (under the 800 ceiling);
+`adapters/tests.rs` 19096 → 19093 and `machine_proof.rs` 3483 → 3479, so no
+file over its ceiling grew. `cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries`
+fell to 100 lines, so its `#[expect(clippy::too_many_lines)]` became
+unfulfilled under `-D warnings` and was removed (ruling 4). Removing the
+test's `#[cfg(unix)]` block (Linux and macOS are both unix; decision 0063)
+saved those lines. `quality/file-lines.txt`, `quality/too-many-lines.txt`
+(entry removed; later adapters.rs rows −19 and adapters/tests.rs rows −3, as
+the forced-lint clippy JSON pass of measure.sh step 5 printed them) and
+`quality/suppressions.txt` (test `too_many_lines` 258 → 257) were updated by
+hand. The seat could not run measure.sh or ratchet.sh; `cargo test -p
+brokkr-cli --test suppressions` (6 passed) holds the tree to the edited
+suppressions file. Witness pins: `cargo test -p brokkr-runtime --test
+witness_digests` passed 6 with no bless, so no pin moved. Budgets: `--test
+budgets` passed 4 and the heap_claude/codex/dsh tests passed, with no prompt,
+lockfile or transcript input changed.
+
+**Exact assertions.** `machine_proof.rs`
+`expose_for_spawn_has_exactly_one_production_call_site` walks every crate's
+`src/` tree minus test files, secret.rs included. It records each
+`expose_for_spawn(` occurrence that is not preceded by `fn ` (the definition)
+with the name of the nearest enclosing `fn`. It asserts the list equals
+exactly `[(crates/brokkr-protocol/src/secret.rs, "bind_environment")]`.
+`adapters/tests.rs` `cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries`
+asserts `secret::bind_environment` on an invalid-UTF-8 binding returns
+`Err(BindError::NotUtf8("TOKEN"))`, and that the exec spawn path (`run_cli`)
+returns the exact text `secret 'TOKEN' is not valid UTF-8`. The existing
+harness tests `every_model_harness_receives_its_bindings_and_masks_its_stderr`,
+`a_dsh_seat_receives_its_bindings_and_masks_its_stderr` and
+`a_bound_claude_seat_runs_and_journals_only_the_secret_name` keep the
+injection and the leak scans (stderr masked to `[secret:API_TOKEN]`, value
+absent) bound.
+
+**Compiling mutations**, each run and then restored. M1–M4 were re-run
+against the test's final form.
+
+| Mutation | Command | Failing test and assertion |
+| --- | --- | --- |
+| M1: second call inside secret.rs (`let _ = self.secret.expose_for_spawn();` in `BoundSecret::name`) | `cargo test -p brokkr-cli --test machine_proof -- expose_for_spawn` | machine proof `assert_eq!` at :3179, left `[(secret.rs, "name"), (secret.rs, "bind_environment")]` |
+| M2: second call outside secret.rs (in adapters.rs `masked_text`) | same | left `[(secret.rs, "bind_environment"), (adapters.rs, "masked_text")]` |
+| M3: definition filter removed from the test (`|| true`) | same | left `[(secret.rs, ""), (secret.rs, "bind_environment")]` (the definition counted) |
+| M4: the one call moved into a helper `plaintext` in secret.rs | same | left `[(secret.rs, "plaintext")]`; the location is bound, not only the count |
+| M5: invalid UTF-8 silently skipped (`let Ok(..) else { continue }`), an environment fallback | `cargo test -p brokkr-protocol --lib -- cli_and_stderr_helpers` | `assert_eq!` at tests.rs:382, left `Ok(())`, right `Err(NotUtf8("TOKEN"))` |
+| M6: `Display` changed to `secret {0:?} …` | same | `assert_eq!` at tests.rs:384, left `"secret \"TOKEN\" is not valid UTF-8"` |
+| M7: injector call removed from `run_cli`, `invoke_stream_json` and `spawn_dsh` | `cargo test -p brokkr-protocol --lib -- cli_and_stderr_helpers every_model_harness a_dsh_seat_receives a_bound_claude_seat` | all four failed: Claude `exit_code` 7 ≠ 0, dsh 7 ≠ 0, the bound claude seat, and `run_cli` `unwrap_err` on `Ok` |
+| M8: injector call removed from `invoke_codex` only | same | `every_model_harness…` failed with "Codex: the binding never reached the child", left 7 |
+
+After every mutation was restored, each command passed: the machine proof
+passed 1, and the four protocol tests passed.
+
+**Gates on the candidate tree.** `cargo fmt --all -- --check` was clean, and
+`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
+was clean. `cargo test -p brokkr-protocol --all-features --locked` passed:
+lib 628 with 1 ignored, `hands_exits` 6, `secret_drop` 1 and doctests 1.
+`cargo test -p brokkr-cli --all-features --locked` passed every target: lib
+619 with 1 ignored, `machine_proof` 61, `suppressions` 6, `ratchets` 13,
+`layering` 15, and the rest green. `cargo run --locked -p brokkr-cli --
+compile --bundle bundles/self` compiled. `openspec validate --all --strict`
+gave 20 passed, 0 failed. `git diff --check` was clean.
+
+**Pending.** `typos --hidden`, `quality/ratchet.sh files` and `clones`
+(jscpd) were refused by this seat's permission allowlist and were not
+observed. The files rule was checked by hand above; clones are unmeasured.
+Also pending: the workspace-wide `cargo test --workspace` beyond the touched
+crates plus brokkr-runtime's `witness_digests` and `budgets`, exact coverage
+on a capable host, remote CI, and signing of the squash if the seat signature
+is not the steward's.

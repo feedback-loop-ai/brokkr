@@ -684,25 +684,6 @@ fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
     )
 }
 
-/// Injection discipline (decision 0012, layer 3): values reach the child
-/// ONLY through its environment, resolved at spawn time — never argv
-/// (/proc/*/cmdline is world-readable), never the template. Every harness
-/// spawn — claude, lanetally, codex, dsh and exec alike — binds through
-/// here, so this holds the sole production call site of
-/// expose_for_spawn, CI-grep pinned. A declared name overrides any
-/// pre-existing env entry: the declaration is in the reviewed charter, so
-/// a collision is visible at review time.
-fn bind_environment(command: &mut Command, bindings: &[secret::BoundSecret]) -> Result<(), String> {
-    for binding in bindings {
-        let value = match std::str::from_utf8(binding.secret().expose_for_spawn()) {
-            Ok(value) => value,
-            Err(_) => return Err(format!("secret '{}' is not valid UTF-8", binding.name())),
-        };
-        command.env(binding.name(), value);
-    }
-    Ok(())
-}
-
 /// Drain a child's stderr on its own thread, so a chatty session cannot
 /// deadlock the stdout stream being folded live. The bytes come back
 /// raw: known-plaintext masking (decision 0012, layer 5) runs on them
@@ -737,7 +718,7 @@ fn run_cli(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    bind_environment(&mut invocation, bindings)?;
+    secret::bind_environment(&mut invocation, bindings).map_err(|error| error.to_string())?;
     let mut child = io_context(invocation.spawn(), "could not invoke the agent CLI")?;
     if let Some(payload) = stdin_payload {
         let mut stdin = child.stdin.take().expect("piped");
@@ -2454,7 +2435,7 @@ fn invoke_stream_json(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    bind_environment(&mut builder, bindings)?;
+    secret::bind_environment(&mut builder, bindings).map_err(|error| error.to_string())?;
     let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
     {
         let mut stdin = child.stdin.take().expect("piped");
@@ -3802,7 +3783,7 @@ fn invoke_codex(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    bind_environment(&mut builder, bindings)?;
+    secret::bind_environment(&mut builder, bindings).map_err(|error| error.to_string())?;
     let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
     let mut stdin = child.stdin.take().expect("piped");
     io_context(
@@ -5020,7 +5001,7 @@ fn spawn_dsh(
     for (key, value) in &facts.identity {
         builder.env(key, value);
     }
-    bind_environment(&mut builder, bindings)?;
+    secret::bind_environment(&mut builder, bindings).map_err(|error| error.to_string())?;
     let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
     let stderr_thread = drain_stderr(&mut child);
     Ok((child, stderr_thread))
