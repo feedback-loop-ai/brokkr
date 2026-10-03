@@ -278,6 +278,34 @@ fn a_queued_launch_is_admitted_in_its_own_workspace_wherever_it_is_rebuilt() {
     assert_eq!(bundle.manifest["capabilities"]["realm"], "here");
 }
 
+/// A payload that holds a relative path, as the queue once wrote one, is
+/// rebuilt with it anchored to its workspace, never left for the
+/// directory that rebuilds it to resolve.
+#[test]
+fn a_relative_path_a_payload_holds_is_rebuilt_anchored_to_its_workspace() {
+    let mut queued = QueuedLaunch::of(&request(recipe()), &NewRun::default()).unwrap();
+    queued.bundle = recipe();
+    queued.repo = Some(".".into());
+    queued.secrets = Some("secrets.env".into());
+    queued.dispatch = Some("d.json".into());
+    let (request, new) = queued
+        .rebuild(PathBuf::from("/work/forge.db"), "/usr/bin".into())
+        .unwrap();
+    let anchored = BundleSource::Recipe {
+        name: "story".into(),
+        recipes_dir: "/work/recipes".into(),
+    };
+    assert_eq!(
+        (request.bundle, request.repo, request.secrets, new.dispatch),
+        (
+            anchored,
+            Some("/work/.".into()),
+            Some("/work/secrets.env".into()),
+            Some("/work/d.json".into())
+        )
+    );
+}
+
 #[test]
 fn a_workspace_an_entry_cannot_be_anchored_to_is_refused_queued_and_rebuilt() {
     let said = "a queued launch names its workspace absolutely, and work is relative";

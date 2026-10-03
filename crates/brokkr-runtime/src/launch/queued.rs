@@ -6,11 +6,12 @@
 //! directory the launch is made from, as it is for `brokkr run` in that
 //! directory. An entry is admitted from wherever the dispatcher stands, so
 //! it names its workspace absolutely and anchors every path to it: the
-//! request's when the entry is made, and the map file a world was read
-//! from, which the world's pin holds as named, when it is rebuilt. So the
-//! realm and bundle an entry is admitted under are the ones it was queued
-//! for, whatever directory admits it. Two fields of the request are not stored, because neither is the
-//! entry's. The journal is the one the entry lives in. The search path a
+//! request's when the entry is made, and the request's again, the map
+//! file a world was read from, which the world's pin holds as named, and
+//! the repository, the workspace when none is named, when it is rebuilt.
+//! So the realm and bundle an entry is admitted under are the ones it was
+//! queued for, whatever directory admits it. Two fields of the request
+//! are not stored, because neither is the entry's. The journal is the one the entry lives in. The search path a
 //! boundary's tool is looked for on is the admitting host's, read when
 //! the entry is admitted, as `now` would be.
 
@@ -104,17 +105,10 @@ impl QueuedLaunch {
         refuse_realms_with_dispatch(run)?;
         let workspace = anchor(&request.workspace)?;
         let at = |path: &PathBuf| workspace.join(path);
-        let bundle = match &request.bundle {
-            BundleSource::Dir(dir) => BundleSource::Dir(at(dir)),
-            BundleSource::Recipe { name, recipes_dir } => BundleSource::Recipe {
-                name: name.clone(),
-                recipes_dir: at(recipes_dir),
-            },
-        };
         Ok(QueuedLaunch {
             encoding: Encoding::V1,
             workspace: workspace.to_path_buf(),
-            bundle,
+            bundle: anchored(workspace, &request.bundle),
             repo: request.repo.as_ref().map(at),
             secrets: request.secrets.as_ref().map(at),
             feature: run.feature.clone(),
@@ -126,30 +120,36 @@ impl QueuedLaunch {
     /// The request and new run this entry was queued as, written to
     /// `journal` and looking for a boundary's tool on `host_path`: the
     /// inverse of [`QueuedLaunch::of`]. Admission (#430's second slice)
-    /// is its caller.
+    /// is its caller. Every path is anchored to the workspace again, so a
+    /// payload that holds a relative one is read as `of` would have
+    /// written it, never against the directory that rebuilds it; and the
+    /// repository is always named, the workspace when the entry names
+    /// none, because an engine handed none operates its process's
+    /// directory.
     pub fn rebuild(
         self,
         journal: PathBuf,
         host_path: OsString,
     ) -> Result<(LaunchRequest, NewRun), LaunchError> {
-        let workspace = anchor(&self.workspace)?;
+        let workspace = anchor(&self.workspace)?.to_path_buf();
+        let at = |path: PathBuf| workspace.join(path);
         let map = match &self.map {
             MapSource::Unmapped => Ok(RunMap::Unmapped),
-            MapSource::Ambient(held) => held.world(workspace).map(RunMap::Ambient),
-            MapSource::Named(held) => held.world(workspace).map(RunMap::Named),
+            MapSource::Ambient(held) => held.world(&workspace).map(RunMap::Ambient),
+            MapSource::Named(held) => held.world(&workspace).map(RunMap::Named),
         }?;
         let request = LaunchRequest {
-            workspace: self.workspace,
-            bundle: self.bundle,
+            bundle: anchored(&workspace, &self.bundle),
             journal,
-            repo: self.repo,
-            secrets: self.secrets,
+            repo: Some(self.repo.map_or_else(|| workspace.clone(), at)),
+            secrets: self.secrets.map(at),
             host_path,
+            workspace: self.workspace,
         };
         let run = NewRun {
             feature: self.feature,
             map,
-            dispatch: self.dispatch,
+            dispatch: self.dispatch.map(at),
         };
         Ok((request, run))
     }
@@ -164,6 +164,17 @@ impl QueuedLaunch {
     /// encoding does not know, is refused.
     pub fn decode(payload: &str) -> Result<QueuedLaunch, LaunchError> {
         serde_json::from_str(payload).map_err(LaunchError::DecodeQueued)
+    }
+}
+
+/// `bundle` with its directory anchored to `workspace`.
+fn anchored(workspace: &Path, bundle: &BundleSource) -> BundleSource {
+    match bundle {
+        BundleSource::Dir(dir) => BundleSource::Dir(workspace.join(dir)),
+        BundleSource::Recipe { name, recipes_dir } => BundleSource::Recipe {
+            name: name.clone(),
+            recipes_dir: workspace.join(recipes_dir),
+        },
     }
 }
 
