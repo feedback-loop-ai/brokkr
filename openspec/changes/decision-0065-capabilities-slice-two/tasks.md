@@ -1,11 +1,12 @@
 # Decision 0065 slice two — implementation tasks
 
-Status: proposed; U0's measurement tasks 1.1–1.2 are closed with dated
-evidence (pending legs named there); all implementation tasks remain open.
+Status: in progress. Each unit ticks its own tasks on observed evidence.
+U0's measurement tasks 1.1–1.2 are closed with dated evidence, pending legs
+named there.
 Startup binding checks belong to groups 28/31/46, masking to 31/39/46 and
 session judgment to 29/30/41/42/46, each with independent removals. Discovery
 selection belongs to U7c and rendering to U7d. The plan has 45 PRs and 105
-tasks, 103 of them open. Historical counts and dispositions live in
+tasks. Historical counts and dispositions live in
 [evidence.md](evidence.md#visit-chronology). No checkbox closes by planning.
 
 Follow design.md's final **Slice two units** section: one PR per row, from
@@ -247,8 +248,8 @@ Dependencies: U5a. Files and scope: [design.md](design.md#slice-two-units).
 
 Dependencies: none; independent objective. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 26.1 (U6a; [MB4](specs/mcp-capability-broker/spec.md)) Move bind_environment into existing protocol/secret.rs with a narrow typed error; existing harness spawns consume it immediately and location comments follow it. Keep exactly one expose_for_spawn production invocation, counting secret.rs too. No new module or lib registration. Verify: The machine proof counts actual accessor calls across all production modules including secret.rs, distinguishes the method definition, and asserts the one injector location. Adding a second call inside secret.rs and separately outside it must fail; existing leak scans and safe diagnostic text remain bound. No environment fallback.
-- [ ] 26.2 (U6a; [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 26.1. Apply the shared verification duty above.
+- [x] 26.1 (U6a; [MB4](specs/mcp-capability-broker/spec.md)) Move bind_environment into existing protocol/secret.rs with a narrow typed error; existing harness spawns consume it immediately and location comments follow it. Keep exactly one expose_for_spawn production invocation, counting secret.rs too. No new module or lib registration. Verify: The machine proof counts actual accessor calls across all production modules including secret.rs, distinguishes the method definition, and asserts the one injector location. Adding a second call inside secret.rs and separately outside it must fail; existing leak scans and safe diagnostic text remain bound. No environment fallback.
+- [x] 26.2 (U6a; [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 26.1. Apply the shared verification duty above.
 
 ## 27. U6b — Introduce the broker command as a closed handler
 

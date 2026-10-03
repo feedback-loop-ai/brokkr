@@ -92,7 +92,7 @@ what stands between a seat's hands and your machine is the realm's
 2026-09-05) — one word in `realms.json` beside `house` and `dialect`,
 never in a bundle. The default, and what every bundle meant before the
 word existed, is `namespace`: decision 0043's empty-root box built by
-bubblewrap 0.10 or newer on `PATH` (`bwrap --version`), on Linux and
+bubblewrap 0.11 or newer on `PATH` (`bwrap --version`), on Linux and
 WSL2. That boundary is never simulated: a run under it refuses at start
 when bubblewrap is unavailable, naming the seats that need it. A realm
 on macOS declares `"boundary": "harness"` today, under
@@ -238,7 +238,7 @@ review gate, because its adapter is untrusted and names no judges. A dsh
 scaffold therefore hires intake and implement from dsh and keeps the
 reviewer on claude, and says so. On macOS `realms.json` declares
 `harness` whatever the CLI, because the default `namespace` boundary
-needs Linux bubblewrap 0.10 or newer. Under `harness`, verify and ship
+needs Linux bubblewrap 0.11 or newer. Under `harness`, verify and ship
 run their pinned scripts under no box of Brokkr's: the engine rebuilds
 their environment, and no network denial is confirmed. The scaffold's
 `agents/README.md` and the note a passing verify journals follow the

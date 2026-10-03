@@ -5,7 +5,7 @@
 //! cannot disagree (design DD17).
 //!
 //! A boundary is never simulated. `namespace` needs bubblewrap on the
-//! search path (and 0.10 or newer for a spec with overlay binds, as
+//! search path (and 0.11 or newer for a spec with overlay binds, as
 //! decision 0043 read); `seatbelt` needs `sandbox-exec` and `container`
 //! a container engine, and both refuse on every machine until decision
 //! 0046 ruling 6's slices (ii) and (iii) build them — their tool is
@@ -17,6 +17,7 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 
 use brokkr_core::realms::{Boundary, BOUNDARIES};
+use brokkr_protocol::hands::HandsSpec;
 use thiserror::Error;
 
 use crate::Bundle;
@@ -129,15 +130,9 @@ pub fn refuse_unboxable(bundle: &Bundle, path: &OsStr) -> Result<(), Unboxable> 
     match &offers[&boundary] {
         Offer::Offered(found) if boundary == Boundary::Namespace => {
             let bwrap = PathBuf::from(found);
-            for (site, spec) in &bundle.hands {
-                brokkr_protocol::hands::overlay_supported(spec, &bwrap).map_err(|reason| {
-                    Unboxable::Overlay {
-                        site: site.clone(),
-                        reason,
-                    }
-                })?;
-            }
-            Ok(())
+            overlays_buildable(&bundle.hands, |spec| {
+                brokkr_protocol::hands::overlay_supported(spec, &bwrap)
+            })
         }
         Offer::Offered(_) => Ok(()),
         Offer::MissingTool(tool) => Err(Unboxable::MissingTool {
@@ -156,6 +151,24 @@ pub fn refuse_unboxable(bundle: &Bundle, path: &OsStr) -> Result<(), Unboxable> 
             seats,
         }),
     }
+}
+
+/// Decision 0043's overlay floor over every boxed seat, read by the
+/// launch's refusal and by `doctor`'s `hands` line alike: the first seat
+/// whose overlay binds the bubblewrap found cannot build. `check` is the
+/// rule on one spec, with the version asked of the binary at launch and
+/// read from the probe under `doctor`.
+pub fn overlays_buildable(
+    hands: &BTreeMap<String, HandsSpec>,
+    check: impl Fn(&HandsSpec) -> Result<(), String>,
+) -> Result<(), Unboxable> {
+    for (site, spec) in hands {
+        check(spec).map_err(|reason| Unboxable::Overlay {
+            site: site.clone(),
+            reason,
+        })?;
+    }
+    Ok(())
 }
 
 /// The readiness fact beside an unbuilt boundary: the tool the slice

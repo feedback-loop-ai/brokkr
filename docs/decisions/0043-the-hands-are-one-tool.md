@@ -250,3 +250,58 @@ slice establishes is that the ruling is expressible — compile admission
 and the composed launch, tested — not that it is proved: the first live
 astra smith, cargo and git through the box on codex with a real commit
 and verify passing, is the controller's measurement after it lands.
+
+## Addendum — 2026-10-03, proposed: a single-shot exec box writes its overlays to RAM (#504)
+
+Status: proposed; only the operator accepts this addendum.
+
+Ruling 2 keeps an overlay bind's writes "in an upper layer that lives for
+the seat and never touches the host", and both box kinds kept it in the
+seat's session directory under the temporary directory. For an exec box
+(ruling 3) that put the upper layer on whatever disk `TMPDIR` names: ext4
+in the test suite, in coverage runs and on CI runners. The box's
+pid-namespace init outlives bubblewrap's outer process, and its exit
+unmounts the overlay, whose last reference syncs the upper layer's whole
+filesystem. On a loaded host that sync outlasted the engine's settle
+bound, and the init was read as a descendant still running after the
+kill: a false `indeterminate` park of a verify or ship site whose script
+succeeded (#504). The engine's settlement does not change.
+
+1. `brokkr hands exec`'s box binds each `overlay` path with bubblewrap's
+   `--tmp-overlay`: the upper layer is a tmpfs inside the box's own mount
+   namespace, invisible to the host and gone when the box ends, so the
+   unmount writes nothing back. The exec session keeps only the call's
+   scratch. A hands server's box (`hands serve`, one box per tool call)
+   keeps its upper layer in the session, because a call reads what the
+   last one wrote.
+2. The tmpfs carries no size of its own, so the kernel's default holds:
+   half the host's RAM. A box that writes past it fails with `ENOSPC`
+   inside the box; nothing falls back to disk. `--tmp-overlay` shipped in
+   the same bubblewrap release as `--overlay`, so no bwrap has one without
+   the other. That release is 0.11.0, not the 0.10 ruling 2 names:
+   Debian's changelog lists the overlay options in a snapshot after
+   0.10.0, first released in 0.11.0. The version refusal is raised to
+   match: a spec with an overlay bind is refused before the box starts
+   on a bwrap reporting less than 0.11, naming the version it reported,
+   where a stock 0.10.0 used to pass admission and then fail at option
+   parsing. A pre-release snapshot that has the options but reports
+   0.10.0 is refused too, which is the closed side.
+3. What the RAM holds was measured on Linux 6.17 with bubblewrap 0.11.0,
+   the upper layers on a tmpfs: 256 KiB for a boxed `cargo test
+   --workspace` of this repository from an empty target (cargo's
+   `.global-cache` copied up; the build goes to the worktree's `target`,
+   which is a read-write bind and not an overlay); 256 KiB per box in the
+   #504 stress harness, two boxes at once; and 123 MiB and 110 MiB for
+   two offline `go build ./...` of LaneTally modules with `~/go/pkg/mod`
+   and `~/.cache/go-build` bound overlay and the build cache warm. Go's
+   cost is copies of cache entries it already held, which it touches to
+   mark used, and a cold cache costs what the build writes.
+4. Twenty iterations of the stress harness (40 boxed runs beside two busy
+   loops per core and four syncing writers, the sessions on ext4) parked
+   7 runs before, 6 of them this class. Twice after, they parked 1 and 0,
+   the one of a separate class ("its driver was not reaped after the
+   kill"). Upper layers on `$XDG_RUNTIME_DIR`, a tmpfs capped at a tenth
+   of RAM, parked 0 as well; that mechanism was not taken because it
+   needs the directory to exist and be a tmpfs on every host, and a box
+   filling it would starve the user's own session services.
+5. The box is Linux's, so nothing changes on macOS.

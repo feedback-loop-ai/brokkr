@@ -76,7 +76,7 @@ pub(super) const CODEX: Claims = Claims {
 pub(super) const MACOS: Claims = Claims {
     realm: Some(
         "`realms.json` declares the `harness` boundary: `namespace`, the default, \
-         is built by bubblewrap 0.10 or newer, which is Linux-only, so on macOS \
+         is built by bubblewrap 0.11 or newer, which is Linux-only, so on macOS \
          verify and ship run their pinned scripts under no box of Brokkr's \
          (decision 0046).",
     ),

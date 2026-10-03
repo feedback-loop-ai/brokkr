@@ -27,7 +27,7 @@ and a realm that names none gets `namespace`:
 
 | Boundary | What stands around a seat that declares hands today |
 |---|---|
-| `namespace` | Brokkr's box, built by bubblewrap 0.10 or newer. Linux only, WSL2 included. |
+| `namespace` | Brokkr's box, built by bubblewrap 0.11 or newer. Linux only, WSL2 included. |
 | `seatbelt` | **Refused.** macOS's `sandbox-exec` box is not built. |
 | `container` | **Refused.** The container box is not built. |
 | `harness` | Nothing of Brokkr's. A model seat's harness sandbox stands only where its adapter declares a fragment for the seat's class, as that fragment addresses it (the status page's *Own sandbox for* column). An `exec` seat's script runs unboxed in a rebuilt environment. |
