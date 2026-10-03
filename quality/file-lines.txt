@@ -147,7 +147,7 @@
    947 crates/brokkr-cli/tests/delivered_by_brokkr.rs
    299 crates/brokkr-cli/tests/diagrams.rs
   3012 crates/brokkr-cli/tests/doctor_dsh_selection.rs
-  3461 crates/brokkr-cli/tests/driver_conformance.rs
+  3468 crates/brokkr-cli/tests/driver_conformance.rs
    399 crates/brokkr-cli/tests/dsh_sandbox_runner.rs
    755 crates/brokkr-cli/tests/hands.rs
    141 crates/brokkr-cli/tests/heap/support.rs
@@ -236,7 +236,7 @@
     85 crates/brokkr-runtime/src/engine/replay/tests.rs
   4089 crates/brokkr-runtime/src/engine/resume_tests.rs
    121 crates/brokkr-runtime/src/engine/secret_threading_tests.rs
-  6675 crates/brokkr-runtime/src/engine/tests.rs
+  6681 crates/brokkr-runtime/src/engine/tests.rs
    427 crates/brokkr-runtime/src/keep_refs/tests.rs
    494 crates/brokkr-runtime/src/launch/tests.rs
   1371 crates/brokkr-runtime/src/realms/tests.rs
