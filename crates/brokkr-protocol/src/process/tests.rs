@@ -1169,15 +1169,18 @@ fn stampless_engine(dir: &str) {
 }
 
 /// An engine whose kill spares every identity, so its attempt's detached
-/// grandchild runs on after the kill. Its driver reports success once the
-/// grandchild has recorded itself, and exits.
+/// grandchild runs on after the kill. Its driver reports success a second
+/// after the grandchild has recorded itself, and exits. The second is ten
+/// of the tracker's reads: on macOS, with no subreaper, a descendant
+/// orphaned between two reads goes unseen, the residual the operator
+/// accepted on 2026-09-28, and this test pins what a seen one does.
 fn spared_engine(dir: &str) {
     let seats = Seats::at(dir);
     let host = Host {
         kill: |_| Ok(()),
         ..Host::REAL
     };
-    let succeeds = format!("printf '%s\\n' '{}'", succeeded());
+    let succeeds = format!("sleep 1; printf '%s\\n' '{}'", succeeded());
     let driver = seats.role_driver("seat", "detached", &accepting(), &succeeds);
     let process = DriverProcess::spawn_with(&driver, &seats.dir, None, &SpawnEnv::Inherit, host);
     let mut process = process.unwrap();
