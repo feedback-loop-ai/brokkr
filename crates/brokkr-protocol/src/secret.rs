@@ -4,11 +4,12 @@
 //! `Secret` type, the operator-side store, the `{{secret:NAME}}`
 //! reference scanner, and the known-plaintext masker. Outside this
 //! module plaintext is reachable through exactly one method
-//! (`Secret::expose_for_spawn`) with exactly one production call site:
-//! the spawn injector in the exec adapter. A CI grep test pins that
-//! count. Zero new dependencies: base64/hex/percent encoders and the
-//! env-format parser are hand-rolled against fixed vectors — a `regex`
-//! or `dotenv` edge fails the decision-0009 posture for no gain.
+//! (`Secret::expose_for_spawn`) with exactly one production call site,
+//! this module included: the spawn injector [`bind_environment`] every
+//! harness spawn shares. A CI grep test pins that count. Zero new
+//! dependencies: base64/hex/percent encoders and the env-format parser
+//! are hand-rolled against fixed vectors — a `regex` or `dotenv` edge
+//! fails the decision-0009 posture for no gain.
 
 use std::fmt;
 use std::io::Write;
@@ -53,9 +54,9 @@ impl Secret {
     }
 
     /// The SOLE plaintext egress. Its one production call site is the
-    /// child-environment injection in the exec adapter's spawn path —
-    /// never argv, never a template substitution, never a log. A CI
-    /// grep test asserts exactly one call site outside this module.
+    /// child-environment injection in [`bind_environment`] — never argv,
+    /// never a template substitution, never a log. A CI grep test asserts
+    /// exactly one call site across every production module, this one too.
     pub fn expose_for_spawn(&self) -> &[u8] {
         &self.bytes
     }
@@ -100,6 +101,34 @@ impl BoundSecret {
     pub fn secret(&self) -> &Secret {
         &self.secret
     }
+}
+
+/// A binding the spawn injector cannot hand a child. The text names the
+/// binding, never its value.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum BindError {
+    #[error("secret '{0}' is not valid UTF-8")]
+    NotUtf8(String),
+}
+
+/// Injection discipline (decision 0012, layer 3): values reach the child
+/// ONLY through its environment, resolved at spawn time — never argv
+/// (/proc/*/cmdline is world-readable), never the template. Every harness
+/// spawn — claude, lanetally, codex, dsh and exec alike — binds through
+/// here, so this holds the sole production call site of
+/// expose_for_spawn, CI-grep pinned. A declared name overrides any
+/// pre-existing env entry: the declaration is in the reviewed charter, so
+/// a collision is visible at review time.
+pub(crate) fn bind_environment(
+    command: &mut std::process::Command,
+    bindings: &[BoundSecret],
+) -> Result<(), BindError> {
+    for binding in bindings {
+        let value = std::str::from_utf8(binding.secret.expose_for_spawn())
+            .map_err(|_| BindError::NotUtf8(binding.name.clone()))?;
+        command.env(&binding.name, value);
+    }
+    Ok(())
 }
 
 /// The name grammar: `[A-Z][A-Z0-9_]*`.
