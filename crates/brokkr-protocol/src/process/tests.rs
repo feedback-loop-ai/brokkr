@@ -1736,3 +1736,11 @@ fn a_launch_refused_for_an_unread_table_says_so() {
         "the process table could not be read: no rows"
     );
 }
+
+#[test]
+#[should_panic(expected = "running 0 tests")]
+fn a_test_played_in_its_own_engine_that_did_not_pass_there_fails_its_caller() {
+    // No test has this path, so the child runs none, exits 0, and passes
+    // nothing: the parent must fail, never read that as the test passing.
+    in_its_own_engine("process::tests::no_test_has_this_path");
+}

@@ -275,7 +275,7 @@ fn clean_with_stderr() -> Vec<Row> {
 #[test]
 fn an_admitting_verdict_needs_every_line_of_both_turns_read_and_every_fact_it_rests_on_measured() {
     if !in_its_own_engine(
-        "evidence::an_admitting_verdict_needs_every_line_of_both_turns_read_and_every_fact_it_rests_on_measured",
+        "probe::tests::evidence::an_admitting_verdict_needs_every_line_of_both_turns_read_and_every_fact_it_rests_on_measured",
     ) {
         return;
     }

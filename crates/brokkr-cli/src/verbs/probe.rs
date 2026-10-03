@@ -46,7 +46,8 @@ fn declared(adapter: &Adapter) -> Declared {
             .collect(),
         resume_versions: adapter
             .resume
-            .shapes()
+            .0
+            .iter()
             .map(|(shape, assessed)| (shape.clone(), identity(&assessed.identity)))
             .collect(),
     }

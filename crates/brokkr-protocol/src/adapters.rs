@@ -687,20 +687,17 @@ fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
 /// Injection discipline (decision 0012, layer 3): values reach the child
 /// ONLY through its environment, resolved at spawn time — never argv
 /// (/proc/*/cmdline is world-readable), never the template. Every harness
-/// spawn — claude, lanetally, codex, dsh and exec alike — binds through
-/// here, so this holds the sole production call site of
-/// expose_for_spawn, CI-grep pinned. A declared name overrides any
-/// pre-existing env entry: the declaration is in the reviewed charter, so
-/// a collision is visible at review time.
+/// spawn (claude, lanetally, codex, dsh, exec, and the probe's) binds here,
+/// so this holds the sole production call site of expose_for_spawn, CI-grep
+/// pinned. A declared name overrides any pre-existing env entry: the
+/// declaration is in the reviewed charter, so a collision is visible at review.
 pub(crate) fn bind_environment(
     command: &mut Command,
     bindings: &[secret::BoundSecret],
 ) -> Result<(), String> {
     for binding in bindings {
-        let value = match std::str::from_utf8(binding.secret().expose_for_spawn()) {
-            Ok(value) => value,
-            Err(_) => return Err(format!("secret '{}' is not valid UTF-8", binding.name())),
-        };
+        let value = std::str::from_utf8(binding.secret().expose_for_spawn())
+            .map_err(|_| format!("secret '{}' is not valid UTF-8", binding.name()))?;
         command.env(binding.name(), value);
     }
     Ok(())

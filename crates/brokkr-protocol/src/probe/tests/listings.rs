@@ -599,7 +599,7 @@ fn implied_values() -> Vec<Row> {
 #[test]
 fn every_listing_a_turn_gives_is_read_whole_and_a_reach_read_anywhere_refuses() {
     if !in_its_own_engine(
-        "listings::every_listing_a_turn_gives_is_read_whole_and_a_reach_read_anywhere_refuses",
+        "probe::tests::listings::every_listing_a_turn_gives_is_read_whole_and_a_reach_read_anywhere_refuses",
     ) {
         return;
     }

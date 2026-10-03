@@ -29,10 +29,16 @@ use thiserror::Error;
 use crate::{AttemptOutcome, AttemptReport, Body, Cleanup, Message, ResultStatus, PROTO};
 
 mod attempts;
+mod own_engine;
 mod table;
 mod tree;
 
 use attempts::{Attempt, Unspawned};
+// A test seam, hidden from documentation and outside the supported
+// surface: the probe's tests and the runtime engine's play a test whose
+// launches must see no other test's orphan through this one helper.
+#[doc(hidden)]
+pub use own_engine::in_its_own_engine;
 pub use tree::Unsettled;
 use tree::{Bounds, Host};
 
