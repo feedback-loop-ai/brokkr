@@ -91,7 +91,7 @@ combine or reject the claims below on their checked evidence, not by vote.
 | Robustness 5 and simplicity's accepted custody cost | Adopt CR2 and D6 unchanged. Writable hands mounts expose sibling/historical evidence; a digest does not establish custody. Keep private bound handles, all-writer U8a2, read-only publication, alias checks, writer lease through settlement, older-engine quiescing and verify-before-reuse/inspect. Accept same-root serialization; distinct roots still need alias-safe write reach (rulings 1, 3, 7–10). |
 | Simplicity: only required contracts and one read model | Adopt frozen tool-dialect v1, seat-record v6, manifest v12 and the next realms version after v7, with historical meaning intact. Keep attribution in view, inspect in readouts.rs and the shared injector in secret.rs; its cardinality proof must now inspect that module. D4/D8 and U4/U5/U6a/U8g own these choices (rulings 1, 3–8, 10). |
 | Simplicity: absorb standalone discovery U7e | Adopt. marks.rs already selects holdings/clears notice; adapters.rs already renders the fixed notice/capability contract. U7c carries and clears only selected server/tool/discovery identifiers as a projection of configuration intent. U7d renders them and closes tasks 37.1–37.2 with 36.1–36.2; U8a depends on U7d. Retain both runtime and protocol suites, separate selection/rendering removals, unchanged requested digest and native/no-MCP prompts. Reject another registry, full plan in the prompt or string-key state beyond the edge (rulings 3–6, 10). |
-| Both: bounded units and real consumers | Adopt 43 PRs and all 100 tasks. Keep U4a/U4b and U8a/U8a2 separate: their unions exceed three production files and the latter proves all writers. Keep U6's minimal ledger before forwarding and the public command's own incomplete-serving/retention refusals; the compile fence cannot protect manual CLI calls. U1–U4 remain independent as D9 states (rulings 4, 6, 9). |
+| Both: bounded units and real consumers | Adopt 43 PRs and all 100 existing tasks; final archive task 49.3 brings the checklist to 101 without another PR. Keep U4a/U4b and U8a/U8a2 separate: their unions exceed three production files and the latter proves all writers. Keep U6's minimal ledger before forwarding and the public command's own incomplete-serving/retention refusals; the compile fence cannot protect manual CLI calls. U1–U4 remain independent as D9 states (rulings 4, 6, 9). |
 | Simplicity's exclusions; robustness's bounded extension seam | Reject URL execution, reconnect/retry/pooling, extra MCP methods, nonempty restriction transport, installers/attestation/interpreter analyzers, another box, dynamic quota/index/GC services, new discovery prose/registries, duplicate serializers/accessors and native response capture. They add authority, lifetime or public vocabulary without a commissioned consumer. Typed stdio data and existing process seams suffice (rulings 1–3, 5, 6, 8, 10). |
 | Simplicity: shorten history and repeated gate prose | Adopt one current reconciliation table, compact dated history below and in D10/D11, and one shared task-verification duty. Preserve commit identities, exact prior outcomes, all task IDs and proof-specific controls. No retrospective artifact or relabelled historical result (ruling 5). |
 | Both: costs and proof still owed | Accept serial/fsynced calls, delayed settled display, unused static quota, conservative masking and unsupported harness shapes. Preserve the named #403/0012 residuals and operator-installed-code boundary. Retain real compile→launch→broker→journal→inspect and independent removal controls for every refusal; external gates and operator acceptance remain pending. Gate-owned findings are informational under ruling 11; security refusals stay rated under rulings 3, 8, 9. |
@@ -586,7 +586,9 @@ versioned grant change and U6a's injector extraction also have independent roots
 The previously adopted U5/U6/U9/U10 combinations and secret/readouts module
 reuse remain. This council folds discovery selection into U7c and rendering
 into U7d, which already own the necessary production files. That removes U7e
-and leaves 43 PRs with all 100 task IDs and every proof retained. U8a now
+and leaves 43 PRs with all 100 existing task IDs and every proof retained.
+The tasks review adds 49.3 for the dialect-mandated final fold within U10a,
+bringing the checklist to 101; it adds no behavioral requirement. U8a now
 depends on U7d. U5c precedes U5a; U4a/U4b and U8a/U8a2 remain separate for
 their file/proof boundaries. Existing size/clone/consumer gates retain
 authority; no exemption or fourth production file is implied.
@@ -715,6 +717,45 @@ closure and engine judgment even after a successful harness result, with
 0/1/4,096-call controls and an independent engine-check removal. The result
 was drafted and 0077 remained proposed. The current clear clarification
 covers that adoption; neither review is an executed implementation proof.
+
+### D11.3. Tasks review at f80e14f2
+
+The tasks seat adopts the proposed 43-PR order and retains every existing
+checkbox, all open. No returned_from was supplied to this seat; prior clear
+clarification and R-G/R-H/R-I dispositions retain their recorded owners.
+D2's measured mechanisms and external results remain conditional work, with
+specified refusal/pending outcomes, not unanswered build choices.
+
+The rendered tasks instruction requires verification in each checkbox, and
+[dialect archive instructions](../../../dialects/openspec/archive.md) say
+"Folding a change is the last task". The existing breakdown omitted that
+final operation. Add task 49.3 within U10a, after implementation and audit/gate
+evidence, to fold all seven deltas, append actual provenance and validate the
+archive. No archive occurs during this documents-only run. The added task
+brings the current total to 101 without changing the 43 PRs or production
+inventories; the earlier 100-task counts remain dated observations. U10a's
+final-head evidence includes the folded candidate, never just its pre-fold
+head. This is a delivery correction under SD1/SD4, not new product semantics
+or acceptance of 0077 (0071 rulings 5 and 9).
+
+Task 36 explicitly owns MB4's inherited-environment removal and auth-collision
+proof at the actual launch builder; task 46 explicitly owns GP1's integrated
+MCP gate matrix after enablement. These requirements already exist. Their
+verification and coverage entries now name those owners without borrowing a
+native-only or broker-only helper proof (0071 rulings 3, 8 and 9).
+
+Observed validation for this tasks visit (2026-10-03): `git diff --check`
+exited 0 with no output; `openspec validate --all --strict` exited 0 with
+`Totals: 20 passed, 0 failed (20 items)`. The local audit command
+`python3 .forge/tasks/slice-two-task-audit.py` exited 0: 26 requirements,
+108 scenarios assigned through requirement owners, 101 open tasks preserving
+all 100 prior IDs, 43 PRs in dependency order, at most three production files
+per PR, 55 paths matching Hot files and 540 valid local links/anchors. It also
+confirmed the three changed Markdown files, unchanged operator-ruling bytes
+and proposed decision status. These are document checks, not executed behavior
+proofs or U0 measurements. Cargo formatting, typos and squash signing remain
+the operator's external handoff; implementation and final-head gates stay
+open until their units execute them.
 
 ## Risks / Trade-offs
 
@@ -857,6 +898,16 @@ tasks and `docs/decisions/0077-the-capability-broker-is-a-harness-child.md`.
 The already adopted index row in `docs/decisions/README.md` and reciprocal
 pointer in `docs/decisions/0065-capabilities-are-the-realms-to-grant.md` remain
 part of the commission and must be preserved. R1–R5 remain verbatim.
+U10a's final document fold additionally touches the seven living files
+`openspec/specs/strict-mcp-isolation/spec.md`,
+`openspec/specs/mcp-capability-broker/spec.md`,
+`openspec/specs/gate-capability-policy/spec.md`,
+`openspec/specs/capability-call-checkpoints/spec.md`,
+`openspec/specs/capability-response-retention/spec.md`,
+`openspec/specs/slice-two-contracts/spec.md` and
+`openspec/specs/slice-two-delivery/spec.md`, and moves this change to the
+actual dated directory under `openspec/changes/archive/`. These are future
+document paths, not production files or edits authorized in this visit.
 
 ## Slice two units
 
@@ -926,7 +977,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U8g | U8f | Open a cited artifact through inspect; 44.1–44.2 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/verbs/readouts.rs` |
 | U9a | U8g, U2, U3c | Prepare whole-plan MCP doctor reporting; 45.1–45.2 | `crates/brokkr-cli/src/doctor.rs`; `crates/brokkr-cli/src/doctor/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs` |
 | U9b | U9a | Enable the proved namespace path with guides; 46.1–47.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
-| U10a | U9b | Audit removals, then validate and hand off; 48.1–49.2 | None |
+| U10a | U9b | Audit removals, validate, fold and hand off; 48.1–49.2, 49.3 | None |
 
 ### U0 — Measure isolation and telemetry
 
@@ -1233,8 +1284,8 @@ Owning tests: `crates/brokkr-runtime/src/engine/capability_tests.rs`, `crates/br
 
 Wire the expanded server set and dialect-secret environment removals into each U0-supported builder and final consumption point; unsupported measured carriers refuse. No modifications after checked command creation. Render fixed capability/tool discovery guidance from U7c's typed selected identifiers in the existing capability contract, reusing the measured hands.notice discovery identifier. No provider-name branch, new notice registry or parallel authority.
 
-Closes tasks 36.1, 36.2, 37.1 and 37.2; requirements [MB1](specs/mcp-capability-broker/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD3](specs/slice-two-delivery/spec.md), [CC2](specs/capability-call-checkpoints/spec.md).
-Proof: Actual composed cold/resume/replacement commands match independent literal server intent, and mutations refuse at the final serving boundary. Separately bind rendering and selection for Codex deferred discovery, fallback clearing, wanted drop and hostile prose; preserve hands notice, native/no-MCP prompts and requested-effect digest. No complete plan or storage locator reaches the renderer.
+Closes tasks 36.1, 36.2, 37.1 and 37.2; requirements [MB4](specs/mcp-capability-broker/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD3](specs/slice-two-delivery/spec.md), [CC2](specs/capability-call-checkpoints/spec.md).
+Proof: Actual composed cold/resume/replacement commands match independent literal server intent, and mutations refuse at the final serving boundary. Separately bind rendering and selection for Codex deferred discovery, fallback clearing, wanted drop and hostile prose; preserve hands notice, native/no-MCP prompts and requested-effect digest. No complete plan or storage locator reaches the renderer. Independently prove MB4's removal of exported dialect secret names from harness/broker environments, store-only child bindings and exact requires/wants authentication-collision causes at the serving boundary.
 
 Owning tests: `crates/brokkr-protocol/src/adapters/tests.rs`, `crates/brokkr-protocol/src/native_controls/tests.rs`, `crates/brokkr-runtime/src/engine/capability_tests.rs`, `crates/brokkr-runtime/src/engine/resume_tests.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`.
 
@@ -1323,8 +1374,8 @@ Owning tests: `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 
 Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, startup, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination.
 
-Closes tasks 46.1 and 46.2; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD3](specs/slice-two-delivery/spec.md).
-Proof: Real compile/launch/broker/fold/inspect with fake dialect; same-name MCP holding keeps native power OFF, zero-grant sibling and exec cannot alter evidence, unsafe secret reads refuse, and quota/recovery/cold/fallback/member/step cases bind. Include the success-reporting harness after zero-call version failure, post-call fatal protocol and 4,096-call exhaustion, plus scalar-secret refusal on the real retention/inspect path; pin exact causes, counts and absent unsafe bodies.
+Closes tasks 46.1 and 46.2; requirements [GP1](specs/gate-capability-policy/spec.md), [MB3](specs/mcp-capability-broker/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD3](specs/slice-two-delivery/spec.md).
+Proof: Real compile/launch/broker/fold/inspect with fake dialect; exact native/MCP gate reads/writes/explicit-office-egress required/wanted outcomes, same-name MCP holding keeps native power OFF, zero-grant sibling and exec cannot alter evidence, unsafe secret reads refuse, and quota/recovery/cold/fallback/member/step cases bind. Include the success-reporting harness after zero-call version failure, post-call fatal protocol and 4,096-call exhaustion, plus scalar-secret refusal on the real retention/inspect path; pin exact causes, counts and absent unsafe bodies.
 Add R-I's separate HOME/TMPDIR collisions through real compile and selected launch, asserting the startup cause, zero store lookup/child start, and normal DOCS_TOKEN/private-directory control. Independent removal of reserved-name validation must fail.
 
 Owning tests: `crates/brokkr-runtime/tests/capability_broker_launch.rs`, `crates/brokkr-cli/src/doctor/capability_tests.rs`.
@@ -1353,3 +1404,21 @@ Closes tasks 49.1 and 49.2; requirements [SD4](specs/slice-two-delivery/spec.md)
 Proof: Literal nonzero covered/total equality for lines/branches/functions, pinned compiler agreement, self/verify compiles, measured identities and signed merge-queue delivery; never push from a seat.
 
 Owning tests: `crates/brokkr-runtime/tests/witness_digests.rs`, `crates/brokkr-runtime/src/bundle/compose_tests.rs`.
+
+As the final task, fold the completed change with the dialect's archive
+operation, add the seven living-spec provenance entries and validate the
+folded candidate. No skip-specs/no-validation shortcut or premature archive
+is permitted; final-head evidence must cover the resulting candidate.
+
+Closes task 49.3; requirements [SD1](specs/slice-two-delivery/spec.md),
+[SD4](specs/slice-two-delivery/spec.md) and the
+[archive instruction](../../../dialects/openspec/archive.md).
+Proof: Actual archive directory/date, seven exact folded requirement/scenario
+sets and one appended provenance entry each; strict live/archive validation,
+local-link audit, staged/unstaged whitespace checks and committed document
+changes. External final-head gates remain pending until observed.
+
+Documents/evidence: all seven `openspec/specs/<capability>/spec.md` paths
+listed in Hot files, the archive-created directory for this change and its
+commit/evidence record. This row has no additional production files or
+behavior-mirroring tests.

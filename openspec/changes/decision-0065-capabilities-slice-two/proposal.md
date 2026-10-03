@@ -142,3 +142,12 @@ selection with U7c and rendering with U7d because those rows already own the
 required files; retain the full proof inventory in 43 PRs and all 100 open
 tasks. R-G/R-H, R1–R5, contract reservations and U9b-only enablement stand
 (0071 rulings 2–6, 8–10). This is a proposed design, not operator acceptance.
+
+Tasks disposition, 2026-10-03, reviewed f80e14f2: preserve the 43-PR order
+and all 100 existing open task IDs. Add final task 49.3 to U10a for the
+OpenSpec dialect's required archive, living truth and provenance after the
+implementation gates; 101 tasks now remain open. Name MB4's launch-environment
+proof in task 36 and GP1's integrated MCP gate proof in task 46 explicitly.
+This review changes no product requirement, runtime behavior or production
+inventory, and performs no archive or measurement. The final document fold
+and final-head gates remain future work; 0077 remains proposed.
