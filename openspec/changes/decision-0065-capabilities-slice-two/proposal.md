@@ -67,15 +67,16 @@ This visit adopts proposal then deltas, clarifies their scenarios, writes
 design.md and tasks.md, and analyzes their consistency using the dialect's
 own instructions. Design records the unit order, every planned file, Hot
 files, alternatives and analysis. The design council's robustness and simplicity
-positions are reconciled explicitly in design D1. The specify return at
-7f36e922 adopted 7aa9e9ff's repairs; the current returned_from is clarify's
-clear result on that revision, which remains valid within its reviewed scope.
-The new council identifies two further gaps, R-G (durable session failure)
-and R-H (shape-preserving masking). Their owning MB3–MB5 and CR2–CR4 scenarios
-are repaired before design/tasks. Because R-H corrects an earlier requirement's
-unconditional masking promise, this design visit returns upstream for owning
-review under SD1; it does not call that specification choice a downstream
-exception. Design D11 records the evidence and disposition.
+positions are reconciled explicitly in design D1. This specify revisit adopts
+the design return committed at b310e094. Its R-H finding begins in MB4/CR2:
+the existing masker preserves numeric scalars, so the broker needs an exact
+refusal when masking cannot preserve the response's meaning. R-G additionally
+requires durable session failure that engine settlement judges even when the
+harness reports success. Both repairs are adopted at their requirement owners,
+with the existing scenarios and dependent proposed 0077, design and tasks kept
+coherent. Design D11.2 records the owning review. The earlier clarify clear
+result on 7f36e922 keeps its historical scope; it is not a review of these
+later repairs. No unresolved earlier-owner defect remains from this return.
 
 Only these documents, the verbatim ruling record, proposed decision 0077,
 its index row and 0065's amendment pointer are committed. No production,
@@ -118,9 +119,21 @@ missing Built issue marker using its existing open strictness prerequisite
 #467; the complete remaining work is this change's tasks, not closed slice-one
 PR #319. The operator alone accepts decision 0077 and the completed plan.
 
-Current council disposition, 2026-10-03, reviewed 7f36e922: adopt typed private
+Council disposition, 2026-10-03, reviewed 7f36e922: adopt typed private
 session closure and conservative unsafe-response refusal, not the legacy numeric
 masking residual. Retain the existing masker and canonicalizer with a broker
 edge check. Adopt the four bounded PR combinations and two module cuts with
 all proof ownership preserved; design now contains 44 PRs. These proposals
 claim no runtime protection or acceptance of 0077 (0071 rulings 2–9).
+
+Specify disposition of b310e094, 2026-10-03: adopt R-H's conservative refusal
+and R-G's durable failed-session closure after rechecking secret.rs:637–668,
+secrets.md:50–52, process.rs:499–520 and engine/checkpoints.rs:169–248.
+The exact cause is "MCP response cannot be safely masked"; unsafe forwarded
+responses have a failed call, no digest and no delivered or staged body.
+Retain the numeric/string/control and unsafe-correlation scenarios and the
+independent engine-failure proofs. Refuse the alternatives of inheriting the
+numeric residual, changing scalar values, treating precision as secrecy or
+treating harness success as broker success (0071 rulings 3, 5, 8, 9).
+The specify result is drafted with inputs.change; all 100 implementation and
+measurement tasks remain open and 0077 remains proposed.

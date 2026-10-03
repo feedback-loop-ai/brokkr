@@ -374,5 +374,19 @@ Reuse existing failure transitions and confirmed append; no public lifecycle,
 new journal writer or policy-table input is required (0071 rulings 2, 3, 8, 9).
 CR2 also adopts MB4's scalar/structural masking refusal. The legacy numeric
 residual conflicts with the stronger retention promise; exact numeric identity
-alone cannot discharge secrecy. These owning repairs and scenarios go upstream
-for review, with all dependent design/proof tasks retained.
+alone cannot discharge secrecy. The council sent these owning repairs and
+scenarios upstream in b310e094, with all dependent design/proof tasks retained.
+
+Specify review of b310e094, 2026-10-03: adopt CR2's R-H repair and CR3/CR4's
+R-G repair. The exact numeric canary is preserved by the existing canonical
+serializer and by mask_json's scalar arm, so its representation proves no
+secret safety. Retained and vetoed responses obey the same pre-delivery check;
+the unsafe response gains neither staged bytes nor a digest. CR2's numeric
+scenario and MB4's text/unrelated-number controls bind this distinction.
+The checked driver Result branch accepts the harness's status, while ordinary
+checkpoint offer has no append receipt. Keep both durable Failed closure and
+commit-confirmed engine settlement; neither a child exit nor a complete call
+set can replace them (0071 rulings 3, 5, 8, 9). CR3/CR4's 0/1/4,096-call
+scenarios retain their independent removal tests and no-replay obligation.
+No further ambiguity from the supplied return remains at this owner; runtime
+proof and operator acceptance remain pending.

@@ -1,9 +1,12 @@
 # Decision 0065 slice two — implementation tasks
 
 Status: proposed; all implementation and measurement tasks remain open.
-The 7f36e922 specification repairs remain adopted. The current council
-proposes R-G/R-H owner repairs and returns upstream; design D11 records why. That does not complete U0,
-qualify a harness, accept decision 0077 or close any checkbox below.
+The 7f36e922 repairs and b310e094's returned R-G/R-H repairs are adopted at
+their owning specifications; design D11.2 records this specify review. The
+masking proofs remain in groups 31/39/46 and the session/settlement proofs in
+29/30/41/42/46, including their independent compiling removals. Adoption does
+not complete U0, qualify a harness, accept decision 0077 or close a checkbox.
+All 100 task IDs and the 44-PR plan remain unchanged.
 
 Follow design.md's final **Slice two units** section: one PR per row, from
 main, signed and through the merge queue after the operator rules. Each group

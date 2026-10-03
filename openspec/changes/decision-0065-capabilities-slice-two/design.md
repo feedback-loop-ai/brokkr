@@ -3,7 +3,8 @@
 Status: proposed design for operator ruling; documents only.
 Change: decision-0065-capabilities-slice-two.
 Source base: 2a23488b19f6dea271264f6a85b40d46a84af39e.
-Current council checked HEAD: 7f36e922, 2026-10-03.
+Last council checked HEAD: 7f36e922, 2026-10-03.
+Specify return reviewed HEAD: b310e094, 2026-10-03.
 
 ## Context
 
@@ -14,15 +15,16 @@ runner. The two operator maps were read whole, as were the commissioned
 decisions and slice-one proposal/design/specs/operator rulings. D4's ordering
 and D11's deferral are constraints, not opportunities to redesign native power.
 
-This council adopts the specification repairs committed at 7f36e922. The
-supplied returned_from is clarify's clear result on that head; its seven
-previous repair areas remain intact. Both current positions were read whole
-at .forge/design/positions/robustness.md and simplicity.md. D1 preserves the
-previous synthesis and adds a distinct current synthesis. New R-G/R-H evidence
-requires durable session failure and an explicit unsafe-masking refusal at
-MB3–MB5 and CR2–CR4. Owners are revised before this design and tasks; D11
-records why the result is upstream despite those concrete proposed repairs.
-Nothing here accepts 0077, closes implementation or invents a harness result.
+This specify revisit adopts the returned design at b310e094, including its
+R-G/R-H repairs at MB3–MB5 and CR2–CR4. Both positions were read whole at
+.forge/design/positions/robustness.md and simplicity.md; D1.1's explicit council
+reconciliation and the bounded unit plan are preserved. The current
+returned_from is design's upstream result for R-H's scalar-masking conflict.
+D11.1 records that historical council return; D11.2 answers it at the owning
+specifications after rechecking the source. Clarify's earlier clear result on
+7f36e922 keeps its original scope. Proposal and deltas are adopted before
+updating this design and tasks. Nothing here accepts 0077, closes implementation
+or invents a new council or harness result.
 
 The following evidence was rechecked at this base. Paths use the crate name
 plus src unless prefixed with contracts; line facts are starting evidence,
@@ -49,9 +51,9 @@ Their titles/bodies/file paths/patches contain no 0077 claim. The index gap
 table reserves 0072/0074/0075 and 0076 exists; retain proposed 0077. This is
 an observation, not a remote reservation. The commission's agreement that
 #487 takes realms v7 supersedes PR #494's historical v6 wording.
-This council preserves that dated observation. Its fresh read-only gh query
-could not authenticate in the box (GH_TOKEN absent); it does not re-certify
-open PRs or reserve 0077 remotely. The local index and amendment pointers still
+The council preserved that dated observation. This specify revisit's fresh
+read-only gh query also could not authenticate in the box (GH_TOKEN absent);
+neither visit re-certifies open PRs or reserves 0077 remotely. The local index and amendment pointers still
 name proposed 0077; recheck concurrent claims before its implementation PR.
 
 ## Goals / Non-Goals
@@ -111,7 +113,7 @@ input and exactly-once settled evidence agree. No R1–R5, D4 or D11 ruling is
 weakened; any future incompatible measurement returns to its owner. Acceptance
 of proposed 0077 remains the operator's.
 
-### D1.1. Current council synthesis at 7f36e922
+### D1.1. Adopted council synthesis at 7f36e922
 
 Both current positions were checked against the source, not treated as votes.
 No additional position is present in the journal-derived roster. Their pass
@@ -121,7 +123,7 @@ results mean the advice was produced; they prove no broker or harness behavior.
 | --- | --- |
 | Both: preserve R1–R5 and the returned safeguards | Adopt unchanged: independent complete server intent; D4 validation and native OFF; gate class/stable office and one DATA declaration; measured strictness/read isolation; protected startup/all managed writers; durable settled evidence; versioned historical meaning. The checked singleton final proof, writable hands mounts and unconfirmed checkpoint queue support D3–D8. No new resolver, broker journal writer or public lifecycle (0071 rulings 1–3, 5, 7–10). |
 | Robustness R-G: Closed must record session failure | Adopt typed Clean/Failed closure with first fatal safe cause, synced from reserved capacity and inspected by the engine. process.rs:499–520 takes driver status; child exit cannot override harness success by itself. Reject an end marker alone or deliberately missing closure as the ordinary fault channel. MB3/MB5, CR3/CR4, D7, U6d/U6e/U6f and U8d/U8e/U9b own the proof; no extra tool row for zero calls (rulings 2, 3, 8, 9). |
-| Robustness R-H: scalar secrets conflict with the broker promise | Adopt conservative output-edge refusal with exact cause "MCP response cannot be safely masked". secret.rs:637–668 and secrets.md:50–52 explicitly preserve numeric scalars; 876543210 also passes exact-number checks. Reject carrying that residual into MB4/CR2, coercing numbers, or a second encoding catalogue. Reuse masking/canonicalization and check before stage/delivery. Owning specifications and 0077 change first, so return upstream (rulings 3, 5, 8, 9; high security if left fail-open). |
+| Robustness R-H: scalar secrets conflict with the broker promise | Adopt conservative output-edge refusal with exact cause "MCP response cannot be safely masked". secret.rs:637–668 and secrets.md:50–52 explicitly preserve numeric scalars; 876543210 also passes exact-number checks. Reject carrying that residual into MB4/CR2, coercing numbers, or a second encoding catalogue. Reuse masking/canonicalization and check before stage/delivery. Owning specifications and 0077 changed first, prompting the council return upstream (rulings 3, 5, 8, 9; high security if left fail-open). |
 | Simplicity cut 1: use secret.rs for the injector | Adopt: 677 lines and an existing secret-value responsibility versus a small injector at adapters.rs:695. U6a touches only adapters.rs and secret.rs, with typed errors and current harness consumers. machine_proof.rs:3141 currently excludes secret.rs; explicitly scan actual calls there too, exclude the accessor definition, assert one call in the shared injector and catch an added second invocation. Reject a move that merely hides the call from the proof (rulings 4–6, 8, 9). |
 | Simplicity cut 2: keep inspect dispatch in readouts.rs | Adopt: 346 lines, inspect already at :107. U8g touches cli_args.rs/readouts.rs; runtime still verifies files and view still derives provenance. Reject a new thin forwarding module without a measured size need (rulings 4–7, 10). |
 | Simplicity cut 3a: U5a absorbs U5e | Adopt their exact three-file union. Put independent U5c first, then U5a closes tasks 20/21/24; U5f depends on U5a. Frozen v1 and native consumers remain, all MCP compiles still refuse (rulings 4–6). |
@@ -650,7 +652,7 @@ R1–R5 and production/test/frozen bytes are unchanged. Checks are repeated afte
 staging this validation record. Runtime proofs, U0 measurements, external
 format/typos, operator acceptance and squash signing remain pending.
 
-Current council document validation on 2026-10-03: both git diff --check
+Historical council document validation at b310e094 on 2026-10-03: both git diff --check
 forms pass; openspec validate --all --strict reports 20 passed, 0 failed.
 Its existing requirement-length/archive notices are informational. A static
 audit confirms 26 requirements, 106 scenarios, 44 dependency-ordered PR rows,
@@ -664,6 +666,20 @@ U0, Rust/namespace/mutation
 proofs, external format/typos and final-head gates, operator acceptance and
 squash signing remain pending. The result is upstream for D11.1's owning
 specification review, not a claim that the plan is approved for implementation.
+
+Specify-return document validation on 2026-10-03, adopting b310e094: both
+unstaged and cached git diff --check pass after removing two trailing blank
+lines. openspec validate --all --strict passes 20 items with zero failures;
+its existing length/archive notices remain informational. The static audit
+checks 26 requirements, 107 scenarios, 44 dependency-ordered PR rows, 100
+unchanged unique open task IDs, at most three production files per PR, all
+55 production paths with matching Hot files ownership, task dependencies and
+521 local Markdown links/anchors. The revision changes exactly seven
+commissioned Markdown artifacts. Production, tests, frozen bytes, R1–R5,
+the index row and 0065 amendment pointer are unchanged. Repeat the two
+in-box gates after staging this record. U0, implementation/removal proofs,
+external format/typos and runtime gates, operator acceptance and squash signing
+remain pending; no runtime gate was executed by this document review.
 
 ### D11. Clarification and analysis disposition
 
@@ -718,14 +734,14 @@ Two further consistency corrections belong to this revisit:
   This is the decision-index gate's informational finding (0071 ruling 11),
   not a new remote issue or an acceptance claim.
 
-That owning review answered the earlier return; the current council finds the
-additional R-G/R-H gaps below. U0 and implementation proofs remain open prerequisites. If evidence makes R2 or protected evidence
+That owning review answered the earlier return; the following council found
+the additional R-G/R-H gaps below. U0 and implementation proofs remain open prerequisites. If evidence makes R2 or protected evidence
 infeasible for a harness, keep it refused; never downgrade a high refusal
 finding to an informational gate result.
 
-### D11.1. Current return and consistency judgment
+### D11.1. Council return and consistency judgment at b310e094
 
-The actual returned_from is clarify's clear result on 7f36e922: the seven
+That council's returned_from was clarify's clear result on 7f36e922: the seven
 previous repair areas were reviewed without a new ambiguity. Preserve them;
 this council neither invents an outstanding clarify finding nor rewrites that
 historical result. Both new positions were reconciled in D1.1.
@@ -736,10 +752,11 @@ MB4/CR2 promise secret-free, shape-preserved output yet specify no safe outcome
 for a known numeric secret left unchanged by the shared masker. Leaving either
 fail-open is high security under 0071 rulings 3, 8, 9. The owning deltas now
 propose typed failed closure and the explicit unsafe-response refusal, with
-scenarios; 0077, D5/D7 and tasks follow. Return **upstream** for owning review
-of those specification repairs, with inputs.change
-`decision-0065-capabilities-slice-two`. Do not report drafted while hiding R-H
-as an implementation exception. This disposition selects no next phase.
+scenarios; 0077, D5/D7 and tasks followed. That council returned **upstream**
+for owning review, with inputs.change `decision-0065-capabilities-slice-two`.
+A downstream drafted claim would have hidden R-H as an implementation exception.
+D11.2 records the subsequent owning specify review; neither disposition
+selects a next phase.
 
 The current analysis retains all 26 requirement owners. Duplication is reduced
 by reusing secret/readouts modules and combining bounded PRs; no proof or task
@@ -750,6 +767,36 @@ public lifecycle, authority source, trait or platform is introduced. File
 ceilings, clones, formatting and other deterministic checks remain their
 gates' verdicts (ruling 11). Document validation is recorded in D10; none of
 this is implementation proof or operator acceptance.
+
+### D11.2. Specify disposition of the returned R-G/R-H repairs
+
+The supplied returned_from is design's upstream result committed at b310e094.
+Adopt it as a requirement repair, not an implementation exception. Rechecked
+source: protocol/secret.rs:637–668 and docs/guides/secrets.md:50–52 preserve
+numeric scalars; core/canonical.rs:9–14, :68–77 preserves the exact canary;
+protocol/process.rs:499–520 takes driver status; runtime/engine/checkpoints.rs:
+169–248 distinguishes an offered row from a confirmed append. These are source
+observations, not an executed broker or mutation proof.
+
+| Returned finding | Owning review and retained proof |
+| --- | --- |
+| R-H, high security if fail-open; MB4/CR2; 0071 rulings 3, 5, 8, 9 | Adopt the exact "MCP response cannot be safely masked" refusal before staging/delivery. Reject the numeric residual, scalar coercion and precision-only protection. Preserve numeric/text/unrelated-number, encoded-string, key-collision and unsafe-correlation scenarios. U6f/U8b/U9b and tasks 31, 39, 46 prove refusal independently of precision and under retention on/off/veto. |
+| R-G, high security if harness success hides failure; MB3/MB5/CR3/CR4; 0071 rulings 2, 3, 8, 9 | Adopt typed Clean/Failed closure and the engine's judgment of its latched safe cause. Reject treating an end marker, child exit or a complete call set as success. U6d/U6e/U8d/U8e/U9b and tasks 29, 30, 41, 42, 46 retain the exact 0/1/4,096-call controls, recovery, and an independent removal of the engine check. |
+
+Both owning Decisions sections now record adoption. SD1 adds a scenario for
+this returned visit; existing behavioral scenarios already specify the answer.
+Proposed 0077, D5/D7 and tasks retain the same exact behavior and proof owners.
+Simplicity's two module cuts and four PR combinations remain adopted: no new
+module, contract version, task ID or production path is needed for this review.
+All 26 requirements and 100 open task IDs remain accounted for; the single
+44-PR merge order and Hot files inventory stay coherent.
+
+No unresolved upstream specification fault remains from this return. The
+specify result is **drafted**, with inputs.change
+`decision-0065-capabilities-slice-two`. This is neither a fresh clarify/analyze
+verdict nor operator acceptance. R1–R5, D4/D11, contract reservations, U0's
+measurement requirement and all implementation/external proof obligations
+remain unchanged; the engine determines the next phase.
 
 ## Risks / Trade-offs
 
@@ -805,9 +852,9 @@ are settled through the same journal/cleanup path, not left detached.
 
 ## Open Questions
 
-The earlier owning-spec repairs remain adopted; current R-G/R-H repairs await
-upstream owning review, and operator acceptance remains required. The technical unknowns are measurements
-and external results: which of D2's named candidates
+The earlier repairs and returned R-G/R-H repairs are adopted at their owning
+specifications (D11.2); operator acceptance remains required. The technical
+unknowns are measurements and external results: which of D2's named candidates
 qualifies each installed harness/shape; exact observed call identifiers; and
 host/CI evidence on each final unit head. Their failure outcome is already
 specified as refusal/pending. No unmeasured flag, config-precedence choice,

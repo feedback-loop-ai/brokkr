@@ -362,5 +362,18 @@ explicit refusal where redaction and shape preservation conflict. Reject
 inheriting the numeric residual, scalar coercion, or reliance on precision
 checking: 876543210 is exactly representable. Preserve ordinary text masking,
 shared encodings and existing masker semantics (0071 rulings 3, 5, 8, 9).
-This earlier-owner repair returns upstream for specification review; it is
+The council returned this earlier-owner repair upstream in b310e094; it is
 not a reproduced defect in an implemented broker or a runtime closure.
+
+Specify review of b310e094, 2026-10-03: adopt both repairs at this owner.
+The checked mask_json match visits strings, arrays and object keys but leaves
+other scalars unchanged; the guide explicitly documents the numeric residual.
+R1's "masks secrets in its own output" therefore requires the additional
+broker refusal already specified in MB4. Its numeric-secret and protocol-field
+scenarios answer R-H without changing legacy masking, coercing evidence or
+weakening retention-veto protection. Keep the shared encoding catalogue and
+the independent precision check (0071 rulings 3, 5, 8, 9).
+R-G's MB3/MB5 failure semantics are adopted with CR3/CR4: driver-reported
+success alone cannot discharge a broker's latched failure. U6f/U8b/U9b own
+the masking proofs; U6d/U6e/U8d/U8e/U9b own session and settlement proofs.
+Those proofs remain open; specification adoption is not operator acceptance.

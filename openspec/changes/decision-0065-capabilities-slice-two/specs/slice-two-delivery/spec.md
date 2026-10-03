@@ -49,6 +49,12 @@ MCP grants SHALL enter this run.
 - **THEN** design preserves clarify's historical scope, repairs MB3–MB5 and CR2–CR4 before their dependent design/tasks, and returns upstream for the owning specification review
 - **AND** the proposed repairs keep all implementation proofs pending; a clear earlier review or a current document gate does not accept new semantics or certify runtime behavior
 
+#### Scenario: Specify adopts the returned masking and session repairs
+
+- **WHEN** returned_from names design's b310e094 upstream result for R-H at MB4/CR2 and the accompanying R-G session-failure repair
+- **THEN** specify rechecks the masker, numeric guide limit and driver/checkpoint boundaries, adopts the exact unsafe-masking refusal and durable failed-session settlement at their owning Decisions, and keeps proposal, proposed 0077, design and tasks coherent
+- **AND** the existing scalar/text/control, unsafe-correlation and 0/1/4,096-call scenarios remain binding; drafted records this specification review with inputs.change, without claiming new council assent, runtime proof or operator acceptance
+
 ### Requirement: SD2 one ordered plan splits every oversized implementation unit
 
 The final design SHALL publish one true dependency order based on the
@@ -225,9 +231,19 @@ open #467 strictness prerequisite and this change's complete tasks; do not
 pretend closed slice-one PR #319 carries slice two or create an unsolicited
 remote tracker. No implementation checkbox closes in this review.
 
-Current council return, 2026-10-03: the supplied returned_from is clarify's
-clear judgment of 7f36e922, not another copy of the earlier upstream findings.
+Council return in b310e094, 2026-10-03: that council's supplied returned_from
+was clarify's clear judgment of 7f36e922, not another copy of the earlier
+upstream findings.
 R-G/R-H are new evidence. R-H begins at MB4/CR2, so SD1 requires upstream
 owning review even though the council supplies coherent proposed repairs.
 Simplicity's four PR combinations preserve every task and proof within the
 three-production-file ceiling; the final design alone defines their merge order.
+
+Specify review of b310e094, 2026-10-03: the current returned_from is design's
+upstream result, answered here and at MB4/CR2 with the accompanying R-G owners.
+Adopt its repairs with checked reasons, preserving D1.1's complete reconciliation
+of both positions and the 44-PR/100-task plan. The prior upstream disposition
+and clarify result remain historical. This visit returns drafted with
+inputs.change decision-0065-capabilities-slice-two; the engine alone determines
+its next phase. No task, measurement, external gate or proposed decision is
+marked accepted or complete by this owning review.

@@ -28,10 +28,12 @@ by the operator. The proposal, deltas, design and tasks carry exact
 admission, refusal and evidence obligations. The council returned owning
 specification repairs upstream in 7aa9e9ff; the specify revisit adopts those
 repairs with explicit dispositions in the deltas and design D11. This revision
-does not accept this decision or certify runtime protections. The next council
-at 7f36e922 additionally proposes durable failed-session closure and refusal
-of a response that cannot be safely masked. Those owning specification repairs
-return upstream under the change's SD1; design D11 records their evidence.
+does not accept this decision or certify runtime protections. The next council,
+reviewing 7f36e922, returned b310e094 upstream for the additional scalar-masking
+conflict and proposed durable failed-session closure. This specify revisit
+adopts those repairs at MB4/CR2 and MB3/MB5/CR3/CR4 after rechecking their source
+evidence. Design D11.2 records that owning disposition; the operator still
+alone accepts this proposed amendment.
 
 The unbuilt marker links open [#467](https://github.com/feedback-loop-ai/brokkr/issues/467),
 the strict MCP prerequisite already commissioned as U1. It does not claim that
@@ -90,8 +92,11 @@ claimed by this document.
    The broker lists only the realm-admitted tools and refuses an ungranted
    call before forwarding it. Its output is masked before delivery or
    persistence. A known secret in a scalar or structural field that cannot
-   be redacted without changing the admitted shape causes a safe refusal;
-   it is not delivered or retained by inheriting the legacy numeric residual.
+   be redacted without changing the admitted shape refuses with
+   "MCP response cannot be safely masked"; no unsafe response is delivered
+   or retained. A forwarded call fails without a digest; unsafe correlation
+   ends the session without emitting an unsafe frame. The legacy numeric
+   residual is not inherited by this broker boundary.
    Neither tool arguments nor returned content can change
    connection, grants, restrictions, secrets or retention. Secret-bearing
    holdings additionally require measured exclusion of store and child-process
