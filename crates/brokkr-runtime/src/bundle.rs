@@ -1100,18 +1100,15 @@ impl<'a> CapabilityAdapters<'a> {
         }
     }
 
-    /// An inline seat's adapters: loaded, failed to load, or never asked for.
-    fn of(pinned: Option<&'a Result<Adapters, String>>) -> Self {
-        match pinned {
-            Some(Ok(adapters)) => Self::loaded(adapters),
-            Some(Err(problem)) => CapabilityAdapters {
-                adapters: None,
-                unloaded: Some(problem),
-            },
-            None => CapabilityAdapters {
-                adapters: None,
-                unloaded: None,
-            },
+    /// An inline seat's adapters where no agent context holds them: never
+    /// asked for, or failed to load. Inline adapters that loaded open an
+    /// agent context (`tier::inline_context`) and are read as `loaded`.
+    fn unloaded(pinned: Option<&'a Result<Adapters, String>>) -> Self {
+        CapabilityAdapters {
+            adapters: None,
+            unloaded: pinned
+                .and_then(|loaded| loaded.as_ref().err())
+                .map(String::as_str),
         }
     }
 }
@@ -1966,7 +1963,7 @@ impl Bundle {
                     context.library.as_ref(),
                     CapabilityAdapters::loaded(&context.adapters),
                 ),
-                None => (None, CapabilityAdapters::of(pin_adapters.as_ref())),
+                None => (None, CapabilityAdapters::unloaded(pin_adapters.as_ref())),
             };
             for (phase, raw) in &resolved.seats {
                 // The layer that wrote the seat, as its agent's hands

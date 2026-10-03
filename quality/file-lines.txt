@@ -74,7 +74,7 @@
   1335 crates/brokkr-runtime/src/agents/load.rs
    285 crates/brokkr-runtime/src/anchor.rs
    168 crates/brokkr-runtime/src/boundary.rs
-  7824 crates/brokkr-runtime/src/bundle.rs
+  7821 crates/brokkr-runtime/src/bundle.rs
   1258 crates/brokkr-runtime/src/bundle/compose.rs
   2369 crates/brokkr-runtime/src/capabilities.rs
    645 crates/brokkr-runtime/src/dialect.rs
