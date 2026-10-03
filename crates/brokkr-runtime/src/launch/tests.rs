@@ -18,7 +18,7 @@ fn workspace() -> PathBuf {
 
 /// A two-phase bundle of exec seats under `root/bundle`; the `work` seat
 /// boxes its hands in the workspace when `boxed`.
-fn bundle_at(root: &Path, boxed: bool) -> PathBuf {
+pub(super) fn bundle_at(root: &Path, boxed: bool) -> PathBuf {
     let dir = root.join("bundle");
     std::fs::create_dir_all(dir.join("roles")).unwrap();
     std::fs::write(dir.join("roles/seat.md"), "# seat\n").unwrap();

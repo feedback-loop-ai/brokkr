@@ -94,11 +94,19 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
     }
 
     let entries = listed(&db);
+    // Every path the entry holds is anchored to the workspace it was
+    // queued in.
+    let (b, recipes) = (ws.join("b"), ws.join("recipes"));
+    let shown = b.display().to_string();
+    let w = shown.len();
     assert_eq!(
         table(&rows(&entries)),
-        "PLACE  ENTRY  STATE    PRIORITY  AFTER        RUN    BUNDLE        FEATURE\n\
-         1      2      held     -2        1:completed  -      recipe story  second[2J\n\
-         -      3      claimed  0         -            run-3  b             third\n"
+        format!(
+            "PLACE  ENTRY  STATE    PRIORITY  AFTER        RUN    {:w$}  FEATURE\n\
+             1      2      held     -2        1:completed  -      {:w$}  second[2J\n\
+             -      3      claimed  0         -            run-3  {shown}  third\n",
+            "BUNDLE", "recipe story"
+        )
     );
     let stamp = |n: usize| entries[n].0.added_at.clone();
     let launch = |bundle, feature| {
@@ -106,7 +114,7 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
                "repo": null, "secrets": null, "feature": feature, "map": "unmapped",
                "dispatch": null})
     };
-    let recipe = json!({"recipe": {"name": "story", "recipes_dir": "recipes"}});
+    let recipe = json!({"recipe": {"name": "story", "recipes_dir": recipes}});
     assert_eq!(
         serde_json::to_value(rows(&entries)).unwrap(),
         json!([
@@ -114,7 +122,7 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
              "waits": [{"entry": 1, "on": "completed"}], "added_at": stamp(0),
              "launch": launch(recipe, "second\x1b[2J")},
             {"place": null, "entry": 3, "state": "claimed", "run": "run-3", "priority": 0,
-             "waits": [], "added_at": stamp(1), "launch": launch(json!({"dir": "b"}), "third")},
+             "waits": [], "added_at": stamp(1), "launch": launch(json!({"dir": b}), "third")},
         ])
     );
     for json in [&["list"][..], &["list", "--json"]] {

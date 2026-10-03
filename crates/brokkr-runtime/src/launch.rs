@@ -177,6 +177,12 @@ pub enum LaunchError {
     /// A queue entry's payload this brokkr cannot read as a launch.
     #[error("reading a queued launch")]
     DecodeQueued(#[source] serde_json::Error),
+    /// A queued launch's workspace that its paths cannot be anchored to.
+    #[error(
+        "a queued launch names its workspace absolutely, and {} is relative",
+        .0.display()
+    )]
+    QueuedWorkspaceRelative(PathBuf),
     #[error(transparent)]
     Dispatch(#[from] DispatchError),
     #[error("loading source run '{run}'")]

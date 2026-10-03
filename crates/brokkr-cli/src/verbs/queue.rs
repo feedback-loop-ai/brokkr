@@ -31,8 +31,8 @@ pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
 
 /// `brokkr queue add`: the launch, encoded, at the end of the queue in the
 /// journal the launch would write. The entry is launched from wherever the
-/// dispatcher stands, so it names its workspace absolutely; every relative
-/// path it holds is relative to that workspace.
+/// dispatcher stands, so it names its workspace absolutely, and every path
+/// it holds is anchored to that workspace ([`QueuedLaunch::of`]).
 fn add(
     workspace: &Path,
     QueueAddArgs {

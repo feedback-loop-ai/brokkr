@@ -41,6 +41,8 @@ pub brokkr_store::QueueRefusal::RunTaken::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::RunTaken::run: alloc::string::String
 pub brokkr_store::QueueRefusal::SchemaMismatch
 pub brokkr_store::QueueRefusal::SchemaMismatch::found: u32
+pub brokkr_store::QueueRefusal::TableLost
+pub brokkr_store::QueueRefusal::TableLost::table: &'static str
 pub brokkr_store::QueueRefusal::UnknownEntry(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::UnknownWait(brokkr_store::EntryId)
 pub enum brokkr_store::SeatRecordVersion

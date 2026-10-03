@@ -931,6 +931,7 @@ pub brokkr_runtime::launch::LaunchError::Engine(brokkr_runtime::engine::EngineEr
 pub brokkr_runtime::launch::LaunchError::NoFeature
 pub brokkr_runtime::launch::LaunchError::NoFeature::run: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::ParseDispatch(serde_json::error::Error)
+pub brokkr_runtime::launch::LaunchError::QueuedWorkspaceRelative(std::path::PathBuf)
 pub brokkr_runtime::launch::LaunchError::ReadDispatch
 pub brokkr_runtime::launch::LaunchError::ReadDispatch::path: std::path::PathBuf
 pub brokkr_runtime::launch::LaunchError::ReadDispatch::source: core::io::error::Error

@@ -226,6 +226,52 @@ fn a_journal_that_lost_a_queue_guard_gets_it_back_on_open() {
     assert!(queue_intact(&Store::open(&path).unwrap().conn).unwrap());
 }
 
+/// A journal that records its queue and has lost a queue table is refused
+/// at every writable open, and the queue is not recreated empty: what it
+/// held, entries, run links and commands, cannot be read.
+#[test]
+fn a_journal_that_lost_a_queue_table_is_refused_on_open_not_recreated_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    for (lose, table) in [
+        (
+            "DROP TABLE queue_waits; DROP TABLE queue_commands; DROP TABLE queue_entries;",
+            "queue_entries",
+        ),
+        ("DROP TABLE queue_waits", "queue_waits"),
+        ("DROP TABLE queue_commands", "queue_commands"),
+    ] {
+        let path = dir.path().join(format!("{table}.db"));
+        let mut store = Store::open(&path).unwrap();
+        queue(&mut store, 1);
+        store.conn.execute_batch(lose).unwrap();
+        let tables = |conn: &Connection| -> Vec<String> {
+            conn.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'queue_%' ORDER BY name")
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        let left = tables(&store.conn);
+        drop(store);
+        let refused = match Store::open(&path).err().expect("refused") {
+            StoreError::Queue(refused) => refused,
+            other => panic!("not a queue refusal: {other}"),
+        };
+        refused_as(
+            refused,
+            QueueRefusal::TableLost { table },
+            &format!(
+                "the journal records a queue but its {table} table is gone; what the queue held \
+                 cannot be read, and it is never recreated empty"
+            ),
+        );
+        let conn = Connection::open(&path).unwrap();
+        assert_eq!(tables(&conn), left);
+        assert_eq!(queue_schema(&conn).unwrap(), Some(QUEUE_SCHEMA));
+    }
+}
+
 /// A queue with an entry in every standing: 1 queued, 2 held, 3 dropped
 /// and 4 claimed by `run-b`, with `run-a` started and claimed by none.
 fn every_standing(dir: &Path) -> (Store, [EntryId; 4]) {

@@ -91,17 +91,37 @@ pub(crate) const QUEUE_TRIGGERS: [&str; 7] = [
     "queue_commands_append_only_delete",
 ];
 
+/// The queue's tables, in the order [`MIGRATION_QUEUE_V1`] creates them.
+const QUEUE_TABLES: [&str; 3] = ["queue_entries", "queue_waits", "queue_commands"];
+
 /// Is the queue whole: its storage version recorded and every guard in
-/// place? Pure reads, so the steady-state open takes no write lock.
+/// place? Pure reads, so the steady-state open takes no write lock. A
+/// journal that records no queue is from before it, and the queue is
+/// installed. One that records a queue whose table is gone has lost what
+/// the queue held (SQLite drops a table's guards with it), and is refused
+/// rather than recreated empty; so only a guard missing from a table that
+/// is still there is ever repaired.
 pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
-    let triggers: Vec<String> = conn
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'")?
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-    let guarded = QUEUE_TRIGGERS
+    if queue_schema(conn)?.is_none() {
+        return Ok(false);
+    }
+    let named = |kind: &str| -> Result<Vec<String>, StoreError> {
+        Ok(conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = ?1")?
+            .query_map([kind], |row| row.get(0))?
+            .collect::<Result<_, _>>()?)
+    };
+    let tables = named("table")?;
+    if let Some(table) = QUEUE_TABLES
+        .into_iter()
+        .find(|table| !tables.iter().any(|name| name == table))
+    {
+        return Err(QueueRefusal::TableLost { table }.into());
+    }
+    let triggers = named("trigger")?;
+    Ok(QUEUE_TRIGGERS
         .iter()
-        .all(|guard| triggers.iter().any(|name| name == guard));
-    Ok(guarded && queue_schema(conn)?.is_some())
+        .all(|guard| triggers.iter().any(|name| name == guard)))
 }
 
 /// Create the queue's tables and guards and record its version, on a
@@ -400,6 +420,12 @@ pub enum QueueRefusal {
     RunTaken { run: String, entry: EntryId },
     #[error("queue storage {found} unsupported (want {QUEUE_SCHEMA})")]
     SchemaMismatch { found: u32 },
+    /// A journal that records its queue, and has lost one of its tables.
+    #[error(
+        "the journal records a queue but its {table} table is gone; what the queue held cannot \
+         be read, and it is never recreated empty"
+    )]
+    TableLost { table: &'static str },
 }
 
 /// The standing of one entry, read inside the transaction that acts on it.

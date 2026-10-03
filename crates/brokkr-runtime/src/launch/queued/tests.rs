@@ -121,11 +121,21 @@ fn a_queued_launch_keeps_every_fact_its_request_is_rebuilt_from() {
         (RunMap::Ambient(world(dir.path())), dispatch()),
         (RunMap::Named(world(dir.path())), None),
     ];
-    for (bundle, (map, dispatch)) in [BundleSource::Dir("bundles/self".into()), recipe()]
-        .into_iter()
-        .cycle()
-        .zip(maps)
-    {
+    // Each relative path comes back anchored to the workspace, `/work`.
+    let bundles = [
+        (
+            BundleSource::Dir("bundles/self".into()),
+            BundleSource::Dir("/work/bundles/self".into()),
+        ),
+        (
+            recipe(),
+            BundleSource::Recipe {
+                name: "story".into(),
+                recipes_dir: PathBuf::from("/work/recipes"),
+            },
+        ),
+    ];
+    for ((bundle, anchored), (map, dispatch)) in bundles.into_iter().cycle().zip(maps) {
         let asked = request(bundle);
         let run = NewRun {
             feature: "queue it".into(),
@@ -137,14 +147,18 @@ fn a_queued_launch_keeps_every_fact_its_request_is_rebuilt_from() {
         let (request, new) = rebuilt
             .rebuild(asked.journal.clone(), asked.host_path.clone())
             .unwrap();
-        assert_eq!(facts(&request, &new), facts(&asked, &run));
+        let mut expected = facts(&asked, &run);
+        expected.0 .1 = anchored;
+        expected.0 .4 = Some(PathBuf::from("/work/secrets.env"));
+        expected.1 .4 = run.dispatch.as_ref().map(|_| PathBuf::from("/work/d.json"));
+        assert_eq!(facts(&request, &new), expected);
     }
     // The named map, and the encoding's bytes, pinned.
     let (named, text) = queued_named(dir.path());
     let expected = format!(
         "{{\"encoding\":\"queued-launch/v1\",\"workspace\":\"/work\",\
-         \"bundle\":{{\"recipe\":{{\"name\":\"story\",\"recipes_dir\":\"recipes\"}}}},\
-         \"repo\":\"/repo\",\"secrets\":\"secrets.env\",\"feature\":\"queue it\",\
+         \"bundle\":{{\"recipe\":{{\"name\":\"story\",\"recipes_dir\":\"/work/recipes\"}}}},\
+         \"repo\":\"/repo\",\"secrets\":\"/work/secrets.env\",\"feature\":\"queue it\",\
          \"map\":{{\"named\":{{\"map\":{{\"journal\":\"forge.db\",\"realms\":[{{\
          \"default_branch\":\"main\",\"name\":\"here\",\"path\":\".\"}}],\
          \"schema\":\"forge.realms/v4\"}},\"sha256\":\"{}\",\"source\":{}}}}},\
@@ -215,6 +229,77 @@ fn a_held_world_that_does_not_hash_to_its_digest_is_refused_at_rebuild() {
     );
 }
 
+/// An entry is admitted from wherever the dispatcher stands: here, this
+/// test's own directory, never the workspace it was queued in. Every path
+/// it named relatively, and the map file its world was read from, still
+/// resolve in that workspace, so it is admitted in the realm and with the
+/// bundle it was queued for, and the capability grants it is authorised
+/// against (decision 0065) are that realm's.
+#[test]
+fn a_queued_launch_is_admitted_in_its_own_workspace_wherever_it_is_rebuilt() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = dir.path().canonicalize().unwrap();
+    assert_ne!(std::env::current_dir().unwrap(), workspace);
+    let map = json!({"schema": "forge.realms/v4", "journal": "forge.db",
+        "realms": [{"name": "here", "path": ".", "default_branch": "main",
+                    "boundary": "open"}]});
+    std::fs::write(workspace.join("map.json"), map.to_string()).unwrap();
+    crate::launch::tests::bundle_at(&workspace, false);
+    let asked = LaunchRequest {
+        workspace: workspace.clone(),
+        bundle: BundleSource::Dir("bundle".into()),
+        repo: Some(".".into()),
+        ..request(recipe())
+    };
+    let run = NewRun {
+        feature: "queue it".into(),
+        map: RunMap::Named(World::load(&workspace.join("map.json")).unwrap()),
+        dispatch: None,
+    };
+    let text = QueuedLaunch::of(&asked, &run).unwrap().encode().unwrap();
+    let mut queued = QueuedLaunch::decode(&text).unwrap();
+    let MapSource::Named(held) = &mut queued.map else {
+        panic!("no named world held: {:?}", queued.map);
+    };
+    assert_eq!(held.0["realm"], "here");
+    // The map as `--realms map.json` names it, in the workspace: the pin
+    // holds the file as it was named.
+    held.0["source"] = json!("map.json");
+    let (request, new) = queued
+        .rebuild(asked.journal.clone(), asked.host_path.clone())
+        .unwrap();
+    assert_eq!(request.repo, Some(workspace.join(".")));
+    assert_eq!(request.secrets, Some(workspace.join("secrets.env")));
+    let world = new.map.world().unwrap();
+    assert_eq!(world.source, workspace.join("map.json"));
+    let bundle = crate::launch::admit_new(&request, Some(world)).unwrap();
+    assert_eq!(bundle.dir, workspace.join("bundle"));
+    assert_eq!(bundle.boundary, brokkr_core::realms::Boundary::Open);
+    assert_eq!(bundle.manifest["capabilities"]["realm"], "here");
+}
+
+#[test]
+fn a_workspace_an_entry_cannot_be_anchored_to_is_refused_queued_and_rebuilt() {
+    let said = "a queued launch names its workspace absolutely, and work is relative";
+    let relative = LaunchRequest {
+        workspace: PathBuf::from("work"),
+        ..request(recipe())
+    };
+    let mut queued = QueuedLaunch::of(&request(recipe()), &NewRun::default()).unwrap();
+    queued.workspace = PathBuf::from("work");
+    for error in [
+        QueuedLaunch::of(&relative, &NewRun::default()).unwrap_err(),
+        queued
+            .rebuild(PathBuf::from("/work/forge.db"), "/usr/bin".into())
+            .unwrap_err(),
+    ] {
+        assert!(
+            matches!(error, LaunchError::QueuedWorkspaceRelative(ref at) if at == Path::new("work"))
+        );
+        assert_eq!(error.to_string(), said);
+    }
+}
+
 #[test]
 fn a_launch_start_would_refuse_unread_is_not_queued() {
     let dir = tempfile::tempdir().unwrap();
@@ -282,7 +367,7 @@ fn a_payload_this_encoding_cannot_read_is_refused() {
                 "\"unmapped\"",
                 "{\"named\":\"n.json\",\"ambient\":\"m.json\"}",
             ),
-            "expected value at line 1 column 187",
+            "expected value at line 1 column 199",
         ),
     ];
     for (payload, why) in cases {

@@ -176,8 +176,9 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     repair_if(conn, missing, migrate_sidecar_columns)?;
     // Third: a journal from before the queue (decision 0068), or one that
     // lost a queue guard, gets the queue's tables and guards, on the same
-    // terms. `DATABASE_SCHEMA` does not move for it, for the reason it
-    // did not move for the sidecar columns.
+    // terms; one that lost a queue table is refused. `DATABASE_SCHEMA`
+    // does not move for it, for the reason it did not move for the
+    // sidecar columns.
     let missing = !queue_intact(conn)?;
     repair_if(conn, missing, migrate_queue)?;
     let missing = !guards_intact(conn)?;
