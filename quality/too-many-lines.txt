@@ -2,14 +2,14 @@
 # production
  111 crates/brokkr-bridge/src/lib.rs:613 sync_once
  228 crates/brokkr-cli/src/compare.rs:23 seat_costs
- 254 crates/brokkr-cli/src/doctor.rs:868 report_capabilities
+ 254 crates/brokkr-cli/src/doctor.rs:873 report_capabilities
  118 crates/brokkr-cli/src/init.rs:1753 init
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
  140 crates/brokkr-core/src/dispatch.rs:241 verify
  266 crates/brokkr-core/src/fold.rs:344 apply
  113 crates/brokkr-core/src/policy.rs:339 parse_rule
  106 crates/brokkr-core/src/policy.rs:467 parse_condition
- 218 crates/brokkr-core/src/realms.rs:613 of
+ 218 crates/brokkr-core/src/realms.rs:627 of
  112 crates/brokkr-protocol/src/adapters.rs:1507 fold_stream_event
  109 crates/brokkr-protocol/src/adapters.rs:4528 dsh_launch_with
  342 crates/brokkr-protocol/src/adapters.rs:6629 run_seat_with
@@ -22,18 +22,18 @@
  342 crates/brokkr-protocol/src/native_controls.rs:3954 compose_or_exclude
  106 crates/brokkr-protocol/src/native_controls/grammar.rs:690 parse_span
  110 crates/brokkr-protocol/src/process.rs:398 run_attempt_resuming
- 122 crates/brokkr-runtime/src/agents.rs:1100 compose
- 198 crates/brokkr-runtime/src/agents/load.rs:766 parse_adapter
- 101 crates/brokkr-runtime/src/agents/load.rs:1032 resume_assessment
- 643 crates/brokkr-runtime/src/bundle.rs:1471 assemble
- 128 crates/brokkr-runtime/src/bundle.rs:2748 resolve_reference
- 112 crates/brokkr-runtime/src/bundle.rs:3236 lower_inline_sandbox
- 116 crates/brokkr-runtime/src/bundle.rs:3799 admit_local_sandbox
- 112 crates/brokkr-runtime/src/bundle.rs:4192 enforce_route_policy
- 179 crates/brokkr-runtime/src/bundle.rs:6054 record_capabilities
- 110 crates/brokkr-runtime/src/bundle.rs:6591 parse_panel
- 247 crates/brokkr-runtime/src/bundle.rs:6722 parse_sequence
- 101 crates/brokkr-runtime/src/bundle.rs:7429 walk_files
+ 122 crates/brokkr-runtime/src/agents.rs:1102 compose
+ 199 crates/brokkr-runtime/src/agents/load.rs:768 parse_adapter
+ 101 crates/brokkr-runtime/src/agents/load.rs:1035 resume_assessment
+ 641 crates/brokkr-runtime/src/bundle.rs:1478 assemble
+ 128 crates/brokkr-runtime/src/bundle.rs:2757 resolve_reference
+ 112 crates/brokkr-runtime/src/bundle.rs:3245 lower_inline_sandbox
+ 116 crates/brokkr-runtime/src/bundle.rs:3808 admit_local_sandbox
+ 112 crates/brokkr-runtime/src/bundle.rs:4201 enforce_route_policy
+ 179 crates/brokkr-runtime/src/bundle.rs:6063 record_capabilities
+ 110 crates/brokkr-runtime/src/bundle.rs:6600 parse_panel
+ 247 crates/brokkr-runtime/src/bundle.rs:6731 parse_sequence
+ 101 crates/brokkr-runtime/src/bundle.rs:7438 walk_files
  101 crates/brokkr-runtime/src/bundle/compose.rs:234 read_layers
  368 crates/brokkr-runtime/src/bundle/compose.rs:807 merge_layer
  105 crates/brokkr-runtime/src/capabilities.rs:1596 holding
@@ -294,7 +294,7 @@
  226 crates/brokkr-runtime/tests/capability_launch.rs:11172 a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape
  159 crates/brokkr-runtime/tests/capability_launch.rs:11443 a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_shape
  225 crates/brokkr-runtime/tests/capability_launch.rs:11647 a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
- 109 crates/brokkr-runtime/tests/frozen_contracts.rs:156 the_new_contracts_exist_beside_the_frozen_ones
+ 109 crates/brokkr-runtime/tests/frozen_contracts.rs:163 the_new_contracts_exist_beside_the_frozen_ones
  108 crates/brokkr-runtime/tests/roster.rs:297 every_shipped_verify_and_ship_office_is_a_boxed_exec_script
  158 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/ledger.rs:460 build_ledger
  165 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/ledger.rs:1040 parse_template

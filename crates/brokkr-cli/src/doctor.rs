@@ -22,6 +22,8 @@ use brokkr_store::Store;
 use crate::boundary;
 use crate::render::Safe;
 
+mod provisional;
+
 pub(crate) struct Report {
     pub healthy: bool,
     lines: Vec<String>,
@@ -714,6 +716,9 @@ pub(crate) fn doctor(
         Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         &availability,
     );
+    let mapped = world.as_ref().ok().and_then(Option::as_ref);
+    let adapters = Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR);
+    provisional::report_provisional(&mut report, adapters, mapped);
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);
     report
 }

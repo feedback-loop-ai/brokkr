@@ -1754,10 +1754,11 @@ fn a_final_validation_refusal_is_bounded_as_a_compile_refusal_is() {
 /// (operator ruling of 2026-09-30): a DSH or LaneTally plan is admitted or
 /// refused by the final validation its own launch runs, never by a
 /// doctor-only substitute. DSH's launch refuses a template's effort level
-/// with no model beside it and admits a model pin; LaneTally's admits a
-/// plan whose OFF is its measured deny list (its default-OFF refusal is
-/// above). `brokkr-protocol`'s own suite shows each reading equal to its
-/// launch's outcome on the same command.
+/// with no model beside it; LaneTally's admits a plan whose OFF is its
+/// measured deny list (its default-OFF refusal is above). `brokkr-protocol`'s
+/// own suite shows each reading equal to its launch's outcome on the same
+/// command, a DSH model pin admitted among them: a template that pins a
+/// model is no adapter's to declare (proposed decision 0075 ruling 5).
 #[test]
 fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
     let dir = workspace_with(Some(json!([realm("private", None)])));
@@ -1768,12 +1769,6 @@ fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
             "dsh",
             json!({"known": {}}),
             &["--effort", "high"][..],
-        ),
-        (
-            "dsh-model",
-            "dsh",
-            json!({"known": {}}),
-            &["--model", "deepseek-v4-flash"],
         ),
         ("lanetally", "lanetally", selecting(), &[]),
     ] {
@@ -1802,7 +1797,6 @@ fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
                     hypothetical("private", "adapter-plan")
                 ),
             ),
-            admitted("private", "dsh-model"),
             admitted("private", "lanetally"),
             format!(
                 "warn     capabilities private native lanetally 'web-fetch': NOT granted here: \

@@ -24,6 +24,8 @@ use super::{
 };
 use crate::bundle::Limits;
 
+mod models;
+
 #[derive(Debug, Error)]
 pub enum LibraryError {
     #[error("{0}")]
@@ -709,7 +711,7 @@ impl Adapters {
         let mut sources: BTreeMap<String, String> = BTreeMap::new();
         let mut files = Vec::new();
         for (name, path) in definition_files(&root, "adapters")? {
-            let adapter = parse_adapter(&name, &path)?;
+            let adapter = models::pinless(parse_adapter(&name, &path)?, &path)?;
             files.push(path.display().to_string());
             for model in adapter.models.keys() {
                 if let Some(other) = by_model.get(model) {
@@ -764,7 +766,7 @@ impl Adapters {
 
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
-    let what = format!("adapter '{name}' ({})", path.display());
+    let what = models::described(name, path);
     if !valid_name(name) {
         return invalid(format!("{what}: the file name must match {NAME_GRAMMAR}"));
     }
@@ -795,15 +797,13 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         ],
         &what,
     )?;
-    // Decision 0065 ruling 4: what the harness can already do, and how
-    // each such power is switched on and off. An adapter that declares it
-    // is authority data, so a key written twice anywhere in the file is a
-    // refusal rather than whichever copy came second.
-    if map.contains_key("native_capabilities") {
-        let text = std::fs::read_to_string(path)?;
-        brokkr_core::canonical::parse_strict(&text)
-            .map_err(|problem| LibraryError::Invalid(format!("{what}: {problem}")))?;
-    }
+    // Every adapter is authority data: its native capabilities (decision
+    // 0065 ruling 4) and its models' tiers (proposed decision 0075 ruling
+    // 5) alike, so a key written twice anywhere in the file is a refusal
+    // rather than whichever copy came second.
+    let text = std::fs::read_to_string(path)?;
+    brokkr_core::canonical::parse_strict(&text)
+        .map_err(|problem| LibraryError::Invalid(format!("{what}: {problem}")))?;
     let native = crate::capabilities::NativeInventory::parse(&what, map.get("native_capabilities"))
         .map_err(LibraryError::Invalid)?;
     let provider = string(map, "provider", &what)?;
@@ -824,7 +824,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     native
         .check_declared(&what, crate::capabilities::harness_of(&driver))
         .map_err(LibraryError::Invalid)?;
-    let models = name_map(map, "models", &what)?;
+    let (models, provisional) = models::models(map, &what)?;
     let judges = match map.get("judges") {
         Some(_) => string_array(map, "judges", &what)?,
         None => Vec::new(),
@@ -977,6 +977,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         hint,
         driver,
         models,
+        provisional,
         judges,
         model_flag,
         efforts,

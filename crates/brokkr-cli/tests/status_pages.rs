@@ -107,6 +107,9 @@ fn render(adapter: &Adapter, dialects: &[ToolDialect]) -> Rendered {
         hint: _,
         driver: _,
         models: _,
+        // Which models may be seated where is the compile's to judge and
+        // doctor's to list (proposed decision 0075 ruling 5).
+        provisional: _,
         model_flag: _,
         effort_flag: _,
         credentials: _,
