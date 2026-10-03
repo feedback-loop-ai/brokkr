@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 
 use super::listings::{PLANTED_INIT, PLANTED_SERVER};
 use super::*;
+use crate::probe::measure::read::Harness;
 
 /// A clean plain turn: its own tool is `Bash`, and no MCP server reached
 /// it.
@@ -89,7 +90,7 @@ fn found_by_the_chief_on_891c3c9f() -> Vec<Row> {
         },
         Row {
             shape: "a boxed event joined to the plain turn's unfinished line",
-            plain: format!(r#"{PLAIN_BASH}; printf '{{}}' >> "$dir/$sid.jsonl""#),
+            plain: format!(r#"{PLAIN_BASH}; printf '{{"type":"user"}}' >> "$dir/$sid.jsonl""#),
             boxed: BOXED_CLEAN.to_string(),
             eligibility: boxed_line_unread(2, SESSION, NOT_ONE_OBJECT),
         },
@@ -199,17 +200,15 @@ fn found_by_the_chief_on_9c899c39() -> Vec<Row> {
             boxed: r#"tools='"mcp__brokkr__workspace"'; servers='"brokkr"'"#.to_string(),
             eligibility: ungranted(
                 0,
-                &["in the boxed turn, the system/init event on line 1 of stdout holds an entry at \
-                   /mcp_servers/0 the probe cannot name"
-                    .to_string()],
+                &[format!("line 1 of the boxed turn's stdout {UNDECODED}")],
             ),
         },
     ]
 }
 
 /// Stderr, read as text line by line: a line that is not UTF-8 is unread,
-/// one that is a JSON object is an event, and any other is searched for a
-/// reach.
+/// one that is a JSON object is an event, and any other is unread unless
+/// it is one of claude's forms, whatever it names (#484).
 fn on_stderr() -> Vec<Row> {
     let boxed = |stderr: &str| format!("{BOXED_CLEAN}; {stderr} >&2");
     vec![
@@ -245,9 +244,7 @@ fn on_stderr() -> Vec<Row> {
             shape: "a boxed stderr warning naming the planted server",
             plain: PLAIN_BASH.to_string(),
             boxed: boxed(r#"echo "warn: MCP server brokkr-probe-user-scope was skipped""#),
-            eligibility: reached_the_box(
-                "line 1 of stderr names the planted user-scope MCP server brokkr-probe-user-scope",
-            ),
+            eligibility: unrecognised(&[1]),
         },
         Row {
             shape: "a boxed stderr warning naming another server's tool",
@@ -255,9 +252,7 @@ fn on_stderr() -> Vec<Row> {
             boxed: boxed(
                 r#"echo "warn: mcp__ prefixes mcp__brokkr__workspace and mcp__github__search""#,
             ),
-            eligibility: reached_the_box(
-                "line 1 of stderr names mcp__github__search of the MCP server github",
-            ),
+            eligibility: unrecognised(&[1]),
         },
     ]
 }
@@ -282,21 +277,26 @@ fn unrecognised(lines: &[usize]) -> Value {
     ungranted(1, &gaps.collect::<Vec<_>>())
 }
 
+/// The refusal of a harness whose boxed turn's line `line` of `source`
+/// is a JSON object claude's reader does not decode.
+fn undecoded(line: usize, source: &str) -> Value {
+    boxed_line_unread(line, source, UNDECODED)
+}
+
 /// The chief's eight shapes on 25a0ea04 (#484): a line of the boxed
-/// stderr is harmless only when the scanner recognises it whole, its
-/// whitespace runs folded, and every name in it is checked.
+/// stderr is read only when it is one of claude's forms whole, its
+/// whitespace runs folded, whatever it names.
 fn found_by_the_chief_on_25a0ea04() -> Vec<Row> {
-    let github = || reached_the_box("line 1 of stderr names the MCP server github");
     vec![
         row(
             "two spaces inside MCP server",
             r#"echo "MCP  server github connected""#,
-            github(),
+            unrecognised(&[1]),
         ),
         row(
             "a tab inside MCP server",
             r#"printf 'MCP\tserver github connected\n'"#,
-            github(),
+            unrecognised(&[1]),
         ),
         row(
             "a tool listing in other words",
@@ -337,14 +337,23 @@ fn found_by_the_chief_on_25a0ea04() -> Vec<Row> {
 }
 
 /// The chief's shapes on 8acbbecb: a disclosure on stderr in a form the
-/// scanner did not recognise, which reaches or refuses, never reads as
-/// harmless (#484).
+/// reader does not recognise refuses, never reads as harmless (#484).
 fn found_by_the_chief_on_8acbbecb() -> Vec<Row> {
+    let over_lines = [
+        (1, UNRECOGNISED),
+        (2, UNRECOGNISED),
+        // One JSON object, which is not one of claude's events.
+        (3, UNDECODED),
+        (4, UNRECOGNISED),
+        (5, UNRECOGNISED),
+    ];
+    let over_lines =
+        over_lines.map(|(line, fault)| format!("line {line} of the boxed turn's stderr {fault}"));
     vec![
         row(
             "a boxed stderr line naming another MCP server connected",
             r#"echo "MCP server github connected""#,
-            reached_the_box("line 1 of stderr names the MCP server github"),
+            unrecognised(&[1]),
         ),
         row(
             "a server listing cut short on the boxed stderr",
@@ -354,8 +363,7 @@ fn found_by_the_chief_on_8acbbecb() -> Vec<Row> {
         row(
             "a server listing over several lines of the boxed stderr",
             r#"printf '%s\n' '{' '  "mcp_servers": [' '    {"name": "github"}' '  ]' '}'"#,
-            // Line 3 is one JSON object, whose name no reader consumes.
-            unrecognised(&[1, 2, 3]),
+            ungranted(1, &over_lines),
         ),
         row(
             "a server listing as text on the boxed stderr",
@@ -372,44 +380,40 @@ fn found_by_the_chief_on_8acbbecb() -> Vec<Row> {
             r#"echo "warn: mcp__github is unavailable""#,
             unrecognised(&[1]),
         ),
-        // Its words normalised, the line names a server, which reaches.
         row(
             "an MCP server the boxed stderr does not name",
             r#"echo "MCP server: (unnamed) failed""#,
-            reached_the_box("line 1 of stderr names the MCP server unnamed"),
+            unrecognised(&[1]),
         ),
     ]
 }
 
 /// The chief's shapes on 5f1623d9 (#484): neither JSON syntax, nor case,
-/// nor punctuation makes a disclosure harmless. A string an event holds
-/// that no reader consumes is read like a line of text, on stderr and on
-/// stdout alike, and a tool's name is folded before it is compared.
+/// nor punctuation makes a disclosure harmless. A JSON line is an event
+/// claude's reader decodes, on stderr and on stdout alike, or unread.
 fn found_by_the_chief_on_5f1623d9() -> Vec<Row> {
     let github = r#"{"level":"info","message":"MCP server github connected"}"#;
     vec![
         row(
             "p1: a JSON log line naming another server connected",
             &format!("printf '%s\\n' '{github}'"),
-            reached_the_box("line 1 of stderr names the MCP server github"),
+            undecoded(1, "stderr"),
         ),
         row(
             "p1b: a JSON log line listing tools",
             r#"printf '%s\n' '{"level":"warn","msg":"Tools available: WebSearch, WebFetch"}'"#,
-            unrecognised(&[1]),
+            undecoded(1, "stderr"),
         ),
         row(
             "p1c: a JSON log line naming the planted server",
             r#"printf '%s\n' '{"level":"info","message":"loaded user MCP server brokkr-probe-user-scope"}'"#,
-            reached_the_box(
-                "line 1 of stderr names the planted user-scope MCP server brokkr-probe-user-scope",
-            ),
+            undecoded(1, "stderr"),
         ),
         Row {
             shape: "q5: the same JSON log line as an event of the boxed stdout",
             plain: PLAIN_BASH.to_string(),
             boxed: format!("{BOXED_CLEAN}; later='{github}'"),
-            eligibility: reached_the_box("line 2 of stdout names the MCP server github"),
+            eligibility: undecoded(2, "stdout"),
         },
         row(
             "q1: a declared tool ending a sentence",
@@ -434,18 +438,97 @@ fn found_by_the_chief_on_5f1623d9() -> Vec<Row> {
     ]
 }
 
+/// The chief's rows on d77a2b6e (#484), each a JSON line beside a clean
+/// boxed init: a type no reader knows, a key no struct names whatever its
+/// value's type, and codex's own items on claude's stream. Each is
+/// undecoded, on stderr and on stdout alike; no tag, id or key exempts it.
+const ON_D77A2B6E: [(&str, &str); 16] = [
+    ("t1", r#"{"type":"mcp.server.connected","id":"github"}"#),
+    ("t2", r#"{"type":"mcp_server_connected","id":"github"}"#),
+    ("t4", r#"{"type":"tool_enabled","id":"WebSearch"}"#),
+    (
+        "t5",
+        r#"{"type":"log","body":{"role":"WebSearch-enabled"}}"#,
+    ),
+    ("t6", r#"{"message":"WebSearch-enabled"}"#),
+    ("t7", r#"{"brokkr_probe_unknown_key":"WebSearch-enabled"}"#),
+    (
+        "u1",
+        r#"{"type":"capabilities","WebSearch":true,"WebFetch":true}"#,
+    ),
+    (
+        "u2",
+        r#"{"type":"system","subtype":"features","features":{"web_search":{"enabled":true},"mcp":{"github":{"connected":true}}}}"#,
+    ),
+    ("u3", r#"{"mcp__github__search":true}"#),
+    ("u4", r#"{"brokkr-probe-user-scope":{"connected":true}}"#),
+    (
+        "u5",
+        r#"{"type":"mcp","servers_connected":2,"tools_enabled":14}"#,
+    ),
+    ("u6", r#"{"type":"connected","thread_id":"github"}"#),
+    ("u7", r#"{"type":"github"}"#),
+    ("u8", r#"{"role":"WebSearch"}"#),
+    (
+        "y1",
+        r#"{"type":"item.started","item":{"id":"item_1","type":"web_search"}}"#,
+    ),
+    (
+        "y2",
+        r#"{"type":"item.completed","item":{"id":"item_2","type":"mcp_tool_call","exit_code":0}}"#,
+    ),
+];
+
+/// [`ON_D77A2B6E`] on the boxed stderr and stdout, and the two lines of
+/// text beside them: the bare disclosure (t8), and a count of tools
+/// (z1, z2), which no listing read.
+fn found_by_the_chief_on_d77a2b6e() -> Vec<Row> {
+    let mut rows: Vec<Row> = ON_D77A2B6E
+        .iter()
+        .flat_map(|&(shape, event)| {
+            [
+                row(
+                    shape,
+                    &format!("printf '%s\\n' '{event}'"),
+                    undecoded(1, "stderr"),
+                ),
+                Row {
+                    shape,
+                    plain: PLAIN_BASH.to_string(),
+                    boxed: format!("{BOXED_CLEAN}; later='{event}'"),
+                    eligibility: undecoded(2, "stdout"),
+                },
+            ]
+        })
+        .collect();
+    rows.extend([
+        row("t8", "echo 'WebSearch-enabled'", unrecognised(&[1])),
+        row("z1", "echo 'warn: 12 tools available'", unrecognised(&[1])),
+        Row {
+            shape: "z2",
+            plain: PLAIN_BASH.to_string(),
+            boxed: format!(
+                r#"{BOXED_CLEAN}; later='{{"level":"warn","message":"12 tools available"}}'"#
+            ),
+            eligibility: undecoded(2, "stdout"),
+        },
+    ]);
+    rows
+}
+
 /// Clean CLIs that print on stderr, whose every line is read and whose
-/// verdicts stand: ordinary warnings in both turns, and a box the CLI
-/// refuses on stderr alone, whose refusal stays the measurement.
+/// verdicts stand: blank lines, the reply and one of claude's events on
+/// both turns, and a box the CLI refuses on stderr alone, whose refusal
+/// stays the measurement.
 fn clean_with_stderr() -> Vec<Row> {
     let refused = "the CLI refused the adapter's hands argv: exit 1: error: unknown option \
                    '--strict-mcp-config'";
-    let warnings = r#"printf '%s\n' 'warn: only mcp__brokkr__workspace is allowed' '' '{"level":"warn"}' 'MCP server brokkr connected' 'warn: 2 tools available' >&2"#;
+    let read = r#"printf '%s\n' '' '   ' 'PROBE-OK' '{"type":"user"}' >&2"#;
     vec![
         Row {
-            shape: "ordinary warnings on the stderr of both turns",
-            plain: format!(r#"{PLAIN_BASH}; echo "Warning: no stdin data received" >&2"#),
-            boxed: format!("{BOXED_CLEAN}; {warnings}"),
+            shape: "blank lines, the reply and an event on the stderr of both turns",
+            plain: format!("{PLAIN_BASH}; {read}"),
+            boxed: format!("{BOXED_CLEAN}; {read}"),
             eligibility: json!({
                 "verdict": "boxed",
                 "reason": "its own tools switch off and the hands MCP server connects",
@@ -474,87 +557,88 @@ fn plain_reading(stdout: &str, stderr: &str) -> measure::Reading {
     measure::reading(&plan, &observed, &[])
 }
 
-/// How a line on the plain turn's stderr is read beside [`INIT`]: a
-/// reach, unread as unrecognised, or read.
+/// How a line on the plain turn's stderr is read beside [`INIT`]: unread
+/// as unrecognised or undecoded, or read.
 fn stderr_reads(line: &str) -> String {
     let reading = plain_reading(INIT, line);
-    let unrecognised = measure::Unread::Line {
+    let unread = |fault| measure::Unread {
         turn: measure::TurnName::Plain,
         source: "stderr".to_string(),
         line: 1,
-        fault: measure::Fault::Unrecognised,
+        fault,
     };
-    match (reading.facts.user_mcp_unboxed, reading.unread) {
-        (
-            Fact::Measured {
-                value: true,
-                evidence,
-            },
-            _,
-        ) => format!("reach: {evidence}"),
-        (_, unread) if unread == [unrecognised] => "unread".to_string(),
-        (_, unread) if unread.is_empty() => "read".to_string(),
-        (_, unread) => format!("{unread:?}"),
+    match reading.unread.as_slice() {
+        [] => "read".to_string(),
+        [only] if *only == unread(measure::Fault::Unrecognised) => "unread".to_string(),
+        [only] if *only == unread(measure::Fault::Undecoded(Harness::Claude)) => {
+            "undecoded".to_string()
+        }
+        other => format!("{other:?}"),
     }
 }
 
-/// Each form the scanner reads whole, and a line one word off each, which
-/// it does not (#484): a level opens a form, every name in a form is the
-/// hands server's or a refused flag, a word's edge punctuation and case
-/// are folded away, and any line no form holds is unread, whatever it
-/// names.
+/// Each of claude's forms, read whole, and a line one word off each,
+/// which is not (#484): a word's edge punctuation and case are folded
+/// away, a slot holds one word and `{option}` a flag alone, a line of
+/// punctuation alone is not blank, and any line no form holds is unread,
+/// whatever it names.
 #[test]
 fn a_stderr_line_is_read_only_in_a_form_read_whole_to_its_end() {
+    let tagged = "[claude-code:unrecognized_model] ";
     let rows = [
-        ("Warning: only mcp__brokkr__workspace is allowed", "read"),
-        ("ONLY mcp__brokkr__workspace, is allowed.", "read"),
-        ("only mcp__brokkr__workspace is now allowed", "unread"),
-        ("only Bash is allowed", "unread"),
-        ("Bash is ready", "unread"),
-        ("Read 3 files", "unread"),
-        ("Warning: no stdin data received", "read"),
-        ("warn:", "read"),
-        ("MCP server brokkr connected", "read"),
-        ("MCP server brokkr pending", "unread"),
-        ("MCP server brokkr connected and github connected", "unread"),
+        ("error: unknown option '--mcp-config'", "read".to_string()),
+        ("ERROR: Unknown Option `--mcp-config`.", "read".to_string()),
+        ("error: unknown option '-m'", "read".to_string()),
+        ("error: unknown option 'mcp-config'", "unread".to_string()),
         (
-            "MCP server (unnamed) failed",
-            "reach: line 1 of stderr names the MCP server unnamed",
+            "error: unknown option --mcp-config now",
+            "unread".to_string(),
+        ),
+        ("Invalid API key · Please run /login", "read".to_string()),
+        ("Invalid API key", "unread".to_string()),
+        (
+            "There's an issue with the selected model (x). It may not exist or you may not have \
+             access to it. Run --model to pick a different model.",
+            "read".to_string(),
         ),
         (
-            "MCP server `github` connected",
-            "reach: line 1 of stderr names the MCP server github",
+            "There's an issue with the selected model (x y). It may not exist or you may not \
+             have access to it. Run --model to pick a different model.",
+            "unread".to_string(),
         ),
-        ("error: unknown option '--mcp-config'", "read"),
-        ("error: unknown option '-mcp'", "unread"),
-        ("error: unknown option '--mcp,x'", "unread"),
-        ("warn:   12 tools available", "read"),
-        ("tool-less turn ok", "unread"),
-        ("[1, 2]", "unread"),
+        ("PROBE-OK", "read".to_string()),
+        ("probe-ok.", "read".to_string()),
+        ("PROBE-OK PROBE-OK", "unread".to_string()),
+        ("   ", "read".to_string()),
+        ("{", "unread".to_string()),
+        ("[1, 2]", "unread".to_string()),
+        (plan::PROMPT, "unread".to_string()),
+        ("Warning: no stdin data received", "unread".to_string()),
+        ("MCP server brokkr connected", "unread".to_string()),
+        ("warn:   12 tools available", "unread".to_string()),
+        ("warn:", "unread".to_string()),
+        (r#"{"type":"user"}"#, "read".to_string()),
+        (r#"{"type":"user","note":"x"}"#, "undecoded".to_string()),
+    ];
+    let tagged_rows = [
+        (r#"{"model":"x","query_source":"sdk"}"#, "read"),
         (
-            "warn: mcp__other__search\tfailed",
-            "reach: line 1 of stderr names mcp__other__search of the MCP server other",
-        ),
-        (plan::PROMPT, "read"),
-        (
-            "reply with exactly probe-ok, and nothing else: use no tool",
-            "read",
-        ),
-        (
-            "Reply with exactly PROBE-OK and nothing else. Use any tool.",
+            r#"{"model":"x","query_source":"sdk","scope":"user"}"#,
             "unread",
         ),
-        ("PROBE-OK", "read"),
+        (r#"{"model":"x""#, "unread"),
     ];
-    for (line, read) in rows {
-        assert_eq!((line, stderr_reads(line)), (line, read.to_string()));
+    let tagged_rows = tagged_rows.map(|(json, read)| (format!("{tagged}{json}"), read.to_string()));
+    let rows = rows.map(|(line, read)| (line.to_string(), read));
+    for (line, read) in rows.into_iter().chain(tagged_rows) {
+        assert_eq!((stderr_reads(&line), &line), (read, &line));
     }
 }
 
-/// A listing entry is its reader's only in the name, and the status, it
-/// is read by: any other string an entry holds, of a tool or of an MCP
-/// server, is read like text, and a tag key holding prose is no tag
-/// (#484).
+/// A listing entry is read only as its struct names it: a tool is a
+/// name, and an MCP server its name, status and source, so any other
+/// key an entry holds, or a subtype no reader knows, leaves the event
+/// undecoded (#484).
 #[test]
 fn a_listing_entry_s_other_strings_and_a_tag_holding_prose_are_read_like_text() {
     let init = |tools: &str, servers: &str| {
@@ -573,16 +657,20 @@ fn a_listing_entry_s_other_strings_and_a_tag_holding_prose_are_read_like_text() 
     ];
     let unread = |stdout: &str| {
         let reading = plain_reading(stdout, "");
-        let line = measure::Unread::Line {
+        let line = measure::Unread {
             turn: measure::TurnName::Plain,
             source: "stdout".to_string(),
             line: 1,
-            fault: measure::Fault::Unrecognised,
+            fault: measure::Fault::Undecoded(Harness::Claude),
         };
         reading.unread == [line]
     };
     assert_eq!(shapes.map(|stdout| unread(&stdout)), [true, true, true]);
-    assert!(!unread(&init(r#"{"name":"Bash"}"#, "")));
+    let read = init(
+        r#""Bash""#,
+        r#"{"name":"brokkr","status":"connected","source":"user"}"#,
+    );
+    assert_eq!(plain_reading(&read, "").unread, []);
 }
 
 /// The variants of one disclosure: the text in three cases, each bare
@@ -602,17 +690,36 @@ fn variants(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// `text` wrapped in JSON: under a key the readers know, a tag key among
-/// them, under one they do not, and nested in an object and a list.
+/// `text` wrapped in JSON: in a log line under a key a reader knows
+/// elsewhere, a tag or id key among them, and under one no reader knows;
+/// in an otherwise clean init under each tag, id and session key; as a
+/// type and a subtype; carried by a key, holding a bool and an object;
+/// and nested in an object and a list.
 fn wrapped(text: &str) -> Vec<String> {
-    let text = serde_json::to_string(text).unwrap();
-    let keys = ["message", "text", "type", "brokkr_probe_unknown_key"];
-    let flat = keys.map(|key| format!(r#"{{"level":"info","{key}":{text}}}"#));
-    let nested = [
-        format!(r#"{{"data":{{"lines":[{text}]}}}}"#),
-        format!(r#"{{"type":"log","note":{{"body":{text}}}}}"#),
+    let quoted = serde_json::to_string(text).unwrap();
+    let keys = [
+        "message",
+        "text",
+        "type",
+        "subtype",
+        "role",
+        "id",
+        "session_id",
+        "thread_id",
+        "brokkr_probe_unknown_key",
     ];
-    flat.into_iter().chain(nested).collect()
+    let logged = keys.map(|key| format!(r#"{{"level":"info","{key}":{quoted}}}"#));
+    let in_init = keys
+        .map(|key| format!(r#"{{"type":"system","subtype":"init","tools":[],"{key}":{quoted}}}"#));
+    let shaped = [
+        format!(r#"{{"type":{quoted}}}"#),
+        format!(r#"{{"type":"system","subtype":{quoted}}}"#),
+        format!(r#"{{"type":"system","subtype":"init",{quoted}:true}}"#),
+        format!(r#"{{{quoted}:{{"connected":true}}}}"#),
+        format!(r#"{{"data":{{"lines":[{quoted}]}}}}"#),
+        format!(r#"{{"type":"log","note":{{"body":{quoted}}}}}"#),
+    ];
+    logged.into_iter().chain(in_init).chain(shaped).collect()
 }
 
 /// Every variant of the disclosures the chief found admitted (#484), as
@@ -631,6 +738,12 @@ fn no_variant_of_a_disclosure_in_case_punctuation_or_json_is_read_as_harmless() 
         "Tools available: WebSearch, WebFetch",
         "loaded user MCP server brokkr-probe-user-scope",
         "websearch and webfetch are enabled",
+        "12 tools available",
+        "github",
+        "WebSearch",
+        "WebSearch-enabled",
+        "mcp__github__search",
+        "brokkr-probe-user-scope",
     ];
     let mut admitted = Vec::new();
     for variant in disclosures.into_iter().flat_map(variants) {
@@ -644,6 +757,55 @@ fn no_variant_of_a_disclosure_in_case_punctuation_or_json_is_read_as_harmless() 
         admitted.extend(read.map(|(shape, _)| shape));
     }
     assert_eq!(admitted, Vec::<String>::new());
+}
+
+/// The chief's x1 and x2 on d77a2b6e (#484): the keys a shipped claude
+/// stream ordinarily holds, its model, working directory, permission
+/// mode, credential source and a message's model and stop reason, are
+/// named by its reader, so a clean turn that carries them keeps its
+/// verdict, where the scanner refused it.
+#[test]
+fn an_ordinary_key_a_shipped_harness_prints_is_read_and_keeps_a_clean_verdict() {
+    let init = |more: &str, tools: &str, servers: &str| {
+        format!(
+            r#"{{"type":"system","subtype":"init",{more}"tools":[{tools}],"mcp_servers":[{servers}]}}"#
+        )
+    };
+    let x1 = r#""model":"claude-sonnet-4-6","#;
+    let x2 = r#""cwd":"/tmp/scratch","permissionMode":"default","apiKeySource":"none","#;
+    let message = r#"{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-4-6","stop_reason":"end_turn","content":[{"type":"text","text":"PROBE-OK"}],"usage":{"input_tokens":10,"output_tokens":2}}}"#;
+    let plan = plan::plan(AdapterKind::Claude, &claude_declared()).unwrap();
+    let verdict = |more: &str| {
+        let turn = |tools: &str, servers: &str| {
+            let stdout = format!("{}\n{message}", init(more, tools, servers));
+            Trial::Observed(observation(Some(0), &stdout, ""))
+        };
+        let observed = Observed {
+            boxed: turn(
+                r#""mcp__brokkr__workspace""#,
+                r#"{"name":"brokkr","status":"connected"}"#,
+            ),
+            native_off: turn(r#""Bash""#, ""),
+            ..observed(observation(
+                Some(0),
+                &format!("{}\n{message}", init(more, r#""Bash""#, "")),
+                "",
+            ))
+        };
+        let reading = measure::reading(&plan, &observed, &[]);
+        (
+            judge::eligibility(&reading.facts, &reading.unread),
+            reading.unread,
+        )
+    };
+    let boxed = Eligibility {
+        verdict: Verdict::Boxed,
+        reason: "its own tools switch off and the hands MCP server connects".to_string(),
+    };
+    assert_eq!(
+        [verdict(x1), verdict(x2)],
+        [(boxed.clone(), Vec::new()), (boxed, Vec::new())]
+    );
 }
 
 #[test]
@@ -662,6 +824,7 @@ fn an_admitting_verdict_needs_every_line_of_both_turns_read_and_every_fact_it_re
         found_by_the_chief_on_8acbbecb(),
         found_by_the_chief_on_25a0ea04(),
         found_by_the_chief_on_5f1623d9(),
+        found_by_the_chief_on_d77a2b6e(),
         clean_with_stderr(),
     ];
     for (index, row) in rows.into_iter().flatten().enumerate() {

@@ -11,22 +11,25 @@ use serde_json::{json, Value};
 #[path = "../../../tests/support/executable.rs"]
 mod executable;
 
-/// One Claude-shaped turn: the init event names the hands server when the
-/// hands argv is given, lists the two network tools unless the OFF
-/// controls are, and every deliberate mistake is refused. It reads its
-/// version from the file beside it, so a rerun can change it.
+/// One Claude-shaped turn, in the events claude's reader decodes: the
+/// init event names the hands server when the hands argv is given, lists
+/// the two network tools unless the OFF controls are, and every
+/// deliberate mistake is refused. It reads its version from the file
+/// beside it, so a rerun can change it.
 const FAKE: &str = r#"#!/bin/sh
 case " $* " in
   *" --version "*) cat "$(dirname "$0")/version"; exit 0 ;;
   *brokkr-probe-no-such-*) echo "rejected" >&2; exit 1 ;;
 esac
 [ -n "$FAKE_TOKEN" ] || { echo "not logged in" >&2; exit 1; }
+sid=5d0c1e2a-7b3f-4c1d-9e8a-2f6b0c4d8e11
 case " $* " in
-  *" --strict-mcp-config "*) printf '{"type":"system","subtype":"init","session_id":"s-1","tools":[],"mcp_servers":[{"name":"brokkr","status":"connected"}]}\n' ;;
-  *" --disallowedTools "*) printf '{"type":"system","subtype":"init","session_id":"s-1","tools":["Bash"],"mcp_servers":[]}\n' ;;
-  *) printf '{"type":"system","subtype":"init","session_id":"s-1","tools":["Bash","WebFetch","WebSearch"],"mcp_servers":[]}\n' ;;
+  *" --strict-mcp-config "*) tools=''; servers='{"name":"brokkr","status":"connected"}' ;;
+  *" --disallowedTools "*) tools='"Bash"'; servers='' ;;
+  *) tools='"Bash","WebFetch","WebSearch"'; servers='' ;;
 esac
-printf '{"type":"result","total_cost_usd":0.5,"usage":{"input_tokens":1,"output_tokens":1}}\n'
+printf '{"type":"system","subtype":"init","session_id":"%s","tools":[%s],"mcp_servers":[%s]}\n' "$sid" "$tools" "$servers"
+printf '{"type":"result","subtype":"success","total_cost_usd":0.5,"usage":{"input_tokens":1,"output_tokens":1}}\n'
 "#;
 
 /// The OFF controls the engine composes from the shipped claude adapter's
@@ -126,9 +129,9 @@ fn the_verb_writes_the_shipped_adapter_s_report_and_its_drift_on_a_new_version()
             "--output-format",
             "stream-json",
             "--verbose",
+            "{prompt}",
             "--permission-mode",
             "acceptEdits",
-            "{prompt}",
         ])
     );
     assert_eq!(

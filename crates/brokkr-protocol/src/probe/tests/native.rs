@@ -238,8 +238,23 @@ fn the_turn_under_the_declared_off_controls_is_read_like_the_plain_and_boxed_tur
             ),
         })
     };
-    let string = "the system event on line 2 of stdout holds at /mcp_servers a value that is not \
-                  a list: \"github\"";
+    // A line of the OFF turn no reader reads leaves its listings unread, so
+    // neither its servers nor the off switches are measured.
+    let unread = |line: &str| {
+        let tools = format!("the turn's tools could not be read whole: {line}");
+        let servers = format!("the turn's mcp_servers could not be read whole: {line}");
+        let not_read = format!("the turn under the declared OFF controls was not read: {tools}");
+        json!({
+            "verdict": "refused",
+            "reason": format!(
+                "the evidence for a seat in a realm that grants its capabilities is not complete: \
+                 {}; user_mcp_off is unmeasured: no MCP server other than brokkr was read \
+                 reaching the turn, but {tools}, and {servers}; web-fetch's off switch is \
+                 unmeasured: {not_read}; web-search's off switch is unmeasured: {not_read}",
+                line.replacen(" of ", " of the OFF turn's ", 1)
+            ),
+        })
+    };
     let rows = [
         (
             r#"tools='"mcp__github__search"'; servers='{"name":"github","status":"connected"}'"#,
@@ -250,19 +265,11 @@ fn the_turn_under_the_declared_off_controls_is_read_like_the_plain_and_boxed_tur
         ),
         (
             r#"tools='"Bash"'; echo "MCP server github connected" >&2"#,
-            leaked("line 1 of stderr names the MCP server github"),
+            unread(&format!("line 1 of stderr {UNRECOGNISED}")),
         ),
         (
             r#"tools='"Bash"'; later='{"type":"system","mcp_servers":"github"}'"#,
-            json!({
-                "verdict": "refused",
-                "reason": format!(
-                    "the evidence for unboxed offices is not complete: in the OFF turn, {string}; \
-                     user_mcp_off is unmeasured: no MCP server other than brokkr was read \
-                     reaching the turn, but the turn's mcp_servers could not be read whole: \
-                     {string}"
-                ),
-            }),
+            unread(&format!("line 2 of stdout {UNDECODED}")),
         ),
         (
             r#"tools='"Bash"'; servers='{"name":"brokkr-probe-user-scope","status":"connected"}'"#,
@@ -518,18 +525,21 @@ fn a_model_refusal_that_does_not_name_the_model_is_not_a_configuration_refusal()
 
 fn not_the_configuration(ended: &str) -> String {
     format!(
-        "no line of the refusal names the model brokkr-probe-no-such-model in a model refusal's \
-         words and no other class's, so it is not shown to be the configuration's: {ended}"
+        "no line of the refusal is a configuration refusal of the model \
+         brokkr-probe-no-such-model, so it is not shown to be the configuration's: {ended}"
     )
 }
 
-/// The chief's shapes on 25a0ea04: a line that names the model beside
-/// another class's mark, or an event that only echoes it, is not the
-/// model's refusal; a model refusal in any case of its words is.
+/// The chief's shapes on 25a0ea04 and r11-q7: a line that names the model
+/// beside another failure, or an event that only echoes it, is not the
+/// model's refusal (#484). Claude's recorded refusals are, its tagged
+/// stderr line and its reply in any case of its words, each classing the
+/// line it is.
 #[test]
 fn a_model_named_beside_another_class_s_refusal_or_echoed_is_not_a_configuration_refusal() {
     let plan = plan::plan(AdapterKind::Claude, &claude_declared()).unwrap();
     let echo = r#"{"type":"system","subtype":"init","model":"brokkr-probe-no-such-model"}"#;
+    let q7 = r#"{"type":"result","subtype":"error_during_execution","is_error":true,"model":"brokkr-probe-no-such-model","result":"ENOENT: settings file not found"}"#;
     let config = |stdout: &str, stderr: &str| {
         let observed = Observed {
             bad_model: Trial::Observed(observation(Some(1), stdout, stderr)),
@@ -552,6 +562,13 @@ fn a_model_named_beside_another_class_s_refusal_or_echoed_is_not_a_configuration
             "model brokkr-probe-no-such-model not found: the provider is overloaded",
         ),
         ("", "model brokkr-probe-no-such-model not found (HTTP 529)"),
+        ("", "Model brokkr-probe-no-such-model Not Found (HTTP 404)"),
+        (q7, "ENOENT: settings file not found"),
+        // A configuration refusal, of another model.
+        (
+            "",
+            r#"[claude-code:unrecognized_model] {"model":"gpt-x","query_source":"sdk"}"#,
+        ),
     ];
     assert_eq!(
         rows.map(|(stdout, stderr)| config(stdout, stderr)),
@@ -559,16 +576,25 @@ fn a_model_named_beside_another_class_s_refusal_or_echoed_is_not_a_configuration
             |(_, stderr)| Fact::unmeasured(not_the_configuration(&format!("exit 1: {stderr}")))
         )
     );
-    let refused = "Model brokkr-probe-no-such-model Not Found (HTTP 404)";
-    assert_eq!(
-        config("", refused),
+    let refused = |excerpt: &str| {
         Fact::measured(
             facts::Refusal {
                 exit: Some(1),
-                excerpt: refused.to_string(),
+                excerpt: excerpt.to_string(),
             },
-            format!("exit 1: {refused}"),
+            format!("exit 1: {excerpt}"),
         )
+    };
+    let tagged = r#"[claude-code:unrecognized_model] {"model":"brokkr-probe-no-such-model","query_source":"sdk"}"#;
+    let reply =
+        "THERE'S AN ISSUE WITH THE SELECTED MODEL (brokkr-probe-no-such-model). IT MAY NOT \
+                 EXIST OR YOU MAY NOT HAVE ACCESS TO IT. RUN --MODEL TO PICK A DIFFERENT MODEL.";
+    assert_eq!(
+        [
+            config("", &format!("ENOENT: settings file not found\n{tagged}")),
+            config("", reply),
+        ],
+        [refused(tagged), refused(reply)]
     );
 }
 
@@ -582,10 +608,11 @@ fn one_failed(at: fn(&mut Observed) -> &mut Trial, stdout: &str, stderr: &str) -
     measure::reading(&plan, &observed, &[]).facts
 }
 
-/// The chief's shapes on 5f1623d9 (#484): a control echoed beside a
-/// failure of another class, or named in a refusal's words beside an
-/// outage's mark, is not the CLI refusing it, on the turn under the
-/// declared OFF controls and on the boxed turn alike.
+/// The chief's shapes on 5f1623d9 and d77a2b6e (#484): a control echoed
+/// beside a failure of another class, or named in other words, is not
+/// the CLI refusing it, on the turn under the declared OFF controls and on
+/// the boxed turn alike. Only a control refusal's form, whose object is
+/// the control, is.
 #[test]
 fn a_control_echoed_or_named_beside_another_class_s_failure_is_not_the_cli_refusing_it() {
     let echo = |argv: &str| format!(r#"{{"type":"system","subtype":"init","argv":[{argv}]}}"#);
@@ -594,17 +621,33 @@ fn a_control_echoed_or_named_beside_another_class_s_failure_is_not_the_cli_refus
     let off = |stdout: &str, stderr: &str| {
         one_failed(|observed| &mut observed.native_off, stdout, stderr).user_mcp_off
     };
+    let v1 = r#"{"type":"result","is_error":true,"argv":["--disallowedTools","WebFetch,WebSearch"],"result":"model gpt-x is not supported"}"#;
+    let v1c = r#"{"type":"result","is_error":true,"result":"model gpt-x is not supported"}"#;
     let rows = [
         (off_echo.as_str(), outage),
         (off_echo.as_str(), "API Error: 401 invalid x-api-key"),
         ("", "error: unknown option '--disallowedTools' (HTTP 503)"),
+        (v1, ""),
+        (v1c, ""),
+        (
+            "",
+            "launching: claude -p --disallowedTools WebFetch,WebSearch: model gpt-x is not \
+             supported",
+        ),
     ];
+    let excerpt = |stdout: &str, stderr: &str| {
+        if stderr.is_empty() {
+            stdout.to_string()
+        } else {
+            stderr.to_string()
+        }
+    };
     assert_eq!(
         rows.map(|(stdout, stderr)| off(stdout, stderr)),
-        rows.map(|(_, stderr)| Fact::unmeasured(failed_under(
+        rows.map(|(stdout, stderr)| Fact::unmeasured(failed_under(
             OFF_TURN,
             OFF_ARGV,
-            &format!("exit 1: {stderr}")
+            &format!("exit 1: {}", excerpt(stdout, stderr))
         )))
     );
     let hands_echo = echo(r#""--tools","","--strict-mcp-config""#);
@@ -618,31 +661,44 @@ fn a_control_echoed_or_named_beside_another_class_s_failure_is_not_the_cli_refus
     );
 }
 
-/// The chief's shapes on 5f1623d9 (#484): removing the credentials is the
-/// trigger, not proof of the class, so an auth refusal is measured only
-/// on a line that carries an auth refusal's mark and no other class's.
+/// The chief's shapes on 5f1623d9 and d77a2b6e (#484): removing the
+/// credentials is the trigger, not proof of the class, so an auth refusal
+/// is measured only on a line that is an auth refusal's form, and its
+/// excerpt is that line. An auth word in any other line refuses nothing.
 #[test]
 fn an_auth_refusal_is_measured_only_on_a_line_carrying_its_mark_alone() {
-    let auth = |stderr: &str| {
-        one_failed(|observed| &mut observed.no_credentials, "", stderr)
+    let auth = |stdout: &str, stderr: &str| {
+        one_failed(|observed| &mut observed.no_credentials, stdout, stderr)
             .refusals
             .auth
     };
     let others = [
-        "API Error: 503 provider temporarily unavailable",
-        "API Error: 429 rate limit exceeded, retry later",
-        "Invalid API key: the provider is overloaded",
+        ("", "API Error: 503 provider temporarily unavailable"),
+        ("", "API Error: 429 rate limit exceeded, retry later"),
+        ("", "Invalid API key: the provider is overloaded"),
+        (
+            r#"{"type":"system","auth_method":"api_key"}"#,
+            "API Error: 503 provider temporarily unavailable",
+        ),
+        ("", "API Error: 404 unknown model (login successful)"),
+        ("", "error: unknown key 'api_key'"),
+        ("", "login successful\nENOENT: settings file not found"),
+        ("", "error: unknown option --api_key"),
     ];
     assert_eq!(
-        others.map(auth),
-        others.map(|line| Fact::unmeasured(format!(
-            "no line of the refusal carries an auth refusal's mark and no other class's, so it \
-             is not shown to be an auth failure: exit 1: {line}"
+        others.map(|(stdout, stderr)| auth(stdout, stderr)),
+        others.map(|(_, stderr)| Fact::unmeasured(format!(
+            "no line of the refusal is an auth refusal, so it is not shown to be an auth \
+             failure: exit 1: {}",
+            stderr.lines().next().unwrap()
         )))
     );
     let refused = "Invalid API key · Please run /login";
     assert_eq!(
-        auth(refused),
+        auth(
+            "",
+            &format!("API Error: 503 provider temporarily unavailable\n{refused}")
+        ),
         Fact::measured(
             facts::Refusal {
                 exit: Some(1),

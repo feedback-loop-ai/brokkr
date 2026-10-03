@@ -168,40 +168,35 @@ fn planted_tool_later(shape: &'static str, event: &str, pointer: &str) -> Row {
     }
 }
 
-/// The chief's three shapes on 93b3793f.
+/// Line `line` of `source`, which claude's reader did not decode.
+fn undecoded(line: usize, source: &str) -> String {
+    format!("line {line} of {source} {UNDECODED}")
+}
+
+/// The chief's three shapes on 93b3793f. A listing the typed reader does
+/// not decode leaves its line unread, and with it every listing of the
+/// turn, beside any reach read elsewhere (#484).
 fn found_by_the_chief() -> Vec<Row> {
-    let no_name = format!("{LATER} holds an entry at /tools/0 the probe cannot name");
-    let object = unread(
-        "tools",
-        &format!(
-            r#"{LATER} holds at /tools a value that is not a list: {{"mcp__brokkr-probe-user-scope__probe":{{}}}}"#
-        ),
-    );
+    let line = undecoded(2, "stdout");
     vec![
         Row {
             shape: "a reach beside a sibling listing the probe cannot name",
             plain: PLAIN_READS_THE_PLANT,
             boxed: r#"tools='"mcp__brokkr__workspace","mcp__brokkr-probe-user-scope__probe"'; servers='{"name":"brokkr","status":"connected"}'; later='{"type":"system","subtype":"init","tools":[{"id":1}]}'"#.to_string(),
             expected: expect(
-                unmeasured(&unread("tools", &no_name)),
-                connected(&listed(INIT, "mcp_servers", 1)),
+                unmeasured(&unread("tools", &line)),
+                unmeasured(&unread("mcp_servers", &line)),
                 leaked_plain(),
                 reached_in_the_box(&tool_at_init()),
             ),
         },
-        Row {
-            shape: "an object where a tool listing belongs",
-            plain: PLAIN_READS_THE_PLANT,
-            boxed: later(
+        unread_row(
+            "an object where a tool listing belongs",
+            later(
                 r#"{"type":"system","subtype":"init","tools":{"mcp__brokkr-probe-user-scope__probe":{}}}"#,
             ),
-            expected: expect(
-                unmeasured(&object),
-                connected(&listed(INIT, "mcp_servers", 1)),
-                leaked_plain(),
-                unread_in_the_box(&no_reach_but(&object)),
-            ),
-        },
+            &line,
+        ),
         Row {
             shape: "a reach only in the boxed turn's transcript",
             plain: PLAIN_READS_THE_PLANT,
@@ -532,16 +527,10 @@ fn implied_lines_and_streams() -> Vec<Row> {
 }
 
 /// The empty, null and nested values no review named that the invariant
-/// implies.
+/// implies: a value of a JSON type the typed reader does not name, `null`
+/// among them, leaves its line unread (#484).
 fn implied_values() -> Vec<Row> {
-    let null = unread(
-        "mcp_servers",
-        &format!("{LATER} holds at /mcp_servers a value that is not a list: null"),
-    );
-    let nested = unread(
-        "tools",
-        &format!("{LATER} holds an entry at /tools/0 the probe cannot name"),
-    );
+    let line = undecoded(2, "stdout");
     vec![
         Row {
             shape: "an empty list beside a reach",
@@ -564,34 +553,24 @@ fn implied_values() -> Vec<Row> {
                 reached_in_the_box(&format!("{PLANTED_SERVER} {LATER} at /mcp_servers/0")),
             ),
         },
-        Row {
-            shape: "a null where a server listing belongs",
-            plain: PLAIN_READS_THE_PLANT,
-            boxed: later(r#"{"type":"system","subtype":"init","mcp_servers":null}"#),
-            expected: expect(
-                tools_emptied(&listed(INIT, "tools", 1)),
-                unmeasured(&null),
-                leaked_plain(),
-                unread_in_the_box(&no_reach_but(&null)),
-            ),
-        },
-        Row {
-            shape: "a list nested in a tool listing",
-            plain: PLAIN_READS_THE_PLANT,
-            boxed: later(
+        unread_row(
+            "a null where a server listing belongs",
+            later(r#"{"type":"system","subtype":"init","mcp_servers":null}"#),
+            &line,
+        ),
+        unread_row(
+            "a list nested in a tool listing",
+            later(
                 r#"{"type":"system","subtype":"init","tools":[["mcp__brokkr-probe-user-scope__probe"]]}"#,
             ),
-            expected: expect(
-                unmeasured(&nested),
-                connected(&listed(INIT, "mcp_servers", 1)),
-                leaked_plain(),
-                unread_in_the_box(&no_reach_but(&nested)),
-            ),
-        },
-        planted_tool_later(
+            &line,
+        ),
+        unread_row(
             "a tool listing nested in an array of objects",
-            r#"{"type":"system","subtype":"init","agents":[{"tools":["mcp__brokkr-probe-user-scope__probe"]}]}"#,
-            "/agents/0/tools/0",
+            later(
+                r#"{"type":"system","subtype":"init","agents":[{"tools":["mcp__brokkr-probe-user-scope__probe"]}]}"#,
+            ),
+            &line,
         ),
     ]
 }

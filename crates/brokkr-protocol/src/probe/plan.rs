@@ -4,6 +4,7 @@
 //! `{prompt}` here, so the argv the report shows is the same on every
 //! host; `observe` fills them in at spawn.
 
+use super::measure::read::Harness;
 use super::{Declared, Native, OffControl, ProbeError};
 use crate::adapters::{codex_effort_config, AdapterKind};
 
@@ -76,6 +77,18 @@ pub(crate) struct Plan {
     pub(crate) user_config: UserConfig,
     /// How `turn` departs from the launch the adapter's driver composes.
     pub(crate) unlike_driver: &'static str,
+    /// The typed reader the harness's streams are read by.
+    pub(crate) reader: Harness,
+}
+
+/// Where a launch gives the prompt, as an argument.
+enum PromptAt {
+    /// Last, after every flag.
+    Last,
+    /// Straight after the head, before the adapter's flags: a variadic
+    /// flag takes every argument after it up to the next flag, so a
+    /// prompt after one is read as the flag's (#484).
+    AfterHead,
 }
 
 /// Whether a harness takes a model on its own command line, by the
@@ -99,15 +112,27 @@ enum Effort {
 /// user-scope MCP servers live.
 struct Grammar {
     head: &'static [&'static str],
+    prompt: PromptAt,
     model: Model,
     effort: Effort,
     user_config: UserConfig,
     unlike_driver: &'static str,
+    reader: Harness,
 }
 
-/// How the probe's turn departs from the claude and codex drivers.
+/// How the probe's turn departs from the codex driver.
 const PROMPT_AS_ARGUMENT: &str = "the prompt is the last argument and stdin is closed, where \
                                   the adapter's driver writes the prompt to stdin";
+
+/// How the probe's turn departs from the claude driver. `--tools`,
+/// `--allowedTools`, `--disallowedTools` and `--mcp-config` are variadic:
+/// recorded 2026-10-03, a prompt after `--disallowedTools` left the turn
+/// with none ("Input must be provided either through stdin or as a prompt
+/// argument when using --print"), and one after `--mcp-config` was read
+/// as a config file's path.
+const PROMPT_BEFORE_FLAGS: &str = "the prompt is an argument before the adapter's flags, since \
+                                   a variadic flag takes the arguments after it, and stdin is \
+                                   closed, where the adapter's driver writes the prompt to stdin";
 
 const CLAUDE_USER_CONFIG: &str =
     r#"{"mcpServers":{"brokkr-probe-user-scope":{"type":"stdio","command":"true","args":[]}}}"#;
@@ -126,16 +151,19 @@ fn grammar(kind: AdapterKind, adapter: &str) -> Result<Grammar, ProbeError> {
     match kind {
         AdapterKind::Claude => Ok(Grammar {
             head: &["-p", "--output-format", "stream-json", "--verbose"],
+            prompt: PromptAt::AfterHead,
             model: Model::Flag,
             effort: Effort::Flag,
             user_config: UserConfig::Planted {
                 path: ".claude.json",
                 contents: CLAUDE_USER_CONFIG,
             },
-            unlike_driver: PROMPT_AS_ARGUMENT,
+            unlike_driver: PROMPT_BEFORE_FLAGS,
+            reader: Harness::Claude,
         }),
         AdapterKind::Codex => Ok(Grammar {
             head: &["exec", "--json", "-C", "{workdir}"],
+            prompt: PromptAt::Last,
             model: Model::Flag,
             effort: Effort::CodexConfig,
             user_config: UserConfig::Planted {
@@ -143,9 +171,11 @@ fn grammar(kind: AdapterKind, adapter: &str) -> Result<Grammar, ProbeError> {
                 contents: CODEX_USER_CONFIG,
             },
             unlike_driver: PROMPT_AS_ARGUMENT,
+            reader: Harness::Codex,
         }),
         AdapterKind::Dsh => Ok(Grammar {
             head: &["--profile", "headless"],
+            prompt: PromptAt::Last,
             model: Model::Unreachable(DSH_PATCH_ONLY),
             effort: Effort::Unreachable(DSH_PATCH_ONLY),
             user_config: UserConfig::Unknown(
@@ -154,6 +184,7 @@ fn grammar(kind: AdapterKind, adapter: &str) -> Result<Grammar, ProbeError> {
             unlike_driver: "the prompt is the last argument, stdin is closed and no --patch \
                             overlay is given, where the adapter's driver writes the prompt to \
                             stdin and always composes a --patch profile overlay",
+            reader: Harness::Dsh,
         }),
         AdapterKind::Lanetally | AdapterKind::Exec => Err(ProbeError::NotAHarness {
             adapter: adapter.to_string(),
@@ -167,9 +198,13 @@ pub(crate) fn plan(kind: AdapterKind, declared: &Declared) -> Result<Plan, Probe
     let turn_with = |extra: &[String]| -> Vec<String> {
         let mut argv = vec!["{cli}".to_string()];
         argv.extend(grammar.head.iter().map(|part| part.to_string()));
-        argv.extend(declared.passthrough.iter().cloned());
-        argv.extend(extra.iter().cloned());
-        argv.push("{prompt}".to_string());
+        let flags = declared.passthrough.iter().chain(extra).cloned();
+        match grammar.prompt {
+            PromptAt::AfterHead => {
+                argv.extend(std::iter::once("{prompt}".to_string()).chain(flags))
+            }
+            PromptAt::Last => argv.extend(flags.chain(std::iter::once("{prompt}".to_string()))),
+        }
         argv
     };
     let bad_model = match (&grammar.model, &declared.model_flag) {
@@ -233,5 +268,6 @@ pub(crate) fn plan(kind: AdapterKind, declared: &Declared) -> Result<Plan, Probe
         native: declared.native.clone(),
         user_config: grammar.user_config,
         unlike_driver: grammar.unlike_driver,
+        reader: grammar.reader,
     })
 }

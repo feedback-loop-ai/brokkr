@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use super::facts::{Capability, Eligibility, Fact, Verdict};
 use super::measure::{self, Observed};
-use super::observe::{Captured, Observation, Trial};
+use super::observe::{Captured, Observation, Transcript, Trial, Written};
 use super::*;
 use crate::process::in_its_own_engine;
 use crate::secret;
@@ -19,6 +19,7 @@ mod evidence;
 mod executable;
 mod listings;
 mod native;
+mod streams;
 
 const DATE: &str = "2026-09-29T09:00:00Z";
 const DEADLINE: Duration = Duration::from_secs(60);
@@ -81,7 +82,7 @@ fn claude_with(version: &str, plain: &str, under_hands: &str) -> String {
     r#"#!/bin/sh
 case " $* " in
   *" --version "*) echo "@VERSION@ (Fake Claude)"; exit 0 ;;
-  *" brokkr-probe-no-such-model "*) echo "API Error: 404 model not found: brokkr-probe-no-such-model" >&2; exit 1 ;;
+  *" brokkr-probe-no-such-model "*) printf '[claude-code:unrecognized_model] {"model":"brokkr-probe-no-such-model","query_source":"%s"}\n' "$FAKE_TOKEN" >&2; exit 1 ;;
   *" brokkr-probe-no-such-effort "*) echo "error: option '--effort <level>' argument 'brokkr-probe-no-such-effort' is invalid. Allowed choices are low, medium, high, xhigh, max." >&2; exit 1 ;;
 esac
 [ -n "$FAKE_TOKEN" ] || { echo "Invalid API key · Please run /login" >&2; exit 1; }
@@ -113,12 +114,13 @@ printf '{"type":"result","subtype":"success","is_error":false,"session_id":"%s",
 
 /// A Codex-like CLI: `exec --json` events with usage on `turn.completed`
 /// alone, no tool list on the stream, and its rollout filed under a
-/// dated directory. Its model refusal is a JSON event that echoes the key.
+/// dated directory. Its model refusal is the provider's error, as JSON
+/// inside an `error` event's message, as recorded on 2026-10-03.
 const CODEX_LIKE: &str = r#"#!/bin/sh
 case " $* " in
   *" --version "*) echo "codex-cli 0.999.0"; exit 0 ;;
   *brokkr-probe-no-such-effort*) echo 'Error loading config: unknown variant `brokkr-probe-no-such-effort`, expected one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`' >&2; exit 1 ;;
-  *" brokkr-probe-no-such-model "*) printf '{"type":"error","message":"model brokkr-probe-no-such-model not found (key %s)"}\n' "$FAKE_TOKEN"; exit 1 ;;
+  *" brokkr-probe-no-such-model "*) m="The 'brokkr-probe-no-such-model' model is not supported when using Codex with a ChatGPT account."; printf '{"type":"error","message":"{\\"type\\":\\"error\\",\\"status\\":400,\\"error\\":{\\"type\\":\\"invalid_request_error\\",\\"message\\":\\"%s\\"}}"}\n' "$m"; exit 1 ;;
 esac
 [ -n "$FAKE_TOKEN" ] || { echo "Not logged in. Run codex login." >&2; exit 1; }
 tid=0199aaaa-1111-7222-8333-444455556666
@@ -132,14 +134,15 @@ printf '{"type":"turn.completed","usage":{"input_tokens":20,"cached_input_tokens
 "#;
 
 /// A dsh-like CLI: the headless profile prints only its answer, and the
-/// session transcript's header lists its tools, web search among them.
+/// session log opens with its header, then one assembled step with its
+/// usage, as the adapter's driver folds it. It lists no tools.
 const DSH_LIKE: &str = r#"#!/bin/sh
 case " $* " in
   *" --version "*) echo "dsh 0.9.9"; exit 0 ;;
 esac
 [ -n "$FAKE_TOKEN" ] || { echo "Error: DEEPSEEK_API_KEY is not set" >&2; exit 1; }
 mkdir -p "$HOME/.dsh/sessions"
-printf '%s\n' '{"type":"header","session_id":"ds-20260929-0001","request":{"tools":[{"name":"bash"},{"name":"read_file"},{"name":"web_search"}]}}' '{"type":"message","role":"assistant","usage":{"prompt_tokens":30,"completion_tokens":4},"cost_usd":0.0001}' > "$HOME/.dsh/sessions/ds-20260929-0001.jsonl"
+printf '%s\n' '{"type":"session","version":3,"id":"ds-20260929-0001"}' '{"type":"assistant/message","seq":1,"data":{"turn":1,"step":1,"usage":{"inputTokens":30,"outputTokens":4}}}' > "$HOME/.dsh/sessions/ds-20260929-0001.jsonl"
 echo "PROBE-OK"
 "#;
 
@@ -303,6 +306,9 @@ const RESUME: &str = "the probe does not drive a resume turn yet; decision 0056'
                       assessment stays the adapter's (#226)";
 const PROMPT_AS_ARGUMENT: &str = "the prompt is the last argument and stdin is closed, where \
                                   the adapter's driver writes the prompt to stdin";
+const PROMPT_BEFORE_FLAGS: &str = "the prompt is an argument before the adapter's flags, since \
+                                   a variadic flag takes the arguments after it, and stdin is \
+                                   closed, where the adapter's driver writes the prompt to stdin";
 const DSH_UNLIKE_DRIVER: &str = "the prompt is the last argument, stdin is closed and no \
                                  --patch overlay is given, where the adapter's driver writes \
                                  the prompt to stdin and always composes a --patch profile \
@@ -401,9 +407,9 @@ const CLAUDE_TURN: [&str; 8] = [
     "--output-format",
     "stream-json",
     "--verbose",
+    "{prompt}",
     "--permission-mode",
     "acceptEdits",
-    "{prompt}",
 ];
 
 #[test]
@@ -423,7 +429,7 @@ fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() 
         "9.9.9 (Fake Claude)",
         json!({
             "facts": {
-                "headless": headless(&CLAUDE_TURN, 0, PROMPT_AS_ARGUMENT),
+                "headless": headless(&CLAUDE_TURN, 0, PROMPT_BEFORE_FLAGS),
                 "events": measured(json!({
                     "source": "stdout",
                     "format": "ndjson",
@@ -449,7 +455,11 @@ fn a_claude_like_cli_holds_boxed_offices_only_and_its_repeated_usage_is_named() 
                 ),
                 "refusals": {
                     "auth": refusal(1, "Invalid API key · Please run /login"),
-                    "config": refusal(1, "API Error: 404 model not found: brokkr-probe-no-such-model"),
+                    // The fake echoes its credential, which is masked.
+                    "config": refusal(
+                        1,
+                        r#"[claude-code:unrecognized_model] {"model":"brokkr-probe-no-such-model","query_source":"[secret:FAKE_TOKEN]"}"#,
+                    ),
                     "rate_limit": unmeasured(RATE_LIMIT),
                     "outage": unmeasured(OUTAGE),
                 },
@@ -551,12 +561,12 @@ fn a_codex_like_cli_whose_stream_lists_no_mcp_servers_is_refused_for_want_of_iso
                         "{NOT_REPEATED}; the usage at turn.completed /usage named no message"
                     )),
                 ),
-                "cost": unmeasured("no event carried total_cost_usd or cost_usd"),
+                "cost": unmeasured("no event of the turn reported a cost"),
                 "refusals": {
                     "auth": refusal(1, "Not logged in. Run codex login."),
                     "config": refusal(
                         1,
-                        r#"{"type":"error","message":"model brokkr-probe-no-such-model not found (key [secret:FAKE_TOKEN])"}"#,
+                        r#"{"type":"error","message":"{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'brokkr-probe-no-such-model' model is not supported when using Codex with a ChatGPT account.\"}}"}"#,
                     ),
                     "rate_limit": unmeasured(RATE_LIMIT),
                     "outage": unmeasured(OUTAGE),
@@ -620,16 +630,11 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
     let no_hands = format!(
         "the adapter declares no hands argv that switches the CLI's own tools off ({DSH_GAP})"
     );
-    // The answer dsh prints is a line of stdout that is not one JSON
-    // object, so every listing of the turn is unread (#484).
-    let answer = "line 1 of stdout is not one JSON object naming each key once; stdout holds no \
-                  JSON event";
-    let tools = format!("the turn's tools could not be read whole: {answer}");
-    let unread = format!(
-        "no MCP server other than brokkr was read reaching the turn, but {tools}, and the turn's \
-         mcp_servers could not be read whole: {answer}"
-    );
-    let not_isolated = format!("{NO_USER_MCP}{unread}");
+    // The answer dsh prints on stdout is its reply, read as text, and its
+    // session log names no tool (#484).
+    let tools = "no event of the turn listed its tools";
+    let unknown = "the probe knows no user-scope MCP configuration file for dsh";
+    let not_isolated = format!("{NO_USER_MCP}{unknown}");
     let expected = envelope(
         "dsh",
         &cli,
@@ -645,23 +650,21 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
                     "source": "~/.dsh/sessions/{session}.jsonl",
                     "format": "ndjson",
                     "non_json_lines": 0,
-                    "types": ["header", "message"],
+                    "types": ["session", "assistant/message"],
                 }), "2 events read from ~/.dsh/sessions/{session}.jsonl"),
                 "session": measured(
-                    json!({"event": "header", "key": "session_id"}),
-                    "the header event announced session_id ds-20260929-0001",
+                    json!({"event": "session", "key": "id"}),
+                    "the session event announced id ds-20260929-0001",
                 ),
                 "usage": usage(
-                    &["message /usage"],
-                    &["completion_tokens", "prompt_tokens"],
+                    &["assistant/message /data/usage"],
+                    &["inputTokens", "outputTokens"],
                     unmeasured(&format!(
-                        "{NOT_REPEATED}; the usage at message /usage named no message"
+                        "{NOT_REPEATED}; the usage at assistant/message /data/usage named no \
+                         message"
                     )),
                 ),
-                "cost": measured(
-                    json!(["message /cost_usd"]),
-                    "the turn reported its cost at message /cost_usd",
-                ),
+                "cost": unmeasured("no event of the turn reported a cost"),
                 "refusals": {
                     "auth": refusal(1, "Error: DEEPSEEK_API_KEY is not set"),
                     "config": unmeasured(DSH_PATCH_ONLY),
@@ -669,10 +672,10 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
                     "outage": unmeasured(OUTAGE),
                 },
                 "efforts": unmeasured(DSH_PATCH_ONLY),
-                "tools": unmeasured(&tools),
+                "tools": unmeasured(tools),
                 "boxed_tools": unmeasured(&no_hands),
                 "mcp_server": unmeasured(&no_hands),
-                "native_egress": unmeasured(&tools),
+                "native_egress": unmeasured(tools),
                 "egress_off": unmeasured(&format!(
                     "the plain turn's native egress was not read: {tools}"
                 )),
@@ -680,7 +683,7 @@ fn a_dsh_like_cli_is_read_from_its_transcript_and_refused_for_want_of_isolation(
                     "the adapter declares its native capabilities unmeasured: {DSH_NATIVE}"
                 )),
                 "config_isolation": unmeasured(&not_isolated),
-                "user_mcp_unboxed": unmeasured(&unread),
+                "user_mcp_unboxed": unmeasured(unknown),
                 "user_mcp_boxed": unmeasured(&no_hands),
                 "user_mcp_off": unmeasured(&format!(
                     "the adapter declares its native capabilities unmeasured: {DSH_NATIVE}"
@@ -820,12 +823,16 @@ fn a_boxed_turn_that_fails_naming_no_hands_flag_is_unread_not_unsupported() {
 const UNRECOGNISED: &str =
     "holds text no reader consumes in a form the probe does not recognise whole";
 
+/// How a report names a JSON object that is not one of claude's events.
+const UNDECODED: &str = "is not a claude event the probe decodes whole: its type, a key or a \
+                         value's type is not one the reader names";
+
 /// Why a turn under `argv` that failed, as `ended` says, refused nothing:
-/// no line it printed is itself a refusal of one of its controls (#484).
+/// no line it printed is the CLI's refusal of one of its controls (#484).
 fn failed_under(turn: &str, argv: &str, ended: &str) -> String {
     format!(
-        "{turn} failed, and no line it printed refuses a flag or key of {argv} in a refusal's \
-         words and no other class's: {ended}"
+        "{turn} failed, and no line it printed is the CLI's refusal of a flag or key of {argv}: \
+         {ended}"
     )
 }
 
@@ -999,7 +1006,7 @@ fn a_turn_without_its_credential_refuses_the_harness_and_measures_nothing_else()
         report["facts"]["headless"],
         measured(
             json!({"argv": CLAUDE_TURN, "exit": 1}),
-            &launched("", PROMPT_AS_ARGUMENT, "exit 1"),
+            &launched("", PROMPT_BEFORE_FLAGS, "exit 1"),
         )
     );
     assert_eq!(
@@ -1348,26 +1355,25 @@ fn a_refusal_that_lists_no_levels_leaves_efforts_unmeasured_and_clap_s_listing_i
 #[test]
 fn an_unreadable_listing_or_usage_is_not_read_as_an_empty_one() {
     let stream = [
-        r#"{"subtype":"init","tools":[{"id":1}],"mcp_servers":["brokkr"]}"#,
+        r#"{"type":"system","subtype":"init","tools":["Bash"],"mcp_servers":[]}"#,
+        r#"{"type":"system","subtype":"init","tools":[{"id":1}],"mcp_servers":["brokkr"]}"#,
         r#"{"type":"assistant","usage":-7,"total_cost_usd":null}"#,
         "not json",
     ]
     .join("\n");
     let facts = facts_of(observation(Some(0), &stream, ""));
-    let line = "line 3 of stdout is not one JSON object naming each key once";
-    assert_eq!(
-        facts.tools,
-        Fact::unmeasured(format!(
-            "the turn's tools could not be read whole: {line}; the (untyped)/init event on line \
-             1 of stdout holds an entry at /tools/0 the probe cannot name"
-        ))
+    let lines = format!(
+        "line 2 of stdout {UNDECODED}; line 3 of stdout {UNDECODED}; line 4 of stdout is not one \
+         JSON object naming each key once"
     );
     assert_eq!(
-        facts.mcp_server,
-        Fact::unmeasured(format!(
-            "the turn's mcp_servers could not be read whole: {line}; the (untyped)/init event on \
-             line 1 of stdout holds an entry at /mcp_servers/0 the probe cannot name"
-        ))
+        (facts.tools, facts.mcp_server),
+        (
+            Fact::unmeasured(format!("the turn's tools could not be read whole: {lines}")),
+            Fact::unmeasured(format!(
+                "the turn's mcp_servers could not be read whole: {lines}"
+            )),
+        )
     );
     assert_eq!(
         facts.usage,
@@ -1375,15 +1381,15 @@ fn an_unreadable_listing_or_usage_is_not_read_as_an_empty_one() {
     );
     assert_eq!(
         facts.cost,
-        Fact::unmeasured("no event carried total_cost_usd or cost_usd")
+        Fact::unmeasured("no event of the turn reported a cost")
     );
     assert_eq!(
         facts.session,
-        Fact::unmeasured("no event named a session_id or thread_id")
+        Fact::unmeasured("no event of the turn named its session")
     );
     assert_eq!(
         facts.events.value().map(|events| events.non_json_lines),
-        Some(1)
+        Some(3)
     );
     assert_eq!(
         facts.transcripts,
@@ -1393,7 +1399,8 @@ fn an_unreadable_listing_or_usage_is_not_read_as_an_empty_one() {
 
 #[test]
 fn usage_that_names_its_message_on_one_event_is_unmeasured_with_nothing_listed_as_unnamed() {
-    let stream = r#"{"type":"assistant","id":"msg_1","usage":{"output_tokens":2}}"#;
+    let stream =
+        r#"{"type":"assistant","message":{"id":"msg_1","content":[],"usage":{"output_tokens":2}}}"#;
     let facts = facts_of(observation(Some(0), stream, ""));
     assert_eq!(
         facts.usage.value().map(|usage| &usage.counting),
@@ -1460,10 +1467,28 @@ fn a_cli_with_no_hands_argv_is_switched_off_by_its_declared_controls_and_isolati
             ),
         )
     );
-    let facts = unboxed_facts(AdapterKind::Dsh, &dsh_declared());
+    // A dsh turn read whole, its reply on stdout and its session log's
+    // header beside it, still says nothing of a user scope it has none of.
+    let session = Transcript {
+        path: "~/.dsh/sessions/s.jsonl".to_string(),
+        written: Written::Created,
+        text: Captured {
+            text: r#"{"type":"session","version":3,"id":"s"}"#.to_string(),
+            not_utf8: Vec::new(),
+        },
+    };
+    let turn = Observation {
+        transcripts: vec![session],
+        ..observation(Some(0), "PROBE-OK", "")
+    };
+    let plan = plan::plan(AdapterKind::Dsh, &dsh_declared()).unwrap();
+    let reading = measure::reading(&plan, &observed(turn), &[]);
     assert_eq!(
-        facts.user_mcp_unboxed,
-        Fact::unmeasured("the probe knows no user-scope MCP configuration file for dsh")
+        (reading.facts.user_mcp_unboxed, reading.unread),
+        (
+            Fact::unmeasured("the probe knows no user-scope MCP configuration file for dsh"),
+            Vec::new()
+        )
     );
 }
 
@@ -1677,7 +1702,7 @@ fn an_unread_line_refuses_a_verdict_whose_every_fact_was_measured() {
         Fact::measured("connected".to_string(), "listed"),
         Fact::measured(true, "the plain turn listed no native egress tool"),
     );
-    let line = measure::Unread::Line {
+    let line = measure::Unread {
         turn: measure::TurnName::Plain,
         source: "~/.cli/log.jsonl".to_string(),
         line: 4,

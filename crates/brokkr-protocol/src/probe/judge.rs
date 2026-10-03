@@ -33,14 +33,13 @@ fn boxable(facts: &Facts) -> Option<bool> {
 
 /// Ruling 4's verdict, admitted only on complete evidence (#484): a
 /// verdict that admits the harness anywhere stands only when every line
-/// the plain, boxed and OFF turns captured was read, on stdout, in a
-/// transcript or on stderr and however the turn exited, none of them
-/// undecoded, cut short or joined; every value their listings hold was
-/// named; and every fact that verdict rests on was measured. A fact the
-/// CLI refused counts as measured, its refusal being what the probe read;
-/// an unmeasured one never does. Otherwise the harness is refused, and the
-/// reason names each unread line, each unread value and each unmeasured
-/// fact.
+/// the plain, boxed and OFF turns captured was read by the harness's typed
+/// reader, on stdout, in a transcript or on stderr and however the turn
+/// exited, none of them undecoded, unrecognised, cut short or joined; and
+/// every fact that verdict rests on was measured. A fact the CLI refused
+/// counts as measured, its refusal being what the probe read; an
+/// unmeasured one never does. Otherwise the harness is refused, and the
+/// reason names each unread line and each unmeasured fact.
 pub(crate) fn eligibility(facts: &Facts, unread: &[Unread]) -> Eligibility {
     let proposed = verdict(facts);
     let Some((admits, unmeasured)) = rests_on(proposed.verdict, facts) else {

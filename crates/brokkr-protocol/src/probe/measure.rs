@@ -1,35 +1,32 @@
 //! Reading the observations into facts. Pure: nothing here runs, reads
 //! or writes anything; `observe` did, and handed over masked text.
 //!
-//! A CLI's output is the edge (decision 0071 ruling 3). Its lines are
-//! parsed into JSON here, walked for the keys every harness so far names
-//! its facts under, and left behind as the typed facts of `facts`. What
-//! the walk does not recognise is `unmeasured`, never a default.
+//! A CLI's output is the edge (decision 0071 ruling 3). Each line is
+//! decoded once, by the harness's typed reader (`read`), into what it
+//! says, and left behind as the typed facts of `facts`. A line the reader
+//! does not decode whole is unread, and what no line says is
+//! `unmeasured`, never a default.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use serde_json::{Map, Value};
-
 use super::facts::{Counting, Events, Fact, Facts, Headless, Refusals, Session, Usage};
 use super::observe::{Captured, Observation, Transcript, Trial, Written, SCRATCH_PREFIX};
 use super::plan::Plan;
+use read::{Counted, Harness, Said};
 
+mod claude;
+mod codex;
+mod dsh;
+mod forms;
 mod listing;
+pub(crate) mod read;
 mod refusals;
 mod strict;
-mod text;
 mod tools;
 
-/// How much of a refusal's line, or of a value it cannot read, a report
-/// keeps.
+/// How much of a refusal's line a report keeps.
 const EXCERPT_CHARS: usize = 240;
-
-/// The keys a session identifier is announced under.
-const SESSION_KEYS: [&str; 2] = ["session_id", "thread_id"];
-
-/// The keys a cost is reported under.
-const COST_KEYS: [&str; 2] = ["total_cost_usd", "cost_usd"];
 
 /// Every launch of one probe run, observed or passed on.
 pub(crate) struct Observed {
@@ -42,10 +39,12 @@ pub(crate) struct Observed {
     pub(crate) native_off: Trial,
 }
 
-/// One JSON object a stream carried, and its line, counted from 1.
+/// One event a stream carried, decoded: its line, counted from 1, its
+/// type, and what it says.
 struct Event {
     line: usize,
-    fields: Map<String, Value>,
+    label: String,
+    said: Vec<Said>,
 }
 
 /// Why a line of a stream went unread.
@@ -56,43 +55,45 @@ pub(crate) enum Fault {
     NotOneObject,
     /// Its bytes are not UTF-8, so it was never decoded, nor repaired.
     NotUtf8,
-    /// It holds text that no reader consumes and that is not one of the
-    /// forms the probe recognises whole.
+    /// It is one JSON object, but not an event of this harness's reader:
+    /// its type, a key or a value's JSON type is not one the reader names.
+    Undecoded(Harness),
+    /// It holds text, or an event holds a string, that is not one of the
+    /// forms the harness's reader recognises whole.
     Unrecognised,
 }
 
 impl fmt::Display for Fault {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Fault::NotOneObject => "is not one JSON object naming each key once",
-            Fault::NotUtf8 => "is not UTF-8",
-            Fault::Unrecognised => {
-                "holds text no reader consumes in a form the probe does not recognise whole"
+        match self {
+            Fault::NotOneObject => {
+                formatter.write_str("is not one JSON object naming each key once")
             }
-        })
+            Fault::NotUtf8 => formatter.write_str("is not UTF-8"),
+            Fault::Undecoded(harness) => write!(
+                formatter,
+                "is not a {harness} event the probe decodes whole: its type, a key or a value's \
+                 type is not one the reader names"
+            ),
+            Fault::Unrecognised => formatter.write_str(
+                "holds text no reader consumes in a form the probe does not recognise whole",
+            ),
+        }
     }
 }
 
-/// How a stream's lines are read (#484), closed-world: every line is an
-/// event whose every string a reader consumes or `text::said` recognises
-/// whole, or a line of text `text::said` recognises whole. Stdout and a
-/// transcript are event streams, where a line that is not one JSON object
-/// is unread. Stderr is text, read line by line, since a CLI prints its
-/// ordinary warnings there:
+/// How a stream's lines are read (#484), closed-world, by the harness's
+/// typed reader: an event stream, stdout and a transcript, holds one
+/// event per line, and a line that is not one JSON object is unread.
+/// Text, stderr and dsh's stdout, is read line by line, since a CLI
+/// prints its ordinary warnings there:
 ///
 /// - (i) a line that is not UTF-8 is unread, named by stream and line,
 ///   and refuses any admitting verdict;
-/// - (ii) a line that is one JSON object is read as an event, like a
-///   line of stdout, and each string it holds that no listing reader
-///   consumes and no tag key names is read by `text::said`, so wrapping
-///   text in JSON changes nothing;
-/// - (iii) any other line is text read by `text::said`, its words
-///   normalised: one naming the planted server, a tool
-///   `mcp__<server>__…` or an `MCP server <name>` of a server other than
-///   the hands server is a reach;
-/// - (iv) any other line, or string, that is not blank, one of the forms
-///   `text::said` reads whole, the probe's prompt or its reply, is unread
-///   like a line of (i).
+/// - (ii) a line that is one JSON object is decoded as an event, like a
+///   line of stdout, so wrapping text in JSON changes nothing;
+/// - (iii) any other line is unread unless it is blank, the reply the
+///   probe asks for, or one of the forms the reader recognises whole.
 #[derive(Clone, Copy, PartialEq)]
 enum Lines {
     Events,
@@ -100,14 +101,12 @@ enum Lines {
 }
 
 /// One stream a turn produced, stdout, a transcript or stderr: how its
-/// lines are read, its events, where they were read from, each reach a
-/// line of its text showed, each line no reader read and why, and whether
-/// it held no bytes at all.
+/// lines are read, its events, where they were read from, each line no
+/// reader read and why, and whether it held no bytes at all.
 struct Stream {
     source: String,
     lines: Lines,
     events: Vec<Event>,
-    reaches: Vec<(usize, String)>,
     unread: Vec<(usize, Fault)>,
     empty: bool,
 }
@@ -121,41 +120,28 @@ pub(crate) enum TurnName {
     Off,
 }
 
-/// Something a turn captured that no reader read, which leaves the
-/// probe's evidence incomplete (#484): a line of one of its streams, or a
-/// value one of its listings holds.
+/// A line of one of a turn's streams that no reader read, which leaves
+/// the probe's evidence incomplete (#484).
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Unread {
-    Line {
-        turn: TurnName,
-        source: String,
-        line: usize,
-        fault: Fault,
-    },
-    /// `what` names the value by its stream, event and pointer.
-    Value { turn: TurnName, what: String },
+pub(crate) struct Unread {
+    pub(crate) turn: TurnName,
+    pub(crate) source: String,
+    pub(crate) line: usize,
+    pub(crate) fault: Fault,
 }
 
 impl fmt::Display for Unread {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let named = |turn: &TurnName| match turn {
+        let turn = match self.turn {
             TurnName::Plain => "the plain turn",
             TurnName::Boxed => "the boxed turn",
             TurnName::Off => "the OFF turn",
         };
-        match self {
-            Unread::Line {
-                turn,
-                source,
-                line,
-                fault,
-            } => write!(
-                formatter,
-                "line {line} of {}'s {source} {fault}",
-                named(turn)
-            ),
-            Unread::Value { turn, what } => write!(formatter, "in {}, {what}", named(turn)),
-        }
+        write!(
+            formatter,
+            "line {} of {turn}'s {} {}",
+            self.line, self.source, self.fault
+        )
     }
 }
 
@@ -265,13 +251,20 @@ pub(crate) fn version(observation: &Observation) -> Fact<String> {
     }
 }
 
+/// How a stream is read: by which harness's reader, its lines as
+/// events or as text.
+#[derive(Clone, Copy)]
+struct Reader {
+    harness: Harness,
+    lines: Lines,
+}
+
 /// `captured` read as the stream `source`, its first line being line
-/// `first` of what it came from: a line that did not decode is unread,
-/// and never parsed, one that is no event is unread or text, as `lines`
-/// says, and an event's strings and a line of text are read by `text`.
-fn parse_lines(captured: &Captured, source: &str, first: usize, lines: Lines) -> Stream {
+/// `first` of what it came from: a line that is not UTF-8 is unread, and
+/// never parsed; one that is one JSON object is decoded as an event; and
+/// any other is unread, or read as text, as `reader` says.
+fn parse_lines(captured: &Captured, source: &str, first: usize, reader: Reader) -> Stream {
     let mut events = Vec::new();
-    let mut reaches = Vec::new();
     let mut unread: Vec<(usize, Fault)> = captured
         .not_utf8
         .iter()
@@ -282,33 +275,29 @@ fn parse_lines(captured: &Captured, source: &str, first: usize, lines: Lines) ->
             continue;
         }
         let at = first + index;
-        let (reach, unrecognised) = match (strict::object(line), lines) {
-            (Some(fields), _) => {
-                let heard = text::heard(&fields);
-                events.push(Event { line: at, fields });
-                heard
-            }
-            (None, Lines::Events) => {
-                unread.push((at, Fault::NotOneObject));
-                continue;
-            }
-            (None, Lines::Text) => match text::said(line) {
-                text::Said::Reach(reach) => (Some(reach), false),
-                text::Said::Unread => (None, true),
-                text::Said::Nothing => (None, false),
+        let fault = match (strict::object(line), reader.lines) {
+            (Some(fields), _) => match reader.harness.event(fields) {
+                Ok(decoded) => {
+                    events.push(Event {
+                        line: at,
+                        label: decoded.label,
+                        said: decoded.said,
+                    });
+                    continue;
+                }
+                Err(fault) => fault,
             },
+            (None, Lines::Events) => Fault::NotOneObject,
+            (None, Lines::Text) if reader.harness.text(line).is_some() => continue,
+            (None, Lines::Text) => Fault::Unrecognised,
         };
-        reaches.extend(reach.map(|reach| (at, reach)));
-        if unrecognised {
-            unread.push((at, Fault::Unrecognised));
-        }
+        unread.push((at, fault));
     }
     unread.sort_unstable_by_key(|(line, _)| *line);
     Stream {
         source: source.to_string(),
-        lines,
+        lines: reader.lines,
         events,
-        reaches,
         unread,
         empty: captured.text.is_empty() && captured.not_utf8.is_empty(),
     }
@@ -316,31 +305,42 @@ fn parse_lines(captured: &Captured, source: &str, first: usize, lines: Lines) ->
 
 /// What a launch wrote to a transcript, as a stream: lines it appended
 /// keep their numbers in the file, and a file it rewrote is named so.
-fn transcript_stream(transcript: &Transcript) -> Stream {
+fn transcript_stream(transcript: &Transcript, harness: Harness) -> Stream {
     let (source, first) = match transcript.written {
         Written::Created => (transcript.path.clone(), 1),
         Written::Appended { from_line } => (transcript.path.clone(), from_line),
         Written::Rewritten => (format!("{}, which the turn rewrote,", transcript.path), 1),
     };
-    parse_lines(&transcript.text, &source, first, Lines::Events)
+    let reader = Reader {
+        harness,
+        lines: Lines::Events,
+    };
+    parse_lines(&transcript.text, &source, first, reader)
 }
 
-/// Every stream a launch captured, read whatever its exit (#484):
-/// stdout's and each transcript's, each named with this run's variable
-/// parts, then stderr's when it holds any byte. With them, the one the
-/// turn's own events are read from: stdout, or, when stdout carried none,
-/// the first transcript that holds some. Stderr is never that one.
-fn captured(observation: &Observation) -> (Vec<Stream>, Option<usize>) {
-    let stdout = parse_lines(&observation.stdout, "stdout", 1, Lines::Events);
+/// Every stream a launch captured, read whatever its exit by `harness`'s
+/// reader (#484): stdout's and each transcript's, each named with this
+/// run's variable parts, then stderr's when it holds any byte. With them,
+/// the one the turn's own events are read from: stdout, or, when stdout
+/// carried none, the first transcript that holds some. Stderr is never
+/// that one.
+fn captured(observation: &Observation, harness: Harness) -> (Vec<Stream>, Option<usize>) {
+    let reader = |lines| Reader { harness, lines };
+    let stdout = parse_lines(&observation.stdout, "stdout", 1, reader(harness.stdout()));
     let mut all: Vec<Stream> = std::iter::once(stdout)
-        .chain(observation.transcripts.iter().map(transcript_stream))
+        .chain(
+            observation
+                .transcripts
+                .iter()
+                .map(|transcript| transcript_stream(transcript, harness)),
+        )
         .collect();
     let primary = all.iter().position(|stream| !stream.events.is_empty());
     let id = primary.and_then(|primary| session_id(&all[primary]).map(|(_, _, id)| id));
     for stream in &mut all {
         stream.source = normalise(&stream.source, id.as_deref());
     }
-    let stderr = parse_lines(&observation.stderr, "stderr", 1, Lines::Text);
+    let stderr = parse_lines(&observation.stderr, "stderr", 1, reader(Lines::Text));
     if !stderr.empty {
         all.push(stderr);
     }
@@ -362,8 +362,8 @@ fn read_stream((all, primary): (Vec<Stream>, Option<usize>)) -> Turn {
 
 /// The plain turn: read when it exited clean, otherwise nothing it shows
 /// is a measurement, though every line it captured is still read.
-fn read_base(observation: &Observation) -> Turn {
-    let streams = captured(observation);
+fn read_base(observation: &Observation, harness: Harness) -> Turn {
+    let streams = captured(observation, harness);
     if observation.exit == Some(0) {
         read_stream(streams)
     } else {
@@ -393,25 +393,24 @@ const OFF: Under = Under {
 };
 
 /// The turn under `controls`, an argv the adapter declares: a non-zero
-/// exit one of whose lines is itself the refusal of one of their flags
-/// or keys, by `refusals::refuses_a_control`, is the CLI refusing them,
-/// which is itself the measurement; any other non-zero exit, like a
+/// exit one of whose lines is the CLI's refusal of one of their flags or
+/// keys, a form `harness`'s reader recognises as one, is the CLI refusing
+/// them, which is itself the measurement; any other non-zero exit, like a
 /// launch that ended with no exit code, by a signal or the deadline,
 /// refused nothing the probe can name (#484). However it ended, every
 /// line it captured is read.
-fn read_under(trial: &Trial, under: Under, controls: &[String]) -> Turn {
+fn read_under(trial: &Trial, under: Under, controls: &[String], harness: Harness) -> Turn {
     let observation = match trial {
         Trial::Untried(why) => return Turn::Unread(why.clone(), Vec::new()),
         Trial::Observed(observation) => observation,
     };
-    let streams = captured(observation);
+    let streams = captured(observation, harness);
     let ended = exit_and_excerpt(observation);
     let how = match observation.exit {
         Some(0) => return read_stream(streams),
         None => "did not finish".to_string(),
-        Some(_) if !refusals::refuses_a_control(observation, controls) => format!(
-            "failed, and no line it printed refuses a flag or key of {} in a refusal's words \
-             and no other class's",
+        Some(_) if !refusals::refuses_a_control(observation, controls, harness) => format!(
+            "failed, and no line it printed is the CLI's refusal of a flag or key of {}",
             under.argv
         ),
         Some(_) => {
@@ -422,76 +421,17 @@ fn read_under(trial: &Trial, under: Under, controls: &[String]) -> Turn {
     Turn::Unread(format!("{} {how}: {ended}", under.turn), streams.0)
 }
 
-/// Everything `turn` captured that no reader read: each such line of
-/// each of its streams, and each value its listings hold that the
-/// listing reader could not name.
+/// Every line of each of `turn`'s streams that no reader read.
 fn unread_in(turn: &Turn, name: TurnName) -> Vec<Unread> {
     let lines = turn.streams().iter().flat_map(|stream| {
-        stream.unread.iter().map(|(line, fault)| Unread::Line {
+        stream.unread.iter().map(|(line, fault)| Unread {
             turn: name,
             source: stream.source.clone(),
             line: *line,
             fault: *fault,
         })
     });
-    let values = tools::unread_values(turn)
-        .into_iter()
-        .map(|what| Unread::Value { turn: name, what });
-    lines.chain(values).collect()
-}
-
-fn event_type(event: &Map<String, Value>) -> String {
-    let kind = event
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or("(untyped)");
-    match event.get("subtype").and_then(Value::as_str) {
-        Some(subtype) => format!("{kind}/{subtype}"),
-        None => kind.to_string(),
-    }
-}
-
-/// One key found anywhere in an event: its JSON pointer, its value, and
-/// the object that holds it.
-struct Found<'a> {
-    pointer: String,
-    key: &'a str,
-    value: &'a Value,
-    parent: &'a Map<String, Value>,
-}
-
-/// Every key in `object` and in the objects and arrays beneath it, depth
-/// first.
-fn walk<'a>(object: &'a Map<String, Value>, pointer: &str, found: &mut Vec<Found<'a>>) {
-    for (key, value) in object {
-        let here = format!("{pointer}/{key}");
-        beneath(value, &here, found);
-        found.push(Found {
-            pointer: here,
-            key,
-            value,
-            parent: object,
-        });
-    }
-}
-
-/// Every key inside `value`, an array's entries included.
-fn beneath<'a>(value: &'a Value, pointer: &str, found: &mut Vec<Found<'a>>) {
-    match value {
-        Value::Object(inner) => walk(inner, pointer, found),
-        Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                beneath(item, &format!("{pointer}/{index}"), found);
-            }
-        }
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-    }
-}
-
-fn found_in(event: &Map<String, Value>) -> Vec<Found<'_>> {
-    let mut found = Vec::new();
-    walk(event, "", &mut found);
-    found
+    lines.collect()
 }
 
 fn push_unique(list: &mut Vec<String>, item: String) {
@@ -500,10 +440,22 @@ fn push_unique(list: &mut Vec<String>, item: String) {
     }
 }
 
+/// Each thing `stream`'s events said that `pick` takes, beside the event
+/// that said it.
+fn each_said<'a, T: 'a>(
+    stream: &'a Stream,
+    pick: fn(&'a Said) -> Option<T>,
+) -> impl Iterator<Item = (&'a Event, T)> + 'a {
+    stream.events.iter().flat_map(move |event| {
+        let picked = event.said.iter().filter_map(pick);
+        picked.map(move |item| (event, item))
+    })
+}
+
 fn events(stream: &Stream) -> Fact<Events> {
     let mut types = Vec::new();
     for event in &stream.events {
-        push_unique(&mut types, event_type(&event.fields));
+        push_unique(&mut types, event.label.clone());
     }
     let evidence = format!("{} events read from {}", stream.events.len(), stream.source);
     Fact::measured(
@@ -519,12 +471,14 @@ fn events(stream: &Stream) -> Fact<Events> {
 
 /// The first event naming a session, the key it used, and the id.
 fn session_id(stream: &Stream) -> Option<(String, &'static str, String)> {
-    stream.events.iter().find_map(|event| {
-        SESSION_KEYS.iter().find_map(|key| {
-            let id = event.fields.get(*key)?.as_str()?;
-            Some((event_type(&event.fields), *key, id.to_string()))
-        })
-    })
+    let mut sessions = each_said(stream, |said| {
+        let Said::Session { key, id } = said else {
+            return None;
+        };
+        Some((*key, id))
+    });
+    let (event, (key, id)) = sessions.next()?;
+    Some((event.label.clone(), key, id.clone()))
 }
 
 fn session(announced: Option<&(String, &'static str, String)>) -> Fact<Session> {
@@ -536,7 +490,7 @@ fn session(announced: Option<&(String, &'static str, String)>) -> Fact<Session> 
             },
             format!("the {event} event announced {key} {id}"),
         ),
-        None => Fact::unmeasured("no event named a session_id or thread_id"),
+        None => Fact::unmeasured("no event of the turn named its session"),
     }
 }
 
@@ -545,24 +499,22 @@ fn session(announced: Option<&(String, &'static str, String)>) -> Fact<Session> 
 fn usage(stream: &Stream) -> Fact<Usage> {
     let mut locations = Vec::new();
     let mut counters = BTreeSet::new();
-    let mut messages: BTreeMap<&str, Vec<&Map<String, Value>>> = BTreeMap::new();
+    let mut messages: BTreeMap<&str, Vec<&Counted>> = BTreeMap::new();
     let mut unnamed = Vec::new();
-    for event in stream.events.iter().map(|event| &event.fields) {
-        for found in found_in(event)
-            .into_iter()
-            .filter(|found| found.key == "usage")
-        {
-            let Value::Object(counts) = found.value else {
-                continue;
-            };
-            let location = format!("{} {}", event_type(event), found.pointer);
-            counters.extend(counts.keys().cloned());
-            match found.parent.get("id").and_then(Value::as_str) {
-                Some(id) => messages.entry(id).or_default().push(counts),
-                None => push_unique(&mut unnamed, location.clone()),
-            }
-            push_unique(&mut locations, location);
+    let counted = each_said(stream, |said| {
+        let Said::Usage(counted) = said else {
+            return None;
+        };
+        Some(counted)
+    });
+    for (event, counted) in counted {
+        let location = format!("{} {}", event.label, counted.at);
+        counters.extend(counted.counts.iter().map(|(name, _)| name.to_string()));
+        match &counted.message {
+            Some(id) => messages.entry(id).or_default().push(counted),
+            None => push_unique(&mut unnamed, location.clone()),
         }
+        push_unique(&mut locations, location);
     }
     if locations.is_empty() {
         return Fact::unmeasured("no event of the turn carried a usage object");
@@ -582,18 +534,18 @@ fn usage(stream: &Stream) -> Fact<Usage> {
 /// same usage on several events. A message seen on one event, or usage
 /// that names no message, reads the same under either counting, so
 /// anything else is unmeasured, and the unnamed usage is listed.
-fn counting(
-    messages: &BTreeMap<&str, Vec<&Map<String, Value>>>,
-    unnamed: &[String],
-) -> Fact<Counting> {
+fn counting(messages: &BTreeMap<&str, Vec<&Counted>>, unnamed: &[String]) -> Fact<Counting> {
     let outside = if unnamed.is_empty() {
         String::new()
     } else {
         format!("; the usage at {} named no message", unnamed.join(", "))
     };
-    let repeated = messages
-        .iter()
-        .find(|(_, usages)| usages.len() > 1 && usages.windows(2).all(|pair| pair[0] == pair[1]));
+    let repeated = messages.iter().find(|(_, usages)| {
+        usages.len() > 1
+            && usages
+                .windows(2)
+                .all(|pair| pair[0].counts == pair[1].counts)
+    });
     match repeated {
         Some((id, usages)) => Fact::measured(
             Counting::RepeatedPerMessage,
@@ -611,18 +563,17 @@ fn counting(
 
 fn cost(stream: &Stream) -> Fact<Vec<String>> {
     let mut locations = Vec::new();
-    for event in stream.events.iter().map(|event| &event.fields) {
-        for found in found_in(event) {
-            if COST_KEYS.contains(&found.key) && found.value.is_number() {
-                push_unique(
-                    &mut locations,
-                    format!("{} {}", event_type(event), found.pointer),
-                );
-            }
-        }
+    let costs = each_said(stream, |said| {
+        let Said::Cost { at } = said else {
+            return None;
+        };
+        Some(*at)
+    });
+    for (event, at) in costs {
+        push_unique(&mut locations, format!("{} {at}", event.label));
     }
     if locations.is_empty() {
-        return Fact::unmeasured("no event carried total_cost_usd or cost_usd");
+        return Fact::unmeasured("no event of the turn reported a cost");
     }
     let evidence = format!("the turn reported its cost at {}", locations.join(", "));
     Fact::measured(locations, evidence)
@@ -697,9 +648,9 @@ fn stream_facts(
 /// Every fact, from every observation, and everything the three turns
 /// captured that no reader read.
 pub(crate) fn reading(plan: &Plan, observed: &Observed, bound: &[&str]) -> Reading {
-    let base = read_base(&observed.turn);
-    let boxed = read_under(&observed.boxed, HANDS, &plan.hands);
-    let off = read_under(&observed.native_off, OFF, &plan.off);
+    let base = read_base(&observed.turn, plan.reader);
+    let boxed = read_under(&observed.boxed, HANDS, &plan.hands, plan.reader);
+    let off = read_under(&observed.native_off, OFF, &plan.off, plan.reader);
     let mut unread = unread_in(&base, TurnName::Plain);
     unread.extend(unread_in(&boxed, TurnName::Boxed));
     unread.extend(unread_in(&off, TurnName::Off));
@@ -750,8 +701,8 @@ fn facts(
         usage: on_turn(base, |streams| usage(streams.primary())),
         cost: on_turn(base, |streams| cost(streams.primary())),
         refusals: Refusals {
-            auth: refusals::auth_refusal(&observed.no_credentials),
-            config: refusals::config_refusal(&observed.bad_model),
+            auth: refusals::auth_refusal(&observed.no_credentials, plan.reader),
+            config: refusals::config_refusal(&observed.bad_model, plan.reader),
             rate_limit: Fact::unmeasured(
                 "not provoked: a rate limit spends quota and risks the account",
             ),
@@ -775,3 +726,6 @@ fn facts(
         ),
     }
 }
+
+#[cfg(test)]
+mod tests;
