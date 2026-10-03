@@ -183,6 +183,13 @@ enum Cmd {
     /// Record an operator command (retry | stop | supersede) as journal
     /// events.
     Operator(OperatorArgs),
+    /// The dispatcher's queue (decision 0068): runs waiting to start, in
+    /// the journal's own database. Add, list, move, hold, release and
+    /// drop entries; each change is journaled with its reason.
+    Queue {
+        #[command(subcommand)]
+        command: QueueCmd,
+    },
     /// Explain a run: header, ruling, seats, decision trail, and the
     /// phase graph as a tree. `--phase` and `--seat` are the scoping
     /// verbs the console's clicks became; `--json` emits the view model.
@@ -1862,7 +1869,7 @@ fn run_with(
     watch_iteration_limit: Option<usize>,
     run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<tui::Closed>,
 ) -> Result<ExitCode> {
-    use verbs::{delivery, exchange, readouts, setup};
+    use verbs::{delivery, exchange, queue, readouts, setup};
     match cli.command {
         Cmd::Init(args) => setup::init(workspace, args),
         Cmd::Costs(args) => readouts::costs(workspace, args),
@@ -1878,6 +1885,7 @@ fn run_with(
         Cmd::Rerun(args) => delivery::rerun(workspace, args),
         Cmd::Conclude(args) => delivery::conclude(workspace, args),
         Cmd::Operator(args) => delivery::operator(workspace, args),
+        Cmd::Queue { command } => queue::queue(workspace, command),
         Cmd::Inspect(args) => readouts::inspect(workspace, args),
         Cmd::Transcript(TranscriptArgs {
             run,

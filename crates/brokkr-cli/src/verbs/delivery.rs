@@ -13,7 +13,9 @@ use brokkr_runtime::realms::World;
 use brokkr_runtime::{conclude as conclude_run, operator_command};
 use brokkr_runtime::{Engine, FencedCommandOutcome};
 
-use crate::cli_args::{ConcludeArgs, DeliveryArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs};
+use crate::cli_args::{
+    ConcludeArgs, DeliveryArgs, LaunchArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs,
+};
 use crate::run_view::{self, Viewer};
 use crate::Invocation;
 use crate::{drive_to_end, finish, open_journal, recipes, selector, supersede, Access, Exit};
@@ -21,6 +23,16 @@ use crate::{drive_to_end, finish, open_journal, recipes, selector, supersede, Ac
 /// `brokkr run`: start a new run and drive it until it parks or finishes,
 /// beside its run view on a terminal (#508).
 pub(crate) fn run(workspace: &Path, args: RunArgs, viewer: &Viewer) -> Result<ExitCode> {
+    let (request, new) = new_run(workspace, args.launch)?;
+    let journal = request.journal.clone();
+    let mut engine = launch::start(request, new, &mut |note| eprintln!("{note}"))?;
+    eprintln!("run started: {}", engine.run_id);
+    run_view::drive(&mut engine, &journal, args.no_view, viewer)
+}
+
+/// The launch `brokkr run`'s arguments ask for; `brokkr queue add` queues
+/// the same one.
+pub(super) fn new_run(workspace: &Path, args: LaunchArgs) -> Result<(LaunchRequest, NewRun)> {
     // The map is read BEFORE anything is compiled, opened or spawned: a
     // named map that is missing or malformed ends the invocation here.
     let Invocation {
@@ -29,15 +41,18 @@ pub(crate) fn run(workspace: &Path, args: RunArgs, viewer: &Viewer) -> Result<Ex
         journal,
         ..
     } = Invocation::resolve(workspace, args.realms, args.db)?.announce();
-    let request = request(workspace, args.delivery, journal.clone(), args.repo);
+    let request = request(workspace, args.delivery, journal, args.repo);
     let new = NewRun {
         feature: args.feature,
         map: run_map(world, named),
         dispatch: args.dispatch,
     };
-    let mut engine = launch::start(request, new, &mut |note| eprintln!("{note}"))?;
-    eprintln!("run started: {}", engine.run_id);
-    run_view::drive(&mut engine, &journal, args.no_view, viewer)
+    Ok((request, new))
+}
+
+/// Who an operator command is recorded as issued by.
+pub(super) fn operator_name() -> String {
+    std::env::var("USER").unwrap_or("operator".into())
 }
 
 /// The map an invocation read, as the launch weighs it: a map `--realms`
@@ -116,8 +131,7 @@ pub(crate) fn conclude(
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
     let run = selector::resolve_run(&store, &run)?;
-    let operator = std::env::var("USER").unwrap_or("operator".into());
-    let state = conclude_run(&mut store, &run, &operator, &reason)?;
+    let state = conclude_run(&mut store, &run, &operator_name(), &reason)?;
     Ok(finish(&state))
 }
 
@@ -169,7 +183,7 @@ pub(crate) fn operator(
     // outranks it.
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
     let run = selector::resolve_run(&store, &run)?;
-    let operator = std::env::var("USER").unwrap_or("operator".into());
+    let operator = operator_name();
     // The command is fenced against a concurrently-driving
     // engine, so it can come back refused. Saying "recorded"
     // there would tell the operator the opposite of what the

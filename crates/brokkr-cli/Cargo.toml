@@ -54,6 +54,10 @@ brokkr-protocol = { workspace = true }
 brokkr-runtime = { workspace = true }
 brokkr-view = { workspace = true }
 serde_json = { workspace = true }
+# `queue list --json` serializes its typed row (decision 0071 ruling 3),
+# and the layering test parses `cargo metadata` into types; serde is
+# already in the graph through serde_json.
+serde = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 tempfile = { workspace = true }
@@ -74,9 +78,6 @@ rustix = { version = "1.1.4", default-features = false, features = ["fs", "proce
 [dev-dependencies]
 brokkr-store = { workspace = true, features = ["test-support"] }
 rusqlite = { workspace = true }
-# The layering test parses `cargo metadata` into types (decision 0071
-# ruling 3); serde is already in the graph through serde_json.
-serde = { workspace = true }
 # The packaging test verifies an APT `Release` file's own digests
 # against the files it indexes — the same hash the engine already
 # depends on, no new crate in the graph.
