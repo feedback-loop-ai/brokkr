@@ -711,7 +711,7 @@ impl Adapters {
         let mut sources: BTreeMap<String, String> = BTreeMap::new();
         let mut files = Vec::new();
         for (name, path) in definition_files(&root, "adapters")? {
-            let adapter = parse_adapter(&name, &path)?;
+            let adapter = models::pinless(parse_adapter(&name, &path)?, &path)?;
             files.push(path.display().to_string());
             for model in adapter.models.keys() {
                 if let Some(other) = by_model.get(model) {
@@ -766,7 +766,7 @@ impl Adapters {
 
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
-    let what = format!("adapter '{name}' ({})", path.display());
+    let what = models::described(name, path);
     if !valid_name(name) {
         return invalid(format!("{what}: the file name must match {NAME_GRAMMAR}"));
     }

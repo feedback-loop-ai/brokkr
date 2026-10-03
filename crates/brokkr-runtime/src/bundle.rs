@@ -848,7 +848,7 @@ enum ModelPin {
 /// exactly the two spellings `FLAG VALUE` and `FLAG=VALUE`, and a longer
 /// word beginning with it is a different flag of the same family rather
 /// than an illegible spelling of this one.
-fn short_flag(flag: &str) -> bool {
+pub(crate) fn short_flag(flag: &str) -> bool {
     let mut characters = flag.chars();
     characters.next() == Some('-')
         && matches!(characters.next(), Some(c) if c != '-')

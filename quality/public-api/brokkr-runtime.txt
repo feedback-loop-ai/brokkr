@@ -366,6 +366,11 @@ pub brokkr_runtime::bundle::ProvisionalRefusal::Gate::adapter: alloc::string::St
 pub brokkr_runtime::bundle::ProvisionalRefusal::Gate::link: usize
 pub brokkr_runtime::bundle::ProvisionalRefusal::Gate::model: alloc::string::String
 pub brokkr_runtime::bundle::ProvisionalRefusal::Gate::seat: alloc::string::String
+pub brokkr_runtime::bundle::ProvisionalRefusal::Undeclared
+pub brokkr_runtime::bundle::ProvisionalRefusal::Undeclared::adapter: alloc::string::String
+pub brokkr_runtime::bundle::ProvisionalRefusal::Undeclared::flags: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::bundle::ProvisionalRefusal::Undeclared::seat: alloc::string::String
+pub brokkr_runtime::bundle::ProvisionalRefusal::Undeclared::value: alloc::string::String
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unlisted
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unlisted::adapter: alloc::string::String
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unlisted::link: usize

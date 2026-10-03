@@ -26,7 +26,7 @@ use thiserror::Error;
 
 use super::{
     command_parts, dispatch_driver, inline_route_pin, parse_class, route_pin, AgentContext,
-    Boundary, CompileError, ModelPin, SeatClass,
+    Boundary, CompileError, ModelPin, SeatClass, MODEL_FLAG,
 };
 use crate::agents::{Adapter, Adapters, Candidate, EgressClass};
 use crate::realms::World;
@@ -114,6 +114,19 @@ pub enum ProvisionalRefusal {
          decision 0075 ruling 5)"
     )]
     Unpinned { seat: String, adapter: String },
+    #[error(
+        "seat '{seat}' pins '{value}' on {}, which is the id of no model adapter '{adapter}' \
+         declares, and the adapter declares a provisional model; an alias or an undeclared id \
+         may reach that model, so a pin the tier cannot map to a declared id is refused, never \
+         read as promoted (proposed decision 0075 ruling 5)",
+        flags_named(.flags)
+    )]
+    Undeclared {
+        seat: String,
+        adapter: String,
+        flags: Vec<String>,
+        value: String,
+    },
 }
 
 fn office_named(office: Option<&str>) -> String {
@@ -244,7 +257,10 @@ const FALLBACK_FLAG: &str = "--fallback-model";
 /// fails closed on what it cannot read. No primary pin at all leaves the
 /// model to the harness's own default, which may be the provisional one,
 /// so it is refused the same way: the tier does not lean on another rule
-/// to demand a pin. No fallback pin is no second link.
+/// to demand a pin. No fallback pin is no second link. A pin that is the
+/// id of no model the adapter declares, an alias the harness resolves
+/// itself or an id the file never names, may be the provisional model
+/// too, so it is refused naming the flags its link is read on.
 fn inline_link<'a>(
     what: &str,
     raw: &Value,
@@ -276,11 +292,27 @@ fn inline_link<'a>(
         ModelPin::Unreadable(flags) => return Err(unreadable(flags)),
         ModelPin::Absent => None,
     };
-    Ok([Some(primary), fallback]
-        .into_iter()
-        .flatten()
-        .enumerate()
-        .filter_map(|(index, concrete)| {
+    let primary_flags = adapter
+        .model_flag
+        .iter()
+        .map(String::as_str)
+        .filter(|flag| *flag != MODEL_FLAG)
+        .chain([MODEL_FLAG]);
+    let pins = [
+        Some((primary_flags.map(str::to_string).collect(), primary)),
+        fallback.map(|concrete| (vec![FALLBACK_FLAG.to_string()], concrete)),
+    ];
+    let mut links = Vec::new();
+    for (index, (flags, concrete)) in pins.into_iter().flatten().enumerate() {
+        if !adapter.models.values().any(|id| *id == concrete) {
+            return Err(ProvisionalRefusal::Undeclared {
+                seat: what.to_string(),
+                adapter: adapter.provider.clone(),
+                flags,
+                value: concrete,
+            });
+        }
+        links.extend(
             adapter
                 .provisional
                 .iter()
@@ -290,9 +322,10 @@ fn inline_link<'a>(
                     office: None,
                     adapter,
                     model,
-                })
-        })
-        .collect())
+                }),
+        );
+    }
+    Ok(links)
 }
 
 #[cfg(test)]

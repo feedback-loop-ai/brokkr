@@ -378,6 +378,154 @@ fn an_inline_fallback_model_is_judged_as_a_second_link() {
     assert_eq!(workspace.compile(steady, &[]).unwrap().name, "tier");
 }
 
+/// An inline pin that is the id of no model the adapter declares, the
+/// alias `fresh` a harness may resolve itself or an id the file never
+/// names, may reach the provisional model, so it is refused naming the
+/// flags its link is read on, on link 1 and link 2 alike. Promoted, the
+/// same pin is not the tier's.
+#[test]
+fn an_inline_pin_on_no_declared_id_is_refused_where_the_adapter_declares_a_provisional_model() {
+    let workspace = Workspace::new();
+    let refusal = workspace.refusal(inline("work", "fresh"), &[]);
+    assert_eq!(
+        refusal,
+        ProvisionalRefusal::Undeclared {
+            seat: "work".into(),
+            adapter: "newcomer".into(),
+            flags: vec!["--model".into()],
+            value: "fresh".into(),
+        }
+    );
+    assert_eq!(
+        refusal.to_string(),
+        "seat 'work' pins 'fresh' on '--model', which is the id of no model adapter 'newcomer' \
+         declares, and the adapter declares a provisional model; an alias or an undeclared id \
+         may reach that model, so a pin the tier cannot map to a declared id is refused, never \
+         read as promoted (proposed decision 0075 ruling 5)"
+    );
+    assert_eq!(workspace.refusal(inline("gate", "fresh"), &[]), refusal);
+    let mut falling = inline("work", "steady-1");
+    let command = falling["driver"]["command"].as_array_mut().unwrap();
+    command.extend([json!("--fallback-model"), json!("other-9")]);
+    assert_eq!(
+        workspace.refusal(falling.clone(), &[]),
+        ProvisionalRefusal::Undeclared {
+            seat: "work".into(),
+            adapter: "newcomer".into(),
+            flags: vec!["--fallback-model".into()],
+            value: "other-9".into(),
+        }
+    );
+
+    workspace.adapter(json!("fresh-1"));
+    assert_eq!(workspace.compile(falling, &[]).unwrap().name, "tier");
+}
+
+/// A model pin is the engine's to compose, where the tier judges it, so an
+/// adapter whose own argv names a model flag is refused at load: in each
+/// hands fragment, in either spelling, and a short `model_flag` with its
+/// value attached. A longer flag of the same family is not a pin.
+#[test]
+fn an_adapter_fragment_that_names_a_model_flag_is_refused_at_load() {
+    let workspace = Workspace::new();
+    let file = adapter_file(&workspace);
+    let path = workspace.path("adapters/newcomer.json");
+    let declared: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let load = |edits: Value| {
+        let mut adapter = declared.clone();
+        adapter
+            .as_object_mut()
+            .unwrap()
+            .extend(edits.as_object().unwrap().clone());
+        std::fs::write(&path, adapter.to_string()).unwrap();
+        Adapters::load(&workspace.path("adapters")).map(drop)
+    };
+    let tail = |words: &[&str]| {
+        let mut driver = declared["driver"].clone();
+        let command = driver.as_array_mut().unwrap();
+        command.extend(words.iter().map(|word| json!(word)));
+        driver
+    };
+    let harness = |member: &str, words: &[&str]| json!({"hands": {"workspace": [], "harness": {member: words}}});
+    for (edits, at, flag) in [
+        (
+            json!({"hands": {"workspace": ["--model=fresh-1"]}}),
+            "hands.workspace",
+            "--model",
+        ),
+        (
+            harness("gate", &["--model", "x"]),
+            "hands.harness.gate",
+            "--model",
+        ),
+        (
+            harness("work", &["--fallback-model", "fresh-1"]),
+            "hands.harness.work",
+            "--fallback-model",
+        ),
+        (
+            json!({"driver": tail(&["--fallback-model=fresh-1"])}),
+            "driver",
+            "--fallback-model",
+        ),
+        (
+            json!({"model_flag": "-m", "driver": tail(&["-mfresh-1"])}),
+            "driver",
+            "-m",
+        ),
+    ] {
+        match load(edits) {
+            Err(LibraryError::Invalid(message)) => assert_eq!(
+                message,
+                format!(
+                    "{file} '{at}' names the model flag '{flag}'; a model pin is the engine's to \
+                     compose from a seat's chain, where the provisional tier judges it, and one \
+                     an adapter carries would seat a model no tier check reads (proposed \
+                     decision 0075 ruling 5)"
+                )
+            ),
+            other => panic!("expected '{at}' refused, got {other:?}"),
+        }
+    }
+    load(json!({"model_flag": "-m"})).unwrap();
+    load(json!({"driver": tail(&["--model-x", "fresh-1"])})).unwrap();
+}
+
+/// The same refusal on the shipped tree: a driver tail opens an inline
+/// template's command, as `recipes/fast`'s review gate composes it from
+/// claude's tools.allow lowering, and every agent candidate's command, as
+/// `recipes/panel-review`'s positions hire claude. A copy of the shipped
+/// adapters with claude's tail carrying `--fallback-model` refuses both.
+#[test]
+fn a_shipped_recipe_is_refused_once_its_adapter_tail_names_a_model() {
+    let root = shipped();
+    let copy = shipped_adapters_with(|adapter| {
+        if adapter["provider"] == "claude" {
+            let driver = adapter["driver"].as_array_mut().unwrap();
+            driver.extend([json!("--fallback-model"), json!("claude-opus-5-5")]);
+        }
+    });
+    let claude = copy.path().canonicalize().unwrap().join("claude.json");
+    let refusal = format!(
+        "adapter 'claude' ({}) 'driver' names the model flag '--fallback-model'",
+        claude.display()
+    );
+    for recipe in ["fast", "panel-review"] {
+        let compiled = Bundle::compile_under(
+            &root.join("recipes").join(recipe),
+            &root.join("agents"),
+            copy.path(),
+            Boundary::Namespace,
+        );
+        match compiled {
+            Err(CompileError::Invalid(message)) => {
+                assert!(message.starts_with(&refusal), "{recipe}: {message}");
+            }
+            other => panic!("expected {recipe} refused, got {other:?}"),
+        }
+    }
+}
+
 /// An inline command that pins no model on the adapter's flag leaves the
 /// model to the harness's default, which may be the provisional one, so
 /// it is refused at a work seat as at a gate — whether a later rule would
@@ -626,20 +774,12 @@ fn every_shipped_model_is_promoted_and_every_shipped_recipe_still_compiles() {
 #[test]
 fn a_shipped_recipe_is_refused_once_a_model_it_hires_turns_provisional() {
     let root = shipped();
-    let copy = tempfile::tempdir().unwrap();
-    for entry in std::fs::read_dir(root.join("adapters")).unwrap() {
-        let path = entry.unwrap().path();
-        let mut adapter: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let copy = shipped_adapters_with(|adapter| {
         if adapter["provider"] == "claude" {
             let id = adapter["models"]["fable"].clone();
             adapter["models"]["fable"] = json!({"id": id, "tier": "provisional"});
         }
-        std::fs::write(
-            copy.path().join(path.file_name().unwrap()),
-            adapter.to_string(),
-        )
-        .unwrap();
-    }
+    });
     let fast = Bundle::compile_under(
         &root.join("recipes/fast"),
         &root.join("agents"),
@@ -659,6 +799,22 @@ fn a_shipped_recipe_is_refused_once_a_model_it_hires_turns_provisional() {
         ),
         other => panic!("expected a provisional refusal, got {other:?}"),
     }
+}
+
+/// A copy of the shipped adapters, each edited by `edit`.
+fn shipped_adapters_with(edit: impl Fn(&mut Value)) -> tempfile::TempDir {
+    let copy = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(shipped().join("adapters")).unwrap() {
+        let path = entry.unwrap().path();
+        let mut adapter: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        edit(&mut adapter);
+        std::fs::write(
+            copy.path().join(path.file_name().unwrap()),
+            adapter.to_string(),
+        )
+        .unwrap();
+    }
+    copy
 }
 
 /// Each shipped bundle and recipe compiled against `adapters`, in no
