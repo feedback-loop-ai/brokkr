@@ -376,3 +376,76 @@ Also pending: the workspace-wide `cargo test --workspace` beyond the touched
 crates plus brokkr-runtime's `witness_digests` and `budgets`, exact coverage
 on a capable host, remote CI, and signing of the squash if the seat signature
 is not the steward's.
+
+### U6a repair visit (CI on PR #525, head 83633e24)
+
+Run `0065-slice-two-unit-u6a-see-the--767bd1f6`, 2026-10-03. CI failed two
+required checks: `quality/ratchet.sh clones` (three new production clones in
+`adapters.rs`: the spawn boilerplate at `run_cli`, `invoke_stream_json`,
+`invoke_codex` and `spawn_dsh`) and `scripts/coverage-exact.sh` (functions
+4833/4836: the `.map_err(|error| error.to_string())` closures at
+`adapters.rs:2438`, `:3786` and `:5004` were never called).
+
+**Change.** One spawn helper in `adapters.rs`, `spawn_harness(command,
+workdir, stdin, stdout, env, bindings)`: it splits the argv (refusing an
+empty one as `empty command`), sets the args, the workdir, the extra
+environment, the stdio dispositions and a piped stderr, calls
+`secret::bind_environment` once, maps its typed refusal once, and spawns
+under the one `could not invoke the agent CLI` context. `spawn_piped` is its
+piped-stdin/stdout, no-extra-environment form. `run_cli`,
+`invoke_stream_json` and `invoke_codex` call `spawn_piped`; `spawn_dsh`
+passes its unsigned-commit `GIT_CONFIG_*` triple and the host identity as
+`env` and `Stdio::null()` stdin. The order is unchanged: the extra
+environment is set before the injector, so a declared binding still
+overrides it. `adapters.rs` stays at 7249 lines (`wc -l`), so no file over
+its ceiling grew. `quality/too-many-lines.txt` follows two start lines that
+moved (`fold_stream_event` 1488 → 1512, `dsh_launch_with` 4509 → 4515), as
+the forced `clippy::too_many_lines` JSON pass of measure.sh step 5 printed
+them for the protocol lib. No length moved. One behaviour edge: the claude,
+codex and dsh spawns indexed `command[0]` and would have panicked on an
+empty argv. They now return `empty command`, as exec always did.
+
+**Coverage diagnostic.** I ran `cargo +nightly-2026-09-05 llvm-cov -p
+brokkr-protocol --all-features --locked --branch --lcov` on this tree and on
+HEAD's `adapters.rs`, then reduced both with the gate's function rule (file
+plus start line, any positive instance covers) in `jq -R`. At HEAD,
+`adapters.rs` showed 376/385, with the uncovered starts at 2398, 2401, 2407,
+3903, 5774 and 7241 plus the three closures CI named (2438, 3786, 5004).
+This tree shows 378/384. The six that remain are at the same untouched
+functions (`stage_prompt` and its two closures, `invoke_dsh_launch` closure,
+a `.map` closure in the dsh tree, `serve`). The workspace run covers them,
+since CI's 4833/4836 named only the three closures. `spawn_harness` (:707),
+its closures (:717, :726) and `spawn_piped` (:731) are all hit, and
+`secret.rs` is 57/57 in both runs. The workspace-wide exact gate itself is
+pending on a capable host.
+
+**Exact refusal through a real call site.**
+`cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries` drives a
+non-UTF-8 binding through `run_cli` → `spawn_harness` and asserts
+`secret 'TOKEN' is not valid UTF-8` (tests.rs:383). The test needed no edit.
+
+| Mutation | Command | Failing test and assertion |
+| --- | --- | --- |
+| R1: the helper's refusal mapping becomes `.map_err(\|_\| "refused".to_string())` | `cargo test -p brokkr-protocol --lib --locked -- cli_and_stderr_helpers` | `assert_eq!` at tests.rs:383, left `"refused"`, right `"secret 'TOKEN' is not valid UTF-8"` |
+| R2: the helper drops the extra environment (`.envs(env.iter().copied().take(0))`) | `cargo test -p brokkr-protocol --lib --locked -- dsh` | `the_dsh_seat_commits_unsigned_under_the_host_identity` (tests.rs:8724) and `the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store` (tests.rs:8757) failed; 127 passed, 2 failed |
+
+Both were restored. Afterwards the four binding tests
+(`cli_and_stderr_helpers…`, `every_model_harness…`, `a_dsh_seat_receives…`,
+`a_bound_claude_seat…`) passed.
+
+**Gates on the repaired tree.** `cargo fmt --all -- --check` and `git diff
+--check` were clean. `cargo clippy --workspace --all-targets --all-features
+--locked -- -D warnings` was clean. `cargo test -p brokkr-protocol
+--all-features --locked` passed lib 628 (1 ignored), `hands_exits` 6,
+`secret_drop` 1 and doctests 1. `cargo test -p brokkr-cli --all-features
+--locked` passed every target, including lib 619, `machine_proof` 61,
+`ratchets` 13, `suppressions` 6 and `layering` 15. `cargo test -p
+brokkr-runtime --test witness_digests --test budgets` passed 4 and 6 with no
+bless. `compile --bundle bundles/self` compiled, and `openspec validate --all
+--strict` reported 20 passed.
+
+**Pending.** `quality/ratchet.sh clones` and `files`, `jscpd` and `typos
+--hidden` were refused by this seat's permission allowlist and were not
+observed. "Duplication holds" is therefore unconfirmed here. The files rule
+was checked by hand (7249 = 7249). The workspace exact-coverage gate and
+remote CI are also pending.

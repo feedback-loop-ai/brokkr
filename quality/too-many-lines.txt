@@ -10,8 +10,8 @@
  113 crates/brokkr-core/src/policy.rs:339 parse_rule
  106 crates/brokkr-core/src/policy.rs:467 parse_condition
  218 crates/brokkr-core/src/realms.rs:613 of
- 112 crates/brokkr-protocol/src/adapters.rs:1488 fold_stream_event
- 109 crates/brokkr-protocol/src/adapters.rs:4509 dsh_launch_with
+ 112 crates/brokkr-protocol/src/adapters.rs:1512 fold_stream_event
+ 109 crates/brokkr-protocol/src/adapters.rs:4515 dsh_launch_with
  342 crates/brokkr-protocol/src/adapters.rs:6610 run_seat_with
  229 crates/brokkr-protocol/src/adapters/composite.rs:1346 pnpm_dependencies
  122 crates/brokkr-protocol/src/adapters/composite/image.rs:198 elf
