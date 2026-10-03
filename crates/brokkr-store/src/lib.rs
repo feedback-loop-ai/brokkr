@@ -73,6 +73,7 @@ use time::OffsetDateTime;
 
 mod import;
 mod origin;
+mod queue;
 mod read;
 mod redact;
 mod schema;
@@ -81,6 +82,10 @@ mod seat_record;
 pub mod test_support;
 
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
+pub use queue::{
+    Attribution, EntryId, EntryState, NewEntry, NotAWait, QueueCommand, QueueEntry, QueueRefusal,
+    Wait, WaitOn,
+};
 pub use redact::{redact_export, Redactor};
 pub use schema::DATABASE_SCHEMA;
 pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
@@ -147,6 +152,9 @@ pub enum StoreError {
     /// selects; [`Store::load`] refuses the same journal whole.
     #[error("run '{run_id}' holds a row at seq {seq}, before its chain's first event")]
     RowBeforeChain { run_id: String, seq: i64 },
+    /// The queue refused an operator command or a claim (decision 0068).
+    #[error(transparent)]
+    Queue(#[from] QueueRefusal),
     /// A peer still held the journal's write lock when this operation's
     /// whole patience ran out. **Nothing was written.**
     ///

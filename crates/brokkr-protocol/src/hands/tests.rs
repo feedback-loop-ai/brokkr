@@ -149,7 +149,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &workdir,
         &home,
         &scratch,
-        &session,
+        OverlayWrites::Session(&session),
         &none,
         Some(&bundle),
         &one("true"),
@@ -216,7 +216,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &workdir,
         &home,
         &scratch,
-        &session,
+        OverlayWrites::Session(&session),
         &inside,
         None,
         &one("true"),
@@ -246,7 +246,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &workdir,
         &home,
         &scratch,
-        &session,
+        OverlayWrites::Session(&session),
         &outside,
         None,
         &one("true"),
@@ -262,7 +262,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &workdir,
         &home,
         &scratch,
-        &session,
+        OverlayWrites::Session(&session),
         &none,
         None,
         &one("true"),
@@ -280,7 +280,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         Path::new("."),
         &home,
         &scratch,
-        &session,
+        OverlayWrites::Session(&session),
         &none,
         None,
         &one("true"),
@@ -300,7 +300,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         Path::new(""),
         &home,
         &scratch,
-        &session,
+        OverlayWrites::Session(&session),
         &none,
         None,
         &one("true")
@@ -316,7 +316,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &workdir,
         &home,
         &blocked.join("etc"),
-        &session,
+        OverlayWrites::Session(&session),
         &none,
         None,
         &one("true")
@@ -329,7 +329,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &workdir,
         &home,
         &scratch,
-        &blocked.join("session"),
+        OverlayWrites::Session(&blocked.join("session")),
         &none,
         None,
         &one("true")
@@ -356,14 +356,24 @@ fn overlays_need_a_bubblewrap_that_has_them() {
         "no overlay, no question"
     );
     let refusal = overlay_supported(&overlaid, &missing).unwrap_err();
-    assert!(refusal.contains("0.10 or newer"), "{refusal}");
+    assert!(refusal.contains("0.11 or newer"), "{refusal}");
     // The rule on the reported string: no script is written and executed
     // here, because another test's fork can hold a fresh file open and
-    // turn its exec into "text file busy".
+    // turn its exec into "text file busy". 0.10.0 parses neither
+    // `--overlay-src` nor `--tmp-overlay`: both first ship in 0.11.0.
+    assert_eq!(
+        overlay_supported_by("bubblewrap 0.10.0", &missing).unwrap_err(),
+        format!(
+            "hands bind mode 'overlay' needs bubblewrap 0.11 or newer; {} reports \"bubblewrap 0.10.0\"",
+            missing.display()
+        )
+    );
     for (reported, ok) in [
         ("bubblewrap 0.9.0", false),
-        ("bubblewrap 0.10.0", true),
+        ("bubblewrap 0.10.0", false),
+        ("bubblewrap 0.10.9", false),
         ("bubblewrap 0.11.0", true),
+        ("bubblewrap 0.12.0", true),
         ("", false),
     ] {
         assert_eq!(
@@ -442,7 +452,7 @@ fn a_toolchain_variable_is_set_by_its_own_bind_only() {
             dir.path(),
             &dir.path().join("home"),
             &dir.path().join("scratch"),
-            &dir.path().join("session"),
+            OverlayWrites::Session(&dir.path().join("session")),
             &GitFacts::default(),
             None,
             &one("true"),
@@ -799,6 +809,67 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
     )
     .unwrap_err();
     assert!(blocked.contains("namespace"), "{blocked}");
+}
+
+/// #504: a single-shot exec box's overlay writes to a tmpfs inside the
+/// box. The argv names no upper layer on the host, and the box sees its
+/// own write while the host's file and the session's tree do not, so the
+/// box's init has no host disk to sync as it unmounts.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_exec_box_writes_its_overlays_to_ram() {
+    let dir = tempfile::tempdir().unwrap();
+    let (workdir, tool) = (dir.path().join("work"), dir.path().join("toolchain"));
+    std::fs::create_dir_all(&workdir).unwrap();
+    std::fs::create_dir_all(&tool).unwrap();
+    std::fs::write(tool.join("cargo"), "host\n").unwrap();
+    let path = tool.to_string_lossy().into_owned();
+    let spec = spec_of(json!({"kind": "workspace", "binds": [{"path": path, "mode": "overlay"}]}));
+    let (home, none) = (dir.path().join("home"), GitFacts::default());
+    let scratch = dir.path().join("scratch");
+    let built = box_argv(
+        &spec,
+        &workdir,
+        &home,
+        &scratch,
+        OverlayWrites::Ram,
+        &none,
+        None,
+        &one("true"),
+    );
+    let argv = built.unwrap();
+    let at = argv
+        .iter()
+        .position(|part| part == "--overlay-src")
+        .unwrap();
+    assert_eq!(
+        argv[at..at + 4],
+        ["--overlay-src", &path, "--tmp-overlay", &path]
+    );
+    if !can_create_namespace() {
+        skip_boundary_proof(
+            boundary_evidence_required(),
+            "this environment cannot create a bubblewrap namespace",
+        );
+        return;
+    }
+    let session = dir.path().join("session");
+    let write = format!("echo box > {path}/cargo && grep -qx box {path}/cargo");
+    let command = ["/bin/sh".to_string(), "-c".to_string(), write];
+    let bwrap = require_bwrap().unwrap();
+    let ran = run_boxed_in(
+        &bwrap, &spec, &workdir, &home, &session, &none, None, &command,
+    );
+    assert_eq!(ran, Ok(0), "the box sees its own write");
+    assert_eq!(
+        std::fs::read_to_string(tool.join("cargo")).unwrap(),
+        "host\n"
+    );
+    let kept: Vec<_> = std::fs::read_dir(&session)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(kept, ["call"], "no upper layer in the session");
 }
 
 /// Ruling 6, for real: git works inside the box for a `git worktree`,

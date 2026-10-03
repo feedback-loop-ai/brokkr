@@ -4,12 +4,14 @@
 //! disagree (design DD17).
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use brokkr_core::realms::Boundary;
-use brokkr_runtime::boundary::readiness;
+use brokkr_protocol::hands::{overlay_supported_with, HandsSpec};
 #[cfg(test)]
 use brokkr_runtime::boundary::refuse_unboxable;
 pub(crate) use brokkr_runtime::boundary::{offered, on_path, Offer};
+use brokkr_runtime::boundary::{overlays_buildable, readiness};
 
 /// `doctor`'s one line: the boundaries a run can start under here, and
 /// for each it does not offer, why.
@@ -40,19 +42,34 @@ pub(crate) fn doctor_line(offers: &BTreeMap<Boundary, Offer>) -> String {
 
 /// `doctor`'s `hands` line, judged against the boundary the discovered
 /// realm declares rather than against bubblewrap alone: healthy under
-/// `namespace` with bubblewrap and under `harness` or `open` always, a
-/// warning under `namespace` without bubblewrap, a warning under an
-/// unbuilt boundary naming its slice. Returns whether the line is
-/// healthy and its text.
-pub(crate) fn hands_line(boundary: Boundary, offer: &Offer, hands: &[&str]) -> (bool, String) {
+/// `namespace` with a bubblewrap that builds every seat's overlays and
+/// under `harness` or `open` always, a warning under `namespace` without
+/// bubblewrap or with one older than the overlay floor the launch
+/// refuses by ([`overlays_buildable`]), a warning under an unbuilt
+/// boundary naming its slice. Returns whether the line is healthy and
+/// its text.
+pub(crate) fn hands_line(
+    boundary: Boundary,
+    offer: &Offer,
+    hands: &BTreeMap<String, HandsSpec>,
+) -> (bool, String) {
     let seats = if hands.is_empty() {
         "boxed seats".to_string()
     } else {
-        format!("seats {hands:?} declare hands and")
+        format!("seats {:?} declare hands and", Vec::from_iter(hands.keys()))
     };
     match offer {
         Offer::Offered(detail) if boundary == Boundary::Namespace => {
-            (true, format!("{detail} · {seats} can run"))
+            let reported = || detail.clone();
+            match overlays_buildable(hands, |spec| {
+                overlay_supported_with(spec, Path::new("bwrap"), reported)
+            }) {
+                Ok(()) => (true, format!("{detail} · {seats} can run")),
+                Err(refusal) => (
+                    false,
+                    format!("{detail} · {seats} will refuse to spawn: {refusal}"),
+                ),
+            }
         }
         Offer::Offered(_) => (
             true,
