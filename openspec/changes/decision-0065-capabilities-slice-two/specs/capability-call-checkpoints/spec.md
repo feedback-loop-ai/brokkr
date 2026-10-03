@@ -60,9 +60,15 @@ attempt"; it SHALL not be disguised as an ordinary local call.
 
 ### Requirement: CC2 broker calls use the same checkpoint contract without double counting
 
-Every syntactically valid broker tools/call request, including refused, failed and interrupted
-calls, SHALL have a broker-generated monotonically increasing sequence within
-its attempt/capability ledger. Its stable call_id SHALL be derived from
+Every valid bounded broker tools/call request accepted under CR3, including
+locally refused, failed and interrupted calls, SHALL have a broker-generated
+monotonically increasing sequence within its attempt/capability ledger.
+Acceptance means durable Started after request validation and reservation of
+ledger capacity, before local tool/budget refusal or external forwarding.
+Unread over-capacity frames and invalid request identities are not accepted
+calls; they SHALL NOT acquire invented checkpoints. Failure to persist Started
+SHALL block forwarding and successful completion, preserving the verified
+ledger prefix for CR4 recovery. Each accepted call's stable call_id SHALL be derived from
 engine-owned attempt and broker identity plus that sequence, never from model
 content or a reusable JSON-RPC id alone. A durable started record SHALL
 precede forwarding an admitted call. Its terminal outcome SHALL distinguish
@@ -99,6 +105,13 @@ holdings or successful uses.
 - **THEN** the parser records a typed telemetry limitation with cause "MCP telemetry does not identify its server and tool"
 - **AND** it derives no holding from the string mcp_tool_call; the broker ledger still owns tool-call evidence
 - **AND** native telemetry missing required attribution instead fails with "capability telemetry cannot be attributed" and does not claim complete recording
+
+#### Scenario: The ledger limit bounds acceptance rather than erasing calls
+
+- **WHEN** 4,096 accepted calls have durable records and another request waits unread at the broker's input
+- **THEN** the broker ends with "broker ledger exceeds the attempt limit" without accepting or forwarding a 4,097th call
+- **AND** settlement preserves exactly the 4,096 recorded call outcomes and the failed-attempt cause; it fabricates no checkpoint for unread input
+- **AND** a valid in-budget request denied for an ungranted tool or exhausted retention share instead has one Started, one refused Terminal and one settled refused checkpoint
 
 ### Requirement: CC3 v6 adds attribution without rewriting historical records
 
@@ -142,3 +155,10 @@ Malformed JSON-RPC or an invalid tool identifier is a protocol refusal before
 it denotes a capability call; it carries MB3's safe protocol cause, never raw
 invalid identifiers in checkpoint fields. This does not excuse dropping any
 well-formed denied call or a granted call whose child fails.
+
+Specify return, 2026-10-03: adopt the council's CC2 repair with CR3/CR4 and
+SC4. One public settled row satisfies 0065 ruling 8; private lifecycle records
+supply the crash evidence (0071 rulings 3, 5, 7–9). Replace the unbounded
+"every syntactically valid" promise with the durable acceptance point: a
+bounded reader cannot record input it never accepted. Accepted local refusals
+remain evidence; persistence failures cannot be declared successful.

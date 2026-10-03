@@ -65,9 +65,12 @@ This visit adopts proposal then deltas, clarifies their scenarios, writes
 design.md and tasks.md, and analyzes their consistency using the dialect's
 own instructions. Design records the unit order, every planned file, Hot
 files, alternatives and analysis. The design council's robustness and simplicity
-positions are reconciled explicitly in design D1. No returned_from was supplied.
-The council exposed earlier requirement faults: this design visit proposes
-coherent owning-spec repairs and returns upstream under SD1 for their review.
+positions are reconciled explicitly in design D1. This specify return adopts
+7aa9e9ff's proposed repairs to MB2–MB4, CR2–CR4, CC2, SC4 and GP2 after checking
+the council's evidence. The supplied returned_from is design's upstream result;
+its requirement faults are answered here and in the owning deltas. Design and
+tasks remain coherent dependent proposals, not newly completed council or
+implementation work.
 
 Only these documents, the verbatim ruling record, proposed decision 0077,
 its index row and 0065's amendment pointer are committed. No production,
@@ -103,4 +106,9 @@ protected startup inputs and protocol correlation. CR2–CR4 require protection
 across managed writers, closed ledger lifecycle, commit-confirmed settlement
 and aggregate retention bounds. These repair earlier specification omissions,
 not implementation exceptions. Design D1 records each claim and reason.
-The operator alone accepts decision 0077 and the completed plan.
+Specify disposition, 2026-10-03: adopt those owning-spec repairs. Clarify the
+bounded acceptance point in CC2/CR3 and the request-identity edge in MB3/SC4;
+record the returned finding's closure in SD1 and design D11. Repair 0077's
+missing Built issue marker using its existing open strictness prerequisite
+#467; the complete remaining work is this change's tasks, not closed slice-one
+PR #319. The operator alone accepts decision 0077 and the completed plan.

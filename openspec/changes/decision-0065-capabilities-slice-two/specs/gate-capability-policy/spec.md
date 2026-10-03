@@ -125,3 +125,9 @@ parser. Council simplicity B is adopted: the declaration is the clause's one
 home (0071 ruling 5). The prior every-mention requirement exceeded 0065's
 "in the same paragraph" and is replaced here, at its upstream owner.
 Contradictory prose and model obedience remain outside a lexical lint's proof.
+
+Specify return, 2026-10-03: adopt returned GP2 at this requirement owner.
+One qualifying declaration retains the literal same-paragraph obligation;
+repetition at every later reference adds no authority or proof (0065 ruling 7;
+0071 ruling 5). Gate write/egress checks still apply to native grants in U3,
+independently of MCP enablement.

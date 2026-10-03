@@ -37,6 +37,12 @@ MCP grants SHALL enter this run.
 - **THEN** the council identifies that earliest requirement and returns upstream with the evidence
 - **AND** changing a downstream task to silently omit the obligation is not closure
 
+#### Scenario: Specify answers the returned council requirement findings
+
+- **WHEN** returned_from names design's upstream findings in MB2–MB4, CR2–CR4, CC2, SC4 and GP2
+- **THEN** specify rechecks their evidence, adopts or refutes each at its owning Decisions section, encodes remaining ambiguity as scenarios and updates proposal/design/tasks in dependency order
+- **AND** a drafted result records that owning review, not runtime proof, decision acceptance or a second council vote; any unresolved earlier-owner fault still returns upstream with its cause
+
 ### Requirement: SD2 one ordered plan splits every oversized implementation unit
 
 The final design SHALL publish one true dependency order based on the
@@ -203,3 +209,12 @@ The second commission authorizes completing the dialect's document sequence
 in one visit. This does not decide the engine's next phase or invent absent
 council positions. Design records the positions actually available and the
 analysis; all implementation checkboxes stay open.
+
+Specify return, 2026-10-03: the supplied design return from 7aa9e9ff is
+answered at the requirement owners named in its notes; design D1's full
+robustness/simplicity reconciliation is preserved, and D11 records the current
+disposition. The missing issue marker on proposed 0077 is an informational
+finding owned by the decision-index gate (0071 ruling 11). Link the existing
+open #467 strictness prerequisite and this change's complete tasks; do not
+pretend closed slice-one PR #319 carries slice two or create an unsolicited
+remote tracker. No implementation checkbox closes in this review.

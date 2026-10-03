@@ -141,9 +141,13 @@ Verified begun calls without terminal become interrupted under CR4.
 
 Records SHALL be at most 4 KiB, each ledger at most 64 MiB and each broker
 attempt at most 4,096 accepted calls. Reserve terminal and closure capacity
-before accepting/forwarding. Stop reading new frames before those bounds are
-exhausted, preserving space for every decoded valid call including local
-refusals. At the limit end with "broker ledger exceeds the attempt limit";
+before accepting/forwarding. A valid bounded request becomes accepted only
+when its Started is durable; tool, active-call and retention-budget denials
+follow that point and receive refused Terminal records. Invalid request
+identities are rejected at the MB3/SC4 edge without echoing them into evidence.
+Stop reading new frames before those bounds are exhausted, preserving space
+for every accepted call including local refusals. At the limit end with
+"broker ledger exceeds the attempt limit";
 never silently discard accepted calls. Unread frames are not accepted calls.
 A begun record SHALL be fsynced before forwarding. Terminal metadata and any
 retained staging SHALL be durable before response delivery. Failure SHALL
@@ -192,6 +196,7 @@ Nonretaining responses remain bounded in-memory forwarding only.
 
 - **WHEN** writing or synchronizing Started fails
 - **THEN** the broker returns "broker call could not be recorded" and the fake child's call log is empty
+- **AND** it admits no successful attempt or fabricated call checkpoint; settlement recovers only the verified ledger prefix, including a complete Started whose acknowledgement was lost
 - **AND** terminal persistence failure withholds delivery and leaves the durable Started for interrupted recovery
 
 #### Scenario: A forged owner or tool cannot become granted evidence
@@ -307,3 +312,12 @@ a new evidence service. Reuse existing canonical bytes with an exact-number
 edge guard; a second serializer is rejected under ruling 5. Delayed authoritative
 MCP display and serialized managed runs sharing an artifact root are accepted
 costs; losing evidence or silently changing a returned value is not.
+
+Specify return, 2026-10-03: adopt CR2–CR4's returned repairs. Writable worktree
+mounts and Checkpoints::offer's unconfirmed queue support the council's
+all-writer protection and confirmed settlement requirements; a hash or queued
+row cannot supply either proof (0071 rulings 3, 8, 9). Retain fixed attempt
+quotas, exact-number validation and reuse of canonical bytes (rulings 3, 5).
+CR3 now states the acceptance point shared with CC2; neither ledger exhaustion
+nor a failed Started write creates a fictitious recorded call. Runtime security
+proofs remain tasks, not findings closed by prose.

@@ -154,8 +154,11 @@ bytes in the existing tool identifier vocabulary; v6 may widen v5's 80-byte
 tool ceiling additively, but attribution SHALL never use truncation.
 Unrepresentable held identifiers SHALL refuse compile with "capability call
 identity cannot be represented by seat-record v6", rather than collide after
-clamping. Unrecognized tool identifiers received at runtime are protocol
-failures, never journal payloads echoed without validation.
+clamping. A tools/call name exceeding that runtime byte bound SHALL refuse
+"MCP request exceeds the broker limit"; invalid identifier vocabulary SHALL
+refuse "MCP tool call request is invalid" before acceptance. These unrepresentable
+inputs SHALL never be echoed into journal payloads. A valid bounded name outside
+the grant instead follows MB3's recorded ungranted-tool refusal.
 
 V6 SHALL accept every valid old-shaped v5 record. Native observed records
 have no response digest. Broker calls have exactly one settled checkpoint;
@@ -185,6 +188,12 @@ dependency. A verified correlated turn, when available, remains the real one.
 - **WHEN** a dialect's held tool name exceeds the v6 bound or vocabulary
 - **THEN** compilation refuses "capability call identity cannot be represented by seat-record v6" with bounded site/dialect context
 - **AND** two names sharing an 80-character prefix cannot collapse to the same attributed tool
+
+#### Scenario: Runtime identity validation does not hide a bounded tool denial
+
+- **WHEN** a caller sends a 257-byte tool name or a name outside the tool vocabulary
+- **THEN** the broker refuses respectively "MCP request exceeds the broker limit" or "MCP tool call request is invalid" before acceptance or forwarding, with no invented attribution
+- **AND** a valid 256-byte name is not truncated; if ungranted, its exact identity appears in the one refused checkpoint under MB3 and CC2
 
 ### Requirement: SC5 MCP support never relies on a native-only binding assumption
 
@@ -218,3 +227,9 @@ the next realms version after v7; recheck main before minting its filename. Neve
 keeps storage/clock/environment effects above core/view. Opaque third-party
 MCP payloads may be decoded as edge data for validated forwarding, but engine
 authority/ledger state does not retain a generic JSON value vocabulary.
+
+Specify return, 2026-10-03: adopt returned SC4 with CC2/CR4: one attributed
+settled broker record, optional measured turn, and an actual published artifact
+before its digest. Retain old-shaped v5 acceptance and native observed semantics.
+The runtime request-name scenarios close the edge needed to meet both bounded
+v6 identities and refusal recording without truncation (0071 rulings 3, 7–9).

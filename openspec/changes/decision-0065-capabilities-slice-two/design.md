@@ -13,12 +13,14 @@ runner. The two operator maps were read whole, as were the commissioned
 decisions and slice-one proposal/design/specs/operator rulings. D4's ordering
 and D11's deferral are constraints, not opportunities to redesign native power.
 
-The current change adopts the prior office's committed specification and design
-at f1e9443b. Both council positions were read whole: robustness and simplicity
-under .forge/design/positions/. D1 reconciles every substantive recommendation
-against rechecked code. No returned_from was supplied. Their proposed repairs
-touch earlier requirement owners, so this visit returns upstream under SD1;
-the coherent document amendments remain proposed for upstream/operator review.
+This specify revisit adopts the council's committed repairs at 7aa9e9ff,
+following its supplied returned_from result of upstream. Both council positions
+were read whole: robustness and simplicity under .forge/design/positions/.
+D1 preserves the reconciliation of every substantive recommendation against
+code; the owning deltas now adopt MB2–MB4, CR2–CR4, CC2, SC4 and GP2, with the
+bounded acceptance ambiguity resolved in scenarios. D11 records the answer to
+the return. The dependent design and tasks stay proposed for the operator;
+this is owning specification review, not a new council vote or runtime proof.
 
 The following evidence was rechecked at this base. Paths use the crate name
 plus src unless prefixed with contracts; line facts are starting evidence,
@@ -39,8 +41,8 @@ not promised locations after another thread merges.
 | runtime/bundle.rs:4352–4362; contracts/tool-dialect.v1.schema.json | Binding minimum is an existing policy fact; MCP version/connection/secrets/retained already have a frozen schema. |
 | agents/charters/researcher.md:20–30 | Existing prose names both capabilities and the exact DATA clause in one paragraph. |
 
-The adopting office recorded a GitHub API and complete changed-file check for
-all six open PRs on 2026-10-03: #404, #452, #460, #486, #494 and #500.
+The adopting office recorded, and this specify revisit repeated, a GitHub API
+and complete changed-file check for all six open PRs on 2026-10-03: #404, #452, #460, #486, #494 and #500.
 Their titles/bodies/file paths/patches contain no 0077 claim. The index gap
 table reserves 0072/0074/0075 and 0076 exists; retain proposed 0077. This is
 an observation, not a remote reservation. The commission's agreement that
@@ -91,10 +93,13 @@ No production/test/schema/data edit or live U0 measurement occurs in this visit.
 | Both positions: binding proofs and bounded costs | Adopt exact variants, real compiling removal failures, fake-server compile-to-inspect proof and pending external gates. Accept serial calls/fsync, delayed MCP display, refusal of unmeasured shapes and known #403/0012 residuals. The compile fence is not protection for a directly invoked U6 command: its handler stays fail-closed until its own protections are complete (rulings 8–10). |
 
 Clarification is encoded in the owning scenarios, not a separate ambiguous
-FAQ. The earlier GP2, MB2–MB4, CC2, CR2–CR4 and SC4 requirements are amended
-before this dependent design/tasks. This is an upstream result, not a claim
-that a design seat can waive their review or accept 0077. No R1–R5, D4 or D11
-ruling is weakened; any future incompatible measurement returns to its owner.
+FAQ. The council amended GP2, MB2–MB4, CC2, CR2–CR4 and SC4 before dependent
+design/tasks, then returned upstream under SD1. This specify revisit adopts
+those repairs at their owners after rechecking the evidence, with reasons in
+each delta's Decisions. It also defines durable request acceptance so bounded
+input and exactly-once settled evidence agree. No R1–R5, D4 or D11 ruling is
+weakened; any future incompatible measurement returns to its owner. Acceptance
+of proposed 0077 remains the operator's.
 
 ### D2. U0 is an experiment with an explicit decision rule
 
@@ -376,7 +381,13 @@ A header reference may avoid repeating the immutable owner. No arguments, raw
 JSON-RPC IDs, response bodies or arbitrary child text become durable metadata.
 The broker exclusively opens a plan once: reconnect refuses rather than resetting
 sequence. Reserve Started/Terminal/Closed capacity before accepting a frame.
-Even local refusals have private Started and Terminal, with no child forwarding.
+Validate request shape and bounded tool identity at the edge, then fsync Started:
+that is acceptance. Tool, active-call and retention-budget denials occur after
+it and have private Started/Terminal, with no child forwarding. At ledger
+capacity stop reading; no fictitious checkpoint describes unread input. Failed
+Started persistence blocks successful completion and forwarding; recovery uses
+only the verified prefix, including a complete record whose acknowledgement was
+lost. CC2 and SC4 pin these cases without clamping an invalid identity.
 
 | Ledger state | Accepted next record | Otherwise |
 | --- | --- | --- |
@@ -546,16 +557,25 @@ outside the box and signs the single squash before pushing. The document
 commit is plain unsigned git commit. No push, PR creation, archive or
 decision acceptance is performed here.
 
-Council document validation on 2026-10-03: git diff --check and its cached
-form pass; openspec validate --all --strict reports 20 passed, 0 failed.
-Its requirement-length and unrelated archive notices are informational. The
-document audit counts 26 requirements, 97 scenarios, 48 dependency-ordered PRs
-and 100 unique open tasks, with every owner and Hot files entry aligned and
-at most three production paths per PR. R1–R5 and production/test/frozen bytes
-are unchanged. The council revision touches eleven commissioned Markdown
-artifacts; the previously committed index/pointer/ruling record is preserved.
-Runtime proofs, U0 measurements, external format/typos and operator acceptance
-remain pending. Checks are repeated on the staged document set before commit.
+Historical council validation at 7aa9e9ff on 2026-10-03 passed both diff
+checks and strict OpenSpec (20 passed, 0 failed), auditing 26 requirements,
+97 scenarios, 48 PRs and 100 open tasks. Its eleven-file revision preserved
+the earlier index/pointer/ruling record. That result is not this revision's
+validation.
+
+Specify-return document validation on 2026-10-03: git diff --check and its
+cached form pass; openspec validate --all --strict reports 20 passed, 0 failed.
+Requirement-length and unrelated archive notices are informational. The static
+document audit confirms 26 requirements, 100 scenarios, 48 dependency-ordered
+PRs and 100 unique open tasks, at most three production paths per PR and all
+56 production paths represented in Hot files. Requirement/task links, local
+artifact links and 0077's proposed/index/amendment markers were checked; this
+is not execution of the Rust decision-index suite. The revised set is exactly
+eleven commissioned Markdown files, within fourteen total change artifacts
+against the base. No row gains production files or implementation completion.
+R1–R5 and production/test/frozen bytes are unchanged. Checks are repeated after
+staging this validation record. Runtime proofs, U0 measurements, external
+format/typos, operator acceptance and squash signing remain pending.
 
 ### D11. Clarification and analysis disposition
 
@@ -576,10 +596,12 @@ record-versus-receipt crash gap (CR2), deduplication and unexpected ledgers
 | House alignment / deterministic gates | Format, OpenSpec structure and whitespace findings belong to their gates (info, 0071 ruling 11); planned runtime gates remain pending. No claimed green runtime from this document. |
 | Duplication / traceability | Requirement semantics live in deltas; design explains choices; numbered tasks reference every requirement and one unit. No copied agent or recipe, no parallel policy implementation. 0071 rulings 2, 5, 7, 10. |
 
-Council adds these upstream specification findings. The proposed repairs are
-encoded first in owning deltas, then in D1–D9 and tasks; review is not waived.
+The supplied returned_from carries the council's following upstream findings.
+This specify revisit adopts each proposed repair at its earliest requirement
+owner, then updates D1–D9 and tasks. The severity describes the implementation
+risk the requirement must prevent; this document claims no runtime closure.
 
-| Council finding / severity | Earliest owner and proposed resolution |
+| Returned council finding / severity | Earliest owner and adopted specification resolution |
 | --- | --- |
 | Secret-read/startup bypass, high security | MB2–MB4: separate read isolation, protect startup inputs before secrets. Rulings 3, 9. |
 | Sibling writer can forge evidence, high security | CR2: protect every managed writer and historical root; distinct U8a2 prerequisite. Rulings 3, 9. |
@@ -588,11 +610,30 @@ encoded first in owning deltas, then in D1–D9 and tasks; review is not waived.
 | Public lifecycle and every-mention DATA rule exceed intent, low duplication | CC2/SC4/GP2: one settled checkpoint and one qualifying declaration per capability. Rulings 5, 7. |
 | Duplicate canonicalizer/launch inventory and unnecessary PR splits, low | CR2/CR3 and design units: reuse canonical edge/inventory; combine only bounded unions. Rulings 4–6. |
 
-Return result is upstream because the faults begin in adopted requirements,
-not solely in this design. No runtime security finding is claimed closed by a
-document patch. U0 and implementation proofs remain open prerequisites. If evidence makes R2 or
-protected evidence infeasible for a harness, keep it refused; never downgrade
-a high refusal finding to an informational gate result.
+The council correctly returned upstream because these faults began in the
+requirements. Their owning review is now answered; the specify result is
+drafted with inputs.change decision-0065-capabilities-slice-two. Nothing in
+that disposition selects a next phase or accepts the decision.
+
+Two further consistency corrections belong to this revisit:
+
+- CC2's unbounded syntactically-valid-request promise conflicted with CR3's
+  finite ledger. CC2/CR3 now define acceptance at durable Started and preserve
+  all accepted local denials; MB3/SC4 reject unrepresentable request identities
+  before acceptance. Added scenarios distinguish limit exhaustion, failed
+  persistence, exact 256-byte identity and recorded ungranted-tool refusal.
+  U6d/U6e and U8b/U8d proofs follow (0071 rulings 3, 8, 9; medium
+  specification ambiguity).
+- Proposed 0077 lacked the issue marker required by decisions_index.rs:808–827.
+  Its header/index now link the existing open #467 strictness prerequisite;
+  the complete remaining scope stays in tasks.md, not closed slice-one #319.
+  This is the decision-index gate's informational finding (0071 ruling 11),
+  not a new remote issue or an acceptance claim.
+
+No earlier-owner fault remains unanswered in this return. U0 and implementation
+proofs remain open prerequisites. If evidence makes R2 or protected evidence
+infeasible for a harness, keep it refused; never downgrade a high refusal
+finding to an informational gate result.
 
 ## Risks / Trade-offs
 
@@ -644,8 +685,9 @@ are settled through the same journal/cleanup path, not left detached.
 
 ## Open Questions
 
-Upstream review of the council's owning-spec repairs and operator acceptance
-remain required. The technical unknowns are measurements and external results: which of D2's named candidates
+The council's owning-spec repairs have been reviewed in this specify return;
+operator acceptance remains required. The technical unknowns are measurements
+and external results: which of D2's named candidates
 qualifies each installed harness/shape; exact observed call identifiers; and
 host/CI evidence on each final unit head. Their failure outcome is already
 specified as refusal/pending. No unmeasured flag, config-precedence choice,
@@ -1055,7 +1097,7 @@ Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
 Define and consume the shared closed ledger variants and durable writer, with exclusive single plan lifetime, contiguous record/call sequences and reserved terminal/closure capacity. Local refusals also have private Started/Terminal.
 
 Closes tasks 29.1 and 29.2; requirements [CR3](specs/capability-response-retention/spec.md), [CC2](specs/capability-call-checkpoints/spec.md).
-Proof: Missing/duplicate Opened, Terminal-before-Started, post-Closed records, missing closure, restart of the same plan and each write/sync failure take exact variants; no journal writer.
+Proof: Missing/duplicate Opened, Terminal-before-Started, post-Closed records, missing closure, restart of the same plan and each write/sync failure take exact variants; no journal writer. At 4,096 calls the next frame stays unread; durable local refusals each have one Started/Terminal pair, and failed Started persistence admits neither forwarding nor successful completion.
 
 Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
 
@@ -1063,8 +1105,8 @@ Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
 
 Implement the bounded filtered protocol with private Started/Terminal records. Correlate typed response IDs to method/session state, fix absolute deadlines and bound non-response traffic. Public serving remains closed until U6f; no unsafe intermediate proxy.
 
-Closes tasks 30.1 and 30.2; requirements [MB3](specs/mcp-capability-broker/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [CR3](specs/capability-response-retention/spec.md).
-Proof: Allow/deny/catalog/version/method controls; wrong-type/late/duplicate/phase IDs, endless progress, cancellation, concurrent calls and persistence failures never forward an unrecorded or uncertain retry.
+Closes tasks 30.1 and 30.2; requirements [MB3](specs/mcp-capability-broker/spec.md), [CC2](specs/capability-call-checkpoints/spec.md), [CR3](specs/capability-response-retention/spec.md), [SC4](specs/slice-two-contracts/spec.md).
+Proof: Allow/deny/catalog/version/method controls; wrong-type/late/duplicate/phase IDs, endless progress, cancellation, concurrent calls and persistence failures never forward an unrecorded or uncertain retry. Invalid request shapes/vocabulary and 257-byte names refuse before acceptance; a valid 256-byte ungranted name records one exact denial without truncation.
 
 Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
 
@@ -1153,7 +1195,7 @@ Owning tests: `crates/brokkr-runtime/tests/capability_broker_launch.rs`, `crates
 
 Stage only opted-in masked bytes under the sealed disjoint attempt share; reserve 8 MiB before forwarding, charge actual durable bytes and retain completed charges through settlement. Fsync staged content before Terminal/delivery; veto never writes a body.
 
-Closes tasks 39.1 and 39.2; requirements [CR1](specs/capability-response-retention/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR3](specs/capability-response-retention/spec.md).
+Closes tasks 39.1 and 39.2; requirements [CR1](specs/capability-response-retention/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR3](specs/capability-response-retention/spec.md), [CC2](specs/capability-call-checkpoints/spec.md).
 Proof: Four retention outcomes, multi-broker/fallback exhaustion and exact-bound controls, no same-digest quota reset, stage/sync/terminal/delivery failures, and no silent metadata downgrade.
 
 Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
@@ -1172,7 +1214,7 @@ Owning tests: `crates/brokkr-runtime/tests/capability_ledger.rs`.
 After process settlement, validate the private lifecycle and project one checkpoint per accepted call through commit-confirmed fenced append. Stream from disk with bounded memory; the committed journal and full call payload determine deduplication. Bypass the lossy held-event queue.
 
 Closes tasks 41.1 and 41.2; requirements [CC2](specs/capability-call-checkpoints/spec.md), [CR3](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md).
-Proof: Journal lock across repeated attempts, exhaustion, commit-before-ack crash, duplicate/conflict/gap/partial/missing/unexpected/lifecycle faults, and interrupted calls each have exact counts/outcomes and no replay.
+Proof: Journal lock across repeated attempts, exhaustion, commit-before-ack crash, duplicate/conflict/gap/partial/missing/unexpected/lifecycle faults, and interrupted calls each have exact counts/outcomes and no replay. A capacity-ending ledger yields exactly 4,096 checkpoints and no invented 4,097th; tool/active-call/budget refusals each yield one refused checkpoint.
 
 Owning tests: `crates/brokkr-runtime/tests/capability_ledger.rs`.
 

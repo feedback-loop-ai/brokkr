@@ -157,7 +157,11 @@ request, 8 MiB per response/canonical artifact, JSON depth 64, 1,024 catalog
 tools over at most 32 pages, one forwarded call at a time per broker, 30 s
 initialize/list and 120 s per call (all also bounded by the attempt deadline).
 Cancellation grants 2 s for child settlement before existing attempt cleanup.
-An over-limit input returns "MCP request exceeds the broker limit"; catalog
+An over-limit input returns "MCP request exceeds the broker limit". A tools/call
+request with an invalid tool identifier or parameter shape refuses "MCP tool
+call request is invalid" before acceptance; the SC4 tool-name byte bound uses
+the request-limit cause. Valid bounded calls, including tool/active-call/budget
+denials, follow CC2/CR3's durable acceptance rule. Catalog
 count/page/cursor failures return "MCP tool catalog exceeds the broker limit";
 a second concurrent call returns "MCP broker already has an active call".
 Responses exceeding bounds return the response-limit cause below; no truncated
@@ -195,6 +199,7 @@ exhaustion SHALL return "MCP server response exceeds the broker limit".
 - **WHEN** a caller selects another protocol version, exceeds the request/depth bound, or calls concurrently while one call is active
 - **THEN** it receives respectively the unsupported-version, request-limit or active-call cause above, without forwarding that call
 - **AND** catalog overflow, more than 32 pages or a repeated cursor returns the catalog-limit cause; exact-limit positive controls still work
+- **AND** invalid tool vocabulary or parameter shape refuses "MCP tool call request is invalid" before acceptance; a valid bounded concurrent call has one recorded refused outcome and no child forwarding
 
 #### Scenario: Startup cannot execute a seat replacement with secrets
 
@@ -307,3 +312,10 @@ Nonempty restrictions remain inexpressible under D11, even if an MCP child
 claims to understand them. The realm's empty restriction is still the sole
 restriction authority. URL transport, native response retention and wider
 boundaries require later commissioned work, not speculative runtime code.
+
+Specify return, 2026-10-03: adopt returned MB2–MB4 repairs for separate
+secret-read isolation, protected startup inputs and typed response correlation.
+The code facts above support the security requirements; no downstream exception
+can substitute read-only mode, a version string or a matching raw request ID
+(0071 rulings 3, 8, 9). MB3 distinguishes bounded valid refusals that need
+ledger evidence from invalid request data that cannot fit SC4's identity.

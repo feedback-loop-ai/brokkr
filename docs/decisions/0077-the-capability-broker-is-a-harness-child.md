@@ -3,7 +3,7 @@
 Status: proposed
 Date: 2026-10-03
 
-Built: unbuilt — decision 0065 slice two; this visit authors documents only
+Built: unbuilt (#467) — strict MCP prerequisite; complete slice-two work is in the linked change tasks
 Amends: 0065
 
 ## Context
@@ -25,9 +25,16 @@ The commission's rulings are preserved at
 [the operator record](../../openspec/changes/decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md).
 They govern the proposed slice; this decision remains proposed for acceptance
 by the operator. The proposal, deltas, design and tasks carry exact
-admission, refusal and evidence obligations. The council visit proposes owning
-specification repairs and returns upstream for review; this revision does not
-accept this decision or certify runtime protections.
+admission, refusal and evidence obligations. The council returned owning
+specification repairs upstream in 7aa9e9ff; the specify revisit adopts those
+repairs with explicit dispositions in the deltas and design D11. This revision
+does not accept this decision or certify runtime protections.
+
+The unbuilt marker links open [#467](https://github.com/feedback-loop-ai/brokkr/issues/467),
+the strict MCP prerequisite already commissioned as U1. It does not claim that
+issue alone specifies the broker: the complete remaining work is in
+[the slice-two tasks](../../openspec/changes/decision-0065-capabilities-slice-two/tasks.md).
+Closed slice-one PR #319 is historical delivery, not this slice's open work.
 
 0077 was unclaimed in the local decision-index gap table and the six open
 pull requests checked on 2026-10-03: #404, #452, #460, #486, #494 and #500.
@@ -94,9 +101,12 @@ claimed by this document.
    refusal stay intact. Nonempty restrictions remain deferred by slice-one D11.
 
 4. **The engine alone writes capability evidence to the journal.**
-   Every broker call is recorded in a protected per-attempt ledger before
-   external forwarding, with a terminal outcome when known. The engine folds
-   and validates it against the pinned holding and existing journal state.
+   Every accepted broker call is recorded in a protected per-attempt ledger
+   before external forwarding or a local tool/budget denial, with a terminal
+   outcome when known. Durable Started defines acceptance under the change's
+   bounded request/ledger contract; unread or invalid requests gain no invented
+   checkpoint, and persistence failure blocks successful completion. The engine
+   folds and validates it against the pinned holding and existing journal state.
    After process settlement, one public checkpoint records each accepted call's
    settled outcome. Private Started/Terminal records stay private; actual
    journal commit, not a queued offer, confirms evidence. An uncertain action
