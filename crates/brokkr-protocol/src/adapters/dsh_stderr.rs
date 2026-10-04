@@ -115,6 +115,13 @@ mod tests {
             "dsh driver: dsh exited 2 with the pinned model deepseek-flash on route \
              deepseek-official\n"
         );
+        // A pin the launch grammar refuses (unreachable after pre-launch
+        // validation, so bound here) names itself whole as its route.
+        assert_eq!(
+            name_the_pin(failed(2, ""), &argv(&["--model", "dashscope/deepseek@v4"])).stderr,
+            "dsh driver: dsh exited 2 with the pinned model dashscope/deepseek@v4 on \
+             route dashscope/deepseek@v4\n"
+        );
     }
 
     #[test]
@@ -126,6 +133,12 @@ mod tests {
         );
         assert_eq!(
             name_the_pin(failed(1, "dsh: failed\n"), &[]).stderr,
+            "dsh: failed\n"
+        );
+        // A pin the grammar cannot even split (never reaches launch) adds
+        // nothing either: there is no pin to name.
+        assert_eq!(
+            name_the_pin(failed(1, "dsh: failed\n"), &argv(&["--model"])).stderr,
             "dsh: failed\n"
         );
     }
