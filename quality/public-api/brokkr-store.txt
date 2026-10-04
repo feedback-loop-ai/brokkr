@@ -31,6 +31,9 @@ pub brokkr_store::QueueRefusal::Claimed::run: alloc::string::String
 pub brokkr_store::QueueRefusal::Dropped(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::DuplicateWait(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::Held(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::LatchMoved
+pub brokkr_store::QueueRefusal::LatchMoved::entry: brokkr_store::EntryId
+pub brokkr_store::QueueRefusal::LatchMoved::standing: core::option::Option<brokkr_store::Latch>
 pub brokkr_store::QueueRefusal::NotHeld(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::PastTheEnds
 pub brokkr_store::QueueRefusal::PastTheEnds::entry: brokkr_store::EntryId
@@ -163,7 +166,7 @@ pub fn brokkr_store::Store::queue_command(&mut self, brokkr_store::EntryId, brok
 pub fn brokkr_store::Store::queue_entry(&self, brokkr_store::EntryId) -> core::result::Result<brokkr_store::QueueEntry, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_latch(&mut self, brokkr_store::EntryId, &str, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_list(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
-pub fn brokkr_store::Store::queue_repin(&mut self, brokkr_store::EntryId, &str, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_repin(&mut self, brokkr_store::EntryId, &str, core::option::Option<i64>, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 pub struct brokkr_store::Wait
 pub brokkr_store::Wait::entry: brokkr_store::EntryId
 pub brokkr_store::Wait::on: brokkr_store::WaitOn

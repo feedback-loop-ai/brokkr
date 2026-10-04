@@ -443,6 +443,73 @@ fn a_judged_drift_stays_latched_when_the_map_returns_and_a_repin_takes_only_the_
     );
 }
 
+/// #430's H2, the chief's reproduction in one process: a peer's `queue
+/// judge` between a re-pin's compare and its write is never cleared
+/// unseen. Queued under A, judged under B, the re-pin compares B; a peer
+/// judges C and the map goes back to B; the write is refused, naming C's
+/// differences, and the entry stays latched on C. A peer's re-pin in
+/// between, or a latch since that cannot be read, refuses it too.
+#[test]
+fn a_repin_refuses_a_latch_a_peer_wrote_after_it_compared() {
+    let ws = workspace();
+    map(ws.path(), json!({"boundary": "open"}));
+    let (mut store, entry) = queued(ws.path());
+    let queued_with = store.queue_entry(entry).unwrap().payload;
+    map(ws.path(), json!({"boundary": "harness"}));
+    judge(&mut store, BY).unwrap();
+    let compared = shown(&store, entry).unwrap();
+    map(ws.path(), json!({"boundary": "namespace"}));
+    judge(&mut store, BY).unwrap();
+    map(ws.path(), json!({"boundary": "harness"}));
+    let error = repin(&mut store, entry, compared, BY).unwrap_err();
+    let namespace = vec![Difference::Boundary {
+        was: Boundary::Open,
+        now: Boundary::Namespace,
+    }];
+    let AdmissionError::LatchMoved {
+        entry: at,
+        differences,
+    } = &error
+    else {
+        panic!("not the moved latch's refusal: {error:?}")
+    };
+    assert_eq!((*at, differences), (entry, &namespace));
+    assert_eq!(
+        error.to_string(),
+        "queue entry 1's latched hold changed before the re-pin was written, and nothing was \
+         re-pinned: it now records boundary open → namespace; `brokkr queue repin` compares it \
+         afresh"
+    );
+    let latched = Reason::RealmLatched {
+        realm: "b".into(),
+        differences: namespace,
+        moved: true,
+    };
+    assert_eq!(
+        verdicts(&store),
+        vec![(entry.0, Standing::Held, vec![latched])]
+    );
+    assert_eq!(store.queue_entry(entry).unwrap().payload, queued_with);
+
+    // A peer's re-pin between them: no latch stands to take.
+    map(ws.path(), json!({"boundary": "namespace"}));
+    let compared = shown(&store, entry).unwrap();
+    release(&mut store, entry, BY).unwrap();
+    let peers = store.queue_entry(entry).unwrap().payload;
+    let error = repin(&mut store, entry, compared, BY).unwrap_err();
+    assert!(matches!(error, AdmissionError::NothingLatched(at) if at == entry));
+    assert_eq!(store.queue_entry(entry).unwrap().payload, peers);
+
+    // A peer's latch this brokkr cannot read.
+    map(ws.path(), json!({"boundary": "harness"}));
+    judge(&mut store, BY).unwrap();
+    let compared = shown(&store, entry).unwrap();
+    store.queue_latch(entry, "{}", BY).unwrap();
+    let error = repin(&mut store, entry, compared, BY).unwrap_err();
+    assert!(matches!(error, AdmissionError::Latch { entry: at, .. } if at == entry));
+    assert_eq!(store.queue_entry(entry).unwrap().payload, peers);
+}
+
 /// The operator's ruling of 2026-10-04 (#430's M1): an entry queued under
 /// no map is compared like any other, and a map that names its repository
 /// since is a change of the facts that govern it.

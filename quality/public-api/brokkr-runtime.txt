@@ -11,6 +11,9 @@ pub brokkr_runtime::admission::AdmissionError::Fold::source: brokkr_core::fold::
 pub brokkr_runtime::admission::AdmissionError::Latch
 pub brokkr_runtime::admission::AdmissionError::Latch::entry: brokkr_store::queue::EntryId
 pub brokkr_runtime::admission::AdmissionError::Latch::source: serde_json::error::Error
+pub brokkr_runtime::admission::AdmissionError::LatchMoved
+pub brokkr_runtime::admission::AdmissionError::LatchMoved::differences: alloc::vec::Vec<brokkr_runtime::admission::Difference>
+pub brokkr_runtime::admission::AdmissionError::LatchMoved::entry: brokkr_store::queue::EntryId
 pub brokkr_runtime::admission::AdmissionError::MapMoved(brokkr_store::queue::EntryId)
 pub brokkr_runtime::admission::AdmissionError::NothingLatched(brokkr_store::queue::EntryId)
 pub brokkr_runtime::admission::AdmissionError::Store(brokkr_store::StoreError)

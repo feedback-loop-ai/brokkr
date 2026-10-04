@@ -21,7 +21,9 @@
 //! is held by that record, whatever the map on disk comes to, a map put
 //! back as it was queued included. Only [`release`] (`brokkr queue repin`)
 //! clears it, and only under the map the latch found: a map edited since
-//! is refused, and judged again before it is taken. Dropping the entry,
+//! is refused, and judged again before it is taken; and the re-pin is
+//! written over the latch it compared, so one a peer latched since is
+//! refused too, never cleared unseen. Dropping the entry,
 //! and queuing its launch afresh as a new one, ends it too. An entry queued
 //! under no map is
 //! compared like any other: a map that names its repository now is a
@@ -39,7 +41,10 @@ use std::path::Path;
 
 use brokkr_core::fold::{fold, FoldError, Status};
 use brokkr_core::realms::{Boundary, CapabilityGrant};
-use brokkr_store::{Attribution, EntryId, EntryState, QueueEntry, Store, StoreError, Wait, WaitOn};
+use brokkr_store::{
+    Attribution, EntryId, EntryState, Latch, QueueEntry, QueueRefusal, Store, StoreError, Wait,
+    WaitOn,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
@@ -143,14 +148,11 @@ impl fmt::Display for Reason {
                 differences,
                 moved,
             } => {
-                let found = match differences.is_empty() {
-                    true => "no difference now".to_string(),
-                    false => each(differences),
-                };
                 write!(
                     f,
                     "realm {realm} changed since queued, latched until the operator re-pins, \
-                     re-queues or drops it: {found}"
+                     re-queues or drops it: {}",
+                    found(differences)
                 )?;
                 match moved {
                     true => write!(
@@ -173,6 +175,14 @@ impl fmt::Display for Reason {
 fn each(differences: &[Difference]) -> String {
     let each: Vec<String> = differences.iter().map(ToString::to_string).collect();
     each.join("; ")
+}
+
+/// The differences a latch found, as an operator reads them in a line.
+fn found(differences: &[Difference]) -> String {
+    match differences.is_empty() {
+        true => "no difference now".to_string(),
+        false => each(differences),
+    }
 }
 
 /// One governing fact of a realm that differs between the map an entry
@@ -356,6 +366,17 @@ pub enum AdmissionError {
          `brokkr queue judge` shows and latches what differs now"
     )]
     MapMoved(EntryId),
+    /// A re-pin whose latch a peer replaced after it was compared: the
+    /// differences the latch standing now records, which nobody accepted.
+    #[error(
+        "queue entry {entry}'s latched hold changed before the re-pin was written, and nothing \
+         was re-pinned: it now records {}; `brokkr queue repin` compares it afresh",
+        found(differences)
+    )]
+    LatchMoved {
+        entry: EntryId,
+        differences: Vec<Difference>,
+    },
 }
 
 /// Judge the queue: every entry `brokkr queue list` lists, in its order,
@@ -382,12 +403,31 @@ pub fn judge(store: &mut Store, by: Attribution<'_>) -> Result<Vec<Judged>, Admi
 /// to the map that would govern it now, journaling the `repin` as `by`
 /// asks it, and say the differences accepted. Refused with no latch on
 /// the entry, and when the map that would be pinned is not the one the
-/// latch found, so a map edited since it was judged is never taken unseen.
+/// latch found, so a map edited since it was judged is never taken unseen;
+/// and refused when a peer latched again or re-pinned after it was read,
+/// so the re-pin clears only the latch it compared.
 pub fn release(
     store: &mut Store,
     entry: EntryId,
     by: Attribution<'_>,
 ) -> Result<Released, AdmissionError> {
+    let shown = shown(store, entry)?;
+    repin(store, entry, shown, by)
+}
+
+/// What a release compared before it writes: the latch standing on the
+/// entry, the pin to the map on disk that latch found, and the
+/// differences that pin accepts.
+#[derive(Debug)]
+struct Shown {
+    latch: i64,
+    payload: String,
+    differences: Vec<Difference>,
+}
+
+/// Read `entry`'s standing latch and the map on disk, and refuse unless
+/// the pin to that map is the one the latch found.
+fn shown(store: &Store, entry: EntryId) -> Result<Shown, AdmissionError> {
     let queued = store.queue_entry(entry)?;
     let latch = queued.latch.ok_or(AdmissionError::NothingLatched(entry))?;
     let finding = Finding::read(entry, &latch.finding)?;
@@ -402,8 +442,45 @@ pub fn release(
     if digest != finding.on_disk {
         return Err(AdmissionError::MapMoved(entry));
     }
-    store.queue_repin(entry, &payload, by)?;
-    Ok(Released(finding.differences))
+    Ok(Shown {
+        latch: latch.seq,
+        payload,
+        differences: finding.differences,
+    })
+}
+
+/// Write the re-pin `shown` compared, over its latch only: the store
+/// refuses it in the writing transaction when another latch stands, or
+/// none, and the refusal names what stands now.
+fn repin(
+    store: &mut Store,
+    entry: EntryId,
+    shown: Shown,
+    by: Attribution<'_>,
+) -> Result<Released, AdmissionError> {
+    match store.queue_repin(entry, &shown.payload, Some(shown.latch), by) {
+        Err(StoreError::Queue(QueueRefusal::LatchMoved { standing, .. })) => {
+            Err(latch_moved(entry, standing))
+        }
+        written => written
+            .map(|()| Released(shown.differences))
+            .map_err(AdmissionError::from),
+    }
+}
+
+/// The refusal of a re-pin whose latch a peer replaced, naming the
+/// differences the latch standing now records, or cleared.
+fn latch_moved(entry: EntryId, standing: Option<Latch>) -> AdmissionError {
+    let Some(latch) = standing else {
+        return AdmissionError::NothingLatched(entry);
+    };
+    match Finding::read(entry, &latch.finding) {
+        Ok(finding) => AdmissionError::LatchMoved {
+            entry,
+            differences: finding.differences,
+        },
+        Err(unread) => unread,
+    }
 }
 
 /// Every entry the queue lists, judged, each waiting one with the

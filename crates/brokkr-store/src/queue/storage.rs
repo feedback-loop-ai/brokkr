@@ -4,8 +4,28 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::QueueRefusal;
+use super::{Latch, QueueRefusal};
 use crate::StoreError;
+
+/// The launch an entry stands for: the one it was last re-pinned to,
+/// else the one it was queued with. A version 1 queue holds no pins.
+pub(super) const PINNED_PAYLOAD: &str = "COALESCE((SELECT pin.payload FROM queue_pins AS pin
+    WHERE pin.entry_id = queue_entries.entry_id ORDER BY pin.seq DESC LIMIT 1), payload)";
+
+/// The latch that stands on an entry: its latest, unless a re-pin came
+/// after it. [`latch_row`] reads its row.
+pub(super) const STANDING_LATCH: &str =
+    "SELECT latch.seq, latch.finding FROM queue_latches AS latch
+    WHERE latch.entry_id = ?1 AND NOT EXISTS (SELECT 1 FROM queue_pins AS pin
+        WHERE pin.entry_id = ?1 AND pin.seq > latch.seq)
+    ORDER BY latch.seq DESC LIMIT 1";
+
+pub(super) fn latch_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Latch> {
+    Ok(Latch {
+        seq: row.get(0)?,
+        finding: row.get(1)?,
+    })
+}
 
 /// The queue storage a journal records under `meta.queue_schema`, apart
 /// from `database_schema`: the queue is additive, so an older binary still
