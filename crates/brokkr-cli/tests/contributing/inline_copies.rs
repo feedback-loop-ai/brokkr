@@ -1,22 +1,19 @@
-//! The copies a linked section's prose writes inline (#450): each span that
-//! reads as a command is a command its row's leg runs, or one a table here
-//! holds with its reason.
+//! The copies a linked section's prose writes inline (#450): each span
+//! that reads as a command is a command its row's leg runs, or one a
+//! table here holds with its reason, and a span one edit from a line its
+//! row accepts is the drifted copy it reads as.
 
 use std::path::Path;
 
 use super::{links, CheckRow, Line, Link, LEG_LINES};
 
-/// Every inline code span in a linked section that reads as a command, as
-/// a whitespace-collapsed string: a span whose first word, past its
-/// `NAME=value` prefixes, is one `FIRST_WORDS` lists, alone or with
-/// arguments, or whose first word, listed or not, is passed a flag or a
-/// path, which only a command takes. So a copy of a one-word line is
-/// compared, a one-word span one edit from a line `HELD_ONE_WORD_LINES`
-/// lists is compared as the drifted copy it is, and a mistyped first word
-/// beside a flag or a path fails rather than going unread. Any other span
-/// is a name, a path, a flag or output, and is not compared. A span left
-/// open fails the test.
-fn inline_commands(check: &str, link: &Link) -> Vec<String> {
+/// Every inline code span in a linked section's prose, as a
+/// whitespace-collapsed string, whether or not it reads as a command:
+/// `inline_commands` keeps the ones that do, and `assert_inline_copies`
+/// compares every span against the lines its row accepts, so a copy that
+/// has drifted past reading as a command — the `carg` a mistyped copy of
+/// `cargo` writes — is still seen. A span left open fails the test.
+fn inline_spans(check: &str, link: &Link) -> Vec<String> {
     let prose: Vec<&str> = link.section.split("```").step_by(2).collect();
     let prose = prose.concat();
     let spans: Vec<&str> = prose.split('`').collect();
@@ -29,7 +26,28 @@ fn inline_commands(check: &str, link: &Link) -> Vec<String> {
         .into_iter()
         .skip(1)
         .step_by(2)
-        .map(|span| span.split_whitespace().collect::<Vec<_>>().join(" "))
+        .map(collapsed)
+        .collect()
+}
+
+/// `text` as one whitespace-collapsed string, the shape a span and the
+/// line it copies are compared in.
+fn collapsed(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The spans `inline_spans` reads that read as a command: a span whose
+/// first word, past its `NAME=value` prefixes, is one `FIRST_WORDS`
+/// lists, alone or with arguments, or whose first word, listed or not,
+/// is passed a flag or a path, which only a command takes. So a copy of
+/// a one-word line is compared, a one-word span one edit from a line
+/// `HELD_ONE_WORD_LINES` lists is compared as the drifted copy it is,
+/// and a mistyped first word beside a flag or a path fails rather than
+/// going unread. Any other span is a name, a path, a flag or output, and
+/// does not read as a command.
+fn inline_commands(check: &str, link: &Link) -> Vec<String> {
+    inline_spans(check, link)
+        .into_iter()
         .filter(|span| text_reads_as_command(span))
         .collect()
 }
@@ -93,10 +111,13 @@ fn first_word(word: &str) -> bool {
 /// `FIRST_WORDS` compares such a span when it is the line word for word;
 /// a span one edit from a line listed here — the `sw_verss` a mistyped
 /// copy of `sw_vers` writes, or its transposition `sw_vesr` — is compared
-/// as the drifted copy it is, rather than going unread. A line stays
-/// listed when its leg stops running it, so a prose copy the change
-/// orphans still reads as a command and fails as one, for the reason
-/// `FIRST_WORDS` states.
+/// as the drifted copy it is, rather than going unread. The list is not
+/// trusted: `assert_held_one_word_lines_current` holds it to be
+/// `LEG_LINES`'s one-word `Unwritten` lines both ways — a line a leg
+/// holds that the list misses, and an entry no leg holds any more — so a
+/// copy is compared against exactly what the legs hold when the test
+/// runs, and a stale entry is refused rather than left to read spans no
+/// line backs.
 const HELD_ONE_WORD_LINES: [&str; 5] = ["*,by-hand,*)", "esac", "fi", "sw_vers", "}"];
 
 /// Whether a one-word span's word is a line `HELD_ONE_WORD_LINES` lists,
@@ -164,6 +185,21 @@ fn one_transposition(a: &str, b: &str) -> bool {
         return false;
     };
     i + 1 < a.len() && a[i] == b[i + 1] && a[i + 1] == b[i] && a[i + 2..] == b[i + 2..]
+}
+
+/// The line `accepted` holds that `span` is one edit from, when `span`
+/// is not itself a line `accepted` holds: the copy has drifted from a
+/// command the row accepts, and is refused even where it no longer reads
+/// as a command — the `carg deny check licenses bans sources` a mistyped
+/// copy of the run line writes, or the `sw_ vers` of the held
+/// `sw_vers`. A line the row accepts is no drifted copy, however else it
+/// sits, and a span no edit from any accepted line is no drift.
+fn drifted_from<'a>(span: &str, accepted: &'a [String]) -> Option<&'a str> {
+    let lines: Vec<&str> = accepted.iter().map(String::as_str).collect();
+    if lines.contains(&span) {
+        return None;
+    }
+    lines.into_iter().find(|line| within_one_edit(line, span))
 }
 
 /// The lines `LEG_LINES` holds word for word for `check`'s leg.
@@ -277,7 +313,11 @@ fn script_commands(root: &Path, script: &str) -> Vec<String> {
 /// Every inline command a row's linked sections write is a command its
 /// leg runs, written or held, one `INLINE_ONLY` holds, or one the script
 /// `SECTION_SCRIPTS` names for the section runs: a copy in prose that
-/// drifts from its command fails here.
+/// drifts from its command fails here. And every span is compared
+/// against the lines the row accepts, read or not: a span one edit from
+/// one of them is the drifted copy it reads as — the `carg deny check
+/// licenses bans sources` a mistyped copy of the run line writes no
+/// longer reads as a command, and does not therefore go unread.
 pub(super) fn assert_inline_copies(root: &Path, row: &CheckRow, guide: &str, runs: &[String]) {
     let held = unwritten_lines(&row.check);
     for link in links(&row.check, guide, &row.command) {
@@ -286,11 +326,32 @@ pub(super) fn assert_inline_copies(root: &Path, row: &CheckRow, guide: &str, run
             .filter(|(anchor, _)| *anchor == link.anchor)
             .flat_map(|(_, script)| script_commands(root, script))
             .collect::<Vec<_>>();
-        for command in inline_commands(&row.check, &link) {
+        let accepted: Vec<String> = runs
+            .iter()
+            .map(|line| collapsed(line))
+            .chain(held.iter().map(|line| collapsed(line)))
+            .chain(script.iter().map(|line| collapsed(line)))
+            .chain(
+                INLINE_ONLY
+                    .iter()
+                    .filter(|(anchor, _)| *anchor == link.anchor)
+                    .map(|(_, command)| collapsed(command)),
+            )
+            .collect();
+        let spans = inline_spans(&row.check, &link);
+        for span in &spans {
+            if let Some(line) = drifted_from(span, &accepted) {
+                panic!(
+                    "{}'s row links #{}, whose prose writes `{span}`, one edit from `{line}`, which its row accepts: the copy has drifted",
+                    row.check, link.anchor
+                );
+            }
+        }
+        for command in spans.iter().filter(|span| text_reads_as_command(span)) {
             assert!(
-                runs.contains(&command)
+                runs.contains(command)
                     || held.contains(&command.as_str())
-                    || script.contains(&command)
+                    || script.contains(command)
                     || INLINE_ONLY.contains(&(link.anchor, command.as_str())),
                 "{}'s row links #{}, whose prose writes `{command}`, which neither its leg nor the section's script runs",
                 row.check,
@@ -323,16 +384,54 @@ pub(super) fn assert_inline_only_used(rows: &[CheckRow], guide: &str) {
 
 /// The one-word arm pinned by exact values: a word one edit from a line
 /// `HELD_ONE_WORD_LINES` lists — the insertion `sw_verss`, the deletion
-/// `sw_ver`, the transposition `sw_vesr` — reads as a command, and
-/// `tee`, `rustfmt` and `ok` are no copy of anything held and stay
-/// names. A change that stops reading a drifted copy, or reads a name as
-/// one, fails here rather than leaving a copy in the guide unread.
+/// `sw_ver`, the substitution `sw_vars`, the transposition `sw_vesr` —
+/// reads as a command, and `tee`, `rustfmt` and `ok` are no copy of
+/// anything held and stay names. A change that stops reading a drifted
+/// copy, or reads a name as one, fails here rather than leaving a copy
+/// in the guide unread.
 #[test]
 fn a_drifted_copy_of_a_held_line_reads_as_a_command() {
     assert!(text_reads_as_command("sw_verss"));
     assert!(text_reads_as_command("sw_ver"));
+    assert!(text_reads_as_command("sw_vars"));
     assert!(text_reads_as_command("sw_vesr"));
     assert!(!text_reads_as_command("tee"));
     assert!(!text_reads_as_command("rustfmt"));
     assert!(!text_reads_as_command("ok"));
+}
+
+/// The drift arm pinned by exact values: a span one edit from a line its
+/// row accepts is the drifted copy it reads as, read or not — the
+/// mistyped `carg` and the transposed `crago` of the run line `cargo
+/// deny check licenses bans sources`, and the space-swallowed `sw_ vers`
+/// of the held `sw_vers` — while the line itself, and `tee` and
+/// `rustfmt`, no edit from anything accepted, are no drift. A change
+/// that stops reading a drifted copy fails here rather than leaving a
+/// copy in the guide unread.
+#[test]
+fn a_span_one_edit_from_an_accepted_line_is_its_drifted_copy() {
+    let accepted = vec![
+        "cargo deny check licenses bans sources".to_string(),
+        "sw_vers".to_string(),
+        "sw_verss".to_string(),
+    ];
+    assert_eq!(
+        drifted_from("carg deny check licenses bans sources", &accepted),
+        Some("cargo deny check licenses bans sources")
+    );
+    assert_eq!(
+        drifted_from("crago deny check licenses bans sources", &accepted),
+        Some("cargo deny check licenses bans sources")
+    );
+    assert_eq!(drifted_from("sw_ vers", &accepted), Some("sw_vers"));
+    assert_eq!(
+        drifted_from("cargo deny check licenses bans sources", &accepted),
+        None
+    );
+    // The line itself is no drift, however else it sits: `sw_vers` is a
+    // line `accepted` holds, though `sw_verss` held beside it is one edit
+    // from it.
+    assert_eq!(drifted_from("sw_vers", &accepted), None);
+    assert_eq!(drifted_from("tee", &accepted), None);
+    assert_eq!(drifted_from("rustfmt", &accepted), None);
 }
