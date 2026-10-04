@@ -122,8 +122,10 @@ Dependencies: U1f2. Files and scope: [design.md](design.md#u1g--seal-and-enforce
 
 Dependencies: none; independent objective. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 9.1 (U2; [SC5](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Extract kind-specific binding projection and replace the indexed native binding and doctor expect with exhaustive typed outcomes. Native behavior and the public MCP fence stay unchanged. Verify: Direct non-native seam fixtures prove both panic sites fixed; native controls and the old compile refusal are exact.
-- [ ] 9.2 (U2; [SC5](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 9.1. Apply the shared verification duty above.
+- [x] 9.1 (U2; [SC5](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Extract kind-specific binding projection and replace the indexed native binding and doctor expect with exhaustive typed outcomes. Native behavior and the public MCP fence stay unchanged. Verify: Direct non-native seam fixtures prove both panic sites fixed; native controls and the old compile refusal are exact.
+  Evidence ([evidence.md](evidence.md#u2-implementation-evidence-tasks-9192)): `capabilities/binding.rs` projects the binding by kind (`Unbound::{Mcp, Hands, Missing}`). The resolver's two index sites and doctor's `expect` became typed outcomes. Three new tests use direct seam fixtures, and six compiling mutations each fail an intended assertion and were restored. The fence tests are unedited and pass.
+- [x] 9.2 (U2; [SC5](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 9.1. Apply the shared verification duty above.
+  Evidence ([evidence.md](evidence.md#u2-implementation-evidence-tasks-9192)): run `ca7233a6` applied M1–M6 again, and each fails its recorded assertion in `capabilities/tests.rs`'s child module or `doctor/capability_tests.rs`. After the restore, both suites pass. Typos, the files, clones and API ratchets, the budget measure and the crate suites all pass. The public-API raise is ruled. Exact coverage and remote CI are pending.
 
 ## 10. U3a — Apply gate classes
 

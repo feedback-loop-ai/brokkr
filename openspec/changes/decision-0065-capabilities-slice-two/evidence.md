@@ -749,3 +749,163 @@ CI's required jobs re-check them on push.
 - `bash scripts/coverage-exact.sh` and the cyclomatic ratchet on its LCOV are
   pending for a capable host or CI. They are not passed.
 - Remote Linux and macOS CI is pending.
+
+## U2 implementation evidence (tasks 9.1–9.2)
+
+Run `0065-slice-two-unit-u2-see-the-u-5afffdf6` wrote this unit on 2026-10-04,
+on branch `s2/U2`, cut from main at `e58dc071`, and stopped before verify
+because its seat could not run `typos`, the ratchets or the budget measure.
+Run `0065-slice-two-unit-u2-see-the-u-ca7233a6` reviewed the same tree,
+uncommitted on `e58dc071`, changed no production or test line, and observed
+every result below on it again. The mutations were applied to that tree and
+restored before the commit.
+After CI on PR #530 refused MSRV 1.88's E0716 at doctor's closure and
+`Authority::holding`'s CC 18 over its baseline 17, the controller moved
+`holding`'s inventory lookup into `native_serving` and had doctor bind its
+own `(provider, key)` (dd61af5b), and run `0065-slice-two-unit-u2-see-the-u-c346e208`
+re-ran the table below on that tree over main `4f56f251`, where `holding`
+measures CC 16 and M2, M3 and M5 fail as recorded, at `capabilities.rs:1614`
+and `doctor.rs:1115` for the two panics.
+
+### What changed
+
+- Production stays in the row's three files.
+  - `capabilities/binding.rs` (new, 106 lines) is the one home of the binding.
+    It projects a grant's binding from its dialect's kind, with one arm per
+    kind and no wildcard: `bound(realm, capability, dialect)`.
+    `Unbound::{Mcp, Hands, Missing}` (`thiserror`) is the typed reason a
+    grant binds no native provider. Its `Mcp` and `Hands` texts are the
+    compile fence's old words, byte for byte. `Authority::dialect` returns
+    `Missing` where no dialect was loaded. `Authority::binding` now returns
+    `Result<Native<'_>, Unbound>`, where `Native { dialect, provider,
+    adapter_key }` replaces `Option<(&str, &str)>`.
+  - `capabilities.rs` drops the private `bindings` map, which restated the
+    dialect's kind (0071 ruling 5). `Authority::load`'s fence is now
+    `bound(..)?` for every loaded dialect, used by a seat or not, so the old
+    MCP and hands refusals are unchanged. `holding` reads its dialect through
+    `Authority::dialect`. A missing one becomes `Cause::Incompatible` through
+    the grant's dialect name, where it used to index `self.dialects[..]`. It
+    reads the binding through `bound` after GP1, and a non-native kind
+    becomes `Cause::Incompatible` with the `Unbound` text, where it used to
+    index `self.bindings[..]`. The file shrinks from 2,363 to 2,337 lines.
+  - `doctor.rs` moves the per-grant line out of `report_capabilities` into
+    `report_grant(report, what, (capability, grant), alone, adapters,
+    plan)`. That function is the direct seam. It reads `Authority::binding`
+    and reports a failing `MISSING` line with the binding's own words, where
+    the code used to `expect` "a grant that loaded is bound to a provider".
+    The `wants` and `office` closures became the free functions `wants` and
+    `grant_office`, which both loops use. The `unread` set folded into
+    `read: BTreeMap<&str, Option<(provider, key)>>`, where `None` means the
+    grant's line failed. Two function-local imports moved to the module. The
+    file stays at its 1,572-line baseline. `report_capabilities` falls from
+    254 to 184 lines and keeps its baseline `too_many_lines` and
+    `excessive_nesting` expectations (clippy `-D warnings` passes, so both
+    are still fulfilled).
+- No compile bypass: production builds an `Authority` only through `load`
+  and `nothing`. The seam fixtures build theirs in test code, from the
+  existing public fields.
+- Public API: `quality/public-api/brokkr-runtime.txt` gains `Unbound` (12
+  lines) and `Native` (4 lines), and `Authority::binding` changes its return
+  type. The first visit's note that its regenerated snapshot "differs only in
+  the provenance header" was wrong: against main the snapshot adds `Unbound`
+  and `Native` and changes `Authority::binding`'s return type, 1,398 to 1,415
+  items (1,432 to 1,449 over main `4f56f251`, the same 17), a raise the
+  operator ruled on 2026-10-04.
+- Tests:
+  - `capabilities/tests/binding.rs` (new child module, 115 lines, 2 tests).
+    The parent's `mod binding;` line is offset by rewrapping
+    `provider_compatibility_drops_a_want…`'s doc comment, so
+    `capabilities/tests.rs` goes from 2,160 to 2,159 lines.
+  - `doctor/capability_tests.rs` gains one test, going from 1,910 to 1,975
+    lines (ceiling 2,000).
+  - `agents/tests.rs` and `bundle/agent_tests.rs` are unchanged. The row
+    allows them but needed no edit.
+
+### Scenarios to tests
+
+- Non-native grant at the resolver seam:
+  `an_mcp_grant_at_the_resolver_is_a_typed_refusal_and_never_a_native_binding`.
+  The fixture is a structurally valid `library-docs` grant through the `mcp`
+  dialect `docs-mcp`, inserted past the fence beside the native
+  `web-search`. Its checks:
+  - `binding` is exactly `Unbound::Mcp { realm, capability, dialect }`;
+  - the native control is exactly `Native { &dialects["web-search"],
+    "test-native", "web-search" }`;
+  - `requires` refuses with the whole incompatible form carrying the MCP
+    cause;
+  - `wants` drops with its whole notice ("no native denial is claimed"),
+    while the native want is held with `--search-on`.
+- Missing binding: `a_missing_binding_is_a_typed_refusal_and_never_a_panic`.
+  `binding` is exactly `Unbound::Missing`. `requires` and `wants` give their
+  whole forms, and the native power stays OFF (`--search-off`).
+- Doctor seam:
+  `a_grant_line_reads_its_binding_by_kind_and_assumes_no_native_provider`.
+  `report_grant` is given an `mcp` authority built past the fence, a native
+  authority with its dialect removed, and the loaded native authority. The
+  first two return `None`, the third returns `Some(("codex", "web-search"))`.
+  `healthy` is false, and the three lines are exact: the MCP `MISSING` line,
+  the missing-binding `MISSING` line, and the native `ok` line.
+- The old compile refusal is unchanged and still pinned by
+  `an_mcp_grant_refuses_until_slice_two_even_unused_and_a_hands_grant_is_reserved`
+  (absent and `[]` offices, the reserved hands grant) and, in doctor, by
+  `an_unbuilt_or_invalid_grant_is_one_failing_line_and_the_rest_still_prints`
+  and `a_failing_grant_takes_no_neighbour_with_it_and_fabricates_no_denial`.
+  All three pass unedited.
+
+### Mutations
+
+Each mutation was compiled and run with
+`cargo test -p brokkr-runtime --all-features --locked --lib capabilities::tests`
+and, where marked, with
+`cargo test -p brokkr-cli --all-features --locked --lib a_grant_line_reads`.
+Each was then restored.
+
+| # | Compiling mutation | Failing tests (assertion line) |
+| --- | --- | --- |
+| M1 | `bound`'s `Mcp` arm returns `Ok(("", ""))` (empty-provider fallback) | `an_mcp_grant_at_the_resolver…` (binding.rs:40); doctor seam (capability_tests.rs:943, left `Some(("", ""))`, right `None`); the fence's own `an_mcp_grant_refuses…` (tests.rs:73) and `the_gate_check_reads…` (gate_class.rs:164) |
+| M2 | `holding` substitutes a native binding: `bound(..).unwrap_or((provider, capability))` | `an_mcp_grant_at_the_resolver…` (binding.rs:58): left "…but provider 'test-native' declares no native capability 'library-docs' serving it…", right the MCP cause; 41 others pass |
+| M3 | `holding` indexes again: `let dialect = &self.dialects[capability]` | `a_missing_binding…` panics "no entry found for key" at capabilities.rs:1587, inside the `requires` call of binding.rs:95 (its binding assertion at :86 passed first) |
+| M4 | `Authority::binding` indexes: `&self.dialects[capability]` | `a_missing_binding…` panics "no entry found for key" at binding.rs:98, from its first assertion (:86); doctor seam panics at the same site (marked run) |
+| M5 | doctor restores the expect: `Ok(native.expect("a grant that loaded is bound to a provider"))` | doctor seam panics at doctor.rs:1110: "a grant that loaded is bound to a provider: Mcp { realm: \"private\", capability: \"library-docs\", dialect: \"docs-mcp\" }" (marked run) |
+| M6 | doctor reports the failing line `ok` instead of `missing` | doctor seam fails `assert!(!report.healthy)` (capability_tests.rs:947) (marked run) |
+
+M1 and M4 remove behaviour under both seams. M2 and M3 bind the resolver's
+two former index sites, M5 the doctor's former `expect`, and M6 its failing
+line. The second visit applied all six again with the Edit tool and got the
+same failing tests at the same lines and with the same messages as the table.
+After restoring them, `git diff -- crates/` was empty, the capabilities
+filter passed 42 of 42 and `--lib doctor::` passed 77 of 77.
+
+### Gates observed
+
+The third visit ran every gate below on the tree this section's commit
+carries, and each result is what that run printed.
+
+| Gate | Observed on the U2 tree |
+| --- | --- |
+| Format and clippy (`-D warnings`, all targets and features) | No diff and no warning. `report_capabilities` still fulfils its baseline `too_many_lines` and `excessive_nesting` expectations. |
+| `brokkr-runtime`, all test binaries | 27 binaries `ok`: lib 740, `capability_launch` 68, `budgets` 4, `witness_digests` 6 unblessed, so no witness or compose pin moved and none needed to. |
+| `brokkr-cli`, every binary | All `ok`: lib 627 (1 ignored), with `suppressions` (no count moved), `ratchets`, `layering` and the three heap tests. |
+| The other workspace crates | Every result `ok`, none FAILED. |
+| `compile --bundle bundles/self` | Compiles. |
+| `openspec validate --all --strict` | 20 passed, 0 failed. |
+| `typos --hidden` | No finding. |
+| `quality/ratchet.sh files`, `clones`, `api` | "file size holds", "duplication holds", "public API holds". |
+| `quality/ratchet.sh baselines origin/main` | Refuses one raise, `public-api/brokkr-runtime.txt` 1,432 to 1,449 items. The operator ruled it on 2026-10-04, and the pull request carries the Ruling line. |
+| `scripts/measure-budgets.sh` | 101 prompt sites, 327 packages, heap peaks unchanged. Nothing U2 moved needs a new budget (see below). |
+| `too_many_lines`, re-measured as measure.sh's step 5 does | Touched entries equal the committed listing: `report_capabilities` 184 at `doctor.rs:875` (was 254 at `:868`), `native_plan` 256 at `capabilities.rs:1869` (was `:1895`), and test entries 115 at `capability_tests.rs:1328` and 102 at `capabilities/tests.rs:627` and `:1732`. `report_grant`, `bound` and the new tests are under 100 lines. |
+| File lines (`wc -l`) | `capabilities.rs` 2,337 (was 2,363), `binding.rs` 106 (new), `doctor.rs` 1,572 (its baseline), `capability_tests.rs` 1,975 (ceiling 2,000), `capabilities/tests.rs` 2,159 (was 2,160), `tests/binding.rs` 115 (new). |
+
+The budget measure rewrote three files that U2 does not touch, so the second
+visit restored them. Its dates moved, and 52 review, judge and author prompt
+sites measured 13 bytes under their budgets. U2 changes no prompt input,
+which makes that 13-byte gap an earlier change on main, left for a later
+re-measure. Step 5 also places untouched entries (`init.rs`, `cli/src/tests.rs`,
+`bundle/tests.rs`) a few lines from their committed lines. That drift is also
+main's, and U2 leaves it.
+
+### Pending
+
+`bash scripts/coverage-exact.sh`, the cyclomatic ratchet on its LCOV, and
+remote Linux and macOS CI are pending for a capable host or CI. None of them
+has passed.
