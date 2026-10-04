@@ -36,7 +36,7 @@
  101 crates/brokkr-runtime/src/bundle.rs:7416 walk_files
  101 crates/brokkr-runtime/src/bundle/compose.rs:234 read_layers
  368 crates/brokkr-runtime/src/bundle/compose.rs:807 merge_layer
- 256 crates/brokkr-runtime/src/capabilities.rs:1641 native_plan
+ 256 crates/brokkr-runtime/src/capabilities.rs:1640 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:320 check
  159 crates/brokkr-runtime/src/engine.rs:1097 seat_input
  150 crates/brokkr-runtime/src/engine.rs:1311 execute

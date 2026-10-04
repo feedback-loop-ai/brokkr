@@ -245,8 +245,8 @@ Dependencies: U2, U5c; same PR as groups 20 and 21, not a second merge. Files an
 
 Dependencies: U5a. Split from group 24 by operator ruling of 2026-10-04. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 24.3 (U5a2; [MB4](specs/mcp-capability-broker/spec.md)) Carry the bundle's parsed binding minimum into capability resolution and judge each MCP dialect's typed egress against it before carriage; requires refuses and wants drops with MB4's exact below-minimum cause, natives and the MCP compile fence unchanged. Verify: Below/at/above each minimum for requires and wants, absent minimum, native and fenced controls.
-- [ ] 24.4 (U5a2; [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 24.3. Apply the shared verification duty above.
+- [x] 24.3 (U5a2; [MB4](specs/mcp-capability-broker/spec.md)) Carry the bundle's parsed binding minimum into capability resolution and judge each MCP dialect's typed egress against it before carriage; requires refuses and wants drops with MB4's exact below-minimum cause, natives and the MCP compile fence unchanged. Verify: Below/at/above each minimum for requires and wants, absent minimum, native and fenced controls.
+- [x] 24.4 (U5a2; [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 24.3. Apply the shared verification duty above.
 
 ## 25. U5f — Publish manifest v12 with its live native consumer
 
