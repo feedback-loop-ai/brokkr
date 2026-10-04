@@ -12,6 +12,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value};
 
+use super::forms::Origin;
 use super::{claude, claude_log, codex, codex_log, dsh, Fault, Lines};
 use crate::probe::plan::PROMPT;
 
@@ -35,11 +36,12 @@ impl fmt::Display for Harness {
 
 impl Harness {
     /// How the harness's stdout is read: claude and codex print events,
-    /// and dsh's headless profile prints its final message as text.
+    /// and dsh's headless profile prints its final message as text, the
+    /// turn's answer.
     pub(super) fn stdout(self) -> Lines {
         match self {
             Harness::Claude | Harness::Codex => Lines::Events,
-            Harness::Dsh => Lines::Text,
+            Harness::Dsh => Lines::Text(Origin::Answer),
         }
     }
 
@@ -63,20 +65,26 @@ impl Harness {
         }
     }
 
-    /// One line of text, read whole against the harness's forms; `None`
-    /// when it is none of them.
+    /// One line of text, not the turn's answer, read whole against the
+    /// harness's forms; `None` when it is none of them.
     pub(super) fn text(self, line: &str) -> Option<Vec<Said>> {
-        self.text_in(line, &mut Block::Plain)
+        self.text_in(line, Origin::Aside, &mut Block::Plain)
     }
 
-    /// One line of text in a stream whose earlier lines left it in
-    /// `block`: only dsh opens one, its reasoning, whose lines are read as
-    /// the model's thinking unless a form reads them whole.
-    pub(super) fn text_in(self, line: &str, block: &mut Block) -> Option<Vec<Said>> {
+    /// One line of text from `origin`, in a stream whose earlier lines
+    /// left it in `block`: only dsh opens one, its reasoning, whose line
+    /// is read as the model's thinking unless a form reads it whole. Only
+    /// dsh prints its answer as text.
+    pub(super) fn text_in(
+        self,
+        line: &str,
+        origin: Origin,
+        block: &mut Block,
+    ) -> Option<Vec<Said>> {
         match self {
             Harness::Claude => claude::text(line),
-            Harness::Codex => codex::text(line),
-            Harness::Dsh => dsh::text(line, block),
+            Harness::Codex => codex::text(line, Origin::Aside),
+            Harness::Dsh => dsh::text(line, origin, block),
         }
     }
 
@@ -92,7 +100,7 @@ impl Harness {
 }
 
 /// Where a stream of text stands: in no block, or in dsh's reasoning,
-/// which runs from its header to the stream's end.
+/// which holds the one line after its header.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Block {
     Plain,

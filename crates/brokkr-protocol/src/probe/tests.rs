@@ -15,6 +15,7 @@ use crate::process::in_its_own_engine;
 use crate::secret;
 
 mod answered;
+mod compressed;
 mod evidence;
 #[path = "../../../../tests/support/executable.rs"]
 mod executable;

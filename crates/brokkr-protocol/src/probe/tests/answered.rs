@@ -285,6 +285,215 @@ fn transcript_rows() -> Vec<Row> {
 
 const CLAUDE_PLAIN_LOG: &str = include_str!("../measure/streams/claude-plain.jsonl");
 
+/// A hook's response, its `key` holding the reply, then an init event
+/// listing `tools` and `servers`; the turn exits 0 there, unanswered,
+/// unless `answers`.
+fn hook_reply(key: &str, tools: &str, servers: &str, answers: bool) -> String {
+    let hook = format!(
+        r#"{{"type":"system","subtype":"hook_response","session_id":"{CLAUDE_SESSION}","hook_id":"11111111-2222-3333-4444-555555555555","hook_name":"SessionStart:startup","hook_event":"SessionStart","uuid":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","{key}":"PROBE-OK"}}"#
+    );
+    let shown = format!("tools='{tools}'; servers='{servers}'; printf '%s\\n' '{hook}'");
+    if answers {
+        shown
+    } else {
+        format!("{shown}; {}; exit 0", init_only(tools, servers))
+    }
+}
+
+/// An init event listing `tools` and `servers`, printed alone.
+fn init_only(tools: &str, servers: &str) -> String {
+    format!(
+        r#"printf '{{"type":"system","subtype":"init","session_id":"{CLAUDE_SESSION}","tools":[%s],"mcp_servers":[%s]}}\n' '{tools}' '{servers}'"#
+    )
+}
+
+const BROKKR: &str = r#"{"name":"brokkr","status":"connected"}"#;
+
+/// `shell` on the OFF turn alone, the plain turn listing `tools`.
+fn on_off(tools: &str, shell: &str) -> String {
+    format!(r#"tools='{tools}'; case " $* " in *" --disallowedTools "*) {shell} ;; esac"#)
+}
+
+/// `shell` on the plain turn alone.
+fn on_plain(shell: &str) -> String {
+    format!(r#"{PLAIN_WEB}; case " $* " in *" --disallowedTools "*) ;; *) {shell} ;; esac"#)
+}
+
+/// A boxed turn listing no tool beside the hands server, its result
+/// carrying `extra`.
+fn boxed_result(extra: &str) -> String {
+    format!(
+        r#"tools=''; servers='{BROKKR}'; {}"#,
+        later(&[&format!(
+            r#"{{"type":"result","subtype":"success","is_error":false,"result":"PROBE-OK"{extra}}}"#
+        )])
+    )
+}
+
+const SPAWNED: &str = r#","subagent_stats":{"spawned":@N@,"requested":{"background":0,"foreground":@N@,"unset":0},"started_in_background":0,"max_depth":1,"spawned_by_subagents":0,"completed":@N@,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}}"#;
+
+/// A row: `turns` the shells of its plain turn and of its boxed one.
+fn row(shape: &'static str, turns: (String, String), fact: &'static str, expected: Value) -> Row {
+    let (plain, boxed) = turns;
+    Row {
+        shape,
+        plain,
+        boxed,
+        fact,
+        expected,
+    }
+}
+
+/// The turns of a row whose plain turn lists the network tools and whose
+/// boxed turn runs `boxed`.
+fn in_box(boxed: String) -> (String, String) {
+    (PLAIN_WEB.to_string(), boxed)
+}
+
+/// The turns of a row whose plain turn runs `plain` and whose boxed turn
+/// is the clean one.
+fn out_of_box(plain: String) -> (String, String) {
+    (plain, BOXED_CLEAN.to_string())
+}
+
+const BASH: &str = r#""Bash""#;
+
+/// The chief's rows on 8316ad4d for finding 1, each beside its control:
+/// only the turn's own answer is its reply, on each of the three turns.
+fn reply_origins() -> Vec<Row> {
+    let unanswered = |turn: &str, tools: &str, servers: &str| {
+        format!(
+            r#"{turn} exited 0, but no line of its stdout or a transcript is the reply PROBE-OK: exit 0: {{"type":"system","subtype":"init","session_id":"{CLAUDE_SESSION}","tools":[{tools}],"mcp_servers":[{servers}]}}"#
+        )
+    };
+    let in_the_box = unanswered("the boxed turn", "", BROKKR);
+    let headless = unanswered("the headless turn", BASH, "");
+    let off_turn = unanswered("the turn under the declared OFF controls", BASH, "");
+    let (bash, web) = (BASH, r#""Bash","WebSearch","WebFetch""#);
+    vec![
+        row(
+            "f1-hook-reply: a hook's stdout is the reply on a boxed turn that never answered",
+            in_box(hook_reply("stdout", "", BROKKR, false)),
+            "boxed_tools",
+            boxed_unread(&in_the_box),
+        ),
+        row(
+            "f1-no-hook: its control, the hook removed",
+            in_box(format!("{}; exit 0", init_only("", BROKKR))),
+            "boxed_tools",
+            boxed_unread(&in_the_box),
+        ),
+        row(
+            "m3: a hook's output is the reply on a plain turn that never answered",
+            out_of_box(on_plain(&hook_reply("output", bash, "", false))),
+            "tools",
+            json!({
+                "fact": unmeasured(&headless),
+                "eligibility": {
+                    "verdict": "refused",
+                    "reason": format!(
+                        "its user-scope configuration is not shown to be isolated: {headless}"
+                    ),
+                },
+            }),
+        ),
+        row(
+            "m3 control: the same hook, and the turn answers",
+            out_of_box(on_plain(&hook_reply("output", bash, "", true))),
+            "tools",
+            boxed_beside(measured(
+                json!(["Bash"]),
+                "the system/init event on line 2 of stdout listed tools: 1",
+            )),
+        ),
+        row(
+            "m4: a hook's stderr is the reply on the OFF turn that never answered",
+            out_of_box(on_off(web, &hook_reply("stderr", bash, "", false))),
+            "user_mcp_off",
+            json!({
+                "fact": unmeasured(&off_turn),
+                "eligibility": {
+                    "verdict": "boxed-only",
+                    "reason": format!(
+                        "its own tools switch off and the hands MCP server connects, but its \
+                         turn under the declared OFF controls, the launch a seat granted nothing \
+                         uses, is not shown to keep another MCP server out (#467): {off_turn}, \
+                         so it may hold boxed offices only"
+                    ),
+                },
+            }),
+        ),
+        row(
+            "m4 control: the same hook, and the turn answers",
+            out_of_box(on_off(web, &hook_reply("stderr", bash, "", true))),
+            "user_mcp_off",
+            boxed_beside(measured(
+                json!(false),
+                "the system/init event on line 2 of stdout listed mcp_servers: 0",
+            )),
+        ),
+    ]
+}
+
+/// The chief's rows on 8316ad4d for findings 2 and 6, each beside its
+/// control: an OFF turn not read leaves egress_off so, and a subagent
+/// spawned or more than one turn taken is a tool run.
+fn early_returns() -> Vec<Row> {
+    let ran = |at: &str| {
+        let ran = format!(
+            "the turn's tools listed none, but the result/success event on line 2 of stdout ran \
+             a tool at {at}"
+        );
+        let servers = "the system/init event on line 1 of stdout listed mcp_servers: 1";
+        unboxed(unmeasured(&ran), &ran, servers)
+    };
+    let searched = r#"later='{"type":"result","subtype":"success","usage":{"server_tool_use":{"web_search_requests":1,"web_fetch_requests":0}}}'"#;
+    let off_unread = "the turn under the declared OFF controls was not read: the turn's tools \
+                      listed Bash, but the result/success event on line 2 of stdout ran \
+                      WebSearch at /usage/server_tool_use/web_search_requests";
+    let none_spawned = format!(r#"{},"num_turns":1"#, SPAWNED.replace("@N@", "0"));
+    let bash = BASH;
+    vec![
+        row(
+            "f2-off-search-plain-empty: a search counted on the OFF turn, the plain turn listing \
+             no egress",
+            out_of_box(on_off(bash, searched)),
+            "egress_off",
+            boxed_beside(unmeasured(off_unread)),
+        ),
+        row(
+            "f2-control-plain-empty: its control, no search counted",
+            out_of_box(on_off(bash, ":")),
+            "egress_off",
+            boxed_beside(measured(
+                json!(true),
+                "the plain turn listed no native egress tool",
+            )),
+        ),
+        row(
+            "m1: a subagent spawned on a boxed turn that listed no tool",
+            in_box(boxed_result(&SPAWNED.replace("@N@", "1"))),
+            "boxed_tools",
+            ran("/subagent_stats/spawned"),
+        ),
+        row(
+            "m2: three turns taken on a boxed turn that listed no tool",
+            in_box(boxed_result(r#","num_turns":3"#)),
+            "boxed_tools",
+            ran("/num_turns"),
+        ),
+        row(
+            "m1 and m2 control: none spawned, one turn taken",
+            in_box(boxed_result(&none_spawned)),
+            "boxed_tools",
+            boxed_beside(measured(
+                json!([]),
+                "the system/init event on line 1 of stdout listed tools: 0",
+            )),
+        ),
+    ]
+}
+
 /// A clean exit is not an answer (#484): a turn holding a refusal of any
 /// class on any stream, or no reply on its stdout or a transcript, is
 /// unread, its stderr's reply not being one, and says why.
@@ -360,6 +569,74 @@ fn dsh_s_recorded_plain_turn_is_read_whole_and_names_its_model() {
     );
 }
 
+/// The chief's f3-stderr-only-exit0 on 8316ad4d, beside its control
+/// f3-stderr-with-init-exit0: a boxed turn that exits 0 printing only the
+/// CLI's refusal of a hands flag, no event and no transcript, is the CLI
+/// refusing the hands argv, as it is beside an event.
+#[test]
+fn a_hands_flag_refused_by_a_turn_printing_no_event_is_unsupported() {
+    let init = r#"{"type":"system","subtype":"init","tools":["Bash"],"mcp_servers":[]}"#;
+    let refused = "error: unknown option '--strict-mcp-config'";
+    let plan = plan::plan(AdapterKind::Claude, &claude_declared()).unwrap();
+    let boxed_tools = |stdout: &str| {
+        let observed = Observed {
+            boxed: Trial::Observed(observation(Some(0), stdout, refused)),
+            ..observed(observation(Some(0), &replied(init), ""))
+        };
+        measure::reading(&plan, &observed, &[]).facts.boxed_tools
+    };
+    let unsupported = Fact::Unsupported {
+        evidence: format!("the CLI refused the adapter's hands argv: exit 0: {refused}"),
+    };
+    assert_eq!(
+        [boxed_tools(""), boxed_tools(init)],
+        [unsupported.clone(), unsupported]
+    );
+}
+
+/// The chief's codex-erritem on 8316ad4d, beside its control
+/// codex-agentmsg: an error item holding the reply leaves the plain turn
+/// unread, where an agent message holding it is the turn's answer.
+#[test]
+fn a_codex_error_item_holding_the_reply_is_not_the_turn_s_answer() {
+    if !in_its_own_engine(
+        "probe::tests::answered::a_codex_error_item_holding_the_reply_is_not_the_turn_s_answer",
+    ) {
+        return;
+    }
+    let world = world();
+    let erritem = CODEX_LIKE.replace(
+        r#""type":"agent_message","text":"PROBE-OK""#,
+        r#""type":"error","message":"PROBE-OK""#,
+    );
+    let events = |name: &str, body: &str| {
+        let cli = world.fake(name, body);
+        probe(AdapterKind::Codex, &cli, &codex_declared(), &world)["facts"]["events"].clone()
+    };
+    let completed = r#"{"type":"turn.completed","usage":{"input_tokens":20,"cached_input_tokens":5,"output_tokens":3,"reasoning_output_tokens":1}}"#;
+    assert_eq!(
+        [
+            events("codex-erritem", &erritem),
+            events("codex-agentmsg", CODEX_LIKE)
+        ],
+        [
+            unmeasured(&format!(
+                "the headless turn exited 0, but no line of its stdout or a transcript is the \
+                 reply PROBE-OK: exit 0: {completed}"
+            )),
+            measured(
+                json!({
+                    "source": "stdout",
+                    "format": "ndjson",
+                    "non_json_lines": 0,
+                    "types": ["thread.started", "turn.started", "item.completed", "turn.completed"],
+                }),
+                "4 events read from stdout",
+            ),
+        ]
+    );
+}
+
 #[test]
 fn a_decoded_failure_or_tool_run_never_rests_quietly_under_a_verdict() {
     if !in_its_own_engine(
@@ -368,10 +645,16 @@ fn a_decoded_failure_or_tool_run_never_rests_quietly_under_a_verdict() {
         return;
     }
     let world = world();
-    let rows: Vec<Row> = [failed_turns(), tools_that_ran(), transcript_rows()]
-        .into_iter()
-        .flatten()
-        .collect();
+    let rows: Vec<Row> = [
+        failed_turns(),
+        tools_that_ran(),
+        transcript_rows(),
+        reply_origins(),
+        early_returns(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     let mut seen = Vec::new();
     for (index, row) in rows.iter().enumerate() {
         let report = claude_report(&world, index, &row.plain, &row.boxed);

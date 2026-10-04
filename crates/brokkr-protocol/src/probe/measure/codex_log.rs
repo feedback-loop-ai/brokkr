@@ -586,11 +586,8 @@ pub(super) fn row(mut fields: Map<String, Value>) -> Result<Decoded, Fault> {
     })
 }
 
-/// A string the row carries, read whole by codex's forms.
-fn texts(text: &str) -> Result<Vec<Said>, Fault> {
-    codex::text(text).ok_or(Fault::Unrecognised)
-}
-
+/// What an event row says: the only strings it reads are the agent's,
+/// the turn's own answer (#484).
 fn event_said(event: EventMsg) -> Result<(&'static str, Vec<Said>), Fault> {
     let mut said = Vec::new();
     let label = match event {
@@ -598,7 +595,7 @@ fn event_said(event: EventMsg) -> Result<(&'static str, Vec<Said>), Fault> {
         EventMsg::ItemCompleted { item, .. } => {
             if let Item::AgentMessage { content, .. } = item {
                 for AgentText::Text { text } in &content {
-                    said.extend(texts(text)?);
+                    said.extend(codex::answer(text)?);
                 }
             }
             "event_msg/item_completed"
@@ -613,7 +610,7 @@ fn event_said(event: EventMsg) -> Result<(&'static str, Vec<Said>), Fault> {
         }
         EventMsg::TaskComplete(complete) => {
             if let Some(text) = &complete.last_agent_message {
-                said.extend(texts(text)?);
+                said.extend(codex::answer(text)?);
             }
             if complete.error.0.is_some() {
                 said.push(Said::Failed {
@@ -626,14 +623,14 @@ fn event_said(event: EventMsg) -> Result<(&'static str, Vec<Said>), Fault> {
     Ok((label, said))
 }
 
-/// A message: the assistant's text read whole, and every other role's
-/// inert.
+/// A message: the assistant's text read whole, as the turn's answer, and
+/// every other role's inert.
 fn item_said(item: ResponseItem) -> Result<Vec<Said>, Fault> {
     let ResponseItem::Message { role, content, .. } = item;
     let mut said = Vec::new();
     for part in content.iter().filter(|_| role == Role::Assistant) {
         let (Content::InputText { text } | Content::OutputText { text }) = part;
-        said.extend(texts(text)?);
+        said.extend(codex::answer(text)?);
     }
     Ok(said)
 }

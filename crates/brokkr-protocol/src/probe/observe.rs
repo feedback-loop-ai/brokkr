@@ -16,6 +16,7 @@ use std::process::{Command, Stdio};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use ruzstd::decoding::StreamingDecoder;
 use sha2::{Digest, Sha256};
 
 use super::plan::{Step, UserConfig, PROMPT};
@@ -43,8 +44,9 @@ pub(crate) struct Captured {
     pub(crate) not_utf8: Vec<usize>,
 }
 
-/// A `.jsonl` file a launch wrote under the scratch HOME, `~`-relative,
-/// how it wrote it, and the masked text of what it wrote.
+/// A `.jsonl` file, or a `.jsonl.zstd` one read decompressed, a launch
+/// wrote under the scratch HOME, `~`-relative, how it wrote it, and the
+/// masked text of what it wrote.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Transcript {
     pub(crate) path: String,
@@ -66,7 +68,8 @@ pub(crate) enum Written {
     Rewritten,
 }
 
-/// A `.jsonl` file's length and digest before a launch.
+/// A transcript's length and digest before a launch, decompressed where
+/// it is compressed.
 struct Seen {
     len: usize,
     digest: Vec<u8>,
@@ -282,7 +285,7 @@ impl Runner<'_> {
         })
     }
 
-    /// Every `.jsonl` file under the scratch HOME whose content the launch
+    /// Every transcript under the scratch HOME whose content the launch
     /// changed, by length and digest rather than by path, so a transcript
     /// an earlier launch created and this one wrote to is this one's too.
     fn written(&self, before: &BTreeMap<PathBuf, Seen>) -> Result<Vec<Transcript>, ProbeError> {
@@ -354,20 +357,81 @@ fn wait(launched: Launched, deadline: Duration) -> Result<Option<i32>, ProbeErro
     launched.end().map_err(ProbeError::Unended)
 }
 
-/// Every `.jsonl` file under `root` and its bytes. One that cannot be
-/// read refuses the probe rather than read as nothing written.
+/// Every transcript under `root` and its bytes, decompressed where it is
+/// compressed. One that cannot be read refuses the probe rather than read
+/// as nothing written, and so does a compressed one that is malformed or
+/// decompresses past [`UNPACKED_BOUND`] (#484).
 fn transcripts_under(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, ProbeError> {
-    files_under(root)?
-        .into_iter()
-        .filter(|path| path.extension() == Some(OsStr::new("jsonl")))
-        .map(|path| {
-            let bytes = io(
-                fs::read(&path),
-                "could not read a transcript under the scratch HOME",
-            )?;
-            Ok((path, bytes))
-        })
-        .collect()
+    let mut transcripts = BTreeMap::new();
+    for path in files_under(root)? {
+        let Some(packing) = packing(&path) else {
+            continue;
+        };
+        let bytes = io(
+            fs::read(&path),
+            "could not read a transcript under the scratch HOME",
+        )?;
+        let bytes = match packing {
+            Packing::Plain => bytes,
+            Packing::Zstd => {
+                let home = path.strip_prefix(root).unwrap_or(&path);
+                let what = format!(
+                    "could not decompress the transcript ~/{} under the scratch HOME",
+                    home.display()
+                );
+                io(unpacked(&bytes, UNPACKED_BOUND), &what)?
+            }
+        };
+        transcripts.insert(path, bytes);
+    }
+    Ok(transcripts)
+}
+
+/// The most a compressed transcript may decompress to: a log past it is
+/// refused, never read to its end, so a huge one is not a hang or an
+/// exhausted memory (#484).
+const UNPACKED_BOUND: u64 = 64 * 1024 * 1024;
+
+/// How a transcript is stored, by its name: a `.jsonl` file as written,
+/// or a `.jsonl.zstd` file, zstd-compressed, as dsh writes its session
+/// log, `session.v3.jsonl.zstd` (#484).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Packing {
+    Plain,
+    Zstd,
+}
+
+/// How the file at `path` is stored, when it is a transcript at all.
+pub(super) fn packing(path: &Path) -> Option<Packing> {
+    let is = |path: &Path, extension: &str| path.extension() == Some(OsStr::new(extension));
+    let stem = path.file_stem().map(Path::new);
+    let compressed = is(path, "zstd") && stem.is_some_and(|stem| is(stem, "jsonl"));
+    match (is(path, "jsonl"), compressed) {
+        (true, _) => Some(Packing::Plain),
+        (false, true) => Some(Packing::Zstd),
+        (false, false) => None,
+    }
+}
+
+/// `packed`, each zstd frame of it decompressed in turn, refused once
+/// what it decompresses to passes `bound` bytes. A frame the decoder does
+/// not read whole, a skippable frame among them, is an error, never read
+/// as nothing.
+pub(super) fn unpacked(mut packed: &[u8], bound: u64) -> std::io::Result<Vec<u8>> {
+    let mut unpacked = Vec::new();
+    while !packed.is_empty() {
+        let frame = StreamingDecoder::new(&mut packed).map_err(std::io::Error::other)?;
+        // Within the bound so far, so one byte past what it leaves.
+        let room = bound - unpacked.len() as u64 + 1;
+        frame.take(room).read_to_end(&mut unpacked)?;
+        if unpacked.len() as u64 > bound {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::FileTooLarge,
+                format!("it decompresses past {bound} bytes"),
+            ));
+        }
+    }
+    Ok(unpacked)
 }
 
 /// Every file under `root`, symlinks not followed. A directory that

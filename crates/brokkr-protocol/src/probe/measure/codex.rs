@@ -9,7 +9,7 @@
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use super::forms::{self, Form, Says};
+use super::forms::{self, Form, Origin, Says};
 use super::read::{decode, Class, Counted, Decoded, Given, Harness, Said, Uuid};
 use super::Fault;
 
@@ -81,7 +81,7 @@ enum Item {
         /// Inert: the item's own id.
         #[serde(rename = "id")]
         _id: String,
-        /// Read whole, as a refusal or a warning.
+        /// Read whole, as a refusal or a warning, never as the reply.
         message: String,
     },
 }
@@ -147,7 +147,10 @@ pub(super) fn event(fields: Map<String, Value>) -> Result<Decoded, Fault> {
         ),
         Event::TurnStarted {} => ("turn.started", Vec::new()),
         Event::ItemCompleted {
-            item: Item::AgentMessage { text, .. } | Item::Error { message: text, .. },
+            item: Item::AgentMessage { text, .. },
+        } => ("item.completed", answer(&text)?),
+        Event::ItemCompleted {
+            item: Item::Error { message: text, .. },
         } => ("item.completed", message(&text)?),
         Event::TurnCompleted { usage } => ("turn.completed", vec![usage_said(usage)]),
         Event::Error { message: text } => ("error", failed(message(&text)?, "/message")),
@@ -182,8 +185,9 @@ fn usage_said(usage: Usage) -> Said {
     )
 }
 
-/// A message an event carries, read whole: the provider's error, when it
-/// is one as JSON, by the message it holds, and otherwise as text.
+/// A message a failure or an error item carries, read whole, never as
+/// the reply: the provider's error, when it is one as JSON, by the
+/// message it holds, and otherwise as text.
 fn message(text: &str) -> Result<Vec<Said>, Fault> {
     let inner = super::strict::object(text)
         .map(|fields| decode::<ApiFailure>(Harness::Codex, fields))
@@ -191,10 +195,16 @@ fn message(text: &str) -> Result<Vec<Said>, Fault> {
     let text = inner
         .as_ref()
         .map_or(text, |failure| &failure.error.message);
-    self::text(text).ok_or(Fault::Unrecognised)
+    self::text(text, Origin::Aside).ok_or(Fault::Unrecognised)
 }
 
-/// One line of codex's text, read whole against its forms.
-pub(super) fn text(line: &str) -> Option<Vec<Said>> {
-    forms::read(line, &FORMS)
+/// The turn's own answer, an agent message's text, read whole.
+pub(super) fn answer(text: &str) -> Result<Vec<Said>, Fault> {
+    self::text(text, Origin::Answer).ok_or(Fault::Unrecognised)
+}
+
+/// One line of codex's text, from `origin`, read whole against its
+/// forms.
+pub(super) fn text(line: &str, origin: Origin) -> Option<Vec<Said>> {
+    forms::read(line, origin, &FORMS)
 }

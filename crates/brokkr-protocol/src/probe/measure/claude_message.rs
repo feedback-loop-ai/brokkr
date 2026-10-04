@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 
 use super::claude::texts;
+use super::forms::Origin;
 use super::read::{Counted, Empty, Given, Null, Said};
 use super::Fault;
 
@@ -264,7 +265,7 @@ pub(super) fn stopped(stop: Option<&Ending>, at: &'static str) -> Option<Said> {
 pub(super) fn message_said(message: Message, failed: bool) -> Result<Vec<Said>, Fault> {
     let mut said = Vec::new();
     for Block::Text { text } in message.content.iter().filter(|_| !failed) {
-        said.extend(texts(text)?);
+        said.extend(texts(text, Origin::Answer)?);
     }
     said.extend(message.model.0.map(Said::Model));
     if let Some(usage) = message.usage.0 {

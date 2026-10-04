@@ -1,7 +1,8 @@
 //! dsh's typed reader (#484). Its headless profile prints the final
 //! message as text on stdout, and its reasoning on stderr after a
 //! `dsh: reasoning:` header; its events are its session log's
-//! (`session.v3.jsonl`), decoded closed by `type`. The vocabulary is the
+//! (`session.v3.jsonl.zstd`, which `observe` decompresses), decoded
+//! closed by `type`. The vocabulary is the
 //! one the controller recorded from dsh 0.1.5-rc.1 against the operator's
 //! local model on 2026-10-04 (`streams/dsh-plain.*`, the log a skeleton:
 //! every key, number and boolean real, every private string a `<key>`
@@ -13,7 +14,7 @@ use serde::de::IgnoredAny;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use super::forms::{self, Form, Says, UNKNOWN_OPTION};
+use super::forms::{self, Form, Origin, Says, UNKNOWN_OPTION};
 use super::read::{decode, envelope, Block, Class, Counted, Decoded, Given, Harness, Prompt, Said};
 use super::Fault;
 
@@ -393,7 +394,8 @@ fn step_said(step: Step) -> Result<Vec<Said>, Fault> {
     let message = step.message.0.unwrap_or_default();
     for content in message.content.0.iter().flatten() {
         if let Content::Text { text } = content {
-            said.extend(forms::read(text, &FORMS).ok_or(Fault::Unrecognised)?);
+            let read = forms::read(text, Origin::Answer, &FORMS);
+            said.extend(read.ok_or(Fault::Unrecognised)?);
         }
     }
     said.extend(message.source.0.map(|source| Said::Model(source.model)));
@@ -414,17 +416,20 @@ fn step_said(step: Step) -> Result<Vec<Said>, Fault> {
     Ok(said)
 }
 
-/// One line of dsh's text, read whole against its forms, `block` saying
-/// whether its reasoning has opened: the header opens it, and a line in
-/// it that no form reads is the model's thinking, inert, as the reply
-/// is there, since thinking runs nothing and answers nothing.
-pub(super) fn text(line: &str, block: &mut Block) -> Option<Vec<Said>> {
+/// One line of dsh's text, from `origin`, read whole against its forms,
+/// `block` saying whether the line before it opened its reasoning: the
+/// header opens it for the one line after it, the chunk dsh prints under
+/// each header (recorded 2026-10-04), and that line, when no form reads
+/// it, is the model's thinking, inert, as the reply is there, since
+/// thinking runs nothing and answers nothing. The line after the chunk
+/// is read like any other (#484).
+pub(super) fn text(line: &str, origin: Origin, block: &mut Block) -> Option<Vec<Said>> {
     if line.trim() == REASONING {
         *block = Block::Reasoning;
         return Some(Vec::new());
     }
-    let read = forms::read(line, &FORMS);
-    match block {
+    let read = forms::read(line, origin, &FORMS);
+    match std::mem::replace(block, Block::Plain) {
         Block::Plain => read,
         Block::Reasoning => {
             let said = read.unwrap_or_default().into_iter();

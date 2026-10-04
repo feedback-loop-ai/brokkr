@@ -13,6 +13,7 @@ use std::fmt;
 use super::facts::{Counting, Events, Fact, Facts, Headless, Refusals, Session, Usage};
 use super::observe::{Captured, Observation, Transcript, Trial, Written, SCRATCH_PREFIX};
 use super::plan::Plan;
+use forms::Origin;
 use read::{Block, Counted, Harness, Said};
 
 mod answer;
@@ -97,14 +98,15 @@ impl fmt::Display for Fault {
 ///   and refuses any admitting verdict;
 /// - (ii) a line that is one JSON object is decoded as an event, like a
 ///   line of stdout, so wrapping text in JSON changes nothing;
-/// - (iii) any other line is unread unless it is blank, the reply the
-///   probe asks for, or one of the forms the reader recognises whole,
-///   and what that form says is kept.
+/// - (iii) any other line is unread unless it is blank, one of the forms
+///   the reader recognises whole, and what that form says is kept, or,
+///   in the turn's answer alone, the reply the probe asks for.
 #[derive(Clone, Copy, PartialEq)]
 enum Lines {
     Events,
     Transcript,
-    Text,
+    /// Text, from the turn's own answer, dsh's stdout, or an aside (#484).
+    Text(Origin),
 }
 
 /// The name stderr is read under.
@@ -294,13 +296,13 @@ enum Line {
 fn read_line(line: &str, reader: Reader, block: &mut Block) -> Result<Line, Fault> {
     match (strict::object(line), reader.lines) {
         (Some(fields), Lines::Transcript) => reader.harness.row(fields).map(Line::Event),
-        (Some(fields), Lines::Events | Lines::Text) => {
+        (Some(fields), Lines::Events | Lines::Text(_)) => {
             reader.harness.event(fields).map(Line::Event)
         }
         (None, Lines::Events | Lines::Transcript) => Err(Fault::NotOneObject),
-        (None, Lines::Text) => reader
+        (None, Lines::Text(origin)) => reader
             .harness
-            .text_in(line, block)
+            .text_in(line, origin, block)
             .map(Line::Text)
             .ok_or(Fault::Unrecognised),
     }
@@ -381,33 +383,34 @@ fn captured(observation: &Observation, harness: Harness) -> (Vec<Stream>, Option
     for stream in &mut all {
         stream.source = normalise(&stream.source, id.as_deref());
     }
-    let stderr = parse_lines(&observation.stderr, STDERR, 1, reader(Lines::Text));
+    let aside = reader(Lines::Text(Origin::Aside));
+    let stderr = parse_lines(&observation.stderr, STDERR, 1, aside);
     if !stderr.empty {
         all.push(stderr);
     }
     (all, primary)
 }
 
-/// A turn that exited clean, launched under `controls`: unread when none
-/// of its streams holds an event; refused when a line refuses one of
-/// `controls`; unread when a line states any other refusal or a failure,
-/// or none is the reply, since a clean exit is not the turn answering
-/// (#484); and otherwise read.
+/// A turn that exited clean, launched under `controls`: refused when a
+/// line refuses one of `controls`, whether or not it printed an event
+/// (#484); unread when none of its streams holds an event; unread when a
+/// line states any other refusal or a failure, or none is the reply,
+/// since a clean exit is not the turn answering; and otherwise read.
 fn read_stream(
     (all, primary): (Vec<Stream>, Option<usize>),
     under: &Under,
     controls: &[String],
     observation: &Observation,
 ) -> Turn {
+    let ended = exit_and_excerpt(observation);
+    if refusals::refuses_a_control(&all, controls) {
+        return Turn::Refused(format!("the CLI refused {}: {ended}", under.argv), all);
+    }
     let Some(primary) = primary else {
         let why = "the turn printed no JSON event and wrote no .jsonl transcript under the \
                    scratch HOME";
         return Turn::Unread(why.to_string(), all);
     };
-    let ended = exit_and_excerpt(observation);
-    if refusals::refuses_a_control(&all, controls) {
-        return Turn::Refused(format!("the CLI refused {}: {ended}", under.argv), all);
-    }
     match answer::unanswered(&all) {
         Some(why) => Turn::Unread(format!("{} exited 0, but {why}: {ended}", under.turn), all),
         None => Turn::Read(Streams { all, primary }),

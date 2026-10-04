@@ -388,7 +388,9 @@ pub(super) fn config_isolation(unboxed: &Fact<bool>, boxed: &Fact<bool>) -> Fact
 }
 
 /// Whether the declared OFF controls left any native egress tool behind,
-/// a tool the probe does not recognise counted as egress.
+/// a tool the probe does not recognise counted as egress. An OFF turn
+/// that was not read, or was refused, leaves it so, whatever the plain
+/// listing shows (#484).
 pub(super) fn egress_off(
     native_egress: &Fact<Vec<String>>,
     off_tools: &Fact<Vec<String>>,
@@ -399,33 +401,28 @@ pub(super) fn egress_off(
             native_egress.account()
         ));
     };
-    if egress.is_empty() {
-        return Fact::measured(true, "the plain turn listed no native egress tool");
-    }
-    match off_tools {
-        Fact::Measured { value: left, .. } => {
-            let kept: Vec<&String> = left
-                .iter()
-                .filter(|tool| tool_class(tool) != ToolClass::Local)
-                .collect();
-            let evidence = if kept.is_empty() {
-                format!("the declared OFF controls removed {}", egress.join(", "))
-            } else {
-                format!(
-                    "the declared OFF controls left {}",
-                    kept.iter()
-                        .map(|t| t.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            };
-            Fact::measured(kept.is_empty(), evidence)
+    let left = match off_tools {
+        Fact::Measured { value: left, .. } => left,
+        Fact::Unmeasured { why } => {
+            return Fact::unmeasured(format!(
+                "the turn under the declared OFF controls was not read: {why}"
+            ))
         }
-        Fact::Unmeasured { why } => Fact::unmeasured(format!(
-            "the turn under the declared OFF controls was not read: {why}"
-        )),
-        Fact::Unsupported { evidence } => Fact::Unsupported {
-            evidence: evidence.clone(),
-        },
-    }
+        Fact::Unsupported { evidence } => {
+            return Fact::Unsupported {
+                evidence: evidence.clone(),
+            }
+        }
+    };
+    let kept: Vec<&str> = left
+        .iter()
+        .filter(|tool| tool_class(tool) != ToolClass::Local)
+        .map(String::as_str)
+        .collect();
+    let evidence = match (kept.is_empty(), egress.is_empty()) {
+        (false, _) => format!("the declared OFF controls left {}", kept.join(", ")),
+        (true, true) => "the plain turn listed no native egress tool".to_string(),
+        (true, false) => format!("the declared OFF controls removed {}", egress.join(", ")),
+    };
+    Fact::measured(kept.is_empty(), evidence)
 }

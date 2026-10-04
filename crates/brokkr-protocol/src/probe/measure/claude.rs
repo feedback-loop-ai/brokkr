@@ -20,7 +20,7 @@ use serde_json::{Map, Value};
 use super::claude_message::{
     message_said, searched, stopped, usage_said, Ending, Message, ModelUsage, Usage, IN_RESULT,
 };
-use super::forms::{self, Form, Says, UNKNOWN_OPTION};
+use super::forms::{self, Form, Origin, Says, UNKNOWN_OPTION};
 use super::read::{
     decode, Class, Decoded, Empty, Given, Harness, Never, Null, Refused, Said, Server, Uuid,
 };
@@ -79,13 +79,13 @@ enum System {
 #[serde(deny_unknown_fields)]
 struct Hook {
     session_id: Uuid,
-    /// Read whole as text, like stderr.
+    /// Read whole as text, like stderr, never as the reply.
     #[serde(default)]
     output: Given<String>,
-    /// Read whole as text, like stderr.
+    /// Read whole as text, as `output`.
     #[serde(default)]
     stdout: Given<String>,
-    /// Read whole as text, like stderr.
+    /// Read whole as text, as `output`.
     #[serde(default)]
     stderr: Given<String>,
     /// Inert: the hook's run.
@@ -326,10 +326,9 @@ struct Finished {
     stop_reason: Given<Ending>,
     /// How the turn ended: an API error is a failure.
     terminal_reason: Given<Terminal>,
-    /// Inert: counts of subagents, each run under the tools and servers
-    /// listed, and counted in `modelUsage` when it searched.
-    #[serde(rename = "subagent_stats")]
-    _subagent_stats: Given<Subagents>,
+    /// Counts of subagents: one spawned is a tool run, since a turn
+    /// spawns one only through a tool (#484).
+    subagent_stats: Given<Subagents>,
     /// Inert: an empty list is the only value read.
     #[serde(rename = "permission_denials")]
     _permission_denials: Empty,
@@ -342,7 +341,8 @@ struct Finished {
     /// Inert: the event's own id.
     #[serde(rename = "uuid")]
     _uuid: Given<Uuid>,
-    /// None taken is a failure.
+    /// None taken is a failure, and more than one a tool run: a turn
+    /// that runs no tool answers in one (#484).
     num_turns: Given<u64>,
     /// Inert, like each timing and count after it: how long, or in what
     /// order, a turn ran says nothing of what it did.
@@ -372,13 +372,12 @@ enum Terminal {
     ApiError,
 }
 
-/// Inert, every key: counts of subagents, each run under the tools and
-/// servers listed.
+/// Counts of subagents: how many were spawned, consumed, and every other
+/// key inert, a count of those spawned.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Subagents {
-    #[serde(rename = "spawned")]
-    _spawned: u64,
+    spawned: u64,
     #[serde(rename = "requested")]
     _requested: Requested,
     #[serde(rename = "started_in_background")]
@@ -501,27 +500,35 @@ fn init_said(init: Init) -> Decoded {
     labelled("system/init", said)
 }
 
-/// A hook event: its session, and what the hook printed, read whole.
+/// A hook event: its session, and what the hook printed, read whole,
+/// never as the reply: a hook is not the turn's answer (#484).
 fn hook_said(label: &str, hook: Hook) -> Result<Decoded, Fault> {
     let mut said = sessions(Given(Some(hook.session_id)));
     for text in [hook.output.0, hook.stdout.0, hook.stderr.0]
         .iter()
         .flatten()
     {
-        said.extend(texts(text)?);
+        said.extend(texts(text, Origin::Aside)?);
     }
     Ok(labelled(label, said))
 }
 
-/// A string the event carries, read whole by claude's forms.
-pub(super) fn texts(text: &str) -> Result<Vec<Said>, Fault> {
-    forms::read(text, &FORMS).ok_or(Fault::Unrecognised)
+/// A string the event carries, from `origin`, read whole by claude's
+/// forms.
+pub(super) fn texts(text: &str, origin: Origin) -> Result<Vec<Said>, Fault> {
+    forms::read(text, origin, &FORMS).ok_or(Fault::Unrecognised)
 }
 
 /// A failure at each pointer whose test holds.
 fn failures<const N: usize>(tests: [(bool, &'static str); N]) -> impl Iterator<Item = Said> {
     let failed = tests.into_iter().filter(|(failed, _)| *failed);
     failed.map(|(_, at)| Said::Failed { at })
+}
+
+/// A tool run, naming no tool, at each pointer whose test holds.
+fn runs<const N: usize>(tests: [(bool, &'static str); N]) -> impl Iterator<Item = Said> {
+    let ran = tests.into_iter().filter(|(ran, _)| *ran);
+    ran.map(|(_, at)| Said::Ran { tool: None, at })
 }
 
 fn assistant_said(assistant: Assistant) -> Result<Decoded, Fault> {
@@ -543,7 +550,7 @@ fn outcome_said(outcome: Outcome) -> Result<Decoded, Fault> {
     };
     let mut said = sessions(outcome.session_id);
     if let Some(text) = &outcome.result.0 {
-        said.extend(texts(text)?);
+        said.extend(texts(text, Origin::Answer)?);
     }
     said.extend(failures([
         (outcome.is_error.0 == Some(true), "/is_error"),
@@ -553,6 +560,11 @@ fn outcome_said(outcome: Outcome) -> Result<Decoded, Fault> {
             outcome.terminal_reason.0 == Some(Terminal::ApiError),
             "/terminal_reason",
         ),
+    ]));
+    let spawned = outcome.subagent_stats.0.map_or(0, |stats| stats.spawned);
+    said.extend(runs([
+        (spawned > 0, "/subagent_stats/spawned"),
+        (outcome.num_turns.0 > Some(1), "/num_turns"),
     ]));
     if let Some(usage) = outcome.usage.0 {
         said.extend(usage_said(&IN_RESULT, None, usage));
@@ -586,7 +598,7 @@ pub(super) fn text(line: &str) -> Option<Vec<Said>> {
         .trim()
         .strip_prefix("[claude-code:unrecognized_model] ")
     else {
-        return forms::read(line, &FORMS);
+        return forms::read(line, Origin::Aside, &FORMS);
     };
     let unrecognised: Unrecognised = decode(Harness::Claude, super::strict::object(json)?).ok()?;
     Some(vec![Said::Refusal(Refused {

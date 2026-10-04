@@ -86,7 +86,7 @@ impl<T: Clone + serde::Serialize + PartialEq> Listing<T> {
             self.unread
                 .push(format!("line {line} of {} {fault}", stream.source));
         }
-        if stream.events.is_empty() && stream.lines != Lines::Text {
+        if stream.events.is_empty() && !matches!(stream.lines, Lines::Text(_)) {
             self.unread
                 .push(format!("{} holds no JSON event", stream.source));
         }

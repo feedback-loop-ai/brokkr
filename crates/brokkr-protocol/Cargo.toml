@@ -18,6 +18,13 @@ hex = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 tempfile = { workspace = true }
+# The operator's ruling of 2026-10-04 on #484: the harness probe reads
+# dsh's session log, which dsh writes zstd-compressed
+# (`session.v3.jsonl.zstd`), through a pure-Rust, decode-only decoder,
+# MIT, with no dependency of its own. `hash` is off: a frame's checksum
+# is not verified, and a corrupt frame decodes to lines the typed reader
+# does not read.
+ruzstd = { version = "0.9.0", default-features = false, features = ["std"] }
 
 # The same narrow, explicit exception decision 0055 took for the local
 # transcript reader, for the same reason: a PATH lookup must decide

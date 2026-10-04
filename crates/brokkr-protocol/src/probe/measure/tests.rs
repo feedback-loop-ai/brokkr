@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 
 use serde_json::{json, Map, Value};
 
+use super::forms::Origin;
 use super::read::{Class, Counted, Harness, Refused, Said, Server};
 use super::{parse_lines, Captured, Fault, Lines, Reader};
 use crate::probe::plan::NO_SUCH_MODEL;
@@ -294,6 +295,75 @@ fn a_string_no_form_reads_leaves_its_event_unread_wherever_a_reader_consumes_it(
     );
 }
 
+/// Only the turn's own answer is its reply (#484, the chief's finding 1
+/// on 8316ad4d): claude's assistant text and result, and codex's agent
+/// message, are; a hook's output, stdout or stderr, and codex's error
+/// item, error event and failed turn, each holding the reply alone, read
+/// and say no reply, a failure still stating its failure.
+#[test]
+fn only_the_turn_s_own_answer_is_its_reply() {
+    let sid = "5d0c1e2a-7b3f-4c1d-9e8a-2f6b0c4d8e11";
+    let hook = |key: &str| {
+        format!(
+            r#"{{"type":"system","subtype":"hook_response","hook_id":"{sid}","hook_name":"h","hook_event":"e","uuid":"{sid}","session_id":"{sid}","{key}":"PROBE-OK"}}"#
+        )
+    };
+    let item = |kind: &str, key: &str| {
+        format!(
+            r#"{{"type":"item.completed","item":{{"id":"item_0","type":"{kind}","{key}":"PROBE-OK"}}}}"#
+        )
+    };
+    let rows = [
+        (Harness::Claude, hook("output")),
+        (Harness::Claude, hook("stdout")),
+        (Harness::Claude, hook("stderr")),
+        (
+            Harness::Claude,
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"PROBE-OK"}]}}"#
+                .to_string(),
+        ),
+        (
+            Harness::Claude,
+            r#"{"type":"result","subtype":"success","result":"PROBE-OK"}"#.to_string(),
+        ),
+        (Harness::Codex, item("agent_message", "text")),
+        (Harness::Codex, item("error", "message")),
+        (
+            Harness::Codex,
+            r#"{"type":"error","message":"PROBE-OK"}"#.to_string(),
+        ),
+        (
+            Harness::Codex,
+            r#"{"type":"turn.failed","error":{"message":"PROBE-OK"}}"#.to_string(),
+        ),
+    ];
+    let session = Said::Session {
+        key: "session_id",
+        id: sid.to_string(),
+    };
+    let said = rows.map(|(harness, line)| read(harness, Lines::Events, &line));
+    let one = |label: &str, said: Vec<Said>| (vec![(label.to_string(), said)], Vec::new());
+    assert_eq!(
+        said,
+        [
+            one("system/hook_response", vec![session.clone()]),
+            one("system/hook_response", vec![session.clone()]),
+            one("system/hook_response", vec![session]),
+            one("assistant", vec![Said::Reply]),
+            one("result/success", vec![Said::Reply]),
+            one("item.completed", vec![Said::Reply]),
+            one("item.completed", Vec::new()),
+            one("error", vec![Said::Failed { at: "/message" }]),
+            one(
+                "turn.failed",
+                vec![Said::Failed {
+                    at: "/error/message"
+                }]
+            ),
+        ]
+    );
+}
+
 /// A session is a canonical UUID, and a line that names one in any other
 /// shape is not one of claude's events; each harness names itself in the
 /// line it does not decode.
@@ -553,24 +623,31 @@ fn a_transcript_value_that_would_contradict_the_verdict_is_read_or_refused() {
 }
 
 /// dsh's recorded plain turn against the operator's local model: its
-/// stdout is the reply alone, and its stderr, the reasoning after each
-/// `dsh: reasoning:` header, is read whole and says nothing; a refusal
-/// inside the reasoning is still read, and the reply there is not one.
+/// stdout, the turn's answer, is the reply alone, which on stderr is not
+/// one (#484); and its stderr, the one line of reasoning after each
+/// `dsh: reasoning:` header, is read whole and says nothing. A refusal
+/// inside the reasoning is still read, the reply there is not one, and
+/// the line after the reasoning's one is read like any other.
 #[test]
 fn dsh_s_recorded_plain_turn_reads_its_reply_and_its_reasoning_whole() {
-    let text = |text: &str| {
+    let read = |origin, text: &str| {
         let captured = Captured {
             text: text.to_string(),
             not_utf8: Vec::new(),
         };
         let reader = Reader {
             harness: Harness::Dsh,
-            lines: Lines::Text,
+            lines: Lines::Text(origin),
         };
         let stream = parse_lines(&captured, "stderr", 1, reader);
         (stream.text, stream.unread)
     };
-    assert_eq!(text(DSH_PLAIN), (vec![(1, Said::Reply)], Vec::new()));
+    let text = |text: &str| read(Origin::Aside, text);
+    assert_eq!(
+        read(Origin::Answer, DSH_PLAIN),
+        (vec![(1, Said::Reply)], Vec::new())
+    );
+    assert_eq!(text(DSH_PLAIN), (Vec::new(), Vec::new()));
     assert_eq!(text(DSH_PLAIN_ERR), (Vec::new(), Vec::new()));
     // dsh 0.1.5-rc.1's headless profile refuses a stream format.
     assert_eq!(
@@ -584,6 +661,23 @@ fn dsh_s_recorded_plain_turn_reads_its_reply_and_its_reasoning_whole() {
     assert_eq!(
         text(reasoning),
         (vec![(4, refusal(Class::Control, "--model"))], Vec::new())
+    );
+    assert_eq!(
+        read(Origin::Answer, "dsh: reasoning:\nPROBE-OK"),
+        (Vec::new(), Vec::new())
+    );
+    // The chief's dsh-reason-a on 8316ad4d: a warning after the
+    // reasoning's one line is unread, as it is without the header.
+    let loaded = "warning: loaded MCP server github from /etc/dsh/config.yml";
+    assert_eq!(
+        [
+            text(&format!("dsh: reasoning:\nI think.\n{loaded}")),
+            text(loaded)
+        ],
+        [
+            (Vec::new(), vec![(3, Fault::Unrecognised)]),
+            (Vec::new(), vec![(1, Fault::Unrecognised)])
+        ]
     );
     assert_eq!(
         text("I think.\ndsh: reasoning:"),

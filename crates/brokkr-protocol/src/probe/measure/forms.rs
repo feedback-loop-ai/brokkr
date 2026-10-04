@@ -64,17 +64,36 @@ fn words(text: &str) -> Vec<Word> {
         .collect()
 }
 
-/// What `text` says, read whole: nothing when it is blank, the reply
-/// when it is the reply the probe asks for, and what a form of `forms`
-/// says when it is that form; `None` when it is none of them, a line of
-/// punctuation alone among them.
-pub(super) fn read(text: &str, forms: &[Form]) -> Option<Vec<Said>> {
+/// Where a text a reader consumes comes from, which says whether it may
+/// be the reply (#484): only the turn's own answer is one. A hook's
+/// output, an error's message or a line of stderr is read for what its
+/// forms say, never as the reply, so no text but the answer supplies it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Origin {
+    /// The turn's own answer: claude's assistant text and result, codex's
+    /// agent message, last agent message and assistant response item, and
+    /// dsh's stdout and assistant message.
+    Answer,
+    /// Anything else the harness prints or carries.
+    Aside,
+}
+
+/// What `text`, from `origin`, says, read whole: nothing when it is
+/// blank; when it is the reply the probe asks for, the reply in the
+/// turn's answer and nothing in an aside, whose echo of it refuses
+/// nothing and answers nothing; and what a form of `forms` says when it
+/// is that form; `None` when it is none of them, a line of punctuation
+/// alone among them.
+pub(super) fn read(text: &str, origin: Origin, forms: &[Form]) -> Option<Vec<Said>> {
     if text.trim().is_empty() {
         return Some(Vec::new());
     }
     let said = words(text);
     match said.as_slice() {
-        [only] if only.folded == REPLY.to_lowercase() => Some(vec![Said::Reply]),
+        [only] if only.folded == REPLY.to_lowercase() => Some(match origin {
+            Origin::Answer => vec![Said::Reply],
+            Origin::Aside => Vec::new(),
+        }),
         _ => forms.iter().find_map(|form| matched(form, &said)),
     }
 }
