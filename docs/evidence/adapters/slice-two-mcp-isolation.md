@@ -16,8 +16,8 @@ pending (no macOS host). Nothing below is claimed for macOS.
 | Harness | Candidate | Outcome | Evidence |
 | --- | --- | --- | --- |
 | claude 2.1.287 | `--strict-mcp-config` plus an explicit engine-written `--mcp-config` | **Passes** on the cold shape, with and without hands. A host with `/etc/claude-code/managed-mcp.json` refuses the flag before any model call | C01 to C10 |
-| LaneTally wrapper over claude 2.1.287 | the same flags through the actual wrapper | **Exclusion measured, not qualified.** At startup no ambient server starts and the engine server starts and lists. The engine call's answer and the canaries are pending operator approval | LT01 to LT07 |
-| codex-cli 0.160.0 | (a) private engine-owned `CODEX_HOME` | **Fails.** On the work shape, codex writes trust for the workdir into the engine's own config and loads the project's MCP servers. `/etc/codex` system and managed servers load under every candidate | X02, X02b, X04, X12, X12c |
+| LaneTally wrapper over claude 2.1.287 | the same flags through the actual wrapper | **Passes** on the cold shape, with and without hands, on its own authenticated cells (2026-10-04). The same managed-file refusal applies | LT01 to LT12 |
+| codex-cli 0.160.0 | (a) private engine-owned `CODEX_HOME` | **Fails.** On the work shape, codex writes trust for the workdir into the engine's own config and loads the project's MCP servers. `/etc/codex` system and managed servers load under every candidate. With the operator's ChatGPT login, the account's `codex_apps` connector tools also load | X02, X02b, X04, X12, X12c, XA2 |
 | codex-cli 0.160.0 | (b) `-c mcp_servers={...}` whole-table override | **Fails.** The override merges with user, project, plugin, system and managed servers: cold, on resume and with hands | X03, X03b, X05, X07 |
 | dsh 0.1.5-rc.1 | engine-only `DSH_HOME` plus the engine row in the `--patch` overlay | **Passes** on the cold shape. The existing profile with the engine overlay fails | D01 to D04 |
 | exec | none | Inapplicable: no model MCP surface. This is not a measured strictness | none |
@@ -33,8 +33,8 @@ the U1 rows, not adapter declarations:
 - **Codex:** no D2 candidate passes. The measured SI2 cause is "provider
   'codex' cannot exclude ambient MCP configuration (project, system and
   managed MCP configuration cannot be excluded)".
-- **LaneTally:** remains without measured strictness until its own engine
-  call is observed. Claude's result does not qualify it.
+- **LaneTally:** the same flags through the actual wrapper, qualified by
+  its own authenticated cells (LT08 to LT12), not by Claude's.
 
 ## Host and versions
 
@@ -119,6 +119,33 @@ modified. All experiment files live under `/var/tmp/s2-u0`.
   Codex's. The proxy does not change which servers start, and the logged
   tool lists are Codex's originals.
 
+The operator approved two authenticated legs on 2026-10-04, and both ran
+the same day. For LaneTally, `claudeAiOauth.accessToken` and `expiresAt`
+were copied into `lanetally/home/.claude/.credentials.json` (file 0600,
+directories 0700) after the operator's own session had refreshed the
+token. claude 2.1.287 refused that two-field file as "Not logged in"
+(LT08a, cost 0). `CLAUDE_CODE_OAUTH_SCOPES` applies only to env-token
+sessions and did not help (LT08b, cost 0). The CLI reads a file
+credential's scopes from the file alone, so the literal public scope label
+`scopes: ["user:inference"]` was added. Nothing else came from the
+operator's credential, and no refresh token was copied. The file was
+shredded at 17:15:34Z.
+
+For Codex, `~/.codex/auth.json` was copied into a fresh private home
+(`codex/home-auth`, file 0600, directory 0700) and reduced before it was
+written. `tokens.refresh_token` became a placeholder, and `last_refresh`
+was set to the copy time. The operator's `last_refresh` was more than
+eight days old, and a refresh from a disposable copy would have rotated
+the operator's token family. The copy carried `auth_mode`, `id_token`,
+`access_token` and `account_id`, and was shredded at 17:12:14Z.
+
+After each shred, two scans ran over all of `/var/tmp/s2-u0`. An
+exact-value scan used the operator's current Claude and Codex token
+values, passed by file descriptor and never printed; it found 0 files. A
+token-shape scan found 0 files outside the public OAuth example text in
+the plugin documentation Codex downloads into its homes. No
+`.credentials.json` or `auth.json` remains.
+
 **Decision rule applied (D2).** Each candidate needed a positive control
 that starts, lists and calls every planted ambient sentinel. A candidate
 passes only if, in every cell, no ambient sentinel starts, appears or
@@ -177,11 +204,27 @@ This is the wrapper's precondition: no routing, token or base URL is in it.
 | LT06 | hands fragment, hands plus engine | not started | not started | not started | not planted | listed | `brokkr`, `engine` |
 | LT07 | LT06 with managed planted | not started | not started | not started | not started | not started | refused with the same message, exit 1 |
 
-Every LaneTally cell is recorded as "observed: loaded / not loaded at
-startup, model call not made". Exclusion matches Claude's. The engine
-sentinel's answer, the hands call and the canaries through the wrapper
-need an authenticated call. They are
-[pending operator approval](#pending-operator-approval).
+LT01 to LT07 ran with a plainly fake key against a dead loopback endpoint,
+so they are startup observations with no model call. The approved
+authenticated cells of 2026-10-04 used `--model haiku` through the same
+wrapper and the same disposable HOME and project:
+
+| Cell | Candidate | user | project | plugin | engine | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| LT08a | none, two-field credential | listed | listed | listed | none | refused: "Not logged in · Please run /login", cost 0 |
+| LT08b | LT08a with `CLAUDE_CODE_OAUTH_SCOPES=user:inference` | listed | listed | listed | none | refused the same way, cost 0 |
+| LT08 | none, credential with the literal scope (positive control) | answered | answered | answered | none | all three ambient sentinels answered through the wrapper |
+| LT09 | strict, engine config, `--disallowedTools WebSearch,WebFetch` | not started | not started | not started | answered | init lists `engine` only, no WebSearch/WebFetch; ToolSearch then the MCP call |
+| LT10 | hands fragment, hands plus engine | not started | not started | not started | answered | init tools are the two MCP tools only; the hands call returned `HANDS-OK` |
+| LT11 | strict, engine, unboxed canary probe | not started | not started | not started | listed | see the canary table |
+| LT12 | hands fragment, hands plus engine, canary probe | not started | not started | not started | listed | see the canary table |
+
+LaneTally therefore passes D2 on its own evidence. The positive control
+answers, and under the strict candidates no ambient sentinel starts,
+appears or answers while the engine sentinel answers, with and without
+hands. Native OFF holds through the wrapper. No account connector was
+listed in these cells, because the credential carried only the inference
+scope.
 
 ## Codex CLI 0.160.0
 
@@ -238,8 +281,8 @@ and needs a plan update before any dependent unit. It is not selected here.
 Other D2 measurements:
 
 - **Auth:** env-key auth through a custom provider works under a private
-  home. ChatGPT-login auth under a private home is pending operator
-  approval.
+  home, and so does the operator's ChatGPT login copied into one (XA1,
+  XA2, below).
 - **Model and effort:** `-c model_reasoning_effort="low"` reached every
   request as `reasoning: {effort: low, summary: auto}`.
 - **Session storage:** sessions are stored under the private home
@@ -253,8 +296,36 @@ Other D2 measurements:
   `tool_search` and `tool_search_always_defer_mcp_tools` as removed. Each
   MCP server reaches the model as one `namespace` tool with nested function
   tools. Under this model's fallback metadata, no `defer_loading` is set.
-  Discovery behaviour for OpenAI catalogue models is pending operator
-  approval.
+  OpenAI catalogue behaviour is measured below.
+
+### ChatGPT login under a private home (approved 2026-10-04)
+
+Two cells used the operator's ChatGPT login under the fresh private home.
+Each used `gpt-6-luna` at low effort, `--sandbox read-only`, the production
+hands fragment and the engine sentinel in the home's `config.toml`. The
+catalogue entry for `gpt-6-luna` declares `supports_search_tool: true` and
+`tool_mode: code_mode_only`. The authenticated traffic was not proxied, so
+the evidence is the rollout file, the `codex exec --json` stream and the
+sentinel log.
+
+| Cell | Prompt | Engine sentinel | Rollout and stream |
+| --- | --- | --- | --- |
+| XA1 | list your tools, then call the engine tool and `workspace` | listed | the turn completed (auth works). The model offered one tool, a freeform `exec`. It made no call, no `tool_search` occurred, and it replied that no such tools exist |
+| XA2 | search your tools for both, then call them | answered | three `custom_tool_call {name: exec, call_id, input}` items. The first ran `ALL_TOOLS.filter(...)` in JavaScript and found `mcp__brokkr__workspace` and `mcp__engine__u0_engine_probe`. Then came `await tools.mcp__engine__u0_engine_probe({})` and `await tools.mcp__brokkr__workspace({command: "echo HANDS-OK"})`. The stream emitted `mcp_tool_call` items for `engine` and `brokkr`, both completed. Still no `tool_search` call |
+
+On codex-cli 0.160.0 with an OpenAI catalogue model, MCP discovery is a
+search of the code-mode runtime's tool catalogue, not a `tool_search`
+tool and not a direct listing in the model's tool definitions. A model
+finds the engine and hands tools only if it looks; unprompted, XA1 did
+not. This is discovery evidence for U7c and U7d: a notice naming the
+code-mode route (`ALL_TOOLS`, `tools.mcp__<server>__<tool>`) is the
+measured path for this model. XA2's catalogue also held 11 distinct
+`mcp__codex_apps__*` tool names in its visible, truncated output. These
+are the ChatGPT account's own app connectors; their names are withheld as
+operator account data. A private home plus a ChatGPT login therefore
+loads an account-level ambient MCP source that no `config.toml` planted.
+This adds to candidate (a)'s failure; whether `features.apps=false`
+removes it is unmeasured.
 
 ## dsh 0.1.5-rc.1
 
@@ -303,6 +374,7 @@ strictness.
 | --- | --- | --- | --- | --- |
 | Claude | `assistant` event with one `tool_use` block `{id: toolu_*, name: "Bash", input}`. The result is a `user` event with `tool_result {tool_use_id, is_error, content}` plus a top-level `tool_use_result {stdout, stderr, interrupted, isImage, noOutputExpected}` | the same blocks with `name: mcp__<server>__<tool>`. Plugin servers are `mcp__plugin_<plugin>_<server>__<tool>`. `tool_use_result` is the MCP content array | One `tool_use` and one `tool_result` per call. One content block per event, so several events share one `message.id`; deduplicate by `toolu_*` id | C08 re-announced the session id and emitted only new `toolu_*` ids. C05's two ids were not replayed |
 | Codex | `item.started` then `item.completed {id, type: command_execution, command, aggregated_output, exit_code, status}` | `item.started` then `item.completed {id, type: mcp_tool_call, server, tool, arguments, result: {content, structured_content} or null, error: {message} or null, status: in_progress, completed or failed}` | A start/completion pair shares `item.id` (`item_N`). The sequence restarts at `item_0` on every invocation, resume included. The model's `call_*` id appears only in the rollout file (`function_call {name, namespace: mcp__<server>, call_id}`) | X04 and X05 kept the thread id and emitted only new items. History is resent to the model but not re-emitted |
+| Codex, code mode (`gpt-6-luna`, XA2) | not exercised | the rollout holds `custom_tool_call {name: exec, call_id, input: <JavaScript>}` and its `custom_tool_call_output`. The stream still emits one `mcp_tool_call` item per MCP call the script makes | One `exec` call can wrap several MCP calls. The stream's `mcp_tool_call` items carry no `exec` call id, so attribution to the model's call needs the rollout | not measured in code mode |
 | dsh | transcript `tool/call {seq, data: {turn, step, callId, name: "bash", arguments}}` | the same, with `name: mcp__<serverName>__<tool>` | One `tool/call` and one `tool/result`. The result carries `sourceEventSeqs: [<call seq>]` and `data.message.content[{type: tool-result, toolCallId, content, isError}]`. Headless stdout carries only the final message | Unmeasured (no resume option) |
 
 Further observations:
@@ -337,7 +409,8 @@ pid>/environ` (PC-host-canary).
 | --- | --- | --- | --- | --- |
 | Claude, cold hands (C10) | excluded: absent in the hands box | excluded: 4 pids in the box, no canary | no native tool present (init tools are the two MCP tools only); a hands write outside the worktree failed | excluded |
 | Claude, cold, no hands (C09b) | **read** via native Read | not excluded by any mechanism. Claude's permission check blocked this one Bash probe ("Accesses /proc/*/environ…"); Read on `/proc` was not probed | **allowed** outside the cwd (Write was allowed) | excluded |
-| LaneTally | pending operator approval | pending | pending | excluded at startup |
+| LaneTally, cold hands (LT12) | excluded: absent in the hands box | excluded: 4 pids, no canary | no native tool present; a hands write outside the worktree failed | excluded |
+| LaneTally, cold, no hands (LT11) | **read** via native Read | not excluded by any mechanism; the same Claude permission check blocked the Bash probe | **allowed** outside the cwd | excluded |
 | Codex, hands tool (X06) | excluded | excluded | hands write outside the worktree failed | fails (see above) |
 | Codex, native shell, read-only and workspace-write (X08, X09) | **read** in both modes | excluded: private pid namespace, 4 pids | outside the workspace denied in both modes; the workspace is writable only in workspace-write | fails |
 | dsh, engine-only home, default `workspace-write` sandbox (D04) | **read** | excluded: 4 pids | outside the workspace denied; dsh offers an approval-gated escalation (policy `ask`), not exercised | excluded |
@@ -348,17 +421,21 @@ isolation. X09 measures Codex's own sandbox without a model (`codex
 sandbox -c sandbox_mode=<mode> bash -c <probe>`), and it agrees with X08.
 
 **MB2 consequence.** A secret-bearing holding refuses wherever either read
-channel is not excluded. That covers Claude without hands, Codex in both
-sandbox classes (its native shell reads the store), dsh (and it has no
-hands), and LaneTally until measured. Claude's cold hands shape excluded
-both channels. Secret-free eligibility is a separate assessment.
+channel is not excluded. That covers Claude and LaneTally without hands,
+Codex in both sandbox classes (its native shell reads the store), and dsh
+(which also has no hands). The cold hands shapes of Claude and LaneTally
+excluded both channels. Secret-free eligibility is a separate assessment.
 
-## Pending operator approval
+## Operator approvals (closed 2026-10-04)
 
-| Question | What would be copied | Why |
-| --- | --- | --- |
-| LaneTally: the engine call's answer, the hands call and the canaries through the wrapper | `claudeAiOauth.accessToken` and `expiresAt` (no refresh token) into a disposable HOME's `.claude/.credentials.json`, or an operator-chosen API key into that HOME's environment | Startup evidence settles exclusion. Only the answer and the canary rows need a model |
-| Codex under a private home with the operator's ChatGPT login: auth works, discovery for OpenAI catalogue models, normal model and effort | `~/.codex/auth.json` (id, access and refresh tokens, account id) into the private home | The custom-provider route proves env-key auth and the event shapes, not ChatGPT auth or catalogue behaviour. It cannot change candidate (a)'s failure on the project and `/etc` layers |
+Both items the first run left pending were approved by the operator on
+2026-10-04 and run that day. The handling is recorded under
+[Method](#method); no item remains pending.
+
+| Item | Copied | Cells | Outcome |
+| --- | --- | --- | --- |
+| LaneTally's engine answer, hands call and canaries | `claudeAiOauth.accessToken` and `expiresAt`, plus the literal scope label `user:inference`; no refresh token. Shredded 17:15:34Z | LT08a, LT08b, LT08 to LT12 | LaneTally passes D2 cold, with and without hands; its canaries match Claude's |
+| Codex auth and discovery under a private home with the ChatGPT login | `auth_mode`, `id_token`, `access_token` and `account_id` from `~/.codex/auth.json`; refresh token withheld, `last_refresh` set to the copy time. Shredded 17:12:14Z | XA1, XA2 | auth works; discovery runs through the code-mode catalogue, not `tool_search`; the account's `codex_apps` connectors load; candidate (a) still fails |
 
 ## Limitations
 
@@ -370,11 +447,12 @@ both channels. Secret-free eligibility is a separate assessment.
 - Codex and dsh model calls used one local model (GLM-5.3-Flash-EXL3)
   under fallback metadata, and Codex's calls went through a transport
   adapter. Server loading and the JSONL fields are the harness's own.
-  Model-dependent behaviour (OpenAI deferred discovery, `defer_loading`)
-  is not covered.
-- LaneTally cells observe startup only. The wrapper's real deployments
-  route through a LaneTally proxy (`ANTHROPIC_BASE_URL` and a token in a
-  stamped `settings.local.json`). That proxy was not exercised.
+  The OpenAI catalogue was measured only with `gpt-6-luna` in two cells
+  (XA1, XA2), without seeing its request bodies.
+- LaneTally's authenticated cells used a credential holding only the
+  inference scope, and the wrapper's real deployments route through a
+  LaneTally proxy (`ANTHROPIC_BASE_URL` and a token in a stamped
+  `settings.local.json`). That proxy was not exercised.
 - The store canary sat outside the worktree, at a path the prompt named.
   A store inside a seat's bound worktree would be visible to hands.
 - The Claude and LaneTally managed cells ran inside a bubblewrap mount
@@ -383,7 +461,8 @@ both channels. Secret-free eligibility is a separate assessment.
 - Codex's auto-trust write was observed under `workspace-write` on 0.160.0.
   Whether other approval or sandbox combinations write it is unmeasured.
 - Plugin layers were planted for Claude, LaneTally and Codex, not for dsh.
-  Codex's ChatGPT apps connectors were not observable without a login.
+  Codex's ChatGPT apps connectors were observed only through the
+  catalogue's truncated output in XA2.
 
 ## Model calls
 
@@ -393,6 +472,15 @@ both channels. Secret-free eligibility is a separate assessment.
 - LaneTally: 7 cells, none of which made a provider request.
 - Local Spark (no credential, no charge): 22 Codex and 4 dsh invocations,
   44 logged requests.
+
+The approved legs of 2026-10-04 added five authenticated Anthropic calls
+through the LaneTally wrapper (LT08 to LT12, `--model haiku`, reported
+`total_cost_usd` $0.0886) and two refusals before any model call (LT08a,
+LT08b, cost 0). They also added two Codex calls on the operator's
+ChatGPT plan (XA1 and XA2, `gpt-6-luna` low). XA1 used 11,106 input
+tokens (8,960 cached) and 34 output tokens; XA2 used 72,226 input tokens
+(58,368 cached) and 119 output tokens. No per-call price is reported for
+the plan.
 
 Raw artifacts are in `/var/tmp/s2-u0/results/<cell>/`: argv, stdout
 stream, stderr, sentinel logs and proxy log. They are ephemeral; this file

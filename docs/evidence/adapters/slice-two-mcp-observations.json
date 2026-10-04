@@ -4,7 +4,8 @@
   "narrative": "docs/evidence/adapters/slice-two-mcp-isolation.md",
   "measured": {
     "from": "2026-10-03T11:50Z",
-    "to": "2026-10-04T00:20Z"
+    "to": "2026-10-04T00:20Z",
+    "approved_legs": "2026-10-04T17:08Z to 17:16Z"
   },
   "host": {
     "os": "Ubuntu 25.10",
@@ -47,7 +48,12 @@
   "credentials": {
     "claude_cells_C01_to_C10": "used a copy of the operator's Claude OAuth access token (claudeAiOauth.accessToken, expiresAt, scopes, subscriptionType, rateLimitTier; refresh token replaced by a placeholder, mcpOAuth entries not copied) in the disposable HOME; the controller then ruled that no credential may be copied; the copy was shredded at 2026-10-03T19:32Z and a scan finds no token-shaped string under /var/tmp/s2-u0",
     "all_later_cells": "no credential copied, derived or moved: LaneTally used a plainly fake key against a dead loopback endpoint; Codex used a custom provider whose env key held a plainly fake value; dsh used the spark-glm route with a plainly fake SPARK_API_KEY; ~/.dsh/*.env, ~/.codex/auth.json and ~/.claude were not read for values",
-    "operator_configs": "not modified (~/.claude.json, ~/.claude, ~/.codex, ~/.dsh)"
+    "operator_configs": "not modified (~/.claude.json, ~/.claude, ~/.codex, ~/.dsh)",
+    "approved_legs_2026_10_04": {
+      "lanetally": "operator-approved copy of claudeAiOauth.accessToken and expiresAt only (no refresh token) into lanetally/home/.claude/.credentials.json (file 0600, directories 0700). claude 2.1.287 refused that two-field file as Not logged in (LT08a, cost 0), and CLAUDE_CODE_OAUTH_SCOPES does not apply to file credentials (LT08b, cost 0), so the literal public scope label scopes [user:inference] was added; nothing else came from the operator's credential. The copy was taken after the operator's own session refreshed the token, and shredded (shred -u) at 2026-10-04T17:15:34Z",
+      "codex": "operator-approved copy of ~/.codex/auth.json into codex/home-auth/auth.json (file 0600, directory 0700), reduced before writing: tokens.refresh_token replaced by a placeholder and last_refresh set to the copy time, because the operator's last_refresh was more than 8 days old and a refresh from a disposable copy would rotate the operator's token family; id_token, access_token, account_id and auth_mode copied. Shredded (shred -u) at 2026-10-04T17:12:14Z",
+      "scans": "after each shred: an exact-value scan of /var/tmp/s2-u0 for the operator's current Claude access and refresh tokens and Codex access, refresh and id tokens (values passed by file descriptor, never printed) found 0 files; a token-shape scan found 0 files outside the public plugin documentation codex downloads into its homes (.tmp/plugins, OAuth example text); no .credentials.json or auth.json remains"
+    }
   },
   "cells": [
     {
@@ -616,6 +622,273 @@
       "note": "refused: You cannot use --strict-mcp-config when an enterprise MCP config is present"
     },
     {
+      "id": "LT08a-lanetally-auth-two-field-refused",
+      "harness": "lanetally",
+      "candidate": "positive-control (authenticated: accessToken and expiresAt only)",
+      "shape": "cold",
+      "hands": false,
+      "exit_code": 1,
+      "provider_request": "none (claude refused the credential: Not logged in, cost 0)",
+      "ambient_sentinels": {
+        "user": "listed",
+        "project": "listed",
+        "plugin": "listed"
+      },
+      "engine_sentinel": "not_configured",
+      "harness_listing": {
+        "mcp_servers": [
+          {
+            "name": "plugin:u0-plugin:amb-plugin",
+            "status": "connected",
+            "source": "plugin"
+          },
+          {
+            "name": "amb-user",
+            "status": "connected",
+            "source": "user"
+          },
+          {
+            "name": "amb-project",
+            "status": "connected",
+            "source": "project"
+          }
+        ],
+        "mcp_tools": [
+          "mcp__amb-project__u0_project_probe",
+          "mcp__amb-user__u0_user_probe",
+          "mcp__plugin_u0-plugin_amb-plugin__u0_plugin_probe"
+        ],
+        "native_web_tools": [
+          "WebFetch",
+          "WebSearch"
+        ],
+        "tool_count": 31
+      },
+      "note": "the approved two-field file has no scopes; claude 2.1.287 treats it as logged out"
+    },
+    {
+      "id": "LT08b-lanetally-auth-env-scope-refused",
+      "harness": "lanetally",
+      "candidate": "positive-control (two-field file plus CLAUDE_CODE_OAUTH_SCOPES=user:inference)",
+      "shape": "cold",
+      "hands": false,
+      "exit_code": 1,
+      "provider_request": "none (claude refused the credential: Not logged in, cost 0)",
+      "ambient_sentinels": {
+        "user": "listed",
+        "project": "listed",
+        "plugin": "listed"
+      },
+      "engine_sentinel": "not_configured",
+      "harness_listing": {
+        "mcp_servers": [
+          {
+            "name": "plugin:u0-plugin:amb-plugin",
+            "status": "connected",
+            "source": "plugin"
+          },
+          {
+            "name": "amb-user",
+            "status": "connected",
+            "source": "user"
+          },
+          {
+            "name": "amb-project",
+            "status": "connected",
+            "source": "project"
+          }
+        ],
+        "mcp_tools": [
+          "mcp__amb-project__u0_project_probe",
+          "mcp__amb-user__u0_user_probe",
+          "mcp__plugin_u0-plugin_amb-plugin__u0_plugin_probe"
+        ],
+        "native_web_tools": [
+          "WebFetch",
+          "WebSearch"
+        ],
+        "tool_count": 31
+      },
+      "note": "the env scope list applies only to env-token sessions"
+    },
+    {
+      "id": "LT08-lanetally-auth-pc-ambient",
+      "harness": "lanetally",
+      "candidate": "positive-control (authenticated)",
+      "shape": "cold",
+      "hands": false,
+      "exit_code": 0,
+      "provider_request": "anthropic (authenticated, haiku)",
+      "ambient_sentinels": {
+        "user": "answered",
+        "project": "answered",
+        "plugin": "answered"
+      },
+      "engine_sentinel": "not_configured",
+      "harness_listing": {
+        "mcp_servers": [
+          {
+            "name": "plugin:u0-plugin:amb-plugin",
+            "status": "connected",
+            "source": "plugin"
+          },
+          {
+            "name": "amb-user",
+            "status": "connected",
+            "source": "user"
+          },
+          {
+            "name": "amb-project",
+            "status": "connected",
+            "source": "project"
+          }
+        ],
+        "mcp_tools": [
+          "mcp__amb-project__u0_project_probe",
+          "mcp__amb-user__u0_user_probe",
+          "mcp__plugin_u0-plugin_amb-plugin__u0_plugin_probe"
+        ],
+        "native_web_tools": [
+          "WebFetch",
+          "WebSearch"
+        ],
+        "tool_count": 32
+      },
+      "note": "file: accessToken and expiresAt copied, literal scopes [user:inference] added"
+    },
+    {
+      "id": "LT09-lanetally-auth-strict-engine",
+      "harness": "lanetally",
+      "candidate": "strict+engine-sentinel (authenticated)",
+      "shape": "cold",
+      "hands": false,
+      "exit_code": 0,
+      "provider_request": "anthropic (authenticated, haiku)",
+      "ambient_sentinels": {
+        "user": "not_started",
+        "project": "not_started",
+        "plugin": "not_started"
+      },
+      "engine_sentinel": "answered",
+      "harness_listing": {
+        "mcp_servers": [
+          {
+            "name": "engine",
+            "status": "connected",
+            "source": "dynamic"
+          }
+        ],
+        "mcp_tools": [
+          "mcp__engine__u0_engine_probe"
+        ],
+        "native_web_tools": [],
+        "tool_count": 28
+      },
+      "note": "--disallowedTools WebSearch,WebFetch; ToolSearch then MCP call"
+    },
+    {
+      "id": "LT10-lanetally-auth-strict-hands-engine",
+      "harness": "lanetally",
+      "candidate": "strict+hands+engine-sentinel (authenticated)",
+      "shape": "cold",
+      "hands": true,
+      "exit_code": 0,
+      "provider_request": "anthropic (authenticated, haiku)",
+      "ambient_sentinels": {
+        "user": "not_started",
+        "project": "not_started",
+        "plugin": "not_started"
+      },
+      "engine_sentinel": "answered",
+      "harness_listing": {
+        "mcp_servers": [
+          {
+            "name": "brokkr",
+            "status": "connected",
+            "source": "dynamic"
+          },
+          {
+            "name": "engine",
+            "status": "connected",
+            "source": "dynamic"
+          }
+        ],
+        "mcp_tools": [
+          "mcp__brokkr__workspace",
+          "mcp__engine__u0_engine_probe"
+        ],
+        "native_web_tools": [],
+        "tool_count": 2
+      },
+      "note": "hands call returned HANDS-OK"
+    },
+    {
+      "id": "LT11-lanetally-auth-canary-native-unboxed",
+      "harness": "lanetally",
+      "candidate": "strict+engine-sentinel (canary, authenticated)",
+      "shape": "cold",
+      "hands": false,
+      "exit_code": 0,
+      "provider_request": "anthropic (authenticated, haiku)",
+      "ambient_sentinels": {
+        "user": "not_started",
+        "project": "not_started",
+        "plugin": "not_started"
+      },
+      "engine_sentinel": "listed",
+      "harness_listing": {
+        "mcp_servers": [
+          {
+            "name": "engine",
+            "status": "connected",
+            "source": "dynamic"
+          }
+        ],
+        "mcp_tools": [
+          "mcp__engine__u0_engine_probe"
+        ],
+        "native_web_tools": [],
+        "tool_count": 28
+      },
+      "note": "store read via Read; /proc probe blocked by Claude's permission check; write outside cwd succeeded"
+    },
+    {
+      "id": "LT12-lanetally-auth-canary-hands",
+      "harness": "lanetally",
+      "candidate": "strict+hands+engine-sentinel (canary, authenticated)",
+      "shape": "cold",
+      "hands": true,
+      "exit_code": 0,
+      "provider_request": "anthropic (authenticated, haiku)",
+      "ambient_sentinels": {
+        "user": "not_started",
+        "project": "not_started",
+        "plugin": "not_started"
+      },
+      "engine_sentinel": "listed",
+      "harness_listing": {
+        "mcp_servers": [
+          {
+            "name": "brokkr",
+            "status": "connected",
+            "source": "dynamic"
+          },
+          {
+            "name": "engine",
+            "status": "connected",
+            "source": "dynamic"
+          }
+        ],
+        "mcp_tools": [
+          "mcp__brokkr__workspace",
+          "mcp__engine__u0_engine_probe"
+        ],
+        "native_web_tools": [],
+        "tool_count": 2
+      },
+      "note": "hands box: store absent, no canary in /proc, write outside worktree failed"
+    },
+    {
       "id": "X01-codex-pc-ambient",
       "harness": "codex",
       "candidate": "positive-control",
@@ -1134,6 +1407,40 @@
       "note": "no trust entry written; /etc system and managed servers started"
     },
     {
+      "id": "XA1-codex-auth-private-home-hands-engine",
+      "harness": "codex",
+      "candidate": "(a) private CODEX_HOME with the operator's ChatGPT login (discovery)",
+      "shape": "cold, read-only with production hands fragment",
+      "hands": true,
+      "exit_code": 0,
+      "provider_request": "openai via ChatGPT login (gpt-6-luna, low)",
+      "ambient_sentinels": {},
+      "engine_sentinel": "listed",
+      "harness_listing": {
+        "source": "rollout file (no proxy: authenticated traffic was not intercepted)",
+        "model_facing_tools": "one freeform custom tool `exec` (catalogue tool_mode code_mode_only); no tool_search call in either cell",
+        "catalogue_in_exec_runtime": "the model listed no u0_engine or workspace tool and made no call"
+      },
+      "note": "auth worked; the model made no tool call and reported no such tools"
+    },
+    {
+      "id": "XA2-codex-auth-private-home-tool-search",
+      "harness": "codex",
+      "candidate": "(a) private CODEX_HOME with the operator's ChatGPT login (discovery)",
+      "shape": "cold, read-only with production hands fragment",
+      "hands": true,
+      "exit_code": 0,
+      "provider_request": "openai via ChatGPT login (gpt-6-luna, low)",
+      "ambient_sentinels": {},
+      "engine_sentinel": "answered",
+      "harness_listing": {
+        "source": "rollout file (no proxy: authenticated traffic was not intercepted)",
+        "model_facing_tools": "one freeform custom tool `exec` (catalogue tool_mode code_mode_only); no tool_search call in either cell",
+        "catalogue_in_exec_runtime": "XA2's ALL_TOOLS filter returned mcp__brokkr__workspace and mcp__engine__u0_engine_probe; the visible, truncated catalogue also held 11 distinct mcp__codex_apps__* tool names (names withheld: operator account data)"
+      },
+      "note": "code mode: exec filtered ALL_TOOLS, then await tools.mcp__engine__u0_engine_probe and tools.mcp__brokkr__workspace"
+    },
+    {
       "id": "D01-dsh-pc-default-home",
       "harness": "dsh",
       "candidate": "positive-control (default ~/.dsh)",
@@ -1288,12 +1595,13 @@
     },
     "lanetally": {
       "mechanism": "the same flags through the actual wrapper (wrapper adds --settings <env-only fragment>)",
-      "status": "exclusion measured at startup; not qualified",
+      "status": "passes (2026-10-04 authenticated cells)",
       "shapes": {
-        "cold, no hands": "ambient not started; engine started and listed (LT03, LT05)",
-        "cold, hands": "ambient not started; brokkr and engine listed connected (LT04, LT06)"
+        "cold, no hands": "ambient not started; engine answered (LT09; startup LT03, LT05)",
+        "cold, hands": "ambient not started; engine answered and hands returned HANDS-OK (LT10; startup LT04, LT06)",
+        "wrapper-work-site resume": "unmeasured shape (adapter status unchanged)"
       },
-      "pending": "engine call answer and canaries need an authenticated model call (PENDING OPERATOR APPROVAL)",
+      "positive_control": "authenticated LT08: user, project and plugin sentinels answered through the wrapper",
       "refusal": "same managed refusal (LT07)",
       "native_off": "WebSearch and WebFetch absent from init tools under --disallowedTools (LT03, LT05); present without it (LT01, LT02)"
     },
@@ -1304,7 +1612,9 @@
       "si2_cause_proposed": "provider 'codex' cannot exclude ambient MCP configuration (project, system and managed MCP configuration cannot be excluded)",
       "observation_outside_d2": "a private home that also declares the workdir untrusted excluded user, plugin and project (X11) but not /etc system or managed (X11b); adopting it needs a plan update",
       "native_off": "no web_search tool in any request carrying -c web_search=\"disabled\" (cold, resume, both candidates, hands); the control without it carried one (X10)",
-      "auth_under_private_home": "custom provider env-key auth works; ChatGPT-login auth under a private home PENDING OPERATOR APPROVAL"
+      "auth_under_private_home": "custom provider env-key auth works; ChatGPT-login auth from a copied auth.json under a private home works (XA1, XA2)",
+      "discovery_openai_catalogue": "gpt-6-luna (catalogue supports_search_tool true, tool_mode code_mode_only) sees one freeform exec tool; MCP tools live in its JavaScript runtime as ALL_TOOLS entries and tools.mcp__<server>__<tool> functions; no tool_search call occurred; unprompted, the model reported no such tools and called nothing (XA1); told to search, it filtered ALL_TOOLS and called both MCP tools (XA2)",
+      "account_connectors": "with the ChatGPT login, the codex_apps connector server's tools joined the catalogue under the private home (11 distinct mcp__codex_apps__* names in the visible, truncated output): an account-level ambient MCP source a private home does not exclude"
     },
     "dsh": {
       "mechanism": "engine-only DSH_HOME (profile carrying bundles and route rows only) plus the engine row in the --patch overlay",
@@ -1337,7 +1647,7 @@
       "gap": "X08: an exec_command call (exit 1) is in the rollout but produced no command_execution item in the exec JSONL",
       "model_facing": "MCP servers reach the model as Responses API namespace tools (one per server, nested function tools); no defer_loading under fallback model metadata; features tool_search and tool_search_always_defer_mcp_tools report removed in 0.160.0",
       "resume_replay": "X04/X05: same thread_id, only new items emitted; history is resent to the model but not re-emitted as events",
-      "pending": "deferred discovery for OpenAI catalogue models (PENDING OPERATOR APPROVAL)"
+      "code_mode": "XA2 (gpt-6-luna): rollout custom_tool_call {name: exec, call_id, input: JavaScript} and custom_tool_call_output; the exec JSONL still emits one mcp_tool_call item per MCP call made inside the script (item_0, item_1), carrying no exec call_id; one exec call can wrap several MCP calls"
     },
     "dsh": {
       "stream": "headless stdout carries only the final message; events come from the session transcript (session-persistence-jsonl root, compression none)",
@@ -1371,8 +1681,20 @@
       },
       {
         "harness": "lanetally",
-        "shape": "all",
-        "result": "PENDING OPERATOR APPROVAL (needs an authenticated model call)"
+        "shape": "cold, hands (LT12)",
+        "store_read": "excluded (absent in the hands box)",
+        "process_read": "excluded (4 pids, no canary)",
+        "native_read_surfaces": "none present (init tools: mcp__brokkr__workspace, mcp__engine__u0_engine_probe)",
+        "native_write": "no native write tool present; hands write outside the worktree failed",
+        "ambient_mcp": "excluded"
+      },
+      {
+        "harness": "lanetally",
+        "shape": "cold, no hands (LT11)",
+        "store_read": "read via native Read",
+        "process_read": "not excluded by mechanism: the Bash probe was blocked by Claude's permission check",
+        "native_write": "allowed outside cwd",
+        "ambient_mcp": "excluded"
       },
       {
         "harness": "codex",
@@ -1398,18 +1720,32 @@
         "hands": "unsupported"
       }
     ],
-    "mb2": "secret-bearing holdings refuse wherever store-read or process-read is not excluded: Claude unboxed, Codex (native shell reads the store), dsh (native bash reads the store, no hands), LaneTally (pending). Claude's cold hands shape excluded both channels."
+    "mb2": "secret-bearing holdings refuse wherever store-read or process-read is not excluded: Claude and LaneTally unboxed, Codex (native shell reads the store), dsh (native bash reads the store, no hands). Claude's and LaneTally's cold hands shapes excluded both channels."
   },
-  "pending_operator_approval": [
+  "pending_operator_approval": [],
+  "closed_operator_approvals": [
     {
-      "item": "LaneTally authenticated cells: engine call answer, hands call, canaries through the wrapper",
-      "would_copy": "claudeAiOauth.accessToken and expiresAt (no refresh token) into a disposable HOME's .claude/.credentials.json, or an operator-chosen API key into that HOME's environment",
-      "why": "startup evidence settles exclusion; only the answer and the canary rows need a model"
+      "item": "LaneTally authenticated cells",
+      "approved": "2026-10-04",
+      "cells": [
+        "LT08a",
+        "LT08b",
+        "LT08",
+        "LT09",
+        "LT10",
+        "LT11",
+        "LT12"
+      ],
+      "outcome": "LaneTally passes D2 on the cold shape, with and without hands"
     },
     {
-      "item": "Codex under a private CODEX_HOME with the operator's ChatGPT login: auth works, OpenAI-model deferred discovery, normal model/effort",
-      "would_copy": "~/.codex/auth.json (id, access and refresh tokens, account id) into the private home",
-      "why": "the custom-provider route proves env-key auth and the event shapes, not ChatGPT auth or OpenAI catalogue behaviour; it cannot change candidate (a)'s failure on /etc and project layers"
+      "item": "Codex under a private CODEX_HOME with the operator's ChatGPT login",
+      "approved": "2026-10-04",
+      "cells": [
+        "XA1",
+        "XA2"
+      ],
+      "outcome": "auth works; discovery is code-mode catalogue search, not tool_search; codex_apps connectors load; candidate (a) still fails"
     }
   ],
   "model_calls": {
@@ -1437,6 +1773,31 @@
     "codex_local_spark_invocations": 22,
     "dsh_local_spark_invocations": 4,
     "local_spark_requests_logged": 44,
-    "local_cost": "no credential, no charge (shared local hardware)"
+    "local_cost": "no credential, no charge (shared local hardware)",
+    "approved_legs_2026_10_04": {
+      "anthropic_authenticated": {
+        "cells": [
+          "LT08",
+          "LT09",
+          "LT10",
+          "LT11",
+          "LT12"
+        ],
+        "count": 5,
+        "reported_total_cost_usd": 0.0885577
+      },
+      "refused_before_model": [
+        "LT08a",
+        "LT08b"
+      ],
+      "openai_chatgpt_login": {
+        "cells": [
+          "XA1",
+          "XA2"
+        ],
+        "count": 2,
+        "usage": "XA1 11106 input (8960 cached), 34 output tokens; XA2 72226 input (58368 cached), 119 output tokens; billed to the operator's ChatGPT plan, no per-call price reported"
+      }
+    }
   }
 }

@@ -489,6 +489,17 @@ authenticated rows, and Codex's ChatGPT-login auth and OpenAI-model
 discovery. macOS remains pending (no host). No adapter, production file
 or test changed. Tasks 1.1 and 1.2 carry this evidence.
 
+2026-10-04, approved legs. The operator approved both pending items and
+they ran that day under the controller's handling rules: minimal copies,
+mode 0600, shredded at the end of each leg, and re-scanned with 0
+exact-value matches. Through the actual wrapper, LaneTally passed D2 on
+the cold shape with and without hands (LT08 to LT12). Its canaries match
+Claude's. Under a private home, the operator's ChatGPT login authenticates
+Codex. For `gpt-6-luna`, MCP tools are discovered through the code-mode
+`exec` catalogue, not `tool_search`, and the account's `codex_apps`
+connectors also load, so candidate (a) still fails. No item remains
+pending except macOS. The cells are in the record above.
+
 ## U3a implementation evidence (tasks 10.1–10.2)
 
 Branch `s2/U3a` from main `7f0aa4ad`, run
