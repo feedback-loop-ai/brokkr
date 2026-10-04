@@ -24,7 +24,13 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 23] = [
+const FROZEN: [(&str, &str); 24] = [
+    // Decision 0065 slice two (SC2) lands `forge.realms/v8` beside v7,
+    // which was the new file when #487 landed and is frozen from here.
+    (
+        "contracts/realms.v7.schema.json",
+        "ed10a6ba4610668408cc326b593403f22d8abb5310304a5f1f6d74bd6b480d03",
+    ),
     // Proposed decision 0075 ruling 5 lands `forge.realms/v7` beside v6,
     // which was the new file when decision 0065 landed and is frozen from
     // here.
@@ -651,6 +657,14 @@ fn the_v6_realm_schema_admits_the_grant_and_no_older_version_does() {
     }
 }
 
+/// The published bodies of `contracts/<version>.schema.json`, in order.
+fn published<const N: usize>(versions: [&str; N]) -> [serde_json::Value; N] {
+    versions.map(|version| {
+        let path = workspace().join(format!("contracts/{version}.schema.json"));
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    })
+}
+
 /// Proposed decision 0075 ruling 5: the published contract for the
 /// operator's list. v7 is published beside v6, whose bytes are pinned
 /// above, as v6 plus one optional world-level property and nothing else,
@@ -662,10 +676,7 @@ fn the_v7_realm_schema_adds_only_the_provisional_offices() {
         titled("contracts/realms.v7.schema.json"),
         "Forge realms map v7"
     );
-    let [schema, v6] = ["realms.v7", "realms.v6"].map(|version| {
-        let path = workspace().join(format!("contracts/{version}.schema.json"));
-        serde_json::from_slice::<serde_json::Value>(&std::fs::read(path).unwrap()).unwrap()
-    });
+    let [schema, v6] = published(["realms.v7", "realms.v6"]);
     let mut carried = schema["properties"].clone();
     let added = carried
         .as_object_mut()
@@ -711,6 +722,66 @@ fn the_v7_realm_schema_adds_only_the_provisional_offices() {
         !contract("contracts/realms.v6.schema.json").is_valid(&map),
         "v6 admitted provisional_offices"
     );
+}
+
+/// Decision 0065 slice two (SC2, CR1): v8 is v7 plus one reserved grant
+/// key, `retain`, whose only legal value is `false`. v7's bytes are pinned
+/// above; under v7 the same spelling, any value, stays a restriction.
+#[test]
+fn the_v8_realm_schema_reserves_only_the_retention_veto() {
+    use serde_json::json;
+    assert_eq!(
+        titled("contracts/realms.v8.schema.json"),
+        "Forge realms map v8"
+    );
+    let [schema, v7] = published(["realms.v8", "realms.v7"]);
+    let mut carried = schema["properties"].clone();
+    let grant =
+        &mut carried["realms"]["items"]["properties"]["capabilities"]["additionalProperties"];
+    let added = grant["properties"]
+        .as_object_mut()
+        .unwrap()
+        .remove("retain");
+    assert_eq!(
+        added.map(|retain| retain["const"].clone()),
+        Some(json!(false))
+    );
+    let mut earlier = v7["properties"].clone();
+    earlier["schema"] = json!({"const": "forge.realms/v8"});
+    let description = "/realms/items/properties/capabilities/additionalProperties/description";
+    *earlier.pointer_mut(description).unwrap() = carried.pointer(description).unwrap().clone();
+    assert_eq!(carried, earlier, "v8 moved a property v7 defines");
+    for key in ["required", "additionalProperties", "type"] {
+        assert_eq!(schema[key], v7[key], "{key} moved between v7 and v8");
+    }
+
+    let validator = jsonschema::draft7::new(&schema).unwrap();
+    let mut map = json!({"schema": "forge.realms/v8", "journal": "forge.db",
+        "provisional_offices": ["researcher"], "realms": [
+        {"name": "app", "path": ".", "default_branch": "main",
+         "capabilities": {"library-docs": {"dialect": "docs-mcp"}}}]});
+    assert!(validator.is_valid(&map), "a v8 grant leaving retain out");
+    let retain = "/realms/0/capabilities/library-docs/retain";
+    map["realms"][0]["capabilities"]["library-docs"]["retain"] = json!(false);
+    assert!(validator.is_valid(&map), "a v8 veto");
+    for value in [
+        json!(true),
+        json!(null),
+        json!("false"),
+        json!(0),
+        json!({}),
+    ] {
+        *map.pointer_mut(retain).unwrap() = value.clone();
+        assert!(!validator.is_valid(&map), "the v8 schema admitted {value}");
+        map["schema"] = json!("forge.realms/v7");
+        assert!(
+            contract("contracts/realms.v7.schema.json").is_valid(&map),
+            "v7 refused the restriction {value}"
+        );
+        map["schema"] = json!("forge.realms/v8");
+    }
+    map["schema"] = json!("forge.realms/v7");
+    assert!(!validator.is_valid(&map), "v7 label under the v8 schema");
 }
 
 /// `brokkr.tool-dialect/v1` is a closed discriminated shape: exactly one

@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/realms.v8.json",
+  "title": "Forge realms map v8",
+  "description": "The world an invocation opens, with the realm's retention veto (decision 0065 slice two, SC2 and CR1). v1 through v7 remain frozen. This version adds exactly one reserved key to a grant: retain, whose only legal value is false. A realm may veto the retention its tool dialect declares, never require it; leaving retain out inherits the dialect's declaration. Under v6 and v7 the same spelling stays a restriction the dialect's schema defines, so an older map never acquires the veto by spelling alone. A v8 map that writes no retain reads exactly as a v7 map does, provisional_offices included.",
+  "type": "object",
+  "required": ["schema", "realms", "journal"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "forge.realms/v8" },
+    "realms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "default_branch"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "path": { "type": "string", "minLength": 1 },
+          "default_branch": { "type": "string", "minLength": 1 },
+          "journal": { "type": "string", "minLength": 1 },
+          "house": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "Repository-relative Markdown rendered into every seat prompt." },
+          "dialect": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "A library dialect name or a repository-relative dialect path." },
+          "boundary": { "enum": ["namespace", "seatbelt", "container", "harness", "open"], "description": "What stands between a box's hands and this realm's machine (decision 0046 ruling 1): namespace is decision 0043's bubblewrap user namespace (Linux, WSL2); seatbelt the same box built by sandbox-exec (macOS); container a pinned image with the worktree mounted; harness nothing of Brokkr's, the harness's own sandbox as its adapter fragment addresses it; open nothing at all. Absent reads namespace." },
+          "publishes": {
+            "type": "array",
+            "description": "The crossings this realm publishes (decision 0057 ruling 1): files this realm owns and other realms may pin. A crossing name is unique within the realm that publishes it.",
+            "items": {
+              "type": "object",
+              "required": ["name", "path"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The crossing's name, in the realm-name grammar, unique within this realm." },
+                "path": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "Repository-relative path to the published file, on the same terms house and dialect are named." }
+              }
+            }
+          },
+          "consumes": {
+            "type": "array",
+            "description": "The crossings this realm depends on (decision 0057 ruling 2), each named by its publishing realm and pinned by digest. A crossing name is used once within this list.",
+            "items": {
+              "type": "object",
+              "required": ["name", "realm", "sha256"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The crossing's name, as the publishing realm publishes it." },
+                "realm": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The realm that publishes this crossing; never this realm itself." },
+                "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Lowercase hex sha256 over the published file's RAW bytes, never over a canonical form: a crossing may be a schema, a .proto or Markdown, and only the publisher's format knows what canonicalising would mean." }
+              }
+            }
+          },
+          "capabilities": {
+            "type": "object",
+            "description": "The capabilities this realm grants (decision 0065 ruling 3), keyed by abstract capability name. Absent and empty both grant nothing; everything is off until it is listed here (ruling 4).",
+            "propertyNames": { "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+            "additionalProperties": {
+              "type": "object",
+              "required": ["dialect"],
+              "description": "One grant. Every key other than dialect, tools, offices and retain is a restriction the selected tool dialect's own schema defines; the engine validates it against that schema and passes it through without interpreting it.",
+              "properties": {
+                "dialect": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "The tool dialect under dialects/tools/ that serves the capability in this realm; its serves must equal the capability's name." },
+                "tools": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "A subset of the dialect's named tools. Absent admits the dialect's whole set; an empty list admits no tool and makes no usable holding." },
+                "offices": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "The offices this grant reaches: an agent's name, or an inline site's label. Absent reaches every requesting office; an empty list reaches none." },
+                "retain": { "const": false, "description": "The retention veto (decision 0065 slice two, CR1): false keeps no response body of this capability whatever its dialect declares. The realm may veto retention, never require it, so false is the only value; absent inherits the dialect's declaration. It is part of the grant as written, and so of its identity, even where the dialect retains nothing." }
+              }
+            }
+          }
+        }
+      }
+    },
+    "journal": { "type": "string", "minLength": 1 },
+    "provisional_offices": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "The offices, agents by name, a provisional model may hold (proposed decision 0075 ruling 5). A gate is never among them, whatever this lists. Absent or empty lists none.",
+      "items": { "type": "string", "pattern": "\\S" }
+    }
+  }
+}

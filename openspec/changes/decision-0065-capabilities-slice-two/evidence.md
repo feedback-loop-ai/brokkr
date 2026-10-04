@@ -909,3 +909,127 @@ main's, and U2 leaves it.
 `bash scripts/coverage-exact.sh`, the cyclomatic ratchet on its LCOV, and
 remote Linux and macOS CI are pending for a capable host or CI. None of them
 has passed.
+
+## U5c implementation evidence (tasks 22.1–23.2)
+
+Run `0065-slice-two-unit-u5c-see-the--d6380594` built this unit on
+2026-10-04 on branch `s2/U5c`, cut from main at `4c65f6a1`. The next realms
+version after v7 is allocated here as **v8**: `forge.realms/v8`,
+`contracts/realms.v8.schema.json`.
+
+### The change, file by file
+
+Production stays inside the row's three files.
+
+`crates/brokkr-core/src/realms/grants.rs` is new (244 lines) and is now the
+one home of the grant. `CapabilityGrant`, its `value()` serialization and
+`reaches`, `GRANT_KEYS` and the parser moved here from `realms.rs`, which
+re-exports the public names, so `brokkr_core::realms::CapabilityGrant` and
+`GRANT_KEYS` keep their paths for runtime and doctor. The parser is now
+version-aware. A grant carries `retention: GrantRetention`, a closed enum
+with three variants. `Unreserved` is any v6 or v7 grant, where `retain` is
+not the engine's key. `Inherit` is a v8 grant with `retain` left out, and
+`Veto` is a v8 grant writing `retain: false`. `GrantRetention::reserved_keys`
+is the reserved-key selection: v6 and v7 give `GRANT_KEYS`, the three keys
+as before, and v8 gives those three plus `retain`. The parser filters
+restrictions through that selection, so a v6 or v7 `retain` stays a
+restriction and a v8 veto never becomes one. `value()` writes
+`retain: false` back for a veto, so the manifest's pin of the grant keeps it.
+Under v8 any other `retain` value refuses with CR1's cause, naming the realm
+and the capability. The private `GrantError` (`thiserror`) replaces the old
+`Result<_, String>`. Its first five variants render the old refusal text
+byte for byte, which the unedited
+`a_malformed_grant_is_refused_naming_the_realm_the_capability_and_the_field`
+proves. `parse_grants` maps the error to `RealmsError::Invalid` at that
+edge, which kept the call in `RealmMap::of` to one line.
+
+`crates/brokkr-core/src/realms.rs` adds `SCHEMA_V8` to `SCHEMAS`, to the
+duplicate-key strict set and to the unknown-version refusal. It shrinks from
+918 to 808 lines. `RealmMap::of` keeps its 218-line baseline, measured at
+`realms.rs:514`.
+
+`contracts/realms.v8.schema.json` is v7's bytes with four changes: the
+version, `$id`, title and description; the grant description's reserved-key
+list; and one new grant property, `retain: {"const": false}`. No frozen file
+moved. v7 is now pinned in `FROZEN` at
+`ed10a6ba4610668408cc326b593403f22d8abb5310304a5f1f6d74bd6b480d03`, and
+`contracts/README.md` documents v8.
+
+### Test edits outside the owning suites
+
+These edits are mechanical, and the new field or the newly allocated label
+forces each one:
+
+- `crates/brokkr-core/src/realms/tests.rs` is `realms.rs`'s own unit
+  module. Its `CapabilityGrant` literal gains `retention`. The
+  unknown-label probe moves from `v8` to `v9`, and the eight-label refusal
+  text is re-pinned.
+- `crates/brokkr-runtime/src/agents/tests.rs` (`try_resolve_on`) gains the
+  `retention` field. This file sits over the test ceiling at its 5,839-line
+  baseline, so its `tools` read became a single `from_value` of the removed
+  key, which reads an absent key as `None` exactly as before. The file is
+  now 5,838 lines.
+- `crates/brokkr-cli/src/doctor/capability_tests.rs` gains the `retention`
+  field (1,975 to 1,976 lines, under the 2,000 ceiling).
+- `crates/brokkr-cli/tests/realms.rs`: the "future version" probe in
+  `a_missing_or_malformed_map_refuses_before_any_seat_spawns` used
+  `forge.realms/v8`. It failed once v8 existed (exit `Some(0)`, expected
+  `Some(1)`), and it now uses `v9`.
+
+### Scenarios and the tests that own them
+
+| Scenario | Test (`crates/brokkr-core/tests/realms.rs` unless named) |
+| --- | --- |
+| Legacy round trip; v6/v7 `retain` is a restriction; omitted and empty lists stay apart (22.1) | `an_older_grant_keeps_retain_as_a_restriction_and_round_trips_exactly` |
+| v8 `retain: false` is `Veto`, never a restriction, kept in `value()`; omission is `Inherit` (23.1) | `a_v8_grant_reads_retain_false_as_the_veto_and_omission_as_inherit` |
+| Bad veto values `true`, `null`, `{}`, `"false"`, `0` refuse with CR1's exact cause, rendered text pinned once (23.1) | `a_v8_retain_other_than_false_is_refused_by_realm_and_capability` |
+| v8 keeps v7's provisional offices, reads as v7 apart from the version, and refuses a duplicated key (23.1) | `a_v8_map_keeps_the_v7_provisional_offices_and_its_refusals` |
+| The v8 contract is v7 plus `retain` const false; v7 still admits any `retain` as a restriction; the v7 label is refused under v8 | `frozen_contracts.rs` `the_v8_realm_schema_reserves_only_the_retention_veto` |
+| Frozen pins do not move; v7 is now pinned | `frozen_contracts.rs` `the_frozen_contracts_and_the_corpus_keep_their_exact_bytes` |
+
+### Removal mutations
+
+Each mutation was applied with the Edit tool, run with
+`cargo test -p brokkr-core --test realms` (M6 and M7 with
+`cargo test -p brokkr-runtime --test frozen_contracts`), and then restored.
+M1–M6 were applied twice: once on the first tree, and again on the tree
+committed here, after `cargo fmt` and the `grants_of` split. The second
+pass failed the same tests with the same values. The lines below are from
+that pass; core lines are in `crates/brokkr-core/tests/realms.rs`. M7 ran
+once.
+
+| # | Compiling mutation | What failed (file:line, observed) |
+| --- | --- | --- |
+| M1 | `reserving = !older_than(schema, SCHEMA_V6)`: v6/v7 reserve `retain` | `an_older_grant…` (:34, left `Veto`, right `Unreserved`); `a_v8_map_keeps…` (:142, left `Inherit`, right `Unreserved`) |
+| M2 | `Unreserved.reserved_keys()` returns the four v8 keys | `an_older_grant…` (:35, left `["dialect", "tools", "offices", "retain"]`, right the three) |
+| M3 | `value()` never writes the veto back (`&& false`) | `a_v8_grant_reads…` (:80; `value()` lacked `"retain": Bool(false)`, as in the first pass) |
+| M4 | a non-false v8 `retain` is read as `Veto` | `a_v8_retain_other_than_false…` (:100, `unwrap_err` on `Ok`) |
+| M5 | `SCHEMA_V8` left out of the duplicate-key strict set | `a_v8_map_keeps…` (:150, `unwrap_err` on `Ok`: last-wins) |
+| M6 | v8 contract's `retain` widened to `{"type": "boolean"}` | `the_v8_realm_schema…` (frozen_contracts.rs:745, left `Some(Null)`, right `Some(Bool(false))`) |
+| M7 | one byte appended to v7's title | `the_frozen_contracts…` (frozen_contracts.rs:145, "contracts/realms.v7.schema.json bytes moved") |
+
+After all seven were restored, `sha256sum` of v7 printed the pinned digest
+again, and both suites passed.
+
+### Gates on the committed tree
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check`; workspace clippy with `-D warnings` | Clean. |
+| `brokkr-core` | lib 105, `realms` 4, the other three binaries ok. |
+| `brokkr-runtime` | lib 740 and every integration binary ok, `frozen_contracts` 12. `witness_digests` passed 6 unblessed, so no witness or compose pin moved. |
+| `brokkr-cli` | lib 627 (1 ignored); `--tests --no-fail-fast` gave 44 result lines, none FAILED. |
+| `compile --bundle bundles/self` | Exit 0. |
+| `quality/ratchet.sh files`, `clones`, `api` | "file size holds", "duplication holds", "public API holds". A first clones run found the two v7/v8 tests' shared contract read; it is now one helper, `published`. |
+| `quality/ratchet.sh baselines 4c65f6a1` | Refuses one raise: `public-api/brokkr-core.txt` 581 to 589 items (`GrantRetention` and its method, the `retention` field, `SCHEMA_V8`). This needs the operator's `Ruling:` line. The runtime snapshot changes only the rendered path of `CapabilityContext::grants`' element type, with no count change. |
+| `too_many_lines` (step 5, core and runtime) | `RealmMap::of` 218 at `realms.rs:514` (was `:613`). `the_new_contracts_exist…` 109 at `frozen_contracts.rs:169` (was listed at `:156`). The listing records both lines. |
+| File lines | `realms.rs` 808 (was 918), `grants.rs` 244, `tests/realms.rs` 156, `frozen_contracts.rs` 962, `realms/tests.rs` 1,181. |
+
+### Pending
+
+Exact coverage (`scripts/coverage-exact.sh`), the cyclomatic ratchet on its
+LCOV, `scripts/measure-budgets.sh` (no prompt input changed), and remote
+Linux and macOS CI have not run. Runtime still reserves the three v6 keys in
+`reserved_fault` and does not read `retention`. Making that check
+version-aware and carrying the veto into the holding is U5a's work (tasks
+24.1–24.2).

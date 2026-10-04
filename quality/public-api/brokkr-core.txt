@@ -391,6 +391,12 @@ pub fn brokkr_core::realms::CrossingList<T>::is_null(&self) -> bool
 pub fn brokkr_core::realms::CrossingList<T>::is_written(&self) -> bool
 impl<'de, T: serde_core::de::Deserialize<'de>> serde_core::de::Deserialize<'de> for brokkr_core::realms::CrossingList<T>
 pub fn brokkr_core::realms::CrossingList<T>::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub enum brokkr_core::realms::GrantRetention
+pub brokkr_core::realms::GrantRetention::Inherit
+pub brokkr_core::realms::GrantRetention::Unreserved
+pub brokkr_core::realms::GrantRetention::Veto
+impl brokkr_core::realms::GrantRetention
+pub fn brokkr_core::realms::GrantRetention::reserved_keys(self) -> &'static [&'static str]
 pub enum brokkr_core::realms::RealmsError
 pub brokkr_core::realms::RealmsError::Invalid
 pub brokkr_core::realms::RealmsError::Invalid::path: alloc::string::String
@@ -403,6 +409,7 @@ pub struct brokkr_core::realms::CapabilityGrant
 pub brokkr_core::realms::CapabilityGrant::dialect: alloc::string::String
 pub brokkr_core::realms::CapabilityGrant::offices: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub brokkr_core::realms::CapabilityGrant::restrictions: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub brokkr_core::realms::CapabilityGrant::retention: brokkr_core::realms::GrantRetention
 pub brokkr_core::realms::CapabilityGrant::tools: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 impl brokkr_core::realms::CapabilityGrant
 pub fn brokkr_core::realms::CapabilityGrant::reaches(&self, &str) -> bool
@@ -444,7 +451,7 @@ pub const brokkr_core::realms::DEFAULT_MAP_FILE: &str
 pub const brokkr_core::realms::GRANT_KEYS: [&str; 3]
 pub const brokkr_core::realms::LEGACY_REALM_KEY: &str
 pub const brokkr_core::realms::NOT_APPLICABLE: &str
-pub const brokkr_core::realms::SCHEMAS: [&str; 7]
+pub const brokkr_core::realms::SCHEMAS: [&str; 8]
 pub const brokkr_core::realms::SCHEMA_V1: &str
 pub const brokkr_core::realms::SCHEMA_V2: &str
 pub const brokkr_core::realms::SCHEMA_V3: &str
@@ -452,6 +459,7 @@ pub const brokkr_core::realms::SCHEMA_V4: &str
 pub const brokkr_core::realms::SCHEMA_V5: &str
 pub const brokkr_core::realms::SCHEMA_V6: &str
 pub const brokkr_core::realms::SCHEMA_V7: &str
+pub const brokkr_core::realms::SCHEMA_V8: &str
 pub fn brokkr_core::realms::is_name(&str) -> bool
 pub fn brokkr_core::realms::recorded_head<'a>(&'a serde_json::value::Value, core::option::Option<&str>) -> core::option::Option<&'a str>
 pub enum brokkr_core::Cursor
