@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use brokkr_core::realms::Boundary;
+use brokkr_core::realms::{Boundary, CapabilityGrant};
 use brokkr_protocol::adapters::{
     dsh_composite_prepared, DshComposite, DshInvocation, DshPrepared, DshSeams, DshSelection,
     DshUnprepared, DshUnselected,
@@ -16,11 +16,17 @@ use brokkr_protocol::adapters::{
 use brokkr_protocol::hands::{execute, HandsSpec, Session};
 use brokkr_protocol::native_controls::bounded_line;
 use brokkr_runtime::agents::{Adapter, ResumeIdentity, ResumeStatus};
+use brokkr_runtime::capabilities::{
+    restriction_names, Authority, Disposition, NativeInventory, Outcome, Requests, Strength,
+    ADAPTER_SEAT,
+};
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
 use brokkr_store::Store;
 
 use crate::boundary;
 use crate::render::Safe;
+
+mod provisional;
 
 pub(crate) struct Report {
     pub healthy: bool,
@@ -714,6 +720,9 @@ pub(crate) fn doctor(
         Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         &availability,
     );
+    let mapped = world.as_ref().ok().and_then(Option::as_ref);
+    let adapters = Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR);
+    provisional::report_provisional(&mut report, adapters, mapped);
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);
     report
 }
@@ -753,8 +762,7 @@ fn scope_words(grant: &brokkr_core::realms::CapabilityGrant) -> String {
 /// argv that switches it, the measured default that needs none, the tool
 /// lists it contributes to, or the reason it cannot be or has not been
 /// measured. Words for a readout, never a claim that the control held.
-fn disposition_words(disposition: &brokkr_runtime::capabilities::Disposition) -> String {
-    use brokkr_runtime::capabilities::Disposition;
+fn disposition_words(disposition: &Disposition) -> String {
     match disposition {
         Disposition::Argv(argv) => format!("argv [{}]", argv.join(" ")),
         Disposition::Default(reason) => format!("the harness default ({reason})"),
@@ -777,7 +785,6 @@ fn disposition_words(disposition: &brokkr_runtime::capabilities::Disposition) ->
 /// tools, how ON and OFF are declared, the evidence scope and what stays
 /// unmeasured, or the reason its inventory is unmeasured at all.
 fn report_native_assessments(report: &mut Report, installed: &[&Adapter]) {
-    use brokkr_runtime::capabilities::NativeInventory;
     for adapter in installed {
         let provider = &adapter.provider;
         let natives = match &adapter.native {
@@ -872,10 +879,7 @@ fn report_capabilities(
     adapters_root: &Path,
     availability: &Availability,
 ) {
-    use brokkr_runtime::capabilities::{
-        restriction_names, Authority, CapabilityContext, Definitions, NativeInventory, Strength,
-        ADAPTER_SEAT, UNMAPPED,
-    };
+    use brokkr_runtime::capabilities::{CapabilityContext, Definitions, UNMAPPED};
     let adapters = match Adapters::load(adapters_root) {
         Ok(adapters) => Some(adapters),
         Err(error) => {
@@ -898,6 +902,7 @@ fn report_capabilities(
         .flat_map(|adapters| adapters.providers())
         .filter(|adapter| availability.presence(&adapter.provider) == Presence::Available)
         .collect();
+    let known = adapters.as_ref();
     let (root, realms): (std::path::PathBuf, Vec<(String, _, &str)>) = match world {
         // The definitions stand beside the map, as the engine reads them:
         // the map is a file, so the directory it stands in is always there.
@@ -961,101 +966,21 @@ fn report_capabilities(
             grants: grants.clone(),
             root: root.clone(),
         });
-        let plan = |adapter: &Adapter, office: &str, asks| match &whole {
+        let plan = |adapter: &Adapter, office: &str, asks: Requests| match &whole {
             Ok(authority) => authority.assess(adapter, office, asks),
             Err(problem) => Err(bounded_line(problem)),
         };
-        let wants = |capability: &str| [(capability.to_string(), Strength::Wants)].into();
-        // The office a seat holding a grant is assessed in: the first the
-        // grant names, else the hypothesis's own label, which an office list
-        // that names none does not reach either.
-        let office = |grant: &brokkr_core::realms::CapabilityGrant| {
-            grant
-                .offices
-                .as_deref()
-                .and_then(<[String]>::first)
-                .map_or(ADAPTER_SEAT, String::as_str)
-                .to_string()
-        };
-        // Each grant is judged ALONE, by the compiler's own validation:
-        // one that fails is its own line and takes no neighbour with it.
-        let mut valid = std::collections::BTreeMap::new();
-        let mut unread = BTreeSet::new();
+        // Each grant is judged ALONE, by the compiler's own validation: one
+        // that fails is its own line, read `None`, and takes no neighbour.
+        let mut read = std::collections::BTreeMap::new();
         for (capability, grant) in &grants {
-            let alone = CapabilityContext {
+            let alone = Authority::load(CapabilityContext {
                 realm: realm.clone(),
                 grants: [(capability.clone(), grant.clone())].into(),
                 root: root.clone(),
-            };
-            let authority = match Authority::load(alone) {
-                Ok(authority) => authority,
-                Err(problem) => {
-                    report.missing(&format!("{what} '{capability}'"), bounded_line(&problem));
-                    unread.insert(capability.as_str());
-                    continue;
-                }
-            };
-            let dialect = &authority.dialects[capability];
-            let (provider, key) = authority
-                .binding(capability)
-                .expect("a grant that loaded is bound to a provider");
-            let tools = grant.tools.as_ref().unwrap_or(&dialect.tools);
-            let restrictions = match grant.restrictions.is_empty() {
-                true => "none".to_string(),
-                false => serde_json::Value::Object(grant.restrictions.clone()).to_string(),
-            };
-            // A declaration is not a claim of usable authority: what the
-            // bound provider's adapter says of itself decides whether any
-            // seat can hold the capability through this grant.
-            let bound = adapters
-                .as_ref()
-                .and_then(|adapters| adapters.adapter(provider));
-            let unusable = match bound.map(|adapter| (adapter, &adapter.native)) {
-                // CQ1 (design D11): no nonempty restriction is expressible
-                // in slice one, whatever transport the adapter declares, so
-                // a seat that requires the capability is refused and one
-                // that wants it drops it. What becomes of the seat that
-                // dropped it is its whole plan's to say, never the grant's
-                // (finding M1) nor one OFF control's (operator ruling 4).
-                Some((adapter, NativeInventory::Known { .. }))
-                    if !grant.restrictions.is_empty() =>
-                {
-                    let office = office(grant);
-                    let wanting = match plan(adapter, &office, wants(capability)) {
-                        Ok(outcome) => format!("drops it ({})", outcome.not_held[capability]),
-                        Err(cause) => {
-                            format!("is refused, and no denial is claimed ({cause})")
-                        }
-                    };
-                    format!(
-                        " · restriction '{}' is not usable authority: a seat that requires the \
-                         capability is refused, the adapter-level plan of a seat of office \
-                         '{office}' that wants it {wanting}, and it never runs unrestricted",
-                        restriction_names("", &grant.restrictions).join("', '")
-                    )
-                }
-                Some((_, NativeInventory::Known { .. })) => String::new(),
-                Some((_, NativeInventory::Unmeasured(reason))) => format!(
-                    " · provider '{provider}' declares its native capabilities unmeasured \
-                     ({reason}): no seat can hold the capability through this grant, and no \
-                     native denial is claimed"
-                ),
-                None => String::new(),
-            };
-            report.ok(
-                &format!("{what} '{capability}'"),
-                Safe::new(&format!(
-                    "dialect '{}' ({}, provider '{provider}') · tools [{}] · {} · restrictions \
-                     {restrictions}{unusable}",
-                    dialect.name,
-                    dialect.kind.word(),
-                    tools.join(", "),
-                    scope_words(grant),
-                ))
-                .as_str()
-                .to_string(),
-            );
-            valid.insert(capability.as_str(), (provider.to_string(), key.to_string()));
+            });
+            let bound = report_grant(report, &what, (capability, grant), &alone, known, &plan);
+            read.insert(capability.as_str(), bound);
         }
         for adapter in &installed {
             let provider = &adapter.provider;
@@ -1104,20 +1029,20 @@ fn report_capabilities(
             for (key, native) in natives {
                 let capability = &native.capability;
                 let line = format!("{what} native {provider} '{capability}'");
-                let granted = grants.get(capability).filter(|_| {
-                    valid.get(capability.as_str()) == Some(&(provider.clone(), key.clone()))
-                });
+                let bound = read.get(capability.as_str());
+                let ours = Some((provider.clone(), key.clone()));
+                let granted = grants.get(capability).filter(|_| bound == Some(&ours));
                 let evidence = safe(&format!(
                     "evidence: {} · still unmeasured: {}",
                     native.evidence.scope,
                     native.evidence.limitations.join("; ")
                 ));
-                match (granted, unread.contains(capability.as_str())) {
+                match (granted, bound == Some(&None)) {
                     // A seat that holds it: the plan of a seat the grant
                     // reaches that wants it, submitted whole — held with
                     // every other power OFF, dropped, or refused.
                     (Some(grant), _) => {
-                        let office = office(grant);
+                        let office = grant_office(grant);
                         let (wanting, on) = match plan(adapter, &office, wants(capability)) {
                             Ok(outcome) if outcome.held.contains_key(capability) => {
                                 ("is admitted with it ON".to_string(), true)
@@ -1158,6 +1083,86 @@ fn report_capabilities(
             }
         }
     }
+}
+
+/// The adapter-level asks of a seat that wants `capability` and nothing else.
+fn wants(capability: &str) -> Requests {
+    [(capability.to_string(), Strength::Wants)].into()
+}
+
+/// The office a seat holding a grant is assessed in: the first the grant
+/// names, else the hypothesis's own label, which an office list that names
+/// none does not reach either.
+fn grant_office(grant: &CapabilityGrant) -> String {
+    let first = grant.offices.as_deref().and_then(<[String]>::first);
+    first.map_or(ADAPTER_SEAT, String::as_str).to_string()
+}
+
+/// One grant's line, from its authority loaded ALONE and read through its
+/// typed binding (SC5): the native `(provider, key)` it binds, or `None`
+/// where the line fails, a binding of another kind in the compiler's words.
+fn report_grant(
+    report: &mut Report,
+    what: &str,
+    (capability, grant): (&String, &CapabilityGrant),
+    alone: &Result<Authority, String>,
+    adapters: Option<&Adapters>,
+    plan: &dyn Fn(&Adapter, &str, Requests) -> Result<Outcome, String>,
+) -> Option<(String, String)> {
+    let line = format!("{what} '{capability}'");
+    let bound = alone.as_ref().map_err(String::clone).and_then(|authority| {
+        let native = authority.binding(capability);
+        native.map_err(|unbound| unbound.to_string())
+    });
+    let (dialect, provider, key) = match bound {
+        Ok(native) => (native.dialect, native.provider, native.adapter_key),
+        Err(problem) => {
+            report.missing(&line, bounded_line(&problem));
+            return None;
+        }
+    };
+    let tools = grant.tools.as_ref().unwrap_or(&dialect.tools);
+    let restrictions = match grant.restrictions.is_empty() {
+        true => "none".to_string(),
+        false => serde_json::Value::Object(grant.restrictions.clone()).to_string(),
+    };
+    // A declaration is not a claim of usable authority: what the bound provider's adapter says
+    // of itself decides whether any seat can hold the capability through this grant.
+    let adapter = adapters.and_then(|adapters| adapters.adapter(provider));
+    let unusable = match adapter.map(|adapter| (adapter, &adapter.native)) {
+        // CQ1 (design D11): no nonempty restriction is expressible in slice one, whatever
+        // transport the adapter declares, so a seat that requires the capability is refused and
+        // one that wants it drops it. What becomes of the seat that dropped it is its whole
+        // plan's to say, never the grant's (finding M1) nor one OFF control's (operator ruling 4).
+        Some((adapter, NativeInventory::Known { .. })) if !grant.restrictions.is_empty() => {
+            let office = grant_office(grant);
+            let wanting = match plan(adapter, &office, wants(capability)) {
+                Ok(outcome) => format!("drops it ({})", outcome.not_held[capability]),
+                Err(cause) => format!("is refused, and no denial is claimed ({cause})"),
+            };
+            format!(
+                " · restriction '{}' is not usable authority: a seat that requires the capability \
+                 is refused, the adapter-level plan of a seat of office '{office}' that wants it \
+                 {wanting}, and it never runs unrestricted",
+                restriction_names("", &grant.restrictions).join("', '")
+            )
+        }
+        Some((_, NativeInventory::Known { .. })) | None => String::new(),
+        Some((_, NativeInventory::Unmeasured(reason))) => format!(
+            " · provider '{provider}' declares its native capabilities unmeasured ({reason}): no \
+             seat can hold the capability through this grant, and no native denial is claimed"
+        ),
+    };
+    let detail = format!(
+        "dialect '{}' ({}, provider '{provider}') · tools [{}] · {} · restrictions \
+         {restrictions}{unusable}",
+        dialect.name,
+        dialect.kind.word(),
+        tools.join(", "),
+        scope_words(grant),
+    );
+    report.ok(&line, Safe::new(&detail).as_str().to_string());
+    Some((provider.to_string(), key.to_string()))
 }
 
 #[cfg(test)]
@@ -1465,18 +1470,18 @@ fn doctor_observed(
             }),
         )
     });
-    let hands: Vec<&str> = compiled
+    let unboxed = std::collections::BTreeMap::new();
+    let hands = compiled
         .as_ref()
         .and_then(|(_, result)| result.as_ref().ok())
-        .map(|bundle| bundle.hands.keys().map(String::as_str).collect())
-        .unwrap_or_default();
+        .map_or(&unboxed, |bundle| &bundle.hands);
     // Decision 0046 ruling 2: one line naming the boundaries a run can
     // start under here, and the `hands` line judged against the realm's
     // boundary rather than against bubblewrap alone (decision 0043's
     // consequence, generalised). The boundary is never simulated.
     let offers = boundary::offered(&probe);
     report.ok("boundaries", boundary::doctor_line(&offers));
-    match boundary::hands_line(boundary, &offers[&boundary], &hands) {
+    match boundary::hands_line(boundary, &offers[&boundary], hands) {
         (true, line) => report.ok("hands", line),
         (false, line) => report.warn("hands", line),
     }

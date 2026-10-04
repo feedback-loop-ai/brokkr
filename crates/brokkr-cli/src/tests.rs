@@ -1014,17 +1014,20 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     // reason the digest witnesses are recorded rather than asserted.
     stage_adapters(dir.path());
     let bundle_path = stage_hands_free_fast(dir.path(), "fast-hands-free", false);
-    let base = |dispatch| {
+    let dispatched = |bundle: &std::path::Path, dispatch| {
         Cmd::Run(RunArgs {
-            delivery: bundled(bundle_path.clone()),
-            feature: "feature".into(),
-            realms: None,
-            db: Some(dir.path().join("dispatch.db")),
-            repo: None,
-            dispatch,
+            launch: LaunchArgs {
+                delivery: bundled(bundle.to_path_buf()),
+                feature: "feature".into(),
+                realms: None,
+                db: Some(dir.path().join("dispatch.db")),
+                repo: None,
+                dispatch,
+            },
             no_view: true,
         })
     };
+    let base = |dispatch| dispatched(&bundle_path, dispatch);
 
     // A map the operator NAMED and a Looper-bound dispatch cannot both
     // be honoured: the v2 lineage carries no world, and dropping the map
@@ -1035,8 +1038,8 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let missing = dir.path().join("missing.json");
     let map = realms_map(dir.path());
     let mut mapped = base(Some(missing.clone()));
-    if let Cmd::Run(RunArgs { realms, .. }) = &mut mapped {
-        *realms = Some(map);
+    if let Cmd::Run(RunArgs { launch, .. }) = &mut mapped {
+        launch.realms = Some(map);
     }
     assert!(run(cli(mapped))
         .unwrap_err()
@@ -1084,17 +1087,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
         serde_json::to_string(&gated_dispatch).unwrap(),
     )
     .unwrap();
-    let gated = |dispatch| {
-        Cmd::Run(RunArgs {
-            delivery: bundled(gated_path.clone()),
-            feature: "feature".into(),
-            realms: None,
-            db: Some(dir.path().join("dispatch.db")),
-            repo: None,
-            dispatch,
-            no_view: true,
-        })
-    };
+    let gated = |dispatch| dispatched(&gated_path, dispatch);
     let refusal = run_in(&unmapped, cli(gated(Some(gated_dispatch_path))))
         .unwrap_err()
         .to_string();
@@ -1121,8 +1114,8 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     std::fs::write(&path, serde_json::to_string(&dispatch).unwrap()).unwrap();
     let accept = |dispatch_path| {
         let mut accepted = base(Some(dispatch_path));
-        if let Cmd::Run(RunArgs { repo, .. }) = &mut accepted {
-            *repo = Some(dir.path().to_path_buf());
+        if let Cmd::Run(RunArgs { launch, .. }) = &mut accepted {
+            launch.repo = Some(dir.path().to_path_buf());
         }
         accepted
     };
@@ -4094,7 +4087,7 @@ fn a_bundle_with_hands_refuses_to_start_without_bubblewrap() {
     assert!(refuse_unboxable(&boxed, with_bwrap.as_os_str()).is_ok());
 
     // An overlay bind asks more of bwrap: a binary that cannot state a
-    // version of 0.10 or newer refuses the seat by name.
+    // version of 0.11 or newer refuses the seat by name.
     write_bundle_with(
         &bundle_dir,
         json!({"kind": "workspace", "binds": [{"path": "/opt/x", "mode": "overlay"}]}),
@@ -4104,7 +4097,7 @@ fn a_bundle_with_hands_refuses_to_start_without_bubblewrap() {
         .unwrap_err()
         .to_string();
     assert!(refusal.contains("seat 'work'"), "{refusal}");
-    assert!(refusal.contains("0.10 or newer"), "{refusal}");
+    assert!(refusal.contains("0.11 or newer"), "{refusal}");
 }
 
 fn write_bundle_with(bundle_dir: &std::path::Path, hands: Value) {
@@ -4157,12 +4150,14 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let refusal = run_in(
         &root,
         cli(Cmd::Run(RunArgs {
-            delivery: bundled(root.join("recipes/triage")),
-            feature: "dialect refusal".into(),
-            realms: Some(no_dialect_path),
-            db: Some(dir.path().join("never-created.db")),
-            repo: Some(root.clone()),
-            dispatch: None,
+            launch: LaunchArgs {
+                delivery: bundled(root.join("recipes/triage")),
+                feature: "dialect refusal".into(),
+                realms: Some(no_dialect_path),
+                db: Some(dir.path().join("never-created.db")),
+                repo: Some(root.clone()),
+                dispatch: None,
+            },
             no_view: true,
         })),
     )

@@ -3018,7 +3018,7 @@ fn write_proof_recipe(dir: &Path, shape: ProofShape, wrapped: bool) {
     } else {
         (json!(["verify", "review", "done"]), json!(["done"]))
     };
-    let policy = json!({
+    let mut policy = json!({
         "phases": phases,
         "initial": "verify",
         "terminal": terminal,
@@ -3028,6 +3028,13 @@ fn write_proof_recipe(dir: &Path, shape: ProofShape, wrapped: bool) {
             {"id":"R","from":"review","result":"clean","next":"done","reason":"clean"},
         ],
     });
+    if wrapped {
+        // Every phase is reachable (decision 0050, ruling 3), and the
+        // terminal `design` only past the protected review.
+        policy["rules"].as_array_mut().unwrap().push(
+            json!({"id":"RU","from":"review","result":"upstream","next":"design","reason":"upstream"}),
+        );
+    }
     let config = json!({
         "name": "proofs",
         "policy": "policy.json",

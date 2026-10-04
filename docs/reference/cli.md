@@ -36,6 +36,13 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr secrets remove`](#brokkr-secrets-remove): Remove NAME from the store
 - [`brokkr conclude`](#brokkr-conclude): Close a stopped or parked run from its journal alone — no bundle, no recipe, no effect. `resume` compiles the exact pinned recipe and refuses on any drift, which is right for the branches that spend money but leaves a run from a moved engine with no lawful ending. This appends the operator stop conclusion and nothing else, so it needs no pinned recipe to be honest about what it wrote. It cannot retry: that re-enters the policy loop, and the policy loop needs the bundle by construction. For a run believed dead: every write is fenced, so a journal that moves beneath the conclusion — something still driving the run — refuses instead of being closed over (decision 0029). Check `brokkr runs` first
 - [`brokkr operator`](#brokkr-operator): Record an operator command (retry \| stop \| supersede) as journal events
+- [`brokkr queue`](#brokkr-queue): The dispatcher's queue (decision 0068): runs waiting to start, in the journal's own database. Add, list, move, hold, release and drop entries; each change is journaled with its reason
+- [`brokkr queue add`](#brokkr-queue-add): Queue a new run, taking `brokkr run`'s arguments, at the end of the queue. Nothing starts: the entry waits for the dispatcher
+- [`brokkr queue list`](#brokkr-queue-list): The queue in order: each waiting entry's place, state, priority, waits and launch, then the entries that started a run, with it. `--json` emits the view model for scripts
+- [`brokkr queue move`](#brokkr-queue-move): Put an entry at another place in the queue
+- [`brokkr queue hold`](#brokkr-queue-hold): Keep an entry in its place, not to be started until released
+- [`brokkr queue release`](#brokkr-queue-release): Let a held entry be started again
+- [`brokkr queue drop`](#brokkr-queue-drop): Take an entry out of the queue. One that started a run cannot be
 - [`brokkr inspect`](#brokkr-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model
 - [`brokkr transcript`](#brokkr-transcript): Read one participant's retained local transcript — Claude, Codex or DSH — through the same bounded local derivation the TUI uses. The verb never launches, retries or resumes a provider and writes nothing to the journal
 - [`brokkr seats`](#brokkr-seats): The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it (decision 0046 ruling 3) — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
@@ -51,7 +58,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr hands`](#brokkr-hands): The model's hands are one tool, and the tool runs in an empty root (decision 0043): serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
 - [`brokkr hands serve`](#brokkr-hands-serve): Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
 - [`brokkr hands exec`](#brokkr-hands-exec): Run one command whole inside the box with stdio passed through — how a deterministic `exec` seat holds a gate. Exits with the command's own code
-- [`brokkr probe`](#brokkr-probe): Measure an agent CLI and write the facts its adapter must declare (proposed decision 0075 ruling 3). Launches the real CLI and spends the credentials bound to it: an operator host step, never CI
+- [`brokkr probe`](#brokkr-probe): Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI
 - [`brokkr probe harness`](#brokkr-probe-harness): Run one agent CLI headless against a scratch repository and HOME, and report each fact its adapter must declare as measured, unmeasured or unsupported, beside the adapter's own fields and the seat eligibility the facts derive
 - [Exit codes](#exit-codes)
 
@@ -495,6 +502,112 @@ Usage: brokkr operator [OPTIONS] --run <RUN> --reason <REASON> <COMMAND>
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
 
+## brokkr queue
+
+The dispatcher's queue (decision 0068): runs waiting to start, in the journal's own database. Add, list, move, hold, release and drop entries; each change is journaled with its reason
+
+```text
+Usage: brokkr queue <COMMAND>
+```
+
+## brokkr queue add
+
+Queue a new run, taking `brokkr run`'s arguments, at the end of the queue. Nothing starts: the entry waits for the dispatcher
+
+```text
+Usage: brokkr queue add [OPTIONS] --feature <FEATURE> --reason <REASON> <--bundle <BUNDLE>|--recipe <RECIPE>>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; this or `--recipe` is required. `resume` compiles it to the run's pinned manifest and refuses any drift |
+| `--recipe <RECIPE>` |  |  | Named recipe, resolved to &lt;recipes-dir&gt;/&lt;name&gt; |
+| `--recipes-dir <RECIPES_DIR>` | `recipes` |  | The recipe library `--recipe` is resolved in |
+| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default &lt;workdir&gt;/.forge/secrets.env) |
+| `--feature <FEATURE>` |  |  | The feature the run delivers, as text: recorded when the run starts and handed to its seats |
+| `--realms <REALMS>` |  |  | The world's map: realms and the journal they share (decision 0023). Defaults to ./realms.json when there is one; a map named here and missing or malformed is a refusal, never a silent fallback |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
+| `--repo <REPO>` |  |  | The repository the run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
+| `--dispatch <DISPATCH>` |  |  | Canonical forge-dispatch/v2 JSON. When present the run id, Looper/grant correlation, recipe, repository, budget, and producer bounds are pinned into an immutable run-manifest/v2 |
+| `--priority <PRIORITY>` | `0` |  | The entry's priority: operator data, weighed at admission |
+| `--after <ENTRY:CONDITION>...` |  |  | An earlier entry this one waits for, and on what: `3:completed` (its run completed) or `3:ended` (its run ended at all). Repeatable |
+| `--reason <REASON>` |  |  | Why, journaled with the command |
+
+## brokkr queue list
+
+The queue in order: each waiting entry's place, state, priority, waits and launch, then the entries that started a run, with it. `--json` emits the view model for scripts
+
+```text
+Usage: brokkr queue list [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
+| `--json` |  |  | Emit the view model verbatim — this is what scripts read |
+
+## brokkr queue move
+
+Put an entry at another place in the queue
+
+```text
+Usage: brokkr queue move [OPTIONS] --reason <REASON> --to <TO> <ENTRY>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<ENTRY>` |  |  | The entry's id, as `brokkr queue list` prints it |
+| `--reason <REASON>` |  |  | Why, journaled with the command |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
+| `--to <TO>` |  |  | The place to put it at, from 1 |
+
+## brokkr queue hold
+
+Keep an entry in its place, not to be started until released
+
+```text
+Usage: brokkr queue hold [OPTIONS] --reason <REASON> <ENTRY>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<ENTRY>` |  |  | The entry's id, as `brokkr queue list` prints it |
+| `--reason <REASON>` |  |  | Why, journaled with the command |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
+
+## brokkr queue release
+
+Let a held entry be started again
+
+```text
+Usage: brokkr queue release [OPTIONS] --reason <REASON> <ENTRY>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<ENTRY>` |  |  | The entry's id, as `brokkr queue list` prints it |
+| `--reason <REASON>` |  |  | Why, journaled with the command |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
+
+## brokkr queue drop
+
+Take an entry out of the queue. One that started a run cannot be
+
+```text
+Usage: brokkr queue drop [OPTIONS] --reason <REASON> <ENTRY>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<ENTRY>` |  |  | The entry's id, as `brokkr queue list` prints it |
+| `--reason <REASON>` |  |  | Why, journaled with the command |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
+
 ## brokkr inspect
 
 Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model
@@ -714,7 +827,7 @@ Usage: brokkr hands exec [OPTIONS] --workdir <WORKDIR> <COMMAND>...
 
 ## brokkr probe
 
-Measure an agent CLI and write the facts its adapter must declare (proposed decision 0075 ruling 3). Launches the real CLI and spends the credentials bound to it: an operator host step, never CI
+Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI
 
 ```text
 Usage: brokkr probe <COMMAND>

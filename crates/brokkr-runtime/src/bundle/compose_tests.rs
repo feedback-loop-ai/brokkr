@@ -743,15 +743,15 @@ fn overriding_a_rule_is_remove_then_prepend() {
         "derived",
         &derived(json!({"policy": "policy.json", "override": {"rules": ["REVIEW"]}})),
         Some(&json!({"rules": [
-            {"id":"REVIEW", "from":"review", "result":"clean", "next":"work",
-             "reason":"paranoid: always re-work"},
+            {"id":"REVIEW", "from":"review", "result":"clean", "next":"done",
+             "reason":"paranoid: reviewed twice"},
         ]})),
     );
     let resolved = resolve(&leaf).unwrap();
     let rules = resolved.table["rules"].as_array().unwrap();
     assert_eq!(rules.len(), 2);
     assert_eq!(rules[0]["id"], json!("REVIEW"));
-    assert_eq!(rules[0]["next"], json!("work"));
+    assert_eq!(rules[0]["reason"], json!("paranoid: reviewed twice"));
     assert_eq!(rules[1]["id"], json!("WORK"));
     brokkr_core::policy::Machine::from_table(&resolved.table).expect("no dead twin");
 
@@ -799,11 +799,11 @@ fn overriding_a_rule_is_remove_then_prepend() {
 }
 
 #[test]
-fn an_overlay_that_shadows_or_opens_a_hole_is_reported_on_the_flat_table() {
+fn an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_the_flat_table() {
     // Decision 0050 reads a composed table as the flat table `compose`
-    // produces. Until its enactment enables the refusals the audit reports
-    // and the loader admits (#429), so both overlays still resolve and load.
-    use brokkr_core::policy::audit::{Finding, Setting, SWEEP_BUDGET};
+    // produces. Its first enactment (#429) refuses the dead rule at load;
+    // the hole stays reported until totality is enacted.
+    use brokkr_core::policy::audit::{Finding, Refusal, Setting, SWEEP_BUDGET};
     let findings = |leaf: &Path| {
         let machine = Machine::from_table(&resolve(leaf).unwrap().table).unwrap();
         machine
@@ -829,11 +829,11 @@ fn an_overlay_that_shadows_or_opens_a_hole_is_reported_on_the_flat_table() {
         ]})),
     );
     assert_eq!(
-        findings(&shadow),
-        [Finding::Shadowed {
+        Machine::from_table(&resolve(&shadow).unwrap().table).unwrap_err(),
+        brokkr_core::PolicyError::Refused(Refusal::Order(Finding::Shadowed {
             rule: "REVIEW-FIXED".into(),
             behind: "REVIEW-ANY-FIX".into(),
-        }]
+        }))
     );
     // An override narrows the base's fallback and leaves a valuation.
     library.recipe("base", &base_bundle(), Some(&base_policy()));

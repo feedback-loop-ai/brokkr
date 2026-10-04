@@ -684,25 +684,6 @@ fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
     )
 }
 
-/// Injection discipline (decision 0012, layer 3): values reach the child
-/// ONLY through its environment, resolved at spawn time — never argv
-/// (/proc/*/cmdline is world-readable), never the template. Every harness
-/// spawn (claude, lanetally, codex, dsh, exec, and the probe's) binds here,
-/// so this holds the sole production call site of expose_for_spawn, CI-grep
-/// pinned. A declared name overrides any pre-existing env entry: the
-/// declaration is in the reviewed charter, so a collision is visible at review.
-pub(crate) fn bind_environment(
-    command: &mut Command,
-    bindings: &[secret::BoundSecret],
-) -> Result<(), String> {
-    for binding in bindings {
-        let value = std::str::from_utf8(binding.secret().expose_for_spawn())
-            .map_err(|_| format!("secret '{}' is not valid UTF-8", binding.name()))?;
-        command.env(binding.name(), value);
-    }
-    Ok(())
-}
-
 /// Drain a child's stderr on its own thread, so a chatty session cannot
 /// deadlock the stdout stream being folded live. The bytes come back
 /// raw: known-plaintext masking (decision 0012, layer 5) runs on them
@@ -721,24 +702,48 @@ fn masked_text(bytes: &[u8], bindings: &[secret::BoundSecret]) -> String {
     String::from_utf8_lossy(&secret::mask_bytes(bytes, bindings)).into_owned()
 }
 
+/// Every harness spawns here: argv, workdir, stdio and extra environment,
+/// then the one secret injector, its typed refusal mapped to text once.
+fn spawn_harness(
+    command: &[String],
+    workdir: &str,
+    stdin: Stdio,
+    stdout: Stdio,
+    env: &[(&str, &str)],
+    bindings: &[secret::BoundSecret],
+) -> Result<std::process::Child, String> {
+    let (program, args) = command
+        .split_first()
+        .ok_or_else(|| "empty command".to_string())?;
+    let mut builder = Command::new(program);
+    builder
+        .args(args)
+        .current_dir(if workdir.is_empty() { "." } else { workdir })
+        .envs(env.iter().copied())
+        .stdin(stdin)
+        .stdout(stdout)
+        .stderr(Stdio::piped());
+    secret::bind_environment(&mut builder, bindings).map_err(|error| error.to_string())?;
+    io_context(builder.spawn(), "could not invoke the agent CLI")
+}
+
+/// [`spawn_harness`] with stdin and stdout piped and no extra environment.
+fn spawn_piped(
+    command: &[String],
+    workdir: &str,
+    bindings: &[secret::BoundSecret],
+) -> Result<std::process::Child, String> {
+    let piped = Stdio::piped;
+    spawn_harness(command, workdir, piped(), piped(), &[], bindings)
+}
+
 fn run_cli(
     command: &[String],
     stdin_payload: Option<&str>,
     workdir: &str,
     bindings: &[secret::BoundSecret],
 ) -> Result<std::process::Output, String> {
-    let (program, args) = command
-        .split_first()
-        .ok_or_else(|| "empty command".to_string())?;
-    let mut invocation = Command::new(program);
-    invocation
-        .args(args)
-        .current_dir(if workdir.is_empty() { "." } else { workdir })
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    bind_environment(&mut invocation, bindings)?;
-    let mut child = io_context(invocation.spawn(), "could not invoke the agent CLI")?;
+    let mut child = spawn_piped(command, workdir, bindings)?;
     if let Some(payload) = stdin_payload {
         let mut stdin = child.stdin.take().expect("piped");
         write_prompt(&mut stdin, payload)?;
@@ -2446,16 +2451,7 @@ fn invoke_stream_json(
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession)?;
-    let (program, args) = (&command[0], &command[1..]);
-    let mut builder = Command::new(program);
-    builder
-        .args(args)
-        .current_dir(if workdir.is_empty() { "." } else { workdir })
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    bind_environment(&mut builder, bindings)?;
-    let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
+    let mut child = spawn_piped(command, workdir, bindings)?;
     {
         let mut stdin = child.stdin.take().expect("piped");
         io_context(
@@ -3794,16 +3790,7 @@ fn invoke_codex(
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
-    let (program, args) = (&command[0], &command[1..]);
-    let mut builder = Command::new(program);
-    builder
-        .args(args)
-        .current_dir(if workdir.is_empty() { "." } else { workdir })
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    bind_environment(&mut builder, bindings)?;
-    let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
+    let mut child = spawn_piped(command, workdir, bindings)?;
     let mut stdin = child.stdin.take().expect("piped");
     io_context(
         stdin.write_all(prompt.as_bytes()),
@@ -5000,28 +4987,22 @@ fn spawn_dsh(
     facts: &GitFacts,
     bindings: &[secret::BoundSecret],
 ) -> Result<(std::process::Child, std::thread::JoinHandle<Vec<u8>>), String> {
-    let mut builder = Command::new(&command[0]);
-    builder
-        .args(&command[1..])
-        .current_dir(if workdir.is_empty() { "." } else { workdir })
-        // Seat commits are unsigned (CONTRIBUTING): the host's own
-        // `commit.gpgsign` is outranked for every git call this seat
-        // makes, and the signing wrapper and its key stay outside the
-        // harness's sandbox.
-        .env("GIT_CONFIG_COUNT", "1")
-        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
-        .env("GIT_CONFIG_VALUE_0", "false")
-        .stdin(Stdio::null())
-        .stdout(stdout)
-        .stderr(Stdio::piped());
+    // Seat commits are unsigned (CONTRIBUTING): the host's own
+    // `commit.gpgsign` is outranked for every git call this seat makes,
+    // and the signing wrapper and its key stay outside the harness's
+    // sandbox.
+    let mut env = vec![
+        ("GIT_CONFIG_COUNT", "1"),
+        ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
+        ("GIT_CONFIG_VALUE_0", "false"),
+    ];
     // The seat commits under the host's identity, resolved outside the
     // sandbox the way the namespace box resolves it (decision 0043
     // ruling 6).
     for (key, value) in &facts.identity {
-        builder.env(key, value);
+        env.push((key, value));
     }
-    bind_environment(&mut builder, bindings)?;
-    let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
+    let mut child = spawn_harness(command, workdir, Stdio::null(), stdout, &env, bindings)?;
     let stderr_thread = drain_stderr(&mut child);
     Ok((child, stderr_thread))
 }

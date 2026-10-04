@@ -17,8 +17,10 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 
 pub mod compose;
+mod tier;
 
 use compose::{Ancestor, COMPOSE_PREFIX};
+pub use tier::{ProvisionalRefusal, RealmLaw};
 
 use crate::agents::{
     resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition,
@@ -52,6 +54,8 @@ pub enum CompileError {
     Json(#[from] serde_json::Error),
     #[error("bundle policy: {0}")]
     Policy(#[from] brokkr_core::PolicyError),
+    #[error("bundle: {0}")]
+    Provisional(ProvisionalRefusal),
 }
 
 /// How [`CompileError::Capability`] renders.
@@ -59,28 +63,9 @@ fn capability_line(reason: &str) -> String {
     brokkr_protocol::native_controls::bounded_line(&format!("bundle: {reason}"))
 }
 
-/// Inputs the engine owns. A seat may never supply or declare these:
-/// journal-computed truth is never accepted from a caller (README law 2).
-pub const ENGINE_OWNED_INPUTS: [&str; 7] = [
-    "consecutive_failures",
-    "drift_detected",
-    "dirty_worktrees",
-    "reviewed_heads",
-    // The fold remembers the last successful triage result. A seat may
-    // neither declare nor overwrite the class that governs its run.
-    "strategy",
-    // Read from the tree at the protected phase's ruling (decision
-    // 0039): the review's own commits, classified by the repository's
-    // declared docs class.
-    "fixes_docs_only",
-    // The same repository facts, keyed by realm (decision 0023). Read
-    // from the tree by the engine, exactly like the two above it.
-    REALM_FACTS,
-];
-
-/// The per-realm repository facts a decision records in a mapped world:
-/// realm name -> observed HEAD, dirty worktree, drift.
-pub const REALM_FACTS: &str = "realm_facts";
+/// The engine-owned inputs live with the policy that reads them, because
+/// the loader's presence refusal (decision 0050, ruling 1) exempts them.
+pub use brokkr_core::policy::{is_engine_owned, ENGINE_OWNED_INPUTS, REALM_FACTS};
 
 /// Closed, seat-declarable enum inputs. Their values are validated by the
 /// pure policy evaluator whenever a ruling reads them.
@@ -96,13 +81,6 @@ pub(crate) fn dialect_results(phase: &str) -> [&'static str; 2] {
         "verify" => ["pass", "fail"],
         _ => ["drafted", "fail"],
     }
-}
-
-/// The same law over the phase-visit family (decision 0022): every
-/// `visits_<phase>` is counted by the fold from `phase/entered` events,
-/// so no seat may declare one and no seat may claim one.
-pub fn is_engine_owned(name: &str) -> bool {
-    ENGINE_OWNED_INPUTS.contains(&name) || name.starts_with(brokkr_core::policy::VISIT_PREFIX)
 }
 
 #[derive(Debug, Clone)]
@@ -348,6 +326,16 @@ fn is_gate_class(value: &Value) -> bool {
         return !steps.is_empty() && steps.iter().all(is_gate_class);
     }
     value.get("class").and_then(Value::as_str) == Some("gate")
+}
+
+/// A sequence step's canonical class, read once for the step and for its
+/// capability record (GP1): a dialect step runs the realm dialect's own
+/// validator, which judges, so it is a gate though it writes no class.
+fn step_class(step: &Value) -> SeatClass {
+    match step.get("dialect").is_some() || is_gate_class(step) {
+        true => SeatClass::Gate,
+        false => SeatClass::Work,
+    }
 }
 
 /// Per-seat autonomy limits (decision 0006). Defaults keep the old
@@ -700,6 +688,8 @@ struct AgentContext {
     /// Every library charter's bound read, held until the bundle is sealed
     /// (rebuild unit 18-fix-b return, council F2).
     reads: Vec<LibraryRead>,
+    /// The offices a provisional model may hold ([`RealmLaw`]).
+    provisional_offices: Vec<String>,
 }
 
 /// One library charter a site was bound to, as its read holds it: the site
@@ -842,7 +832,7 @@ enum ModelPin {
 /// exactly the two spellings `FLAG VALUE` and `FLAG=VALUE`, and a longer
 /// word beginning with it is a different flag of the same family rather
 /// than an illegible spelling of this one.
-fn short_flag(flag: &str) -> bool {
+pub(crate) fn short_flag(flag: &str) -> bool {
     let mut characters = flag.chars();
     characters.next() == Some('-')
         && matches!(characters.next(), Some(c) if c != '-')
@@ -1094,18 +1084,15 @@ impl<'a> CapabilityAdapters<'a> {
         }
     }
 
-    /// An inline seat's adapters: loaded, failed to load, or never asked for.
-    fn of(pinned: Option<&'a Result<Adapters, String>>) -> Self {
-        match pinned {
-            Some(Ok(adapters)) => Self::loaded(adapters),
-            Some(Err(problem)) => CapabilityAdapters {
-                adapters: None,
-                unloaded: Some(problem),
-            },
-            None => CapabilityAdapters {
-                adapters: None,
-                unloaded: None,
-            },
+    /// An inline seat's adapters where no agent context holds them: never
+    /// asked for, or failed to load. Inline adapters that loaded open an
+    /// agent context (`tier::inline_context`) and are read as `loaded`.
+    fn unloaded(pinned: Option<&'a Result<Adapters, String>>) -> Self {
+        CapabilityAdapters {
+            adapters: None,
+            unloaded: pinned
+                .and_then(|loaded| loaded.as_ref().err())
+                .map(String::as_str),
         }
     }
 }
@@ -1320,18 +1307,19 @@ impl Bundle {
 
     /// Compile in no named realm but under a stated boundary — what
     /// `brokkr doctor` does for the realm it discovered, whose dialect it
-    /// reports separately.
+    /// reports separately — or under a stated law, which also names the
+    /// world's provisional offices.
     pub fn compile_under(
         dir: &Path,
         library_root: &Path,
         adapters_root: &Path,
-        boundary: Boundary,
+        law: impl Into<RealmLaw>,
     ) -> Result<Bundle, CompileError> {
         Self::compile_unmapped(
             dir,
             library_root,
             adapters_root,
-            boundary,
+            law,
             library_root.parent().unwrap_or(Path::new("")),
         )
     }
@@ -1347,7 +1335,7 @@ impl Bundle {
         dir: &Path,
         library_root: &Path,
         adapters_root: &Path,
-        boundary: Boundary,
+        law: impl Into<RealmLaw>,
         operator_root: &Path,
     ) -> Result<Bundle, CompileError> {
         let default_path = library_root
@@ -1369,7 +1357,7 @@ impl Bundle {
             adapters_root,
             None,
             default.as_ref(),
-            boundary,
+            law,
             &crate::capabilities::CapabilityContext::no_grants(
                 crate::capabilities::UNMAPPED,
                 operator_root,
@@ -1422,7 +1410,7 @@ impl Bundle {
         adapters_root: &Path,
         realm_name: Option<&str>,
         dialect: Option<&Dialect>,
-        boundary: Boundary,
+        law: impl Into<RealmLaw>,
         capabilities: &crate::capabilities::CapabilityContext,
     ) -> Result<Bundle, CompileError> {
         let dir = dir
@@ -1440,7 +1428,7 @@ impl Bundle {
             adapters_root,
             realm_name,
             dialect,
-            boundary,
+            law.into(),
             capabilities,
         ) {
             Ok(bundle) => Ok(bundle),
@@ -1475,7 +1463,10 @@ impl Bundle {
         adapters_root: &Path,
         realm_name: Option<&str>,
         dialect: Option<&Dialect>,
-        boundary: Boundary,
+        RealmLaw {
+            boundary,
+            provisional_offices,
+        }: RealmLaw,
         capabilities: &crate::capabilities::CapabilityContext,
     ) -> Result<Bundle, CompileError> {
         // Decision 0065 (design D4 steps 1 and 2): the operated realm's
@@ -1512,14 +1503,12 @@ impl Bundle {
         // Kept for the capability pass below (decision 0065): an inline
         // model seat in a bundle that seats no gate opens no agent
         // context, and its adapter's native declaration is still what
-        // says how its search is switched off.
+        // says how its search is switched off, as its model's tier is what
+        // says whether it may be seated (proposed decision 0075 ruling 5).
         let pin_adapters = load_pin_adapters(adapters_root, &resolved.seats);
-        let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) = enforce_model_pins(
-            &resolved.seats,
-            pin_adapters
-                .as_ref()
-                .and_then(|loaded| loaded.as_ref().ok()),
-        )?;
+        let inline_adapters = pin_adapters.as_ref().and_then(|l| l.as_ref().ok());
+        let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) =
+            enforce_model_pins(&resolved.seats, inline_adapters)?;
         // The one canonical family table (design D10 F1). Seeded with the
         // inline pins and assessments before any parse writes beside
         // them; every later fact is written into an entrant of this same
@@ -1590,7 +1579,7 @@ impl Bundle {
         // COMPOSED seats are what is scanned: a base may be what carries
         // the agent reference.
         let mut agents = match uses_dialect || resolved.seats.values().any(needs_adapters) {
-            false => None,
+            false => tier::inline_context(inline_adapters, egress_minimum),
             true => Some(AgentContext {
                 library: match resolved.seats.values().any(mentions_agent) {
                     false => None,
@@ -1610,6 +1599,7 @@ impl Bundle {
                 })?,
                 egress_minimum,
                 reads: Vec::new(),
+                provisional_offices,
             }),
         };
         // Decision 0065 ruling 1 (CQ2; design D3): a library this compile
@@ -1957,7 +1947,7 @@ impl Bundle {
                     context.library.as_ref(),
                     CapabilityAdapters::loaded(&context.adapters),
                 ),
-                None => (None, CapabilityAdapters::of(pin_adapters.as_ref())),
+                None => (None, CapabilityAdapters::unloaded(pin_adapters.as_ref())),
             };
             for (phase, raw) in &resolved.seats {
                 // The layer that wrote the seat, as its agent's hands
@@ -4197,7 +4187,7 @@ fn enforce_route_policy(
     agents: &mut Option<AgentContext>,
     sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
-    let class = parse_class(what, raw)?;
+    let class = tier::admitted(what, raw, candidates, agents.as_ref())?;
     if class == SeatClass::Work && secrets.is_empty() {
         return Ok(());
     }
@@ -6066,9 +6056,7 @@ fn record_capabilities(
         let agent = library
             .and_then(|library| library.agent(name))
             .expect("the seat loop resolved this agent reference");
-        let asks =
-            crate::capabilities::SiteAsks::of(what, Some((name, &agent.capabilities)), written)
-                .map_err(CompileError::Invalid)?;
+        let asks = site_asks(what, raw, Some((name, &agent.capabilities)))?;
         let chain = site_facts(sites, what).chain.clone();
         // Under the harness boundary the engine appends each candidate's
         // `hands.harness.*` fragment for the seat's class behind a hands
@@ -6076,7 +6064,7 @@ fn record_capabilities(
         // so a limit it carries holds at compile, and a wanted holding it
         // excludes drops rather than refusing its spawn (unit 12-fix-b, R2).
         let class = match (boundary, &agent.hands) {
-            (Boundary::Harness, Some(_)) => Some(parse_class(what, raw)?),
+            (Boundary::Harness, Some(_)) => Some(asks.class),
             _ => None,
         };
         let managed: Vec<Vec<String>> = chain
@@ -6133,8 +6121,7 @@ fn record_capabilities(
     }
     // A single site, by the same two keys `has_single` reads.
     if ["driver", "role"].iter().any(|key| raw.get(key).is_some()) {
-        let asks = crate::capabilities::SiteAsks::of(what, None, written)
-            .map_err(CompileError::Invalid)?;
+        let asks = site_asks(what, raw, None)?;
         let parts = command_parts(raw);
         let driver = dispatch_driver(&parts);
         let facts = site_facts(sites, what);
@@ -6198,11 +6185,8 @@ fn record_capabilities(
     // site at all, and none is invented for it here.
     if raw.get("dialect").is_some() {
         if sites.contains_key(what) {
-            let asks = crate::capabilities::SiteAsks {
-                label: what.to_string(),
-                office: what.to_string(),
-                ..Default::default()
-            };
+            let asks = crate::capabilities::SiteAsks::at(step_class(raw), what, None, None)
+                .map_err(CompileError::Invalid)?;
             let site = site_capabilities(
                 authority,
                 adapters,
@@ -6265,6 +6249,19 @@ fn record_capabilities(
         )?;
     }
     Ok(())
+}
+
+/// One executable site's asks at its own canonical class (GP1), read once
+/// for every candidate it resolves against: what the site itself declares,
+/// never its container's class, a neighbour's or its execution label.
+fn site_asks(
+    what: &str,
+    raw: &Value,
+    agent: Option<(&str, &crate::capabilities::Requests)>,
+) -> Result<crate::capabilities::SiteAsks, CompileError> {
+    let class = parse_class(what, raw)?;
+    crate::capabilities::SiteAsks::at(class, what, agent, raw.get("capabilities"))
+        .map_err(CompileError::Invalid)
 }
 
 /// The label a sequence step is recorded under: its `name`, or its
@@ -6976,11 +6973,7 @@ fn parse_sequence(
         }
         steps.push(SequenceStep {
             name: name.to_string(),
-            class: if has_dialect || is_gate_class(step_raw) {
-                SeatClass::Gate
-            } else {
-                SeatClass::Work
-            },
+            class: step_class(step_raw),
             results: step_results,
             body,
         });

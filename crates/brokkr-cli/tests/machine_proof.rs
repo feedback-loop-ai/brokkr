@@ -74,8 +74,8 @@ const POLICY: &str = r#"{
 /// The same machine with decision 0022's review constitution: a security
 /// residual sends the run BACK to implement while implement's visit count
 /// stays inside two reforgings, and the exhaustion ladder then stops,
-/// parks, or ships it as named debt. The non-security rules are the v1
-/// table's, character for character.
+/// parks, or ships it as named debt. Its shipping arms read what the hard
+/// rules of their group read (decision 0050, ruling 1).
 const REFORGING_POLICY: &str = r#"{
   "schema": "forge.phase-machine/v2",
   "phases": ["intake", "implement", "verify", "review", "ship", "done", "stop"],
@@ -113,7 +113,7 @@ const REFORGING_POLICY: &str = r#"{
      "reason": "Two reforgings spent and a medium security residual survives."},
     {"id": "REVIEW-REFORGE-EXHAUSTED-DEBT", "from": "review", "result": "residual",
      "when": {"has_security_residual": true, "visits_implement_gte": 3,
-              "fixes_applied": true},
+              "fixes_applied": true, "max_residual_severity_at_most": "low"},
      "next": "ship", "severity": "flagged",
      "reason": "Two reforgings spent; low or info with fixes applied ships as tracked debt."},
     {"id": "REVIEW-REFORGE-EXHAUSTED-UNFIXED", "from": "review", "result": "residual",
@@ -126,9 +126,9 @@ const REFORGING_POLICY: &str = r#"{
     {"id": "REVIEW-RESIDUAL-ABOVE-MEDIUM", "from": "review", "result": "residual",
      "when": {"max_residual_severity_above": "medium"}, "next": "stop",
      "severity": "hard", "reason": "Residual severity above medium; not shippable."},
-    {"id": "REVIEW-RESIDUAL-OK", "from": "review", "result": "residual", "next": "ship",
-     "severity": "flagged",
-     "reason": "Non-security residuals at or below medium proceed as tracked debt."},
+    {"id": "REVIEW-RESIDUAL-OK", "from": "review", "result": "residual", "severity": "flagged",
+     "when": {"has_security_residual": false, "max_residual_severity_at_most": "medium"},
+     "next": "ship", "reason": "Non-security residuals at or below medium proceed as tracked debt."},
     {"id": "REVIEW-CLEAN-NO-FIXES", "from": "review", "result": "clean",
      "when": {"fixes_applied": false}, "next": "ship",
      "reason": "Clean with no fixes reported; a gate that moves HEAD parks and ship stops on a dirty tree."},
@@ -3141,11 +3141,12 @@ mod journal_invariant {
 #[test]
 fn expose_for_spawn_has_exactly_one_production_call_site() {
     // Layer 4's single-egress property, enforced by grep as decision
-    // 0012 prescribes: the plaintext accessor is CALLED exactly once
-    // outside secret.rs — the exec adapter's spawn injector.
+    // 0012 prescribes: the plaintext accessor is CALLED exactly once in
+    // all production code, secret.rs included — inside the one spawn
+    // injector every harness shares. Its definition is not a call.
     let crates_dir = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let needle: String = ["expose_for", "_spawn("].concat();
-    let mut call_sites: Vec<(PathBuf, usize)> = Vec::new();
+    let mut call_sites: Vec<(PathBuf, String)> = Vec::new();
     let mut stack = vec![crates_dir.to_path_buf()];
     while let Some(dir) = stack.pop() {
         for entry in std::fs::read_dir(&dir).unwrap() {
@@ -3153,34 +3154,29 @@ fn expose_for_spawn_has_exactly_one_production_call_site() {
             if path.is_dir() {
                 stack.push(path);
             } else if path.extension().and_then(|e| e.to_str()) == Some("rs")
-                // Production code only: each crate's src/ tree, minus
-                // the trust-boundary module itself.
+                // Production code only: each crate's src/ tree, minus tests.
                 && path.components().any(|c| c.as_os_str() == "src")
-                && path.file_name().and_then(|n| n.to_str()) != Some("secret.rs")
                 && !path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .is_some_and(|n| n == "tests.rs" || n.ends_with("_tests.rs"))
             {
                 let content = std::fs::read_to_string(&path).unwrap();
-                let count = content.matches(&needle).count();
-                if count > 0 {
-                    call_sites.push((path, count));
+                // A call sits in the nearest function opened before it.
+                let calls = content.match_indices(&needle).map(|(at, _)| &content[..at]);
+                for before in calls.filter(|before| !before.ends_with("fn ")) {
+                    let enclosing = before.rfind("fn ").map_or("", |fn_at| &before[fn_at + 3..]);
+                    let name = enclosing.split('(').next().unwrap_or_default();
+                    call_sites.push((path.clone(), name.to_string()));
                 }
             }
         }
     }
-    assert_eq!(
-        call_sites.iter().map(|(_, n)| n).sum::<usize>(),
-        1,
-        "exactly one call site outside secret.rs: {call_sites:?}"
-    );
-    assert!(
-        call_sites[0]
-            .0
-            .ends_with(Path::new("brokkr-protocol").join("src").join("adapters.rs")),
-        "the one call site is the exec spawn injector: {call_sites:?}"
-    );
+    let injector = crates_dir
+        .join("brokkr-protocol")
+        .join("src")
+        .join("secret.rs");
+    assert_eq!(call_sites, [(injector, "bind_environment".to_string())]);
 }
 
 #[test]

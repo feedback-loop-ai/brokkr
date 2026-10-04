@@ -18,13 +18,13 @@ fn workspace() -> PathBuf {
 
 /// A two-phase bundle of exec seats under `root/bundle`; the `work` seat
 /// boxes its hands in the workspace when `boxed`.
-fn bundle_at(root: &Path, boxed: bool) -> PathBuf {
+pub(super) fn bundle_at(root: &Path, boxed: bool) -> PathBuf {
     let dir = root.join("bundle");
     std::fs::create_dir_all(dir.join("roles")).unwrap();
     std::fs::write(dir.join("roles/seat.md"), "# seat\n").unwrap();
     let table = json!({
         "schema": "forge.phase-machine/v1", "initial": "work",
-        "phases": ["work", "review", "done", "stop"], "terminal": ["done", "stop"],
+        "phases": ["work", "review", "done"], "terminal": ["done"],
         "rules": [
             {"id": "WORKED", "from": "work", "result": "complete", "next": "review", "reason": "worked"},
             {"id": "CLEAN", "from": "review", "result": "clean", "next": "done", "reason": "clean"}

@@ -21,9 +21,9 @@ use sha2::{Digest, Sha256};
 
 use super::plan::{Step, UserConfig, PROMPT};
 use super::ProbeError;
-use crate::adapters::bind_environment;
 use crate::hands::{mcp_config, serve_args, HandsSpec};
 use crate::process::Launched;
+use crate::secret::bind_environment;
 use crate::secret::{mask_bytes, BoundSecret};
 
 /// The scratch directory's name prefix. A path a CLI derives from its
@@ -269,7 +269,8 @@ impl Runner<'_> {
             .stderr(Stdio::piped());
         // Decision 0012 layer 4: every value leaves through the one
         // injector the adapters spawn with.
-        bind_environment(&mut command, bindings).map_err(ProbeError::Credential)?;
+        bind_environment(&mut command, bindings)
+            .map_err(|refused| ProbeError::Credential(refused.to_string()))?;
         // A session and group of its own, among the engine's attempts, so
         // the end reaches every descendant (#403).
         let what = format!("could not launch {}", self.cli);

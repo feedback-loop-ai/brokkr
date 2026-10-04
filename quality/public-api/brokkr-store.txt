@@ -1,5 +1,14 @@
 # produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
 pub mod brokkr_store
+pub enum brokkr_store::EntryState
+pub brokkr_store::EntryState::Claimed
+pub brokkr_store::EntryState::Claimed::run: alloc::string::String
+pub brokkr_store::EntryState::Dropped
+pub brokkr_store::EntryState::Held
+pub brokkr_store::EntryState::Queued
+impl brokkr_store::EntryState
+pub fn brokkr_store::EntryState::run(&self) -> core::option::Option<&str>
+pub fn brokkr_store::EntryState::word(&self) -> &'static str
 pub enum brokkr_store::ImportError
 pub brokkr_store::ImportError::Collision(alloc::string::String)
 pub brokkr_store::ImportError::Redacted(alloc::string::String)
@@ -8,6 +17,34 @@ pub brokkr_store::ImportError::UnadoptableRunId(alloc::string::String)
 pub brokkr_store::ImportError::Unattested
 pub brokkr_store::ImportError::Unattested::field: &'static str
 pub brokkr_store::ImportError::Verify(brokkr_store::VerifyError)
+pub enum brokkr_store::QueueCommand
+pub brokkr_store::QueueCommand::Drop
+pub brokkr_store::QueueCommand::Hold
+pub brokkr_store::QueueCommand::Move
+pub brokkr_store::QueueCommand::Move::to: u32
+pub brokkr_store::QueueCommand::Release
+pub enum brokkr_store::QueueRefusal
+pub brokkr_store::QueueRefusal::AlreadyHeld(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::Claimed
+pub brokkr_store::QueueRefusal::Claimed::entry: brokkr_store::EntryId
+pub brokkr_store::QueueRefusal::Claimed::run: alloc::string::String
+pub brokkr_store::QueueRefusal::Dropped(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::DuplicateWait(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::Held(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::NotHeld(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::PastTheEnds
+pub brokkr_store::QueueRefusal::PastTheEnds::entry: brokkr_store::EntryId
+pub brokkr_store::QueueRefusal::PastTheEnds::last: u32
+pub brokkr_store::QueueRefusal::PastTheEnds::to: u32
+pub brokkr_store::QueueRefusal::RunTaken
+pub brokkr_store::QueueRefusal::RunTaken::entry: brokkr_store::EntryId
+pub brokkr_store::QueueRefusal::RunTaken::run: alloc::string::String
+pub brokkr_store::QueueRefusal::SchemaMismatch
+pub brokkr_store::QueueRefusal::SchemaMismatch::found: u32
+pub brokkr_store::QueueRefusal::TableLost
+pub brokkr_store::QueueRefusal::TableLost::table: &'static str
+pub brokkr_store::QueueRefusal::UnknownEntry(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::UnknownWait(brokkr_store::EntryId)
 pub enum brokkr_store::SeatRecordVersion
 pub brokkr_store::SeatRecordVersion::V1
 pub brokkr_store::SeatRecordVersion::V2
@@ -28,6 +65,7 @@ pub brokkr_store::StoreError::HeadMoved
 pub brokkr_store::StoreError::HeadMoved::expected_seq: u64
 pub brokkr_store::StoreError::HeadMoved::found_seq: u64
 pub brokkr_store::StoreError::Json(serde_json::error::Error)
+pub brokkr_store::StoreError::Queue(brokkr_store::QueueRefusal)
 pub brokkr_store::StoreError::RowBeforeChain
 pub brokkr_store::StoreError::RowBeforeChain::run_id: alloc::string::String
 pub brokkr_store::StoreError::RowBeforeChain::seq: i64
@@ -46,6 +84,14 @@ pub brokkr_store::VerifyError::Chain(brokkr_core::envelope::ChainError)
 pub brokkr_store::VerifyError::Fold(brokkr_core::fold::FoldError)
 pub brokkr_store::VerifyError::Parse(serde_json::error::Error)
 pub brokkr_store::VerifyError::SeatRecord(brokkr_store::SeatRecordError)
+pub enum brokkr_store::WaitOn
+pub brokkr_store::WaitOn::Completed
+pub brokkr_store::WaitOn::Ended
+impl brokkr_store::WaitOn
+pub const brokkr_store::WaitOn::ALL: [brokkr_store::WaitOn; 2]
+pub fn brokkr_store::WaitOn::word(self) -> &'static str
+impl rusqlite::types::from_sql::FromSql for brokkr_store::WaitOn
+pub fn brokkr_store::WaitOn::column_result(rusqlite::types::value_ref::ValueRef<'_>) -> rusqlite::types::from_sql::FromSqlResult<Self>
 pub struct brokkr_store::Adoption
 pub brokkr_store::Adoption::arrival: brokkr_store::Arrival
 pub brokkr_store::Adoption::events: usize
@@ -54,6 +100,28 @@ pub brokkr_store::Adoption::run_id: alloc::string::String
 pub struct brokkr_store::Arrival
 pub brokkr_store::Arrival::imported_at: alloc::string::String
 pub brokkr_store::Arrival::imported_from: alloc::string::String
+pub struct brokkr_store::Attribution<'a>
+pub brokkr_store::Attribution::operator: &'a str
+pub brokkr_store::Attribution::reason: &'a str
+pub struct brokkr_store::EntryId(pub i64)
+impl core::fmt::Display for brokkr_store::EntryId
+pub fn brokkr_store::EntryId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::str::traits::FromStr for brokkr_store::EntryId
+pub type brokkr_store::EntryId::Err = core::num::error::ParseIntError
+pub fn brokkr_store::EntryId::from_str(&str) -> core::result::Result<Self, Self::Err>
+pub struct brokkr_store::NewEntry<'a>
+pub brokkr_store::NewEntry::payload: &'a str
+pub brokkr_store::NewEntry::priority: i64
+pub brokkr_store::NewEntry::waits: &'a [brokkr_store::Wait]
+pub struct brokkr_store::NotAWait(pub alloc::string::String)
+pub struct brokkr_store::QueueEntry
+pub brokkr_store::QueueEntry::added_at: alloc::string::String
+pub brokkr_store::QueueEntry::id: brokkr_store::EntryId
+pub brokkr_store::QueueEntry::payload: alloc::string::String
+pub brokkr_store::QueueEntry::position: core::option::Option<u32>
+pub brokkr_store::QueueEntry::priority: i64
+pub brokkr_store::QueueEntry::state: brokkr_store::EntryState
+pub brokkr_store::QueueEntry::waits: alloc::vec::Vec<brokkr_store::Wait>
 pub struct brokkr_store::Redactor
 impl brokkr_store::Redactor
 pub fn brokkr_store::Redactor::document(&mut self, &serde_json::value::Value) -> serde_json::value::Value
@@ -84,6 +152,19 @@ pub fn brokkr_store::Store::arrival(&self, &str) -> core::result::Result<core::o
 pub fn brokkr_store::Store::import_run(&mut self, &str, &serde_json::value::Value, &std::path::Path) -> core::result::Result<brokkr_store::Adoption, brokkr_store::ImportError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::load_after(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::queue_add(&mut self, brokkr_store::NewEntry<'_>, brokkr_store::Attribution<'_>) -> core::result::Result<brokkr_store::EntryId, brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_claim(&mut self, brokkr_store::EntryId, &str) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_command(&mut self, brokkr_store::EntryId, brokkr_store::QueueCommand, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_list(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
+pub struct brokkr_store::Wait
+pub brokkr_store::Wait::entry: brokkr_store::EntryId
+pub brokkr_store::Wait::on: brokkr_store::WaitOn
+impl core::fmt::Display for brokkr_store::Wait
+pub fn brokkr_store::Wait::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::str::traits::FromStr for brokkr_store::Wait
+pub type brokkr_store::Wait::Err = brokkr_store::NotAWait
+pub fn brokkr_store::Wait::from_str(&str) -> core::result::Result<Self, Self::Err>
 pub const brokkr_store::DATABASE_SCHEMA: u32
 pub fn brokkr_store::redact_export(&str) -> core::result::Result<alloc::string::String, serde_json::error::Error>
 pub fn brokkr_store::validate_seat_record(&serde_json::value::Value, u64, brokkr_store::SeatRecordVersion) -> core::result::Result<(), brokkr_store::SeatRecordError>

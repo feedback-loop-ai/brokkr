@@ -4912,15 +4912,14 @@ mod native {
             .map(|(name, grant)| {
                 let mut restrictions = grant.as_object().unwrap().clone();
                 let dialect = restrictions.remove("dialect").unwrap();
-                let tools = restrictions
-                    .remove("tools")
-                    .map(|tools| serde_json::from_value(tools).unwrap());
+                let tools = serde_json::from_value(restrictions.remove("tools").into()).unwrap();
                 (
                     name.clone(),
                     CapabilityGrant {
                         dialect: dialect.as_str().unwrap().to_string(),
                         tools,
                         offices: None,
+                        retention: brokkr_core::realms::GrantRetention::Unreserved,
                         restrictions,
                     },
                 )

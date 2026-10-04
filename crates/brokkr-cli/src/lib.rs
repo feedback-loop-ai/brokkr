@@ -183,6 +183,13 @@ enum Cmd {
     /// Record an operator command (retry | stop | supersede) as journal
     /// events.
     Operator(OperatorArgs),
+    /// The dispatcher's queue (decision 0068): runs waiting to start, in
+    /// the journal's own database. Add, list, move, hold, release and
+    /// drop entries; each change is journaled with its reason.
+    Queue {
+        #[command(subcommand)]
+        command: QueueCmd,
+    },
     /// Explain a run: header, ruling, seats, decision trail, and the
     /// phase graph as a tree. `--phase` and `--seat` are the scoping
     /// verbs the console's clicks became; `--json` emits the view model.
@@ -234,9 +241,7 @@ enum Cmd {
         #[command(subcommand)]
         command: HandsCommand,
     },
-    /// Measure an agent CLI and write the facts its adapter must declare
-    /// (proposed decision 0075 ruling 3). Launches the real CLI and spends
-    /// the credentials bound to it: an operator host step, never CI.
+    /// Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI.
     Probe {
         #[command(subcommand)]
         command: ProbeCmd,
@@ -1844,12 +1849,19 @@ fn manifest_beside(journal: &std::path::Path) -> PathBuf {
 /// adapter data for a bundle that names no agent at all (a gate seat's
 /// trust tier and a secret binding's grant live there), and a verb that
 /// resolved one tree while compiling against another would be the machine
-/// diagnosing itself wrong.
-pub(crate) fn compile_in(workspace: &std::path::Path, dir: &std::path::Path) -> Result<Bundle> {
-    Ok(Bundle::compile_with(
+/// diagnosing itself wrong. In no realm, but under the world's
+/// provisional offices when a map is given (proposed decision 0075 ruling
+/// 5): a recipe verb judges a recipe as the run that seats it would.
+pub(crate) fn compile_in(
+    workspace: &std::path::Path,
+    dir: &std::path::Path,
+    world: Option<&World>,
+) -> Result<Bundle> {
+    Ok(Bundle::compile_under(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+        brokkr_runtime::bundle::RealmLaw::of(world, None),
     )?)
 }
 
@@ -1869,7 +1881,7 @@ fn run_with(
     watch_iteration_limit: Option<usize>,
     run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<tui::Closed>,
 ) -> Result<ExitCode> {
-    use verbs::{delivery, exchange, probe, readouts, setup};
+    use verbs::{delivery, exchange, probe, queue, readouts, setup};
     match cli.command {
         Cmd::Init(args) => setup::init(workspace, args),
         Cmd::Costs(args) => readouts::costs(workspace, args),
@@ -1885,6 +1897,7 @@ fn run_with(
         Cmd::Rerun(args) => delivery::rerun(workspace, args),
         Cmd::Conclude(args) => delivery::conclude(workspace, args),
         Cmd::Operator(args) => delivery::operator(workspace, args),
+        Cmd::Queue { command } => queue::queue(workspace, command),
         Cmd::Inspect(args) => readouts::inspect(workspace, args),
         Cmd::Transcript(TranscriptArgs {
             run,

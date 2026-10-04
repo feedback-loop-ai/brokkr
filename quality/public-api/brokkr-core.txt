@@ -281,6 +281,12 @@ pub brokkr_core::policy::audit::Finding::Unsatisfiable
 pub brokkr_core::policy::audit::Finding::Unsatisfiable::rule: alloc::string::String
 impl core::fmt::Display for brokkr_core::policy::audit::Finding
 pub fn brokkr_core::policy::audit::Finding::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_core::policy::audit::Refusal
+pub brokkr_core::policy::audit::Refusal::Liveness(brokkr_core::policy::audit::Finding)
+pub brokkr_core::policy::audit::Refusal::Order(brokkr_core::policy::audit::Finding)
+pub brokkr_core::policy::audit::Refusal::Presence(brokkr_core::policy::audit::Finding)
+impl core::fmt::Display for brokkr_core::policy::audit::Refusal
+pub fn brokkr_core::policy::audit::Refusal::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::policy::audit::Setting
 pub brokkr_core::policy::audit::Setting::Count(u64)
 pub brokkr_core::policy::audit::Setting::Flag(bool)
@@ -306,6 +312,9 @@ pub brokkr_core::policy::Outcome::Ruling::reason: alloc::string::String
 pub brokkr_core::policy::Outcome::Ruling::requires_artifacts: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::policy::Outcome::Ruling::rule_id: alloc::string::String
 pub brokkr_core::policy::Outcome::Ruling::severity: alloc::string::String
+pub enum brokkr_core::policy::PolicyError
+pub brokkr_core::policy::PolicyError::Malformed(alloc::string::String)
+pub brokkr_core::policy::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
 pub enum brokkr_core::policy::Severity
 pub brokkr_core::policy::Severity::Critical
 pub brokkr_core::policy::Severity::High
@@ -329,7 +338,6 @@ pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::ma
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>
 pub fn brokkr_core::policy::Machine::reads_counter(&self, &str, &str) -> bool
 pub fn brokkr_core::policy::Machine::visit_phases(&self, &str) -> alloc::vec::Vec<alloc::string::String>
-pub struct brokkr_core::policy::PolicyError(pub alloc::string::String)
 pub struct brokkr_core::policy::Rule
 pub brokkr_core::policy::Rule::from: alloc::string::String
 pub brokkr_core::policy::Rule::id: alloc::string::String
@@ -341,7 +349,9 @@ pub brokkr_core::policy::Rule::severity: alloc::string::String
 pub const brokkr_core::policy::BOOLEAN_INPUTS: [&str; 8]
 pub const brokkr_core::policy::COUNTER_INPUTS: [&str; 1]
 pub const brokkr_core::policy::DRIFT_PHASES: [&str; 3]
+pub const brokkr_core::policy::ENGINE_OWNED_INPUTS: [&str; 7]
 pub const brokkr_core::policy::IDENTIFIER_INPUTS: [&str; 1]
+pub const brokkr_core::policy::REALM_FACTS: &str
 pub const brokkr_core::policy::RULING_SEVERITIES: [&str; 3]
 pub const brokkr_core::policy::SEVERITY_INPUTS: [&str; 1]
 pub const brokkr_core::policy::SEVERITY_ORDER: [&str; 6]
@@ -349,6 +359,7 @@ pub const brokkr_core::policy::STRATEGIES: [&str; 5]
 pub const brokkr_core::policy::TABLE_SCHEMA_V1: &str
 pub const brokkr_core::policy::TABLE_SCHEMA_V2: &str
 pub const brokkr_core::policy::VISIT_PREFIX: &str
+pub fn brokkr_core::policy::is_engine_owned(&str) -> bool
 pub fn brokkr_core::policy::is_identifier(&str) -> bool
 pub mod brokkr_core::realms
 pub mod brokkr_core::realms::recorded_boundary
@@ -380,6 +391,10 @@ pub fn brokkr_core::realms::CrossingList<T>::is_null(&self) -> bool
 pub fn brokkr_core::realms::CrossingList<T>::is_written(&self) -> bool
 impl<'de, T: serde_core::de::Deserialize<'de>> serde_core::de::Deserialize<'de> for brokkr_core::realms::CrossingList<T>
 pub fn brokkr_core::realms::CrossingList<T>::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub enum brokkr_core::realms::GrantRetention
+pub brokkr_core::realms::GrantRetention::Inherit
+pub brokkr_core::realms::GrantRetention::Unreserved
+pub brokkr_core::realms::GrantRetention::Veto
 pub enum brokkr_core::realms::RealmsError
 pub brokkr_core::realms::RealmsError::Invalid
 pub brokkr_core::realms::RealmsError::Invalid::path: alloc::string::String
@@ -392,6 +407,7 @@ pub struct brokkr_core::realms::CapabilityGrant
 pub brokkr_core::realms::CapabilityGrant::dialect: alloc::string::String
 pub brokkr_core::realms::CapabilityGrant::offices: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub brokkr_core::realms::CapabilityGrant::restrictions: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub brokkr_core::realms::CapabilityGrant::retention: brokkr_core::realms::GrantRetention
 pub brokkr_core::realms::CapabilityGrant::tools: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 impl brokkr_core::realms::CapabilityGrant
 pub fn brokkr_core::realms::CapabilityGrant::reaches(&self, &str) -> bool
@@ -421,6 +437,7 @@ pub fn brokkr_core::realms::Realm::consumed(&self) -> &[brokkr_core::realms::Con
 pub fn brokkr_core::realms::Realm::published(&self) -> &[brokkr_core::realms::PublishedCrossing]
 pub struct brokkr_core::realms::RealmMap
 pub brokkr_core::realms::RealmMap::journal: alloc::string::String
+pub brokkr_core::realms::RealmMap::provisional_offices: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::realms::RealmMap::realms: alloc::vec::Vec<brokkr_core::realms::Realm>
 pub brokkr_core::realms::RealmMap::schema: alloc::string::String
 impl brokkr_core::realms::RealmMap
@@ -432,13 +449,15 @@ pub const brokkr_core::realms::DEFAULT_MAP_FILE: &str
 pub const brokkr_core::realms::GRANT_KEYS: [&str; 3]
 pub const brokkr_core::realms::LEGACY_REALM_KEY: &str
 pub const brokkr_core::realms::NOT_APPLICABLE: &str
-pub const brokkr_core::realms::SCHEMAS: [&str; 6]
+pub const brokkr_core::realms::SCHEMAS: [&str; 8]
 pub const brokkr_core::realms::SCHEMA_V1: &str
 pub const brokkr_core::realms::SCHEMA_V2: &str
 pub const brokkr_core::realms::SCHEMA_V3: &str
 pub const brokkr_core::realms::SCHEMA_V4: &str
 pub const brokkr_core::realms::SCHEMA_V5: &str
 pub const brokkr_core::realms::SCHEMA_V6: &str
+pub const brokkr_core::realms::SCHEMA_V7: &str
+pub const brokkr_core::realms::SCHEMA_V8: &str
 pub fn brokkr_core::realms::is_name(&str) -> bool
 pub fn brokkr_core::realms::recorded_head<'a>(&'a serde_json::value::Value, core::option::Option<&str>) -> core::option::Option<&'a str>
 pub enum brokkr_core::Cursor
@@ -510,6 +529,9 @@ pub brokkr_core::Outcome::Ruling::reason: alloc::string::String
 pub brokkr_core::Outcome::Ruling::requires_artifacts: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::Outcome::Ruling::rule_id: alloc::string::String
 pub brokkr_core::Outcome::Ruling::severity: alloc::string::String
+pub enum brokkr_core::PolicyError
+pub brokkr_core::PolicyError::Malformed(alloc::string::String)
+pub brokkr_core::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
 pub enum brokkr_core::Status
 pub brokkr_core::Status::AwaitingOperator
 pub brokkr_core::Status::Completed
@@ -544,7 +566,6 @@ pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::ma
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>
 pub fn brokkr_core::policy::Machine::reads_counter(&self, &str, &str) -> bool
 pub fn brokkr_core::policy::Machine::visit_phases(&self, &str) -> alloc::vec::Vec<alloc::string::String>
-pub struct brokkr_core::PolicyError(pub alloc::string::String)
 pub struct brokkr_core::RunState
 pub brokkr_core::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_core::RunState::cursor: brokkr_core::fold::Cursor

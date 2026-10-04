@@ -19,7 +19,7 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-const POLICY: &str = r#"{"schema":"forge.phase-machine/v1","phases":["work","review","done","stop"],"initial":"work","terminal":["done","stop"],"rules":[{"id":"W","from":"work","result":"complete","next":"review","reason":"r"},{"id":"OK","from":"review","result":"clean","next":"done","reason":"r"}]}"#;
+const POLICY: &str = r#"{"schema":"forge.phase-machine/v1","phases":["work","review","done"],"initial":"work","terminal":["done"],"rules":[{"id":"W","from":"work","result":"complete","next":"review","reason":"r"},{"id":"OK","from":"review","result":"clean","next":"done","reason":"r"}]}"#;
 
 /// A bundle whose `work` seat is an exec site running the bundle's own
 /// `./scripts/gate.sh` — the one shape every boundary admits at compile
@@ -149,7 +149,7 @@ fn the_table_probes_each_boundarys_tool_and_offers_the_two_that_need_none() {
 
 /// Rows 5.6 and 5.7: one refusal per boundary on an empty search path,
 /// `harness` and `open` passing, `namespace` passing with a planted
-/// `bwrap` and no overlay bind and still asking 0.10 of it with one, the
+/// `bwrap` and no overlay bind and still asking 0.11 of it with one, the
 /// two unbuilt boundaries refusing with and without their tool, and a
 /// plain bundle passing everywhere.
 #[test]
@@ -221,7 +221,7 @@ fn every_boundary_is_judged_against_the_search_path_and_the_slice_that_builds_it
     );
     let older = refusal(&overlaid, &bin);
     assert!(older.contains("seat 'work'"), "{older}");
-    assert!(older.contains("0.10 or newer"), "{older}");
+    assert!(older.contains("0.11 or newer"), "{older}");
 
     // The unbuilt two refuse with their tool found as much as without,
     // and say which they found.
@@ -285,12 +285,17 @@ fn the_doctor_line_names_what_is_offered_and_why_the_rest_is_not() {
 /// The `hands` line judged against the realm's boundary: healthy under
 /// `namespace` with bubblewrap and under `harness` or `open` always, a
 /// warning under `namespace` without bubblewrap and under an unbuilt
-/// boundary — with and without seats to name.
+/// boundary — with and without seats to name. Under `namespace` a seat
+/// whose overlay binds need a newer bubblewrap than the one found warns,
+/// naming the version, as the launch refuses it.
 #[test]
 fn the_hands_line_follows_the_boundary_not_bubblewrap_alone() {
     let with_bwrap = offered(&|tool: &str| (tool == "bwrap").then(|| "0.11.0".to_string()));
     let without: BTreeMap<Boundary, Offer> = offered(&|_: &str| None);
-    let seats = ["ship", "verify"];
+    let seats: BTreeMap<String, HandsSpec> = ["ship", "verify"]
+        .map(|seat| (seat.to_string(), HandsSpec::default()))
+        .into();
+    let none = BTreeMap::new();
 
     let (ok, line) = hands_line(
         Boundary::Namespace,
@@ -302,7 +307,31 @@ fn the_hands_line_follows_the_boundary_not_bubblewrap_alone() {
         line,
         "0.11.0 · seats [\"ship\", \"verify\"] declare hands and can run"
     );
-    let (ok, line) = hands_line(Boundary::Namespace, &with_bwrap[&Boundary::Namespace], &[]);
+    let dir = tempfile::tempdir().unwrap();
+    let overlay = json!({"kind": "workspace", "binds": [{"path": "/opt/x", "mode": "overlay"}]});
+    let overlaid = compile(dir.path(), Some(overlay), Boundary::Namespace).hands;
+    let older = offered(&|tool: &str| (tool == "bwrap").then(|| "bubblewrap 0.10.0".to_string()));
+    let (ok, line) = hands_line(Boundary::Namespace, &older[&Boundary::Namespace], &overlaid);
+    assert!(!ok);
+    assert_eq!(
+        line,
+        "bubblewrap 0.10.0 · seats [\"work\"] declare hands and will refuse to spawn: seat \
+         'work': hands bind mode 'overlay' needs bubblewrap 0.11 or newer; bwrap reports \
+         \"bubblewrap 0.10.0\""
+    );
+    let (ok, line) = hands_line(Boundary::Namespace, &older[&Boundary::Namespace], &seats);
+    assert!(ok, "no overlay, no floor: {line}");
+    let (ok, line) = hands_line(
+        Boundary::Namespace,
+        &with_bwrap[&Boundary::Namespace],
+        &overlaid,
+    );
+    assert!(ok, "{line}");
+    let (ok, line) = hands_line(
+        Boundary::Namespace,
+        &with_bwrap[&Boundary::Namespace],
+        &none,
+    );
     assert!(ok);
     assert_eq!(line, "0.11.0 · boxed seats can run");
     let (ok, line) = hands_line(Boundary::Namespace, &without[&Boundary::Namespace], &seats);
@@ -330,7 +359,7 @@ fn the_hands_line_follows_the_boundary_not_bubblewrap_alone() {
         "seats [\"ship\", \"verify\"] declare hands and will refuse to spawn: `seatbelt` is \
          built by slice (ii) of decision 0046 ruling 6, not by this engine"
     );
-    let (ok, line) = hands_line(Boundary::Container, &without[&Boundary::Container], &[]);
+    let (ok, line) = hands_line(Boundary::Container, &without[&Boundary::Container], &none);
     assert!(!ok);
     assert!(
         line.starts_with("boxed seats will refuse to spawn: `container` is built by slice (iii)"),

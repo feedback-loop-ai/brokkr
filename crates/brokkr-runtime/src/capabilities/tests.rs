@@ -1162,14 +1162,12 @@ fn bound_to_test_native(root: &Path) -> Authority {
     authority(root, json!({"web-search": {"dialect": "search-native"}}))
 }
 
-/// Provider compatibility, the OPTIONAL half, on its own (finding M4): a
-/// want bound to another provider is lost with its exact notice. The first
-/// substantive assertion is the WHOLE notice vector, and nothing required
-/// runs before it — so removing the compatibility check itself fails here,
-/// at this equality, rather than at a requirement's refusal somewhere
-/// above. The fixture is otherwise valid: the serving provider can deny its
-/// own search, so the only thing between this want and a holding is the
-/// check under proof.
+/// Provider compatibility, the OPTIONAL half, on its own (finding M4): a want bound to another
+/// provider is lost with its exact notice. The first substantive assertion is the WHOLE notice
+/// vector, and nothing required runs before it — so removing the compatibility check itself
+/// fails here, at this equality, rather than at a requirement's refusal somewhere above. The
+/// fixture is otherwise valid: the serving provider can deny its own search, so the only thing
+/// between this want and a holding is the check under proof.
 #[test]
 fn provider_compatibility_drops_a_want_with_its_exact_notice() {
     let root = cq1_root();
@@ -2133,10 +2131,9 @@ fn the_shipped_operator_data_is_native_only_and_agrees_with_the_adapters() {
     }
 }
 
-/// The harness an adapter dispatches is read off its own invocation, by
-/// brokkr's dispatch convention and nothing else (decision 0009): a
-/// command that does not follow it dispatches no built-in driver, and a
-/// provider may run a known harness under any name it likes.
+/// The harness an adapter dispatches is read off its own invocation, by brokkr's dispatch
+/// convention and nothing else (decision 0009): a command that does not follow it dispatches
+/// no built-in driver, and a provider may run a known harness under any name it likes.
 #[test]
 fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
     let argv =
@@ -2158,3 +2155,5 @@ fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
         assert_eq!(harness_of(&command), harness, "{command:?}");
     }
 }
+mod binding;
+mod gate_class;

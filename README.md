@@ -39,7 +39,7 @@ On Windows, use WSL2: it is Linux, and every Linux row above serves it (decision
 Sixty seconds from a fresh machine to a lit run, then five minutes to a completed run. Both budgets are measured in CI on Ubuntu and macOS by [`scripts/bootstrap-bench.sh`](scripts/bootstrap-bench.sh), which prints what it mocks. You need:
 
 - **Every host:** `git`, `bash`, a git repository you are willing to let an agent edit, and `claude` or `codex` on `PATH`. `init` scaffolds for the first of `claude`, `codex` or `dsh` it finds. `dsh` alone is not enough: it cannot hold the review gate, because its adapter is untrusted and names no judges, so a dsh scaffold keeps the reviewer on `claude`.
-- **Linux:** bubblewrap (`bwrap`) 0.10 or newer on `PATH`, with unprivileged user namespaces allowed. The scaffold's verify and ship gates run boxed under the default `namespace` boundary. A codex scaffold declares `harness` instead and needs no bubblewrap.
+- **Linux:** bubblewrap (`bwrap`) 0.11 or newer on `PATH`, with unprivileged user namespaces allowed. The scaffold's verify and ship gates run boxed under the default `namespace` boundary. A codex scaffold declares `harness` instead and needs no bubblewrap.
 - **macOS:** nothing more. `init` declares the `harness` boundary, because `namespace` is Linux-only, so verify and ship run their pinned scripts unboxed.
 
 ```mermaid

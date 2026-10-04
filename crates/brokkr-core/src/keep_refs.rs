@@ -27,12 +27,9 @@ use std::collections::BTreeSet;
 use serde_json::Value;
 
 use crate::envelope::{EventEnvelope, EventType};
+// Ship's per-realm record; each realm's facts may carry a `head`.
+use crate::policy::{REALM_FACTS, REVIEWED_HEADS};
 
-/// The protected phase's record: realm name (or the legacy unkeyed
-/// `repo`, per [`crate::realms::LEGACY_REALM_KEY`]) to observed head.
-const REVIEWED_HEADS: &str = "reviewed_heads";
-/// Ship's per-realm record; each realm's facts may carry a `head`.
-const REALM_FACTS: &str = "realm_facts";
 const HEAD: &str = "head";
 
 /// Does this string name a git object? 40 hex for SHA-1 repositories,

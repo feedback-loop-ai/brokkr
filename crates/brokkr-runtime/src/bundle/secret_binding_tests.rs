@@ -3,9 +3,9 @@ use serde_json::json;
 
 pub(crate) const POLICY: &str = r#"{
       "schema": "forge.phase-machine/v1",
-      "phases": ["work", "review", "done", "stop"],
+      "phases": ["work", "review", "done"],
       "initial": "work",
-      "terminal": ["done", "stop"],
+      "terminal": ["done"],
       "shippable_from": ["review"],
       "rules": [
         {"id": "W-OK", "from": "work", "result": "built", "next": "review",

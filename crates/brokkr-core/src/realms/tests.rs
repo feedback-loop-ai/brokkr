@@ -43,6 +43,7 @@ fn the_minimal_map_parses_into_the_shape_the_ruling_names() {
                 grants: Default::default(),
             }],
             journal: ".forge/forge.db".to_string(),
+            provisional_offices: Vec::new(),
         }
     );
     // The content is returned verbatim, because it is what gets embedded
@@ -97,9 +98,9 @@ fn text_that_is_not_json_is_refused_naming_the_file() {
 
 #[test]
 fn a_map_that_calls_itself_another_version_is_refused_by_name() {
-    let refusal = with(|map| map["schema"] = json!("forge.realms/v7"));
+    let refusal = with(|map| map["schema"] = json!("forge.realms/v9"));
     assert!(
-        refusal.contains("it calls itself 'forge.realms/v7'"),
+        refusal.contains("it calls itself 'forge.realms/v9'"),
         "{refusal}"
     );
     for label in SCHEMAS {
@@ -920,6 +921,7 @@ fn a_v6_realm_declares_grants_and_keeps_absent_lists_apart_from_empty_ones() {
             dialect: "fetch-native".into(),
             tools: Some(vec!["fetch".into()]),
             offices: None,
+            retention: GrantRetention::Unreserved,
             restrictions: json!({"allow": {"hosts": ["sourceware.org", "yaml.org"]}})
                 .as_object()
                 .unwrap()
@@ -1061,4 +1063,119 @@ fn a_map_embedded_as_a_value_carries_the_same_grants() {
         serde_json::from_str(&v6(Some(json!({"web-search": {"dialect": "d"}})))).unwrap();
     let (map, _) = RealmMap::of("pinned", content).unwrap();
     assert_eq!(map.realms[0].grants["web-search"].dialect, "d");
+}
+
+/// Proposed decision 0075 ruling 5: the operator's list of offices a
+/// provisional model may hold is v7 vocabulary on the world, read back
+/// exactly as written, and none at all where the map names none.
+#[test]
+fn a_v7_map_lists_the_provisional_offices_and_an_absent_list_is_none() {
+    let listed = |offices: Value| {
+        let mut map: Value = serde_json::from_str(MAP).unwrap();
+        map["schema"] = json!(SCHEMA_V7);
+        map["provisional_offices"] = offices;
+        RealmMap::of("realms.json", map)
+    };
+    let (map, _) = listed(json!(["researcher", "review-correctness"])).unwrap();
+    assert_eq!(
+        map.provisional_offices,
+        ["researcher", "review-correctness"]
+    );
+    let (empty, _) = listed(json!([])).unwrap();
+    assert_eq!(empty.provisional_offices, [] as [&str; 0]);
+    let (unwritten, _) = RealmMap::parse("realms.json", &MAP.replace("/v1", "/v7")).unwrap();
+    assert_eq!(unwritten.provisional_offices, [] as [&str; 0]);
+
+    let refused = |offices: Value| listed(offices).unwrap_err();
+    let null = refused(Value::Null);
+    assert_eq!(
+        null,
+        invalid(
+            "it writes provisional_offices as null; the list is an array, and a map that lists \
+             no office leaves the word out"
+        )
+    );
+    // The one place this refusal's rendered words are pinned.
+    assert_eq!(
+        null.to_string(),
+        "realms.json is not a usable realms map: it writes provisional_offices as null; the \
+         list is an array, and a map that lists no office leaves the word out"
+    );
+    assert_eq!(
+        refused(json!(["researcher", " "])),
+        invalid("provisional office 1 is empty")
+    );
+    assert_eq!(
+        refused(json!(["researcher", "researcher"])),
+        invalid("provisional office 'researcher' is listed twice")
+    );
+}
+
+/// The refusal `realms.json` earns for `problem`, as its variant holds it.
+fn invalid(problem: &str) -> RealmsError {
+    RealmsError::Invalid {
+        path: "realms.json".to_string(),
+        problem: problem.to_string(),
+    }
+}
+
+/// The list is refused under every label older than the one that
+/// introduced it, written empty or null as much as in full; and the
+/// unknown-label refusal spells out all eight labels this build reads.
+#[test]
+fn provisional_offices_under_an_older_label_are_refused_by_version() {
+    for label in &SCHEMAS[..6] {
+        for written in [json!(["researcher"]), json!([]), Value::Null] {
+            let mut map: Value = serde_json::from_str(MAP).unwrap();
+            map["schema"] = json!(label);
+            map["provisional_offices"] = written.clone();
+            assert_eq!(
+                RealmMap::parse("realms.json", &map.to_string()).unwrap_err(),
+                invalid(&format!(
+                    "it names provisional offices, which is forge.realms/v7 vocabulary in a map \
+                     calling itself {label}"
+                ))
+            );
+        }
+    }
+    let mut map: Value = serde_json::from_str(MAP).unwrap();
+    map["schema"] = json!("forge.realms/v0");
+    assert_eq!(
+        RealmMap::parse("realms.json", &map.to_string()).unwrap_err(),
+        invalid(
+            "it calls itself 'forge.realms/v0'; this build reads forge.realms/v1, \
+             forge.realms/v2, forge.realms/v3, forge.realms/v4, forge.realms/v5, forge.realms/v6, \
+             forge.realms/v7 and forge.realms/v8"
+        )
+    );
+}
+
+/// A v7 map that leaves the list out reads exactly as the same map under
+/// v6, grants included, and keeps v6's refusal of a key written twice.
+#[test]
+fn a_v7_map_without_the_list_reads_exactly_as_v6() {
+    let v6_text = v6(Some(
+        json!({"web-search": {"dialect": "d", "offices": ["researcher"]}}),
+    ));
+    let (as_v6, _) = RealmMap::parse("realms.json", &v6_text).unwrap();
+    let (as_v7, _) = RealmMap::parse("realms.json", &v6_text.replace("/v6", "/v7")).unwrap();
+    assert_eq!(as_v7.schema, SCHEMA_V7);
+    assert_eq!(
+        RealmMap {
+            schema: SCHEMA_V6.to_string(),
+            ..as_v7
+        },
+        as_v6
+    );
+    let journal_twice = MAP
+        .replace("/v1", "/v7")
+        .replace("\"journal\"", "\"journal\": \"a.db\", \"journal\"");
+    assert_eq!(
+        refusal(&journal_twice),
+        "realms.json is not a readable realms map: key 'journal' is written twice at line 5 \
+         column 1"
+    );
+    // The same text under v1 keeps the last-wins reading it always had.
+    let (older, _) = RealmMap::parse("realms.json", &journal_twice.replace("/v7", "/v1")).unwrap();
+    assert_eq!(older.journal, ".forge/forge.db");
 }

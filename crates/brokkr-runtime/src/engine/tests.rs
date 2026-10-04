@@ -17,6 +17,8 @@ fn machine() -> Machine {
         "initial":"work",
         "terminal":["done", "stop"],
         "rules":[
+            {"id":"SECURITY", "from":"review", "result":"security-hold", "next":"stop",
+             "severity":"hard", "reason":"security"},
             {"id":"WORK", "from":"work", "result":"complete", "next":"review", "reason":"work"},
             {"id":"REVIEW", "from":"review", "result":"clean", "next":"ship", "reason":"review"},
             {"id":"SHIP", "from":"ship", "result":"shipped", "next":"done", "reason":"ship"}
@@ -254,6 +256,7 @@ read -r done
         "initial":"triage", "terminal":["done", "stop"],
         "rules":[
             {"id":"TRIAGE", "from":"triage", "result":"engine", "next":"work", "reason":"route"},
+            {"id":"TRIAGE-HALT", "from":"triage", "result":"halt", "next":"stop", "reason":"halt"},
             {"id":"WORK", "from":"work", "result":"complete", "next":"review", "reason":"work"},
             {"id":"REVIEW", "from":"review", "result":"clean", "next":"ship", "reason":"review"},
             {"id":"SHIP", "from":"ship", "result":"shipped", "next":"done", "reason":"ship"}
@@ -790,6 +793,7 @@ read -r done
         "initial":"triage", "terminal":["done", "stop"],
         "rules":[
             {"id":"TRIAGE", "from":"triage", "result":"feature", "next":"work", "reason":"route"},
+            {"id":"TRIAGE-STOP", "from":"triage", "result":"stop", "next":"stop", "reason":"stopped"},
             {"id":"WORK", "from":"work", "result":"complete", "next":"review", "reason":"work"},
             {"id":"REVIEW", "from":"review", "result":"clean", "next":"ship", "reason":"review"},
             {"id":"SHIP", "from":"ship", "result":"shipped", "next":"done", "reason":"ship"}
@@ -1117,9 +1121,9 @@ read -r done
         bundle_dir.join("policy.json"),
         serde_json::to_vec_pretty(&json!({
             "schema": "forge.phase-machine/v1",
-            "phases": ["work", "review", "done", "stop"],
+            "phases": ["work", "review", "done"],
             "initial": "work",
-            "terminal": ["done", "stop"],
+            "terminal": ["done"],
             "shippable_from": ["review"],
             "rules": [
                 {"id": "WORK", "from": "work", "result": "complete", "next": "review", "reason": "worked"},
@@ -2265,12 +2269,14 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     // table's reason.
     engine.bundle.machine = Machine::from_table(&json!({
         "schema":"forge.phase-machine/v2",
-        "phases":["triage", "done", "stop"],
+        "phases":["triage", "done"],
         "initial":"triage",
-        "terminal":["done", "stop"],
+        "terminal":["done"],
         "rules":[
             {"id":"TRIAGE-CHORE-PARK", "from":"triage", "result":"chore",
-             "park":true, "reason":"table reason"}
+             "park":true, "reason":"table reason"},
+            {"id":"TRIAGE-FEATURE", "from":"triage", "result":"feature", "next":"done",
+             "reason":"feature"}
         ]
     }))
     .unwrap();

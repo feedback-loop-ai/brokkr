@@ -692,3 +692,50 @@ before any run row, rather than the authority being stripped to make the
 round-trip fit. Since every compiled bundle now pins its authority, a
 `--dispatch` start of a compiled bundle is refused until a jointly agreed
 v2-lineage version carries it.
+
+Proposed decision 0075 ruling 5 (the provisional tier) adds one more file
+and changes none of the bytes above — `realms.v6`'s included, which is now
+pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with the offices a provisional model may hold | `realms.v7.schema.json` | brokkr-core (shape and refusals), brokkr-runtime (the compile-time tier check), `brokkr doctor` |
+
+`forge.realms/v7` is `v6` plus exactly one optional property on the WORLD,
+not on a realm: `provisional_offices`, the agents by name a model its
+adapter marks `"tier": "provisional"` may be seated in. Agents and adapters
+are workspace data, so the list that rules between them is too. A gate is
+never admitted, whatever the list says. Absent or empty, a provisional
+model is seated nowhere; a written `null`, an empty name or a name listed
+twice is refused by this file and by the loader alike, and the word is
+refused under every older label, written empty or not. A v7 map that does
+not name the list reads exactly as a v6 map, grants included, and keeps
+v6's refusal of a key written twice. The list rides into a run manifest
+inside the map's own pin, so a resume judges against the list the run
+started under.
+
+Decision 0065's slice two (SC2 and CR1, the retention veto) adds one more
+file and changes none of the bytes above — `realms.v7`'s included, which
+is now pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with the realm's retention veto | `realms.v8.schema.json` | brokkr-core (shape and refusals, `realms/grants.rs`) |
+
+`forge.realms/v8` is `v7` plus exactly one reserved key on a GRANT:
+`retain`, whose only legal value is `false`. A dialect declares whether
+its responses are retained; the realm may veto that, never require it, so
+`true`, `null`, a string, a number or an object is refused by this file and
+by the loader alike, the loader naming the realm and the capability.
+Leaving `retain` out inherits the dialect's declaration. Under v8 the
+engine owns four keys of a grant — `dialect`, `tools`, `offices` and
+`retain` — and a veto never reaches the dialect as a restriction, while the
+grant as written, and so the manifest's pin of it, keeps `retain: false`.
+Under v6 and v7 the engine still owns three keys, and a written `retain`
+of any value stays the dialect's restriction, exactly as before: an older
+map never acquires the veto by spelling alone, and moving to v8 is an
+explicit edit that changes the pinned grant. A v8 map that writes no
+`retain` reads exactly as the same map under v7, `provisional_offices`
+and v6's refusal of a key written twice included. Reading the veto into a
+run's held capability, and a dialect restriction schema that claims
+`retain` under a v8 grant, are the runtime's later work in this slice.
