@@ -253,6 +253,12 @@ impl Authority {
         self
     }
 
+    /// The binding minimum this authority judges by, the one home a
+    /// compile's route policy reads it from too (decision 0036 ruling 4).
+    pub(crate) fn minimum(&self) -> EgressClass {
+        self.minimum
+    }
+
     /// The resolver's reading of the binding of `capability`, held as
     /// `tools`: the native pair a provider must carry, or why none can. An
     /// `mcp` binding answers in design D3 step 6's order — its identity,

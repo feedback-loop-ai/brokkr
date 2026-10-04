@@ -1557,8 +1557,8 @@ impl Bundle {
             }
         }
 
-        let egress_minimum = parse_egress_minimum(config)?;
-        let authority = authority.with_minimum(egress_minimum);
+        let authority = authority.with_minimum(parse_egress_minimum(config)?);
+        let egress_minimum = authority.minimum();
         let protected_phase = config
             .get("protected_phase")
             .and_then(Value::as_str)

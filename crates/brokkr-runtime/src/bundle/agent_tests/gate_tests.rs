@@ -442,3 +442,35 @@ fn a_native_holding_is_unchanged_at_every_serving_path_under_every_binding_minim
     }
     each_row(rows);
 }
+
+/// The minimum a compile parses is the one its authority holds: the route
+/// policy reads it from there, so a seat binding a secret over the
+/// `contracted` claude route meets every minimum but `local`, as the
+/// bundle declares it and not the authority's absent default.
+#[test]
+fn the_authority_holds_the_binding_minimum_the_bundle_declares() {
+    let fixture = AgentFixture::new();
+    let below = "bundle: seat 'work' declares secret bindings [\"TOKEN\"] but seats driver \
+                 'claude' on its own declared destination, whose egress class is contracted; \
+                 this bundle binds no secret below local (decision 0021 ruling 4 as enacted \
+                 by 0036 ruling 4 — an undeclared class is uncontracted, and 'egress_minimum' \
+                 is where the operator rules the bar)";
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for (minimum, expected) in [
+        (None, "compiled"),
+        (Some("local"), below),
+        (Some("contracted"), "compiled"),
+        (Some("uncontracted"), "compiled"),
+    ] {
+        let mut config = at_minimum(&fixture, minimum);
+        config["seats"]["work"]["secrets"] = json!(["TOKEN"]);
+        fixture.stage(&config, &policy());
+        let compile = compiled(&fixture, None, &offices(&fixture, None)).map(|_| ());
+        rows.push((
+            format!("{minimum:?}"),
+            held_or(compile),
+            expected.to_string(),
+        ));
+    }
+    each_row(rows);
+}
