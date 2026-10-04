@@ -449,3 +449,42 @@ bless. `compile --bundle bundles/self` compiled, and `openspec validate --all
 observed. "Duplication holds" is therefore unconfirmed here. The files rule
 was checked by hand (7249 = 7249). The workspace exact-coverage gate and
 remote CI are also pending.
+
+## U0 measurement
+
+Unit U0 ran D2's matrix on one Linux host from 2026-10-03 11:50Z to
+2026-10-04 00:20Z against claude 2.1.287, the LaneTally wrapper, codex-cli
+0.160.0 and dsh 0.1.5-rc.1. The durable record is
+[slice-two-mcp-isolation.md](../../../docs/evidence/adapters/slice-two-mcp-isolation.md)
+with per-cell data in
+[slice-two-mcp-observations.json](../../../docs/evidence/adapters/slice-two-mcp-observations.json).
+Verdicts were read from sentinel lifecycle logs and harness-reported tool
+listings, never from model text.
+
+- **Claude:** `--strict-mcp-config` with an explicit engine configuration
+  passed cold, with and without hands. A managed MCP file makes the
+  harness refuse the flag before any model call.
+- **dsh:** an engine-only `DSH_HOME` with the engine row in the overlay
+  passed cold. The existing profile with the overlay did not.
+- **Codex:** neither candidate passed. The private home is defeated by the
+  workdir trust codex writes into it on the work shape and by the
+  `/etc/codex` layers. The `-c mcp_servers` table override merges with
+  every source.
+- **LaneTally:** excluded every ambient source at startup through the
+  actual wrapper. Its engine answer and canaries remain pending.
+- **exec:** inapplicable.
+
+Read-isolation canaries were measured separately. Claude's cold hands
+shape excluded both the store and the process channel. Codex's and dsh's
+native shells read the store and excluded the process channel.
+
+Process note. Claude cells C01–C10 used a copy of the operator's OAuth
+access token in a disposable HOME, with the refresh token withheld. The
+controller then ruled that no credential may be copied, the copy was
+shredded, and those ten results were kept. Every later cell used plainly
+fake keys: LaneTally against a dead loopback endpoint, Codex and dsh
+against the shared local Spark model. Two questions are pending operator
+approval because each would need a credential copy: LaneTally's
+authenticated rows, and Codex's ChatGPT-login auth and OpenAI-model
+discovery. macOS remains pending (no host). No adapter, production file
+or test changed. Tasks 1.1 and 1.2 carry this evidence.
