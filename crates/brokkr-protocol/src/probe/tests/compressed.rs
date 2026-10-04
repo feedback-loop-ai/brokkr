@@ -137,6 +137,170 @@ fn a_compressed_log_is_read_frame_by_frame_within_its_bound() {
     );
 }
 
+/// The chief's z-control on e1f4e977: claude's cost-state row, its
+/// `webSearchRequests` set to 1, compressed by the zstd CLI at
+/// `--fast=1000`, which stores it as raw literals.
+const WEB_SEARCH: &[u8] = include_bytes!("../measure/streams/claude-websearch.jsonl.zstd");
+
+/// The chief's z-corrupt: [`WEB_SEARCH`] with bit 0 of its byte 425
+/// flipped, which the decoder alone reads as a count of 0.
+fn corrupt() -> Vec<u8> {
+    let mut corrupt = WEB_SEARCH.to_vec();
+    corrupt[425] ^= 1;
+    corrupt
+}
+
+/// The probe of a Claude-like fake whose boxed turn writes `transcript`
+/// as a compressed session log, or writes none.
+fn claude_writing(
+    world: &World,
+    name: &str,
+    transcript: Option<&[u8]>,
+) -> Result<Report, ProbeError> {
+    let boxed = match transcript {
+        Some(bytes) => {
+            let log = world.dir.path().join(format!("{name}.jsonl.zstd"));
+            std::fs::write(&log, bytes).unwrap();
+            format!(
+                r#"{BOXED_CLEAN}; mkdir -p "$HOME/.claude/projects/workdir"; cp '{}' "$HOME/.claude/projects/workdir/turn.jsonl.zstd""#,
+                log.display()
+            )
+        }
+        None => BOXED_CLEAN.to_string(),
+    };
+    let cli = world.fake(name, &claude_with("9.9.9", ":", &boxed));
+    probe_with(
+        AdapterKind::Claude,
+        &cli,
+        &claude_declared(),
+        &world.bindings,
+        DEADLINE,
+    )
+}
+
+/// The chief's z-corrupt on e1f4e977 beside its controls z-control and
+/// z-none: a compressed transcript whose frame fails its own checksum
+/// refuses the probe, naming the file, where the intact one keeps the
+/// boxed turn's tool run in view and no transcript at all reads boxed.
+#[test]
+fn a_compressed_transcript_failing_its_checksum_refuses_the_probe() {
+    if !in_its_own_engine(
+        "probe::tests::compressed::a_compressed_transcript_failing_its_checksum_refuses_the_probe",
+    ) {
+        return;
+    }
+    let world = world();
+    let view = |name: &str, transcript: Option<&[u8]>| {
+        let report =
+            serde_json::to_value(claude_writing(&world, name, transcript).unwrap()).unwrap();
+        (
+            report["facts"]["boxed_tools"].clone(),
+            report["eligibility"]["verdict"].clone(),
+        )
+    };
+    assert_eq!(
+        [view("z-control", Some(WEB_SEARCH)), view("z-none", None)],
+        [
+            (
+                unmeasured(
+                    "the turn's tools listed mcp__brokkr__workspace, but the cost-state event \
+                     on line 1 of ~/.claude/projects/workdir/turn.jsonl.zstd ran WebSearch at \
+                     /modelUsage/*/webSearchRequests"
+                ),
+                json!("unboxed-only")
+            ),
+            (
+                measured(
+                    json!([]),
+                    "the system/init event on line 1 of stdout listed tools: 1"
+                ),
+                json!("boxed")
+            ),
+        ]
+    );
+    let error = claude_writing(&world, "z-corrupt", Some(&corrupt())).unwrap_err();
+    assert!(matches!(error, ProbeError::Io { .. }), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "could not decompress the transcript ~/.claude/projects/workdir/turn.jsonl.zstd \
+             under the scratch HOME: {MISMATCH}"
+        )
+    );
+}
+
+/// How [`corrupt`]'s one frame is refused.
+const MISMATCH: &str = "a frame's bytes do not match its content checksum 0x479ce038";
+
+/// A frame is read only when it states a content checksum and its bytes
+/// match it, the second frame of a file as much as the first; a frame
+/// stating none, here the skeleton's with its checksum cut and its
+/// descriptor's checksum flag cleared, is refused, and so, for now, is a
+/// skippable frame.
+#[test]
+fn a_frame_is_read_only_when_its_content_checksum_vouches_for_its_bytes() {
+    const BOUND: u64 = 1 << 20;
+    // claude's recorded cost-state row, its web search count raised.
+    let recorded = include_str!("../measure/streams/claude-plain.jsonl")
+        .lines()
+        .nth(23);
+    let row = recorded
+        .unwrap()
+        .replace(r#""webSearchRequests":0"#, r#""webSearchRequests":1"#);
+    assert_eq!(
+        unpacked(WEB_SEARCH, BOUND).unwrap(),
+        format!("{row}\n").into_bytes()
+    );
+    let mut bare = PACKED[..PACKED.len() - 4].to_vec();
+    bare[4] &= !0b100;
+    let skippable = [0x50, 0x2a, 0x4d, 0x18, 4, 0, 0, 0, 0, 0, 0, 0];
+    let refused = |packed: &[u8]| {
+        let error = unpacked(packed, BOUND).unwrap_err();
+        (error.kind(), error.to_string())
+    };
+    let unverified = (
+        ErrorKind::InvalidData,
+        "a frame carries no content checksum to verify it by".to_string(),
+    );
+    assert_eq!(
+        [
+            refused(&corrupt()),
+            refused(&bare),
+            refused(&[PACKED, &bare].concat()),
+            refused(&[PACKED, &skippable].concat()),
+        ],
+        [
+            (ErrorKind::InvalidData, MISMATCH.to_string()),
+            unverified.clone(),
+            unverified,
+            (
+                ErrorKind::Other,
+                "SkipFrame { magic_number: 407710288, length: 4 }".to_string()
+            ),
+        ]
+    );
+}
+
+/// Every single-bit flip of a checksummed frame either refuses or decodes
+/// to the bytes the frame held: none decodes to changed bytes, which the
+/// decoder alone let through for most flips (the chief's flip count on
+/// e1f4e977).
+#[test]
+fn no_single_bit_flip_of_a_checksummed_frame_decodes_to_changed_bytes() {
+    const BOUND: u64 = 1 << 20;
+    for packed in [WEB_SEARCH, PACKED] {
+        let held = unpacked(packed, BOUND).unwrap();
+        let changed: Vec<usize> = (0..packed.len() * 8)
+            .filter(|bit| {
+                let mut flipped = packed.to_vec();
+                flipped[bit / 8] ^= 1 << (bit % 8);
+                unpacked(&flipped, BOUND).is_ok_and(|bytes| bytes != held)
+            })
+            .collect();
+        assert_eq!(changed, Vec::<usize>::new());
+    }
+}
+
 /// A transcript is a `.jsonl` file, or a `.jsonl.zstd` one; no other name
 /// is one, a `.zstd` file of another stem among them.
 #[test]
