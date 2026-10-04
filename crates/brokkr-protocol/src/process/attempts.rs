@@ -244,6 +244,15 @@ impl Registry {
     /// run, and the engine's own once they exit, would otherwise hold
     /// their pids until the engine exits. A live attempt's leader is the
     /// engine's own child, reaped by its handle.
+    ///
+    /// The scope stops at the engine's own group, and the table is why:
+    /// it cannot tell a same-group grandchild the subreaper adopted from
+    /// a child the engine spawned and still holds a `Child` to — the two
+    /// read with the same parent and the same group — and a `waitpid` on
+    /// the handled child would break its `Child::wait`. Such a grandchild
+    /// holds its pid until the engine exits, as does an adopted orphan
+    /// that exits in an idle interval, for the tracker reads only while
+    /// an attempt is live: it waits for the next attempt's read (#470).
     fn reap(&self, entries: &[Entry]) {
         let leads = |entry: &Entry| {
             let pid = entry.id.pid;
