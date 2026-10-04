@@ -139,8 +139,11 @@ implement seat pins `spark-glm/GLM-5.3-Flash-EXL3`, and the driver's
 one-seat overlay names `spark-glm` as its provider, so the host's dsh
 profile must declare that route and reach a server for it. A CI runner
 serves none. On a host without one, the implement seat fails at launch,
-before its first turn, when dsh refuses the `spark-glm` provider; the
-words dsh refuses it with on such a host are not yet measured.
+and the journaled failure names the route whatever dsh itself says: the
+dsh driver ends a failed seat's stderr tail with
+`dsh driver: dsh exited <code> with the pinned model
+spark-glm/GLM-5.3-Flash-EXL3 on route spark-glm`. The words dsh's own
+refusal uses on such a host are not yet measured.
 
 ```
 brokkr run --recipe night-shift --repo . --feature "<the queued task>"

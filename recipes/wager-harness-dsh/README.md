@@ -41,9 +41,11 @@ results, class, the phase table, and every gate are `fast`'s, inherited.
 
 **Host requirement: the `spark-glm` route.** This arm runs only where
 the host's dsh profile serves that route; no CI runner does. Anywhere
-else dsh refuses the `spark-glm` provider the moment the seat launches,
-so the implement attempt fails before any turn. How that refusal is
-worded there has not been measured.
+else the implement attempt fails at launch, and its journaled failure
+names the route: the dsh driver ends a failed seat's stderr tail with
+`dsh driver: dsh exited <code> with the pinned model
+spark-glm/GLM-5.3-Flash-EXL3 on route spark-glm`. How dsh's own refusal
+is worded there has not been measured.
 
 Run as the harness README says: `brokkr run --recipe fast` for the
 incumbent, `brokkr rerun --run <id> --recipe wager-harness-dsh` for
