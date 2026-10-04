@@ -500,6 +500,8 @@ fn summarize(state: &RunState) -> Value {
 
 /// Drive a started run to its ending. The start first reaps the scratch
 /// trees of hands servers whose owners died and says each on stderr,
+/// through the same safe renderer as every other operator-facing line —
+/// a hostile tree name must not reach the terminal as written (#468) —
 /// journaling nothing (#415). Then the conclusion's anchor and keep-ref
 /// gaps on stderr, and the summary `finish` prints. `drive` drives it:
 /// alone, or beside the run view (#508).
@@ -507,7 +509,11 @@ fn drive_to_end(
     engine: &mut brokkr_runtime::Engine,
     drive: impl FnOnce(&mut brokkr_runtime::Engine) -> Result<DriveEnd, EngineError>,
 ) -> Result<ExitCode> {
-    eprint!("{}", brokkr_protocol::hands::reap_dead_sessions());
+    let reaped = brokkr_protocol::hands::reap_dead_sessions();
+    eprint!(
+        "{}",
+        reaped.lines_with(|tree| render::Safe::new(tree).as_str().to_owned())
+    );
     let end = drive(engine)?;
     for gap in &end.gaps {
         eprintln!("{gap}");
