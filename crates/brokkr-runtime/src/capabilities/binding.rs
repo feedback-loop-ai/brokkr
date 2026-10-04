@@ -5,12 +5,19 @@
 //! map, expects a native pair, invents an empty provider or reads another
 //! kind as native. Every caller gets the native pair or the typed reason
 //! there is none. The resolver's reading of an `mcp` binding, with the
-//! bound on its identity, and what a holding retains (SC1, SC4, CR1) are
-//! read from the same kind.
+//! bound on its identity, its egress against the bundle's binding minimum
+//! and what a holding retains (SC1, SC4, MB4, CR1) are read from the same
+//! kind.
 
 use brokkr_core::realms::{CapabilityGrant, GrantRetention};
 
-use super::{Authority, Connection, DialectKind, McpServer, ToolDialect};
+use super::{Authority, Cause, Connection, DialectKind, McpServer, ToolDialect, Unheld};
+use crate::agents::EgressClass;
+
+/// The binding minimum of a bundle that declares no `egress_minimum`
+/// (decision 0036 ruling 4): what the superseded `binding_grant: true`
+/// meant, so every bundle on disk keeps its behaviour and its digest.
+pub(crate) const ABSENT_EGRESS_MINIMUM: EgressClass = EgressClass::Contracted;
 
 /// The byte bound on an `mcp` holding's capability or dialect name, and
 /// on its concrete tool name, that a call's attribution carries whole
@@ -79,6 +86,36 @@ pub(super) enum Unserved {
     ArgvReference,
     #[error("MCP URL connections are not implemented in decision 0065 slice two")]
     Url,
+    /// MB4: the dialect's own route does not meet the bundle's binding
+    /// minimum, whatever clearance the harness's route has.
+    #[error(
+        "MCP dialect '{dialect}' has egress '{}' below binding minimum '{}'",
+        .egress.name(),
+        .minimum.name()
+    )]
+    Below {
+        dialect: String,
+        egress: EgressClass,
+        minimum: EgressClass,
+    },
+}
+
+impl Unserved {
+    /// How the resolver holds this against an ask through `dialect`: SC4's
+    /// unrepresentable identity refuses the compile whatever the strength,
+    /// and every other cause is the dialect's incompatibility, which the
+    /// ask's strength settles.
+    pub(super) fn unheld(self, dialect: &ToolDialect) -> Unheld {
+        match self {
+            Unserved::Identity => Unheld::Identity,
+            Unserved::Unbound(_)
+            | Unserved::ArgvReference
+            | Unserved::Url
+            | Unserved::Below { .. } => {
+                Unheld::Cause(Cause::incompatible(&dialect.name, self.to_string()))
+            }
+        }
+    }
 }
 
 /// What a dialect binds its capability to: one arm per bindable kind.
@@ -138,35 +175,6 @@ fn unbuilt(realm: &str, capability: &str, dialect: &ToolDialect) -> Unbound {
         capability: capability.into(),
         dialect: dialect.name.clone(),
     }
-}
-
-/// The resolver's reading of the binding of `capability`, held as
-/// `tools`: the native pair a provider must carry, or why none can. An
-/// `mcp` binding answers in design D3 step 6's order — its identity, then
-/// an unexecutable connection's SC1 cause — and, until U9b builds its
-/// broker, the fence's own words last. Reached only past the compile
-/// fence, which refuses every `mcp` grant first.
-pub(super) fn carried<'a>(
-    realm: &str,
-    capability: &str,
-    dialect: &'a ToolDialect,
-    tools: &[String],
-) -> Result<(&'a str, &'a str), Unserved> {
-    let server = match bound(realm, capability, dialect)? {
-        Binding::Native {
-            provider,
-            adapter_key,
-        } => return Ok((provider, adapter_key)),
-        Binding::Mcp(server) => server,
-    };
-    representable(capability, dialect, tools)?;
-    Err(match &server.connection {
-        Connection::Url(_) => Unserved::Url,
-        Connection::Stdio(argv) if argv.iter().any(|part| references(part)) => {
-            Unserved::ArgvReference
-        }
-        Connection::Stdio(_) => unbuilt(realm, capability, dialect).into(),
-    })
 }
 
 /// Does this argument name a decision 0012 secret? The loader refused a
@@ -238,6 +246,50 @@ impl Retention {
 }
 
 impl Authority {
+    /// This authority, judging every `mcp` dialect's egress against the
+    /// bundle's binding `minimum` (MB4) rather than the absent default.
+    pub(crate) fn with_minimum(mut self, minimum: EgressClass) -> Authority {
+        self.minimum = minimum;
+        self
+    }
+
+    /// The resolver's reading of the binding of `capability`, held as
+    /// `tools`: the native pair a provider must carry, or why none can. An
+    /// `mcp` binding answers in design D3 step 6's order — its identity,
+    /// then an unexecutable connection's SC1 cause, then its egress against
+    /// the bundle's binding minimum (MB4) — and, until U9b builds its
+    /// broker, the fence's own words last. A native binding is judged as
+    /// slice one judged it, whatever its dialect's egress. Reached only
+    /// past the compile fence, which refuses every `mcp` grant first.
+    pub(super) fn carried<'a>(
+        &self,
+        capability: &str,
+        dialect: &'a ToolDialect,
+        tools: &[String],
+    ) -> Result<(&'a str, &'a str), Unserved> {
+        let realm = &self.context.realm;
+        let server = match bound(realm, capability, dialect)? {
+            Binding::Native {
+                provider,
+                adapter_key,
+            } => return Ok((provider, adapter_key)),
+            Binding::Mcp(server) => server,
+        };
+        representable(capability, dialect, tools)?;
+        Err(match &server.connection {
+            Connection::Url(_) => Unserved::Url,
+            Connection::Stdio(argv) if argv.iter().any(|part| references(part)) => {
+                Unserved::ArgvReference
+            }
+            Connection::Stdio(_) if dialect.egress < self.minimum => Unserved::Below {
+                dialect: dialect.name.clone(),
+                egress: dialect.egress,
+                minimum: self.minimum,
+            },
+            Connection::Stdio(_) => unbuilt(realm, capability, dialect).into(),
+        })
+    }
+
     /// The dialect the grant of `capability` selected, or that none was
     /// loaded for it.
     pub(super) fn dialect(&self, capability: &str) -> Result<&ToolDialect, Unbound> {

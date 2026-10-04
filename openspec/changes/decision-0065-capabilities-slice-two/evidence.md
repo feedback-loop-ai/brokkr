@@ -2139,3 +2139,119 @@ come from the measuring toolchain, so they are not re-baselined here. The
 at 1464 items, up from 1449, the same figure as the last visit. The new
 variants are `pub(super)`. The PR must name that ruling. Exact coverage
 and remote CI on Linux and macOS are pending.
+
+## U5a2: MCP egress against the bundle's binding minimum (tasks 24.3–24.4)
+
+Run `0065-slice-two-unit-u5a2-see-the-e4801408` built U5a2 on branch
+`s2/U5a2` from main at `819ee729`, with U5a landed. It touched the row's
+three production files and no others.
+
+### What changed
+
+`Authority` carries a private `minimum`, the bundle's binding minimum
+(decision 0036 ruling 4). `Authority::load` and `Authority::nothing` set
+it to `ABSENT_EGRESS_MINIMUM`, which is `contracted`. That constant has one
+home, in `capabilities/binding.rs`, and `bundle.rs`'s `parse_egress_minimum`
+now returns it for an absent `egress_minimum` instead of restating the
+class. `assemble` binds the parsed minimum with `with_minimum` straight
+after parsing it. Every site resolution after that point gets the same
+`&authority`: the agent context's candidates, the inline context's sites
+and the unloaded-adapter path alike.
+
+`carried` is now an `Authority` method in `binding.rs`. For an `mcp`
+binding it answers in design D3 step 6's order: identity (SC4), then the
+connection's SC1 causes (URL, argv reference), then the new
+`Unserved::Below`. That cause applies when the dialect's typed egress is
+below the minimum under `EgressClass`'s order, and reads "MCP dialect
+'<dialect>' has egress '<class>' below binding minimum '<minimum>'". Only
+then do the fence's own words come, until U9b. A native binding returns
+before any of these checks, so its dialect's egress is never judged. The
+mapping from `Unserved` to the resolver's `Unheld` moved beside the enum as
+`Unserved::unheld`. It is an exhaustive match: SC4's identity refuses
+whatever the strength, and every other cause, `Below` included, is the
+dialect's incompatibility, which the ask's strength settles. A requires
+refuses with the incompatible form, and a want drops with its notice and
+"; no native denial is claimed". These are the forms U5a's SC1 causes
+already take. The realm-wide fence in `Authority::load` did not move.
+
+The shared `past_the_fence` fixture now declares `egress: contracted`,
+which meets the absent minimum. Without that, its executable connection
+met MB4 before the fence words that `an_mcp_grant_at_the_resolver_…` and
+`past_the_fence_an_unexecutable_connection_…` pin. With it, both pin what
+they pinned before. The inline codex seat that `an_inline_gate_…` wrote
+inline became the `inline_codex` builder, which the new bundle tests share.
+
+### Tests
+
+Three tests were added to `capabilities/tests/binding.rs` and two to
+`bundle/agent_tests/gate_tests.rs`. Those are submodules of the two owning
+suites: `capabilities/tests.rs` and `bundle/agent_tests.rs` stand at or
+over their baselines and did not grow.
+
+| Test | What its one comparison holds |
+| --- | --- |
+| `an_mcp_dialect_below_the_binding_minimum_is_refused_or_dropped_and_at_or_above_it_passes` (`binding.rs:206`) | Nine rows, every minimum against every egress, with the relation written as data. Each row holds the exact required refusal, the want's empty holding and its exact notice. Below rows carry MB4's cause. At and above rows carry the fence's words. All rows are computed before one `assert_eq!`. |
+| `an_absent_binding_minimum_is_contracted` (`binding.rs:216`) | With no minimum bound, `local` and `contracted` pass and `uncontracted` meets "below binding minimum 'contracted'". |
+| `a_native_holding_is_unchanged_under_every_binding_minimum` (`binding.rs:248`) | `search-native`, whose egress is `uncontracted`, is held for requires and wants under all three minimums: `["web-search"]`, no notice, `--search-on`. |
+| `every_mcp_grant_still_refuses_the_compile_under_every_binding_minimum` (`gate_tests.rs:406`) | 60 real compiles: absent, `local`, `contracted` and `uncontracted` minimums × three dialect egresses × five grants (unused, offices `[]`, office-excluded, asked at an agent, asked at an inline site). Each refuses with the fence's exact text. |
+| `a_native_holding_is_unchanged_at_every_serving_path_under_every_binding_minimum` (`gate_tests.rs:443`) | Four minimums × the agent and inline paths. Each site holds `["web-search"]` with no notice. |
+
+### Removal mutations
+
+Each mutation compiled and ran under `cargo test -p brokkr-runtime --lib --
+capabilities::tests::binding bundle::agent_tests::gate_tests`, and each was
+undone with the Edit tool. The mutations ran on this visit's tree before
+commit. Rows M1–M6 ran when the fence test had 48 rows, before the
+inline-asked grant was added. That addition changed no test those rows
+name.
+
+| Mutation | Tests that failed |
+| --- | --- |
+| M1: the below-minimum arm deleted | the matrix (below rows) and the absent-minimum test |
+| M2: `<` became `<=` | the matrix (at rows), the absent-minimum test and `an_mcp_grant_at_the_resolver_…`, whose fixture sits at the minimum |
+| M3: `<` became `!=` | the matrix (above rows) and the absent-minimum test |
+| M4: `with_minimum` ignored its argument | the matrix (the `local` and `uncontracted` minimum rows) |
+| M5: `ABSENT_EGRESS_MINIMUM` set to `Local` | the absent-minimum test and `an_mcp_grant_at_the_resolver_…` |
+| M6: natives judged too (the comparison moved ahead of the kind match) | both native tests, `an_mcp_grant_at_the_resolver_…`, `an_inline_gate_…` and `every_executable_form_…` |
+| M7: the realm-wide fence loop in `Authority::load` removed | the fenced-compile test, all 48 rows and then all 60 |
+| M8: `assemble`'s `with_minimum` line removed | none: the whole runtime library passed, 761 of 761 |
+
+M8 is the residual this unit owes. Before U9b no compile can show which
+minimum `assemble` bound, because the fence refuses every `mcp` grant
+before a site is read. That is the inertness operator ruling 2026-10-03
+accepts, and the commission forbids a test bypass. So the binding was
+observed as a counterfactual instead. With M7 applied, the fenced-compile
+test's asked rows ran the real compile through to resolution. At the
+agent's candidate and at the inline site alike, a `local` minimum gave
+"MCP dialect 'docs-mcp' has egress 'contracted' below binding minimum
+'local'" for a `contracted` dialect. With M7 and M8 applied together, the
+same rows lost the minimum: the `contracted` dialect met the fence's words,
+and the `uncontracted` one was "below binding minimum 'contracted'". When
+U9b lifts the fence, those asked rows become the committed binding of
+this line.
+
+### 24.3 and 24.4
+
+The matrix, the absent minimum, the native controls at the resolver and
+at both serving paths, and the 60-row fenced compile each passed on the
+final tree. M1–M7 failed them and were restored. The ticks on 24.3 and
+24.4 stand on that evidence, with M8 carried to U9b as above.
+
+### Gates on this visit's tree
+
+Formatting is clean, and workspace clippy with `-D warnings` finished
+without a diagnostic. The runtime library passed 761 tests, and all 26
+runtime integration binaries passed. `witness_digests` and `budgets` were
+among them, without a bless, so no pin or budget moved. The CLI package
+printed 46 passing result lines and no failure. Core, protocol, view,
+store and bridge passed too. `bundles/self` compiled to `11c7d0e7…`,
+unchanged. The 1.88 toolchain checked the whole workspace. OpenSpec strict
+validation passed 20 of 20, `typos --hidden` found nothing, and
+`git diff --check` was clean. The `files`, `clones` and `api` ratchets held,
+and `baselines` against `819ee729` reports nothing raised.
+`quality/file-lines.txt` was re-measured: `capabilities.rs` 2109 to 2108,
+`capabilities/binding.rs` 265 to 317, `capabilities/tests/binding.rs` 115
+to 249 and `agent_tests/gate_tests.rs` 310 to 444. `bundle.rs` stayed at
+7808. The `native_plan` anchor in `too-many-lines.txt` moved from 1641 to
+1640. No new function crossed a ceiling, and no suppression was added.
+Exact coverage and remote CI on Linux and macOS are pending.

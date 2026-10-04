@@ -1558,7 +1558,7 @@ impl Bundle {
         }
 
         let egress_minimum = parse_egress_minimum(config)?;
-
+        let authority = authority.with_minimum(egress_minimum);
         let protected_phase = config
             .get("protected_phase")
             .and_then(Value::as_str)
@@ -2994,7 +2994,7 @@ fn parse_class(what: &str, raw: &Value) -> Result<SeatClass, CompileError> {
 /// speak is a refusal wherever it is written, never a silent default.
 fn parse_egress_minimum(config: &Value) -> Result<EgressClass, CompileError> {
     let Some(declared) = config.get("egress_minimum") else {
-        return Ok(EgressClass::Contracted);
+        return Ok(crate::capabilities::ABSENT_EGRESS_MINIMUM);
     };
     declared
         .as_str()

@@ -45,6 +45,7 @@ mod dialect;
 mod gates;
 use crate::bundle::SeatClass;
 use binding::Unserved;
+pub(crate) use binding::ABSENT_EGRESS_MINIMUM;
 pub use binding::{Native, Retention, Unbound};
 pub use dialect::{Connection, DialectKind, McpServer, Sends, ToolDialect};
 use gates::Cause;
@@ -1169,6 +1170,8 @@ pub struct Authority {
     pub definitions: Definitions,
     /// Capability to the dialect its grant selected.
     pub dialects: BTreeMap<String, ToolDialect>,
+    /// The bundle's binding minimum an `mcp` dialect's egress meets (MB4).
+    minimum: crate::agents::EgressClass,
     /// Private, so only [`Authority::load`] and [`Authority::nothing`]
     /// construct one: a struct literal elsewhere skips load's checks.
     loaded: Loaded,
@@ -1288,6 +1291,7 @@ impl Authority {
             context,
             definitions,
             dialects,
+            minimum: ABSENT_EGRESS_MINIMUM,
             loaded: Loaded,
         })
     }
@@ -1330,6 +1334,7 @@ impl Authority {
             context: CapabilityContext::no_grants(realm, root),
             definitions: Definitions::default(),
             dialects: BTreeMap::new(),
+            minimum: ABSENT_EGRESS_MINIMUM,
             loaded: Loaded,
         }
     }
@@ -1387,15 +1392,9 @@ impl Authority {
         gates::check(site, definition, grant)
             .map_err(|refusal| Cause::gate(&dialect.name, refusal))?;
         let provider = serving.provider;
-        let (bound, adapter_key) =
-            binding::carried(&self.context.realm, capability, dialect, &tools).map_err(
-                |unserved| match unserved {
-                    Unserved::Identity => Unheld::Identity,
-                    Unserved::Unbound(_) | Unserved::ArgvReference | Unserved::Url => {
-                        through(unserved.to_string())
-                    }
-                },
-            )?;
+        let (bound, adapter_key) = self
+            .carried(capability, dialect, &tools)
+            .map_err(|unserved| unserved.unheld(dialect))?;
         if bound != provider {
             return Err(through(format!(
                 "provider '{provider}' cannot carry a binding to provider '{bound}'"
