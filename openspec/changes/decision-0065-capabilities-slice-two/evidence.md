@@ -1183,3 +1183,959 @@ complexity (`toml_basic` 12, `authored_server_conflict` 10, `untransported`
 4, `Transport::effects` 4), and each will appear under `mcp.rs` as a new
 entry under the ceiling of 15. The CRAP baseline was not re-measured here.
 Remote Linux and macOS CI have not run.
+
+## U5a implementation evidence (tasks 20.1–21.2, 24.1–24.2)
+
+Run `0065-slice-two-unit-u5a-see-the--2501fc4e` built this unit on
+2026-10-04 on branch `s2/U5a`, cut from main at `fb61b9f8`. The code is
+commit `280e2807`. The removal mutations below ran on `e853e0a1`, which
+differs from `280e2807` only in `Authority::load`. That function's reservation
+call was rewritten without a `match` so its complexity stays under the ceiling.
+M3, which runs through that call, was repeated on `280e2807` and failed at
+the same line. The MCP compile fence is unchanged: every structurally valid
+`mcp` grant is still refused realm-wide with the U2 text.
+
+### The change, file by file
+
+The three production files are the row's own.
+
+`capabilities/dialect.rs` is new (398 lines). It holds the tool-dialect loader
+that `capabilities.rs` used to hold. The loader still judges the document
+against the frozen v1 contract first, in the same two steps (shared fields,
+then the kind's branch). It still hashes the bytes `read_document` bound
+inside the operator root. After that it reads the same `Value` once into a
+private `Document`, whose `kind` is the serde-tagged `DialectKind`. The
+`mcp` variant now carries `McpServer` with `connection` (`Connection::Stdio`
+argv or `Connection::Url`), `version`, `secrets` and `retained`, which reads
+false when omitted. `ToolDialect` also gains `sends: Sends` (description and
+`seat_composed`) and a typed `egress: EgressClass`, absent reading
+`Uncontracted`. Both typed readings sit behind `expect`s, because the contract
+has already admitted the document. The egress invariant is bound by a test,
+M12. Checks now run in SC1's order: contract, name, the kind's secret
+references, then the restriction schema. `reserved_fault` is now
+`reserved_key`, which takes the reserved set as an argument and returns the
+key it finds. The loader passes `GRANT_KEYS`. `ToolDialect::reserves(GrantRetention)`
+passes `retain` for `Inherit` and `Veto`, and nothing for `Unreserved`, so a
+v6 or v7 grant keeps `retain` as a dialect restriction.
+
+`capabilities/binding.rs` grows from 106 to 262 lines.
+
+- `bound` now returns a private three-way `Binding`: native, MCP, or
+  `Unbound::Hands`. `native` keeps the old pair-or-`Unbound` reading for the
+  compile fence and `Authority::binding` (doctor).
+- `carried` is the resolver's reading. A native binding returns its pair. An
+  `mcp` binding checks `representable` first (SC4: capability and dialect
+  names of at most 128 bytes, and tools of at most 256 bytes in seat-record
+  v5's tool vocabulary). It then returns the SC1 cause for a URL or an argv
+  secret reference, or the fence's own `Unbound::Mcp` text for an executable
+  stdio connection, because no broker exists until U9b.
+- The new causes live in the typed `Unserved` enum.
+- `Retention { declared, realm: GrantRetention }` is built by
+  `Retention::of(dialect, grant)`. Its `effective()` is false under `Veto`,
+  and `declared` otherwise.
+
+`capabilities.rs` shrinks from 2,337 to 2,087 lines. It re-exports the new
+types and adds `Holding::retention`, filled by `Retention::of` in
+`holding()`. `holding()` reads `binding::carried`, and `Authority::load`
+checks `dialect.reserves(grant.retention)` right after loading each grant's
+dialect. That check gets the same `realm '…': capability '…':` prefix as the
+other dialect faults. `Authority` gains a private field `loaded: Loaded`, a
+private zero-sized marker type.
+
+Reading SC4 against "unchanged native behavior": the identity bound applies
+only to `mcp` holdings. A native dialect's tools are harness patterns such as
+`Bash(/private/…:*)`. `capability_launch.rs` pins 200-byte capability names
+and pattern tools on native seats, and a first draft that bounded native
+holdings too failed three of those tests. M10 shows that putting the bound
+back on native holdings fails this unit's native-unchanged assertion.
+
+### The two carried residuals
+
+U2 residual. `Authority` has a private field again. Its type, `Loaded`, is
+private to `capabilities`, so outside that module (other crates included) a
+struct literal no longer compiles. `#[non_exhaustive]` was considered and
+rejected because it fences other crates only. Clippy's
+`manual_non_exhaustive` refuses a private `()` field, which is why the field
+has its own marker type. No duplicate binding map was restored. The test
+`only_the_loaders_construct_an_authority` walks every production source under
+`crates/*/src` and finds exactly two constructions: `load` and `nothing`. It
+skips test modules and `tests/` directories, and it does not depend on a
+compile failure. Doctor's tests still mutate a loaded `Authority`'s public
+fields, which is unaffected. The public-API effect: cargo public-api lists
+private fields in no form, so `Authority`'s lines in
+`quality/public-api/brokkr-runtime.txt` are unchanged. Semantically, external
+code can no longer build one with a literal.
+
+U5c residual. These are the production readers of `GrantRetention` and
+`CapabilityGrant::retention` in brokkr-runtime:
+
+- `Authority::load` passes `grant.retention` to `ToolDialect::reserves`, which
+  matches all three variants.
+- `holding()` calls `Retention::of`, which stores `grant.retention`.
+- `Retention::effective` matches the variants. The repair visit below made
+  it test-only until manifest v12 (U5f) reads it, so it is no longer a
+  production reader; the two above remain.
+
+### Test edits outside the owning suites
+
+`crates/brokkr-cli/tests/status_pages.rs:250` changes one pattern, from
+`DialectKind::Mcp` to `DialectKind::Mcp(_)`, because the variant now carries
+the server. The file's line count is unchanged. No assertion moved.
+
+Inside the owning suite, `capabilities/tests.rs` drops from 2,159 to 2,121
+lines. Its `every_kind_loads_as_data…` now asserts the whole typed
+`McpServer` for both connection forms. Two tests moved to the new child
+module `capabilities/tests/dialect_policy.rs` unchanged:
+`an_mcp_launch_names_only_the_secrets…` and
+`the_embedded_tool_dialect_contract_is_the_published_file`, which also gained
+an egress-vocabulary assertion. `context()` keeps its exact bytes, so its
+jscpd fingerprint does not move. U2's `past_the_fence` helper in
+`tests/binding.rs` now takes the connection, and its `MCP`/`WHO` constants are
+`pub(super)` for the sibling module. The other two owning suites,
+`agents/tests.rs` and `bundle/agent_tests.rs`, did not need to change.
+
+### Scenarios and the tests that own them
+
+All tests below are in `capabilities/tests/dialect_policy.rs` unless named
+otherwise.
+
+| Scenario | Test |
+| --- | --- |
+| SC1: typed MCP fields kept, digest over the bound bytes, every declared fact moves identity, rotating a secret's value does not, no launch | `an_mcp_dialect_keeps_every_executable_fact_and_runs_nothing` |
+| SC1: contract before references before restriction schema; nonboolean `retained` and native `retained` refused by the contract | `a_secret_reference_is_judged_before_the_restriction_schema_and_nothing_defaults` |
+| Extraction parity: schema, duplicate, containment and reference refusals | the existing `tests.rs` suite, unchanged and green, plus the moved `an_mcp_launch_names_only_the_secrets…` |
+| SC2: v8 inherit and veto refuse a schema claiming `retain` (properties, `allOf` required, `$ref` to `anyOf`, pattern, and since the repair visit a `dependencies` schema and a `$ref` from one); v6/v7 admit it; nested `allow.retain` is not reserved | `a_v8_grant_reserves_retain_through_references_composition_and_dependencies` (renamed by the repair visit) |
+| SC2/D11: v6 and v7 `retain: false` stays a restriction, `Unreserved`, requires refuses and wants drops with the nonempty-restriction cause | `an_older_retain_stays_a_restriction_and_reaches_only_the_nonempty_restriction_outcomes` |
+| CR1: the four outcomes (false, false, true, false), plus declared false and v6 `Unreserved`; a native holding carries its grant's veto; an idle vetoed grant stays pinned; veto and inherit differ in grant identity | `a_holding_carries_the_grants_veto_and_only_a_retaining_dialect_without_one_retains` |
+| SC1 past the fence: URL and argv-reference causes in GP1's required and optional forms; an executable stdio meets the fence text; the real compile still refuses with the fence | `past_the_fence_an_unexecutable_connection_answers_with_its_own_cause` |
+| SC4: 128/129-byte names, 256/257-byte tools and vocabulary; an `mcp` identity is checked before its connection; a native 129-byte dialect name is still held | `an_mcp_identity_is_carried_whole_or_refused_and_a_native_one_is_unchanged` |
+| U2 residual | `only_the_loaders_construct_an_authority` |
+
+### Removal mutations
+
+Each mutation was a compiling edit to production code (M12 edits
+`agents.rs`, which the test's invariant reads). Each was run with
+`cargo test -p brokkr-runtime --lib capabilities::tests` and then restored
+with `git checkout`. Line numbers are in `dialect_policy.rs` unless named.
+
+| # | Mutation | Failed at (observed) |
+| --- | --- | --- |
+| M1 | `retained` gets `skip_deserializing` | 3 tests: `an_mcp_dialect_keeps…` :124 (`kind == Mcp(server)`); `tests.rs` :473 `every_kind_loads…`; `a_holding_carries…` :324 (the outcome table) |
+| M2 | Restriction schema judged before the secret references | `a_secret_reference_is_judged_before…` :173 (left is the reserved-`tools` refusal, right is the `OTHER` reference cause) |
+| M3 | `reserves` admits every version | `a_v8_grant_reserves…` :221 (`Ok("claims-retain")` against the reserved-key cause); repeated on `280e2807`, same line |
+| M3b | `reserves` reserves `retain` under `Unreserved` too | `an_older_retain_stays…` :255 (`Err(…reserved grant key 'retain')` against `Ok((Unreserved, {"retain": false}))`); `a_v8_grant_reserves…` :224 |
+| M4 | `effective()` returns `declared` under `Veto` | `a_holding_carries…` :324 |
+| M5 | `holding()` builds the retention from an `Inherit` copy of the grant | `a_holding_carries…` :347 (`(Inherit, false)` against `(Veto, false)`) |
+| M6 | `carried` answers a URL with the fence | `past_the_fence…` :391 |
+| M7 | The argv-reference guard can never hold | `past_the_fence…` :391, on the reference row (left is the fence text) |
+| M8 | `carried` skips `representable` | `an_mcp_identity…` :457 (the URL cause where the identity cause belongs) |
+| M9 | The tool bound is loosened to 257 bytes | `an_mcp_identity…` :432 (the `fits` table) |
+| M10 | `holding()` bounds native identities too | `an_mcp_identity…` :453 (`Err(…cannot be represented…)` against `Ok(long)`) |
+| M11 | A third `Authority` literal (`copied`) in `binding.rs` | `only_the_loaders…` :493 (left lists `binding.rs copied`) |
+| M12 | `EgressClass::parse` loses `contracted` | `the_embedded_tool_dialect_contract…` :96 |
+| M13 | Undeclared secret names admitted unless `secrets` is empty | `a_secret_reference_is_judged_before…` :173; the moved `an_mcp_launch_names…` at its pinned `unwrap_err` (:50) |
+| M14 | Loading runs the stdio argv | `an_mcp_dialect_keeps…` :158 (`(MCP, true)` against `(MCP, false)`: the marker file was written) |
+
+After restoration the filtered suite passed 50 of 50 again.
+
+### Measurements
+
+`quality/file-lines.txt` records the five moved counts and the two new files.
+`quality/too-many-lines.txt` moves three entries: `native_plan` (256 lines,
+now `:1619`) and the two over-100 tests in `capabilities/tests.rs` (now
+`:598` and `:1703`). The same forced clippy run shows many unrelated entries
+already off main's listing, and those were left alone. No suppression was
+added. `cargo crap` on an LCOV from the lib suite measures `holding` at 16
+(baseline 17), `Authority::load` at 13 (baseline 15), `ToolDialect::load` at
+10, `carried` at 8, and every other new function at 6 or less. The same
+LCOV, from `cargo llvm-cov --branch`, shows `binding.rs` (113 lines, 12
+branches) and `dialect.rs` (226 lines, 18 branches) fully covered by the lib
+suite alone. No line `capabilities.rs` leaves uncovered lies in `load`,
+`nothing` or `holding`. Witness and compose pins did not move:
+`witness_digests` passed 6 without blessing. Prompt bytes, crate count and
+heap are not inputs this unit touches. The `budgets` target passed inside
+the runtime suite.
+
+### Gates on `280e2807`
+
+| Gate | Observed |
+| --- | --- |
+| rustfmt check, and clippy across the workspace with warnings denied | Both clean. |
+| `cargo test -p brokkr-runtime --all-features --locked --no-fail-fast` | 28 result lines, every one ok (lib 748, `capability_launch` 68). |
+| The same for `brokkr-cli` | 46 result lines, every one ok (lib 627, 1 ignored). |
+| core, store, protocol, view, bridge, seatbelt-probe together | 24 result lines, none failed. |
+| `compile --bundle bundles/self` (and `bundles/verify` before the amend) | Compiled and printed the manifest. |
+| `quality/ratchet.sh` files, clones and api | Each reported that it holds, after `quality/public-api/brokkr-runtime.txt` took the reviewed diff. |
+| `quality/ratchet.sh baselines fb61b9f8` | Refused: `public-api/brokkr-runtime.txt: 1466 public items (was 1449)`. The PR needs the operator's `Ruling:` line. |
+| strict OpenSpec, `typos --hidden`, whitespace check against `fb61b9f8` | 20 of 20 valid; no typo; no whitespace finding. |
+
+### Assumptions
+
+The first visit read the task's "egress minimum" as preserving the dialect's
+typed egress. Its council refused that reading as a substitute, and the
+repair visit below withdrew it: MB4's comparison is not built, and tasks
+24.1 and 24.2 are open again. The v8 collision text uses the dialect's name
+for SC2's `<dialect>`, prefixed like every other dialect fault.
+
+### Pending
+
+`scripts/coverage-exact.sh` has not run, so the workspace-wide 100% result
+and the full-LCOV CRAP ratchet are owed to CI or a capable host. The
+operator's ruling on the public-API raise is owed. Remote Linux and macOS CI
+have not run.
+
+## U5a repair visit after the security hold (tasks 20.1–21.2; 24.1–24.2 reopened)
+
+Run `0065-slice-two-unit-u5a-see-the--8009db7c` received the first visit's
+whole implementation uncommitted on `fb61b9f8` and repaired its council's
+findings on 2026-10-04. It stayed inside the row's three production files.
+Its tests are in `capabilities/tests/dialect_policy.rs`.
+
+### What changed
+
+The reservation scan, `reserved_key` in `dialect.rs`, read the keys of a
+`dependencies` object but never the schemas they map to. Draft-07 applies
+such a schema to the same instance whenever its key is present, so
+`{"dependencies": {"allow": {"properties": {"retain": {}}}}}`, or a local
+`$ref` to that schema from a dependency, claimed `retain` at the grant's
+own level and a v8 grant with `allow` and `retain: false` loaded as `Veto`.
+The scan now follows each object-valued dependency exactly as it follows
+`allOf` and the other same-instance keywords, `$ref`s and cycle guard
+included. Both callers share the scan, so a key every version reserves
+(`tools`) hidden the same way is now refused by the loader under every
+realm version, with slice one's text. A list-valued dependency names keys
+the grant must then carry. It is still not scanned: a reserved key there
+leaves the grant unable to satisfy the schema, so it is refused as an
+invalid restriction rather than admitted.
+
+`McpServer::undeclared` now returns the typed `Undeclared` (`Malformed`,
+`Secret`), and `conforms` returns `Outside`. Each `Display` is the old
+text, and `ToolDialect::load` alone renders them to its `String`. Neither
+variant holds the argument it judged. `Retention::effective` is
+`#[cfg(test)] pub(super)`. Its production reader is manifest v12 (U5f),
+which removes the `cfg`. `Authority`'s public fields were left alone: making
+them read-only would also change `bundle.rs:1616`, which reads
+`authority.definitions` directly, and that file is not in this row.
+
+### The binding minimum is oversized
+
+MB4 compares the dialect's egress with the operator's binding minimum, the
+bundle's `egress_minimum`. `parse_egress_minimum` reads that minimum in
+`Bundle::assemble` (`bundle.rs:1560`), after `Authority::load` (`:1477`).
+It reaches neither `Serving` (built at `bundle.rs:5983–6018`) nor
+`CapabilityContext` (built in `launch.rs:390`). `Authority::assess`, which
+`brokkr doctor` calls (`crates/brokkr-cli/src/doctor.rs:970`), has no
+bundle and so no minimum at all. Any comparison inside the three files
+would therefore use a minimum nobody supplied. A default would make
+`local` bundles fail open and `uncontracted` bundles fail closed, and the
+commission forbids a substitute. Tasks 24.1 and 24.2 are unticked. The
+split the controller needs is this:
+
+| Part | Files | Tasks |
+| --- | --- | --- |
+| Carry the minimum into the authority and compare it in `carried`, with the exact cause and the requires/wants proofs | `capabilities.rs`, `capabilities/binding.rs`, `bundle.rs` | 24.1's egress-minimum clause, 24.2 |
+| Choose the minimum doctor's hypothetical `assess` judges against | `crates/brokkr-cli/src/doctor.rs` | 24.1's egress-minimum clause, if the row must cover doctor |
+
+Everything else in 24.1 is built and proved: version-aware reservation,
+inherit/veto in the holding, D11, and the identity bound.
+
+### Scenarios added or changed
+
+| Requirement | Test | Assertion |
+| --- | --- | --- |
+| SC2, D3 step 1 | `a_v8_grant_reserves_retain_through_references_composition_and_dependencies` | 36 rows in one comparison: 8 restriction forms × (v8 inherit, v8 veto, v6, v7), plus hidden `tools` under the same four. The `moved` list must be empty, and any mutation names every row it moves. |
+| SC1, ruling 8 | `the_dialect_edge_checks_refuse_with_typed_variants` | `undeclared` gives exact `Ok(())`, `Malformed { index: 1 }`, `Secret { index: 2, name: "OTHER_KEY" }`, and `Ok(())` for a URL. `conforms` gives `Ok(())`, and exact `Outside` for userinfo. The moved `an_mcp_launch_names…` still pins the rendered text. |
+| SC4, ruling 9 | `an_mcp_identity_is_carried_whole_or_refused_and_a_native_one_is_unchanged` | The `fits` table compares exact `Ok(())` / `Err(Unserved::Identity)` per row, not booleans. |
+
+### Removal mutations
+
+Each was a compiling production edit, run with
+`cargo test -p brokkr-runtime --lib <test>`, then restored by hand. Line
+numbers were observed before the final `cargo fmt`.
+
+| # | Mutation | Observed failure |
+| --- | --- | --- |
+| R1 | Dependency scan skips a schema that is a `$ref` | reservation `moved` (:321) lists exactly the two v8 `dependency reference` rows, `Ok` against the collision |
+| R2 | Dependency scan follows only a `$ref` | `moved` lists the two v8 `dependency` rows and all four `hidden tools` rows |
+| R3 | `properties` no longer names a key | `moved` lists the direct `properties` control's two v8 rows, plus `reference`, `dependency`, `dependency reference` and `hidden tools`, which are built on it |
+| R4 | `reserves` scans under `Unreserved` too | `moved` lists all twelve v6/v7 rows of the six claiming forms, `Err` against `Ok` |
+| R5 | The scan also descends into `properties` values | `moved` lists the four v8 `nested` and `nested in a dependency` rows |
+| R6 | `representable` refuses with `Unserved::Url` | identity table (:522), `[Ok(()), Err(Url), …]` against `[Ok(()), Err(Identity), …]` |
+| R7 | `Malformed` reports `index + 1` | typed variants (:92), `index: 2` against `index: 1` |
+| R8 | `conforms` skips the kind's branch | typed variants (:117), `Ok(())` against the exact `Outside` |
+
+After each restore, the filtered capabilities suite passed 51 of 51.
+
+### Gates on the repaired tree
+
+These ran on the working tree that this visit's commit records. rustfmt's
+check was clean, and so was workspace clippy with warnings denied. The
+runtime suite (`--all-features --locked --no-fail-fast`) printed 28 result
+lines, all ok, with lib at 749 and `witness_digests` passing without a
+bless. The CLI suite printed 46, all ok. The other workspace crates
+together printed 24, none failing. `bundles/self` and `bundles/verify` both
+compiled. OpenSpec strict validated 20 of 20. `typos --hidden` and the
+whitespace check found nothing. `cargo +1.88 check` across the workspace
+finished.
+
+On the ratchets, `files`, `clones` and `api` each held. `baselines
+fb61b9f8` refused with `public-api/brokkr-runtime.txt: 1464 public items
+(was 1449)`, which needs the operator's ruling. The count is two below the
+first visit's 1466, because `impl Retention` and `Retention::effective` left
+the public API.
+
+`quality/file-lines.txt` moved `binding.rs` to 265, `dialect.rs` to 439 and
+`dialect_policy.rs` to 645. The forced `too_many_lines` clippy run lists no
+new function in this unit's files. `scripts/measure-budgets.sh` rewrote the
+budget files, lowering several prompt budgets by 13 bytes. None of those
+inputs is this unit's, so its output was discarded; the `budgets` target
+had already passed in the runtime suite. Exact coverage
+(`scripts/coverage-exact.sh`), the operator's API ruling, and remote Linux
+and macOS CI are pending.
+
+## U5a judging visit after the split (tasks 20.1–21.2, 24.1–24.2)
+
+Run `0065-slice-two-unit-u5a-see-the--b545fd43` received the first visit,
+the repair and the controller's split documents uncommitted on `fb61b9f8`
+and judged the whole unit on 2026-10-04 against U5a's amended row. The
+binding minimum stays with U5a2 (tasks 24.3–24.4) and doctor's comparison
+with U9a. Nothing here builds either. Read-only `Authority` accessors (low 5)
+stay out of scope. The operator's ruling on the public API, 1449 to 1464, is
+carried on the PR's `Ruling:` line, and this visit adds no public item.
+
+### The HIGH repair holds, and three further gaps are closed
+
+The hold's HIGH repair held when re-observed. Making the scan skip every
+object-valued `dependencies` schema made the reservation test's `moved`
+list (`dialect_policy.rs:356`) name exactly the v8 `dependency` and
+`dependency reference` rows and all four `hidden tools` rows.
+
+A temporary probe test, deleted afterwards, then loaded crafted restriction
+schemas under a v8 grant and compiled each with `jsonschema::draft7`. It
+found three ways a schema still escaped the walk in `reserved_key`, and one
+way the walk crashed. All four are fixed in `dialect.rs`.
+
+The first two are cases where the validator resolves a reference somewhere
+other than where the walk looks. In the first, a subschema carries its own
+`$id` (`http://brokkr.invalid/inner`) and `"$ref": "#/definitions/z"`
+beneath it. The validator resolves that reference against the subschema's
+own `definitions`, whose `z` requires `retain`. The walk resolves it from
+the file's root, to a harmless `z`. In the second, the reference is
+`#/definitions/a%25`. The validator decodes it to the definition `a%`,
+which claims `retain`. A JSON pointer reads the literal key `a%25`, which
+is harmless. In both cases the v8 grant passed the reservation check and
+reached the later restriction validation. The validator's own error
+(`'/definitions/z/required'`, `'/definitions/a%/required'`) showed it had
+read the claiming definition. The loader now refuses either form with
+`resolution_fault`, before the walk runs. That check refuses an `$id` below
+the root and a percent-encoded `#` reference anywhere, data included,
+because a reference can land in data. A root `$id` rebases nothing and
+still loads.
+
+The third gap is list-valued dependencies. The repair visit left
+`{"dependencies": {"allow": ["retain"]}}` unscanned, on the reasoning that
+the grant could not satisfy it. That holds only for a grant that writes
+`allow`. The probe showed that a v8 grant without `allow` loaded the dialect
+with no refusal, although the dialect requires `retain` whenever `allow`
+is present, exactly as `required` would. The walk now reads a
+dependency list's entries as names, the same way it reads `required`. A
+reserved key written there is therefore refused under v8 with SC2's text,
+and a key every version reserves is refused under every version.
+
+The crash is a `$ref` that `reference_fault` never vetted, because it sits
+under a data keyword (`{"$ref": "#/const", "const": {"$ref": "#/nope"}}`)
+or under a `dependencies` entry named like one (`{"dependencies": {"enum":
+{"$ref": "#/nope"}}}`). The walk reached such a reference and panicked in
+its `expect("reference_fault resolved every reference first")`. The first
+form was already possible on main. The repair's dependency walk added the
+second. The walk now skips a target that names nothing, without panicking.
+The compile that follows then refuses the dialect with `is not valid
+draft-07: Pointer '/nope' does not exist`.
+
+### Tests and removal mutations
+
+The reservation test gained a `dependency list` row and now compares 40
+outcomes. A new test,
+`a_reference_the_validator_would_resolve_elsewhere_is_refused_and_none_panics`,
+compares five loads in one assertion (`dialect_policy.rs:377`): the
+nested-`$id` refusal, the percent-encoded refusal, the compile refusal for
+both data-reached references, and the root-`$id` control, which is
+`Ok("d")`. Each mutation in the table below compiled and was run with
+`cargo test -p brokkr-runtime --lib dialect_policy`. The file was then
+restored from a saved copy.
+
+| Mutation | Observed failure |
+| --- | --- |
+| The nested-`$id` refusal never fires | the new test at :377, `Ok("d")` where the `$id` refusal belongs |
+| A root `$id` is refused too | the new test at :377, the root row refused where `Ok("d")` belongs |
+| The percent-encoding check never matches | the new test at :377, `Ok("d")` where the percent-encoded refusal belongs |
+| The old `expect` is restored | the new test panicked at `dialect.rs:285` |
+| Dependency lists are not read as names | `moved` at :356 lists the two v8 `dependency list` rows, refused as an invalid restriction (`'/dependencies'`) where SC2's collision belongs |
+| `effective()` returns `declared` under `Veto` | the CR1 outcome table, `(true, Veto, true)` where `(true, Veto, false)` belongs |
+| `Retention::of` reads a `Veto` grant as `Inherit` | the outcome table at :495, both veto rows reading `Inherit` |
+
+After the restores, the capabilities suite passed 52 of 52.
+
+### 24.1 and 24.2, observed
+
+Task 24.1's amended scope is observed. The reservation check follows the
+grant's version and reaches every same-instance schema: composition,
+`$ref`, schema-valued and list-valued dependencies. A reference is
+resolved as the validator would resolve it, or the dialect is refused.
+Older maps keep `retain` as a restriction and reach only D11's
+refuse/drop outcomes (`an_older_retain_stays…`). The holding carries the
+typed `Retention`, and its four outcomes are pinned. A veto on a grant no
+office reaches stays pinned in the manifest, and the grant stays idle. MCP
+identities are bounded and refused, never truncated. No production line
+in this unit opens a secret store or reads a clearance: a search of the
+staged diff found `store_set` only in the test fixture that proves the
+loader never reads the store. Task 24.2's assertions and mutations are the
+ones recorded in this section and in the two above. Both tasks are ticked.
+
+### Gates on this visit's tree
+
+These gates ran on the tree that this visit's commit records. rustfmt's
+check and workspace clippy with warnings denied were both clean. The
+runtime suite printed 28 result lines, every one ok, with lib at 750 and
+`witness_digests` passing without a bless. The witness and compose inputs
+did not move. The CLI suite was all ok, with its lib at 627 and 1 ignored.
+The other workspace crates together printed 24 result lines, all ok.
+`bundles/self` compiled and printed its manifest. `cargo +1.88 check`
+across the workspace finished. OpenSpec strict validated 20 of 20, and
+neither `typos --hidden` nor the staged and unstaged whitespace checks
+found anything. `quality/ratchet.sh files`, `clones` and `api` each held.
+`quality/file-lines.txt` now records `dialect.rs` at 475 lines and
+`dialect_policy.rs` at 696. No function grew past 100 lines, and no
+suppression was added. Exact coverage (`scripts/coverage-exact.sh`) and
+remote Linux and macOS CI are still pending.
+
+## U5a second repair visit after the second security hold (tasks 20.1–21.2, 24.1–24.2)
+
+Judging run `0065-slice-two-unit-u5a-see-the--b545fd43` stopped again with
+REVIEW-SECURITY-HOLD. The controller traced both holds to one cause. The
+reservation walk was a hand-written approximation of the draft-07
+validator: it resolved `$ref` with `serde_json`'s pointer and walked
+keywords the validator never applies, so every disagreement between them
+was either a bypass or a false refusal. Run
+`0065-slice-two-unit-u5a-see-the--49537c74` replaced the approximation
+rather than patching it. The judging visit's `reference_fault`,
+`resolution_fault` and `reserved_key` are gone, and so is its test
+`a_reference_the_validator_would_resolve_elsewhere_is_refused_and_none_panics`,
+whose `$id` and percent refusals no longer exist.
+
+### One walk, resolved by the validator's own resolver
+
+`dialect.rs` now indexes the restriction schema the way
+`jsonschema::draft7::new` does. It builds a `jsonschema::Registry` (the
+crate's re-export of its `referencing` registry) for draft 7, keyed by the
+root `$id` or jsonschema's default base `json-schema:///`, with the default
+retriever, which fetches nothing. The walk keeps a base URI per schema and
+rebases it on every subschema through the registry resolver's
+`in_subresource`, as the compiler does. Every `$ref` it follows goes through
+that resolver's `lookup`. The walk and the validator therefore land a
+reference on the same schema by construction. No pointer is decoded by hand.
+
+The walk visits only draft-07's applicators reachable from the root:
+composition, `not`, `if`/`then`/`else`, `items`, `additionalItems`,
+`contains`, `additionalProperties`, `propertyNames`, `properties`,
+`patternProperties` and the schema form of `dependencies`, plus `$ref`
+through the resolver. A schema carrying `$ref` is read as draft 7 reads it:
+only the reference applies, and its siblings are ignored. Data keywords and
+definitions that no reachable reference names are never read. A schema
+describes the grant's own top level when it is reached from the root through
+same-instance applicators and references. Only there are reserved keys
+looked for, by `properties`, `required`, `dependencies` keys and list
+entries, and a matching `patternProperties` pattern, which is judged by the
+validator as before. A followed target is remembered together with the level
+it was met at. A definition first met below the top level is therefore
+walked again when it is reached at the top. A temporary probe found that
+dropping the level from that memory is a bypass, and the test below now pins
+it.
+
+A target the resolver finds outside the dialect's own bytes is refused. In
+practice that is the built-in draft-07 meta-schema, which the validator
+would have resolved without fetching. A schema whose references cannot be
+indexed without fetching, or one with an `$id` that is not a URI, is refused
+before the walk starts. One `expect` documents that invariant: once indexing
+has succeeded, rebasing onto a reachable `$id` cannot fail. The comment on it
+names the test that pins the four ways a bad `$id` could hide, behind a
+reference into data and below an applicator there. A mutation that let
+indexing failures pass broke that test.
+
+### What the validator applies, and only that
+
+Refusals that were false before are now positive parity controls. Each of
+the following loads, and the same draft-07 validator compiles it: an `$id`
+or a percent-bearing `$ref` inside `default` or `examples`, an `$id` or a
+dangling `$ref` in a definition nothing references, an `$id` on an applied
+subschema, a pointer the validator percent-decodes (`#/definitions/a%20b`),
+the default base spelled out, and a plain-name anchor. The first four of
+these loaded on main and were refused by the judging visit.
+
+### Diagnostics name a keyword and a place
+
+Refusals are a typed `SchemaFault` (ruling 8). The text names only the
+keyword and the walk's own location, an RFC 6901 escaped pointer along the
+path the walk took, such as `/properties/a~1b~0c/$ref`. Authored `$schema`,
+`$ref` and `$id` values never appear. A `$schema` other than draft-07 is
+refused with one fixed sentence, whatever was written. The compile's own
+error text, which follows the walk, is unchanged.
+
+### Seat-record's tool vocabulary, and SC4's refusal
+
+`binding.rs` keeps its identifier check. A new test reads
+`contracts/seat-record.v5.schema.json` and compares `representable` with the
+published checkpoint `tool` pattern for every ASCII character, in both the
+first position and a later one (258 probes). They agree on every probe. The
+256-byte bound is SC4's, which seat-record v6 widens from v5's 80. v6 is not
+yet published, so no second file holds that number.
+
+In `capabilities.rs`, `holding` now returns a private `Unheld`: either a
+`Cause`, which the ask's strength settles, or SC4's identity, which refuses
+the compile as `<site>: capability call identity cannot be represented by
+seat-record v6` whether the ask wants or requires. The remaining `Unserved`
+variants are still matched by name, and the MCP compile fence still answers
+first.
+
+### The v8 `retain` reservation is still restated
+
+Item 4 asked `dialect.rs` to read the v8 reservation from brokkr-core
+instead of naming `retain` itself. Core's `GrantRetention::reserved_keys`
+and its list are private to `brokkr-core/src/realms/grants.rs`, a file
+outside this row. Reading them would mean making that function public and
+re-measuring `quality/public-api/brokkr-core.txt`. This visit leaves the
+`RETAIN` constant in place and reports the unit oversized by that one file.
+
+### Tests and removal mutations
+
+The new tests are in `dialect_policy.rs`.
+`the_reservation_walk_lands_every_reference_where_the_validator_does` writes
+each disagreeing shape (`~~0`, `~~1`, `~~~~0`, a percent-encoded pointer, an
+inner `$id`) twice. In the first copy the `retain` claim sits where the
+validator lands; in the second it sits where a plain pointer lands. Two more
+rows cover a claim beside a `$ref` and a direct claim. For each of the 12
+rows the test records whether the validator itself applies the claim, the
+v8 outcome and the v6 outcome. The v8 grant is refused exactly where the
+validator applies the claim, and v6 admits every row.
+`a_key_every_version_reserves_is_found_where_the_validator_lands` does the
+same for `dialect`, `tools` and `offices` at load (30 rows), and adds the
+two-level definition. `what_the_validator_never_applies_is_never_walked`
+holds the eight positive controls, and
+`a_refused_restriction_schema_is_named_by_keyword_and_location_only` holds
+the typed faults. Each mutation below compiled, was run with
+`cargo test -p brokkr-runtime --lib capabilities::`, and was then reverted.
+After every revert the filter passed 56 of 56.
+
+| Mutation | Observed failure |
+| --- | --- |
+| Use `serde_json`'s pointer target instead of the resolver's | `dialect_policy.rs:444` and `:480` |
+| Skip `in_subresource` rebasing | `:444` and `:480` (the inner `$id` rows) |
+| Walk `examples` and `definitions` | `:518`, rows 2 and 5 refused as resolving to nothing |
+| Walk the siblings of a `$ref` | `:444` only (the row with a claim beside a `$ref`) |
+| Drop the containment check | `:532`, `None` where `Outside` belongs |
+| Do not escape pointer segments | `:532`, `/properties/a/b~c/$ref` |
+| Let an indexing failure pass | `:532` (both `Unindexed` rows `None`) and `tests.rs:602`, which received the compile's echoed URI |
+| Ignore the level in the followed memory | `:486`, `Ok("d")` where `tools` is refused |
+| Drop an unrepresentable identity as a want | `:820`, the wanted ask resolved `Ok` (dropped) where the refusal belongs |
+| Add `+` to the tool vocabulary | `:863`, `(258, ["a+"])`; no other test noticed |
+
+A variant that returned nothing when rebasing failed broke no test, which
+is how this visit found the invariant. That path is now the `expect`
+described above. A branch-coverage run of the capabilities tests on the
+pinned nightly (`cargo llvm-cov --branch`) covered all of `dialect.rs`
+(297 lines, 49 functions, 26 branches) and all of `binding.rs`. It also
+covered every line this visit changed in `capabilities.rs`.
+
+### Gates on this visit's tree
+
+This visit's tree passed rustfmt's check and workspace clippy with
+`-D warnings`. The runtime lib passed 754, and every runtime integration
+binary passed, `witness_digests` included without a bless. The witness and
+compose inputs therefore did not move. The CLI package ran 45 test binaries
+and its doc-tests, with no failure. `bundles/self` compiled, and
+`cargo +1.88 check` over the whole workspace finished. OpenSpec strict
+validated 20 of 20, and `typos --hidden` and `git diff --check` reported
+nothing. The `files`, `clones` and `api` ratchets held after
+`quality/file-lines.txt`, `quality/too-many-lines.txt` and
+`quality/suppressions.txt` were re-measured. The capabilities test that had
+been 102 lines shrank under 100, so its `#[expect(clippy::too_many_lines)]`
+was removed, and the test count of that lint fell from 257 to 256. Against
+`fb61b9f8`, the `baselines` ratchet reports brokkr-runtime's public API at
+1464 items, up from 1449. That is the growth the operator ruled; this visit
+added no public item. Exact coverage on the full gate and remote CI on both
+hosts are pending.
+
+## U5a judging visit after the second repair (tasks 20.1–21.2, 24.1–24.2)
+
+Run `0065-slice-two-unit-u5a-see-the--3425eacc` received the second repair
+staged and uncommitted on `fb61b9f8` and judged all of U5a against its
+amended row and both holds on 2026-10-04. It found nothing to fix, so no
+production or test line differs from the repair that the previous section
+describes. This section records what was observed, not what was changed.
+
+### What was judged
+
+The typed reading agrees with the frozen contract. `McpServer` requires
+`connection`, `version` and `secrets` and defaults `retained` to false,
+exactly as the contract's `mcp` branch does. `classes`, `egress` and
+`restrictions` are optional at the top level there as here. So the loader's
+`expect` after `conforms` cannot fire on a document the contract admits.
+`reserves` refuses whenever the walk returns any fault, so a failure to
+index or resolve at that stage would refuse, not admit.
+
+A temporary probe test, deleted before the commit, gave eight further
+shapes to `embedded_schema_fault` and to `jsonschema::draft7::new`. A
+relative reference to a subschema named by its own `$id`, a root
+self-reference under `allOf`, a schema-valued dependency, a two-step
+reference chain ending in a `patternProperties` match, and an `if`/`then`
+reference all reported the reserved key, while the validator compiled each
+of them. A claim reached only through `items` was not reported, which is
+right because it describes an array element rather than the grant. A root
+`$id` beside a `$ref` naming an absolute URI, and an absolute reference to
+an inner `$id`, were refused as `Unindexed`. The validator refused to
+compile both of them as well. No shape escaped the walk or panicked.
+
+### Mutations re-observed on this tree
+
+Four mutations were applied one at a time to the staged files. Each run
+used `cargo test -p brokkr-runtime --lib capabilities::`, and the file was
+restored from a saved copy after each. With the tree back at the candidate,
+the filter passed 56 of 56 and `git diff` was empty.
+
+| Mutation | Test and assertion that failed |
+| --- | --- |
+| The followed-target memory ignores the level it was met at | `a_key_every_version_reserves_is_found_where_the_validator_lands`, `dialect_policy.rs:486`: `Ok("d")` where SC2's `tools` refusal belongs |
+| `Walk::node` keeps the parent's base instead of rebasing through `in_subresource` | the same test at `:480`, and `the_reservation_walk_lands_every_reference_where_the_validator_does` at `:444` |
+| `reserves` treats an `Inherit` grant as unreserved | `:444` and `a_v8_grant_reserves_retain_through_references_composition_and_dependencies` at `:356` |
+| `Retention::of` reads a `Veto` grant as `Inherit` | `a_holding_carries_the_grants_veto_and_only_a_retaining_dialect_without_one_retains`, the four-outcome table at `:676` |
+
+### 24.1 and 24.2
+
+The amended scope of 24.1 was seen to hold on this tree. The reservation
+check follows the grant's version: the third mutation shows that
+`forge.realms/v8` without a veto still reserves `retain`. The check reaches
+through references and composition, and the first two mutations bind that.
+The holding carries the typed `Retention`, and its four outcomes, false,
+false, true and false, are pinned by the fourth mutation's test. An older
+map keeps `retain` as a nonempty restriction
+(`an_older_retain_stays_a_restriction_and_reaches_only_the_nonempty_restriction_outcomes`).
+A veto on a grant that no office reaches is pinned in the manifest while
+the grant stays idle (`dialect_policy.rs:706`). The binding minimum is not
+built here; that is U5a2's work. The ticks on 20.1–21.2 and 24.1–24.2
+therefore stand.
+
+### Findings carried, not fixed
+
+Two low findings remain. Neither can be closed within the row's three
+production files, and neither weakens a refusal. The first is second-hold
+item 4: `dialect.rs` still writes the v8 `retain` reservation itself instead
+of reading core's list (decision 0071 ruling 5). Fixing it needs
+`brokkr-core/src/realms/grants.rs`, and the controller has carried it to
+U10a's removal audits. The second is `Retention::effective`, which exists
+only under `cfg(test)` until manifest v12 (U5f) reads it in production.
+That is ruling 6 bent knowingly, and its doc comment names U5f as the
+reader that lifts the `cfg`.
+
+### Gates observed on this tree
+
+Formatting and workspace clippy, with warnings as errors, both passed. In
+brokkr-runtime the library ran 754 tests, its 26 integration binaries all
+passed, and `witness_digests` passed 6 without a bless, so no pin moved.
+In brokkr-cli the library ran 627 with one ignored, and its 43
+integration binaries all passed. The other workspace crates printed 24
+result lines, all passing. `bundles/self` compiled to digest `11c7d0e7…`.
+The 1.88 toolchain checked the whole workspace with every target and
+feature. OpenSpec strict validation passed 20 of 20. Neither `typos
+--hidden` nor the staged and unstaged whitespace checks found anything.
+The `files`, `clones` and `api` ratchets held. The `baselines` ratchet
+against `fb61b9f8` raised only brokkr-runtime's public API, from 1449 to
+1464, which is the operator's ruled growth; the PR names it on its
+`Ruling:` line. The recorded line counts and `too-many-lines` anchors match
+the files. Exact coverage and remote CI on Linux and macOS are still
+pending.
+
+`scripts/measure-budgets.sh` also ran on this tree. It measured 327
+packages and the same three heap peaks the committed files hold, so only
+the date in their notes would change. 52 prompt sites measured exactly 13
+bytes under their budgets, and no site measured over. U5a's diff changes
+no office text, house rule, dialect prose or notice that reaches a prompt.
+The shrink therefore looks like drift that main already carries. That is
+an inference: this visit did not measure `fb61b9f8` by itself. All three
+budget files were restored, so the PR moves no budget.
+
+## U5a third repair visit: reserved keys are stripped, not searched for (tasks 20.1–21.2, 24.1–24.2)
+
+Run `0065-slice-two-unit-u5a-see-the--e3a5f3b6` implemented the operator's
+ruling of 2026-10-04 (the second addendum in
+[operator-ruling-2026-10-03.md](operator-ruling-2026-10-03.md), SC2's new
+scenario and amended task 24.1) on the staged U5a tree, based on
+`1b9e222d`. Three council rounds had each found a construct where the
+reservation walk and the draft-07 validator disagreed. The ruling moves the
+guarantee to the strip that brokkr-core already performs, so this visit
+removed the walk instead of repairing it again.
+
+### What changed
+
+Only `capabilities/dialect.rs` changed in production. The walk is gone:
+`Walk`, `APPLICATORS`, `Applies`, `applied`, `escaped`, `holds`, the
+`patternProperties` probe, and the `Nowhere` and `Outside` faults, with the
+reference resolution and rebasing they needed. In their place, `claimed`
+reads four root forms only: the keys of root `properties` and root
+`dependencies`, and the entries of root `required` and of any list in root
+`dependencies`. A dependency schema, composition, a conditional and a
+reference are not entered. `embedded_schema_fault` checks the draft, then
+asks the validator's own resolver to index the schema without fetching
+(`Unindexed`, unchanged), then applies `claimed` to the three keys every
+grant-bearing version reserves. `reserves` applies `claimed` to `retain`
+for an `Inherit` or `Veto` grant and to nothing for an `Unreserved` one.
+The validator's compile of the whole schema is unchanged. Refusal texts
+name the keyword or the reserved key and never the schema. Neither
+`capabilities.rs`, `binding.rs` nor brokkr-core moved in this visit. Core's
+`parse_grant` already validates only the grant's keys minus its version's
+reserved keys, and `Authority::load` hands exactly those restrictions to the
+validator.
+
+Two loader outcomes change because the walk is gone, and the council
+should weigh both. A local reference that names nothing is now refused by
+the validator's compile, as "restriction schema is not valid draft-07:
+Pointer '/definitions/nobody' does not exist". That text repeats the
+authored pointer, as main's text did and as every compile error always
+has. A reference to the validator's built-in draft-07 meta-schema now
+loads, because the validator resolves it without a fetch; main and the walk
+refused it as outside the file. A reference that would need a fetch is
+still refused as `Unindexed`, and the crate is built without
+`resolve-http` or `resolve-file`. The compile reported "`resolve-http`
+feature or a custom resolver is required" for
+`https://example.org/hosts.json` in a temporary probe deleted before the
+commit. `tests.rs` pins both new outcomes.
+
+### Tests
+
+In `dialect_policy.rs`,
+`a_direct_claim_of_a_reserved_key_is_refused_by_the_versions_that_reserve_it`
+runs each of the four root forms for `dialect`, `tools`, `offices` and
+`retain` under a v8 inheriting grant, a v8 veto and v6 and v7 vetoes, which
+gives 64 rows. The three every-version keys refuse with their exact text
+under every version. `retain` refuses under v8 with SC2's exact sentence.
+Under v6 and v7 it loads, and the written `retain` stays a restriction.
+
+`a_reserved_key_never_reaches_restriction_validation` is SC2's new
+scenario. Four schemas forbid `retain` only through a reference, a
+conditional, a dependency schema, or all three. For each one the test
+records three things. First, the validator itself accepts the grant's
+restrictions and refuses them with `retain: false` beside them, so the
+claim is live. Second, the v8 veto loads as `(Veto, {"allow": …})`.
+Third, the same grant under v6 is refused at `/retain` by the exact
+clause. That v6 row is the in-test control showing that the indirect claim
+decides a grant whenever `retain` reaches validation.
+
+`an_indirect_claim_of_a_reserved_key_is_inert_however_it_is_reached` turns
+the three holds' shapes into 88 rows: 22 shapes for each reserved key.
+Each shape forbids the key with a `false` schema, and the grant writes
+`dialect`, `tools`, `allow` and `retain: false`, so any claim that decided
+a key would refuse the grant. The shapes are the `~~0`, `~~1` and
+`~~~~0` pointer forms, the percent-encoded pointer and the `$id` rebasing
+pair, each with the claim on the validator's target and on the decoy. They
+also include an orphan `then`, an orphan `else`, an inactive `else`,
+`additionalItems` with and without `items`, composition, a root `$ref`, a
+pattern, a dependency schema, a dependency reference, a nested key, and a
+claim beside a `$ref`. Every row loads as `(Veto, {"allow": …})`.
+`what_the_validator_never_applies_is_never_refused` (renamed) keeps the
+over-rejection shapes: `$id` in a default, unused definitions, and encoded
+references in data. `a_refused_restriction_schema_names_no_authored_text`
+replaces the location-naming test. It pins `Draft`, three `Unindexed` forms
+and two `Reserved` forms, with `hunter2` written into each, and the four
+hidden bad `$id`s. The walk-specific tests
+`a_v8_grant_reserves_retain_through_references_composition_and_dependencies`,
+`the_reservation_walk_lands_every_reference_where_the_validator_does` and
+`a_key_every_version_reserves_is_found_where_the_validator_lands` are
+gone. Their indirect refusals are now the inert rows above. In `tests.rs`,
+`a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys` now
+lists the four direct forms and pins the two loader changes above.
+
+### Removal mutations
+
+Each mutation compiled and was run with
+`cargo test -p brokkr-runtime --lib capabilities::`, then restored from a
+saved copy. Line numbers are the ones observed before `cargo fmt` reflowed
+the new tests. The tables now sit at `dialect_policy.rs:327`, `:391` and
+`:492`, and the typed-fault array at `:547`. After every restore the
+filter passed 56 of 56, and `git status` showed brokkr-core unchanged.
+
+| Mutation | Test and assertion that failed |
+| --- | --- |
+| Removal control: core's `parse_grant` strips only `GRANT_KEYS`, so a v8 `retain` reaches validation | `a_reserved_key_never_reaches_restriction_validation` (the table at `:381`: every v8 row became the v6 refusal, e.g. "at '/retain': it does not satisfy '/definitions/forbids/properties/retain'"), `an_indirect_claim_…` (`:476`) and the four-outcome holding test (`:673`) |
+| `claimed` ignores root `required` | `a_direct_claim_…` (`:324`) and `tests.rs:634` |
+| `claimed` ignores lists in root `dependencies` | `a_direct_claim_…` (`:324`), `a_refused_restriction_schema_names_no_authored_text` (`:520`) and `tests.rs:634` |
+| `claimed` ignores root `dependencies` keys | `a_direct_claim_…` (`:324`) and `tests.rs:634` |
+| `reserves` treats an `Inherit` grant as unreserved | `a_direct_claim_…` (`:324`) only |
+| `claimed` also searches `allOf` (an indirect claim decides again) | `an_indirect_claim_…` (`:476`) only |
+| An indexing failure passes | `a_refused_restriction_schema_names_no_authored_text` (`:520`) and `tests.rs:602` |
+| A reference to the draft-07 meta-schema is refused | `tests.rs:691`, the meta-schema pin |
+
+### 24.1 and 24.2
+
+The amended scope of 24.1 was observed on this tree. The four retention
+outcomes are unchanged (`a_holding_carries_the_grants_veto_…`, which the
+removal control also breaks). An older `retain` stays a restriction
+(`an_older_retain_stays_a_restriction_…` and the v6/v7 rows above). Direct
+claims are refused by the versions that reserve the key. A reserved key is
+absent from restriction validation whatever the schema's composition, and
+the removal control binds that. The inactive-grant row is unchanged. The
+ticks on 20.1–21.2 and 24.1–24.2 stand on this evidence.
+
+### Gates on this visit's tree
+
+Formatting was applied, and workspace clippy with `-D warnings` finished
+clean. The runtime library passed 754 tests. All 26 runtime integration
+binaries passed, `witness_digests` among them without a bless, so no pin
+moved. The CLI package printed 46 result lines and none failed. The other
+workspace crates printed 24, all passing. `bundles/self` compiled to
+digest `11c7d0e7…`, the same as before this visit. The 1.88 toolchain
+checked the whole workspace with every target and feature. OpenSpec strict
+validation passed 20 of 20. The `files`, `clones` and `api` ratchets held
+after `quality/file-lines.txt` (`dialect.rs` 583 to 384, `tests.rs` 2113 to
+2105, `dialect_policy.rs` 921 to 916) and the moved `too-many-lines.txt`
+anchor (`tests.rs:1687`) were re-measured. The `baselines` ratchet against
+`1b9e222d` reports brokkr-runtime's public API at 1464 items, up from 1449.
+That is the operator's ruled figure, and the simpler check did not lower it
+because every removed item was private to the module.
+`scripts/measure-budgets.sh` measured 327 packages, the same three heap
+peaks, and the same 13-byte shrink on the same prompt sites as the previous
+visit. Its three files were restored, so the PR moves no budget. Exact
+coverage and remote CI on Linux and macOS are pending.
+
+### Carried
+
+The `RETAIN` constant beside core's private reserved list goes to U10a,
+and the binding minimum goes to U5a2, as the controller ruled. `claimed`
+reads root `properties` even beside a root `$ref`, which draft-07 ignores.
+That can over-refuse a claim the validator would never apply. It cannot
+admit anything, because the strip already keeps the key out of validation,
+and it follows the ruling's textual definition of a direct claim.
+
+## U5a fourth repair visit: containment is restored beside the strip (tasks 20.1–21.2, 24.1–24.2)
+
+Run `0065-slice-two-unit-u5a-see-the--400e7e2d` repaired the regression
+that held the third visit's council (run `e3a5f3b6`). That council
+confirmed the strip design, so this visit leaves the four direct root
+forms, the version-aware strip, the typed retention and connection and
+the MCP and hands fence as they were. When the third visit removed the
+reservation walk, it also removed slice one's reference containment, and
+the loader began to accept a `$ref` to the validator's built-in draft-07
+meta-schema. The tree is still based on `1b9e222d`.
+
+### What changed
+
+Only `capabilities/dialect.rs` changed in production. `reference_fault`
+is back with main's exact rule. It walks the whole restriction schema,
+leaving out the data keywords `const`, `default`, `enum` and `examples`.
+It refuses a `$ref` that does not begin with `#` as `SchemaFault::External`
+and a fragment that names nothing under a plain JSON pointer as
+`SchemaFault::Missing`. `embedded_schema_fault` runs it after the draft
+check and before the resolver index and the direct-claim check, which is
+main's order. The direct check stays independent of it. The two new
+variants name the fault and never the reference: "has a '$ref' outside
+the dialect file; a restriction schema is never fetched" and "has a '$ref'
+that names nothing in the dialect file". The whole schema is still
+compiled. A compile failure is now `SchemaFault::Uncompiled`, rendered as
+"is not valid draft-07: the validator does not compile it", so the
+compiler's own words never reach the operator. Before this visit a
+missing pointer was echoed, for example "Pointer '/definitions/nobody'
+does not exist". `Unindexed` is kept as a second layer behind containment.
+`capabilities.rs`, `binding.rs` and brokkr-core did not move.
+
+`tasks.md`'s preamble count is back to main's text, "The plan has 45 PRs
+and 105 tasks." The U5a2 split is still recorded in design.md's
+merge-order note, its row and section, tasks 24.3–24.4 and the ruling
+addendum.
+
+### Tests
+
+`tests.rs`'s `a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys`
+now refuses both `https://example.org/hosts.json` and the draft-07
+meta-schema with the exact External text. Before this visit it accepted
+the meta-schema. It also pins the missing local `#/definitions/nobody` with
+the exact Missing text and `{"type": "no-such-type"}` with the exact
+Uncompiled text, in place of the old `starts_with` check.
+
+In `dialect_policy.rs`, `every_reference_stays_inside_the_dialect_file_wherever_it_hides`
+replaces `what_the_validator_never_applies_is_never_refused`, whose last
+four rows were the contained-resolution positives this visit removes. The
+new test has 11 rows. Each records whether the draft-07 validator compiles
+the schema and what the loader answers. Four rows load: an `$id` in a
+default, a `$ref` in `examples`, an unused definition's `$id` and an
+applied `$id`. Three refuse as External: the meta-schema under `not`, an
+external reference in an unused definition, and the validator's default
+base `json-schema:///` spelled out. Four refuse as Missing: a pointer in an
+unused definition, one inside an orphan `then`'s item list, a
+percent-encoded pointer and a plain-name anchor. The validator compiles
+six of the seven refused rows, which shows that containment does not
+depend on resolution. No row's outcome contains its `hunter2` canary.
+
+`a_refused_restriction_schema_names_no_authored_text` now expects
+`External` and `Missing` for its external and missing-pointer rows. Its
+loader row pins the direct `tools` claim beside a contained reference,
+with the canary in a definition's data. `a_schema_the_compiler_refuses_is_named_by_its_fault_alone`
+is new. It proves the compiler path on its own terms through two schemas
+that pass every pre-compile check (`embedded_schema_fault` is `None`):
+`{"type": "hunter2"}`, and a contained `$ref` into `const` whose data hides
+a missing `#/definitions/hunter2`. The test also asserts that each
+compiler error does contain `hunter2`, so the canary is live, and it pins
+the loader's exact Uncompiled text. `an_indirect_requirement_of_retain_fails_a_v8_grant_closed`
+is the optional pin. A dialect that requires `retain` only through
+`allOf` refuses a v8 veto grant, "with an invalid restriction at '': it
+does not satisfy '/allOf/0/required'", because the strip removed the key.
+
+### Removal mutations
+
+Each mutation compiled and ran under
+`cargo test -p brokkr-runtime --lib capabilities::`, and each was undone
+with the Edit tool. Afterwards `git diff` showed `dialect.rs` with only
+this visit's change and brokkr-core unchanged, and the filter passed 58
+of 58. Line numbers are the final tree's.
+
+| Mutation | Test and assertion that failed |
+| --- | --- |
+| Containment removed (`reference_fault(..).filter(\|_\| false)`) | `every_reference_…` (`dialect_policy.rs:582`; all 7 refusal rows moved, 6 to a load and the unused external to `Unindexed`), `a_refused_restriction_schema_…` (`:595`; the External and Missing rows became `Unindexed` and `Reserved { key: "tools" }`) and `tests.rs:611` (the External text became `Unindexed`'s) |
+| Data keywords walked as schemas | `every_reference_…` (`:582`; the `examples` row was refused as External), `a_schema_the_compiler_refuses_…` (the hidden `const` row became `Missing`) and `tests.rs` (the data-`$ref` row's `unwrap`) |
+| The compile refusal rendered the compiler's error verbatim, as before this visit | `a_schema_the_compiler_refuses_…` (`:668`; the texts became "\"hunter2\" is not valid under any of the schemas listed in the 'anyOf' keyword" and "Pointer '/definitions/hunter2' does not exist") and `tests.rs:676` |
+| Removal control in core: `parse_grant` strips only the first three reserved keys, so a v8 `retain` reaches validation | `an_indirect_requirement_of_retain_…` (it loaded as `(Veto, {"retain": false})`) and `an_indirect_claim_…` (`:492`) |
+
+The data-keyword mutation was observed before `cargo fmt` and the
+`tests.rs` compaction, so that row's line numbers are not the final
+ones. The other three were run again, or first run, on the final layout.
+
+### 24.1 and 24.2
+
+The strip's proofs did not change, and this visit observed them again.
+The 64-row direct-claim table, the 88-row inert table, the four retention
+outcomes, the older-`retain` restriction and the inactive-grant row all
+passed in the 58-test filter and in the full runtime library. The ticks
+on 20.1–21.2 and 24.1–24.2 stand on this evidence and the containment
+proofs above.
+
+### Gates on this visit's tree
+
+Formatting is clean, and workspace clippy with `-D warnings` finished
+without a diagnostic. The runtime library passed 756 tests, and all 26
+runtime integration binaries passed. `witness_digests` and `budgets` were
+among them, without a bless, so no pin or budget moved. The CLI package
+printed 46 result lines with no failure. The other workspace crates
+printed 24, all passing. `bundles/self` compiled to digest `11c7d0e7…`,
+unchanged. The 1.88 toolchain checked the whole workspace with every
+target and feature. OpenSpec strict validation passed 20 of 20, `typos
+--hidden` found nothing, and `git diff --check` was clean. The `files`,
+`clones` and `api` ratchets held after `quality/file-lines.txt` was
+re-measured: `dialect.rs` 384 to 427, `tests.rs` 2105 to 2103 (main 2159)
+and `dialect_policy.rs` 916 to 1024. The `too-many-lines.txt` anchor moved
+to `tests.rs:1685`. No new function crossed the ceiling, and the
+suppression count is unchanged. A forced `too_many_lines` run on the local
+clippy showed other differences only in files this unit does not touch
+(`brokkr-core/src/policy.rs`, `brokkr-cli/src/tests.rs`,
+`brokkr-protocol/src/hands.rs`, `agents/load.rs` and `bundle.rs`). Those
+come from the measuring toolchain, so they are not re-baselined here. The
+`baselines` ratchet against `1b9e222d` reports brokkr-runtime's public API
+at 1464 items, up from 1449, the same figure as the last visit. The new
+variants are `pub(super)`. The PR must name that ruling. Exact coverage
+and remote CI on Linux and macOS are pending.
