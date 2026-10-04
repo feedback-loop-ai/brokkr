@@ -41,7 +41,7 @@ fn collapsed(text: &str) -> String {
 /// lists, alone or with arguments, or whose first word, listed or not,
 /// is passed a flag or a path, which only a command takes. So a copy of
 /// a one-word line is compared, a one-word span one edit from a line
-/// `HELD_ONE_WORD_LINES` lists is compared as the drifted copy it is,
+/// `LEG_LINES` holds is compared as the drifted copy it is,
 /// and a mistyped first word beside a flag or a path fails rather than
 /// going unread. Any other span is a name, a path, a flag or output, and
 /// does not read as a command.
@@ -105,26 +105,21 @@ fn first_word(word: &str) -> bool {
     FIRST_WORDS.split(' ').any(|listed| listed == word)
 }
 
-/// The one-word lines a checked leg holds word for word, which a one-word
-/// span in a linked section's prose copies: `sw_vers`, `esac`, `fi`,
-/// `*,by-hand,*)` and `}`, the five one-word lines of `LEG_LINES`.
-/// `FIRST_WORDS` compares such a span when it is the line word for word;
-/// a span one edit from a line listed here — the `sw_verss` a mistyped
-/// copy of `sw_vers` writes, or its transposition `sw_vesr` — is compared
-/// as the drifted copy it is, rather than going unread. The list is not
-/// trusted: `assert_held_one_word_lines_current` holds it to be
-/// `LEG_LINES`'s one-word `Unwritten` lines both ways — a line a leg
-/// holds that the list misses, and an entry no leg holds any more — so a
-/// copy is compared against exactly what the legs hold when the test
-/// runs, and a stale entry is refused rather than left to read spans no
-/// line backs.
-const HELD_ONE_WORD_LINES: [&str; 5] = ["*,by-hand,*)", "esac", "fi", "sw_vers", "}"];
-
-/// Whether a one-word span's word is a line `HELD_ONE_WORD_LINES` lists,
-/// or one edit from one.
+/// Whether a one-word span's word is a one-word line a checked leg holds
+/// word for word in `LEG_LINES`, or one edit from one: `sw_vers`, `esac`,
+/// `fi`, `*,by-hand,*)` and `}`, read from `LEG_LINES` itself, so the
+/// fact has one home and there is no second list to go stale — a line a
+/// leg starts holding is compared from the moment `LEG_LINES` holds it,
+/// and an entry no leg holds any more is gone rather than reading spans
+/// no line backs. `FIRST_WORDS` compares such a span when it is the line
+/// word for word; a span one edit from a line held here — the `sw_verss`
+/// a mistyped copy of `sw_vers` writes, or its transposition `sw_vesr` —
+/// is compared as the drifted copy it is, rather than going unread.
 fn held_one_word(word: &str) -> bool {
-    HELD_ONE_WORD_LINES
+    LEG_LINES
         .iter()
+        .flat_map(|(check, _)| unwritten_lines(check))
+        .filter(|line| command_words(line).len() == 1)
         .any(|held| within_one_edit(held, word))
 }
 
@@ -217,11 +212,8 @@ fn unwritten_lines(check: &str) -> Vec<&'static str> {
 
 /// Every first word a checked leg or a section's script runs is one
 /// `FIRST_WORDS` lists, so what reads as a command in prose does not
-/// depend on what the legs run today; `HELD_ONE_WORD_LINES` is forced to
-/// be `LEG_LINES`'s one-word `Unwritten` lines by
-/// `assert_held_one_word_lines_current`, called here.
+/// depend on what the legs run today.
 pub(super) fn assert_first_words_listed(root: &Path, runs: &[Vec<String>]) {
-    assert_held_one_word_lines_current();
     let held = LEG_LINES
         .iter()
         .flat_map(|(check, _)| unwritten_lines(check))
@@ -237,26 +229,6 @@ pub(super) fn assert_first_words_listed(root: &Path, runs: &[Vec<String>]) {
             );
         }
     }
-}
-
-/// `HELD_ONE_WORD_LINES` is forced to be `LEG_LINES`'s one-word
-/// `Unwritten` lines, not trusted: a one-word line a leg starts holding
-/// must be listed there, or its drifted copies in the guide go unread,
-/// and an entry no leg holds any more is stale.
-fn assert_held_one_word_lines_current() {
-    let mut held: Vec<&str> = LEG_LINES
-        .iter()
-        .flat_map(|(check, _)| unwritten_lines(check))
-        .filter(|line| command_words(line).len() == 1)
-        .collect();
-    held.sort_unstable();
-    held.dedup();
-    let mut listed = HELD_ONE_WORD_LINES.to_vec();
-    listed.sort_unstable();
-    assert_eq!(
-        listed, held,
-        "HELD_ONE_WORD_LINES is not LEG_LINES's one-word Unwritten lines {held:?}: a line a leg holds is missing from it, or an entry it lists is no longer held, and a drifted copy of the difference goes unread"
-    );
 }
 
 /// Spans a linked section's prose writes that read as commands and that
@@ -361,6 +333,22 @@ pub(super) fn assert_inline_copies(root: &Path, row: &CheckRow, guide: &str, run
     }
 }
 
+/// The entries of `allowances` no span writes, as (anchor, command) pairs
+/// in `allowances`'s order: an entry no span uses is stale — it allows
+/// nothing and hides the copy it was written for.
+fn unused_allowances<'a>(
+    allowances: &[(&'a str, &'a str)],
+    used: &[(String, String)],
+) -> Vec<(&'a str, &'a str)> {
+    allowances
+        .iter()
+        .copied()
+        .filter(|(anchor, command)| {
+            !used.contains(&((*anchor).to_string(), (*command).to_string()))
+        })
+        .collect()
+}
+
 /// Every allowance `INLINE_ONLY` holds is a span some row's linked
 /// section writes, as an (anchor, command) pair: an entry no span uses is
 /// stale — it allows nothing and hides the copy it was written for — and
@@ -374,16 +362,13 @@ pub(super) fn assert_inline_only_used(rows: &[CheckRow], guide: &str) {
             }
         }
     }
-    for (anchor, command) in INLINE_ONLY {
-        assert!(
-            used.contains(&(anchor.to_string(), command.to_string())),
-            "no span writes `{command}` at #{anchor}, which INLINE_ONLY holds"
-        );
+    if let Some(&(anchor, command)) = unused_allowances(&INLINE_ONLY, &used).first() {
+        panic!("no span writes `{command}` at #{anchor}, which INLINE_ONLY holds");
     }
 }
 
 /// The one-word arm pinned by exact values: a word one edit from a line
-/// `HELD_ONE_WORD_LINES` lists — the insertion `sw_verss`, the deletion
+/// `LEG_LINES` holds — the insertion `sw_verss`, the deletion
 /// `sw_ver`, the substitution `sw_vars`, the transposition `sw_vesr` —
 /// reads as a command, and `tee`, `rustfmt` and `ok` are no copy of
 /// anything held and stay names. A change that stops reading a drifted
@@ -434,4 +419,71 @@ fn a_span_one_edit_from_an_accepted_line_is_its_drifted_copy() {
     assert_eq!(drifted_from("sw_vers", &accepted), None);
     assert_eq!(drifted_from("tee", &accepted), None);
     assert_eq!(drifted_from("rustfmt", &accepted), None);
+}
+
+/// `unused_allowances` pinned by exact values: the entries no span
+/// writes are the ones returned, in `allowances`'s order — an allowance
+/// written at one anchor is no allowance at another — while every entry
+/// a span writes is not; with nothing used every entry is stale, and
+/// with no allowances none is. A check that stops seeing a stale entry —
+/// its predicate held true, or its walk dropped — fails here rather than
+/// allowing a copy nothing writes.
+#[test]
+fn an_inline_only_allowance_no_span_writes_is_stale() {
+    let used = vec![
+        (
+            "the-workspace-suite".to_string(),
+            "test result: ok".to_string(),
+        ),
+        ("formatting".to_string(), "cargo fmt --all".to_string()),
+    ];
+    let allowances: [(&str, &str); 5] = [
+        ("the-workspace-suite", "test result: ok"),
+        ("the-macos-startup-gate", "test result: ok"),
+        ("formatting", "cargo bogus --never-written"),
+        ("formatting", "cargo fmt --all"),
+        ("the-release-binary", "cargo test"),
+    ];
+    assert_eq!(
+        unused_allowances(&allowances, &used),
+        [
+            ("the-macos-startup-gate", "test result: ok"),
+            ("formatting", "cargo bogus --never-written"),
+            ("the-release-binary", "cargo test"),
+        ]
+    );
+    assert_eq!(unused_allowances(&allowances, &[]), allowances);
+    assert_eq!(unused_allowances(&[], &used), []);
+}
+
+/// The stale-allowance refusal itself, bound: with no rows at all no
+/// span is read, so every allowance `INLINE_ONLY` holds is stale and the
+/// check refuses its first. A refusal compiled away — its predicate held
+/// true, or its walk dropped — leaves no panic, and fails here.
+#[test]
+#[should_panic(
+    expected = "no span writes `test result: ok` at #the-workspace-suite, which INLINE_ONLY holds"
+)]
+fn a_stale_inline_only_allowance_fails_the_check() {
+    assert_inline_only_used(&[], "");
+}
+
+/// The drift refusal's call, bound: a row whose linked section's prose
+/// writes `sw_ vers`, one edit from the `sw_vers` its leg runs, fails
+/// with the drift named. The span does not even read as a command —
+/// `sw_` is no first word, and `vers` takes no flag or path — so a
+/// refusal made inert at the call leaves no panic at all, and fails
+/// here.
+#[test]
+#[should_panic(expected = "the copy has drifted")]
+fn a_row_whose_prose_drifts_from_an_accepted_line_fails() {
+    let row = CheckRow {
+        number: "1".to_string(),
+        check: "my check".to_string(),
+        job: "my-job".to_string(),
+        file: "ci.yml",
+        command: "see [the gate](#my-check)".to_string(),
+    };
+    let guide = "# A guide\n\n## My check\n\nCopy it as `sw_ vers` and the row refuses it.\n";
+    assert_inline_copies(Path::new("."), &row, guide, &["sw_vers".to_string()]);
 }
