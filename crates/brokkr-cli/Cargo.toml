@@ -106,9 +106,6 @@ gungraun = "=0.19.4"
 # brokkr-view, whose dependency set is closed (decision 0071 ruling 1).
 dhat = "=0.3.3"
 
-# The CPU budgets (#342). Library benches measure the fold, the run view,
-# a compile of bundles/self and one TUI frame; binary benches measure the
-# shipped binary's startup and `inspect`.
 # The integration tests link as one binary (#423): `tests/it.rs` holds every
 # file under tests/ as a module, so a test runs as `<file>::<name>`. A file
 # that needs a process of its own is its own binary below, with the reason.
@@ -141,6 +138,9 @@ name = "heap_codex"
 [[test]]
 name = "heap_dsh"
 
+# The CPU budgets (#342). Library benches measure the fold, the run view,
+# a compile of bundles/self and one TUI frame; binary benches measure the
+# shipped binary's startup and `inspect`.
 [[bench]]
 name = "budgets_lib"
 harness = false
