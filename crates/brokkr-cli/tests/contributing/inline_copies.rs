@@ -92,10 +92,11 @@ fn first_word(word: &str) -> bool {
 /// `*,by-hand,*)` and `}`, the five one-word lines of `LEG_LINES`.
 /// `FIRST_WORDS` compares such a span when it is the line word for word;
 /// a span one edit from a line listed here — the `sw_verss` a mistyped
-/// copy of `sw_vers` writes — is compared as the drifted copy it is,
-/// rather than going unread. A line stays listed when its leg stops
-/// running it, so a prose copy the change orphans still reads as a
-/// command and fails as one, for the reason `FIRST_WORDS` states.
+/// copy of `sw_vers` writes, or its transposition `sw_vesr` — is compared
+/// as the drifted copy it is, rather than going unread. A line stays
+/// listed when its leg stops running it, so a prose copy the change
+/// orphans still reads as a command and fails as one, for the reason
+/// `FIRST_WORDS` states.
 const HELD_ONE_WORD_LINES: [&str; 5] = ["*,by-hand,*)", "esac", "fi", "sw_vers", "}"];
 
 /// Whether a one-word span's word is a line `HELD_ONE_WORD_LINES` lists,
@@ -107,10 +108,16 @@ fn held_one_word(word: &str) -> bool {
 }
 
 /// Whether `a` and `b` are the same word up to one edit — an insertion, a
-/// deletion or a substitution — so `sw_verss` is the drifted copy of
-/// `sw_vers` it reads as, while `tee`, `rustfmt` and `ok` are no copy of
-/// anything held and stay names.
+/// deletion, a substitution or an adjacent transposition — so `sw_verss`
+/// is the drifted copy of `sw_vers` it reads as and `sw_vesr` its
+/// transposition, while `tee`, `rustfmt` and `ok` are no copy of anything
+/// held and stay names.
 fn within_one_edit(a: &str, b: &str) -> bool {
+    one_insertion_deletion_or_substitution(a, b) || one_transposition(a, b)
+}
+
+/// Whether `b` is `a` up to one insertion, deletion or substitution.
+fn one_insertion_deletion_or_substitution(a: &str, b: &str) -> bool {
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
     let (short, long) = if a.len() <= b.len() {
         (&a, &b)
@@ -142,6 +149,23 @@ fn within_one_edit(a: &str, b: &str) -> bool {
     edits + (long.len() - j) + (short.len() - i) <= 1
 }
 
+/// Whether `b` is `a` with one adjacent pair of characters swapped — the
+/// `sw_vesr` `sw_vers` transposes to, which is no insertion, deletion or
+/// substitution: the two differ in exactly two neighbouring positions,
+/// each holding the other's character. Identical words are no
+/// transposition; `one_insertion_deletion_or_substitution` already holds
+/// them.
+fn one_transposition(a: &str, b: &str) -> bool {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    if a.len() != b.len() {
+        return false;
+    }
+    let Some(i) = a.iter().zip(&b).position(|(x, y)| x != y) else {
+        return false;
+    };
+    i + 1 < a.len() && a[i] == b[i + 1] && a[i + 1] == b[i] && a[i + 2..] == b[i + 2..]
+}
+
 /// The lines `LEG_LINES` holds word for word for `check`'s leg.
 fn unwritten_lines(check: &str) -> Vec<&'static str> {
     LEG_LINES
@@ -157,8 +181,11 @@ fn unwritten_lines(check: &str) -> Vec<&'static str> {
 
 /// Every first word a checked leg or a section's script runs is one
 /// `FIRST_WORDS` lists, so what reads as a command in prose does not
-/// depend on what the legs run today.
+/// depend on what the legs run today; `HELD_ONE_WORD_LINES` is forced to
+/// be `LEG_LINES`'s one-word `Unwritten` lines by
+/// `assert_held_one_word_lines_current`, called here.
 pub(super) fn assert_first_words_listed(root: &Path, runs: &[Vec<String>]) {
+    assert_held_one_word_lines_current();
     let held = LEG_LINES
         .iter()
         .flat_map(|(check, _)| unwritten_lines(check))
@@ -174,6 +201,26 @@ pub(super) fn assert_first_words_listed(root: &Path, runs: &[Vec<String>]) {
             );
         }
     }
+}
+
+/// `HELD_ONE_WORD_LINES` is forced to be `LEG_LINES`'s one-word
+/// `Unwritten` lines, not trusted: a one-word line a leg starts holding
+/// must be listed there, or its drifted copies in the guide go unread,
+/// and an entry no leg holds any more is stale.
+fn assert_held_one_word_lines_current() {
+    let mut held: Vec<&str> = LEG_LINES
+        .iter()
+        .flat_map(|(check, _)| unwritten_lines(check))
+        .filter(|line| command_words(line).len() == 1)
+        .collect();
+    held.sort_unstable();
+    held.dedup();
+    let mut listed = HELD_ONE_WORD_LINES.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        listed, held,
+        "HELD_ONE_WORD_LINES is not LEG_LINES's one-word Unwritten lines {held:?}: a line a leg holds is missing from it, or an entry it lists is no longer held, and a drifted copy of the difference goes unread"
+    );
 }
 
 /// Spans a linked section's prose writes that read as commands and that
@@ -272,4 +319,20 @@ pub(super) fn assert_inline_only_used(rows: &[CheckRow], guide: &str) {
             "no span writes `{command}` at #{anchor}, which INLINE_ONLY holds"
         );
     }
+}
+
+/// The one-word arm pinned by exact values: a word one edit from a line
+/// `HELD_ONE_WORD_LINES` lists — the insertion `sw_verss`, the deletion
+/// `sw_ver`, the transposition `sw_vesr` — reads as a command, and
+/// `tee`, `rustfmt` and `ok` are no copy of anything held and stay
+/// names. A change that stops reading a drifted copy, or reads a name as
+/// one, fails here rather than leaving a copy in the guide unread.
+#[test]
+fn a_drifted_copy_of_a_held_line_reads_as_a_command() {
+    assert!(text_reads_as_command("sw_verss"));
+    assert!(text_reads_as_command("sw_ver"));
+    assert!(text_reads_as_command("sw_vesr"));
+    assert!(!text_reads_as_command("tee"));
+    assert!(!text_reads_as_command("rustfmt"));
+    assert!(!text_reads_as_command("ok"));
 }
