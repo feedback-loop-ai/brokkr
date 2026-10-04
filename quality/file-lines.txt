@@ -60,8 +60,9 @@
   1276 crates/brokkr-protocol/src/hands.rs
    296 crates/brokkr-protocol/src/hands/session.rs
    218 crates/brokkr-protocol/src/lib.rs
-  4539 crates/brokkr-protocol/src/native_controls.rs
+  4320 crates/brokkr-protocol/src/native_controls.rs
   1688 crates/brokkr-protocol/src/native_controls/grammar.rs
+   237 crates/brokkr-protocol/src/native_controls/mcp.rs
    138 crates/brokkr-protocol/src/oneshot.rs
    161 crates/brokkr-protocol/src/overrides.rs
    535 crates/brokkr-protocol/src/process.rs

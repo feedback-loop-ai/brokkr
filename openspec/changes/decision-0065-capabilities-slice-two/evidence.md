@@ -1079,3 +1079,96 @@ LCOV, and remote Linux and macOS CI have not run. Runtime still reserves the thr
 `reserved_fault` and does not read `retention`. Making that check
 version-aware and carrying the veto into the holding is U5a's work (tasks
 24.1–24.2).
+
+## U1a implementation evidence (tasks 2.1–2.2)
+
+Run `0065-slice-two-unit-u1a-see-the--4577bfbd` built this unit on
+2026-10-04 on branch `s2/U1a`, cut from main at `3f2a84e6`. It is a pure
+extraction: no behavior, refusal text, server acceptance or public path
+changed, and the MCP compile fence is untouched.
+
+### What moved
+
+Production stays inside the row's two files. The new private module
+`crates/brokkr-protocol/src/native_controls/mcp.rs` (237 lines) is now the
+home of the single-server transport and its parser checks, moved byte for
+byte with their doc comments:
+
+| Item | Was in `native_controls.rs` | Visibility now |
+| --- | --- | --- |
+| `toml_basic`, the one TOML basic-string encoder | private fn | `pub(super)` |
+| `Transport` and its `document`, `arguments`, `command`, `expand`, `effects` | pub struct | re-exported as `native_controls::Transport` |
+| `untransported`, the composer's whole-transport check | private fn | `pub(super)`, imported by the parent |
+| `authored_server_conflict`, the authored-server structural check | pub fn | re-exported as `native_controls::authored_server_conflict` |
+
+One function is new: `Transport::carried_by`. It holds the R1 comparison
+that `sealed_inputs` used to write inline (the hands carry exactly the
+transport's owed effects, counted and matched). `sealed_inputs` now calls it
+in one line, and that is the only change at a production caller. Every other
+caller (`authored_conflict`, `compose_or_exclude`, `check_final`, the
+adapters' serving builder and the runtime's `Transport` literals) is
+unchanged, because the re-exports keep the old paths. `quality/ratchet.sh
+api` printed "public API holds".
+
+`native_controls.rs` shrinks from 4,539 to 4,320 lines. `sealed_inputs`
+shrinks from 334 to 326 lines (now at `:2104`), and `decode_record` (`:1073`)
+and `compose_or_exclude` (`:3735`) keep their sizes at new lines.
+`quality/file-lines.txt` and `quality/too-many-lines.txt` record these
+measurements. The second listing was re-read from a forced
+`clippy::too_many_lines` run on `brokkr-protocol`, and no test entry moved.
+No suppression was added or removed.
+
+There is one test edit. `native_controls/tests.rs` sits over the test
+ceiling at its 13,152-line baseline, so its first line became
+`use super::{mcp::toml_basic, *};`. The file still has 13,152 lines. No
+assertion, fixture or test name changed. No test was added: the row's proof
+is that the existing hands-only exact-state and authored-option tests still
+pass unchanged and fail when the moved code is removed.
+
+### Removal mutations
+
+Each mutation was applied to `mcp.rs` with the Edit tool. It was run with
+`cargo test -p brokkr-protocol --all-features --locked --lib` (and with
+M1, also with `cargo test -p brokkr-runtime --test capability_launch`), and
+then restored. The lib suite has 631 tests.
+
+| # | Compiling mutation in `mcp.rs` | What failed (observed) |
+| --- | --- | --- |
+| M1 | `untransported` never names a missing part (`!present && false`) | 2 failed: `typed_hands_carry_their_whole_transport_through_the_composer` (tests.rs:7454, left `Ok(Composed { … })`, right the "carry no strict MCP configuration ('--strict-mcp-config')" refusal); `every_generated_sealed_state_checks_or_refuses_exactly` (:12368). Runtime: `a_compiled_unmeasured_site_carries_its_typed_hands_into_its_compose` (capability_launch.rs:9759, left the "final tool list with no selection mapping" refusal, right the lanetally "carry no strict MCP config…" refusal) |
+| M2 | `authored_server_conflict` ignores `mcp_servers` assignments | 3 failed: `an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes` (:1048, left `Ok(None)`, right the "carry '-c mcp_servers'" refusal); `every_refusal_line_is_one_bounded_line_naming_no_payload` (:3693); adapters `an_authored_capability_server_is_refused_at_launch_in_the_drivers_own_voice` (adapters/tests.rs:15513) |
+| M3 | `authored_server_conflict` ignores `mcp__` include/allow values | 4 failed: `a_tool_list_that_admits_a_native_tool_is_an_authored_control` (:483, left `Ok(None)`, right "carry '--allowedTools mcp__*'"); `an_authored_capability_server_is_refused_by_provenance…` (:1048); adapters `…refused_at_launch_in_the_drivers_own_voice` (:15543) and `an_authored_plugin_or_later_list_value_is_refused_at_the_final_command` (:16249) |
+| M4 | `carried_by` admits extra controls (`>=` for `==` on the count) | 1 failed: `the_hands_are_bound_to_the_engines_transport_and_nothing_else` (:9269, left the "does not carry '--config'" refusal, right "is sealed with hands that are not the engine's workspace hands") |
+| M5 | Codex's owed approval mode `"approve"` becomes `"prompt"` in `effects` | 8 failed, including `the_hands_are_bound_to_the_engines_transport_and_nothing_else` (:9186), `every_sealed_sandbox_contribution_names_one_admitted_class` (:10133, left the "not the engine's workspace hands" refusal, right `Ok(Checked { … })`), `every_single_mutation_of_a_checked_command_refuses` (:12831) and adapters `a_cold_codex_argv_carries_the_off_pair_exactly_when_search_is_not_held` (:14926) |
+| M6 | `toml_basic` leaves `\` unescaped | 3 failed: `every_codex_transport_value_decodes_as_toml_to_exactly_itself` (:7253, left `"/opt/a\\u002fb/brokkr"`, right `"/opt/a\\\\u002fb/brokkr"`), `every_generated_sealed_state_checks_or_refuses_exactly` (:12358), `every_single_mutation_of_a_checked_command_refuses` (:12831) |
+| M7 | `expand` drops its non-UTF-8 workdir refusal | 1 failed: `every_codex_transport_value_decodes_as_toml_to_exactly_itself` (:7335, left `Some([… lossy workdir …])`, right `None`) |
+
+After all seven were restored, the protocol suite passed again: lib 631
+passed and 1 ignored, and `hands_exits` 6, `secret_drop` 1 and the doc-test 1
+passed. One earlier run of that suite, on the restored tree, failed
+`oneshot::tests::a_produced_attempt_carries_its_result_and_checkpoints`.
+That test does not touch this module. It passed on the immediate full re-run
+and when the four `oneshot` tests ran alone, so it is recorded here as a
+flake, not as a result.
+
+### Gates on the tree
+
+| Gate | Result |
+| --- | --- |
+| Formatting and workspace clippy (`-D warnings`, all targets and features, locked) | Clean. |
+| `brokkr-protocol` | All four binaries ok (lib 631, 1 ignored). |
+| `brokkr-runtime --tests --no-fail-fast` | 27 result lines, all ok: lib 740, `capability_launch` 68, `frozen_contracts` 12. `witness_digests` passed 6 without blessing, so no witness or compose pin moved. |
+| `brokkr-cli --tests --no-fail-fast` | 45 result lines, all ok (lib 627, 1 ignored), and the suppressions test passed. |
+| `brokkr-core`, `-store`, `-view`, `-bridge`, `-seatbelt-probe` | Every result line ok. |
+| `compile --bundle bundles/self` | Exit 0. |
+| `quality/ratchet.sh files`, `clones`, `api`, `listings` | "file size holds", "duplication holds", "public API holds"; listings read. |
+| `quality/ratchet.sh baselines 3f2a84e6` | "no baseline raised since 3f2a84e6". |
+| `openspec validate --all --strict`; `typos --hidden`; `git diff --check` | 20 passed, 0 failed; clean; clean. |
+
+### Pending
+
+Exact coverage (`scripts/coverage-exact.sh`) has not run, and neither has the
+cyclomatic ratchet on its LCOV. The moved functions keep their measured
+complexity (`toml_basic` 12, `authored_server_conflict` 10, `untransported`
+4, `Transport::effects` 4), and each will appear under `mcp.rs` as a new
+entry under the ceiling of 15. The CRAP baseline was not re-measured here.
+Remote Linux and macOS CI have not run.

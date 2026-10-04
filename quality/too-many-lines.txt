@@ -17,9 +17,9 @@
  122 crates/brokkr-protocol/src/adapters/composite/image.rs:198 elf
  114 crates/brokkr-protocol/src/fake.rs:73 run_fake_session
  183 crates/brokkr-protocol/src/hands.rs:417 box_argv
- 197 crates/brokkr-protocol/src/native_controls.rs:1070 decode_record
- 334 crates/brokkr-protocol/src/native_controls.rs:2215 sealed_inputs
- 342 crates/brokkr-protocol/src/native_controls.rs:3954 compose_or_exclude
+ 197 crates/brokkr-protocol/src/native_controls.rs:1073 decode_record
+ 326 crates/brokkr-protocol/src/native_controls.rs:2104 sealed_inputs
+ 342 crates/brokkr-protocol/src/native_controls.rs:3735 compose_or_exclude
  106 crates/brokkr-protocol/src/native_controls/grammar.rs:690 parse_span
  110 crates/brokkr-protocol/src/process.rs:398 run_attempt_resuming
  122 crates/brokkr-runtime/src/agents.rs:1100 compose
