@@ -38,15 +38,23 @@ impl Drop for Guard {
 }
 
 /// The guard ends its stub even when the test does not: dropped with
-/// nothing done to it, the stub is gone, not left for its own lifetime.
-/// Empty the drop and this fails.
+/// nothing done to it, the stub is killed at once, not left for its own
+/// half minute, and reaped, so the table holds no row of it, not even a
+/// zombie. Without the kill the drop waits the stub out; without the
+/// wait its zombie stays.
 #[test]
 fn the_guard_ends_its_stub_on_drop() {
-    let pid = {
-        let stub = Guard(Command::new("sleep").arg("30").spawn().unwrap());
-        i32::try_from(stub.0.id()).unwrap()
-    };
-    assert!(ended(pid), "the stub outlived its guard");
+    let stub = Guard(Command::new("sleep").arg("30").spawn().unwrap());
+    let pid = i32::try_from(stub.0.id()).unwrap();
+    let id = row(pid).expect("the stub is in the table").id;
+    let began = Instant::now();
+    drop(stub);
+    assert!(
+        began.elapsed() < Duration::from_secs(10),
+        "the stub was not killed"
+    );
+    let left = row(pid).filter(|entry| entry.id == id);
+    assert_eq!(left, None, "the stub was not reaped");
 }
 
 /// The table names a child that leads a group of its own with its parent,

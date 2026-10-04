@@ -249,10 +249,13 @@ impl Registry {
     /// it cannot tell a same-group grandchild the subreaper adopted from
     /// a child the engine spawned and still holds a `Child` to — the two
     /// read with the same parent and the same group — and a `waitpid` on
-    /// the handled child would break its `Child::wait`. Such a grandchild
-    /// holds its pid until the engine exits, as does an adopted orphan
-    /// that exits in an idle interval, for the tracker reads only while
-    /// an attempt is live: it waits for the next attempt's read (#470).
+    /// the handled child would break its `Child::wait`
+    /// (`a_zombie_in_the_engines_group_is_left_to_its_handle`). Such a
+    /// grandchild holds its pid until the engine exits. An adopted orphan
+    /// that exits in an idle interval waits for the next attempt's read,
+    /// for the tracker reads only while an attempt is live and each spawn
+    /// reads first (`admit`); only when no attempt follows does it hold
+    /// its pid until the engine exits (#470).
     fn reap(&self, entries: &[Entry]) {
         let leads = |entry: &Entry| {
             let pid = entry.id.pid;
