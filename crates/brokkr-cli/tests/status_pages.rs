@@ -247,7 +247,7 @@ fn native_powers(
                     provider: serves,
                     adapter_key,
                 } => serves == provider && adapter_key == key,
-                DialectKind::Mcp | DialectKind::Hands => false,
+                DialectKind::Mcp(_) | DialectKind::Hands => false,
             })
             .map(|dialect| &dialect.name)
             .collect();

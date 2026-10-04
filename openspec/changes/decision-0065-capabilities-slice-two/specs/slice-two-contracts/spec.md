@@ -75,15 +75,29 @@ Old realm versions SHALL retain their exact grammar: v1–v5 grant nothing;
 v6 and v7 nonreserved keys, including a literal retain if its dialect schema
 admits it, are still restrictions. A v6/v7 restriction SHALL never become the
 new veto by spelling alone. Nonempty restriction transport remains D11's
-refusal/drop/inactive behavior. A grant in the next realms version after v7 selecting a v1 dialect whose
-restriction schema claims retain SHALL refuse an authority collision instead
-of changing that schema's meaning. No frozen schema is patched in place.
+refusal/drop/inactive behavior. A grant's reserved keys SHALL never reach its
+dialect's restriction validation: the restrictions validated are exactly the
+grant's keys minus its version's reserved keys, so no restriction schema,
+however it is composed, decides a reserved key (operator ruling, 2026-10-04).
+A grant in the next realms version after v7 selecting a v1 dialect whose
+restriction schema directly names a reserved key, as a key of its root
+`properties` or `dependencies`, an entry of its root `required` or of a root
+`dependencies` array, SHALL refuse an authority collision instead of changing
+that schema's meaning. Claims made only through references, composition or
+conditionals are not searched; they are inert, because the key never reaches
+validation. No frozen schema is patched in place.
 
 #### Scenario: A new-version veto cannot be passed to a server as a restriction
 
 - **WHEN** private grants library-docs with dialect docs-mcp and retain false in the next realms version after v7
 - **THEN** the typed grant records the veto, restrictions remain exactly the other schema-validated keys, and effective retention is false
 - **AND** a dialect schema claiming retain refuses "tool dialect '<dialect>' restriction schema redefines reserved grant key 'retain'"
+
+#### Scenario: A reserved key never reaches restriction validation
+
+- **WHEN** a grant in the next realms version after v7 carries retain false and its dialect's restriction schema claims retain only through a reference, a conditional or a dependency schema
+- **THEN** the grant loads with the veto, its restrictions exclude retain, and the restriction validator is never handed retain
+- **AND** removing that exclusion lets the indirect claim decide the grant, which the proof's removal control shows
 
 #### Scenario: An older spelling is not retroactive authority
 

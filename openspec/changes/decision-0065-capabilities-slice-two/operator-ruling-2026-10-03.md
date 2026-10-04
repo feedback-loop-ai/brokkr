@@ -5,3 +5,11 @@ R2. FIRST SCOPE: an mcp grant is admitted only at a site inside a Brokkr box (bo
 R3. CODEX CONFIG ISOLATION is decided by measurement: the first unit (U0) measures how each harness excludes the operator's own MCP servers; the design names the candidates and the measurement, not a guess.
 R4. RETENTION: a dialect declares `retained`; the realm may veto it with a new reserved grant key; retained responses are stored content-addressed at .forge/artifacts/sha256/<hex>; the engine stays the journal's only writer (the broker writes a per-attempt ledger file that the engine folds in).
 R5. PROCESS: this run produces the openspec change; the operator rules on it; then each unit lands as its own pull request from main, through the merge queue, signed, inert until the enabling unit.
+
+## Addendum, 2026-10-04: U5a is split
+
+U5a's binding-minimum comparison (MB4) needs `crates/brokkr-runtime/src/bundle.rs`, where the minimum is parsed after the authority loads and every serving context is built — a fourth production file. Ruled: split, not admit. U5a lands with the typed dialect policy, reservation and retention binding; the new unit U5a2 (capabilities.rs, capabilities/binding.rs, bundle.rs) carries the minimum into resolution with MB4's exact below-minimum cause and closes tasks 24.3–24.4; doctor's matching comparison joins U9a, which now depends on U5a2. The MCP compile fence keeps the gap inert until U9b.
+
+## Addendum, 2026-10-04: reserved keys are stripped, not searched for
+
+Three U5a council rounds each found a new construct where a static walk of a dialect's restriction schema disagreed with the draft-07 validator (pointer decoding, `$id` rebasing, inactive conditionals). Ruled: SC2's guarantee is that a grant's reserved keys never reach restriction validation (the restrictions validated are the grant's keys minus its version's reserved keys), so no schema composition can decide one. The collision refusal covers direct claims only: a key of the root `properties` or `dependencies`, or an entry of the root `required` or a root `dependencies` array. Indirect claims are not searched and are inert.

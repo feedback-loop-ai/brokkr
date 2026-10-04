@@ -444,23 +444,36 @@ fn every_kind_loads_as_data_and_nothing_is_executed_or_contacted() {
     assert_eq!(native.tools, ["lookup"]);
     // An absent egress class is uncontracted, never local, and the class
     // annotation is absent rather than invented.
-    assert_eq!(native.egress, "uncontracted");
+    assert_eq!(native.egress, crate::agents::EgressClass::Uncontracted);
     assert_eq!(native.classes, None);
-    assert!(native.seat_composed);
+    assert!(native.sends.seat_composed);
     assert_eq!(native.source, "dialects/tools/search-native.json");
     // A binary that does not exist and a host that does not resolve: both
-    // connection forms are read as data.
-    for (name, connection) in [
+    // connection forms are read as data, and kept whole (SC1).
+    for (name, connection, typed) in [
         (
             "docs-stdio",
             json!({"argv": ["/nonexistent/docs-mcp", "--stdio"]}),
+            Connection::Stdio(vec!["/nonexistent/docs-mcp".into(), "--stdio".into()]),
         ),
-        ("docs-url", json!({"url": "https://docs.invalid/mcp"})),
+        (
+            "docs-url",
+            json!({"url": "https://docs.invalid/mcp"}),
+            Connection::Url("https://docs.invalid/mcp".into()),
+        ),
     ] {
         dialect(root.path(), &mcp_dialect(name, connection));
         let loaded = ToolDialect::load(root.path(), name).unwrap();
-        assert_eq!(loaded.kind, DialectKind::Mcp);
-        assert_eq!(loaded.kind.word(), "mcp");
+        let server = McpServer {
+            connection: typed,
+            version: "1.4.2".into(),
+            secrets: vec!["DOCS_TOKEN".into()],
+            retained: true,
+        };
+        assert_eq!(
+            (loaded.kind.word(), loaded.kind),
+            ("mcp", DialectKind::Mcp(server))
+        );
     }
     dialect(
         root.path(),
@@ -471,55 +484,13 @@ fn every_kind_loads_as_data_and_nothing_is_executed_or_contacted() {
     let hands = ToolDialect::load(root.path(), "hands").unwrap();
     assert_eq!(hands.kind, DialectKind::Hands);
     assert_eq!(hands.kind.word(), "hands");
-    assert_eq!(hands.egress, "local");
-    assert!(!hands.seat_composed);
+    assert_eq!(hands.egress, crate::agents::EgressClass::Local);
+    assert!(!hands.sends.seat_composed);
     assert_eq!(
         ToolDialect::load(root.path(), "absent").unwrap_err(),
         "tool dialect 'absent' is not at 'dialects/tools/absent.json' in the operator \
          configuration"
     );
-}
-
-/// An `mcp` launch reaches a credential only by a declared binding NAME
-/// (decision 0012). The check is textual — no store is opened, no server
-/// started — and no refusal repeats the argument or the URL, either of
-/// which may be where a credential was pasted by hand.
-#[test]
-fn an_mcp_launch_names_only_the_secrets_its_dialect_declares_and_echoes_no_credential() {
-    let root = TempDir::new().unwrap();
-    let load = |connection: Value| {
-        dialect(root.path(), &mcp_dialect("docs", connection));
-        ToolDialect::load(root.path(), "docs")
-    };
-    // The declared binding, referenced twice and beside plain text, loads.
-    load(json!({"argv": ["docs-mcp", "--token={{secret:DOCS_TOKEN}}", "{{secret:DOCS_TOKEN}}"]}))
-        .unwrap();
-    assert_eq!(
-        load(
-            json!({"argv": ["docs-mcp", "{{secret:DOCS_TOKEN}}", "--key", "{{secret:OTHER_KEY}}"]})
-        )
-        .unwrap_err(),
-        "tool dialect 'dialects/tools/docs.json' connection argv[3] references secret \
-         'OTHER_KEY', which its 'secrets' does not declare; a server reaches only the bindings \
-         its dialect names (decision 0012)"
-    );
-    let malformed = load(json!({"argv": ["docs-mcp", "hunter2-{{secret:lower}}"]})).unwrap_err();
-    assert_eq!(
-        malformed,
-        "tool dialect 'dialects/tools/docs.json' connection argv[1] carries a malformed secret \
-         reference; a reference is {{secret:NAME}} with NAME matching [A-Z][A-Z0-9_]*"
-    );
-    // Userinfo in a URL is refused by the contract's own pattern, and the
-    // refusal names the FIELD and the clause, never the value.
-    let userinfo = load(json!({"url": "https://operator:hunter2@docs.invalid/mcp"})).unwrap_err();
-    assert_eq!(
-        userinfo,
-        "tool dialect 'dialects/tools/docs.json' is outside brokkr.tool-dialect/v1 at \
-         '/connection/url': it does not satisfy '/properties/connection/properties/url/pattern'"
-    );
-    for refusal in [malformed, userinfo] {
-        assert!(!refusal.contains("hunter2"), "{refusal}");
-    }
 }
 
 #[test]
@@ -620,10 +591,6 @@ fn a_dialect_outside_the_contract_is_refused_naming_the_file_and_the_field() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys() {
     let schema_of = |restrictions: Value| {
         let mut value = native_dialect("d", "web-search", &["lookup"]);
@@ -632,48 +599,39 @@ fn a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys() {
         dialect(root.path(), &value);
         ToolDialect::load(root.path(), "d")
     };
-    assert_eq!(
-        schema_of(json!({"properties": {"allow": {"$ref": "https://example.org/hosts.json"}}}))
-            .unwrap_err(),
-        "tool dialect 'dialects/tools/d.json' restriction schema references \
-         'https://example.org/hosts.json', which is outside the dialect file; a restriction \
-         schema is never fetched"
-    );
+    // A reference outside the file is refused, the validator's built-in
+    // draft-07 meta-schema too: resolving without a fetch is not containment.
+    let external = "tool dialect 'dialects/tools/d.json' restriction schema has a '$ref' outside \
+                    the dialect file; a restriction schema is never fetched";
+    for outside in [
+        "https://example.org/hosts.json",
+        "http://json-schema.org/draft-07/schema#",
+    ] {
+        let refused = schema_of(json!({"properties": {"allow": {"$ref": outside}}}));
+        assert_eq!(refused.unwrap_err(), external);
+    }
     // A reference that stays inside the file and points at nothing in it.
     assert_eq!(
         schema_of(json!({"properties": {"allow": {"$ref": "#/definitions/nobody"}}})).unwrap_err(),
-        "tool dialect 'dialects/tools/d.json' restriction schema references \
-         '#/definitions/nobody', which names nothing in the dialect file"
+        "tool dialect 'dialects/tools/d.json' restriction schema has a '$ref' that names \
+         nothing in the dialect file"
     );
     // A `$ref` spelled inside DATA is an example of one, not one.
     schema_of(json!({"properties": {"allow": {
         "default": {"$ref": "https://example.org/x"},
         "enum": [{"$ref": "https://example.org/x"}]}}}))
     .unwrap();
-    // Every way a schema can name a key of the grant's own top level:
-    // directly, by requirement, by dependency, by a pattern that matches
-    // it, and through composition or a local reference to any of those.
+    // Every way a schema directly names a key of the grant's own top level
+    // (operator ruling, 2026-10-04): a root property, requirement,
+    // dependency, or an entry of a root dependency list.
     for (restrictions, key) in [
         (
             json!({"properties": {"offices": {"type": "array"}}}),
             "offices",
         ),
-        (json!({"allOf": [{"required": ["tools"]}]}), "tools"),
+        (json!({"required": ["tools"]}), "tools"),
         (json!({"dependencies": {"dialect": ["allow"]}}), "dialect"),
-        (
-            json!({"patternProperties": {"^too": {"type": "array"}}}),
-            "tools",
-        ),
-        (json!({"not": {"properties": {"tools": {}}}}), "tools"),
-        (
-            json!({"if": {}, "then": {"anyOf": [true, {"required": ["offices"]}]}}),
-            "offices",
-        ),
-        (
-            json!({"definitions": {"top": {"oneOf": [{"properties": {"dialect": {}}}]}},
-                   "$ref": "#/definitions/top"}),
-            "dialect",
-        ),
+        (json!({"dependencies": {"allow": ["offices"]}}), "offices"),
     ] {
         assert_eq!(
             schema_of(restrictions).unwrap_err(),
@@ -684,9 +642,8 @@ fn a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys() {
         );
     }
     // A key of the same name NESTED inside a restriction is the dialect's
-    // own — `allow.tools` is not the grant's `tools` — and a definition
-    // nobody applies to the top level is not looked at. A reference cycle
-    // ends; a pattern that matches no reserved key passes.
+    // own — `allow.tools` is not the grant's `tools` — and a definition is
+    // not looked at. A reference cycle compiles; a pattern passes.
     let nested = schema_of(json!({
         "definitions": {"unused": {"properties": {"tools": {}}},
                         "loop": {"allOf": [{"$ref": "#/definitions/loop"}]}},
@@ -703,28 +660,24 @@ fn a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys() {
         json!(["tools"])
     );
     // A schema written against another draft is refused, not re-read.
+    let other = "tool dialect 'dialects/tools/d.json' restriction schema declares a '$schema' \
+                 other than draft-07 ('http://json-schema.org/draft-07/schema#')";
     assert_eq!(
         schema_of(json!({"$schema": "https://json-schema.org/draft/2020-12/schema"})).unwrap_err(),
-        "tool dialect 'dialects/tools/d.json' restriction schema declares '$schema' \
-         \"https://json-schema.org/draft/2020-12/schema\"; a restriction schema is draft-07 \
-         ('http://json-schema.org/draft-07/schema#')"
+        other
     );
-    assert_eq!(
-        schema_of(json!({"$schema": 7})).unwrap_err(),
-        "tool dialect 'dialects/tools/d.json' restriction schema declares '$schema' 7; a \
-         restriction schema is draft-07 ('http://json-schema.org/draft-07/schema#')"
-    );
+    assert_eq!(schema_of(json!({"$schema": 7})).unwrap_err(), other);
     for draft_07 in [
         "http://json-schema.org/draft-07/schema#",
         "http://json-schema.org/draft-07/schema",
     ] {
         schema_of(json!({"$schema": draft_07, "type": "object"})).unwrap();
     }
-    assert!(schema_of(json!({"type": "no-such-type"}))
-        .unwrap_err()
-        .starts_with(
-            "tool dialect 'dialects/tools/d.json' restriction schema is not valid draft-07: "
-        ));
+    assert_eq!(
+        schema_of(json!({"type": "no-such-type"})).unwrap_err(),
+        "tool dialect 'dialects/tools/d.json' restriction schema is not valid draft-07: the \
+         validator does not compile it"
+    );
     // A local reference is the file's own, and loads.
     let local = schema_of(json!({
         "definitions": {"hosts": {"type": "array", "items": {"type": "string"}}},
@@ -2022,17 +1975,6 @@ fn two_links_sharing_a_provider_and_model_carry_equal_outcomes() {
     );
 }
 
-/// The embedded contract is the published one, byte for byte: a dialect
-/// the loader admits is a dialect the contract admits.
-#[test]
-fn the_embedded_tool_dialect_contract_is_the_published_file() {
-    let published = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contracts/tool-dialect.v1.schema.json"),
-    )
-    .unwrap();
-    assert_eq!(TOOL_DIALECT_SCHEMA, published);
-}
-
 /// What ships: two abstract definitions, three provider-native dialects
 /// and nothing else — no MCP server, no general tool — each dialect bound
 /// to a native key its adapter really declares, with the same tools.
@@ -2084,7 +2026,8 @@ fn the_shipped_operator_data_is_native_only_and_agrees_with_the_adapters() {
         };
         assert_eq!(known[adapter_key].capability, dialect.serves);
         assert_eq!(known[adapter_key].tools, dialect.tools);
-        assert!(dialect.seat_composed && dialect.egress == "uncontracted");
+        assert!(dialect.sends.seat_composed);
+        assert_eq!(dialect.egress, crate::agents::EgressClass::Uncontracted);
         // Shipped native dialects admit no restriction until a control exists.
         assert!(violation(&dialect.restrictions, &json!({"allow": {}})).is_err());
     }
@@ -2156,4 +2099,5 @@ fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
     }
 }
 mod binding;
+mod dialect_policy;
 mod gate_class;

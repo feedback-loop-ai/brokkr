@@ -224,22 +224,29 @@ Dependencies: none; same PR as group 22, not a second merge. Files and scope: [d
 
 Dependencies: U2, U5c. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 20.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Move the current dialect edge loader and contained read use to a consumed module without changing v1 acceptance or the MCP fence. Verify: Existing schema/duplicate/containment and refusal tests prove extraction parity.
-- [ ] 20.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 20.1. Apply the shared verification duty above.
+- [x] 20.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Move the current dialect edge loader and contained read use to a consumed module without changing v1 acceptance or the MCP fence. Verify: Existing schema/duplicate/containment and refusal tests prove extraction parity.
+- [x] 20.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 20.1. Apply the shared verification duty above.
 
 ## 21. U5a — Retain typed MCP connection and policy
 
 Dependencies: U2, U5c; same PR as groups 20 and 24, not a second merge. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 21.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md)) Carry typed v1 connection, version, names, retained, egress and sends. Use exhaustive kind and retention variants; reject runtime use of references/URL only through the specified compatibility causes after enablement. Verify: Exact field retention/digests, no process/store read, old native data and pre-U9 refusal intact.
-- [ ] 21.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 21.1. Apply the shared verification duty above.
+- [x] 21.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md)) Carry typed v1 connection, version, names, retained, egress and sends. Use exhaustive kind and retention variants; reject runtime use of references/URL only through the specified compatibility causes after enablement. Verify: Exact field retention/digests, no process/store read, old native data and pre-U9 refusal intact.
+- [x] 21.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 21.1. Apply the shared verification duty above.
 
 ## 24. U5a — Bind reservation and effective retention
 
 Dependencies: U2, U5c; same PR as groups 20 and 21, not a second merge. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 24.1 (U5a; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md)) Make dialect restriction-reservation checks use the grant's version, carry inherit/veto into the typed holding and preserve D11. Bound identifiers and egress minimum without granting secret clearance. Verify: Four retention outcomes, legacy retain as restriction, reserved collisions through refs/composition and unchanged inactive grants.
-- [ ] 24.2 (U5a; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 24.1. Apply the shared verification duty above.
+- [x] 24.1 (U5a; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md)) Make dialect restriction-reservation checks use the grant's version, carry inherit/veto into the typed holding and preserve D11. Bound identifiers without granting secret clearance; the egress-minimum comparison is task 24.3 (U5a2, operator ruling 2026-10-04). Verify: Four retention outcomes, legacy retain as restriction, direct reserved-key claims refused, reserved keys absent from restriction validation whatever the schema's composition (operator ruling 2026-10-04), and unchanged inactive grants.
+- [x] 24.2 (U5a; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 24.1. Apply the shared verification duty above.
+
+## 24b. U5a2 — Compare MCP egress with the binding minimum
+
+Dependencies: U5a. Split from group 24 by operator ruling of 2026-10-04. Files and scope: [design.md](design.md#slice-two-units).
+
+- [ ] 24.3 (U5a2; [MB4](specs/mcp-capability-broker/spec.md)) Carry the bundle's parsed binding minimum into capability resolution and judge each MCP dialect's typed egress against it before carriage; requires refuses and wants drops with MB4's exact below-minimum cause, natives and the MCP compile fence unchanged. Verify: Below/at/above each minimum for requires and wants, absent minimum, native and fenced controls.
+- [ ] 24.4 (U5a2; [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 24.3. Apply the shared verification duty above.
 
 ## 25. U5f — Publish manifest v12 with its live native consumer
 

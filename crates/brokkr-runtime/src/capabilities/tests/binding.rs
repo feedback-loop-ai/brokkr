@@ -7,7 +7,8 @@
 use super::*;
 
 /// The `mcp` binding's cause, pinned once for this module.
-const MCP: &str = "realm 'private' grants capability 'library-docs' through dialect 'docs-mcp' \
+pub(super) const MCP: &str =
+    "realm 'private' grants capability 'library-docs' through dialect 'docs-mcp' \
                    of kind 'mcp', whose broker support is not implemented until decision 0065 \
                    slice two";
 
@@ -16,15 +17,14 @@ const MISSING: &str = "realm 'private' has no loaded dialect for capability 'web
                        is bound to no provider";
 
 /// The site `research` of office `researcher`, as the resolver opens on it.
-const WHO: &str = "seat 'research' (office 'researcher') in realm 'private'";
+pub(super) const WHO: &str = "seat 'research' (office 'researcher') in realm 'private'";
 
 /// `test-native`'s `web-search` grant, beside a structurally valid
-/// `library-docs` grant through the `mcp` dialect `docs-mcp`, inserted
-/// past the compile fence.
-fn past_the_fence(root: &Path) -> Authority {
+/// `library-docs` grant through the `mcp` dialect `docs-mcp`, reached by
+/// `connection`, inserted past the compile fence.
+pub(super) fn past_the_fence(root: &Path, connection: Value) -> Authority {
     define(root, "library-docs", &["reads", "egress"]);
-    let docs = mcp_dialect("docs-mcp", json!({"argv": ["/nonexistent/docs-mcp"]}));
-    dialect(root, &docs);
+    dialect(root, &mcp_dialect("docs-mcp", connection));
     let mut authority = bound_to_test_native(root);
     let grants = context(root, json!({"library-docs": {"dialect": "docs-mcp"}})).grants;
     authority.context.grants.extend(grants);
@@ -36,7 +36,7 @@ fn past_the_fence(root: &Path) -> Authority {
 #[test]
 fn an_mcp_grant_at_the_resolver_is_a_typed_refusal_and_never_a_native_binding() {
     let root = cq1_root();
-    let authority = past_the_fence(root.path());
+    let authority = past_the_fence(root.path(), json!({"argv": ["/nonexistent/docs-mcp"]}));
     assert_eq!(
         authority.binding("library-docs"),
         Err(Unbound::Mcp {

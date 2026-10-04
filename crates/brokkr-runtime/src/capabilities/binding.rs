@@ -4,9 +4,19 @@
 //! `mcp` or reserved `hands` dialect names none. Nothing here indexes a
 //! map, expects a native pair, invents an empty provider or reads another
 //! kind as native. Every caller gets the native pair or the typed reason
-//! there is none.
+//! there is none. The resolver's reading of an `mcp` binding, with the
+//! bound on its identity, and what a holding retains (SC1, SC4, CR1) are
+//! read from the same kind.
 
-use super::{Authority, DialectKind, ToolDialect};
+use brokkr_core::realms::{CapabilityGrant, GrantRetention};
+
+use super::{Authority, Connection, DialectKind, McpServer, ToolDialect};
+
+/// The byte bound on an `mcp` holding's capability or dialect name, and
+/// on its concrete tool name, that a call's attribution carries whole
+/// (SC4).
+const NAME_BYTES: usize = 128;
+const TOOL_BYTES: usize = 256;
 
 /// Why a granted capability has no native `(provider, adapter key)`. The
 /// text of each is the compile's: `Authority::load` refuses an `mcp` and a
@@ -52,29 +62,178 @@ pub struct Native<'a> {
     pub adapter_key: &'a str,
 }
 
-/// The native `(provider, adapter key)` `dialect` binds `capability` to in
-/// `realm`, or why it binds none: one arm per kind, with no wildcard.
-pub(super) fn bound<'a>(
+/// Why a candidate cannot hold a granted capability through its binding,
+/// beside the binding's own [`Unbound`] (design D3 step 6).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(super) enum Unserved {
+    #[error(transparent)]
+    Unbound(#[from] Unbound),
+    /// A held name a call's attribution could carry only truncated (SC4).
+    #[error("capability call identity cannot be represented by seat-record v6")]
+    Identity,
+    /// A declared reference is valid data and never substituted (SC1).
+    #[error(
+        "MCP connection argv cannot contain secret references; declare environment bindings in \
+         secrets"
+    )]
+    ArgvReference,
+    #[error("MCP URL connections are not implemented in decision 0065 slice two")]
+    Url,
+}
+
+/// What a dialect binds its capability to: one arm per bindable kind.
+enum Binding<'a> {
+    Native {
+        provider: &'a str,
+        adapter_key: &'a str,
+    },
+    Mcp(&'a McpServer),
+}
+
+/// What `dialect` binds `capability` to in `realm`, or that its kind is
+/// the reserved `hands`: one arm per kind, with no wildcard.
+fn bound<'a>(
     realm: &str,
     capability: &str,
     dialect: &'a ToolDialect,
-) -> Result<(&'a str, &'a str), Unbound> {
-    let (realm, capability, name) = (realm.into(), capability.into(), dialect.name.clone());
+) -> Result<Binding<'a>, Unbound> {
     match &dialect.kind {
         DialectKind::Native {
             provider,
             adapter_key,
-        } => Ok((provider, adapter_key)),
-        DialectKind::Mcp => Err(Unbound::Mcp {
-            realm,
-            capability,
-            dialect: name,
+        } => Ok(Binding::Native {
+            provider,
+            adapter_key,
         }),
+        DialectKind::Mcp(server) => Ok(Binding::Mcp(server)),
         DialectKind::Hands => Err(Unbound::Hands {
-            realm,
-            capability,
-            dialect: name,
+            realm: realm.into(),
+            capability: capability.into(),
+            dialect: dialect.name.clone(),
         }),
+    }
+}
+
+/// The native `(provider, adapter key)` `dialect` binds `capability` to in
+/// `realm`, or why it binds none: the compile fence's reading, and
+/// `brokkr doctor`'s, under which an `mcp` binding has no broker until
+/// U9b.
+pub(super) fn native<'a>(
+    realm: &str,
+    capability: &str,
+    dialect: &'a ToolDialect,
+) -> Result<(&'a str, &'a str), Unbound> {
+    match bound(realm, capability, dialect)? {
+        Binding::Native {
+            provider,
+            adapter_key,
+        } => Ok((provider, adapter_key)),
+        Binding::Mcp(_) => Err(unbuilt(realm, capability, dialect)),
+    }
+}
+
+fn unbuilt(realm: &str, capability: &str, dialect: &ToolDialect) -> Unbound {
+    Unbound::Mcp {
+        realm: realm.into(),
+        capability: capability.into(),
+        dialect: dialect.name.clone(),
+    }
+}
+
+/// The resolver's reading of the binding of `capability`, held as
+/// `tools`: the native pair a provider must carry, or why none can. An
+/// `mcp` binding answers in design D3 step 6's order — its identity, then
+/// an unexecutable connection's SC1 cause — and, until U9b builds its
+/// broker, the fence's own words last. Reached only past the compile
+/// fence, which refuses every `mcp` grant first.
+pub(super) fn carried<'a>(
+    realm: &str,
+    capability: &str,
+    dialect: &'a ToolDialect,
+    tools: &[String],
+) -> Result<(&'a str, &'a str), Unserved> {
+    let server = match bound(realm, capability, dialect)? {
+        Binding::Native {
+            provider,
+            adapter_key,
+        } => return Ok((provider, adapter_key)),
+        Binding::Mcp(server) => server,
+    };
+    representable(capability, dialect, tools)?;
+    Err(match &server.connection {
+        Connection::Url(_) => Unserved::Url,
+        Connection::Stdio(argv) if argv.iter().any(|part| references(part)) => {
+            Unserved::ArgvReference
+        }
+        Connection::Stdio(_) => unbuilt(realm, capability, dialect).into(),
+    })
+}
+
+/// Does this argument name a decision 0012 secret? The loader refused a
+/// malformed or undeclared reference, so what remains is a declared one.
+fn references(part: &str) -> bool {
+    brokkr_protocol::secret::scan_secret_refs(part).is_ok_and(|names| !names.is_empty())
+}
+
+/// SC4: an `mcp` holding's identity, which a broker call's attribution
+/// names, is carried whole or refused, never truncated — the capability
+/// and dialect names within [`NAME_BYTES`], and each tool a bounded
+/// identifier in seat-record v5's tool vocabulary. A native dialect's
+/// tools are harness patterns (`Bash(git:*)`), and its holding is judged
+/// as slice one judged it.
+pub(super) fn representable(
+    capability: &str,
+    dialect: &ToolDialect,
+    tools: &[String],
+) -> Result<(), Unserved> {
+    let tool = |tool: &String| {
+        let mut chars = tool.chars();
+        tool.len() <= TOOL_BYTES
+            && chars
+                .next()
+                .is_some_and(|first| first.is_ascii_alphanumeric())
+            && chars.all(|next| next.is_ascii_alphanumeric() || "._:/-".contains(next))
+    };
+    match capability.len() <= NAME_BYTES
+        && dialect.name.len() <= NAME_BYTES
+        && tools.iter().all(tool)
+    {
+        true => Ok(()),
+        false => Err(Unserved::Identity),
+    }
+}
+
+/// What a holding retains (CR1): the dialect's declaration beside what
+/// the grant's map version says of it. Only an `mcp` dialect declares;
+/// native retention is unsupported, so a native one declares false.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Retention {
+    pub declared: bool,
+    pub realm: GrantRetention,
+}
+
+impl Retention {
+    pub(super) fn of(dialect: &ToolDialect, grant: &CapabilityGrant) -> Retention {
+        let declared = match &dialect.kind {
+            DialectKind::Mcp(server) => server.retained,
+            DialectKind::Native { .. } | DialectKind::Hands => false,
+        };
+        Retention {
+            declared,
+            realm: grant.retention,
+        }
+    }
+
+    /// True exactly where the dialect retains and the realm does not
+    /// veto; a realm can never require retention. Its first production
+    /// reader is manifest v12's effective retention (U5f), which lifts the
+    /// `cfg`: until then nothing in a build reads it (ruling 6).
+    #[cfg(test)]
+    pub(super) fn effective(self) -> bool {
+        match self.realm {
+            GrantRetention::Veto => false,
+            GrantRetention::Unreserved | GrantRetention::Inherit => self.declared,
+        }
     }
 }
 
@@ -96,7 +255,7 @@ impl Authority {
     /// provider covers nothing of this one's.
     pub fn binding(&self, capability: &str) -> Result<Native<'_>, Unbound> {
         let dialect = self.dialect(capability)?;
-        let (provider, adapter_key) = bound(&self.context.realm, capability, dialect)?;
+        let (provider, adapter_key) = native(&self.context.realm, capability, dialect)?;
         Ok(Native {
             dialect,
             provider,
