@@ -324,6 +324,16 @@ fn is_gate_class(value: &Value) -> bool {
     value.get("class").and_then(Value::as_str) == Some("gate")
 }
 
+/// A sequence step's canonical class, read once for the step and for its
+/// capability record (GP1): a dialect step runs the realm dialect's own
+/// validator, which judges, so it is a gate though it writes no class.
+fn step_class(step: &Value) -> SeatClass {
+    match step.get("dialect").is_some() || is_gate_class(step) {
+        true => SeatClass::Gate,
+        false => SeatClass::Work,
+    }
+}
+
 /// Per-seat autonomy limits (decision 0006). Defaults keep the old
 /// behavior: one attempt, one-hour deadline.
 #[derive(Debug, Clone, Copy)]
@@ -6040,9 +6050,7 @@ fn record_capabilities(
         let agent = library
             .and_then(|library| library.agent(name))
             .expect("the seat loop resolved this agent reference");
-        let asks =
-            crate::capabilities::SiteAsks::of(what, Some((name, &agent.capabilities)), written)
-                .map_err(CompileError::Invalid)?;
+        let asks = site_asks(what, raw, Some((name, &agent.capabilities)))?;
         let chain = site_facts(sites, what).chain.clone();
         // Under the harness boundary the engine appends each candidate's
         // `hands.harness.*` fragment for the seat's class behind a hands
@@ -6050,7 +6058,7 @@ fn record_capabilities(
         // so a limit it carries holds at compile, and a wanted holding it
         // excludes drops rather than refusing its spawn (unit 12-fix-b, R2).
         let class = match (boundary, &agent.hands) {
-            (Boundary::Harness, Some(_)) => Some(parse_class(what, raw)?),
+            (Boundary::Harness, Some(_)) => Some(asks.class),
             _ => None,
         };
         let managed: Vec<Vec<String>> = chain
@@ -6107,8 +6115,7 @@ fn record_capabilities(
     }
     // A single site, by the same two keys `has_single` reads.
     if ["driver", "role"].iter().any(|key| raw.get(key).is_some()) {
-        let asks = crate::capabilities::SiteAsks::of(what, None, written)
-            .map_err(CompileError::Invalid)?;
+        let asks = site_asks(what, raw, None)?;
         let parts = command_parts(raw);
         let driver = dispatch_driver(&parts);
         let facts = site_facts(sites, what);
@@ -6172,11 +6179,8 @@ fn record_capabilities(
     // site at all, and none is invented for it here.
     if raw.get("dialect").is_some() {
         if sites.contains_key(what) {
-            let asks = crate::capabilities::SiteAsks {
-                label: what.to_string(),
-                office: what.to_string(),
-                ..Default::default()
-            };
+            let asks = crate::capabilities::SiteAsks::at(step_class(raw), what, None, None)
+                .map_err(CompileError::Invalid)?;
             let site = site_capabilities(
                 authority,
                 adapters,
@@ -6239,6 +6243,19 @@ fn record_capabilities(
         )?;
     }
     Ok(())
+}
+
+/// One executable site's asks at its own canonical class (GP1), read once
+/// for every candidate it resolves against: what the site itself declares,
+/// never its container's class, a neighbour's or its execution label.
+fn site_asks(
+    what: &str,
+    raw: &Value,
+    agent: Option<(&str, &crate::capabilities::Requests)>,
+) -> Result<crate::capabilities::SiteAsks, CompileError> {
+    let class = parse_class(what, raw)?;
+    crate::capabilities::SiteAsks::at(class, what, agent, raw.get("capabilities"))
+        .map_err(CompileError::Invalid)
 }
 
 /// The label a sequence step is recorded under: its `name`, or its
@@ -6950,11 +6967,7 @@ fn parse_sequence(
         }
         steps.push(SequenceStep {
             name: name.to_string(),
-            class: if has_dialect || is_gate_class(step_raw) {
-                SeatClass::Gate
-            } else {
-                SeatClass::Work
-            },
+            class: step_class(step_raw),
             results: step_results,
             body,
         });
