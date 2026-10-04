@@ -6,7 +6,7 @@ and deterministic verify and ship gates are inherited unchanged.
 
 | Phase | Seat | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
-| `implement` | inline deepseek-flash via `dsh` | **1** | 7200 | work |
+| `implement` | inline GLM-5.3 Flash (`glm-flash`) via `dsh` | **1** | 7200 | work |
 | `verify` | boxed `verify-seat.sh` | **1** | 3600 | gate |
 | `review` | triage-selected review crew | **1** | 3600 | gate |
 | `ship` | boxed `ship-seat.sh` | **1** | 1800 | gate |
@@ -35,10 +35,17 @@ The two behaviours, side by side:
 | Seat reported `broken` (a valid typed result) | back to `implement` once | back to `implement` once |
 | Review reported `security-hold` | hard stop | hard stop |
 
-## The deepseek lane
+## The GLM-flash lane
 
 `implement` is driven by the **dsh** adapter: `{brokkr} driver dsh --
---model deepseek/deepseek-flash`. It is lawful under decision 0021 as it
+--model spark-glm/GLM-5.3-Flash-EXL3`, the adapter's `glm-flash` alias,
+on the `spark-glm` route the operator ruled `local` on 2026-09-16 (the
+operator's ruling of 2026-10-04,
+[#532](https://github.com/feedback-loop-ai/brokkr/issues/532)). The
+route is effortless: dsh 0.1.5-rc.1 refuses a reasoning effort on it
+(measured 2026-09-16), so the seat pins no `--effort`, and its record
+reads effort `not applicable`, as the adapter's `effortless_routes`
+entry for `spark-glm` says. It is lawful under decision 0021 as it
 stands — `dsh` is `trust_tier: "untrusted"`, and ruling 7 admits an
 untrusted driver to a **work** seat freely; `implement` is `class:
 "work"` and carries no `secrets` key, so neither compile-time
@@ -58,8 +65,8 @@ model is a row of its composed profile tree, and the launcher's only
 override is a `--patch` overlay. The `dsh` driver turns `--model <id>`
 into that overlay for the one seat and passes the rest of its arguments
 through — see `crates/brokkr-protocol/src/adapters.rs`. The abstract
-name `flash` in `adapters/dsh.json` is deliberately not a claude tier,
-so no agent chain written for one provider lands on the other.
+name `glm-flash` in `adapters/dsh.json` is deliberately not a claude
+tier, so no agent chain written for one provider lands on the other.
 
 ## Cost expectations
 
@@ -67,8 +74,8 @@ so no agent chain written for one provider lands on the other.
 Nothing in this repository's journal records a night-shift run. What is
 structural fact:
 
-- Its intended saving is the implement seat on a cheap untrusted
-  lane, which it now sits on. Whether the saving is real is what the
+- Its intended saving is the implement seat on a local untrusted
+  lane, served by the operator's own hardware, which it now sits on. Whether the saving is real is what the
   first night-shift runs will show; nothing here has measured it.
 - `max_attempts: 1` caps the worst case at one session per seat entry
   rather than two. That is a real bound on spend, and the only one this
@@ -79,8 +86,10 @@ When night-shift has runs behind it, the figures belong in LaneTally
 
 ## The scheduling window — the operator's cron, not this recipe
 
-The operator schedules night-shift runs inside DeepSeek's cheap
-**01:00–04:00** pricing window.
+The operator schedules night-shift runs inside an overnight
+**01:00–04:00** window. It was chosen as DeepSeek's cheap pricing
+window while the implement lane ran on DeepSeek; the GLM-flash lane is
+local, so the window no longer prices it.
 
 **That sentence is operational documentation and nothing else.** This
 recipe does not read a clock, does not gate on time of day, and contains
@@ -110,7 +119,7 @@ run it attended.
 ## The one-line swap property
 
 The implement seat is one JSON object; moving it from the shared roster to the
-deepseek lane was a driver name and a model id, nothing else. That is
+dsh lane was a driver name and a model id, nothing else. That is
 the property [`recipes/wager-harness`](../wager-harness/README.md)
 turns into a procedure — and the discipline it names (same sandbox, same
 tools, same repo base) is exactly what a dsh-vs-roster comparison on
@@ -125,11 +134,13 @@ bound to one.
 
 ## Running it
 
-**Unavailable until
-[#264](https://github.com/feedback-loop-ai/brokkr/issues/264) is fixed.**
-The implement seat pins `deepseek/deepseek-flash`, the dsh adapter maps
-no `deepseek/` route, and #264 records dsh refusing that prefix with
-`NO_ADAPTER` at launch. The command below is the one to use once it is.
+**This recipe needs a host serving the `spark-glm` route.** The
+implement seat pins `spark-glm/GLM-5.3-Flash-EXL3`, and the driver's
+one-seat overlay names `spark-glm` as its provider, so the host's dsh
+profile must declare that route and reach a server for it. A CI runner
+serves none. On a host without one, the implement seat fails at launch,
+before its first turn, when dsh refuses the `spark-glm` provider; the
+words dsh refuses it with on such a host are not yet measured.
 
 ```
 brokkr run --recipe night-shift --repo . --feature "<the queued task>"
