@@ -39,7 +39,7 @@ pub enum GrantRetention {
 impl GrantRetention {
     /// The keys of the grant the engine owns; every other key is a
     /// restriction the selected dialect's schema defines.
-    pub fn reserved_keys(self) -> &'static [&'static str] {
+    fn reserved_keys(self) -> &'static [&'static str] {
         match self {
             GrantRetention::Unreserved => &GRANT_KEYS,
             GrantRetention::Inherit | GrantRetention::Veto => &VETO_GRANT_KEYS,

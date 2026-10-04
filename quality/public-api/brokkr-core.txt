@@ -395,8 +395,6 @@ pub enum brokkr_core::realms::GrantRetention
 pub brokkr_core::realms::GrantRetention::Inherit
 pub brokkr_core::realms::GrantRetention::Unreserved
 pub brokkr_core::realms::GrantRetention::Veto
-impl brokkr_core::realms::GrantRetention
-pub fn brokkr_core::realms::GrantRetention::reserved_keys(self) -> &'static [&'static str]
 pub enum brokkr_core::realms::RealmsError
 pub brokkr_core::realms::RealmsError::Invalid
 pub brokkr_core::realms::RealmsError::Invalid::path: alloc::string::String

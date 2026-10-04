@@ -929,8 +929,8 @@ re-exports the public names, so `brokkr_core::realms::CapabilityGrant` and
 version-aware. A grant carries `retention: GrantRetention`, a closed enum
 with three variants. `Unreserved` is any v6 or v7 grant, where `retain` is
 not the engine's key. `Inherit` is a v8 grant with `retain` left out, and
-`Veto` is a v8 grant writing `retain: false`. `GrantRetention::reserved_keys`
-is the reserved-key selection: v6 and v7 give `GRANT_KEYS`, the three keys
+`Veto` is a v8 grant writing `retain: false`. `GrantRetention::reserved_keys`,
+private to `grants.rs` since the second visit, is the reserved-key selection: v6 and v7 give `GRANT_KEYS`, the three keys
 as before, and v8 gives those three plus `retain`. The parser filters
 restrictions through that selection, so a v6 or v7 `retain` stays a
 restriction and a v8 veto never becomes one. `value()` writes
@@ -1025,11 +1025,57 @@ again, and both suites passed.
 | `too_many_lines` (step 5, core and runtime) | `RealmMap::of` 218 at `realms.rs:514` (was `:613`). `the_new_contracts_exist…` 109 at `frozen_contracts.rs:169` (was listed at `:156`). The listing records both lines. |
 | File lines | `realms.rs` 808 (was 918), `grants.rs` 244, `tests/realms.rs` 156, `frozen_contracts.rs` 962, `realms/tests.rs` 1,181. |
 
+### Second visit: the review's return
+
+Review returned three findings on `0665fe5f`; this visit answers each.
+
+**F1, the v7 label check bound nothing on its own.** The last assertion of
+`the_v8_realm_schema_reserves_only_the_retention_veto` labelled the map v7
+while `retain` still held `{}` from the loop, so the map was invalid for a
+second reason. The test now restores `retain: false`, asserts the map is
+valid under v8 ("the label's v8 control"), and only then relabels it v7. To
+bind it, the validator was built for one run from a copy of the v8 schema
+with `properties.schema` set to `{}`, which removes the label check and
+nothing else. With the control in place, the test failed at
+`frozen_contracts.rs:788`, "v7 label under the v8 schema". With the same
+mutation and the two control lines removed (the first visit's shape), the
+test passed: 1 passed. Both edits were restored and the test passed again.
+
+**F2, `reserved_keys` had no consumer outside its module.** It is now a
+private method; the public-API snapshot drops its `impl` and method lines,
+and `quality/ratchet.sh api` printed "public API holds". The two integration
+tests no longer call it; the version-aware selection is bound through
+parsing. With `Unreserved` given the four v8 keys, `an_older_grant…` failed
+at `tests/realms.rs:35` (left `Object {}`, right `{"retain": Bool(false)}`).
+With `Inherit` and `Veto` given the three v7 keys,
+`a_v8_grant_reads…` failed at `:68` (left with `"retain": Bool(false)`,
+right `{"allow": …}` alone). Both were restored. This supersedes M2 above.
+`ratchet.sh baselines 4c65f6a1` now reports `public-api/brokkr-core.txt`
+587 items (was 581): `GrantRetention`, its three variants, the `retention`
+field and `SCHEMA_V8`. It still needs the operator's `Ruling:` line.
+
+**F3, the shared validation was incomplete.** On the second visit's tree,
+every workspace crate's suite ran with `--all-features --locked`. The six
+smaller crates (`core`, `store`, `protocol`, `view`, `bridge`,
+`seatbelt-probe`) ran in one invocation, and every result line was ok.
+`brokkr-runtime --no-fail-fast` printed 28 result lines, all ok, lib 740
+and `frozen_contracts` 12. `brokkr-cli --lib` gave 627 passed and 1
+ignored; `--tests --no-fail-fast` gave 45 ok result lines and none other.
+Workspace clippy with `-D warnings`, fmt, `compile --bundle bundles/self`,
+`openspec validate --all --strict` (20 passed), `typos --hidden`,
+`git diff --check` and `ratchet.sh files`/`clones`/`api` held as well.
+`scripts/measure-budgets.sh` ran ("measured 101 prompt sites, 327
+packages", peaks claude 2011418, codex 11230208, dsh 4197432). Packages and
+peaks equal the committed files. The prompt sites came out lower than
+their budgets, mostly by 13 bytes. `git diff --stat 4c65f6a1` over `agents`,
+`recipes`, `bundles`, `adapters`, `dialects`, `realms.json` and
+`tests/budgets.rs` is empty, so this branch moves no prompt input, and the
+three files were restored rather than re-dated here.
+
 ### Pending
 
 Exact coverage (`scripts/coverage-exact.sh`), the cyclomatic ratchet on its
-LCOV, `scripts/measure-budgets.sh` (no prompt input changed), and remote
-Linux and macOS CI have not run. Runtime still reserves the three v6 keys in
+LCOV, and remote Linux and macOS CI have not run. Runtime still reserves the three v6 keys in
 `reserved_fault` and does not read `retention`. Making that check
 version-aware and carrying the veto into the holding is U5a's work (tasks
 24.1–24.2).

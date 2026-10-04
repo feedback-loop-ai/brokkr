@@ -780,6 +780,8 @@ fn the_v8_realm_schema_reserves_only_the_retention_veto() {
         );
         map["schema"] = json!("forge.realms/v8");
     }
+    *map.pointer_mut(retain).unwrap() = json!(false);
+    assert!(validator.is_valid(&map), "the label's v8 control");
     map["schema"] = json!("forge.realms/v7");
     assert!(!validator.is_valid(&map), "v7 label under the v8 schema");
 }

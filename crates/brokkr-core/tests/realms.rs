@@ -3,7 +3,7 @@
 //! realm's retention veto, and v6 and v7 keep the same spelling as the
 //! dialect's restriction.
 
-use brokkr_core::realms::{GrantRetention, RealmMap, RealmsError, GRANT_KEYS, SCHEMA_V8};
+use brokkr_core::realms::{GrantRetention, RealmMap, RealmsError, SCHEMA_V8};
 use serde_json::{json, Value};
 
 /// A one-realm map under `schema` granting `capabilities`.
@@ -32,7 +32,6 @@ fn an_older_grant_keeps_retain_as_a_restriction_and_round_trips_exactly() {
         let grants = &map.realms[0].grants;
         let docs = &grants["library-docs"];
         assert_eq!(docs.retention, GrantRetention::Unreserved, "{schema}");
-        assert_eq!(docs.retention.reserved_keys(), GRANT_KEYS);
         assert_eq!(
             Value::Object(docs.restrictions.clone()),
             json!({"retain": false})
@@ -71,12 +70,6 @@ fn a_v8_grant_reads_retain_false_as_the_veto_and_omission_as_inherit() {
         json!({"allow": {"libraries": ["serde"]}})
     );
     assert!(search.restrictions.is_empty());
-    for retention in [GrantRetention::Veto, GrantRetention::Inherit] {
-        assert_eq!(
-            retention.reserved_keys(),
-            ["dialect", "tools", "offices", "retain"]
-        );
-    }
     assert_eq!(docs.value(), written["library-docs"]);
     assert_eq!(search.value(), written["web-search"]);
 }
