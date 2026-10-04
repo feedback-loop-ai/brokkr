@@ -1,9 +1,9 @@
 //! The dispatcher's admission pass (decision 0068 ruling 3; #430's second
 //! slice): for each entry still waiting, in the queue's order, whether it
-//! may start now, and every reason it may not. The pass reads the journal
+//! may start now, and every reason it may not. [`pass`] reads the journal
 //! and the realms maps and decides; it starts nothing and writes nothing,
-//! so the same journal and the same maps give the same verdicts, and
-//! `brokkr queue list` shows them.
+//! so `brokkr queue list` shows its verdicts from a journal opened only to
+//! read. [`judge`] is the same pass, and it latches what it finds.
 //!
 //! A reason either WAITS, and clears by itself (an awaited entry whose run
 //! has not ended), or HOLDS, and only the operator clears it: the
@@ -14,6 +14,19 @@
 //! never starts an entry on a grant the map no longer gives, and never
 //! takes one the map gives now that the entry was not queued with: the
 //! operator re-pins the entry to the map on disk, or re-queues or drops it.
+//!
+//! A realm that changed is a fact about the past, so its hold LATCHES (the
+//! operator's ruling of 2026-10-04): [`judge`] records what it found in the
+//! queue's own append-only storage, journaled, and from then on the entry
+//! is held by that record, whatever the map on disk comes to, a map put
+//! back as it was queued included. Only [`release`] (`brokkr queue repin`)
+//! clears it, and only under the map the latch found: a map edited since
+//! is refused, and judged again before it is taken. Dropping the entry,
+//! and queuing its launch afresh as a new one, ends it too. An entry queued
+//! under no map is
+//! compared like any other: a map that names its repository now is a
+//! change. A map that cannot be read is no finding, so its hold does not
+//! latch; it holds for as long as it cannot be read.
 //!
 //! Provider and route concurrency and cool-downs, the scratch-space floor
 //! and the boxed-build ceiling are not judged here yet: decision 0068
@@ -26,8 +39,9 @@ use std::path::Path;
 
 use brokkr_core::fold::{fold, FoldError, Status};
 use brokkr_core::realms::{Boundary, CapabilityGrant};
-use brokkr_store::{EntryId, EntryState, QueueEntry, Store, StoreError, Wait, WaitOn};
-use serde_json::Value;
+use brokkr_store::{Attribution, EntryId, EntryState, QueueEntry, Store, StoreError, Wait, WaitOn};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use thiserror::Error;
 
 use crate::launch::{HeldAndNow, LaunchError, QueuedLaunch};
@@ -47,10 +61,17 @@ pub enum Reason {
     /// It waits for a run to complete, and that run stopped.
     Stopped { wait: Wait, run: String },
     /// The governing facts of its realm in the map it was queued with
-    /// differ from the map on disk.
+    /// differ from the map on disk, and no latch records it yet.
     RealmChanged {
         realm: String,
         differences: Vec<Difference>,
+    },
+    /// A realm-drift hold latched on it: the differences the latch found,
+    /// and whether the map on disk has changed since it was found.
+    RealmLatched {
+        realm: String,
+        differences: Vec<Difference>,
+        moved: bool,
     },
     /// The map on disk cannot be read, so the realm cannot be compared.
     MapUnreadable(String),
@@ -65,6 +86,7 @@ impl Reason {
             | Reason::Dropped(_)
             | Reason::Stopped { .. }
             | Reason::RealmChanged { .. }
+            | Reason::RealmLatched { .. }
             | Reason::MapUnreadable(_) => true,
         }
     }
@@ -78,6 +100,7 @@ impl Reason {
             Reason::Dropped(_) => "dropped",
             Reason::Stopped { .. } => "stopped",
             Reason::RealmChanged { .. } => "realm_changed",
+            Reason::RealmLatched { .. } => "realm_latched",
             Reason::MapUnreadable(_) => "map_unreadable",
         }
     }
@@ -109,8 +132,34 @@ impl fmt::Display for Reason {
                 write!(f, "waits on {wait}, {never}: its run '{run}' stopped")
             }
             Reason::RealmChanged { realm, differences } => {
-                let each: Vec<String> = differences.iter().map(ToString::to_string).collect();
-                write!(f, "realm {realm} changed since queued: {}", each.join("; "))
+                write!(
+                    f,
+                    "realm {realm} changed since queued: {}",
+                    each(differences)
+                )
+            }
+            Reason::RealmLatched {
+                realm,
+                differences,
+                moved,
+            } => {
+                let found = match differences.is_empty() {
+                    true => "no difference now".to_string(),
+                    false => each(differences),
+                };
+                write!(
+                    f,
+                    "realm {realm} changed since queued, latched until the operator re-pins, \
+                     re-queues or drops it: {found}"
+                )?;
+                match moved {
+                    true => write!(
+                        f,
+                        "; the map on disk has changed since, and `brokkr queue judge` latches \
+                         what it finds now"
+                    ),
+                    false => Ok(()),
+                }
             }
             Reason::MapUnreadable(detail) => write!(
                 f,
@@ -120,9 +169,16 @@ impl fmt::Display for Reason {
     }
 }
 
+/// Each difference, as an operator reads them in a line.
+fn each(differences: &[Difference]) -> String {
+    let each: Vec<String> = differences.iter().map(ToString::to_string).collect();
+    each.join("; ")
+}
+
 /// One governing fact of a realm that differs between the map an entry
 /// was queued with and the map on disk. Each is compared whole.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Difference {
     /// The map names the operated repository as another realm, or none.
     Realm {
@@ -157,6 +213,55 @@ impl fmt::Display for Difference {
             Difference::Boundary { was, now } => write!(f, "boundary {was} → {now}"),
             Difference::House => write!(f, "house rules changed"),
             Difference::Dialect => write!(f, "dialect changed"),
+        }
+    }
+}
+
+/// What a latch records (#430): the realm, the differences admission
+/// found against the map the entry was queued with, and the digest of the
+/// pin a re-pin to the map it read would write, `None` where no map was
+/// there. Encoded with its version first, as a queued launch is, and a
+/// latch in any other is refused.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Finding {
+    encoding: FindingEncoding,
+    realm: String,
+    differences: Vec<Difference>,
+    on_disk: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum FindingEncoding {
+    #[serde(rename = "realm-drift/v1")]
+    V1,
+}
+
+impl Finding {
+    /// The hold this latched finding puts on its entry.
+    fn latched(self, moved: bool) -> Reason {
+        Reason::RealmLatched {
+            realm: self.realm,
+            differences: self.differences,
+            moved,
+        }
+    }
+
+    /// The finding `entry`'s latch records.
+    fn read(entry: EntryId, latch: &str) -> Result<Finding, AdmissionError> {
+        serde_json::from_str(latch).map_err(|source| AdmissionError::Latch { entry, source })
+    }
+}
+
+/// The differences an operator's re-pin accepted, as it says them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Released(pub Vec<Difference>);
+
+impl fmt::Display for Released {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0.is_empty() {
+            true => write!(f, "no difference: the realm is as it was queued"),
+            false => write!(f, "{}", each(&self.0)),
         }
     }
 }
@@ -232,11 +337,78 @@ pub enum AdmissionError {
         #[source]
         source: FoldError,
     },
+    /// A latch this brokkr cannot read.
+    #[error("queue entry {entry}'s latched hold cannot be read")]
+    Latch {
+        entry: EntryId,
+        #[source]
+        source: serde_json::Error,
+    },
+    /// A re-pin of an entry no realm-drift hold is latched on.
+    #[error(
+        "queue entry {0} holds no latched realm drift to release; `brokkr queue judge` latches \
+         what it finds"
+    )]
+    NothingLatched(EntryId),
+    /// A re-pin under a map that is not the one the latch found.
+    #[error(
+        "the realms map on disk is not the one queue entry {0}'s latched hold found; \
+         `brokkr queue judge` shows and latches what differs now"
+    )]
+    MapMoved(EntryId),
 }
 
 /// Judge the queue: every entry `brokkr queue list` lists, in its order,
-/// with a verdict for each one that still waits.
+/// with a verdict for each one that still waits. Nothing is written.
 pub fn pass(store: &Store) -> Result<Vec<Judged>, AdmissionError> {
+    Ok(read(store)?.into_iter().map(|(judged, _)| judged).collect())
+}
+
+/// Judge the queue as [`pass`] does, and first latch on each waiting
+/// entry the realm drift it finds that no latch records yet, or that the
+/// map on disk has moved past since its latch, journaling each `latch` as
+/// `by` asks it. The verdicts are the queue's after the latches.
+pub fn judge(store: &mut Store, by: Attribution<'_>) -> Result<Vec<Judged>, AdmissionError> {
+    for (judged, finding) in read(store)? {
+        if let Some(finding) = finding {
+            let finding = json!(finding).to_string();
+            store.queue_latch(judged.entry.id, &finding, by)?;
+        }
+    }
+    pass(store)
+}
+
+/// Release a waiting entry from its latched realm-drift hold: re-pin it
+/// to the map that would govern it now, journaling the `repin` as `by`
+/// asks it, and say the differences accepted. Refused with no latch on
+/// the entry, and when the map that would be pinned is not the one the
+/// latch found, so a map edited since it was judged is never taken unseen.
+pub fn release(
+    store: &mut Store,
+    entry: EntryId,
+    by: Attribution<'_>,
+) -> Result<Released, AdmissionError> {
+    let queued = store.queue_entry(entry)?;
+    let latch = queued.latch.ok_or(AdmissionError::NothingLatched(entry))?;
+    let finding = Finding::read(entry, &latch.finding)?;
+    let (payload, digest) = QueuedLaunch::decode(&queued.payload)
+        .and_then(QueuedLaunch::repinned)
+        .and_then(|launch| {
+            launch
+                .encode()
+                .map(|payload| (payload, launch.map.digest()))
+        })
+        .map_err(|source| AdmissionError::Entry { entry, source })?;
+    if digest != finding.on_disk {
+        return Err(AdmissionError::MapMoved(entry));
+    }
+    store.queue_repin(entry, &payload, by)?;
+    Ok(Released(finding.differences))
+}
+
+/// Every entry the queue lists, judged, each waiting one with the
+/// finding a writing pass would latch on it.
+fn read(store: &Store) -> Result<Vec<(Judged, Option<Finding>)>, AdmissionError> {
     store
         .queue_list()?
         .into_iter()
@@ -246,24 +418,28 @@ pub fn pass(store: &Store) -> Result<Vec<Judged>, AdmissionError> {
                     entry: entry.id,
                     source,
                 })?;
-            let verdict = match entry.state {
-                EntryState::Queued | EntryState::Held => Some(judge(store, &entry, &launch)?),
-                EntryState::Claimed { .. } | EntryState::Dropped => None,
+            let (verdict, finding) = match entry.state {
+                EntryState::Queued | EntryState::Held => {
+                    let (verdict, finding) = weigh(store, &entry, &launch)?;
+                    (Some(verdict), finding)
+                }
+                EntryState::Claimed { .. } | EntryState::Dropped => (None, None),
             };
-            Ok(Judged {
+            let judged = Judged {
                 entry,
                 launch,
                 verdict,
-            })
+            };
+            Ok((judged, finding))
         })
         .collect()
 }
 
-fn judge(
+fn weigh(
     store: &Store,
     entry: &QueueEntry,
     launch: &QueuedLaunch,
-) -> Result<Verdict, AdmissionError> {
+) -> Result<(Verdict, Option<Finding>), AdmissionError> {
     let mut reasons = Vec::new();
     if entry.state == EntryState::Held {
         reasons.push(Reason::OperatorHold);
@@ -277,8 +453,14 @@ fn judge(
             entry: entry.id,
             source,
         })?;
-    reasons.extend(worlds.and_then(|worlds| realm_drift(&worlds)));
-    Ok(Verdict { reasons })
+    let latched = entry
+        .latch
+        .as_ref()
+        .map(|latch| Finding::read(entry.id, &latch.finding))
+        .transpose()?;
+    let (realm, finding) = realm(latched, sight(&worlds));
+    reasons.extend(realm);
+    Ok((Verdict { reasons }, finding))
 }
 
 /// What an awaited entry has come to.
@@ -353,8 +535,8 @@ fn awaiting(wait: Wait, awaited: Awaited) -> Option<Reason> {
 /// boundary, its grants, its house rules and its dialect. Each is held
 /// WHOLE, so a fact a later map version adds to any of them, a grant key
 /// above all, is compared without this code naming it. A repository the
-/// map does not name is governed as a run with no realm is: `namespace`,
-/// no grant, no house, no dialect.
+/// map does not name, or one under no map at all, is governed as a run
+/// with no realm is: `namespace`, no grant, no house, no dialect.
 #[derive(Debug)]
 struct Governing {
     realm: Option<String>,
@@ -364,7 +546,17 @@ struct Governing {
     dialect: Value,
 }
 
-fn governing(world: &World, repo: &Path) -> Result<Governing, WorldError> {
+/// The facts that govern a run in `repo` under `world`, or under no map.
+fn governing(world: Option<&World>, repo: &Path) -> Result<Governing, WorldError> {
+    let Some(world) = world else {
+        return Ok(Governing {
+            realm: None,
+            boundary: Boundary::Namespace,
+            grants: BTreeMap::new(),
+            house: Value::Null,
+            dialect: Value::Null,
+        });
+    };
     let pin = world.pin(Some(repo))?;
     let realm = world.realm_for(repo);
     Ok(Governing {
@@ -387,25 +579,56 @@ fn unplaced(pin: &Value, key: &str) -> Value {
     text
 }
 
-/// The hold a realm that changed since the entry was queued puts on it,
-/// or a map on disk that cannot be read to tell.
-fn realm_drift(worlds: &HeldAndNow) -> Option<Reason> {
-    let facts = |world: &World| governing(world, &worlds.repo).map_err(|error| error.to_string());
-    let compared = facts(&worlds.held).and_then(|held| {
-        let now = worlds.now.as_ref().map_err(ToString::to_string);
-        let now = now.and_then(facts)?;
-        Ok((
-            held.realm.clone().or(now.realm.clone()),
-            differences(&held, &now),
-        ))
+/// What admission sees of an entry's realm now.
+enum Sight {
+    /// What differs from the world it was queued with.
+    Seen(Finding),
+    /// Why the map now cannot be read to tell, as the operator reads it.
+    Unreadable(String),
+}
+
+fn sight(worlds: &HeldAndNow) -> Sight {
+    let held = governing(worlds.held.as_ref(), &worlds.repo);
+    let now = worlds.now.as_ref().map(|now| {
+        let facts = governing(now.world.as_ref(), &worlds.repo);
+        (facts, &now.digest)
     });
-    match compared {
-        Ok((_, differences)) if differences.is_empty() => None,
-        Ok((realm, differences)) => Some(Reason::RealmChanged {
-            realm: realm.unwrap_or_default(),
-            differences,
+    match (held, now) {
+        (Ok(held), Ok((Ok(now), on_disk))) => Sight::Seen(Finding {
+            encoding: FindingEncoding::V1,
+            realm: held.realm.clone().or(now.realm.clone()).unwrap_or_default(),
+            differences: differences(&held, &now),
+            on_disk: on_disk.clone(),
         }),
-        Err(detail) => Some(Reason::MapUnreadable(detail)),
+        (Err(error), _) | (Ok(_), Ok((Err(error), _))) => Sight::Unreadable(error.to_string()),
+        (Ok(_), Err(error)) => Sight::Unreadable(error.to_string()),
+    }
+}
+
+/// The holds an entry's realm puts on it, from the latch that stands on
+/// it and what admission sees now, and the finding a writing pass
+/// latches: a drift no latch records yet, or the map on disk as it is now
+/// when it has moved since the latch was found. A latch holds whatever
+/// is seen, and nothing seen clears it.
+fn realm(latched: Option<Finding>, sight: Sight) -> (Vec<Reason>, Option<Finding>) {
+    match (latched, sight) {
+        (None, Sight::Unreadable(detail)) => (vec![Reason::MapUnreadable(detail)], None),
+        (Some(latched), Sight::Unreadable(detail)) => (
+            vec![latched.latched(false), Reason::MapUnreadable(detail)],
+            None,
+        ),
+        (None, Sight::Seen(seen)) if seen.differences.is_empty() => (vec![], None),
+        (None, Sight::Seen(seen)) => {
+            let changed = Reason::RealmChanged {
+                realm: seen.realm.clone(),
+                differences: seen.differences.clone(),
+            };
+            (vec![changed], Some(seen))
+        }
+        (Some(latched), Sight::Seen(seen)) if latched.on_disk == seen.on_disk => {
+            (vec![latched.latched(false)], None)
+        }
+        (Some(latched), Sight::Seen(seen)) => (vec![latched.latched(true)], Some(seen)),
     }
 }
 

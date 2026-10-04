@@ -184,8 +184,8 @@ enum Cmd {
     /// events.
     Operator(OperatorArgs),
     /// The dispatcher's queue (decision 0068): runs waiting to start, in
-    /// the journal's own database. Add, list, move, hold, release, re-pin
-    /// and drop entries; each change is journaled with its reason.
+    /// the journal's own database. Add, list, judge, move, hold, release,
+    /// re-pin and drop entries; each change is journaled with its reason.
     Queue {
         #[command(subcommand)]
         command: QueueCmd,

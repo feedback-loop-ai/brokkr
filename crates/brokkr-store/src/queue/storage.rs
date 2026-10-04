@@ -11,7 +11,8 @@ use crate::StoreError;
 /// from `database_schema`: the queue is additive, so an older binary still
 /// reads a journal that carries one, and only the queue verbs refuse a
 /// queue stored in a version this binary does not know. Version 2 adds
-/// the pins an operator re-pins an entry to (#430's realm-drift ruling).
+/// the realm-drift holds admission latches on an entry and the pins an
+/// operator releases one with (#430's realm-drift ruling).
 pub(crate) const QUEUE_SCHEMA: u32 = 2;
 
 /// The first queue storage, which held no pins: still read as it stands,
@@ -69,12 +70,25 @@ CREATE TRIGGER IF NOT EXISTS queue_commands_append_only_delete
     BEGIN SELECT RAISE(ABORT, 'queue commands are append-only'); END;
 "#;
 
-/// Version 2's addition: the launch an entry was re-pinned to, one row
-/// per `repin` command and keyed by it. An entry's launch is fixed where
-/// it was queued, so a re-pin is written beside it, never over it; the
-/// latest pin is the launch the entry stands for, and every earlier one
-/// stays, as the commands do.
+/// Version 2's additions. A latch: a realm-drift hold admission found on
+/// an entry, one row per `latch` command and keyed by it, which stands
+/// until a later re-pin of the entry. A pin: the launch an entry was
+/// re-pinned to, one row per `repin` command and keyed by it. An entry's
+/// launch is fixed where it was queued, so a re-pin is written beside it,
+/// never over it; the latest pin is the launch the entry stands for, and
+/// every earlier one stays, as the commands and the latches do.
 const MIGRATION_QUEUE_V2: &str = r#"
+CREATE TABLE IF NOT EXISTS queue_latches (
+    seq INTEGER PRIMARY KEY REFERENCES queue_commands(seq),
+    entry_id INTEGER NOT NULL REFERENCES queue_entries(entry_id),
+    finding TEXT NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS queue_latches_append_only_update
+    BEFORE UPDATE ON queue_latches
+    BEGIN SELECT RAISE(ABORT, 'queue latches are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS queue_latches_append_only_delete
+    BEFORE DELETE ON queue_latches
+    BEGIN SELECT RAISE(ABORT, 'queue latches are append-only'); END;
 CREATE TABLE IF NOT EXISTS queue_pins (
     seq INTEGER PRIMARY KEY REFERENCES queue_commands(seq),
     entry_id INTEGER NOT NULL REFERENCES queue_entries(entry_id),
@@ -90,7 +104,7 @@ CREATE TRIGGER IF NOT EXISTS queue_pins_append_only_delete
 
 /// The guards the migrations install, by name, so an open can ask
 /// whether a journal still carries every one.
-const QUEUE_TRIGGERS: [&str; 9] = [
+const QUEUE_TRIGGERS: [&str; 11] = [
     "queue_entries_fixed",
     "queue_entries_run_once",
     "queue_entries_kept",
@@ -98,16 +112,22 @@ const QUEUE_TRIGGERS: [&str; 9] = [
     "queue_waits_kept",
     "queue_commands_append_only_update",
     "queue_commands_append_only_delete",
+    "queue_latches_append_only_update",
+    "queue_latches_append_only_delete",
     "queue_pins_append_only_update",
     "queue_pins_append_only_delete",
 ];
 
+/// Version 1's tables.
+const QUEUE_TABLES_V1: usize = 3;
+
 /// The queue's tables, in the order the migrations create them: version
-/// 1's three, then version 2's pins.
-const QUEUE_TABLES: [&str; 4] = [
+/// 1's three, then version 2's latches and pins.
+const QUEUE_TABLES: [&str; 5] = [
     "queue_entries",
     "queue_waits",
     "queue_commands",
+    "queue_latches",
     "queue_pins",
 ];
 
@@ -126,7 +146,7 @@ const QUEUE_TABLES: [&str; 4] = [
 pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
     let tables = match queue_schema(conn)? {
         None => return Ok(false),
-        Some(QUEUE_SCHEMA_V1) => &QUEUE_TABLES[..QUEUE_TABLES.len() - 1],
+        Some(QUEUE_SCHEMA_V1) => &QUEUE_TABLES[..QUEUE_TABLES_V1],
         Some(QUEUE_SCHEMA) => &QUEUE_TABLES[..],
         Some(_) => return Ok(true),
     };

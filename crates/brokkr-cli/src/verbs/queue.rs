@@ -2,20 +2,21 @@
 //! journal's own database. `add` queues the launch `brokkr run` would make
 //! with the same arguments; `move`, `hold`, `release`, `repin` and `drop`
 //! change an entry, each journaled with its reason; `list` reads it, with
-//! admission's verdict on each entry that waits. Nothing here starts a
-//! run.
+//! admission's verdict on each entry that waits, and `judge` shows the
+//! same once it has latched the realm drift admission finds. Nothing here
+//! starts a run.
 
 use std::path::Path;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use brokkr_runtime::admission::{self, Judged, Verdict};
 use brokkr_runtime::launch::{BundleSource, QueuedLaunch};
 use brokkr_store::{Attribution, NewEntry, QueueCommand, Wait};
 use serde::Serialize;
 
 use super::delivery::{new_run, operator_name};
-use crate::cli_args::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueListArgs};
+use crate::cli_args::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs};
 use crate::render::Safe;
 use crate::{open_journal, Access, Exit};
 
@@ -24,6 +25,7 @@ pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
     match command {
         QueueCmd::Add(args) => add(workspace, args),
         QueueCmd::List(args) => list(workspace, args),
+        QueueCmd::Judge(args) => judge(workspace, args),
         QueueCmd::Move(args) => change(workspace, args.entry, QueueCommand::Move { to: args.to }),
         QueueCmd::Hold(args) => change(workspace, args, QueueCommand::Hold),
         QueueCmd::Release(args) => change(workspace, args, QueueCommand::Release),
@@ -89,10 +91,12 @@ fn change(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr queue repin`: the entry's launch under the realms map now on
-/// disk, written beside the one it was queued with and journaled with its
-/// reason (#430's realm-drift ruling). Admission compares the entry
-/// against the map it stands for from then on.
+/// `brokkr queue repin`: the operator's release of an entry's latched
+/// realm-drift hold ([`admission::release`]): its launch under the map
+/// that would govern it now, written beside the one it was queued with
+/// and journaled with its reason, saying the differences it accepted.
+/// Admission compares the entry against the map it stands for from then
+/// on.
 fn repin(
     workspace: &Path,
     QueueEntryArgs {
@@ -102,22 +106,42 @@ fn repin(
     }: QueueEntryArgs,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let repinned = QueuedLaunch::decode(&store.queue_entry(entry)?.payload)
-        .and_then(QueuedLaunch::repinned)
-        .and_then(|launch| launch.encode())
-        .with_context(|| format!("queue entry {entry}"))?;
-    attributed(&reason, |by| store.queue_repin(entry, &repinned, by))?;
-    eprintln!("re-pinned queue entry {entry} to the realms map on disk");
+    let accepted = attributed(&reason, |by| {
+        admission::release(&mut store, entry, by).map_err(anyhow::Error::from)
+    })?;
+    eprintln!("re-pinned queue entry {entry} to the realms map on disk, accepting: {accepted}");
     Ok(Exit::Completed.into())
 }
 
 /// `brokkr queue list`: a look, so the journal is opened read-only. Each
 /// waiting entry carries admission's verdict, judged as the journal and
-/// the maps stand now.
+/// the maps stand now; a drift no latch records yet is shown, and not
+/// latched.
 fn list(workspace: &Path, QueueListArgs { journal, json }: QueueListArgs) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
-    let entries = admission::pass(&store)?;
-    let rows = rows(&entries);
+    show(&admission::pass(&store)?, json)
+}
+
+/// `brokkr queue judge`: admission's writing pass ([`admission::judge`]),
+/// which latches the realm drift it finds, journaled with the reason, and
+/// then the listing `list` shows.
+fn judge(
+    workspace: &Path,
+    QueueJudgeArgs {
+        reason,
+        list: QueueListArgs { journal, json },
+    }: QueueJudgeArgs,
+) -> Result<ExitCode> {
+    let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
+    let entries = attributed(&reason, |by| {
+        admission::judge(&mut store, by).map_err(anyhow::Error::from)
+    })?;
+    show(&entries, json)
+}
+
+/// Print the judged queue, as a table or as `--json`.
+fn show(entries: &[Judged], json: bool) -> Result<ExitCode> {
+    let rows = rows(entries);
     match json {
         true => println!("{}", serde_json::to_string_pretty(&rows)?),
         false => print!("{}", table(&rows)),

@@ -109,6 +109,9 @@ pub fn brokkr_store::EntryId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core:
 impl core::str::traits::FromStr for brokkr_store::EntryId
 pub type brokkr_store::EntryId::Err = core::num::error::ParseIntError
 pub fn brokkr_store::EntryId::from_str(&str) -> core::result::Result<Self, Self::Err>
+pub struct brokkr_store::Latch
+pub brokkr_store::Latch::finding: alloc::string::String
+pub brokkr_store::Latch::seq: i64
 pub struct brokkr_store::NewEntry<'a>
 pub brokkr_store::NewEntry::payload: &'a str
 pub brokkr_store::NewEntry::priority: i64
@@ -117,6 +120,7 @@ pub struct brokkr_store::NotAWait(pub alloc::string::String)
 pub struct brokkr_store::QueueEntry
 pub brokkr_store::QueueEntry::added_at: alloc::string::String
 pub brokkr_store::QueueEntry::id: brokkr_store::EntryId
+pub brokkr_store::QueueEntry::latch: core::option::Option<brokkr_store::Latch>
 pub brokkr_store::QueueEntry::payload: alloc::string::String
 pub brokkr_store::QueueEntry::position: core::option::Option<u32>
 pub brokkr_store::QueueEntry::priority: i64
@@ -157,6 +161,7 @@ pub fn brokkr_store::Store::queue_add(&mut self, brokkr_store::NewEntry<'_>, bro
 pub fn brokkr_store::Store::queue_claim(&mut self, brokkr_store::EntryId, &str) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_command(&mut self, brokkr_store::EntryId, brokkr_store::QueueCommand, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_entry(&self, brokkr_store::EntryId) -> core::result::Result<brokkr_store::QueueEntry, brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_latch(&mut self, brokkr_store::EntryId, &str, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_list(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_repin(&mut self, brokkr_store::EntryId, &str, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 pub struct brokkr_store::Wait

@@ -184,9 +184,6 @@ pub enum LaunchError {
         .0.display()
     )]
     QueuedWorkspaceRelative(PathBuf),
-    /// A re-pin of an entry queued under no map (#430).
-    #[error("the entry was queued under no realms map, so there is no map to re-pin it to")]
-    RepinUnmapped,
     #[error(transparent)]
     Dispatch(#[from] DispatchError),
     #[error("loading source run '{run}'")]

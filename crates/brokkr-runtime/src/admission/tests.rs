@@ -13,7 +13,7 @@ use brokkr_store::{Attribution, NewEntry, QueueCommand};
 use serde_json::{json, Value};
 
 use super::*;
-use crate::launch::{BundleSource, LaunchRequest, NewRun, RunMap};
+use crate::launch::{BundleSource, LaunchRequest, MapSource, NewRun, RunMap};
 
 const BY: Attribution<'static> = Attribution {
     operator: "vy",
@@ -251,8 +251,11 @@ fn a_realm_renamed_or_with_new_house_rules_or_dialect_holds_the_entry() {
     );
 }
 
+/// An entry queued under no map reads the map `brokkr run` would find in
+/// its workspace now, so it is held when that cannot be read too (the
+/// operator's ruling of 2026-10-04), and admitted when there is none.
 #[test]
-fn a_map_that_cannot_be_read_now_holds_the_entry_and_one_queued_unmapped_is_never_compared() {
+fn a_map_that_cannot_be_read_now_holds_the_entry_queued_under_it_or_under_none() {
     let ws = workspace();
     map(ws.path(), json!({"house": "HOUSE.md"}));
     let (mut store, entry) = queued(ws.path());
@@ -273,7 +276,10 @@ fn a_map_that_cannot_be_read_now_holds_the_entry_and_one_queued_unmapped_is_neve
     let free = (unmapped.0, Standing::Admissible, vec![]);
     assert_eq!(
         verdicts(&store),
-        vec![(entry.0, Standing::Held, vec![gone]), free.clone()]
+        vec![
+            (entry.0, Standing::Held, vec![gone.clone()]),
+            (unmapped.0, Standing::Held, vec![gone])
+        ]
     );
     std::fs::remove_file(ws.path().join("realms.json")).unwrap();
     let missing = unreadable(format!(
@@ -286,8 +292,9 @@ fn a_map_that_cannot_be_read_now_holds_the_entry_and_one_queued_unmapped_is_neve
     );
 }
 
-/// The operator's release of a drifted entry: re-pinned to the map on
-/// disk, it is admitted, and it starts under that map.
+/// The operator's release of a drifted entry: once judged and latched,
+/// re-pinned to the map on disk, it is admitted, and it starts under that
+/// map.
 #[test]
 fn the_operators_repin_releases_a_drifted_entry_under_the_map_on_disk() {
     let ws = workspace();
@@ -297,11 +304,22 @@ fn the_operators_repin_releases_a_drifted_entry_under_the_map_on_disk() {
     map(ws.path(), json!({"boundary": "harness"}));
     assert_eq!(verdicts(&store)[0].1, Standing::Held);
 
-    let payload = store.queue_entry(entry).unwrap().payload;
-    let repinned = QueuedLaunch::decode(&payload).unwrap().repinned().unwrap();
-    store
-        .queue_repin(entry, &repinned.encode().unwrap(), BY)
-        .unwrap();
+    // A drift that only a look has seen is no latch to release.
+    let unlatched = release(&mut store, entry, BY).unwrap_err();
+    assert!(matches!(unlatched, AdmissionError::NothingLatched(at) if at == entry));
+    assert_eq!(
+        unlatched.to_string(),
+        "queue entry 1 holds no latched realm drift to release; `brokkr queue judge` latches \
+         what it finds"
+    );
+    judge(&mut store, BY).unwrap();
+    let released = release(&mut store, entry, BY).unwrap();
+    let boundary = |was| Difference::Boundary {
+        was,
+        now: Boundary::Harness,
+    };
+    assert_eq!(released, Released(vec![boundary(Boundary::Open)]));
+    assert_eq!(released.to_string(), "boundary open → harness");
     let judged = pass(&store).unwrap();
     assert_eq!(judged[0].verdict, Some(Verdict { reasons: vec![] }));
     let (_, run) = judged
@@ -317,23 +335,150 @@ fn the_operators_repin_releases_a_drifted_entry_under_the_map_on_disk() {
     };
     assert_eq!(world.sha256, on_disk.sha256);
 
-    // Nothing to re-pin; and a map that is gone is refused, not taken.
-    let unmapped = store.queue_entry(unmapped).unwrap().payload;
-    let error = QueuedLaunch::decode(&unmapped)
-        .unwrap()
-        .repinned()
-        .unwrap_err();
-    assert!(matches!(error, LaunchError::RepinUnmapped));
+    // Queued under no map, it is released to the map that names its
+    // repository now, as `brokkr run` would adopt it there.
+    let released = release(&mut store, unmapped, BY).unwrap();
     assert_eq!(
-        error.to_string(),
-        "the entry was queued under no realms map, so there is no map to re-pin it to"
+        released.to_string(),
+        "the repository's realm none → b; boundary namespace → harness"
     );
+    let pinned = QueuedLaunch::decode(&store.queue_entry(unmapped).unwrap().payload).unwrap();
+    assert!(matches!(pinned.map, MapSource::Ambient(_)));
+
+    // A map that is gone is refused, not taken.
+    map(ws.path(), json!({"boundary": "open"}));
+    judge(&mut store, BY).unwrap();
     std::fs::remove_file(ws.path().join("realms.json")).unwrap();
-    let error = QueuedLaunch::decode(&payload)
+    let error = release(&mut store, entry, BY).unwrap_err();
+    let AdmissionError::Entry { entry: at, source } = &error else {
+        panic!("not the entry's refusal: {error:?}")
+    };
+    assert_eq!(*at, entry);
+    assert!(matches!(source, LaunchError::World(WorldError::Missing(_))));
+}
+
+/// The operator's ruling of 2026-10-04 (#430's H1 and L2): a drift once
+/// judged LATCHES. The entry stays held when the map is put back as it
+/// was queued (A → B → A), across a reopen, and until the operator
+/// re-pins it; and the re-pin takes only the map the latch found.
+#[test]
+fn a_judged_drift_stays_latched_when_the_map_returns_and_a_repin_takes_only_the_map_judged() {
+    let ws = workspace();
+    map(ws.path(), json!({"boundary": "open"}));
+    let (mut store, entry) = queued(ws.path());
+    map(ws.path(), json!({"boundary": "harness"}));
+    let drift = vec![Difference::Boundary {
+        was: Boundary::Open,
+        now: Boundary::Harness,
+    }];
+    let latched = |differences: &[Difference], moved| Reason::RealmLatched {
+        realm: "b".into(),
+        differences: differences.to_vec(),
+        moved,
+    };
+    let held = |reasons| vec![(entry.0, Standing::Held, reasons)];
+    let judged: Vec<Option<Verdict>> = judge(&mut store, BY)
         .unwrap()
-        .repinned()
-        .unwrap_err();
-    assert!(matches!(error, LaunchError::World(WorldError::Missing(_))));
+        .into_iter()
+        .map(|judged| judged.verdict)
+        .collect();
+    let reasons = vec![latched(&drift, false)];
+    assert_eq!(judged, vec![Some(Verdict { reasons })]);
+    let latch = "realm b changed since queued, latched until the operator re-pins, re-queues or \
+                 drops it";
+    assert_eq!(
+        latched(&drift, false).to_string(),
+        format!("{latch}: boundary open → harness")
+    );
+
+    // A: the map put back as it was queued holds the entry still.
+    map(ws.path(), json!({"boundary": "open"}));
+    assert_eq!(verdicts(&store), held(vec![latched(&drift, true)]));
+    assert_eq!(
+        latched(&drift, true).to_string(),
+        format!(
+            "{latch}: boundary open → harness; the map on disk has changed since, and `brokkr \
+             queue judge` latches what it finds now"
+        )
+    );
+    // The re-pin refuses a map it was not shown.
+    let moved = release(&mut store, entry, BY).unwrap_err();
+    assert!(matches!(moved, AdmissionError::MapMoved(at) if at == entry));
+    assert_eq!(
+        moved.to_string(),
+        "the realms map on disk is not the one queue entry 1's latched hold found; `brokkr \
+         queue judge` shows and latches what differs now"
+    );
+    // A map that cannot be read beside the latch: both hold.
+    std::fs::write(ws.path().join("realms.json"), "{").unwrap();
+    let detail = World::load(&ws.path().join("realms.json"))
+        .unwrap_err()
+        .to_string();
+    let unreadable = Reason::MapUnreadable(detail);
+    assert_eq!(
+        verdicts(&store),
+        held(vec![latched(&drift, false), unreadable])
+    );
+    judge(&mut store, BY).unwrap();
+    map(ws.path(), json!({"boundary": "open"}));
+
+    // Judged again, the latch finds no difference now, and still holds,
+    // across a reopen.
+    judge(&mut store, BY).unwrap();
+    drop(store);
+    let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
+    assert_eq!(verdicts(&store), held(vec![latched(&[], false)]));
+    assert_eq!(
+        latched(&[], false).to_string(),
+        format!("{latch}: no difference now")
+    );
+    let released = release(&mut store, entry, BY).unwrap();
+    assert_eq!(
+        released.to_string(),
+        "no difference: the realm is as it was queued"
+    );
+    assert_eq!(
+        verdicts(&store),
+        vec![(entry.0, Standing::Admissible, vec![])]
+    );
+}
+
+/// The operator's ruling of 2026-10-04 (#430's M1): an entry queued under
+/// no map is compared like any other, and a map that names its repository
+/// since is a change of the facts that govern it.
+#[test]
+fn an_entry_queued_under_no_map_is_held_when_a_map_names_its_repository() {
+    let ws = workspace();
+    let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
+    let entry = add(&mut store, &launch(ws.path(), false), &[]);
+    let admissible = vec![(entry.0, Standing::Admissible, vec![])];
+    assert_eq!(verdicts(&store), admissible);
+    let grants = json!({"web-search": {"dialect": "web"}});
+    map(
+        ws.path(),
+        json!({"boundary": "open", "capabilities": grants, "house": "HOUSE.md"}),
+    );
+    let held = changed(vec![
+        Difference::Realm {
+            was: None,
+            now: Some("b".into()),
+        },
+        Difference::GrantAdded("web-search".into()),
+        Difference::Boundary {
+            was: Boundary::Namespace,
+            now: Boundary::Open,
+        },
+        Difference::House,
+    ]);
+    assert_eq!(
+        held.to_string(),
+        "realm b changed since queued: the repository's realm none → b; grant web-search added; \
+         boundary namespace → open; house rules changed"
+    );
+    assert_eq!(
+        verdicts(&store),
+        vec![(entry.0, Standing::Held, vec![held])]
+    );
 }
 
 /// A run in the journal that reads `events` past its start.
@@ -436,6 +581,11 @@ fn every_reason_and_standing_has_its_word() {
             run: "r6".into(),
         },
         changed(vec![]),
+        Reason::RealmLatched {
+            realm: "b".into(),
+            differences: vec![Difference::House],
+            moved: false,
+        },
         Reason::MapUnreadable("x".into()),
     ];
     let said = reasons.map(|reason| (reason.to_string(), reason.kind(), reason.holds()));
@@ -463,6 +613,12 @@ fn every_reason_and_standing_has_its_word() {
             true,
         ),
         ("realm b changed since queued: ", "realm_changed", true),
+        (
+            "realm b changed since queued, latched until the operator re-pins, re-queues or \
+             drops it: house rules changed",
+            "realm_latched",
+            true,
+        ),
         (
             "the realms map it was queued under cannot be read now: x",
             "map_unreadable",
@@ -508,6 +664,26 @@ fn a_queue_the_pass_cannot_read_admits_nothing_and_says_why() {
         .to_string()
         .starts_with("this run's pinned realms map is unreadable: the embedded map hashes to "));
     store.queue_command(forged, QueueCommand::Drop, BY).unwrap();
+
+    // A latch this brokkr cannot read, which no release takes either.
+    let latched = add(&mut store, &payload, &[]);
+    store.queue_latch(latched, "{}", BY).unwrap();
+    let unread = |error: AdmissionError| {
+        assert!(matches!(error, AdmissionError::Latch { entry, .. } if entry == latched));
+        let chain = (error.to_string(), error.source().unwrap().to_string());
+        assert_eq!(
+            chain,
+            (
+                "queue entry 3's latched hold cannot be read".into(),
+                "missing field `encoding` at line 1 column 2".into()
+            )
+        );
+    };
+    unread(pass(&store).unwrap_err());
+    unread(release(&mut store, latched, BY).unwrap_err());
+    store
+        .queue_command(latched, QueueCommand::Drop, BY)
+        .unwrap();
 
     // An awaited run whose journal does not fold.
     let unmapped = launch(ws.path(), false);

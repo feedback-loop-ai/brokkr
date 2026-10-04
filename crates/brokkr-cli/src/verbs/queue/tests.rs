@@ -27,6 +27,17 @@ fn queue_in(workspace: &Path, db: &Path, words: &[&str]) -> Result<ExitCode> {
     queue(workspace, command)
 }
 
+/// How `brokkr queue <words>`, refused, leaves: its failure line and exit.
+fn refused_in(workspace: &Path, db: &Path, words: &[&str]) -> (String, ExitCode) {
+    let error = queue_in(workspace, db, words).unwrap_err();
+    (failure_line(&error), report(&error))
+}
+
+/// A refusal that says `line` and leaves as failed.
+fn failed(line: &str) -> (String, ExitCode) {
+    (line.to_string(), ExitCode::from(Exit::Failed))
+}
+
 /// The listing as the handler reads it: each entry, its launch and
 /// admission's verdict.
 fn listed(db: &Path) -> Vec<Judged> {
@@ -142,7 +153,9 @@ fn an_entry_names_the_workspace_it_was_queued_in_absolutely() {
 }
 
 /// The operator's release of an entry held because its realm changed
-/// since it was queued: `repin`, journaled, after which it is admissible.
+/// since it was queued: `judge` latches the hold, which outlives the map
+/// put back as it was queued, and `repin`, journaled, takes only the map
+/// judged, after which it is admissible.
 #[test]
 fn an_entry_held_for_a_changed_realm_is_released_by_repin() {
     let dir = tempfile::tempdir().unwrap();
@@ -166,7 +179,33 @@ fn an_entry_held_for_a_changed_realm_is_released_by_repin() {
         admission(),
         "held: realm here changed since queued: boundary open → harness"
     );
+    let refused = |words: &[&str]| refused_in(ws, &db, words);
     let repin = ["repin", "1", "--reason", "harness is right"];
+    assert_eq!(
+        refused(&repin),
+        failed(
+            "error: queue entry 1 holds no latched realm drift to release; `brokkr queue judge` \
+             latches what it finds"
+        )
+    );
+    let judge = ["judge", "--reason", "before the dispatcher"];
+    assert_eq!(queue_in(ws, &db, &judge).unwrap(), completed());
+    // The map put back as it was queued: still held, and not taken unseen.
+    map("open");
+    assert_eq!(
+        admission(),
+        "held: realm here changed since queued, latched until the operator re-pins, re-queues \
+         or drops it: boundary open → harness; the map on disk has changed since, and `brokkr \
+         queue judge` latches what it finds now"
+    );
+    assert_eq!(
+        refused(&repin),
+        failed(
+            "error: the realms map on disk is not the one queue entry 1's latched hold found; \
+             `brokkr queue judge` shows and latches what differs now"
+        )
+    );
+    map("harness");
     assert_eq!(queue_in(ws, &db, &repin).unwrap(), completed());
     assert_eq!(admission(), "admissible");
     let store = Store::open(&db).unwrap();
@@ -178,17 +217,14 @@ fn an_entry_held_for_a_changed_realm_is_released_by_repin() {
         panic!("not the ambient map it was queued under")
     };
 
-    // An entry queued under no map has none to re-pin to.
+    // An entry queued under no map, with none since, has nothing latched.
     std::fs::remove_file(ws.join("realms.json")).unwrap();
     queue_in(ws, &db, &add).unwrap();
-    let error = queue_in(ws, &db, &["repin", "2", "--reason", "r"]).unwrap_err();
     assert_eq!(
-        (failure_line(&error), report(&error)),
-        (
-            "error: queue entry 2: the entry was queued under no realms map, so there is no \
-             map to re-pin it to"
-                .to_string(),
-            ExitCode::from(Exit::Failed)
+        refused(&["repin", "2", "--reason", "r"]),
+        failed(
+            "error: queue entry 2 holds no latched realm drift to release; `brokkr queue judge` \
+             latches what it finds"
         )
     );
 }
@@ -218,11 +254,7 @@ fn each_refusal_leaves_with_its_own_words() {
     let add = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];
     queue_in(ws, &db, &add).unwrap();
     queue_in(ws, &db, &["hold", "1", "--reason", "r"]).unwrap();
-    let refused = |words: &[&str]| {
-        let error = queue_in(ws, &db, words).unwrap_err();
-        (failure_line(&error), report(&error))
-    };
-    let failed = |line: &str| (line.to_string(), ExitCode::from(Exit::Failed));
+    let refused = |words: &[&str]| refused_in(ws, &db, words);
     assert_eq!(
         refused(&["hold", "1", "--reason", "r"]),
         failed("error: queue entry 1 is already held")

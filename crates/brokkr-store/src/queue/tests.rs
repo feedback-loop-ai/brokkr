@@ -250,6 +250,7 @@ fn a_journal_that_lost_a_queue_table_is_refused_on_open_not_recreated_empty() {
         ),
         ("DROP TABLE queue_waits", "queue_waits"),
         ("DROP TABLE queue_commands", "queue_commands"),
+        ("DROP TABLE queue_latches", "queue_latches"),
         ("DROP TABLE queue_pins", "queue_pins"),
     ] {
         let path = dir.path().join(format!("{table}.db"));
@@ -453,6 +454,7 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
             refusal(store.queue_list()),
             refusal(store.queue_entry(entry)),
             refusal(store.queue_repin(entry, "x", BY)),
+            refusal(store.queue_latch(entry, "x", BY)),
             refusal(store.queue_command(entry, QueueCommand::Hold, BY)),
             refusal(store.queue_claim(entry, "r")),
             refusal(store.queue_add(
@@ -571,6 +573,7 @@ fn the_queue_guards_refuse_every_rewrite_of_what_is_fixed() {
         waits: &waits,
     };
     let second = store.queue_add(new, BY).unwrap();
+    store.queue_latch(second, "drifted", BY).unwrap();
     store.queue_repin(second, "second, re-pinned", BY).unwrap();
     started(&mut store, "run-a");
     started(&mut store, "run-b");
@@ -614,6 +617,11 @@ fn the_queue_guards_refuse_every_rewrite_of_what_is_fixed() {
             "queue pins are append-only",
         ),
         ("DELETE FROM queue_pins", "queue pins are append-only"),
+        (
+            "UPDATE queue_latches SET finding = 'rewritten'",
+            "queue latches are append-only",
+        ),
+        ("DELETE FROM queue_latches", "queue latches are append-only"),
     ];
     for (statement, guard) in cases {
         let error = store.conn.execute(statement, []).unwrap_err();
@@ -649,7 +657,8 @@ fn a_version_1_queue_is_read_as_it_stands_and_migrated_with_its_entries_kept() {
     let read = Store::open_read_only(&path).unwrap();
     assert_eq!(queue_schema(&read.conn).unwrap(), Some(1));
     assert_eq!(rows(&read), vec![first.clone()]);
-    assert_eq!(read.queue_entry(EntryId(1)).unwrap().payload, payload(1));
+    let entry = read.queue_entry(EntryId(1)).unwrap();
+    assert_eq!((entry.payload, entry.latch), (payload(1), None));
     drop(read);
 
     let mut store = opened_whole(&path);
@@ -795,4 +804,73 @@ fn a_repin_of_an_entry_that_left_the_queue_is_refused_and_writes_nothing() {
         QueueRefusal::UnknownEntry(EntryId(1)),
         "queue entry 1 does not exist",
     );
+}
+
+/// A latch stands on its entry until a later re-pin of that entry, and
+/// across a reopen; a later latch stands in its place, and every one is
+/// journaled as a `latch`. Nothing else clears one (#430's H1).
+#[test]
+fn a_latch_stands_until_a_later_repin_and_survives_a_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let mut store = Store::open(&path).unwrap();
+    let ids = queue(&mut store, 2);
+    let standing = |store: &Store| -> Vec<Option<Latch>> {
+        let listed = store.queue_list().unwrap();
+        listed.into_iter().map(|entry| entry.latch).collect()
+    };
+    let latch = |seq, finding: &str| {
+        Some(Latch {
+            seq,
+            finding: finding.into(),
+        })
+    };
+    store.queue_latch(ids[0], "boundary moved", BY).unwrap();
+    store.queue_latch(ids[0], "boundary back", BY).unwrap();
+    store.queue_command(ids[0], QueueCommand::Hold, BY).unwrap();
+    store
+        .queue_command(ids[0], QueueCommand::Release, BY)
+        .unwrap();
+    drop(store);
+
+    let mut store = Store::open(&path).unwrap();
+    assert_eq!(standing(&store), vec![latch(4, "boundary back"), None]);
+    store.queue_repin(ids[0], "1, again", BY).unwrap();
+    assert_eq!(standing(&store), vec![None, None]);
+    store.queue_latch(ids[0], "grant added", BY).unwrap();
+    assert_eq!(
+        store.queue_entry(ids[0]).unwrap().latch,
+        latch(8, "grant added")
+    );
+    let word = |command: &str| (1, command.into(), None, "vy".into(), BY.reason.into());
+    assert_eq!(
+        commands(&store.conn)[2..],
+        [
+            word("latch"),
+            word("latch"),
+            word("hold"),
+            word("release"),
+            word("repin"),
+            word("latch")
+        ]
+    );
+}
+
+#[test]
+fn a_latch_on_an_entry_that_left_the_queue_is_refused_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, [_, _, dropped, claimed]) = every_standing(dir.path());
+    let before = (rows(&store), commands(&store.conn));
+    let mut latch = |entry| refusal(store.queue_latch(entry, "x", BY));
+    refused_as(
+        latch(dropped),
+        QueueRefusal::Dropped(dropped),
+        "queue entry 3 was dropped",
+    );
+    refused_as(
+        latch(claimed),
+        claimed_by_run_b(claimed),
+        "queue entry 4 is claimed by run 'run-b'",
+    );
+    assert_eq!((rows(&store), commands(&store.conn)), before);
 }

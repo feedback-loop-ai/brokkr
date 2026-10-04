@@ -583,15 +583,21 @@ pub(super) enum QueueCmd {
     /// held), then the entries that started a run, with it. `--json`
     /// emits the view model for scripts.
     List(QueueListArgs),
+    /// Judge the queue as `list` shows it, and first latch on each waiting
+    /// entry the realm drift found: from then on it is held until the
+    /// operator re-pins, re-queues or drops it, whatever the map comes to.
+    /// Each latch is journaled with the reason.
+    Judge(QueueJudgeArgs),
     /// Put an entry at another place in the queue.
     Move(QueueMoveArgs),
     /// Keep an entry in its place, not to be started until released.
     Hold(QueueEntryArgs),
     /// Let a held entry be started again.
     Release(QueueEntryArgs),
-    /// Re-pin a waiting entry to the realms map now on disk at the file
-    /// its map was read from: how the operator releases an entry that
-    /// admission holds because its realm changed since it was queued.
+    /// Re-pin a waiting entry to the realms map that would govern it now:
+    /// how the operator releases an entry `judge` latched a realm-drift
+    /// hold on, accepting the differences it found. Refused when the map
+    /// on disk is not the one the latch found; judge the queue again.
     Repin(QueueEntryArgs),
     /// Take an entry out of the queue. One that started a run cannot be.
     Drop(QueueEntryArgs),
@@ -623,6 +629,16 @@ pub(super) struct QueueListArgs {
     /// Emit the view model verbatim — this is what scripts read.
     #[arg(long)]
     pub(super) json: bool,
+}
+
+#[derive(clap::Args)]
+#[group(skip)]
+pub(super) struct QueueJudgeArgs {
+    /// Why, journaled with each latch.
+    #[arg(long)]
+    pub(super) reason: String,
+    #[command(flatten)]
+    pub(super) list: QueueListArgs,
 }
 
 #[derive(clap::Args)]

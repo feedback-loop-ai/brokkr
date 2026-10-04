@@ -8,6 +8,11 @@ pub brokkr_runtime::admission::AdmissionError::Entry::source: brokkr_runtime::la
 pub brokkr_runtime::admission::AdmissionError::Fold
 pub brokkr_runtime::admission::AdmissionError::Fold::run: alloc::string::String
 pub brokkr_runtime::admission::AdmissionError::Fold::source: brokkr_core::fold::FoldError
+pub brokkr_runtime::admission::AdmissionError::Latch
+pub brokkr_runtime::admission::AdmissionError::Latch::entry: brokkr_store::queue::EntryId
+pub brokkr_runtime::admission::AdmissionError::Latch::source: serde_json::error::Error
+pub brokkr_runtime::admission::AdmissionError::MapMoved(brokkr_store::queue::EntryId)
+pub brokkr_runtime::admission::AdmissionError::NothingLatched(brokkr_store::queue::EntryId)
 pub brokkr_runtime::admission::AdmissionError::Store(brokkr_store::StoreError)
 pub enum brokkr_runtime::admission::Difference
 pub brokkr_runtime::admission::Difference::Boundary
@@ -31,6 +36,10 @@ pub brokkr_runtime::admission::Reason::OperatorHold
 pub brokkr_runtime::admission::Reason::RealmChanged
 pub brokkr_runtime::admission::Reason::RealmChanged::differences: alloc::vec::Vec<brokkr_runtime::admission::Difference>
 pub brokkr_runtime::admission::Reason::RealmChanged::realm: alloc::string::String
+pub brokkr_runtime::admission::Reason::RealmLatched
+pub brokkr_runtime::admission::Reason::RealmLatched::differences: alloc::vec::Vec<brokkr_runtime::admission::Difference>
+pub brokkr_runtime::admission::Reason::RealmLatched::moved: bool
+pub brokkr_runtime::admission::Reason::RealmLatched::realm: alloc::string::String
 pub brokkr_runtime::admission::Reason::Stopped
 pub brokkr_runtime::admission::Reason::Stopped::run: alloc::string::String
 pub brokkr_runtime::admission::Reason::Stopped::wait: brokkr_store::queue::Wait
@@ -51,11 +60,16 @@ pub struct brokkr_runtime::admission::Judged
 pub brokkr_runtime::admission::Judged::entry: brokkr_store::queue::QueueEntry
 pub brokkr_runtime::admission::Judged::launch: brokkr_runtime::launch::QueuedLaunch
 pub brokkr_runtime::admission::Judged::verdict: core::option::Option<brokkr_runtime::admission::Verdict>
+pub struct brokkr_runtime::admission::Released(pub alloc::vec::Vec<brokkr_runtime::admission::Difference>)
+impl core::fmt::Display for brokkr_runtime::admission::Released
+pub fn brokkr_runtime::admission::Released::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_runtime::admission::Verdict
 pub brokkr_runtime::admission::Verdict::reasons: alloc::vec::Vec<brokkr_runtime::admission::Reason>
 impl brokkr_runtime::admission::Verdict
 pub fn brokkr_runtime::admission::Verdict::standing(&self) -> brokkr_runtime::admission::Standing
+pub fn brokkr_runtime::admission::judge(&mut brokkr_store::Store, brokkr_store::queue::Attribution<'_>) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::admission::Judged>, brokkr_runtime::admission::AdmissionError>
 pub fn brokkr_runtime::admission::pass(&brokkr_store::Store) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::admission::Judged>, brokkr_runtime::admission::AdmissionError>
+pub fn brokkr_runtime::admission::release(&mut brokkr_store::Store, brokkr_store::queue::EntryId, brokkr_store::queue::Attribution<'_>) -> core::result::Result<brokkr_runtime::admission::Released, brokkr_runtime::admission::AdmissionError>
 pub mod brokkr_runtime::agents
 pub use brokkr_runtime::agents::HandsNotice
 pub enum brokkr_runtime::agents::EgressClass
@@ -1046,7 +1060,6 @@ pub brokkr_runtime::launch::LaunchError::RealmsWithDispatch
 pub brokkr_runtime::launch::LaunchError::RecipeNotFound
 pub brokkr_runtime::launch::LaunchError::RecipeNotFound::name: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::RecipeNotFound::recipes_dir: std::path::PathBuf
-pub brokkr_runtime::launch::LaunchError::RepinUnmapped
 pub brokkr_runtime::launch::LaunchError::SourceRun
 pub brokkr_runtime::launch::LaunchError::SourceRun::run: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::SourceRun::source: brokkr_store::StoreError

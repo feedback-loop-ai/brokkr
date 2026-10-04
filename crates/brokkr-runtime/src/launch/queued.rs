@@ -18,6 +18,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use brokkr_core::canonical;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -91,15 +92,56 @@ impl MapSource {
             RunMap::Named(world) => held(world).map(MapSource::Named),
         }
     }
+
+    /// The digest of the pin it holds, `None` for no map: two equal
+    /// digests are the same map, house and dialect, read from the same
+    /// files. What a latch records of the map on disk (#430).
+    pub(crate) fn digest(&self) -> Option<String> {
+        match self {
+            MapSource::Unmapped => None,
+            MapSource::Ambient(held) | MapSource::Named(held) => {
+                Some(canonical::sha256_hex(&held.0))
+            }
+        }
+    }
+
+    /// The world the entry was queued with, or `None` under no map.
+    fn held(&self, workspace: &Path) -> Result<Option<World>, WorldError> {
+        match self {
+            MapSource::Unmapped => Ok(None),
+            MapSource::Ambient(held) | MapSource::Named(held) => held.world(workspace).map(Some),
+        }
+    }
+
+    /// The map that would govern the entry now: the file its world was
+    /// read from, as it is on disk; and for an entry queued under no map,
+    /// the one `brokkr run` would find in its workspace now, or none (the
+    /// operator's ruling of 2026-10-04: no map to a map is a change).
+    fn now(&self, workspace: &Path) -> Result<RunMap, WorldError> {
+        Ok(match self {
+            MapSource::Unmapped => {
+                World::discover(workspace, None)?.map_or(RunMap::Unmapped, RunMap::Ambient)
+            }
+            MapSource::Ambient(held) => RunMap::Ambient(held.on_disk(workspace)?),
+            MapSource::Named(held) => RunMap::Named(held.on_disk(workspace)?),
+        })
+    }
 }
 
-/// A mapped entry's two worlds: the one it was queued with, and the map
-/// on disk at the same file now, or why that cannot be read.
+/// An entry's two worlds: the one it was queued with, if any, and the
+/// map that would govern it now, or why that cannot be read.
 pub(crate) struct HeldAndNow {
-    pub(crate) held: World,
-    pub(crate) now: Result<World, WorldError>,
+    pub(crate) held: Option<World>,
+    pub(crate) now: Result<Now, WorldError>,
     /// The repository the entry operates, whose realm each map names.
     pub(crate) repo: PathBuf,
+}
+
+/// The map that would govern an entry now, if any, and the digest of the
+/// pin a re-pin to it would write ([`MapSource::digest`]).
+pub(crate) struct Now {
+    pub(crate) world: Option<World>,
+    pub(crate) digest: Option<String>,
 }
 
 /// Every fact a queued launch is rebuilt from.
@@ -182,38 +224,36 @@ impl QueuedLaunch {
         workspace.join(self.repo.as_deref().unwrap_or(workspace))
     }
 
-    /// The world this entry was queued with, beside the map now on disk
-    /// at the file that world was read from, and the repository the entry
-    /// operates: what admission compares (#430's realm-drift ruling).
-    /// `None` for an entry queued under no map, which nothing can drift
-    /// from. The map on disk is the one fault an operator can mend, so it
-    /// comes back as its own result, refusals and all.
-    pub(crate) fn held_and_now(&self) -> Result<Option<HeldAndNow>, LaunchError> {
+    /// The world this entry was queued with, beside the map that would
+    /// govern it now ([`MapSource::now`]), and the repository the entry
+    /// operates: what admission compares (#430's realm-drift ruling). The
+    /// map now is the one fault an operator can mend, so it comes back as
+    /// its own result, refusals and all.
+    pub(crate) fn held_and_now(&self) -> Result<HeldAndNow, LaunchError> {
         let workspace = anchor(&self.workspace)?;
-        let held = match &self.map {
-            MapSource::Unmapped => return Ok(None),
-            MapSource::Ambient(held) | MapSource::Named(held) => held,
-        };
-        Ok(Some(HeldAndNow {
-            held: held.world(workspace)?,
-            now: held.on_disk(workspace),
-            repo: self.operated(workspace),
-        }))
+        let repo = self.operated(workspace);
+        let now = self.map.now(workspace).and_then(|map| {
+            let digest = MapSource::of(&map, &repo)?.digest();
+            Ok(Now {
+                world: map.into_world(),
+                digest,
+            })
+        });
+        Ok(HeldAndNow {
+            held: self.map.held(workspace)?,
+            now,
+            repo,
+        })
     }
 
-    /// This entry under the map now on disk at the file its world was
-    /// read from, pinned afresh as [`QueuedLaunch::of`] pins one: what
-    /// the operator's `brokkr queue repin` writes. Everything else the
-    /// entry holds is kept. An entry queued under no map has nothing to
-    /// re-pin, and a map that cannot be read now is refused as `brokkr
-    /// run` would refuse it.
+    /// This entry under the map that would govern it now
+    /// ([`MapSource::now`]), pinned afresh as [`QueuedLaunch::of`] pins
+    /// one: what the operator's `brokkr queue repin` writes. Everything
+    /// else the entry holds is kept. A map that cannot be read now is
+    /// refused as `brokkr run` would refuse it.
     pub fn repinned(mut self) -> Result<QueuedLaunch, LaunchError> {
         let workspace = anchor(&self.workspace)?.to_path_buf();
-        let map = match &self.map {
-            MapSource::Unmapped => return Err(LaunchError::RepinUnmapped),
-            MapSource::Ambient(held) => RunMap::Ambient(held.on_disk(&workspace)?),
-            MapSource::Named(held) => RunMap::Named(held.on_disk(&workspace)?),
-        };
+        let map = self.map.now(&workspace)?;
         self.map = MapSource::of(&map, &self.operated(&workspace))?;
         Ok(self)
     }
