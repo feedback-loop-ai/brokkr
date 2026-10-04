@@ -2133,10 +2133,9 @@ fn the_shipped_operator_data_is_native_only_and_agrees_with_the_adapters() {
     }
 }
 
-/// The harness an adapter dispatches is read off its own invocation, by
-/// brokkr's dispatch convention and nothing else (decision 0009): a
-/// command that does not follow it dispatches no built-in driver, and a
-/// provider may run a known harness under any name it likes.
+/// The harness an adapter dispatches is read off its own invocation, by brokkr's dispatch
+/// convention and nothing else (decision 0009): a command that does not follow it dispatches
+/// no built-in driver, and a provider may run a known harness under any name it likes.
 #[test]
 fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
     let argv =
@@ -2158,3 +2157,4 @@ fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
         assert_eq!(harness_of(&command), harness, "{command:?}");
     }
 }
+mod gate_class;

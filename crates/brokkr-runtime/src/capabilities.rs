@@ -40,6 +40,10 @@ use brokkr_protocol::native_controls::{
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
+mod gates;
+use crate::bundle::SeatClass;
+use gates::Cause;
+
 /// The realm name of a repository no map names.
 pub const UNMAPPED: &str = "<unmapped>";
 
@@ -230,7 +234,7 @@ pub fn parse_requests(what: &str, raw: &Value) -> Result<Requests, String> {
 
 /// One executable site's asks: the office they belong to, what remains
 /// after the seat's subtraction, and what it subtracted.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteAsks {
     /// The execution label: `research`, `review:security`, `verify:checks`.
     pub label: String,
@@ -239,15 +243,20 @@ pub struct SiteAsks {
     pub office: String,
     pub asks: Requests,
     pub subtracted: Vec<String>,
+    /// The executable site's own canonical class, never a container's
+    /// (GP1). Every construction names it: there is no default to inherit.
+    pub(crate) class: SeatClass,
 }
 
 impl SiteAsks {
-    /// Office asks minus seat subtractions (ruling 5). An inline site's
-    /// map IS its office's asks. A site naming an agent inherits the
-    /// agent's asks when it writes no map; a map it does write is a subset
-    /// with unchanged strengths, and what it leaves out is subtracted —
-    /// `{}` subtracts everything. A seat never adds and never re-rates.
-    pub fn of(
+    /// Office asks minus seat subtractions (ruling 5), at the executable
+    /// site's own canonical `class` (GP1). An inline site's map IS its
+    /// office's asks. A site naming an agent inherits the agent's asks
+    /// when it writes no map; a map it does write is a subset with
+    /// unchanged strengths, and what it leaves out is subtracted — `{}`
+    /// subtracts everything. A seat never adds and never re-rates.
+    pub fn at(
+        class: SeatClass,
         label: &str,
         agent: Option<(&str, &Requests)>,
         site: Option<&Value>,
@@ -260,6 +269,7 @@ impl SiteAsks {
                 office: label.to_string(),
                 asks: written.unwrap_or_default(),
                 subtracted: Vec::new(),
+                class,
             });
         };
         let asks = match written {
@@ -298,6 +308,7 @@ impl SiteAsks {
                 .cloned()
                 .collect(),
             asks,
+            class,
         })
     }
 }
@@ -1367,15 +1378,6 @@ impl SiteCapabilities {
     }
 }
 
-/// Why an ask is not held. `through` names the dialect once a grant was
-/// found. Whether a native OFF stands behind the loss is NOT decided
-/// here: only the candidate's native plan knows what was switched off, and
-/// a provider whose inventory is unmeasured denies nothing it can show.
-struct Cause {
-    through: Option<String>,
-    but: String,
-}
-
 /// Why a known native power that no ask of the seat reached is not held
 /// (operator ruling of 2026-09-29, rebuild unit 21-fix-a, R3): the realm
 /// grants it to the seat's office and nothing requests it, or the realm
@@ -1587,41 +1589,46 @@ impl Authority {
         }
     }
 
+    /// The realm's grant of `capability` that reaches the site's office
+    /// (design D4), or why none does: no dialect is chosen before it.
+    fn reaching(&self, site: &SiteAsks, capability: &str) -> Result<&CapabilityGrant, Cause> {
+        let Some(grant) = self.context.grants.get(capability) else {
+            return Err(Cause::Ungranted(
+                "the realm does not grant it to this office".into(),
+            ));
+        };
+        if grant.reaches(&site.office) {
+            return Ok(grant);
+        }
+        let scope = grant.offices.as_deref().unwrap_or_default();
+        Err(Cause::Ungranted(match scope.is_empty() {
+            true => "the realm grants it to no office".to_string(),
+            false => format!(
+                "the realm grants it only to offices [{}], not to this office",
+                scope.join(", ")
+            ),
+        }))
+    }
+
     /// Why this candidate cannot hold `capability`, or the holding and
     /// the native key that serves it.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-    )]
     fn holding(
         &self,
         site: &SiteAsks,
         capability: &str,
         serving: &Serving<'_>,
     ) -> Result<(Holding, String), Cause> {
-        let bare = |but: String| Cause { through: None, but };
-        let Some(grant) = self.context.grants.get(capability) else {
-            return Err(bare("the realm does not grant it to this office".into()));
-        };
-        if !grant.reaches(&site.office) {
-            let scope = grant.offices.as_deref().unwrap_or_default();
-            return Err(bare(match scope.is_empty() {
-                true => "the realm grants it to no office".to_string(),
-                false => format!(
-                    "the realm grants it only to offices [{}], not to this office",
-                    scope.join(", ")
-                ),
-            }));
-        }
+        let grant = self.reaching(site, capability)?;
         let dialect = &self.dialects[capability];
-        let through = |but: String| Cause {
-            through: Some(dialect.name.clone()),
-            but,
-        };
+        let through = |but| Cause::incompatible(&dialect.name, but);
         let tools = grant.tools.clone().unwrap_or_else(|| dialect.tools.clone());
         if tools.is_empty() {
             return Err(through("the realm's grant admits no tool".into()));
         }
+        // GP1, before any provider carries it (design D3 steps 5 and 6).
+        let definition = &self.definitions.0[capability];
+        gates::check(site, definition, grant)
+            .map_err(|refusal| Cause::gate(&dialect.name, refusal))?;
         let provider = serving.provider;
         let (bound, adapter_key) = &self.bindings[capability];
         if bound != provider {
@@ -1698,7 +1705,6 @@ impl Authority {
                 names.join("', '")
             )));
         }
-        let definition = &self.definitions.0[capability];
         Ok((
             Holding {
                 classes: definition.classes.clone(),
@@ -1735,28 +1741,13 @@ impl Authority {
                     keys.insert(key, capability.clone());
                     held.insert(capability.clone(), holding);
                 }
+                Err(cause) if *strength == Strength::Requires => {
+                    return Err(cause.required(who, capability));
+                }
                 Err(cause) => {
-                    let through = cause
-                        .through
-                        .as_ref()
-                        .map(|dialect| format!(" through dialect '{dialect}'"))
-                        .unwrap_or_default();
-                    if *strength == Strength::Requires {
-                        return Err(match cause.through {
-                            None => format!(
-                                "{who}: requires capability '{capability}' but {}",
-                                cause.but
-                            ),
-                            Some(_) => format!(
-                                "{who}: requires capability '{capability}'{through}, but {}; \
-                                 the capability cannot be held under this grant",
-                                cause.but
-                            ),
-                        });
-                    }
                     // `through` is empty where no grant was found at all.
-                    dropped.push((capability.clone(), through, cause.but.clone()));
-                    not_held.insert(capability.clone(), cause.but);
+                    dropped.push((capability.clone(), cause.through(), cause.but()));
+                    not_held.insert(capability.clone(), cause.but());
                 }
             }
         }
@@ -1865,11 +1856,14 @@ impl Authority {
         office: &str,
         asks: Requests,
     ) -> Result<Outcome, String> {
+        // A seatless hypothesis has no class to read: judged as work, it
+        // answers no gate's holding (GP1) and authorizes no launch.
         let site = SiteAsks {
             label: ADAPTER_SEAT.to_string(),
             office: office.to_string(),
             asks,
             subtracted: Vec::new(),
+            class: SeatClass::Work,
         };
         let outcome = self.resolve(
             &site,

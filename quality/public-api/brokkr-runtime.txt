@@ -641,7 +641,7 @@ pub brokkr_runtime::capabilities::SiteAsks::label: alloc::string::String
 pub brokkr_runtime::capabilities::SiteAsks::office: alloc::string::String
 pub brokkr_runtime::capabilities::SiteAsks::subtracted: alloc::vec::Vec<alloc::string::String>
 impl brokkr_runtime::capabilities::SiteAsks
-pub fn brokkr_runtime::capabilities::SiteAsks::of(&str, core::option::Option<(&str, &brokkr_runtime::capabilities::Requests)>, core::option::Option<&serde_json::value::Value>) -> core::result::Result<brokkr_runtime::capabilities::SiteAsks, alloc::string::String>
+pub fn brokkr_runtime::capabilities::SiteAsks::at(brokkr_runtime::bundle::SeatClass, &str, core::option::Option<(&str, &brokkr_runtime::capabilities::Requests)>, core::option::Option<&serde_json::value::Value>) -> core::result::Result<brokkr_runtime::capabilities::SiteAsks, alloc::string::String>
 pub struct brokkr_runtime::capabilities::SiteCapabilities
 pub brokkr_runtime::capabilities::SiteCapabilities::asks: brokkr_runtime::capabilities::SiteAsks
 pub brokkr_runtime::capabilities::SiteCapabilities::outcomes: alloc::vec::Vec<brokkr_runtime::capabilities::Outcome>
