@@ -11,9 +11,11 @@ use super::{links, CheckRow, Line, Link, LEG_LINES};
 /// `NAME=value` prefixes, is one `FIRST_WORDS` lists, alone or with
 /// arguments, or whose first word, listed or not, is passed a flag or a
 /// path, which only a command takes. So a copy of a one-word line is
-/// compared, and a mistyped first word beside a flag or a path fails
-/// rather than going unread. Any other span is a name, a path, a flag or
-/// output, and is not compared. A span left open fails the test.
+/// compared, a one-word span one edit from a line `HELD_ONE_WORD_LINES`
+/// lists is compared as the drifted copy it is, and a mistyped first word
+/// beside a flag or a path fails rather than going unread. Any other span
+/// is a name, a path, a flag or output, and is not compared. A span left
+/// open fails the test.
 fn inline_commands(check: &str, link: &Link) -> Vec<String> {
     let prose: Vec<&str> = link.section.split("```").step_by(2).collect();
     let prose = prose.concat();
@@ -41,6 +43,7 @@ pub(super) fn text_reads_as_command(text: &str) -> bool {
 fn reads_as_command(words: &[&str]) -> bool {
     match words {
         [] => false,
+        [program] => first_word(program) || held_one_word(program),
         [program, ..] if first_word(program) => true,
         [_, arguments @ ..] => arguments
             .iter()
@@ -84,6 +87,61 @@ fn first_word(word: &str) -> bool {
     FIRST_WORDS.split(' ').any(|listed| listed == word)
 }
 
+/// The one-word lines a checked leg holds word for word, which a one-word
+/// span in a linked section's prose copies: `sw_vers`, `esac`, `fi`,
+/// `*,by-hand,*)` and `}`, the five one-word lines of `LEG_LINES`.
+/// `FIRST_WORDS` compares such a span when it is the line word for word;
+/// a span one edit from a line listed here — the `sw_verss` a mistyped
+/// copy of `sw_vers` writes — is compared as the drifted copy it is,
+/// rather than going unread. A line stays listed when its leg stops
+/// running it, so a prose copy the change orphans still reads as a
+/// command and fails as one, for the reason `FIRST_WORDS` states.
+const HELD_ONE_WORD_LINES: [&str; 5] = ["*,by-hand,*)", "esac", "fi", "sw_vers", "}"];
+
+/// Whether a one-word span's word is a line `HELD_ONE_WORD_LINES` lists,
+/// or one edit from one.
+fn held_one_word(word: &str) -> bool {
+    HELD_ONE_WORD_LINES
+        .iter()
+        .any(|held| within_one_edit(held, word))
+}
+
+/// Whether `a` and `b` are the same word up to one edit — an insertion, a
+/// deletion or a substitution — so `sw_verss` is the drifted copy of
+/// `sw_vers` it reads as, while `tee`, `rustfmt` and `ok` are no copy of
+/// anything held and stay names.
+fn within_one_edit(a: &str, b: &str) -> bool {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let (short, long) = if a.len() <= b.len() {
+        (&a, &b)
+    } else {
+        (&b, &a)
+    };
+    if long.len() - short.len() > 1 {
+        return false;
+    }
+    let mut edits = 0;
+    let (mut i, mut j) = (0, 0);
+    while i < short.len() && j < long.len() {
+        if short[i] == long[j] {
+            i += 1;
+            j += 1;
+        } else {
+            edits += 1;
+            if edits > 1 {
+                return false;
+            }
+            if short.len() < long.len() {
+                j += 1;
+            } else {
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    edits + (long.len() - j) + (short.len() - i) <= 1
+}
+
 /// The lines `LEG_LINES` holds word for word for `check`'s leg.
 fn unwritten_lines(check: &str) -> Vec<&'static str> {
     LEG_LINES
@@ -120,7 +178,8 @@ pub(super) fn assert_first_words_listed(root: &Path, runs: &[Vec<String>]) {
 
 /// Spans a linked section's prose writes that read as commands and that
 /// its row's leg does not run, each with its reason, by the section's
-/// anchor.
+/// anchor: an entry no span writes is stale, and
+/// `assert_inline_only_used` refuses it.
 const INLINE_ONLY: [(&str, &str); 8] = [
     // A test binary's summary line, quoted as output: "reported `test
     // result: ok` for every one of them".
@@ -191,5 +250,26 @@ pub(super) fn assert_inline_copies(root: &Path, row: &CheckRow, guide: &str, run
                 link.anchor
             );
         }
+    }
+}
+
+/// Every allowance `INLINE_ONLY` holds is a span some row's linked
+/// section writes, as an (anchor, command) pair: an entry no span uses is
+/// stale — it allows nothing and hides the copy it was written for — and
+/// fails here, as a stale `LOCAL_ONLY` line does.
+pub(super) fn assert_inline_only_used(rows: &[CheckRow], guide: &str) {
+    let mut used: Vec<(String, String)> = Vec::new();
+    for row in rows {
+        for link in links(&row.check, guide, &row.command) {
+            for command in inline_commands(&row.check, &link) {
+                used.push((link.anchor.to_string(), command));
+            }
+        }
+    }
+    for (anchor, command) in INLINE_ONLY {
+        assert!(
+            used.contains(&(anchor.to_string(), command.to_string())),
+            "no span writes `{command}` at #{anchor}, which INLINE_ONLY holds"
+        );
     }
 }

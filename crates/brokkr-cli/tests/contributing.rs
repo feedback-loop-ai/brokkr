@@ -14,7 +14,9 @@ mod workflow;
 
 #[path = "contributing/inline_copies.rs"]
 mod inline_copies;
-use inline_copies::{assert_first_words_listed, assert_inline_copies, text_reads_as_command};
+use inline_copies::{
+    assert_first_words_listed, assert_inline_copies, assert_inline_only_used, text_reads_as_command,
+};
 
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -854,6 +856,7 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         })
         .collect();
     assert_first_words_listed(&root, &runs);
+    assert_inline_only_used(&rows, &guide);
     let mut every_written = Vec::new();
     for (at, (row, runs)) in rows.iter().zip(&runs).enumerate() {
         let check = &row.check;
