@@ -361,26 +361,34 @@ fn wait(launched: Launched, deadline: Duration) -> Result<Option<i32>, ProbeErro
 /// Every transcript under `root` and its bytes, decompressed where it is
 /// compressed. One that cannot be read refuses the probe rather than read
 /// as nothing written, and so does a compressed one that is malformed or
-/// decompresses past [`UNPACKED_BOUND`] (#484).
+/// decompresses past [`UNPACKED_BOUND`], and one named as a transcript in
+/// a packing the probe does not read (#484).
 fn transcripts_under(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, ProbeError> {
     let mut transcripts = BTreeMap::new();
     for path in files_under(root)? {
         let Some(packing) = packing(&path) else {
             continue;
         };
-        let bytes = io(
-            fs::read(&path),
-            "could not read a transcript under the scratch HOME",
-        )?;
+        let read = || {
+            io(
+                fs::read(&path),
+                "could not read a transcript under the scratch HOME",
+            )
+        };
+        let named = |doing: &str| {
+            let home = path.strip_prefix(root).unwrap_or(&path);
+            format!(
+                "could not {doing} the transcript ~/{} under the scratch HOME",
+                home.display()
+            )
+        };
         let bytes = match packing {
-            Packing::Plain => bytes,
-            Packing::Zstd => {
-                let home = path.strip_prefix(root).unwrap_or(&path);
-                let what = format!(
-                    "could not decompress the transcript ~/{} under the scratch HOME",
-                    home.display()
-                );
-                io(unpacked(&bytes, UNPACKED_BOUND), &what)?
+            Packing::Plain => read()?,
+            Packing::Zstd => io(unpacked(&read()?, UNPACKED_BOUND), &named("decompress"))?,
+            Packing::Unread => {
+                let why = "the probe reads a transcript only as .jsonl or .jsonl.zstd";
+                let source = std::io::Error::new(std::io::ErrorKind::Unsupported, why);
+                return io(Err(source), &named("read"));
             }
         };
         transcripts.insert(path, bytes);
@@ -396,11 +404,22 @@ const UNPACKED_BOUND: u64 = 64 * 1024 * 1024;
 /// How a transcript is stored, by its name: a `.jsonl` file as written,
 /// or a `.jsonl.zstd` file, zstd-compressed, as dsh writes its session
 /// log, `session.v3.jsonl.zstd` (#484).
+///
+/// Any other name marked as a transcript is `Unread`, and refuses the
+/// probe: the same bytes renamed `.jsonl.zst` must not read as nothing
+/// written, so a tool the turn ran is never read as no tool run.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Packing {
     Plain,
     Zstd,
+    Unread,
 }
+
+/// The name segments that mark a file a transcript, in any case and under
+/// any further extension: `turn.jsonl.zst`, `turn.ndjson`, `turn.JSONL`.
+/// Discovery by name cannot refuse every file a CLI writes; an inventory
+/// of every file, each read or declared inert, is the operator's to rule.
+const TRANSCRIPT_SEGMENTS: [&str; 3] = ["jsonl", "ndjson", "jsonlines"];
 
 /// How the file at `path` is stored, when it is a transcript at all.
 pub(super) fn packing(path: &Path) -> Option<Packing> {
@@ -410,8 +429,19 @@ pub(super) fn packing(path: &Path) -> Option<Packing> {
     match (is(path, "jsonl"), compressed) {
         (true, _) => Some(Packing::Plain),
         (false, true) => Some(Packing::Zstd),
-        (false, false) => None,
+        (false, false) => marked(path).then_some(Packing::Unread),
     }
+}
+
+/// Whether a segment of the file's name after its first is one of
+/// [`TRANSCRIPT_SEGMENTS`], in any case.
+fn marked(path: &Path) -> bool {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    name.split('.').skip(1).any(|segment| {
+        TRANSCRIPT_SEGMENTS
+            .iter()
+            .any(|marker| segment.eq_ignore_ascii_case(marker))
+    })
 }
 
 /// `packed`, each zstd frame of it decompressed in turn, refused once
