@@ -449,3 +449,303 @@ bless. `compile --bundle bundles/self` compiled, and `openspec validate --all
 observed. "Duplication holds" is therefore unconfirmed here. The files rule
 was checked by hand (7249 = 7249). The workspace exact-coverage gate and
 remote CI are also pending.
+
+## U0 measurement
+
+Unit U0 ran D2's matrix on one Linux host from 2026-10-03 11:50Z to
+2026-10-04 00:20Z against claude 2.1.287, the LaneTally wrapper, codex-cli
+0.160.0 and dsh 0.1.5-rc.1. The durable record is
+[slice-two-mcp-isolation.md](../../../docs/evidence/adapters/slice-two-mcp-isolation.md)
+with per-cell data in
+[slice-two-mcp-observations.json](../../../docs/evidence/adapters/slice-two-mcp-observations.json).
+Verdicts were read from sentinel lifecycle logs and harness-reported tool
+listings, never from model text.
+
+- **Claude:** `--strict-mcp-config` with an explicit engine configuration
+  passed cold, with and without hands. A managed MCP file makes the
+  harness refuse the flag before any model call.
+- **dsh:** an engine-only `DSH_HOME` with the engine row in the overlay
+  passed cold. The existing profile with the overlay did not.
+- **Codex:** neither candidate passed. The private home is defeated by the
+  workdir trust codex writes into it on the work shape and by the
+  `/etc/codex` layers. The `-c mcp_servers` table override merges with
+  every source.
+- **LaneTally:** excluded every ambient source at startup through the
+  actual wrapper. Its engine answer and canaries remain pending.
+- **exec:** inapplicable.
+
+Read-isolation canaries were measured separately. Claude's cold hands
+shape excluded both the store and the process channel. Codex's and dsh's
+native shells read the store and excluded the process channel.
+
+Process note. Claude cells C01–C10 used a copy of the operator's OAuth
+access token in a disposable HOME, with the refresh token withheld. The
+controller then ruled that no credential may be copied, the copy was
+shredded, and those ten results were kept. Every later cell used plainly
+fake keys: LaneTally against a dead loopback endpoint, Codex and dsh
+against the shared local Spark model. Two questions are pending operator
+approval because each would need a credential copy: LaneTally's
+authenticated rows, and Codex's ChatGPT-login auth and OpenAI-model
+discovery. macOS remains pending (no host). No adapter, production file
+or test changed. Tasks 1.1 and 1.2 carry this evidence.
+
+## U3a implementation evidence (tasks 10.1–10.2)
+
+Branch `s2/U3a` from main `7f0aa4ad`, run
+`0065-slice-two-unit-u3a-see-the--d7f83769`, recorded 2026-10-03. The tested
+tree is the commit that carries this section, the second implement visit's,
+on top of `8f0cdc56`. That visit answers the review return of `8f0cdc56`
+(F1 clones and completion evidence, F2 class construction, F3 fixture office
+vocabulary). Every result below was observed in the second visit. None is
+carried from `8f0cdc56` or an earlier visit.
+
+### What changed
+
+- Production stays in the row's three files. `capabilities/gates.rs` (new,
+  136 lines) holds the one pure GP1 check, `check(site, definition, grant)`.
+  It returns `GateRefusal::{Writes, Egress { office }}` (`thiserror`), and
+  writes is matched before egress. It also holds the typed `Cause`
+  (`Ungranted`, `Incompatible`, `Gate`), which renders GP1's required form
+  without the incompatible-grant suffix.
+- `capabilities.rs`: `SiteAsks.class: SeatClass` (`pub(crate)`) is the
+  executable site's own class. No construction can leave it out: `SeatClass`
+  and `SiteAsks` derive no `Default`, and the one constructor,
+  `SiteAsks::at(class, label, agent, site)`, replaces `SiteAsks::of` and takes
+  the class. `of`, now a work-site shorthand for `at`, lives in the
+  `#[cfg(test)]` module `gate_class.rs`, so the suites that call it
+  (`engine/capability_tests.rs`, `engine/resume_tests.rs`, `agents/tests.rs`)
+  are not edited and production cannot reach it. The doctor's seatless
+  `Authority::assess` builds its site with an explicit `class: Work`, and its
+  comment says that answers no gate's holding and authorizes no launch. The
+  check runs in `holding` after grant presence, office reach and
+  the nonempty tool set, and before provider carriage. D4's grant-presence
+  and office-reach checks moved, with their exact text, into `reaching`.
+  `holding` is now under 100 lines (absent from the step-5 clippy run), so
+  its `too_many_lines` expectation is removed. Its cyclomatic complexity
+  against its baseline is the CRAP ratchet's, which needs the exact-coverage
+  LCOV and is pending below. This visit observed no complexity figure.
+- `bundle.rs`: `site_asks` reads `parse_class` once per agent-backed or
+  inline executable site and constructs through `SiteAsks::at`. The agent's
+  harness fragment reuses `asks.class`. The office is still the agent's name
+  or the inline site's label. A dialect step is a gate though it writes no
+  class. `step_class` is now that fact's one home, read by `parse_sequence`
+  for the compiled step and by the capability record of the dialect step, so
+  the record carries `Gate`, not a default. Its asks are still empty.
+  `parse_sequence` shrinks from 247 to 243 lines.
+- Public API: one line of `quality/public-api/brokkr-runtime.txt` moves,
+  `SiteAsks::of` to `SiteAsks::at(SeatClass, …)`, with the same count. The
+  snapshot was regenerated with
+  `cargo +nightly-2026-09-05 public-api -p brokkr-runtime -sss --color never`.
+  `diff` against it differs only in the provenance header. The
+  `pub(crate)` field adds no public item.
+- Tests: `capabilities/tests/gate_class.rs` (5 tests, 295 lines) and
+  `bundle/agent_tests/gate_tests.rs` (5 tests, 310 lines) are new child
+  modules. Each parent's `mod` line now sits at its end, and its header is
+  main's bytes again. `capabilities/tests.rs` offsets the line by rewrapping
+  the last test's doc comment. `agent_tests.rs` offsets it with
+  `openspec_with_exec`, the shared builder that replaces the copied
+  exec-adapter/openspec block. Parents stay at 2,160 and 6,788 lines.
+- `tests/capability_launch.rs` shrinks from 11,883 to 11,878 lines. The
+  dialect writer is now one helper, `hosts_dialect`, which
+  `a_restriction_value_moves_the_manifest_digest_even_where_it_is_inactive`
+  calls instead of carrying its own copy (same bytes, same file).
+  `hosts_grant(operator, offices)` names each office once, and an empty list
+  names none. Each caller now derives its list from its own fixture facts
+  (F3), not from a hand-written list:
+  - the cold/resume test seats no gate and passes `&[]`, so its grant is
+    main's;
+  - the compiled matrix passes `matrix_offices()`, the `carrier_sites`
+    labels of `CARRIERS`, which begin with each carrier, the office of its
+    agent-backed sites;
+  - the boxed matrix builds one grant per carrier from the `office_of`
+    mapping its own assertions use (hoisted from the inner loop), over its
+    `shapes` labels.
+
+  Every gate row still reaches CQ1's "provider 'codex' cannot express
+  restriction 'allow.hosts'", and the boxed fallback still reaches "provider
+  'claude' cannot carry a binding to provider 'codex'". No expected text
+  changed. Neither CQ1 matrix test grew: 159 lines, and 225 down to 223.
+
+### Mutations
+
+Each mutation was compiled and run with
+`cargo test -p brokkr-runtime --all-features --locked --lib gate_`, then
+restored. All eleven were observed in the second visit, on its final
+production code. Lines are each test's panicking assertion. In gate_class.rs,
+:84 is the shared `gate_loses` helper's requires assertion (`unwrap_err` on a
+holding, or `required(cause)`), and :145 the check-table row assertion.
+
+| # | Compiling mutation | Failing tests (assertion line) |
+| --- | --- | --- |
+| M1 | writes arm disabled (`if false && …`) | `the_gate_check_reads…` (:145), `a_gate_never_holds_writes…` (:84, `unwrap_err` on a holding) |
+| M2 | egress arm before writes | `the_gate_check_reads…` (:145), `a_gate_never_holds_writes…` (:84, `required(WRITES)`) |
+| M3 | egress arm disabled | `the_gate_check_reads…` (:145), `a_gates_egress…` (:84), `a_dropped_gate_want…` (:273), fallback (gate_tests.rs:194), relocated verify (:283), inline (:228), every form (:179) |
+| M4 | `match SeatClass::Gate` (class ignored) | `the_gate_check_reads…` (:145), `a_work_site…` (:240), inline (:228), every form (:179) |
+| M5 | last gate arm refuses reads-only | `the_gate_check_reads…` (:145), `a_gates_egress…` (:201, named holding), inline (:228), every form (:179) |
+| M6 | `let _ = gates::check(…)` in `holding` | `a_gate_never_holds_writes…` (:84), `a_gates_egress…` (:84), `a_dropped_gate_want…` (:273), all four GP1 tests of gate_tests.rs (:179, :194, :228, :283) |
+| M7 | GP1 required form gains the incompatible suffix | `a_gate_never_holds_writes…` (:84), `a_gates_egress…` (:84), relocated verify (:289), inline (:228), every form (:179) |
+| M8 | `site_asks` forces Work | fallback (:194), relocated verify (:283), inline (:228), every form (:179) |
+| M9 | the inline branch alone forces Work | `an_inline_gate_is_judged_at_its_own_class_and_label` (:228) only |
+| M10 | the dialect step's record built at `Work` | `a_dialect_step_is_recorded_at_the_class_its_step_compiles_to` (:309): left `("validate", Gate, Work)`, right `("validate", Gate, Gate)` |
+| M11 | `step_class` forgets a dialect step is a gate | the same test (:309): left `("validate", Work, Work)` |
+
+M9 is the reason for the inline test, and M10 for the dialect-step test: no
+other suite saw either. M10 is F2's removal control. Before this visit, a
+dialect step's record was built through `Default`, and no test read the
+record's class.
+
+Fixture control C1 (F3). `hosts_grant` was given no office at the compiled
+matrix (`&matrix_offices()[..0]`) and at the boxed matrix (`&every[..0]`).
+`cargo test -p brokkr-runtime --locked --test capability_launch --
+a_restricted_grant` then failed both, and the cold/resume test stayed `ok`.
+The matrix's gate rows reported "a gate's egress capability requires the
+realm grant to name office 'codex-gate' explicitly" (likewise 'pair',
+'pair-claude' and 'boxed'). The boxed requires rows reported GP1's form for
+office 'x', 'boxed-codex' and 'boxed-fallback'. So the derived lists are what
+keep those rows on CQ1 and on the Claude carriage refusal. After restoring,
+the same run passed 4 of 4 (the filter also matches
+`a_restriction_value_moves…`).
+
+With all of M1–M11 restored, `cargo test -p brokkr-runtime --all-features
+--locked --lib` passed 711 of 711.
+
+### Scenarios to tests
+
+- Reads permitted: `a_gates_egress…` (reads abstraction, offices absent, held
+  `["reads"]`, `--search-on`) and the check's reads row.
+- Writes never, writes before egress: `a_gate_never_holds_writes…`, for
+  [reads, writes], [reads, writes, egress] and [writes], with offices absent
+  and [reviewer]. Requires refuses, and wants drops with the optional form
+  and native OFF.
+- Default reach is not egress authority: the absent list gets GP1's cause.
+  [reviewer] holds. [] keeps D4's "grants it to no office". [review] (the
+  label) keeps D4's scope cause.
+- Optional drops keep independent denial: `a_dropped_gate_want…`.
+  Unsupported and unmeasured OFF still refuse, and the default OFF is
+  recorded off.
+- Nested sites: `every_executable_form…` covers the single seat, panel
+  member, sequence step, select case and default (20 rows). The inline site
+  is `an_inline_gate…`, every fallback candidate is
+  `every_fallback_candidate…`, and the relocated verify is
+  `a_relocated_verify…`. A dialect step that asks nothing is recorded at the
+  gate class its compiled step has, which `a_dialect_step_is_recorded…`
+  shows (F2). Both of these tests compile one shared fixture,
+  `wrapped_verify`.
+- Subtraction and unused grants: `a_work_site_a_subtraction…`. Nothing is
+  held, there is no notice, OFF holds, and the grant stays pinned.
+- MCP: classes are checked at the helper (`gates::check`, MCP dialect rows).
+  `Authority::load` still refuses every MCP grant, absent, [] and named,
+  with the exact unbuilt-kind cause. The fence is unchanged.
+
+### Gates observed
+
+All observed in the second visit, on the final tree.
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  finished, no warning or error.
+- `cargo test -p brokkr-runtime --all-features --locked --lib`: 711 passed.
+- `--tests --no-fail-fast`: 26 of 26 binaries `ok`. After the last
+  `capability_launch.rs` edit, `capability_launch` (68), `witness_digests` (6)
+  and `budgets` (4) were run again and passed. `witness_digests` ran
+  unblessed, so no witness or compose pin moved.
+- `cargo test -p brokkr-cli --all-features --locked --no-fail-fast`: every
+  binary `ok`, no FAILED. That includes the `suppressions` test and the heap
+  budget tests, against the committed baselines.
+- The remaining crates (`--workspace --exclude brokkr-cli --exclude
+  brokkr-runtime`): every binary `ok`, no FAILED.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`:
+  compiles, digest `11c7d0e7…`.
+- `openspec validate --all --strict`: 20 passed, 0 failed.
+- `git diff --check` and `git diff --cached --check`: clean.
+- Public API: the regenerated brokkr-runtime snapshot is committed, as above.
+- File sizes (`wc -l`), against main's `quality/file-lines.txt` baseline where
+  one exists, else the ceilings: bundle.rs 7,802 (main 7,815),
+  capabilities.rs 2,363 (main 2,369), gates.rs 136 (ceiling 800),
+  gate_class.rs 295 and gate_tests.rs 310 (ceiling 2,000), the parents
+  unchanged at 2,160 and 6,788, capability_launch.rs 11,878 (main 11,883).
+- Re-measured listings, for the touched files only, by measure.sh's own
+  steps. `file-lines.txt`: the rows above. Main's listing already omits files
+  added since its last measure, so it was not regenerated whole.
+  `too-many-lines.txt`, from the step-5 clippy run (`--force-warn
+  clippy::too_many_lines`, JSON): against main, `record_capabilities` went
+  from 179 to 173 and `parse_sequence` from 247 to 243. `holding` is removed,
+  and the boxed CQ1 test went from 225 to 223. Every other entry in the
+  touched files kept its count, and only its line number moved.
+  `suppressions.txt`: production `too_many_lines` went from 46 to 45. No
+  entry grew.
+- Budgets: `crates/brokkr-runtime/tests/budgets.rs` (prompt bytes and crate
+  count) and the brokkr-cli heap tests pass against the committed budgets.
+
+### Controller rebuild and gates (2026-10-04)
+
+The seat's permission layer refused `typos --hidden`, `bash quality/ratchet.sh
+files|clones` and `bash scripts/measure-budgets.sh` ("This command requires
+approval") in both implement visits, and the run stopped blocked on them
+alone. The review's four F1 clones had been folded at their source. The
+controller (the session driving these units) then did the following:
+
+- **Rebuilt the unit on main at `0e835584`,** after #527 and #520 had landed.
+  The diff `7f0aa4ad..89ffb9c1` applied cleanly, and main had not moved any
+  file the unit touches.
+- **Folded one new test clone.** `bash quality/ratchet.sh clones` found a
+  7-line clone: the two CQ1 matrices' identical opening, at
+  `capability_launch.rs:11439` and `:11643`. It appeared when the review
+  answer moved `hosts_grant` into the boxed matrix's per-carrier loop. It is
+  now one fixture, `cq1_codex()`, with `SeatClass::{Gate, Work}` imported
+  once at the top of the file.
+  - `capability_launch.rs` is 11,883 lines, main's baseline.
+  - The two matrices fell to 157 and 221 lines.
+  - `file-lines.txt` and `too-many-lines.txt` changed only those entries.
+
+On the final tree:
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `bash quality/ratchet.sh clones`: duplication holds. `files`: file size
+  holds. `api`: public API holds. `baselines origin/main`: no baseline raised.
+- `typos --hidden` and `git diff --check`: clean.
+- `openspec validate --all --strict`: 20 passed, 0 failed.
+- `cargo test -p brokkr-runtime --all-features --locked --lib`: 720 passed,
+  including main's own tests since `7f0aa4ad`.
+- `--tests`: every binary `ok`, `capability_launch` (68) and `budgets` (4)
+  among them.
+- The brokkr-cli `suppressions` test passes.
+- `bundles/self` compiles, digest `11c7d0e7…`.
+- `bash scripts/measure-budgets.sh`: no budget rises. It tightened 52
+  prompt-byte budgets by 13 bytes each and re-dated the notes. That is main's
+  drift since 2026-09-30, not this unit's, so those edits were not kept.
+
+Task 10.2 is ticked on these observations.
+
+### Implement visit on the rebuilt tree (run `0065-slice-two-unit-u3a-see-the--cf43401a`)
+
+This visit reviewed the rebuilt unit against U3a's row, GP1 and the
+standing scope ruling. It found nothing to fix and changed no code. Observed
+on this tree:
+
+- The format check and the workspace clippy run with `-D warnings`: both
+  clean.
+- `cargo test -p brokkr-runtime --all-features --locked --lib`: 720 passed.
+  `--tests --no-fail-fast`: every one of the 26 binaries `ok`.
+  `capability_launch` passed 68, `budgets` 4 and `witness_digests` 6 (unblessed).
+- `capability_launch.rs` is 11,883 lines (`wc -l`), at its baseline.
+- M6 was re-run here (`let _ = gates::check(…)` in `holding`), with
+  `cargo test -p brokkr-runtime --all-features --locked --lib gate`. It
+  failed 7 tests, exactly the table's row: gate_class.rs :84 (twice) and
+  :273, and gate_tests.rs :179, :194, :228 and :283. After the restore,
+  61 of 61 passed.
+- `openspec validate --all --strict`: 20 passed, 0 failed.
+- `git diff --cached --check`: clean.
+- `bundles/self` compiles, digest `11c7d0e7…`.
+
+This seat's permission layer refuses `typos --hidden`, `quality/ratchet.sh`
+and `scripts/measure-budgets.sh`, so it did not run them. Their results above
+are the controller's. Only this file changed after the controller's run, and
+CI's required jobs re-check them on push.
+
+### Pending
+
+- `bash scripts/coverage-exact.sh` and the cyclomatic ratchet on its LCOV are
+  pending for a capable host or CI. They are not passed.
+- Remote Linux and macOS CI is pending.
