@@ -40,8 +40,10 @@ use brokkr_protocol::native_controls::{
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
+mod binding;
 mod gates;
 use crate::bundle::SeatClass;
+pub use binding::{Native, Unbound};
 use gates::Cause;
 
 /// The realm name of a repository no map names.
@@ -1422,9 +1424,33 @@ pub struct Authority {
     pub definitions: Definitions,
     /// Capability to the dialect its grant selected.
     pub dialects: BTreeMap<String, ToolDialect>,
-    /// Capability to the `(provider, adapter key)` its dialect binds.
-    /// Every grant has one: a grant of any other kind was refused.
-    bindings: BTreeMap<String, (String, String)>,
+}
+
+/// The serving provider's own native capability `adapter_key`, where its
+/// inventory is known and that entry serves `capability`; else why not.
+fn native_serving<'a>(
+    serving: &Serving<'a>,
+    adapter_key: &str,
+    capability: &str,
+) -> Result<&'a NativeCapability, String> {
+    let provider = serving.provider;
+    let known = match serving.native {
+        Some((NativeInventory::Known { known, .. }, _)) => known,
+        Some((NativeInventory::Unmeasured(reason), _)) => {
+            return Err(format!(
+                "provider '{provider}' declares its native capabilities unmeasured ({reason})"
+            ))
+        }
+        None => return Err(format!("no adapter declares provider '{provider}'")),
+    };
+    known
+        .get(adapter_key)
+        .filter(|native| native.capability == capability)
+        .ok_or_else(|| {
+            format!(
+                "provider '{provider}' declares no native capability '{adapter_key}' serving it"
+            )
+        })
 }
 
 impl Authority {
@@ -1492,38 +1518,15 @@ impl Authority {
             })?;
             dialects.insert(capability.clone(), dialect);
         }
-        let mut bindings = BTreeMap::new();
+        // The compile fence (SC5): until slice two's enabling unit, every
+        // grant binds a native provider, used by a seat or not.
         for (capability, dialect) in &dialects {
-            match &dialect.kind {
-                DialectKind::Native {
-                    provider,
-                    adapter_key,
-                } => {
-                    bindings.insert(capability.clone(), (provider.clone(), adapter_key.clone()));
-                }
-                DialectKind::Mcp => {
-                    return Err(format!(
-                        "realm '{realm}' grants capability '{capability}' through dialect '{}' \
-                         of kind 'mcp', whose broker support is not implemented until decision \
-                         0065 slice two",
-                        dialect.name
-                    ))
-                }
-                DialectKind::Hands => {
-                    return Err(format!(
-                        "realm '{realm}' grants capability '{capability}' through dialect '{}' \
-                         of kind 'hands', which is reserved: the workspace tool stays governed \
-                         by decisions 0043 and 0046 and is not a realm grant",
-                        dialect.name
-                    ))
-                }
-            }
+            binding::bound(realm, capability, dialect).map_err(|unbound| unbound.to_string())?;
         }
         Ok(Authority {
             context,
             definitions,
             dialects,
-            bindings,
         })
     }
 
@@ -1565,18 +1568,7 @@ impl Authority {
             context: CapabilityContext::no_grants(realm, root),
             definitions: Definitions::default(),
             dialects: BTreeMap::new(),
-            bindings: BTreeMap::new(),
         }
-    }
-
-    /// The `(provider, adapter key)` a granted capability is bound to —
-    /// what `brokkr doctor` compares an installed harness's native
-    /// declarations against. A same-name grant bound to another provider
-    /// covers nothing of this one's.
-    pub fn binding(&self, capability: &str) -> Option<(&str, &str)> {
-        self.bindings
-            .get(capability)
-            .map(|(provider, key)| (provider.as_str(), key.as_str()))
     }
 
     /// The site every capability refusal and notice opens with, typed so
@@ -1619,7 +1611,9 @@ impl Authority {
         serving: &Serving<'_>,
     ) -> Result<(Holding, String), Cause> {
         let grant = self.reaching(site, capability)?;
-        let dialect = &self.dialects[capability];
+        let dialect = self
+            .dialect(capability)
+            .map_err(|missing| Cause::incompatible(&grant.dialect, missing.to_string()))?;
         let through = |but| Cause::incompatible(&dialect.name, but);
         let tools = grant.tools.clone().unwrap_or_else(|| dialect.tools.clone());
         if tools.is_empty() {
@@ -1630,34 +1624,14 @@ impl Authority {
         gates::check(site, definition, grant)
             .map_err(|refusal| Cause::gate(&dialect.name, refusal))?;
         let provider = serving.provider;
-        let (bound, adapter_key) = &self.bindings[capability];
+        let (bound, adapter_key) = binding::bound(&self.context.realm, capability, dialect)
+            .map_err(|unbound| through(unbound.to_string()))?;
         if bound != provider {
             return Err(through(format!(
                 "provider '{provider}' cannot carry a binding to provider '{bound}'"
             )));
         }
-        let known = match serving.native {
-            Some((NativeInventory::Known { known, .. }, _)) => known,
-            Some((NativeInventory::Unmeasured(reason), _)) => {
-                return Err(through(format!(
-                    "provider '{provider}' declares its native capabilities unmeasured \
-                     ({reason})"
-                )))
-            }
-            None => {
-                return Err(through(format!(
-                    "no adapter declares provider '{provider}'"
-                )))
-            }
-        };
-        let Some(native) = known
-            .get(adapter_key)
-            .filter(|native| native.capability == capability)
-        else {
-            return Err(through(format!(
-                "provider '{provider}' declares no native capability '{adapter_key}' serving it"
-            )));
-        };
+        let native = native_serving(serving, adapter_key, capability).map_err(through)?;
         if let Some(tool) = tools.iter().find(|tool| !native.tools.contains(tool)) {
             return Err(through(format!(
                 "provider '{provider}' native '{adapter_key}' has no tool '{tool}'"
@@ -1714,7 +1688,7 @@ impl Authority {
                 tools,
                 restrictions: grant.restrictions.clone(),
             },
-            adapter_key.clone(),
+            adapter_key.to_string(),
         ))
     }
 

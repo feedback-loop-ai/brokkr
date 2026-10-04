@@ -572,6 +572,18 @@ pub fn brokkr_runtime::capabilities::Strength::word(self) -> &'static str
 pub enum brokkr_runtime::capabilities::Transport
 pub brokkr_runtime::capabilities::Transport::Argv(alloc::vec::Vec<alloc::string::String>)
 pub brokkr_runtime::capabilities::Transport::Unsupported(alloc::string::String)
+pub enum brokkr_runtime::capabilities::Unbound
+pub brokkr_runtime::capabilities::Unbound::Hands
+pub brokkr_runtime::capabilities::Unbound::Hands::capability: alloc::string::String
+pub brokkr_runtime::capabilities::Unbound::Hands::dialect: alloc::string::String
+pub brokkr_runtime::capabilities::Unbound::Hands::realm: alloc::string::String
+pub brokkr_runtime::capabilities::Unbound::Mcp
+pub brokkr_runtime::capabilities::Unbound::Mcp::capability: alloc::string::String
+pub brokkr_runtime::capabilities::Unbound::Mcp::dialect: alloc::string::String
+pub brokkr_runtime::capabilities::Unbound::Mcp::realm: alloc::string::String
+pub brokkr_runtime::capabilities::Unbound::Missing
+pub brokkr_runtime::capabilities::Unbound::Missing::capability: alloc::string::String
+pub brokkr_runtime::capabilities::Unbound::Missing::realm: alloc::string::String
 pub struct brokkr_runtime::capabilities::Authored
 pub brokkr_runtime::capabilities::Authored::config_flags: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::capabilities::Authored::config_keys: alloc::vec::Vec<alloc::string::String>
@@ -586,11 +598,12 @@ pub brokkr_runtime::capabilities::Authority::definitions: brokkr_runtime::capabi
 pub brokkr_runtime::capabilities::Authority::dialects: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::capabilities::ToolDialect>
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::assess(&self, &brokkr_runtime::agents::Adapter, &str, brokkr_runtime::capabilities::Requests) -> core::result::Result<brokkr_runtime::capabilities::Outcome, alloc::string::String>
-pub fn brokkr_runtime::capabilities::Authority::binding(&self, &str) -> core::option::Option<(&str, &str)>
 pub fn brokkr_runtime::capabilities::Authority::load(brokkr_runtime::capabilities::CapabilityContext) -> core::result::Result<brokkr_runtime::capabilities::Authority, alloc::string::String>
 pub fn brokkr_runtime::capabilities::Authority::manifest(&self, &[alloc::string::String]) -> serde_json::value::Value
 pub fn brokkr_runtime::capabilities::Authority::nothing(&str, &std::path::Path) -> brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::resolve(&self, &brokkr_runtime::capabilities::SiteAsks, &brokkr_runtime::capabilities::Serving<'_>) -> core::result::Result<brokkr_runtime::capabilities::Outcome, alloc::string::String>
+impl brokkr_runtime::capabilities::Authority
+pub fn brokkr_runtime::capabilities::Authority::binding(&self, &str) -> core::result::Result<brokkr_runtime::capabilities::Native<'_>, brokkr_runtime::capabilities::Unbound>
 pub struct brokkr_runtime::capabilities::CapabilityContext
 pub brokkr_runtime::capabilities::CapabilityContext::grants: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::realms::CapabilityGrant>
 pub brokkr_runtime::capabilities::CapabilityContext::realm: alloc::string::String
@@ -624,6 +637,10 @@ pub brokkr_runtime::capabilities::Holding::tools: alloc::vec::Vec<alloc::string:
 pub struct brokkr_runtime::capabilities::ListFlag
 pub brokkr_runtime::capabilities::ListFlag::flag: alloc::string::String
 pub brokkr_runtime::capabilities::ListFlag::separator: alloc::string::String
+pub struct brokkr_runtime::capabilities::Native<'a>
+pub brokkr_runtime::capabilities::Native::adapter_key: &'a str
+pub brokkr_runtime::capabilities::Native::dialect: &'a brokkr_runtime::capabilities::ToolDialect
+pub brokkr_runtime::capabilities::Native::provider: &'a str
 pub struct brokkr_runtime::capabilities::NativeCapability
 pub brokkr_runtime::capabilities::NativeCapability::authored: brokkr_runtime::capabilities::Authored
 pub brokkr_runtime::capabilities::NativeCapability::capability: alloc::string::String
