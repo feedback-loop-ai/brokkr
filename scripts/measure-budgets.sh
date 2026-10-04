@@ -21,14 +21,16 @@ trap 'rm -rf "$scratch"' EXIT
 
 # A test over budget still prints its measurement before it fails, so a
 # failing run is read, not refused; a run that reports nothing is refused.
+# Each run names its own `cargo test`, so the test-target gate reads its
+# filter (#423).
 report() {
-  cargo test --locked "$@" -- --nocapture --test-threads=1 > "$scratch/out" 2>&1 || true
+  "$@" -- --nocapture --test-threads=1 > "$scratch/out" 2>&1 || true
   cat "$scratch/out"
 }
 
-report -p brokkr-runtime --test it budgets:: > "$scratch/runtime"
+report cargo test --locked -p brokkr-runtime --test it budgets:: > "$scratch/runtime"
 for kind in claude codex dsh; do
-  report -p brokkr-cli --test "heap_$kind"
+  report cargo test --locked -p brokkr-cli --test "heap_$kind"
 done > "$scratch/heap"
 
 # The harness writes a test's name before its first printed line, on the
