@@ -18,9 +18,11 @@
 //! cannot be read fails the check.
 //!
 //! Deliberately unread, each for the reason given:
-//! - A Rust source under `crates/`: its endpoints are test vectors for the
-//!   endpoint grammar (`https://-host/x`, `https://leaked:pw@host/x`), and
-//!   the endpoints Brokkr ships are data, which is read.
+//! - A Rust test file under `crates/`, one in a crate's `tests/` or named
+//!   `tests.rs` or `*_tests.rs`, this checker among them: its endpoints are
+//!   test vectors for the endpoint grammar (`https://-host/x`,
+//!   `https://leaked:pw@host/x`). Production Rust source is read, as the
+//!   place a pasted endpoint would ship from.
 //! - A bare `name:port` outside a URL: `file:line` citations and clock times
 //!   spell the same shape throughout the prose.
 //! - An IPv6 literal: the slip this guards is the one #532 removed, a name
@@ -99,9 +101,12 @@ fn url_hosts(line: &str) -> Vec<&str> {
     line.match_indices("://")
         .filter_map(|(at, _)| {
             let before = &line[..at];
-            let scheme = &before[before
-                .rfind(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-')))
-                .map_or(0, |end| end + 1)..];
+            let scheme_len = before
+                .chars()
+                .rev()
+                .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+                .count();
+            let scheme = &before[before.len() - scheme_len..];
             if scheme.is_empty() || scheme.eq_ignore_ascii_case("file") {
                 return None;
             }
@@ -119,10 +124,24 @@ fn url_hosts(line: &str) -> Vec<&str> {
         .collect()
 }
 
-/// Every private host or address `text` names, as `path:line: name is why`,
-/// once per name and line.
+/// Whether `path` is a Rust test file under `crates/`, whose endpoints are
+/// the endpoint grammar's test vectors.
+fn rust_test_file(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("crates/") else {
+        return false;
+    };
+    let in_tests_dir = rest
+        .split_once('/')
+        .is_some_and(|(_, inner)| inner.starts_with("tests/"));
+    let name = rest.rsplit('/').next().unwrap_or(rest);
+    path.ends_with(".rs") && (in_tests_dir || name == "tests.rs" || name.ends_with("_tests.rs"))
+}
+
+/// Every private host or address `text` names, as `path:line: name is why`:
+/// once per URL that names it and once per other mention, a bare mention of
+/// a host a URL on the same line names counting with the URL.
 fn findings(path: &str, text: &str) -> Vec<String> {
-    if path.starts_with("crates/") && path.ends_with(".rs") {
+    if rust_test_file(path) {
         return Vec::new();
     }
     let mut found = Vec::new();
@@ -169,6 +188,7 @@ fn every_spelling_is_found_and_a_placeholder_is_not() {
         "https://host/x http://localhost:8080 https://hóst/x https://<host>/v1",
         "file:///tmp/x and https://token-plan.ap-southeast-1.maas.aliyuncs.com",
         "adapters.rs:5863, 12:30 and 8.8.8.8",
+        "the route—http://dgx/v1",
     ]
     .join("\n");
     let expected = |path: &str| {
@@ -186,17 +206,23 @@ fn every_spelling_is_found_and_a_placeholder_is_not() {
             format!("{path}:7: box.home.arpa is under a private-use suffix"),
             format!("{path}:7: SPARK.Internal is under a private-use suffix"),
             format!("{path}:7: dgx.localdomain is under a private-use suffix"),
+            format!("{path}:12: dgx is a single-label host"),
         ]
     };
     for path in [
         "docs/guides/provider-adapters.md",
         "docs/decisions/0036-egress-is-a-property-of-the-route.md",
         "crates/brokkr-cli/tests/fixtures/endpoint.json",
+        "crates/example/src/lib.rs",
+        "crates/example/src/tests_support.rs",
     ] {
         assert_eq!(findings(path, &planted), expected(path), "{path}");
     }
-    assert_eq!(
-        findings("crates/example/src/lib.rs", &planted),
-        Vec::<String>::new()
-    );
+    for path in [
+        "crates/brokkr-cli/tests/private_hosts.rs",
+        "crates/brokkr-protocol/src/adapters/tests.rs",
+        "crates/brokkr-runtime/src/engine/resume_tests.rs",
+    ] {
+        assert_eq!(findings(path, &planted), Vec::<String>::new(), "{path}");
+    }
 }
