@@ -8,15 +8,18 @@
 //! that names `--test` is refused, since its folding or escapes are not
 //! the shell's. Each string of a JSON file is decoded by serde_json and
 //! its lines read. A Markdown code span that wraps is joined, as Markdown
-//! joins it, and a prose line that does not itself name `--test` gives
-//! only its code spans. A file in a format the reader does not know is
-//! refused where it names `--test`. Each line is then split into words as
-//! the shell splits it: quotes, backslashes and continuations; `|`, `&`,
-//! `;`, a parenthesis or a backtick ends one command; a redirect takes its
-//! target, which the command never sees, and the words after it are still
-//! the command's. A comment, and a quoted word that holds `--test`, are
-//! read again as lines of their own, since a person or a wrapper may run
-//! them.
+//! joins it, and a prose line gives its code spans, and its runs of prose
+//! too when they name `--test`, each a line. A file in a format the
+//! reader does not know is refused where it names `--test`. Each line is
+//! then split into words as the shell splits it: quotes, backslashes and
+//! continuations; `|`, `&`, `;` or a subshell's parenthesis ends one
+//! command; a redirect takes its target, which the command never sees,
+//! and the words after it are still the command's, an unquoted word of
+//! digits before it being a descriptor. A command substitution, `` `…` ``
+//! or `$(…)`, is joined to the word it touches, as is a `(` that abuts a
+//! word's text, and on a line that names `--test` that word is refused. A
+//! comment, and a quoted word that holds `--test`, are read again as
+//! lines of their own, since a person or a wrapper may run them.
 //!
 //! In each command the words after `cargo` are an invocation. One that
 //! passes `--test it` (as `--test it`, `--test=it`, or quoted) is read by
@@ -149,6 +152,10 @@ struct Word {
     /// which a workflow substitutes before any shell reads the line. What
     /// the shell makes there the reader does not know.
     made: Option<usize>,
+    /// Whether the word holds what the reader cannot read at all: a
+    /// command substitution, `` `…` `` or `$(…)`, outside single quotes,
+    /// or a `(` that abuts its text. A line that names `--test` refuses it.
+    opaque: bool,
 }
 
 /// What the shell passes a `--test` as.
@@ -169,8 +176,9 @@ enum Target<'w> {
 enum Token {
     Word(Word),
     /// The word a redirect names, which the command never receives.
-    Target(String),
-    /// `|`, `&`, `;`, a parenthesis or a backtick: one command ends.
+    Target(Word),
+    /// `|`, `&`, `;`, or a parenthesis that joins no word: one command
+    /// ends.
     Break,
     /// The text after a `#` that starts a word.
     Comment(String),
@@ -181,7 +189,8 @@ enum Token {
 enum Unlexed {
     /// A backslash ends it: the command goes on on the next line.
     Continues,
-    /// A quote it never closes.
+    /// A quote or a substitution it never closes, by the character that
+    /// would close it.
     Unclosed(char),
     /// A redirect with no word to name.
     Dangling(String),
@@ -207,6 +216,12 @@ struct Lexer {
     started: bool,
     /// Where the shell begins to make the word, as `Word::made`.
     made: Option<usize>,
+    /// Whether the word holds what the reader cannot read, as
+    /// `Word::opaque`.
+    opaque: bool,
+    /// Whether a quote or a backslash wrote part of the word, so that it
+    /// is an argument even when it is all digits.
+    quoted: bool,
     /// The redirect whose target the next word is.
     redirect: Option<String>,
 }
@@ -225,16 +240,67 @@ impl Lexer {
         self.push(c);
     }
 
+    /// A quote opens, or a backslash escapes: the word is begun and is an
+    /// argument.
+    fn quote_opens(&mut self) {
+        self.started = true;
+        self.quoted = true;
+    }
+
+    /// A command substitution, `` `…` `` or `$(…)`, which the shell runs
+    /// and joins to the word it touches. It is kept whole in the word, up
+    /// to the unescaped `close` that ends it, and makes the word opaque.
+    fn substitution(
+        &mut self,
+        open: &str,
+        close: char,
+        chars: &mut Chars<'_>,
+    ) -> Result<(), Unlexed> {
+        self.made.get_or_insert(self.word.len());
+        self.word.push_str(open);
+        (self.started, self.opaque) = (true, true);
+        let mut depth = 1;
+        while depth > 0 {
+            let c = chars.next().ok_or(Unlexed::Unclosed(close))?;
+            self.word.push(c);
+            match c {
+                '\\' => self.word.extend(chars.next()),
+                c if c == close => depth -= 1,
+                '(' if close == ')' => depth += 1,
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// A parenthesis. A `(` that abuts the text of a word joins it and
+    /// makes it opaque, as in `@(it)` or `f()`, and a `)` joins a word so
+    /// made; any other ends a command, as a subshell's `(cd` and `x)` do.
+    fn parenthesis(&mut self, c: char) -> Result<(), Unlexed> {
+        if self.started && (c == '(' || self.opaque) {
+            self.opaque = true;
+            self.push(c);
+            Ok(())
+        } else {
+            self.command_ends()
+        }
+    }
+
     fn end_word(&mut self) {
-        let made = std::mem::take(&mut self.made);
+        let (made, opaque) = (
+            std::mem::take(&mut self.made),
+            std::mem::take(&mut self.opaque),
+        );
+        self.quoted = false;
         if !std::mem::take(&mut self.started) {
             return;
         }
         let text = std::mem::take(&mut self.word);
         let made = [made, text.find("${{")].into_iter().flatten().min();
+        let word = Word { text, made, opaque };
         self.tokens.push(match self.redirect.take() {
-            Some(_) => Token::Target(text),
-            None => Token::Word(Word { text, made }),
+            Some(_) => Token::Target(word),
+            None => Token::Word(word),
         });
     }
 
@@ -253,7 +319,7 @@ impl Lexer {
     }
 
     fn single(&mut self, chars: &mut Chars<'_>) -> Result<(), Unlexed> {
-        self.started = true;
+        self.quote_opens();
         loop {
             match chars.next() {
                 Some('\'') => return Ok(()),
@@ -265,9 +331,10 @@ impl Lexer {
 
     /// A double-quoted part, in which a backslash escapes only `$`, a
     /// backtick, `"`, itself and the line's end, and an unescaped `$` or
-    /// backtick is still the shell's to expand.
+    /// backtick is still the shell's to expand: a backtick, or a `$` before
+    /// `(`, substitutes a command.
     fn double(&mut self, chars: &mut Chars<'_>) -> Result<(), Unlexed> {
-        self.started = true;
+        self.quote_opens();
         loop {
             match chars.next() {
                 Some('"') => return Ok(()),
@@ -276,7 +343,10 @@ impl Lexer {
                     Some(c) => self.word.extend(['\\', c]),
                     None => return Err(Unlexed::Continues),
                 },
-                Some(c @ ('$' | '`')) => self.make(c),
+                Some(c @ ('$' | '`')) => {
+                    self.opaque |= c == '`' || chars.peek() == Some(&'(');
+                    self.make(c);
+                }
                 Some(c) => self.word.push(c),
                 None => return Err(Unlexed::Unclosed('"')),
             }
@@ -284,10 +354,10 @@ impl Lexer {
     }
 
     /// A redirect: `>`, `>>`, `>|`, `>&`, `<`, `<<`, `<<<`, `<&`, `<>`,
-    /// `&>` or `&>>`. A word of digits just before it names a descriptor,
-    /// not an argument.
+    /// `&>` or `&>>`. An unquoted word of digits just before it names a
+    /// descriptor, not an argument; a quoted one, as `"2"`, is an argument.
     fn redirect(&mut self, first: char, chars: &mut Chars<'_>) -> Result<(), Unlexed> {
-        if self.started && self.word.chars().all(|c| c.is_ascii_digit()) {
+        if self.started && !self.quoted && self.word.chars().all(|c| c.is_ascii_digit()) {
             self.word.clear();
             self.started = false;
         } else {
@@ -319,9 +389,15 @@ fn lex(text: &str) -> Result<Vec<Token>, Unlexed> {
             ' ' | '\t' => lexer.end_word(),
             '\'' => lexer.single(&mut chars)?,
             '"' => lexer.double(&mut chars)?,
-            '\\' => lexer.push(chars.next().ok_or(Unlexed::Continues)?),
+            '\\' => {
+                lexer.quote_opens();
+                lexer.push(chars.next().ok_or(Unlexed::Continues)?);
+            }
             '#' if !lexer.started => lexer.tokens.push(Token::Comment(chars.by_ref().collect())),
-            '|' | ';' | '(' | ')' | '`' => lexer.command_ends()?,
+            '`' => lexer.substitution("`", '`', &mut chars)?,
+            '$' if chars.next_if_eq(&'(').is_some() => lexer.substitution("$(", ')', &mut chars)?,
+            '(' | ')' => lexer.parenthesis(c)?,
+            '|' | ';' => lexer.command_ends()?,
             '&' if chars.peek() != Some(&'>') => lexer.command_ends()?,
             '&' | '<' | '>' => lexer.redirect(c, &mut chars)?,
             '$' | '{' | '*' | '?' | '[' => lexer.make(c),
@@ -458,19 +534,27 @@ pub(super) fn filters_in(
 }
 
 /// One line's `--test it` invocations, each with the text it was read
-/// from, into `found`.
+/// from, into `found`. On a line that names `--test`, in its text or in a
+/// word, an opaque word is refused.
 fn read_line(at: &str, text: &str, found: &mut Vec<(String, Invocation)>) -> Result<(), Refusal> {
     let tokens = match lex(text) {
         Ok(tokens) => tokens,
         Err(_) if !mentions_test(text) => return Ok(()),
         Err(unlexed) => return Err(unread_filter(at, &unlexed.word(), text)),
     };
+    let names_test = mentions_test(text)
+        || (tokens.iter()).any(|token| {
+            matches!(token, Token::Word(word) | Token::Target(word) if mentions_test(&word.text))
+        });
     let mut command = Vec::new();
     for token in tokens {
         match token {
+            Token::Word(word) | Token::Target(word) if word.opaque && names_test => {
+                return Err(unread_filter(at, &word.text, text));
+            }
             Token::Word(word) => command.push(word),
-            Token::Target(target) if mentions_test(&target) => {
-                return Err(unread_filter(at, &target, text));
+            Token::Target(target) if mentions_test(&target.text) => {
+                return Err(unread_filter(at, &target.text, text));
             }
             Token::Target(_) => {}
             Token::Comment(comment) => read_line(at, &comment, found)?,
@@ -808,17 +892,20 @@ fn markdown_lines(text: &str) -> Vec<Line> {
         .collect()
 }
 
-/// The commands a Markdown line holds: a fenced line whole; a prose line
-/// whole when it has no code span or its prose itself names `--test`, and
-/// otherwise each of its code spans.
+/// The commands a Markdown line holds: a fenced line, or a prose line with
+/// no code span, whole; otherwise each of its code spans, and each run of
+/// its prose too when the prose itself names `--test`. The backticks that
+/// bound a span are Markdown's, cut here, and never reach the shell's
+/// reader.
 fn code_of((number, text): Line, fenced: bool) -> Vec<Line> {
     let parts: Vec<&str> = text.split('`').collect();
-    let prose_names_test = parts.iter().step_by(2).any(|part| mentions_test(part));
-    if fenced || parts.len() == 1 || prose_names_test {
+    if fenced || parts.len() == 1 {
         return vec![(number, text)];
     }
-    (parts.iter().skip(1).step_by(2))
-        .map(|span| (number, (*span).to_string()))
+    let prose_names_test = parts.iter().step_by(2).any(|part| mentions_test(part));
+    (parts.iter().enumerate())
+        .filter(|(index, _)| index % 2 == 1 || prose_names_test)
+        .map(|(_, part)| (number, (*part).to_string()))
         .collect()
 }
 
@@ -847,6 +934,8 @@ fn the_filter_reader_holds_each_filter_to_its_crates_root() {
         ("f.yml", "# cargo test -p brokkr-cli --test it packaging::\n  - run: cargo test -p brokkr-cli --test it suppressions:: # note\n  - run: echo gone::\n", vec![cli("f.yml:1", "packaging"), cli("f.yml:2", "suppressions")]),
         ("f.json", "{\"a\": \"cargo test -p brokkr-cli --test\\tit packaging:: \\\\\",\n \"b\": [\"no_such_file::\"]}\n", vec![cli("f.json:1", "packaging")]),
         ("f.md", "Run `cargo test -p brokkr-cli --test\nit packaging::` once; it's quick.\n```sh\ncargo test -p brokkr-cli --test it suppressions::\n```\n", vec![cli("f.md:1", "packaging"), cli("f.md:4", "suppressions")]),
+        ("f.md", "Pass --test heap_x or `cargo test -p brokkr-cli --test it packaging::` here.\n", vec![cli("f.md:1", "packaging")]),
+        ("f", "echo `date` $(pwd) @(x) \"2\">f\n(cd x; cargo test -p brokkr-cli --test it packaging::)\n", vec![cli("f:2", "packaging")]),
     ] {
         assert_eq!(filters_in(file, text, &roots, &read), Ok(held), "{text}");
     }
@@ -995,7 +1084,7 @@ fn the_filter_reader_refuses_a_word_or_form_it_cannot_read() {
 }
 
 /// A command, on a file's first line, the reader refuses by a word.
-const UNREAD_WORDS: [(&str, &str); 33] = [
+const UNREAD_WORDS: [(&str, &str); 53] = [
     ("cargo test -p brokkr-cli --test it packaging", "packaging"),
     (
         "cargo test -p brokkr-cli --test it \"packaging:: x\"",
@@ -1060,11 +1149,76 @@ const UNREAD_WORDS: [(&str, &str); 33] = [
     ("cargo test --locked -p brokkr-cli --test it$x x::", "it$x"),
     (
         "cargo test --locked -p brokkr-cli --test $(echo it) no_such_file::",
-        "$",
+        "$(echo it)",
     ),
-    ("cargo test -p brokkr-cli --test `echo it` x::", "--test"),
+    ("cargo test -p brokkr-cli --test `echo it` x::", "`echo it`"),
     ("cargo test -p brokkr-cli --test; echo it", "--test"),
     ("report --test \"$x\" x::", "$x"),
+    (
+        "cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+        "i`printf t`",
+    ),
+    (
+        "cargo test --locked -p brokkr-cli --test=i`printf t` no_such_file::",
+        "--test=i`printf t`",
+    ),
+    (
+        "cargo test --locked -p brokkr-cli --test it`printf ''` no_such_file::",
+        "it`printf ''`",
+    ),
+    (
+        "cargo test --locked -p brokkr-cli --test it `echo no_such_file::`",
+        "`echo no_such_file::`",
+    ),
+    (
+        "cargo test --locked -p brokkr-cli --test it -- --exact packaging::every_workspace_path_dependency_names_the_workspace_version`echo x`",
+        "packaging::every_workspace_path_dependency_names_the_workspace_version`echo x`",
+    ),
+    (
+        "cargo test -p brokkr-cli --test it -- --exact suppressions::a_b`echo x`",
+        "suppressions::a_b`echo x`",
+    ),
+    (
+        "echo $(date); cargo test -p brokkr-cli --test it packaging::",
+        "$(date)",
+    ),
+    (
+        "echo \"$(date)\"; cargo test -p brokkr-cli --test it packaging::",
+        "$(date)",
+    ),
+    (
+        "echo \"`date`\"; cargo test -p brokkr-cli --test it packaging::",
+        "`date`",
+    ),
+    (
+        "cargo test -p brokkr-cli --test it packaging:: > `mktemp`",
+        "`mktemp`",
+    ),
+    (
+        "cargo test -p brokkr-cli --te\\st it packaging:: > `mktemp`",
+        "`mktemp`",
+    ),
+    (
+        "cargo test -p brokkr-cli --test it $(echo $(x) y) z::",
+        "$(echo $(x) y)",
+    ),
+    ("cargo test -p brokkr-cli --test it `echo (` x::", "`echo (`"),
+    ("cargo test -p brokkr-cli --test it x:: `x", "`"),
+    ("cargo test -p brokkr-cli --test it $(x \\) y", ")"),
+    (
+        "cargo test --locked -p brokkr-cli --test @(it) no_such_file::",
+        "@(it)",
+    ),
+    (
+        "f() { cargo test -p brokkr-cli --test it packaging::; }",
+        "f()",
+    ),
+    (
+        "cargo test --locked -p brokkr-cli --test it \"2\">/dev/null",
+        "2",
+    ),
+    ("cargo test -p brokkr-cli --test it '2'>/dev/null", "2"),
+    ("cargo test -p brokkr-cli --test it \\2>/dev/null", "2"),
 ];
 
 /// A one-line form, by file, the reader does not read exactly, refused at
@@ -1096,7 +1250,7 @@ const UNREAD_LINES: [(&str, &str); 7] = [
 
 /// A form, by file, the reader refuses at a line and a word, with the
 /// command it names.
-const UNREAD_FORMS: [(&str, &str, usize, &str, &str); 7] = [
+const UNREAD_FORMS: [(&str, &str, usize, &str, &str); 9] = [
     (
         "f.yml",
         "run: cargo test --locked -p brokkr-cli --test ${{ matrix.target }} no_such_file::",
@@ -1145,6 +1299,20 @@ const UNREAD_FORMS: [(&str, &str, usize, &str, &str); 7] = [
         1,
         "--test",
         "--test",
+    ),
+    (
+        "f.yml",
+        "run: |\n  cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+        2,
+        "i`printf t`",
+        "cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+    ),
+    (
+        "f.md",
+        "Pass --test it with `cargo b`.",
+        1,
+        "--test",
+        "Pass --test it with",
     ),
 ];
 
