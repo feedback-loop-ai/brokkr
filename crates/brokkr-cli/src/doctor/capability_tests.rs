@@ -909,6 +909,7 @@ fn a_grant_line_reads_its_binding_by_kind_and_assumes_no_native_provider() {
         dialect: dialect.into(),
         tools: None,
         offices: None,
+        retention: brokkr_core::realms::GrantRetention::Unreserved,
         restrictions: Default::default(),
     };
     let (search, docs) = (grant("codex-native-search"), grant("docs-mcp"));

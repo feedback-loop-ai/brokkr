@@ -605,7 +605,7 @@ pub fn brokkr_runtime::capabilities::Authority::resolve(&self, &brokkr_runtime::
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::binding(&self, &str) -> core::result::Result<brokkr_runtime::capabilities::Native<'_>, brokkr_runtime::capabilities::Unbound>
 pub struct brokkr_runtime::capabilities::CapabilityContext
-pub brokkr_runtime::capabilities::CapabilityContext::grants: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::realms::CapabilityGrant>
+pub brokkr_runtime::capabilities::CapabilityContext::grants: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::realms::grants::CapabilityGrant>
 pub brokkr_runtime::capabilities::CapabilityContext::realm: alloc::string::String
 pub brokkr_runtime::capabilities::CapabilityContext::root: std::path::PathBuf
 impl brokkr_runtime::capabilities::CapabilityContext
