@@ -21,6 +21,8 @@ use thiserror::Error;
 
 use crate::dialect::{library_path, Dialect};
 
+mod standing;
+
 #[derive(Debug, Error)]
 pub enum WorldError {
     #[error("no realms map at {0}")]
@@ -671,10 +673,7 @@ impl World {
     pub fn verify_crossings(&self, workspace: &Path) -> Result<(), WorldError> {
         let source = workspace.join(&self.source);
         let (_, reports) = resolve_crossings(&source, &self.map);
-        match first_crossing_failure(&reports) {
-            Some(failure) => Err(failure),
-            None => Ok(()),
-        }
+        first_crossing_failure(&reports).map_or(Ok(()), Err)
     }
 
     /// The crossings this world STOOD ON, as they go into a run manifest

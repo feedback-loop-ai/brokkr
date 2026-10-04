@@ -579,8 +579,9 @@ pub(super) enum QueueCmd {
     #[command(group(clap::ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
     Add(QueueAddArgs),
     /// The queue in order: each waiting entry's place, state, priority,
-    /// waits and launch, then the entries that started a run, with it.
-    /// `--json` emits the view model for scripts.
+    /// waits, launch and admission (admissible, or why it waits or is
+    /// held), then the entries that started a run, with it. `--json`
+    /// emits the view model for scripts.
     List(QueueListArgs),
     /// Put an entry at another place in the queue.
     Move(QueueMoveArgs),
@@ -588,6 +589,10 @@ pub(super) enum QueueCmd {
     Hold(QueueEntryArgs),
     /// Let a held entry be started again.
     Release(QueueEntryArgs),
+    /// Re-pin a waiting entry to the realms map now on disk at the file
+    /// its map was read from: how the operator releases an entry that
+    /// admission holds because its realm changed since it was queued.
+    Repin(QueueEntryArgs),
     /// Take an entry out of the queue. One that started a run cannot be.
     Drop(QueueEntryArgs),
 }

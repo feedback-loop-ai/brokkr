@@ -41,8 +41,9 @@ pub enum Encoding {
 /// back through [`World::from_manifest`] and never off the disk, so the
 /// entry starts under the map it was queued with, whatever the file holds
 /// by then; the digest is re-derived there, and a pin that does not
-/// answer for itself is refused. The crossings the world draws are fenced
-/// at admission as the disk then stands, as a resumed run's are.
+/// answer for itself is refused. The crossings the world draws are read
+/// when the entry is rebuilt, fenced as the disk then stands as a resumed
+/// run's are, and pinned into the run it starts as a direct start's are.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct HeldWorld(Value);
@@ -57,6 +58,17 @@ impl HeldWorld {
             World::from_manifest(&json!({ "realms": &self.0 }))?.map_or(unpinned, Ok)?;
         world.source = workspace.join(&world.source);
         Ok(world)
+    }
+
+    /// The world the entry was queued with, stood on the disk as it is at
+    /// admission: what the run it starts pins, crossings and all.
+    fn stood(&self, workspace: &Path) -> Result<World, WorldError> {
+        self.world(workspace)?.standing_on(workspace)
+    }
+
+    /// The map file the entry's world was read from, as it is on disk now.
+    fn on_disk(&self, workspace: &Path) -> Result<World, WorldError> {
+        World::load(&self.world(workspace)?.source)
     }
 }
 
@@ -79,6 +91,15 @@ impl MapSource {
             RunMap::Named(world) => held(world).map(MapSource::Named),
         }
     }
+}
+
+/// A mapped entry's two worlds: the one it was queued with, and the map
+/// on disk at the same file now, or why that cannot be read.
+pub(crate) struct HeldAndNow {
+    pub(crate) held: World,
+    pub(crate) now: Result<World, WorldError>,
+    /// The repository the entry operates, whose realm each map names.
+    pub(crate) repo: PathBuf,
 }
 
 /// Every fact a queued launch is rebuilt from.
@@ -119,8 +140,9 @@ impl QueuedLaunch {
 
     /// The request and new run this entry was queued as, written to
     /// `journal` and looking for a boundary's tool on `host_path`: the
-    /// inverse of [`QueuedLaunch::of`]. Admission (#430's second slice)
-    /// is its caller. Every path is anchored to the workspace again, so a
+    /// inverse of [`QueuedLaunch::of`]. The dispatcher's start of an
+    /// admitted entry (#430's third slice) is its caller. Every path is
+    /// anchored to the workspace again, so a
     /// payload that holds a relative one is read as `of` would have
     /// written it, never against the directory that rebuilds it; and the
     /// repository is always named, the workspace when the entry names
@@ -135,13 +157,13 @@ impl QueuedLaunch {
         let at = |path: PathBuf| workspace.join(path);
         let map = match &self.map {
             MapSource::Unmapped => Ok(RunMap::Unmapped),
-            MapSource::Ambient(held) => held.world(&workspace).map(RunMap::Ambient),
-            MapSource::Named(held) => held.world(&workspace).map(RunMap::Named),
+            MapSource::Ambient(held) => held.stood(&workspace).map(RunMap::Ambient),
+            MapSource::Named(held) => held.stood(&workspace).map(RunMap::Named),
         }?;
         let request = LaunchRequest {
             bundle: anchored(&workspace, &self.bundle),
             journal,
-            repo: Some(self.repo.map_or_else(|| workspace.clone(), at)),
+            repo: Some(self.operated(&workspace)),
             secrets: self.secrets.map(at),
             host_path,
             workspace: self.workspace,
@@ -152,6 +174,48 @@ impl QueuedLaunch {
             dispatch: self.dispatch.map(at),
         };
         Ok((request, run))
+    }
+
+    /// The repository the entry operates, anchored to `workspace`: the
+    /// one it names, else the workspace.
+    fn operated(&self, workspace: &Path) -> PathBuf {
+        workspace.join(self.repo.as_deref().unwrap_or(workspace))
+    }
+
+    /// The world this entry was queued with, beside the map now on disk
+    /// at the file that world was read from, and the repository the entry
+    /// operates: what admission compares (#430's realm-drift ruling).
+    /// `None` for an entry queued under no map, which nothing can drift
+    /// from. The map on disk is the one fault an operator can mend, so it
+    /// comes back as its own result, refusals and all.
+    pub(crate) fn held_and_now(&self) -> Result<Option<HeldAndNow>, LaunchError> {
+        let workspace = anchor(&self.workspace)?;
+        let held = match &self.map {
+            MapSource::Unmapped => return Ok(None),
+            MapSource::Ambient(held) | MapSource::Named(held) => held,
+        };
+        Ok(Some(HeldAndNow {
+            held: held.world(workspace)?,
+            now: held.on_disk(workspace),
+            repo: self.operated(workspace),
+        }))
+    }
+
+    /// This entry under the map now on disk at the file its world was
+    /// read from, pinned afresh as [`QueuedLaunch::of`] pins one: what
+    /// the operator's `brokkr queue repin` writes. Everything else the
+    /// entry holds is kept. An entry queued under no map has nothing to
+    /// re-pin, and a map that cannot be read now is refused as `brokkr
+    /// run` would refuse it.
+    pub fn repinned(mut self) -> Result<QueuedLaunch, LaunchError> {
+        let workspace = anchor(&self.workspace)?.to_path_buf();
+        let map = match &self.map {
+            MapSource::Unmapped => return Err(LaunchError::RepinUnmapped),
+            MapSource::Ambient(held) => RunMap::Ambient(held.on_disk(&workspace)?),
+            MapSource::Named(held) => RunMap::Named(held.on_disk(&workspace)?),
+        };
+        self.map = MapSource::of(&map, &self.operated(&workspace))?;
+        Ok(self)
     }
 
     /// The payload text. A path that is not UTF-8 cannot be written and
