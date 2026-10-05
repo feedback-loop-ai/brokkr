@@ -677,6 +677,47 @@ fn night_shift_keeps_one_attempt_on_every_phase() {
     }
 }
 
+/// The operator's ruling of 2026-10-04 (#532): the shipped dsh
+/// implementation lanes run GLM-5.3 Flash on the `spark-glm` route, the
+/// dsh adapter's `glm-flash`. The route is effortless (dsh 0.1.5-rc.1
+/// refuses reasoningEffort on it, measured 2026-09-16), so the composed
+/// command pins the model and no effort.
+#[test]
+fn the_dsh_implement_lanes_pin_glm_flash_with_no_effort() {
+    let root = workspace();
+    let dsh = json(&root.join("adapters/dsh.json"));
+    assert_eq!(dsh["models"]["glm-flash"], "spark-glm/GLM-5.3-Flash-EXL3");
+    assert!(dsh["effortless_routes"]["spark-glm"].is_string());
+    for recipe in ["night-shift", "wager-harness-dsh"] {
+        let bundle = Bundle::compile_with(
+            &root.join("recipes").join(recipe),
+            &root.join("agents"),
+            &root.join("adapters"),
+        )
+        .unwrap_or_else(|error| panic!("{recipe} compiles: {error}"));
+        let SeatBody::Single { command, .. } = &bundle.seats["implement"].body else {
+            panic!("{recipe}'s implement seat is one inline session");
+        };
+        // `{brokkr}` composes to the running binary, this test's own.
+        assert_eq!(
+            command[0],
+            std::env::current_exe().unwrap().to_string_lossy(),
+            "{recipe}"
+        );
+        assert_eq!(
+            command[1..],
+            [
+                "driver",
+                "dsh",
+                "--",
+                "--model",
+                "spark-glm/GLM-5.3-Flash-EXL3",
+            ],
+            "{recipe}'s implement lane"
+        );
+    }
+}
+
 /// The agents a library holds for a consumer outside every shipped
 /// bundle, each with the seat that hires it. `muninn` is composed
 /// outside a bundle by `brokkr muninn` (decision 0020).

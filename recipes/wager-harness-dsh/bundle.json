@@ -33,9 +33,7 @@
           "dsh",
           "--",
           "--model",
-          "deepseek/deepseek-flash",
-          "--effort",
-          "medium"
+          "spark-glm/GLM-5.3-Flash-EXL3"
         ]
       }
     }
