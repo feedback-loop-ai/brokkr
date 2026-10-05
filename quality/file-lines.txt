@@ -79,7 +79,8 @@
    168 crates/brokkr-runtime/src/boundary.rs
   7808 crates/brokkr-runtime/src/bundle.rs
   1258 crates/brokkr-runtime/src/bundle/compose.rs
-  2012 crates/brokkr-runtime/src/capabilities.rs
+  1995 crates/brokkr-runtime/src/capabilities.rs
+   132 crates/brokkr-runtime/src/capabilities/attribution.rs
    321 crates/brokkr-runtime/src/capabilities/binding.rs
    427 crates/brokkr-runtime/src/capabilities/dialect.rs
    136 crates/brokkr-runtime/src/capabilities/gates.rs
@@ -233,9 +234,10 @@
   4645 crates/brokkr-runtime/src/bundle/model_policy_tests.rs
    196 crates/brokkr-runtime/src/bundle/secret_binding_tests.rs
   1963 crates/brokkr-runtime/src/bundle/tests.rs
-  2103 crates/brokkr-runtime/src/capabilities/tests.rs
+  2053 crates/brokkr-runtime/src/capabilities/tests.rs
+   281 crates/brokkr-runtime/src/capabilities/tests/attribution.rs
    249 crates/brokkr-runtime/src/capabilities/tests/binding.rs
-  1024 crates/brokkr-runtime/src/capabilities/tests/dialect_policy.rs
+  1023 crates/brokkr-runtime/src/capabilities/tests/dialect_policy.rs
    295 crates/brokkr-runtime/src/capabilities/tests/gate_class.rs
    352 crates/brokkr-runtime/src/capabilities/tests/manifest.rs
    481 crates/brokkr-runtime/src/dialect/tests.rs

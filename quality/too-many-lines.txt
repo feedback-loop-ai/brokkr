@@ -36,7 +36,7 @@
  101 crates/brokkr-runtime/src/bundle.rs:7416 walk_files
  101 crates/brokkr-runtime/src/bundle/compose.rs:234 read_layers
  368 crates/brokkr-runtime/src/bundle/compose.rs:807 merge_layer
- 256 crates/brokkr-runtime/src/capabilities.rs:1544 native_plan
+ 240 crates/brokkr-runtime/src/capabilities.rs:1547 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:320 check
  159 crates/brokkr-runtime/src/engine.rs:1097 seat_input
  150 crates/brokkr-runtime/src/engine.rs:1311 execute
@@ -217,7 +217,7 @@
  131 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3358 ruling_4s_own_binding_is_pinned_against_the_shipped_adapters
  130 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3856 every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured
  176 crates/brokkr-runtime/src/bundle/tests.rs:702 panel_and_sequence_parsers_refuse_every_ambiguous_shape
- 102 crates/brokkr-runtime/src/capabilities/tests.rs:1685 a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks
+ 102 crates/brokkr-runtime/src/capabilities/tests.rs:1634 a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks
  101 crates/brokkr-runtime/src/dialect/tests.rs:108 every_checked_dialect_boundary_is_named
  164 crates/brokkr-runtime/src/engine/boundary_tests.rs:342 every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands
  263 crates/brokkr-runtime/src/engine/boundary_tests.rs:694 compose_site_follows_the_boundary_and_the_class

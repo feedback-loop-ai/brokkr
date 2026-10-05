@@ -867,10 +867,10 @@ fn past_the_fence_an_unexecutable_connection_answers_with_its_own_cause() {
 }
 
 /// SC4: an `mcp` holding's identity is carried whole or refused — never
-/// truncated — before its connection is judged. A native holding, whose
-/// tools are harness patterns, is held exactly as slice one held it.
+/// truncated — before its connection is judged. A native holding is held
+/// to the same bound where its attribution is compiled (U4d).
 #[test]
-fn an_mcp_identity_is_carried_whole_or_refused_and_a_native_one_is_unchanged() {
+fn an_mcp_or_native_identity_is_carried_whole_or_refused() {
     let root = cq1_root();
     let search = ToolDialect::load(root.path(), "search-native").unwrap();
     let named = |name: String| ToolDialect {
@@ -909,10 +909,9 @@ fn an_mcp_identity_is_carried_whole_or_refused_and_a_native_one_is_unchanged() {
         &native_dialect(&long, "web-search", &["lookup", "search"]),
     );
     let granted = authority(root.path(), json!({"web-search": {"dialect": long}}));
-    let held = granted
-        .resolve(&asks(json!({"web-search": "requires"})), &serving(&native))
-        .map(|outcome| outcome.held["web-search"].dialect.clone());
-    assert_eq!(held, Ok(long));
+    let held = granted.resolve(&asks(json!({"web-search": "requires"})), &serving(&native));
+    let context = format!("(capability 'web-search' through dialect '{long}')");
+    assert_eq!(held, Err(format!("{WHO}: {identity} {context}")));
     // Past the fence, an unrepresentable identity refuses the compile
     // whatever the ask's strength: a wanted capability is never dropped
     // over it (SC4).

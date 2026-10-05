@@ -34,12 +34,11 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::{parse_strict, sha256_bytes, to_bytes};
 use brokkr_core::realms::{is_name, CapabilityGrant};
-use brokkr_protocol::native_controls::{
-    self as launch, HeldPower, Identity, NativeExpectation, Segment,
-};
+use brokkr_protocol::native_controls::{self as launch, Identity, NativeExpectation, Segment};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
+mod attribution;
 mod binding;
 mod dialect;
 mod gates;
@@ -1460,6 +1459,10 @@ impl Authority {
             );
             notices.push((capability, message));
         }
+        // CC1 and SC4: what this candidate finally holds is attributable,
+        // each tool to one holding and by its whole name.
+        self.attribution(serving.provider, &held)
+            .map_err(|refusal| format!("{who}: {refusal}"))?;
         Ok(Outcome {
             provider: serving.provider.to_string(),
             harness: serving.harness.to_string(),
@@ -1676,28 +1679,8 @@ impl Authority {
                  and 4)"
             ));
         }
-        // What the plan answers for, sealed from typed inputs BEFORE any
-        // control is rendered (design D5.7): each known power is held where
-        // the realm's holding reaches its key, with that holding's admitted
-        // tools and restriction object as written, and denied otherwise. A
-        // measured default ON is held here though it emits no argument.
-        let expected = NativeExpectation::Known {
-            held: known
-                .iter()
-                .filter_map(|(key, native)| {
-                    keys.get(key).map(|capability| HeldPower {
-                        capability: native.capability.clone(),
-                        tools: held[capability].tools.clone(),
-                        restrictions: held[capability].restrictions.clone(),
-                    })
-                })
-                .collect(),
-            denied: known
-                .iter()
-                .filter(|(key, _)| !keys.contains_key(*key))
-                .map(|(_, native)| native.capability.clone())
-                .collect(),
-        };
+        // What the plan answers for, sealed BEFORE any control is rendered.
+        let expected = attribution::expected(known, keys, held);
         let (mut argv, mut lists) = (Vec::new(), ToolLists::default());
         let (mut on, mut off) = (Vec::new(), Vec::new());
         for (key, native) in known {
