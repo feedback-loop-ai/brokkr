@@ -16,6 +16,8 @@ use brokkr_runtime::capabilities::CapabilityContext;
 use brokkr_runtime::SeatClass::{Gate, Work};
 use brokkr_runtime::{Bundle, SeatBody};
 use serde_json::{json, Value};
+#[path = "capability_launch/legacy_journal.rs"]
+mod legacy_journal;
 
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -542,7 +544,6 @@ const THREAD: &str = "0198c0de-5e55-7000-8000-000000000001";
 /// shipped assessment is qualified against, and nothing else: composing a
 /// launch runs no model. Staged beside its name and renamed in, so the
 /// file is never open for writing when it is executed.
-#[cfg(unix)]
 fn codex_reporting(dir: &Path, version: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let staged = dir.join("codex.staged");
@@ -563,7 +564,6 @@ fn codex_reporting(dir: &Path, version: &str) -> PathBuf {
 /// `mark_hands` states them, the resume assessment the bundle COMPILED for
 /// the site (the shipped adapter's, never a test's), and the capability
 /// plan its outcome resolved to.
-#[cfg(unix)]
 fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
     let facts = &bundle.sites[label];
     let outcome = &facts.capabilities.as_ref().unwrap().outcomes[0];

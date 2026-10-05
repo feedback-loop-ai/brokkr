@@ -1,0 +1,618 @@
+//! The seat-record contracts, judged: each version's embedded bytes, its
+//! own fields and refusals, and the engine-line dispatch that picks it.
+
+use super::*;
+use brokkr_core::canonical::sha256_bytes;
+use brokkr_core::envelope::EventEnvelope;
+use brokkr_core::EventType;
+use serde_json::{json, Value};
+
+fn event(seq: u64, event_type: EventType, payload: Value) -> EventEnvelope {
+    crate::tests::envelope_builder::EnvelopeBuilder::new(event_type, payload)
+        .seq(seq)
+        .event_id(format!("event-{seq}"))
+        .at("2026-09-03T00:00:00Z")
+        .hash("1".repeat(64))
+        .build()
+}
+
+fn started(engine: &str) -> EventEnvelope {
+    event(
+        1,
+        EventType::RunStarted,
+        json!({"feature": "f", "manifest": {"engine": engine}}),
+    )
+}
+
+#[test]
+fn embedded_schemas_are_the_published_contracts() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    for (relative, embedded) in [
+        (CONTRACT_V1, SCHEMA_V1),
+        (CONTRACT_V2, SCHEMA_V2),
+        (CONTRACT_V3, SCHEMA_V3),
+        (CONTRACT_V4, SCHEMA_V4),
+        (CONTRACT_V5, SCHEMA_V5),
+    ] {
+        let published = std::fs::read(workspace.join(relative)).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&published).unwrap(),
+            serde_json::from_str::<Value>(embedded).unwrap(),
+            "{relative}"
+        );
+        assert_eq!(
+            sha256_bytes(&published),
+            sha256_bytes(embedded.as_bytes()),
+            "{relative}"
+        );
+    }
+}
+
+#[test]
+fn fields_are_typed_positive_bounded_and_cache_reads_are_a_subset() {
+    let valid = json!({
+        "step":"seat-turn", "turn":1, "model":"claude-fable-5-1",
+        "input_tokens":13, "output_tokens":2, "cache_read_tokens":3,
+        "cache_write_tokens":4, "tool":"Read", "target":"src/lib.rs"
+    });
+    validate_seat_record(&valid, 7, SeatRecordVersion::V1).unwrap();
+
+    for invalid in [
+        json!({"step":"seat-turn", "turn":0}),
+        json!({"step":"seat-turn", "turn":1, "input_tokens":0}),
+        json!({"step":"seat-turn", "turn":1, "model":"configured guess"}),
+        json!({"step":"seat-turn", "turn":1, "tool":"x".repeat(81)}),
+        json!({"step":"seat-turn", "turn":1, "target":"src/lib.rs"}),
+        json!({"step":"seat-turn", "turn":1, "content":"private prose"}),
+    ] {
+        assert!(
+            validate_seat_record(&invalid, 8, SeatRecordVersion::V1).is_err(),
+            "{invalid}"
+        );
+    }
+
+    let subset = json!({
+        "step":"turn-completed", "turn":1,
+        "input_tokens":3, "cache_read_tokens":4
+    });
+    let error = validate_seat_record(&subset, 9, SeatRecordVersion::V1).unwrap_err();
+    assert_eq!(error.seq, 9);
+    assert_eq!(error.path, "/cache_read_tokens");
+    assert_eq!(error.contract, CONTRACT_V1);
+}
+
+#[test]
+fn transcript_and_result_shapes_are_closed_without_rejecting_legacy_absence() {
+    let transcript = json!({
+        "step":"transcript", "model":"not reported",
+        "transcript":{"kind":"codex-thread", "locator":"019c", "home":"/tmp/codex"}
+    });
+    validate_seat_record(&transcript, 1, SeatRecordVersion::V1).unwrap();
+    validate_seat_record(
+        &json!({"step":"seat-turn", "turn":3, "tool":"Bash"}),
+        2,
+        SeatRecordVersion::V1,
+    )
+    .unwrap();
+    validate_seat_record(
+        &json!({
+            "result":"complete", "inputs":{"fixed":true}, "notes":"done",
+            "model":"not applicable",
+            "transcript":{"kind":"none", "locator":"", "home":""}
+        }),
+        3,
+        SeatRecordVersion::V1,
+    )
+    .unwrap();
+
+    for invalid in [
+        json!({"step":"transcript", "transcript":{
+            "kind":"invented", "locator":"id", "home":"/tmp"
+        }}),
+        json!({"step":"transcript", "transcript":{
+            "kind":"none", "locator":"secret", "home":""
+        }}),
+        json!({"result":"complete", "unexpected":"prose"}),
+    ] {
+        assert!(
+            validate_seat_record(&invalid, 4, SeatRecordVersion::V1).is_err(),
+            "{invalid}"
+        );
+    }
+}
+
+/// Decision 0035's two new facts live in v2 and ONLY in v2: v1 is a
+/// closed schema, so a record carrying either is refused under it.
+#[test]
+fn the_hires_effort_and_its_reasoning_belong_to_v2_alone() {
+    let turn = json!({
+        "step":"turn-completed", "turn":1, "harness":"codex",
+        "model":"gpt-5.6-sol", "effort":"xhigh",
+        "input_tokens":100, "output_tokens":40,
+        "cache_read_tokens":60, "cache_write_tokens":7,
+        "reasoning_output_tokens":31
+    });
+    validate_seat_record(&turn, 5, SeatRecordVersion::V2).unwrap();
+    assert_eq!(
+        validate_seat_record(&turn, 5, SeatRecordVersion::V1)
+            .unwrap_err()
+            .contract,
+        CONTRACT_V1,
+        "v1 is closed: a v2-only field is refused, never quietly admitted"
+    );
+
+    // Both sentinels are decision 0031's, reused rather than
+    // reinvented, and both are legal efforts.
+    for sentinel in ["not reported", "not applicable"] {
+        validate_seat_record(
+            &json!({"result":"complete", "effort":sentinel}),
+            6,
+            SeatRecordVersion::V2,
+        )
+        .unwrap();
+    }
+    for invalid in [
+        // Configuration, not prose: an effort is one bounded word.
+        json!({"step":"seat-turn", "turn":1, "effort":"thought about it hard"}),
+        json!({"step":"seat-turn", "turn":1, "effort":""}),
+        // Absent where unreported, NEVER zero.
+        json!({"step":"seat-turn", "turn":1, "reasoning_output_tokens":0}),
+    ] {
+        assert!(
+            validate_seat_record(&invalid, 7, SeatRecordVersion::V2).is_err(),
+            "{invalid}"
+        );
+    }
+
+    // A reported subset is never larger than the total it is drawn
+    // from — the `cache_read_tokens` rule, one level down.
+    let error = validate_seat_record(
+        &json!({"step":"turn-completed", "turn":1,
+                "output_tokens":3, "reasoning_output_tokens":4}),
+        8,
+        SeatRecordVersion::V2,
+    )
+    .unwrap_err();
+    assert_eq!(error.path, "/reasoning_output_tokens");
+    assert_eq!(error.contract, CONTRACT_V2);
+
+    // Every valid v1 record is a valid v2 record: v2 adds optional
+    // properties and takes none away.
+    validate_seat_record(
+        &json!({"step":"seat-turn", "turn":1, "model":"not reported", "tool":"Read"}),
+        9,
+        SeatRecordVersion::V2,
+    )
+    .unwrap();
+}
+
+#[test]
+fn the_version_is_the_one_the_runs_engine_wrote() {
+    // Ruling 7: v2 and v3 landed in the same 0.8.0 line and the
+    // engine string cannot separate them, so within that line the
+    // newest contract wins. This refuses nothing a v2 record could
+    // have carried — v3 only adds an optional property — and it is
+    // what lets a record THIS engine writes carry the `state` it is
+    // already writing. `V2_ENGINE` still stands as the v1 boundary.
+    assert_eq!(SeatRecordVersion::of_engine("0.8.0"), SeatRecordVersion::V3);
+    assert_eq!(SeatRecordVersion::of_engine("0.8.9"), SeatRecordVersion::V3);
+    // Decision 0046 ruling 3 (v4, per the commission's erratum): the
+    // 0.9 line and everything after it reads v4.
+    assert_eq!(SeatRecordVersion::of_engine("0.9.0"), SeatRecordVersion::V4);
+    assert_eq!(SeatRecordVersion::of_engine("0.9.1"), SeatRecordVersion::V4);
+    // Proposed decision 0056 ruling 7 moved the top of this ladder:
+    // the 0.10 line and everything after it reads v5, on the same
+    // superset argument, so a release-candidate of 1.0.0 does too.
+    assert_eq!(
+        SeatRecordVersion::of_engine("1.0.0-rc.1"),
+        SeatRecordVersion::V5
+    );
+    assert_eq!(
+        SeatRecordVersion::of_engine("0.10.0"),
+        SeatRecordVersion::V5
+    );
+    assert_eq!(SeatRecordVersion::of_engine("0.7.9"), SeatRecordVersion::V1);
+    assert_eq!(SeatRecordVersion::of_engine("0.7"), SeatRecordVersion::V1);
+    assert_eq!(
+        SeatRecordVersion::of_engine("0.8.0.1"),
+        SeatRecordVersion::V1
+    );
+    assert_eq!(SeatRecordVersion::of_engine(""), SeatRecordVersion::V1);
+    assert_eq!(
+        SeatRecordVersion::of_engine("not a version"),
+        SeatRecordVersion::V1
+    );
+}
+
+#[test]
+fn event_validation_checks_only_checkpoints_and_successful_results() {
+    let events = vec![
+        event(1, EventType::RunStarted, json!({"anything":"outside"})),
+        event(
+            2,
+            EventType::EffectCheckpointed,
+            json!({"checkpoint":{"step":"working"}}),
+        ),
+        event(
+            3,
+            EventType::EffectSucceeded,
+            json!({"result":{"result":"complete"}}),
+        ),
+    ];
+    validate_events(&events).unwrap();
+
+    let invalid = [event(
+        4,
+        EventType::EffectCheckpointed,
+        json!({"checkpoint":{"step":"seat-turn", "turn":"one"}}),
+    )];
+    assert_eq!(validate_events(&invalid).unwrap_err().seq, 4);
+}
+
+/// Ruling 7: a dialect step's `state` rides the successful result
+/// under v3, and the same row is refused in a journal an engine
+/// before the v2/v3 line wrote — that engine had no dialect step to
+/// produce it. The field is admitted on the result alone; a
+/// checkpoint never carries one.
+#[test]
+fn a_dialect_steps_state_is_admitted_on_a_result_and_nowhere_else() {
+    let result = event(
+        2,
+        EventType::EffectSucceeded,
+        json!({"result":{
+            "result":"pass", "notes":"validated", "state":"framework-state"
+        }}),
+    );
+    validate_events(&[started("0.8.0"), result.clone()]).unwrap();
+    assert_eq!(
+        validate_events(&[started("0.7.9"), result])
+            .unwrap_err()
+            .seq,
+        2
+    );
+
+    let checkpoint = event(
+        2,
+        EventType::EffectCheckpointed,
+        json!({"checkpoint":{"step":"seat-turn", "turn":1, "state":"framework-state"}}),
+    );
+    assert_eq!(
+        validate_events(&[started("0.8.0"), checkpoint])
+            .unwrap_err()
+            .seq,
+        2
+    );
+}
+
+/// Decision 0046 ruling 3: the boundary rides beside the model on a
+/// checkpoint and on a result under v4, the five words and the
+/// sentinel and nothing else; the same row is refused in a journal
+/// the 0.8 line wrote, whose engine had no boundary to stamp; and a
+/// tagged-0.9 journal that carries no `boundary` still validates,
+/// because v4 adds an optional property and takes none away.
+#[test]
+fn the_boundary_is_admitted_under_v4_and_nowhere_before_it() {
+    for word in [
+        "namespace",
+        "seatbelt",
+        "container",
+        "harness",
+        "open",
+        "not applicable",
+    ] {
+        let checkpoint = event(
+            2,
+            EventType::EffectCheckpointed,
+            json!({"checkpoint":{
+                "step":"exec-session-finished", "model":"not applicable", "boundary": word
+            }}),
+        );
+        let result = event(
+            3,
+            EventType::EffectSucceeded,
+            json!({"result":{"result":"pass", "model":"claude-opus-5", "boundary": word}}),
+        );
+        validate_events(&[started("0.9.0"), checkpoint.clone(), result.clone()]).unwrap();
+        let refused = validate_events(&[started("0.8.0"), checkpoint]).unwrap_err();
+        assert_eq!((refused.seq, refused.contract), (2, CONTRACT_V3));
+        let refused = validate_events(&[started("0.8.0"), result]).unwrap_err();
+        assert_eq!((refused.seq, refused.contract), (3, CONTRACT_V3));
+    }
+    let wrong = event(
+        2,
+        EventType::EffectSucceeded,
+        json!({"result":{"result":"pass", "model":"claude-opus-5", "boundary":"chroot"}}),
+    );
+    let refused = validate_events(&[started("0.9.1"), wrong]).unwrap_err();
+    assert_eq!((refused.seq, refused.path.as_str()), (2, "/"));
+    assert_eq!(refused.contract, CONTRACT_V4);
+    // A record without the word — every record the tagged 0.9.0 and
+    // 0.9.1 engines wrote — is what it always was.
+    validate_events(&[
+        started("0.9.1"),
+        event(
+            2,
+            EventType::EffectCheckpointed,
+            json!({"checkpoint":{"step":"seat-turn", "turn":1, "model":"claude-opus-5"}}),
+        ),
+    ])
+    .unwrap();
+}
+
+/// A confirmed root, as proposed decision 0056 ruling 3 records it:
+/// the complete provider id, the version OBSERVED when it opened,
+/// and whether that root persists.
+fn root(id: &str) -> Value {
+    json!({
+        "kind":"claude-session", "id": id,
+        "harness_version":"2.1.266", "persistent": true
+    })
+}
+
+const SITE: &str = "5c1e0000000000000000000000000000000000000000000000000000000051fe";
+const INSTANCE: &str = "1a2b000000000000000000000000000000000000000000000000000000003c4d";
+
+/// v5's three added fields and five added refusal tokens are v5's
+/// and only v5's: v4 is a closed schema, so each is refused under it
+/// rather than quietly admitted. This is the same test the effort
+/// and boundary fields each got when they landed.
+#[test]
+fn the_root_the_stamps_and_the_new_refusals_belong_to_v5_alone() {
+    let launched = json!({
+        "step":"harness-started", "harness":"claude", "launch":"resumed",
+        "site_ref": SITE, "instance_ref": INSTANCE,
+        "root_session": root("019c4b7e-0000-7000-8000-000000000001")
+    });
+    validate_seat_record(&launched, 5, SeatRecordVersion::V5).unwrap();
+    assert_eq!(
+        validate_seat_record(&launched, 5, SeatRecordVersion::V4)
+            .unwrap_err()
+            .contract,
+        CONTRACT_V4,
+        "v4 is closed: a v5-only field is refused, never quietly admitted"
+    );
+
+    for token in [
+        "unsupported-resume",
+        "unverified-harness",
+        "restrictions-unavailable",
+        "instance-changed",
+        "nonpersistent-session",
+    ] {
+        let row = json!({
+            "step":"harness-started", "launch":"cold", "resume_refusal": token
+        });
+        validate_seat_record(&row, 6, SeatRecordVersion::V5).unwrap();
+        assert!(
+            validate_seat_record(&row, 6, SeatRecordVersion::V4).is_err(),
+            "{token} is v5's own token"
+        );
+    }
+    // The five v4 tokens keep their meaning under v5.
+    for token in [
+        "invalid-session-id",
+        "sandbox-unavailable",
+        "unsupported-sandbox",
+        "incompatible-argv",
+        "harness-refused",
+    ] {
+        validate_seat_record(
+            &json!({"step":"harness-started", "launch":"cold", "resume_refusal": token}),
+            6,
+            SeatRecordVersion::V5,
+        )
+        .unwrap();
+    }
+}
+
+/// The bounds on a root, each one a hazard rather than a formality:
+/// an over-long or flag-shaped id would be truncated or read as a
+/// selector, and a permission mode offered as a `sandbox` is a
+/// vocabulary from another provider (design D4 declines it).
+#[test]
+fn a_root_is_bounded_closed_and_never_another_providers_vocabulary() {
+    for invalid in [
+        json!({"step":"s", "root_session":{
+            "kind":"claude-session", "id":"a".repeat(81),
+            "harness_version":"2.1.266", "persistent": true}}),
+        json!({"step":"s", "root_session":{
+            "kind":"claude-session", "id":"--resume",
+            "harness_version":"2.1.266", "persistent": true}}),
+        json!({"step":"s", "root_session":{
+            "kind":"claude-session", "id":"",
+            "harness_version":"2.1.266", "persistent": true}}),
+        // A kind the mapping does not name, and the transcript's
+        // `none` is not a root kind.
+        json!({"step":"s", "root_session":{
+            "kind":"none", "id":"abc",
+            "harness_version":"2.1.266", "persistent": true}}),
+        // Every required part is required: absence is not "unknown".
+        json!({"step":"s", "root_session":{"kind":"claude-session", "id":"abc"}}),
+        json!({"step":"s", "root_session":{
+            "kind":"claude-session", "id":"abc",
+            "harness_version":"2.1.266", "persistent":"yes"}}),
+        // Closed: no field behind the four this contract admits.
+        json!({"step":"s", "root_session":{
+            "kind":"claude-session", "id":"abc", "harness_version":"2.1.266",
+            "persistent": true, "home":"/home/someone/.claude"}}),
+        // The stamps are digests, not display tags.
+        json!({"step":"s", "site_ref":"implement:alpha"}),
+        json!({"step":"s", "instance_ref":"ABCD"}),
+        // Codex's three classes, and nothing from another provider.
+        json!({"step":"s", "sandbox":"acceptEdits"}),
+    ] {
+        assert!(
+            validate_seat_record(&invalid, 7, SeatRecordVersion::V5).is_err(),
+            "{invalid}"
+        );
+    }
+}
+
+/// The compatibility rule v5 exists to keep (design D4's superset
+/// rule, task repairs F1 and F5): the 0.10 line dispatches to v5, so
+/// v5 also judges rows the shipped 0.10.0 engine ALREADY wrote. An
+/// unconditional resumed-requires-root rule would have refused them
+/// at append, export, import verification and offline verification.
+/// Both new conditions are therefore scoped on `site_ref`, the one
+/// within-row fact only an engine enacting 0056 writes.
+///
+/// The refusal-bearing rows are synthetic contract counterexamples,
+/// not observed provider telemetry: one validator behind
+/// `lib.rs`'s fence judges third-party driver checkpoints too, and
+/// v4 admits `launch` and `resume_refusal` independently over a free
+/// `step` string, so both shapes are valid v4 rows a driver outside
+/// this tree could have written.
+#[test]
+fn valid_unstamped_history_survives_v5_and_a_stamped_row_does_not() {
+    // Exactly what shipped `codex_started` writes on a rejoin.
+    let historical = json!({
+        "step":"harness-started", "harness":"codex",
+        "launch":"resumed", "sandbox":"workspace-write"
+    });
+    // The two shapes a third-party driver could have written under
+    // v4, which an unconditional rule would newly refuse.
+    let bare_refusal = json!({"step":"resume-declined", "resume_refusal":"incompatible-argv"});
+    let resumed_with_refusal = json!({
+        "step":"harness-started", "launch":"resumed",
+        "resume_refusal":"incompatible-argv"
+    });
+
+    for unstamped in [&historical, &bare_refusal, &resumed_with_refusal] {
+        validate_seat_record(unstamped, 2, SeatRecordVersion::V4).unwrap();
+        let valid = validate_seat_record(unstamped, 2, SeatRecordVersion::V5);
+        assert!(
+            valid.is_ok(),
+            "{unstamped} must stay valid under v5: {valid:?}"
+        );
+
+        // The same row, once this engine stamps it, IS refused.
+        let mut stamped = unstamped.clone();
+        stamped["site_ref"] = json!(SITE);
+        let refused = validate_seat_record(&stamped, 3, SeatRecordVersion::V5).unwrap_err();
+        assert_eq!((refused.seq, refused.path.as_str()), (3, "/"));
+        assert_eq!(refused.contract, CONTRACT_V5);
+    }
+
+    // A stamped row that obeys both conditions is admitted.
+    validate_seat_record(
+        &json!({
+            "step":"harness-started", "harness":"codex", "launch":"resumed",
+            "site_ref": SITE, "instance_ref": INSTANCE,
+            "root_session":{"kind":"codex-thread", "id":"019c4b7e",
+                            "harness_version":"0.153.4", "persistent": true}
+        }),
+        4,
+        SeatRecordVersion::V5,
+    )
+    .unwrap();
+    validate_seat_record(
+        &json!({
+            "step":"harness-started", "launch":"cold",
+            "resume_refusal":"unverified-harness", "site_ref": SITE
+        }),
+        5,
+        SeatRecordVersion::V5,
+    )
+    .unwrap();
+}
+
+/// The whole dispatch matrix at all four version boundaries, and the
+/// one direction that matters for the amended `boundary-record`
+/// requirement: a v5-only field under a 0.9-line manifest is refused
+/// under v4 rather than selecting v5 from its presence. There is no
+/// per-record version marker; the run's engine decides.
+#[test]
+fn the_zero_ten_line_reads_v5_and_the_nine_line_still_reads_v4() {
+    for (engine, want) in [
+        ("0.7.9", SeatRecordVersion::V1),
+        ("0.8.0", SeatRecordVersion::V3),
+        ("0.8.99", SeatRecordVersion::V3),
+        ("0.9.0", SeatRecordVersion::V4),
+        ("0.9.1", SeatRecordVersion::V4),
+        ("0.9.99", SeatRecordVersion::V4),
+        ("0.10.0", SeatRecordVersion::V5),
+        ("0.10.1", SeatRecordVersion::V5),
+        ("1.0.0", SeatRecordVersion::V5),
+        ("not a version", SeatRecordVersion::V1),
+    ] {
+        assert_eq!(SeatRecordVersion::of_engine(engine), want, "{engine}");
+    }
+
+    let stamped = event(
+        2,
+        EventType::EffectCheckpointed,
+        json!({"checkpoint":{"step":"harness-started", "site_ref": SITE}}),
+    );
+    validate_events(&[started("0.10.0"), stamped.clone()]).unwrap();
+    let refused = validate_events(&[started("0.9.1"), stamped]).unwrap_err();
+    assert_eq!((refused.seq, refused.contract), (2, CONTRACT_V4));
+
+    // The tagged 0.9.0/0.9.1 no-boundary example stays exactly what
+    // it was: v5's arrival moves nothing in the 0.9 line.
+    validate_events(&[
+        started("0.9.1"),
+        event(
+            2,
+            EventType::EffectCheckpointed,
+            json!({"checkpoint":{"step":"seat-turn", "turn":1, "model":"claude-opus-5"}}),
+        ),
+    ])
+    .unwrap();
+
+    // v5 keeps the boundary's authority and its refusal behavior.
+    validate_events(&[
+        started("0.10.0"),
+        event(
+            2,
+            EventType::EffectCheckpointed,
+            json!({"checkpoint":{
+                "step":"harness-started", "model":"claude-opus-5",
+                "boundary":"namespace", "site_ref": SITE
+            }}),
+        ),
+    ])
+    .unwrap();
+    let refused = validate_events(&[
+        started("0.10.0"),
+        event(
+            2,
+            EventType::EffectSucceeded,
+            json!({"result":{"result":"pass", "model":"claude-opus-5", "boundary":"chroot"}}),
+        ),
+    ])
+    .unwrap_err();
+    assert_eq!((refused.seq, refused.contract), (2, CONTRACT_V5));
+}
+
+/// The dispatch, exercised both ways over the same record: a run
+/// this engine started carries its effort into the journal, and the
+/// identical row in a journal an older engine wrote is refused —
+/// that engine could not have written it.
+#[test]
+fn one_record_is_judged_by_the_engine_that_wrote_its_run() {
+    let checkpoint = event(
+        2,
+        EventType::EffectCheckpointed,
+        json!({"checkpoint":{
+            "step":"seat-turn", "turn":1, "model":"claude-opus-5", "effort":"high"
+        }}),
+    );
+    validate_events(&[started("0.8.0"), checkpoint.clone()]).unwrap();
+    let refused = validate_events(&[started("0.4.0"), checkpoint.clone()]).unwrap_err();
+    assert_eq!(refused.seq, 2);
+    assert_eq!(refused.contract, CONTRACT_V1);
+    // A journal that names no engine reads under the older contract.
+    assert_eq!(
+        validate_events(&[
+            event(1, EventType::RunStarted, json!({"feature": "f"})),
+            checkpoint,
+        ])
+        .unwrap_err()
+        .contract,
+        CONTRACT_V1
+    );
+}
