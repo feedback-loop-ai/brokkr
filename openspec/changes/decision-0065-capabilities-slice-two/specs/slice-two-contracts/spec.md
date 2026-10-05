@@ -40,10 +40,12 @@ Undeclared or malformed references retain the existing loader refusal.
 The server box SHALL consume the same bound connection and typed dialect
 egress, not a second capability policy. The private engine-bound plan SHALL
 add typed box intent: selected hands reach roots, resolved executable and
-MB3's deterministic package root, source/ancestry/mount identity observations,
-network disposition derived from egress, fixed environment names, bootstrap
+MB3's deterministic package root, source/ancestry/mount identity observations and their bounded source-set digest,
+network disposition derived once from egress (isolated or shared, not a
+duplicate egress vocabulary), fixed environment names, bootstrap
 identity and excluded control/store roots. Secret values SHALL never enter
-that plan or its digest. Host observations occur above core/view at preparation
+that plan or its digest. The plan holds compact root/identity facts and a digest of the bounded
+observation, not every traversed entry or live descriptor. Host observations occur above core/view at preparation
 and are rechecked before lookup; the sealed selected connection/dialect and
 plan digest still bind authority. Observation failure never supplies defaults.
 No new authored mount, package-root or environment key is added to frozen v1;

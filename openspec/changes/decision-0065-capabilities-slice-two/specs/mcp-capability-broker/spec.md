@@ -163,11 +163,13 @@ arguments, shebangs, ELF metadata or loader behavior. Resolve argv[0] once
 from an absolute path or the fixed `/usr/local/bin:/usr/bin:/bin` search path;
 never search cwd or ambient PATH. Relative paths containing `/` refuse.
 Canonicalize the executable, retaining the original resolution chain and
-file identity for the pre-mount checks. An entry already contained in the
-fixed system set uses that set without widening it. For any other installed
-entry, its package root is its canonical parent, or that parent's parent
-when the immediate directory is named `bin` or `sbin`. Bind that root
-read-only at its canonical absolute path, and execute the resolved file.
+file identity for the pre-mount checks. The program/package root is its
+canonical parent, or that parent's parent when the immediate directory is
+named `bin` or `sbin`. Derive and check that root for system-contained entries
+too; its regular-file link rule is never skipped. An entry already contained
+in the fixed system set uses that set without adding or widening a mount.
+For any other installed entry, bind its root read-only at its canonical
+absolute path. Execute the resolved file.
 This is a conservative installation-layout rule, not a promise to discover
 an arbitrary language's dependencies. A package needing sibling code SHALL
 place its installed entry under `<package>/bin/` or `<package>/sbin/` so that
@@ -209,6 +211,26 @@ identity change SHALL refuse before lookup, never reopen a pathname blindly.
 Host operator replacement outside managed-seat reach is not a promised threat
 model; seat-mediated replacement is.
 
+The source observation SHALL be bounded to 1,000,000 entries, directory depth
+64, 40 symlink hops per resolution, 65,536 mount records and 256 MiB of working
+metadata per preparation, within the same absolute 30 s startup deadline.
+Unreadable, cyclic, over-limit or unsupported identity data SHALL take
+"MCP server box filesystem identity is not protected", never skip an entry.
+Mount identity SHALL include the filesystem device and inode, mount root and
+relative subpath from Linux mountinfo; mount ID or canonical spelling alone
+cannot exclude a bind alias. Unexplained overlay/remote-filesystem identity
+SHALL refuse. The checked handles SHALL be the actual mount sources (Linux
+bubblewrap `--ro-bind-fd`), not re-opened path strings. A launcher lacking
+that facility takes "MCP server box is unavailable". Readiness SHALL verify
+all effective mounts, including nested read-only state, against this intent.
+Multiply-linked regular files in the remaining system/launcher source
+set take the filesystem-identity cause unless the program-tree cause applies.
+This conservative rule closes hard-link loading aliases without a language
+analyzer. Managed native write surfaces SHALL also exclude creation of new
+writable aliases to these sources during the attempt; an unproved surface
+refuses the filesystem-identity cause. Read-only mounts alone prove no such
+host guarantee.
+
 Admission order SHALL be plan/inventory/digest binding, MB2 eligibility and
 existing compatibility checks, valid/reserved binding names, executable and
 package resolution, reach/link/ancestry/mount checks, MB4 store exclusion,
@@ -216,8 +238,11 @@ then empty-box establishment. All those refusals SHALL precede secret lookup
 and dialect-server execution, for requires and wants alike. Metadata-only
 store identity checks are not secret-value lookup. Establish the actual box
 with a trusted waiting bootstrap and verify its ready state, complete mounts,
-private directories and network before resolving bindings. The bootstrap
-SHALL wait on private control pipes and SHALL NOT run the dialect executable
+private directories and network before resolving bindings. Readiness SHALL
+be a single closed typed message of at most 4 KiB on a separate inherited control pipe, bound to the plan digest, source-set digest,
+child identity and actual namespace identities. A marker/environment bit,
+MCP stdout, duplicate message or another child cannot supply readiness.
+The bootstrap SHALL wait on private control pipes and SHALL NOT run the dialect executable
 before admission and injection complete. No secret is required to prove a
 box can stand. Missing dependencies discovered only during server execution
 are later execution/protocol failures, not pre-secret admission failures.
@@ -238,9 +263,10 @@ within filesystem checks use reach, hard links, then remaining identity.
 | Linux box launcher unavailable after the normal start-time availability check | `MCP server box is unavailable` (new) |
 | Namespace/mount/private-directory/network establishment or ready handshake fails | `MCP server box could not be established` (new) |
 
-MB4 owns the distinct store-reach and store-in-box causes. The readiness
-handshake shares initialization's absolute 30 s bound and the attempt's
-remaining deadline; no helper can wait indefinitely before lookup. A refused
+MB4 owns the distinct store-reach and store-in-box causes. Source admission,
+readiness, handoff and initialization share one absolute 30 s startup bound
+and the attempt's remaining deadline; no helper can wait indefinitely before
+lookup. A refused
 box has zero secret lookups and zero dialect-server starts (a waiting trusted
 bootstrap is not the dialect server). Once an owned ledger is opened, a fatal
 box refusal SHALL close it Failed with that cause under CR3. An unbound plan
@@ -361,6 +387,18 @@ alone SHALL remain a call outcome, not a fatal session failure.
 - **THEN** the broker refuses respectively "MCP server box is unavailable" or "MCP server box could not be established" before any secret lookup or dialect-server start
 - **AND** failed readiness by its fixed deadline terminates the waiting helper under MB5; there is no ordinary host-process fallback
 
+#### Scenario: Source protection includes system loading aliases and bounded observation
+
+- **WHEN** a system library outside the derived program root has a second hard link, mountinfo exposes a different-path alias into seat reach, a source walk exceeds any bound above, or a managed native surface can create a writable source alias
+- **THEN** launch refuses "MCP server box filesystem identity is not protected" with zero lookups and server starts; a multiply-linked regular file within the program tree retains the more specific program-tree cause
+- **AND** controls cover each bound independently, a nlink-one bind alias and a hard-linked user-owned library under `/usr/local`; a complete protected source set passes without interpreting imports
+
+#### Scenario: Readiness is evidence from the owned empty namespace
+
+- **WHEN** readiness is truncated, duplicated, over 4 KiB, from another child, has a wrong plan/source digest or reports mismatched mounts or namespaces
+- **THEN** launch refuses "MCP server box could not be established" before lookup and terminates the waiting helper
+- **AND** a marker-only or MCP-stdout message cannot authorize delivery; losing descriptor-mount support takes "MCP server box is unavailable" with no pathname fallback
+
 #### Scenario: Kernel execution is confined rather than predicted
 
 - **WHEN** an installed script has a shebang the kernel rejects, or names an interpreter not mounted inside the box
@@ -429,7 +467,14 @@ server code remains trusted; arbitrary transformations of secrets retain
 0012's stated limit.
 
 The broker SHALL read the store outside the server box with the existing
-name, clearance, ownership and read-isolation checks. The store SHALL never
+name, clearance, mode and read-isolation checks, plus the new owner-bound
+identity checks. The current pathname metadata/read pair is not an identity
+proof: the eventual read SHALL consume the admitted no-follow file descriptor,
+with the same parser and mode checks, not resolve the path again. If the store
+does not exist, even for a secret-free dialect, this slice SHALL refuse
+"MCP server box filesystem identity is not protected" before lookup; an empty
+protected operator store is the supported secret-free control. No store is
+created by admission and no value is read merely to classify a failure. The store SHALL never
 be mounted, even through a system/program subtree, nested mount, symlink or
 bind alias. Metadata-only checks SHALL compare the store's owner-rooted
 identity against both hands-readable and server-readable reach; canonical
@@ -455,7 +500,13 @@ prepared environment, never a second plaintext accessor or encoder of Secret.
 The host bubblewrap and bootstrap loader start with only their fixed safe
 environment; code-loading bindings become environment entries only for the
 final exec inside the established box. The bootstrap accepts no fresh mounts,
-argv or authority from the pipe. A broken/invalid handoff SHALL refuse with
+argv or authority from the pipe. The handoff is one length-delimited frame
+of at most 1 MiB, at most 256 bindings and depth 4, with exact declared-name
+equality, no duplicate keys, unknown fields, NUL or trailing frame. Values
+are not truncated. Sending and receiving share the absolute startup deadline
+and are interruptible; invalid framing, excess, EOF or timeout takes the
+handoff cause below. Temporary plaintext buffers stay inside the secret
+boundary without Debug/logging and are best-effort wiped after use. A broken/invalid handoff SHALL refuse with
 "MCP server secret environment could not be delivered" and end the session;
 this is a post-lookup failure with zero server starts, not a box admission
 refusal. No result/log/artifact exposes the handoff bytes.
@@ -515,6 +566,18 @@ shared encoding definitions. Exact-number preservation is a separate check.
 - **THEN** launch refuses "MCP secret store would be mounted in the server box" before any value lookup or server start, even for a secret-free dialect
 - **AND** a store alias visible to hands instead receives the kept hands-reach cause first; unresolved alias identity receives MB3's filesystem-identity cause
 - **AND** an inaccessible owner-bound store outside both reach sets supplies declared values while its path and open descriptors remain absent from the box
+
+#### Scenario: Store identity is admitted even without declared values
+
+- **WHEN** a secret-free dialect names a missing store, or a store/ancestor is replaced between admission and delivery
+- **THEN** launch refuses "MCP server box filesystem identity is not protected" before value lookup, and creates neither a store nor a server
+- **AND** an existing protected empty store outside all mounts allows the secret-free control with zero value lookups; a declared binding is read from the already admitted descriptor with the unchanged mode/parser/name diagnostics
+
+#### Scenario: The environment handoff has one bounded meaning
+
+- **WHEN** the post-readiness handoff exceeds 1 MiB or 256 bindings or depth 4, repeats a name, changes the declared name set, includes unknown fields or NUL, truncates, stalls or sends a trailing frame
+- **THEN** it fails "MCP server secret environment could not be delivered" with zero server starts and a Failed session; exact-bound valid frames retain every value
+- **AND** independent controls bind each limit and framing check, and the server receives only its intended stdio after all control, store and mount-source descriptors close
 
 #### Scenario: Declared loading variables never reach a host loader
 
@@ -667,3 +730,14 @@ consumer during extraction (0071 rulings 2, 4–6, 10). Network is derived once
 from typed egress; no environment, provider or model flag can override it.
 D11 restrictions, masking, durable failure, filtering and U9b's enablement
 fence remain independent obligations (0071 rulings 3, 8, 9).
+
+The missing-store case is deliberately refused even without bindings: an
+unobserved inode is no proof that a future store cannot appear inside a bind.
+An empty protected store is a bounded compatibility cost. Source traversal
+and handoff bounds above are execution limits, not edits to frozen v1.
+Descriptor mounts and descriptor-bound store reads close observation/use
+replacement; accepting a pathname recheck would leave H1/H5/H6 unresolved.
+System-source hard links conservatively refuse instead of trying to enumerate
+every host hard-link name. These choices retain user-owned protected installs
+without claiming that every existing installation qualifies (0071 rulings
+3, 5, 8, 9, 10).

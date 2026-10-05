@@ -86,9 +86,9 @@ The specification touches proposal, deltas, design, tasks, decision
 tests and frozen contracts remain unchanged; this visit does not update
 evidence.md, decision acceptance or completed implementation facts. The
 operator record, decision index and 0065 amendment pointer are preserved.
-Document gates qualify no harness or runtime protection. The council and
-tasks seats reconcile the dependent design/unit inventory and task ledger
-before analyze; this specify visit authors the proposal and deltas.
+The design visit reconciles both council positions, the dependent unit
+inventory and task ledger. The bounded identity checks and confined handoff
+are proposed details beneath the ruling; document gates confer no runtime proof.
 
 ## Decisions
 

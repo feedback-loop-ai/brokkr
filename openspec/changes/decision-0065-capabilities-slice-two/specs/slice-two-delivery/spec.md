@@ -273,5 +273,7 @@ three-file budget disguise a fourth edit. Reuse the hands builder and shared
 injector with immediate consumers, retaining their independent tests and the
 U9b fence (0071 rulings 4–6, 9, 10). Source evidence and H1–H7 dispositions for
 this amendment live in the commissioned design-visit record, not evidence.md.
-The council owns detailed unit files/counts and the tasks seat owns new IDs;
-these are required before analyze can call the amended plan consistent.
+Design D9 and Slice two units own the complete ordered inventory; tasks.md
+assigns stable IDs and new unchecked groups to each added cut. The plan
+counts visibility, bootstrap dispatch and consumed store extraction explicitly,
+rather than carrying the held attempt's fourth-file exception forward.

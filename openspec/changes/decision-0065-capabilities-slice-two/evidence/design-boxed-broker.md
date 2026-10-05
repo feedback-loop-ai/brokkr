@@ -1,7 +1,11 @@
 # Boxed broker design visit — 2026-10-05
 
-Status: specify drafted; clarification, council design, tasks and analyze
-remain the following commissioned seats' work. No implementation proof.
+Status: specify and council design drafted; dependent tasks reconciled and
+document consistency audited. Phase outcomes remain the engine's; no
+implementation proof or operator acceptance is claimed.
+
+The original specify record below is historical and preserved. The council
+design visit and its validation follow it in this same commissioned file.
 Change: `decision-0065-capabilities-slice-two`.
 Run: `amend-decision-0065-slice-two-s--a9a103e3`.
 Starting HEAD: `19bca5ff` (U4b, #547); tracked worktree initially clean.
@@ -164,3 +168,149 @@ Cargo tests, bundle compiles, format/clippy and exact coverage are not claimed
 from document validation. They remain the future implementation rows' gates;
 this commission authorizes no production or test change. Result is written
 through workspace hands with `inputs.change`, without a next-phase field.
+
+## Council design visit
+
+Seat: chief, design phase only; starting HEAD `35593f8c`, clean tracked tree.
+The journal supplied a clear clarify result and two completed positions.
+Adopted `decision-0065-capabilities-slice-two`; did not create another change
+or invoke the dialect workflow runner. Read the dialect definition and all
+rendered phase instructions through workspace hands. Revisited the proposal
+and owning scenarios first, amended D5 and dependent design sections, then
+reconciled tasks. This is the requested document draft; it does not choose a
+phase-machine route or claim to have run another office.
+
+Read the commissioned proposal, whole design, tasks, MB1–MB5, SC1–SC5 and
+SD1–SD4, retention and affected isolation requirements; README and decisions
+0004/0005, 0012, 0043, 0046, 0063, 0065, 0071 and 0077. Read both complete
+council positions from `.forge/design/positions/robustness.md` and
+`.forge/design/positions/simplicity.md`. Read hands.rs, hands/overlay.rs and
+hands/session.rs, the runtime Namespace/hands_command seams, U6a's injector
+and store reader, U6b's command and CLI tests, machine_proof's single-accessor
+check and #403's documented residuals. These reads support design, not a
+claim that the proposed mechanisms already exist.
+
+Unlike the earlier specify seat, this visit could inspect held implementation
+evidence through local git objects: `65c879c5` for run
+`0065-slice-two-unit-u6c-see-the--99c50c0b`, and `08171090` for run
+`0065-slice-two-unit-u6c-see-the--f48203e8`, each at the change's
+`evidence/U6c.md`. No held branch was checked out, merged or used as code.
+The second record acknowledges unqualified ELF/RUNPATH, fixed PATH,
+bind-alias, sticky-ancestor and bare-runtime cases. Its argument/shebang
+walk and growing loading-name denylist are superseded, not repaired here.
+The seven HIGH findings remain commission-supplied findings; this visit did
+not reproduce them or close them as runtime security results.
+
+Rechecked source facts that affect the cuts:
+
+- `native_controls.rs` declares `mod mcp` privately. The final plan uses a
+  consumed `protocol/broker.rs`, registered in `protocol/lib.rs` in U6c,
+  rather than adding a fourth visibility file or exporting Transport twice.
+  U6d can then register its reachable ledger child within its three files.
+- `hands.rs` is 1,267 lines, `secret.rs` 706 and `cli_args.rs` 699 at this
+  base. The shared builder, observer, bootstrap and store reader each have
+  named extractions/registrations and consumers; no ceiling exception is
+  inferred. The gate must measure future code, not this line budget.
+- `read_store` checks pathname metadata then reads that path; it does not
+  bind lookup to admitted identity. `resolve_bindings` skips empty names.
+  MB4 now explicitly requires a descriptor-bound read and an existing
+  protected store even for a secret-free server; an empty store is allowed.
+- `bwrap --version` reported `bubblewrap 0.11.0`; `bwrap --help` advertises
+  `--ro-bind-fd`, `--ro-bind-data`, namespace flags and `--die-with-parent`.
+  This is interface evidence only. No namespace was launched and no
+  control-FD carriage, mount, readiness or cleanup guarantee was measured.
+- Existing #403 code names the Linux table-read and read-to-fork residuals
+  pending #472. Omitting `--new-session` preserves attempt ownership; it is
+  not a cgroup guarantee. macOS remains a refusal platform for this feature.
+
+## Council reconciliation
+
+[Design D12](../design.md#d12-council-reconciliation-for-the-boxed-server-amendment)
+contains the explicit claim dispositions in the dialect's decisions place.
+Adopted both positions' shared builder, conservative installation convention,
+fixed environment, confined handoff, independent native-read qualification,
+all-writer evidence protection and existing cleanup. Adopted robustness's
+bounded source observer, whole-chain/mount-alias checks, descriptor-bound
+store read and separate bootstrap. Accepted both positions' compatibility
+cost: a layout outside this bounded support refuses or fails inside, never
+widens a mount or retries on the host.
+
+Rejected simplicity's proposed 51-row cut, with evidence rather than a
+compromise count: it did not budget the private shared-type visibility,
+store-reader space and accumulated bootstrap responsibilities adequately.
+The final 54-row order adds seven cuts, U6c2–U6c8, with at most three
+production files each. It retains the minimal-service intent: one box
+builder, one injector, a private command in the existing binary, no daemon,
+installer, loader analyzer or new public contract version. The shared type
+home avoids another visibility split when ledger types arrive. Every later
+U6/U7/U8/U9 consumer, its task IDs and Hot files follow that single inventory.
+
+H1–H7 each have a construction/remaining-check disposition in D5 and MB3's
+Decisions. H1/H5/H6 keep host-source/ancestry/store checks; H2/H3/H7 lose
+language-startup analysis; H4 requires clean host launchers and confined
+post-readiness bindings as well as the existing shared name refusals. No
+whole-harness sandbox or root-owned-only installation rule replaces those
+checks. Typed safe failure, masking, plan binding and evidence settlement
+remain independent duties under 0071 rulings 1–3 and 7–10.
+
+## Dependent artifact consistency audit
+
+The council repaired the owning scenarios before dependent design/tasks:
+bounded observation/readiness/handoff, system loading aliases, a missing
+store with no bindings, same-descriptor reading and exact refusal timing.
+D5 removes the old no-server-sandbox non-goal and startup analyzer; D3/D6/
+D7/D9/D10, risks, migration, open questions and U6 onward now agree. The
+operator's addendum and 0077's already-landed one-line pointer are preserved
+without another copy or a change to decision acceptance. Historical
+`evidence.md`, frozen files and completed implementation facts are unchanged.
+
+Read-only audit over the candidate confirmed 54 unique unit rows, all
+production budgets at or below three, every dependency earlier in the one
+order, one detailed section per row, and Hot files agreeing with the table.
+It confirmed 123 unique task IDs and all 32 completed task lines unchanged;
+the **entire** preamble, including its historical counts, is byte-identical
+to this visit's starting HEAD. All 26 requirements retain scenario and task
+coverage; all six new MB3 box causes have explicit scenarios, as do store
+exclusion, handoff and confined exec failure. U9b alone removes the realm-wide
+compile fence; incomplete direct serving still refuses through U6f and
+retained plans through U8b.
+
+The first audit pass incorrectly counted an existing parenthetical list of
+transitive prerequisites as extra direct edges. After correcting the audit,
+it caught an accidental U6c2 → U6c8 task dependency introduced while changing
+U6d; that task was corrected to U6c. A manual file-consumer review then moved
+the proposed shared plan/ledger type home into the explicitly registered
+protocol/broker module to avoid U6d's otherwise hidden visibility edit. The
+repeated audit passed. These were document corrections, not runtime findings.
+
+This visit leaves no unresolved documentary upstream fault. Future proofs
+must still establish source identity, real namespace readiness, confined
+injection and cleanup; a failing implementation must refuse or return to its
+owning design rather than weaken any check. No checkbox is closed by planning.
+
+## Council design validation
+
+Observed through workspace hands on this document candidate:
+
+- `git diff --check` and `git diff --cached --check`: passed.
+- `openspec validate --all --strict`: 20 passed, zero failed. Informational
+  long-requirement and unrelated pre-existing archive notices are not an
+  archive operation; no workflow runner or archive was invoked.
+- `python3 .forge/design/audit_boxed_docs.py`: passed the read-only inventory,
+  dependency, task, scenario, H1–H7, exact-path and unchanged-ruling checks
+  above. This ignored run-local script is a document audit, not a new test or
+  a production artifact.
+- Read-only local-link audit: 710 file-link targets checked, zero missing;
+  the supplied ruling matches verbatim exactly once and 0077 retains its pointer.
+- `typos --hidden`: unavailable, `/bin/bash: typos: command not found`.
+  Spelling remains pending outside this box.
+- `git config --get commit.gpgsign`: `false`. Decision 0043 ruling 6 keeps
+  signing credentials outside the hands box; the authorized document commit
+  is unsigned and the controller signs the squash. No push is performed.
+
+Cargo tests, bundle compilation, formatting/clippy, behavior-removal
+mutations, namespace evidence, Linux/macOS and exact coverage are future
+implementation gates and were not run or claimed in this docs-only visit.
+No production, test, fixture, policy, reference, contract, recipe or release
+file is changed. The phase result is written through workspace hands to the
+commissioned result path with `result: drafted` and `inputs.change`.
