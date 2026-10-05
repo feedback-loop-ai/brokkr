@@ -24,7 +24,13 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 24] = [
+const FROZEN: [(&str, &str); 25] = [
+    // Decision 0065 slice two (SC3) lands `run-manifest.v12` beside v11,
+    // which was the new file when slice one landed and is frozen from here.
+    (
+        "contracts/run-manifest.v11.schema.json",
+        "6d03d801f02a5ca587b4111622d3ba7342160694728e2bba8baa5d48acaa33a7",
+    ),
     // Decision 0065 slice two (SC2) lands `forge.realms/v8` beside v7,
     // which was the new file when #487 landed and is frozen from here.
     (
@@ -960,5 +966,158 @@ fn the_v11_manifest_schema_requires_the_capability_section_and_closes_its_record
         }),
     ] {
         assert!(!v11.is_valid(&invalid), "the v11 schema admitted {invalid}");
+    }
+}
+
+/// Decision 0065 slice two (SC3, CR1): `run-manifest/v12` is v11 with each
+/// held record closed over two more REQUIRED records — what implements the
+/// capability and what it retains — and nothing else moved. A manifest
+/// whose candidates hold nothing reads the same under both; a v11 holding
+/// is not a v12 one, so an old run is never retrofitted into v12's facts.
+#[test]
+fn the_v12_manifest_schema_adds_only_what_implements_and_retains_a_holding() {
+    use serde_json::json;
+    assert_eq!(
+        titled("contracts/run-manifest.v12.schema.json"),
+        "Forge run manifest v12"
+    );
+    let [schema, v11] = published(["run-manifest.v12", "run-manifest.v11"]);
+    let held = "/definitions/capability_candidate/properties/held/additionalProperties";
+    let mut carried = schema.clone();
+    for key in ["implementation", "retention"] {
+        let record = carried.pointer_mut(held).unwrap();
+        record["properties"].as_object_mut().unwrap().remove(key);
+        let required = record["required"].as_array_mut().unwrap();
+        required.retain(|name| name != key);
+        carried["definitions"].as_object_mut().unwrap().remove(key);
+    }
+    for key in ["$id", "title", "description"] {
+        carried[key] = v11[key].clone();
+    }
+    assert_eq!(carried, v11, "v12 moved a clause v11 defines");
+
+    let v12 = jsonschema::draft7::new(&schema).unwrap();
+    let v11 = jsonschema::draft7::new(&v11).unwrap();
+    let empty = v12_manifest(json!({}));
+    assert!(
+        v12.is_valid(&empty) && v11.is_valid(&empty),
+        "nothing held reads alike"
+    );
+    assert!(v11.is_valid(&web_search(None)));
+    assert!(!v12.is_valid(&web_search(None)), "a v11 holding is not v12");
+    let native = web_search(Some((&native(), &inherited())));
+    assert!(v12.is_valid(&native));
+    assert!(!v11.is_valid(&native));
+}
+
+/// A manifest whose one candidate holds `held`, by capability.
+fn v12_manifest(held: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({"engine": "0.12.0", "event_schema": 1, "database_schema": 1,
+        "driver_protocol": 1, "bundle_name": "fast", "files": {"bundle.json": "a".repeat(64)},
+        "capabilities": {"realm": "private", "grants": {}, "definitions": {},
+            "dialects": {}, "sites": {"research": {"office": "researcher", "asks": {},
+                "subtracted": [], "candidates": [{"provider": "codex", "held": held,
+                    "not_held": {}, "notices": [],
+                    "native": {"inventory": "unmeasured", "reason": "never probed"}}]}}}})
+}
+
+/// v11's `web-search` holding, with v12's implementation and retention
+/// records beside it where `records` gives them.
+fn web_search(records: Option<(&serde_json::Value, &serde_json::Value)>) -> serde_json::Value {
+    let sha = "a".repeat(64);
+    let mut holding = serde_json::json!({"classes": ["reads", "egress"],
+        "dialect": "codex-native-search", "dialect_sha256": sha, "definition_sha256": sha,
+        "tools": ["web_search"], "restrictions": {}});
+    if let Some((implementation, retention)) = records {
+        holding["implementation"] = implementation.clone();
+        holding["retention"] = retention.clone();
+    }
+    v12_manifest(serde_json::json!({"web-search": holding}))
+}
+
+fn native() -> serde_json::Value {
+    serde_json::json!({"kind": "provider-native", "provider": "codex", "adapter_key": "web-search"})
+}
+
+fn inherited() -> serde_json::Value {
+    serde_json::json!({"declared": false, "realm": "inherit", "effective": false})
+}
+
+/// v12's two records are closed: both `mcp` connection forms and all four
+/// retention outcomes are admitted, and a kind outside the two, a native
+/// record with a connection, a server not carried as `cap-<capability>`, a
+/// credential, a process id, a call id, a ledger path, a disposition the
+/// realm cannot write and a retained body are refused.
+#[test]
+fn the_v12_manifest_schema_closes_the_implementation_and_retention_records() {
+    use serde_json::json;
+    let v12 = contract("contracts/run-manifest.v12.schema.json");
+    let (native, retention) = (native(), inherited());
+    let mcp = |connection: serde_json::Value| {
+        json!({"kind": "mcp", "server": "cap-library-docs", "connection": connection,
+               "version": "1.4.2", "secrets": ["DOCS_TOKEN"]})
+    };
+    let stdio = mcp(json!({"argv": ["docs-mcp", "--token={{secret:DOCS_TOKEN}}"]}));
+    for valid in [
+        stdio.clone(),
+        mcp(json!({"url": "https://docs.example.org/mcp"})),
+    ] {
+        for (declared, realm, effective) in [
+            (false, "inherit", false),
+            (false, "veto", false),
+            (true, "inherit", true),
+            (true, "veto", false),
+        ] {
+            let retained = json!({"declared": declared, "realm": realm, "effective": effective});
+            assert!(
+                v12.is_valid(&web_search(Some((&valid, &retained)))),
+                "{valid} {retained}"
+            );
+        }
+    }
+    let edit = |base: &serde_json::Value, mutate: &dyn Fn(&mut serde_json::Value)| {
+        let mut value = base.clone();
+        mutate(&mut value);
+        value
+    };
+    for implementation in [
+        edit(&native, &|i| i["kind"] = json!("plugin")),
+        edit(&native, &|i| {
+            i.as_object_mut().unwrap().remove("adapter_key");
+        }),
+        edit(&native, &|i| i["connection"] = json!({"argv": ["codex"]})),
+        edit(&stdio, &|i| i["server"] = json!("library-docs")),
+        edit(&stdio, &|i| {
+            i["connection"] = json!({"argv": ["x"], "url": "https://docs.example.org"})
+        }),
+        edit(&stdio, &|i| {
+            i["connection"] = json!({"url": "https://user:secret@docs.example.org"})
+        }),
+        edit(&stdio, &|i| {
+            i.as_object_mut().unwrap().remove("version");
+        }),
+        edit(&stdio, &|i| i["secrets"] = json!(["a literal value"])),
+        edit(&stdio, &|i| i["token"] = json!("a literal value")),
+        edit(&stdio, &|i| i["pid"] = json!(4242)),
+        edit(&stdio, &|i| i["call_id"] = json!("call-1")),
+        edit(&stdio, &|i| i["ledger"] = json!(".forge/ledger.jsonl")),
+    ] {
+        let invalid = web_search(Some((&implementation, &retention)));
+        assert!(
+            !v12.is_valid(&invalid),
+            "the v12 schema admitted {implementation}"
+        );
+    }
+    for retained in [
+        json!({"declared": false, "realm": "require", "effective": false}),
+        json!({"declared": false, "realm": "inherit"}),
+        json!({"declared": "false", "realm": "inherit", "effective": false}),
+        json!({"declared": false, "realm": "inherit", "effective": false, "body": "kept"}),
+    ] {
+        let invalid = web_search(Some((&native, &retained)));
+        assert!(
+            !v12.is_valid(&invalid),
+            "the v12 schema admitted {retained}"
+        );
     }
 }

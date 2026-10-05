@@ -602,11 +602,12 @@ pub brokkr_runtime::capabilities::Authority::dialects: alloc::collections::btree
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::assess(&self, &brokkr_runtime::agents::Adapter, &str, brokkr_runtime::capabilities::Requests) -> core::result::Result<brokkr_runtime::capabilities::Outcome, alloc::string::String>
 pub fn brokkr_runtime::capabilities::Authority::load(brokkr_runtime::capabilities::CapabilityContext) -> core::result::Result<brokkr_runtime::capabilities::Authority, alloc::string::String>
-pub fn brokkr_runtime::capabilities::Authority::manifest(&self, &[alloc::string::String]) -> serde_json::value::Value
 pub fn brokkr_runtime::capabilities::Authority::nothing(&str, &std::path::Path) -> brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::resolve(&self, &brokkr_runtime::capabilities::SiteAsks, &brokkr_runtime::capabilities::Serving<'_>) -> core::result::Result<brokkr_runtime::capabilities::Outcome, alloc::string::String>
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::binding(&self, &str) -> core::result::Result<brokkr_runtime::capabilities::Native<'_>, brokkr_runtime::capabilities::Unbound>
+impl brokkr_runtime::capabilities::Authority
+pub fn brokkr_runtime::capabilities::Authority::manifest(&self, &[alloc::string::String]) -> serde_json::value::Value
 pub struct brokkr_runtime::capabilities::CapabilityContext
 pub brokkr_runtime::capabilities::CapabilityContext::grants: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::realms::grants::CapabilityGrant>
 pub brokkr_runtime::capabilities::CapabilityContext::realm: alloc::string::String
@@ -678,8 +679,9 @@ pub brokkr_runtime::capabilities::Outcome::provider: alloc::string::String
 impl brokkr_runtime::capabilities::Outcome
 pub fn brokkr_runtime::capabilities::Outcome::controls(&self) -> serde_json::value::Value
 pub fn brokkr_runtime::capabilities::Outcome::identity(&self) -> brokkr_protocol::native_controls::Identity
-pub fn brokkr_runtime::capabilities::Outcome::manifest(&self) -> serde_json::value::Value
 pub fn brokkr_runtime::capabilities::Outcome::prompt(&self) -> serde_json::value::Value
+impl brokkr_runtime::capabilities::Outcome
+pub fn brokkr_runtime::capabilities::Outcome::manifest(&self) -> serde_json::value::Value
 pub struct brokkr_runtime::capabilities::Retention
 pub brokkr_runtime::capabilities::Retention::declared: bool
 pub brokkr_runtime::capabilities::Retention::realm: brokkr_core::realms::grants::GrantRetention
@@ -712,6 +714,7 @@ pub brokkr_runtime::capabilities::SiteCapabilities::asks: brokkr_runtime::capabi
 pub brokkr_runtime::capabilities::SiteCapabilities::outcomes: alloc::vec::Vec<brokkr_runtime::capabilities::Outcome>
 impl brokkr_runtime::capabilities::SiteCapabilities
 pub fn brokkr_runtime::capabilities::SiteCapabilities::manifest(&self) -> serde_json::value::Value
+impl brokkr_runtime::capabilities::SiteCapabilities
 pub fn brokkr_runtime::capabilities::SiteCapabilities::serving(&self, core::option::Option<(&str, &str)>) -> core::option::Option<&brokkr_runtime::capabilities::Outcome>
 pub struct brokkr_runtime::capabilities::ToolDialect
 pub brokkr_runtime::capabilities::ToolDialect::classes: core::option::Option<alloc::vec::Vec<alloc::string::String>>

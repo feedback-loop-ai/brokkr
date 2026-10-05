@@ -2480,3 +2480,156 @@ the two edits, which cancel. No suppression was added.
 measurement dates, and prompt budgets 13 bytes lower from earlier merges).
 U4a moves no prompt, dependency or transcript, so those files were left
 as they were. Exact coverage and remote CI on Linux and macOS are pending.
+
+## U5f: manifest v12 with its live native consumer (tasks 25.1–25.2)
+
+Run `0065-slice-two-unit-u5f-see-the--3fdccc95` built U5f on branch `s2/U5f`
+from main at `e225066e`, U5a landed. It touched the row's three production
+files and, under the operator's one-time exception of 2026-10-05 (the
+addendum in `operator-ruling-2026-10-03.md`, committed with this unit),
+`capabilities/binding.rs` only to drop `#[cfg(test)]` from
+`Retention::effective` and fix its doc comment.
+
+### What changed
+
+`contracts/run-manifest.v12.schema.json` is v11 with each held record
+closed over two more required records, `implementation` and `retention`,
+defined once each under `definitions`. Nothing else moved, and v11's bytes
+are now pinned in `FROZEN` (`frozen_contracts.rs`).
+
+The three manifest projections, `Outcome::manifest`,
+`SiteCapabilities::manifest` and `Authority::manifest`, moved unchanged
+into the new `capabilities/manifest.rs`, and `capabilities.rs` fell from
+2108 to 2012 lines. `Holding` gained a typed `implementation`, a
+`pub(crate)` field of the `pub(crate)` `Implementation` (ruling 6: nothing
+outside the crate reads it yet). It is set in the
+resolver's one constructor (`capabilities.rs:1361`) by
+`Implementation::of` (`manifest.rs:38`). That function reads the
+dialect's kind exhaustively. A native kind gives `Native { provider,
+adapter_key }`. An `mcp` kind gives `Mcp { server: "cap-<capability>",
+connection, version, secrets }`, typed whole. The reserved `hands` kind
+gives none. The resolver only reaches it past `carried`, which returns a
+native pair alone, so in production today it builds the native arm. The
+held record projects both new records. `Retention::value`
+(`manifest.rs:85`) writes the declaration, the disposition and
+`self.effective()`. That call is the production reader of
+`Retention::effective` and closes the LOW carried from U5a (rulings 5 and
+6): the rule has one owner and no copy. A v6 or v7 grant
+(`GrantRetention::Unreserved`) records `inherit`, since it cannot veto.
+That is this unit's reading of SC3's "inherit/veto" for a pre-v8 grant.
+
+No resolved secret value, ledger path, process id or call id is a field of
+`Holding` or `Implementation`, so none can reach the record or its digest.
+`Authority::load`'s realm-wide fence did not move, so every `mcp` grant
+still refuses the compile.
+
+The four v11 validators, in `capability_launch.rs`, `engine/tests.rs`,
+`bundle/model_policy_tests.rs` and `witness_digests.rs`, now read v12, at
+the same line counts (controller ruling R2). The cq1 restricted test's
+exact held record (`capability_launch.rs:10819`) gained the two records on
+its existing line. `capability_launch.rs` stays at 11,883 lines.
+
+### Tests
+
+The new unit tests live in two child modules, both inside the gate's test
+vocabulary. `capabilities/tests/manifest.rs` is the child of the owning
+`capabilities/tests.rs`, which stays at 2103: one comment line was joined
+to offset its `mod` line (ruling R3). `engine/capability_tests/
+resume_tests.rs` is the child of `engine/capability_tests.rs`, which stays
+at 2231 the same way. `context_at` in `dialect_policy.rs` became
+`pub(super)` so the new module could share it.
+
+| Test | What it holds |
+| --- | --- |
+| `a_native_holding_records_its_provider_and_a_truthful_retention_under_v12` (`capabilities/tests/manifest.rs:85`) | A real resolution under a v6 grant, a v8 grant and a v8 veto. Each gives the whole held record exactly: v11's fields, `{"kind": "provider-native", "provider": "test-native", "adapter_key": "web-search"}`, and retention `declared: false, effective: false`, with `realm` `inherit`, `inherit` and `veto`. The fallback candidate's record is its own and holds `{}`. The whole manifest, both candidates, is v12-valid and not v11-valid. |
+| `the_record_pins_the_four_retention_outcomes_beside_their_inputs` (`:149`) | CR1's four combinations, read off the projected records, give effective false, false, true, false, each beside its declaration and disposition. |
+| `an_mcp_implementation_is_typed_whole_and_its_grant_still_refuses_the_compile` (`:192`) | For a stdio argv carrying a declared reference, and for a URL, `Implementation::of` equals the typed `Mcp` value, server `cap-library-docs`. The record equals the dialect's connection, version and secret names exactly and is v12-valid. The same grant, even with `offices: []`, refuses `Authority::load` with the fence's exact text (`binding::MCP`). `hands` gives none. A native kind gives the native pair. |
+| `every_identity_axis_moves_the_record_alone_and_identical_bytes_do_not` (`:254`) | Eleven SC3 axes, each changed alone, move the candidate record's digest, and identical bound bytes do not. The axes are connection, connection form, version, secret names, tool set, restriction, the declaration under a standing veto (effective false on both sides), the veto, dialect bytes, definition bytes and the adapter declaration digest. A grant's office scope moves the realm-wide half. |
+| `the_v12_manifest_schema_adds_only_what_implements_and_retains_a_holding` (`frozen_contracts.rs:978`) | v12, minus the two records and their two `required` entries, equals v11 except `$id`, `title` and `description`. A manifest that holds nothing is valid under both. A v11 holding is valid under v11 alone, and a v12 holding under v12 alone. |
+| `the_v12_manifest_schema_closes_the_implementation_and_retention_records` (`frozen_contracts.rs:1052`) | Both MCP connection forms under all four retention outcomes are valid. Twelve implementation records and four retention records are refused, among them a third kind, a native record with a connection, a non-`cap-` server, a credential, `pid`, `call_id`, a ledger path, `realm: "require"` and a retained `body`. |
+| `a_v11_holding_or_a_moved_v12_declaration_is_refused_on_resume_by_name` (`engine/capability_tests/resume_tests.rs:17`) | Two runs are started and resumed through `Engine::start` and `Engine::resume`: one pinned with a v11 holding and resumed under the v12 record, one pinned v12 with `declared: true` under a veto and resumed with `declared: false`. Each refuses with `ManifestMismatch` and the exact "capabilities differ: the run's pinned sites …" text. The stored manifest reads back byte-equal, and the run still resumes under the bundle it started with. |
+
+Real native compiles validate v12 in `every_authority_axis_moves_the_
+manifest_digest_and_identical_inputs_do_not` (`capability_launch.rs:5361`),
+whose every compile, held ones included, now runs the v12 validator. The
+cq1 test (`capability_launch.rs:10672`) holds a real compile's held record
+exactly, implementation and retention included.
+
+### Removal mutations
+
+Each mutation compiled, was applied with the Edit tool on this visit's tree
+before commit, ran, and was undone. The suites were `cargo test -p
+brokkr-runtime --lib capabilities::tests::manifest`, `--test
+capability_launch` (for M1), `--test frozen_contracts the_v12` (M7 and M9)
+and `--lib engine::capability_tests::resume` (M8). M7 ran twice: first
+against the single schema test, then against the split test.
+
+| Mutation | Tests that failed (assertion) |
+| --- | --- |
+| M1: `"implementation"` dropped from the held record | the native test (exact record, `:123`), the MCP test (`:220`), the identity test ("connection did not move the record alone", `:338`, re-run on the final tree), `every_authority_axis_…` (v12 validator, `capability_launch.rs:5375`) and the cq1 test (`capability_launch.rs:10989`) |
+| M2: `"effective": self.declared` in place of `self.effective()` | the four-outcomes test (`:176`; the fourth record read effective true) |
+| M3: server `capability.to_string()` without `cap-` | the MCP test (`:205`) |
+| M4: `"declared"` dropped from the retention record | the native test (`:123`), the four-outcomes test (`:176`), the MCP test (`:228`) and the identity test ("declaration under a veto did not move the record alone", `:338`) |
+| M5: `"version"` dropped from the MCP record | the MCP test (`:220`) and the identity test ("version did not move the record alone") |
+| M6: a veto recorded as `inherit` | the native test (`:123`) and the four-outcomes test (`:176`) |
+| M7: the schema's `^cap-.+$` server pattern removed | `the_v12_manifest_schema_closes_…` ("admitted … "server":"library-docs"") |
+| M8: `Engine::resume`'s mismatch door skipped where the pin carries `capabilities` (`engine.rs`) | the resume test ("a changed capability identity resumed") |
+| M9: v12's `bundle_name` given `maxLength` | `the_v12_manifest_schema_adds_only_…` ("v12 moved a clause v11 defines") |
+
+The first run of M4 showed that the identity test's declaration axis also
+moved the dialect bytes, so the axis passed without the `declared` field.
+The axis now changes the holding's retention alone, and M4 fails it, as
+the table records. After every restore, the touched suites passed on the
+final tree.
+
+### 25.1 and 25.2
+
+Real native compiles validate v12. The MCP projection is typed and
+inside v12 while the fence refuses the grant. The identity axes move
+alone and identical bytes do not. Old manifests read back exactly, and a
+changed identity meets the existing resume refusal. M1–M9 failed the
+named assertions and were restored, so both tasks are ticked.
+
+### Gates on this tree
+
+Formatting is clean, and workspace clippy with `-D warnings` finished
+without a diagnostic. The runtime package, library and all integration
+binaries, printed no failure; its library passed 767 of 767.
+`witness_digests` and `budgets` passed without a bless, so no witness,
+compose pin or budget moved. Shipped bundles hold no capability, so their
+manifests did not change. Core, store, view, bridge, the seatbelt probe and
+protocol (631 library tests) passed. The CLI package printed 46 passing
+result lines and no failure (library 627), `suppressions` among them, so the
+suppression inventory did not move. `bundles/self` compiled to
+`11c7d0e7…`, unchanged, and `bundles/verify` compiled. OpenSpec strict
+validation passed 20 of 20, `typos --hidden` found nothing, and
+`git diff --check` was clean. The `files`, `clones` and `api` ratchets
+held. `quality/public-api/brokkr-runtime.txt` was re-measured with
+`cargo +nightly-2026-09-05 public-api -p brokkr-runtime -sss --color
+never`. Its only change is three `impl` headers, for `Authority`,
+`Outcome` and `SiteCapabilities`. They appear because the three `manifest`
+methods now sit in their own `impl` blocks in `capabilities/manifest.rs`.
+No public item was added, and each method's signature is unchanged.
+`baselines e225066e` refuses that count as one raise,
+`public-api/brokkr-runtime.txt` from 1464 to 1467 items, so the pull
+request needs the operator's `Ruling:` line.
+
+`quality/file-lines.txt` was re-measured for the files this unit touched.
+`capabilities.rs` went from 2108 to 2012 and `capabilities/binding.rs`
+from 323 to 321. `frozen_contracts.rs`, under its ceiling, went from the
+822 recorded to 1123. Three files are new: `capabilities/manifest.rs` at
+202, `capabilities/tests/manifest.rs` at 352 and
+`engine/capability_tests/resume_tests.rs` at 58. In `too-many-lines.txt`,
+`native_plan` stays at 256 lines and its anchor moved from 1640 to 1544.
+`the_new_contracts_exist_beside_the_frozen_ones` stays at 109 and moved
+from 169 to 175. v12's title is asserted in the new schema test, so that
+long function did not grow. No new function crossed a ceiling, and no
+suppression was added. Exact coverage and remote CI on Linux and macOS are
+pending.
+
+### Carried
+
+One finding is recorded, not fixed (ruling 3, LOW). The projections still
+build `serde_json::Value` with `json!`, as v11's did. A typed `Serialize`
+record would need `Serialize` on `Connection`, and `Connection` lives in
+`capabilities/dialect.rs`, outside this row.

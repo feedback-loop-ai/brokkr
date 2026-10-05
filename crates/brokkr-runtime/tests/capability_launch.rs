@@ -5358,21 +5358,21 @@ fn an_ungranted_requirement_refuses_compilation_at_every_site_form() {
 /// Ruling 8: the grant is part of the bundle's identity. Identical inputs
 /// give one digest; each authority axis, changed alone, gives another —
 /// including a grant no seat uses and a definition whose ask was dropped.
-/// And what is written is the contract it claims: run-manifest/v11.
+/// And what is written is the contract it claims: run-manifest/v12.
 #[test]
 fn every_authority_axis_moves_the_manifest_digest_and_identical_inputs_do_not() {
     let operator = Operator::new();
     let schema: Value = serde_json::from_slice(
-        &std::fs::read(workspace().join("contracts/run-manifest.v11.schema.json")).unwrap(),
+        &std::fs::read(workspace().join("contracts/run-manifest.v12.schema.json")).unwrap(),
     )
     .unwrap();
-    let v11 = jsonschema::draft7::new(&schema).unwrap();
+    let v12 = jsonschema::draft7::new(&schema).unwrap();
     let wants = Some(json!({"web-search": "wants"}));
     let digest = |context: &CapabilityContext, asks: Option<Value>| {
         let bundle = operator
             .compile(context, Boundary::Namespace, asks, Some(json!({})))
             .unwrap();
-        assert!(v11.is_valid(&bundle.manifest), "{}", bundle.manifest);
+        assert!(v12.is_valid(&bundle.manifest), "{}", bundle.manifest);
         bundle.manifest_digest()
     };
     let granted = operator.context(json!({"web-search": {"dialect": "codex-native-search"}}));
@@ -10816,7 +10816,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
         "dialect_sha256": brokkr_core::canonical::sha256_bytes(
             &std::fs::read(operator.root().join("dialects/tools/codex-search-hosts.json"))
                 .unwrap()),
-        "restrictions": {}, "tools": ["web_search"]}});
+        "restrictions": {}, "tools": ["web_search"], "implementation": {"kind": "provider-native", "provider": "codex", "adapter_key": "web-search"}, "retention": {"declared": false, "realm": "inherit", "effective": false}}});
     let deferred = format!(
         "{inexpressible} through its declared transport, which carries only the empty \
          restriction until a provider restriction transport is measured (operator ruling of \
