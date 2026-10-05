@@ -2347,56 +2347,118 @@ capability_launch. Its two-line registration was paid for by removing two
 `#[cfg(unix)]` attributes on helpers that already only run on unix hosts
 (decision 0063), so capability_launch stays at its 11,883-line baseline.
 `every_site_shape_journals_its_legacy_native_rows_through_export_and_verify`
-(`legacy_journal.rs:460`) compiles one bundle on fixture adapters and
-drives it through a real `Engine` and `Store`. Its driver is the test
-binary re-entered as `legacy_driver_child`, the pattern
-`two_engines_one_journal.rs` established, writing what the shipped Claude
-lowering writes for a native `WebSearch` call and a local `Read`. The
-sites are an agent-backed single seat, an inline seat, an agent whose
-primary's driver is never installed (so decision 0016's fallback serves
-the second model), a panel and a sequence each with one inline and one
-agent site, two inline seats whose first attempt fails after it accepted,
-and the protected review gate. One `assert_eq!` compares every journaled
-checkpoint, keyed by seat and member, with the expected rows written out:
-27 rows under 11 seat-and-member keys, with the engine's `boundary`, stamps and member
-tags and its own `panel-member-finished` and `sequence-step-finished` rows.
-The persistent root is rejoined with the engine's offer
-(`launch: resumed`, root `resumed-root-0`). The other root is not offered,
-so it is replaced cold (`replaced-root-1`). Both stamps are checked as 64
-lowercase hex before they are named. No checkpoint or result in the run
-carries `capability`, `dialect`, `call_id`, `call_state`,
-`response_sha256` or a private `observation`. `export_ndjson` returns one
-line per event, and `verify_export` folds it to `Completed` at the last
-seq. Then a direct append of a partial group, a whole group and a private
-observation, each beside a legacy `WebSearch` row, is refused with exactly
-`SeatRecordError { seq: head + 1, path: "/", contract: v5 }`, and the head
-does not move. The test passed three runs in a row.
+compiles one bundle with `compile_with_capabilities` under a realm,
+`private`, whose map grants `web-search` through `claude-native-search`,
+and starts the engine in that same world. Every site, inline or
+agent-backed, wants `web-search`, so every site holds it natively. The
+driver is production's own: each `driver claude` command's engine token
+is a wrapper script that re-enters the test binary as
+`claude_driver_child`, which calls `brokkr_protocol::adapters::serve` for
+the Claude kind with the arguments the engine handed it. That shipped
+driver composes the launch, probes the version, and lowers a deterministic
+shell `claude`'s stream-json. The harness confirms a root, makes one
+`WebSearch` call with usage, then a `Read` of `src/lib.rs`, and writes the
+result its prompt names. So every seat row in the journal was written by
+the shipped telemetry lowering and the shipped launch hold, not by the
+test.
+
+The agent sites use the shipped `adapters/claude.json`, copied with only
+three changes. Its engine token is the wrapper. It gains a `missing`
+model whose launch writes a provider refusal before any turn (decisions
+0016 and 0053). Its one shape, `boxed-workspace`, is declared supported at
+this unboxed site, because the shipped assessment is unmeasured and an
+eligible rejoin cannot otherwise be reached. The sites are an
+agent-backed single seat, an inline seat, an agent whose `missing` primary
+is refused so that the fallback serves `opus`, a panel and a sequence each
+with one inline and one agent site, two inline seats whose first
+invocation fails mid-session after one search, and the protected review
+gate. One of the two retried seats keeps its root persistent. The other
+launches with `--no-session-persistence`.
+
+The test pins three things exactly, each written out by hand rather than
+derived from the harness's stream. First, every command line each harness
+received: all thirteen carry `--allowedTools WebSearch --disallowedTools
+WebFetch`. The agent sites add the adapter's `--permission-mode
+acceptEdits`, the fallback's refused `claude-missing` launch is the second
+agent line, and the resumed seat's retry ends `--resume resumed-root-0`.
+Second, every journaled checkpoint, keyed by seat and member. Each
+finished invocation is its transcript address, its `harness-started` row
+(`model: "not reported"`, the root with `harness_version` 2.1.266 and its
+persistence), the `WebSearch` turn with 13 and 2 tokens, the `Read` turn
+with its target, the address again, and `claude-code-session-finished`.
+A failed invocation stops after the search, with exit code 1 and one
+turn. Every row carries `effort: "not reported"`, the site's `boundary`
+and both stamps. The engine's own `panel-member-finished` rows
+(`inner_checkpoints: 6`, unstamped) and its `sequence-step-finished` row
+are pinned too. The persistent root is rejoined (`launch: resumed`, root
+`resumed-root-0`), and the unpersisted one is replaced cold
+(`replaced-root-1`). The refused fallback link journals nothing. Third,
+the stamps are checked as 64 lowercase hex before they are named. No
+checkpoint or result in the run carries `capability`, `dialect`,
+`call_id`, `call_state`, `response_sha256` or a private `observation`.
+`export_ndjson` returns one line per event, and `verify_export` folds the
+export to `Completed` at the last seq. Then a direct append of a partial
+group, a whole group and a private observation, each beside a legacy
+`WebSearch` row, is refused with exactly `SeatRecordError { seq: head + 1,
+path: "/", contract: v5 }`, and the head does not move. The test passed
+five runs in a row.
+
+### Return from review
+
+The first visit's matrix drove a handcrafted protocol driver that wrote
+its own checkpoints, so no shipped lowering ran. It also put a `model` on
+`harness-started` that the shipped publish row does not carry. The review
+of `b61fbf49` returned it for that (MEDIUM, ruling 9, and LOW). This visit
+replaced the fixture driver with the shipped Claude driver as described
+above. The launch row's shape is now whatever production writes: the
+driver forwards it with `model: "not reported"`, and the engine stamps it
+because a model is named. The expected rows are literals in `session` and
+`wanted`, and `wanted_launches` gives the command lines. No helper is
+shared with the fake harness.
 
 ### Removal mutations
 
-Each mutation compiled, was run, and was undone with the Edit tool before
-the next.
+Each mutation compiled, was run, and was undone (`git checkout` of the
+production file, or a copy restored over the test) before the next. M3 and
+M5 are store-only and were recorded on the first visit. M1, M2 and M4
+were re-run against this visit's matrix. M6–M8 are new. Line numbers are
+those of the final `legacy_journal.rs`.
 
 | Mutation | Tests that failed |
 | --- | --- |
-| M1: `validate_seat_record`'s schema check became `false && …` | the matrix (`legacy_journal.rs:440`: the partial-group append was accepted at seq 77) and 14 store tests, among them all three fence and export/verify tests and eleven moved version tests |
-| M2: `record_of` returned `None` for a checkpoint | the matrix (`legacy_journal.rs:440`, the same acceptance) and 8 store tests, among them the three fence and export/verify tests |
+| M1: `validate_seat_record`'s schema check became `false && …` | the matrix, `legacy_journal.rs:515` (the partial-group append was accepted, so `unwrap_err` panicked); on the first visit, also 14 store tests, among them all three fence and export/verify tests and eleven moved version tests |
+| M2: `record_of` returned `None` for a checkpoint | the matrix, `legacy_journal.rs:515` (the same acceptance); on the first visit, also 8 store tests, among them the three fence and export/verify tests |
 | M3: `validate_events` swept `&events[..0]` | `export_and_offline_verify_refuse_a_nonconforming_seat_record` (export returned the planted prose row) and five moved event-sweep tests |
-| M4: `of_engine`'s v5 arm removed | the matrix: the run parked at its first stamped row, "seat record at journal seq 5 violates contracts/seat-record.v4.schema.json at /" |
+| M4: `of_engine`'s v5 arm removed | the matrix, `legacy_journal.rs:549`: the run parked at its first stamped row, "seat record at journal seq 5 violates contracts/seat-record.v4.schema.json at /" |
 | M5: `compiled` handed v5 the v4 cell | `the_root_the_stamps_and_the_new_refusals_belong_to_v5_alone` and `the_zero_ten_line_reads_v5_and_the_nine_line_still_reads_v4` (`tests.rs:551`) |
+| M6: premature emission — the shipped `fold_stream_event` put an `observation` (`call`, `name`) on every tool-use checkpoint | the matrix, `legacy_journal.rs:549`: the append fence refused the first search turn and the run parked, "seat record at journal seq 7 violates contracts/seat-record.v5.schema.json at /" |
+| M7: schema-valid drift — the shipped lowering wrote `web-search` for the tool `WebSearch` | the matrix, `legacy_journal.rs:559`: the journaled rows differ from `wanted()` |
+| M8 (test data): the inline sites stop wanting `web-search` | the matrix, `legacy_journal.rs:558`: their launches deny `WebSearch` instead of allowing it, so the command lines differ from `wanted_launches()` |
 
-After the restore, the store package passed (80 library tests and every
-integration binary) and the matrix passed again.
+After each restore the matrix passed again. The store library passed 80
+tests on this visit's tree.
 
 ### 13.1 and 13.2
 
 The extraction is consumed by the existing fence, export and verify
-callers, dispatch and refusal text did not move, and the parent shrank.
-D9's legacy matrix passes at this merge, and the historical-version and
-exact-refusal tests stay green. M1–M5 each failed an intended assertion
-and were restored. That is the evidence both tasks are ticked on.
+callers. Dispatch and refusal text did not move, and the parent shrank.
+D9's legacy matrix now runs the shipped Claude driver and its lowering at
+every site shape on a granted native holding, and it passes at this merge.
+The historical-version and exact-refusal tests stay green. M1–M8 each
+failed an intended assertion and were restored. That is the evidence both
+tasks are ticked on.
 
 ### Gates on this visit's tree
+
+The return visit changed one test file, `quality/file-lines.txt` and this
+record, and no production file. On its tree, formatting and workspace
+clippy with `-D warnings` were clean again. The runtime library passed 763
+tests, and every runtime integration binary passed, among them
+capability_launch 70 of 70, `frozen_contracts` 12, `witness_digests` and
+`budgets`. `bundles/self` still compiled to `11c7d0e7…`. OpenSpec strict
+validation passed 20 of 20, while `typos --hidden` and `git diff --check`
+printed nothing. The `files` and `clones` ratchets held. The paragraph
+below is the first visit's record.
 
 Formatting is clean and workspace clippy with `-D warnings` finished
 without a diagnostic. The runtime library passed 763 tests and every
@@ -2410,7 +2472,8 @@ found nothing and `git diff --check` was clean. The `files`, `clones` and
 `api` ratchets held, and `baselines` against `c118b1ce` reports nothing
 raised. `quality/file-lines.txt` was re-measured: `seat_record.rs` 880 to
 199, plus `seat_record/validation.rs` (89), `seat_record/tests.rs` (618)
-and `capability_launch/legacy_journal.rs` (496). No `too-many-lines.txt`
+and `capability_launch/legacy_journal.rs` (496 on the first visit, 576
+after the return). No `too-many-lines.txt`
 anchor moved, because every listed capability_launch function sits below
 the two edits, which cancel. No suppression was added.
 `scripts/measure-budgets.sh` rewrote only main's existing drift (the

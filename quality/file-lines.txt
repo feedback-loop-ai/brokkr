@@ -253,7 +253,7 @@
     94 crates/brokkr-runtime/tests/anchor_test.rs
    384 crates/brokkr-runtime/tests/budgets.rs
  11883 crates/brokkr-runtime/tests/capability_launch.rs
-   496 crates/brokkr-runtime/tests/capability_launch/legacy_journal.rs
+   576 crates/brokkr-runtime/tests/capability_launch/legacy_journal.rs
    263 crates/brokkr-runtime/tests/crucible_review_sequence.rs
    214 crates/brokkr-runtime/tests/dispatch_seam.rs
    104 crates/brokkr-runtime/tests/fenced_commands.rs
