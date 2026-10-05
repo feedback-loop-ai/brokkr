@@ -840,3 +840,34 @@ hands after the document commit; it carries only result, inputs and notes
 and makes no next-phase choice.
 
 Final staged document validation repeated `openspec validate --all --strict`: 20 passed, 0 failed, exit 0. Staged and unstaged `git diff --check` again produced no diagnostics. The final scope audit found exactly `tasks.md` and this append-only evidence record changed, with all local file links resolving. Production and test files remain unchanged.
+
+
+## Returned implement visit — document delivery
+
+Seat: implement, run `amend-decision-0065-slice-two-s--a9a103e3`, after
+analyze's second `consistent`. Starting HEAD `75532988`; clean tracked tree.
+The returned specify, design and tasks visits drafted and committed every
+document; this seat checks them against the commission and records delivery.
+It adds no production, test or planning-artifact change.
+
+Checked in this session:
+
+- `git diff --name-only main...HEAD` lists only decision 0077, and the
+  change's proposal, design, ruling addendum, five spec deltas, tasks and
+  this evidence file. No production, test, contract, fixture, policy or
+  reference file is touched, and historical `evidence.md` is unchanged.
+- The ruling addendum's last section carries the commission's text verbatim.
+- design.md lines 512–518 hold the H1–H7 disposition table: what boxing
+  removes by construction and what each still checks.
+
+No task in tasks.md belongs to this visit; every affected task is future unit
+work and stays unchecked.
+
+| Command | Observed output |
+| --- | --- |
+| `git diff --check 19bca5ff HEAD` | Exit 0, no output, over the whole amendment. |
+| `openspec validate --all --strict` | `Totals: 20 passed, 0 failed (20 items)`; only informational notices. |
+| `typos --hidden` | Available in this seat; exit 0, no output. This closes the spelling check the tasks visit left pending. |
+
+Cargo tests, bundle compiles, fmt/clippy and exact coverage do not apply to a
+docs-only commission and are not claimed. Nothing is pushed.
