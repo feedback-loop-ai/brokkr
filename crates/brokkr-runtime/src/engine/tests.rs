@@ -2023,7 +2023,7 @@ pub(super) fn member(name: &str, command: Vec<String>) -> PanelMember {
     }
 }
 
-fn panel_input(names: &[&str]) -> Value {
+pub(super) fn panel_input(names: &[&str]) -> Value {
     let members = names
         .iter()
         .map(|name| {

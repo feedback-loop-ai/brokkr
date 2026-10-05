@@ -45,6 +45,31 @@ pub(super) const HELD_BYTES: usize = 16 * 1024 * 1024;
 /// The wait #394 measured ran 42 s against one 30 s patience.
 pub(super) const SETTLING_PATIENCES: u32 = 3;
 
+/// The capability-call attribution group (CC1; SC4's five fields) that
+/// only the engine writes. `tool` is legacy telemetry and is not in it.
+const ATTRIBUTION: [&str; 5] = [
+    "capability",
+    "dialect",
+    "call_id",
+    "call_state",
+    "response_sha256",
+];
+
+/// `checkpoint` without any attribution field a driver supplied, so no
+/// driver's value, forged or not, reaches the journal whatever a
+/// seat-record version would admit. Everything else passes unchanged.
+fn without_driver_attribution(checkpoint: Value) -> Value {
+    match checkpoint {
+        Value::Object(mut object) => {
+            for field in ATTRIBUTION {
+                object.remove(field);
+            }
+            Value::Object(object)
+        }
+        other => other,
+    }
+}
+
 /// `append` tried again while a peer's lock outlasts each of `patiences`
 /// patiences; anything else it returns, it returns at once.
 pub(super) fn within_patiences<T>(
@@ -169,8 +194,11 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
     /// Take one checkpoint from a working seat. What is already held goes
     /// first; when that still meets the lock, this one joins the hold, or
     /// is counted lost when the hold is full. Nothing here waits on the
-    /// lock and nothing here ever fails the seat.
+    /// lock and nothing here ever fails the seat. Both the single-site
+    /// and the panel sink hand every driver checkpoint here, so this is
+    /// where a driver's capability-call attribution is erased (CC1).
     pub(super) fn offer(&mut self, owner: &str, checkpoint: Value) {
+        let checkpoint = without_driver_attribution(checkpoint);
         let contended = self.flush(Store::append_next_without_waiting).is_some();
         if self.refusal.is_some() || self.failure.is_some() {
             return;
@@ -311,3 +339,6 @@ impl Settled {
         lost.into_iter().chain(stranded).collect()
     }
 }
+
+#[cfg(test)]
+mod tests;
