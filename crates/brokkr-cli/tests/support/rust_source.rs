@@ -1,6 +1,7 @@
 //! A reader of the attributes and `cfg!` invocations in Rust source, for
 //! the test files that judge them: `suppressions.rs` counts lint
-//! suppressions and `hosts.rs` refuses a Windows conditional.
+//! suppressions, `hosts.rs` refuses a Windows conditional, and
+//! `layering::test_targets` finds a module's `#[test]` functions by them.
 //! `tests/it.rs` declares this once, so the lexer has one home.
 //!
 //! The lexer skips comments and every string and char literal, so `#[`
@@ -9,6 +10,7 @@
 //! `#![..]` are each one unit. Text it cannot read is refused rather than
 //! skipped.
 
+use std::collections::BTreeSet;
 use std::ops::RangeInclusive;
 
 /// Advances past one string or char literal starting at `at`, or returns
@@ -184,6 +186,112 @@ pub(crate) fn units(source: &str) -> Result<Vec<(RangeInclusive<usize>, String)>
         } else {
             i += 1;
         }
+    }
+    Ok(out)
+}
+
+/// Whether a `cfg` predicate holds in every test build the gate's hosts
+/// make: `test` holds because the source is read as a module of a
+/// `tests/it.rs`, compiled only as a test, and `unix` holds on every
+/// supported host (decision 0063, Linux and macOS). A `target_os` of the
+/// two supported systems is asked of the compiling host, so a name the
+/// binary of this host does not carry is not vouched. Any other predicate
+/// the reader cannot evaluate, so it vouches for nothing: a name behind
+/// it refuses, never passes.
+fn predicate_holds(predicate: &str) -> bool {
+    match predicate.trim() {
+        "test" | "unix" => true,
+        "target_os = \"linux\"" => cfg!(target_os = "linux"),
+        "target_os = \"macos\"" => cfg!(target_os = "macos"),
+        _ => false,
+    }
+}
+
+/// The predicate of a `cfg(…)` attribute's text, or `None` for any other
+/// attribute. A `cfg_attr` gates the attribute it carries, not the item,
+/// and marks nothing here.
+fn cfg_predicate(attribute: &str) -> Option<&str> {
+    let (head, rest) = attribute.split_once('(')?;
+    (head.trim_end() == "cfg")
+        .then_some(rest)?
+        .strip_suffix(')')
+}
+
+/// The name of the `fn` an attribute run ending at `s[at..]` marks, read
+/// past trivia and further attributes from the first one's bracket: the
+/// name when the run holds `#[test]` and every `cfg` predicate in it is
+/// vouched, else `None` — a name the binary may not carry is no test. The
+/// index returned is just past the name, so the scan resumes inside the
+/// item, whose brackets close themselves. A run that ends at no `fn`
+/// marks nothing; a `fn` with no name, or a raw-identified one this
+/// reader does not read, is an error or no test.
+fn marked_fn(s: &[char], at: usize) -> Result<(Option<String>, usize), String> {
+    let (mut marked, mut vouched, mut i) = (false, true, at);
+    loop {
+        let (text, end) = group(s, i, "attribute")?;
+        let trimmed = text.trim();
+        if trimmed == "test" {
+            marked = true;
+        } else if let Some(predicate) = cfg_predicate(trimmed) {
+            vouched &= predicate_holds(predicate);
+        }
+        i = skip_trivia(s, end)?;
+        match (s.get(i), attribute_open(s, i)?) {
+            (Some('#'), Some(open)) => i = open,
+            _ => break,
+        }
+    }
+    let is_fn = s[i..].starts_with(&['f', 'n'])
+        && !s
+            .get(i + 2)
+            .is_some_and(|c| c.is_alphanumeric() || *c == '_');
+    if !marked || !is_fn {
+        return Ok((None, i));
+    }
+    let i = skip_trivia(s, (i + 2).min(s.len()))?;
+    let name: String = s[i..]
+        .iter()
+        .take_while(|c| c.is_alphanumeric() || **c == '_')
+        .collect();
+    if name.is_empty() {
+        return Err("a #[test] with no function name".into());
+    }
+    if name == "r" && s.get(i + 1) == Some(&'#') {
+        return Ok((None, i));
+    }
+    Ok((vouched.then_some(name.clone()), i + name.len()))
+}
+
+/// The `#[test]` functions at the top level of a module's source, by
+/// name, as the tokens hold them: an attribute run that holds `#[test]`
+/// and ends at a `fn`, outside every literal and comment and at bracket
+/// depth 0, so a pair in a string literal, a comment or a nested item is
+/// no test. A run's `cfg` predicates are held to what a test binary of
+/// the supported hosts carries ([`predicate_holds`]). Text it cannot read
+/// is an error, never an absence.
+pub(crate) fn tests(source: &str) -> Result<BTreeSet<String>, String> {
+    let s: Vec<char> = source.chars().collect();
+    let (mut out, mut i, mut depth) = (BTreeSet::new(), 0, 0usize);
+    while i < s.len() {
+        let next = skip_literal(&s, skip_comment(&s, i)?)?;
+        if next != i {
+            i = next;
+            continue;
+        }
+        match s[i] {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            '#' if depth == 0 => {
+                if let Some(open) = attribute_open(&s, i)? {
+                    let (marked, end) = marked_fn(&s, open)?;
+                    out.extend(marked);
+                    i = end;
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
     }
     Ok(out)
 }

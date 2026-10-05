@@ -52,6 +52,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use super::{is_identifier, unreadable, Refusal};
+use crate::rust_source;
 
 /// The modules each package's `tests/it.rs` declares, by package and name.
 type Roots = BTreeMap<String, BTreeMap<String, PathBuf>>;
@@ -410,7 +411,11 @@ fn loose(at: &str, line: &str, words: &[String]) -> Result<(), Refusal> {
 }
 
 /// An invocation's filters, held to the module `roots` gives each package
-/// it names, and under `--exact` to a `#[test]` of that module.
+/// it names, and under `--exact` to a `#[test]` of that module. A module
+/// is read either way, through `read`, as `rust_source::tests` holds it:
+/// a filter is held to a module that carries a `#[test]` the reader
+/// vouches for, and an `--exact` name to one of those tests, so a name a
+/// literal's text or a nested item shows is no test of the binary.
 fn hold(
     at: &str,
     command: &str,
@@ -437,15 +442,25 @@ fn hold(
                         module: module.to_string(),
                     }
                 })?;
+            let text = read(file).map_err(|error| unreadable(file, &error))?;
+            let tests = rust_source::tests(&text).map_err(|why| Refusal::UnreadSource {
+                path: file.clone(),
+                why,
+            })?;
             if invocation.exact {
-                let text = read(file).map_err(|error| unreadable(file, &error))?;
-                if !tests_of(&text).contains(name) {
+                if !tests.contains(name) {
                     return Err(Refusal::UnknownTest {
                         at: at.to_string(),
                         package: package.clone(),
                         name: filter.clone(),
                     });
                 }
+            } else if tests.is_empty() {
+                return Err(Refusal::TestlessModule {
+                    at: at.to_string(),
+                    package: package.clone(),
+                    module: module.to_string(),
+                });
             }
             held.push(Filter {
                 at: at.to_string(),
@@ -468,24 +483,6 @@ fn path_of(filter: &str, exact: bool) -> Option<(&str, &str)> {
         && inner.iter().all(|segment| is_identifier(segment))
         && (is_identifier(last) || (last.is_empty() && !exact));
     (readable && (!exact || inner.is_empty())).then_some((module, rest))
-}
-
-/// The `#[test]` functions at the top level of a module's text: a `fn` at
-/// a line's start under a run of attributes and doc comments, also at
-/// their lines' start, that holds `#[test]`.
-fn tests_of(text: &str) -> BTreeSet<&str> {
-    let (mut tests, mut marked) = (BTreeSet::new(), false);
-    for line in text.lines() {
-        if marked {
-            let name = line
-                .strip_prefix("fn ")
-                .and_then(|rest| rest.split_once('('));
-            tests.extend(name.map(|(name, _)| name));
-        }
-        marked =
-            line == "#[test]" || (marked && (line.starts_with("#[") || line.starts_with("///")));
-    }
-    tests
 }
 
 /// A file's lines as its format makes them: a script's, a text's or an
@@ -839,10 +836,43 @@ fn the_filter_reader_refuses_a_stale_filter_in_every_form() {
             exact("suppressions::nested"),
         ),
         (
-            "cargo test -p brokkr-cli --test it -- --exact packaging::a",
+            "cargo test -p brokkr-cli --test it -- --exact gone::a",
             Refusal::Unreadable {
-                path: "packaging.rs".into(),
+                path: "gone.rs".into(),
                 kind: io::ErrorKind::NotFound,
+            },
+        ),
+        (
+            "cargo test -p brokkr-cli --test it gone::",
+            Refusal::Unreadable {
+                path: "gone.rs".into(),
+                kind: io::ErrorKind::NotFound,
+            },
+        ),
+        (
+            "cargo test -p brokkr-cli --test it empty::",
+            Refusal::TestlessModule {
+                at: "f:1".into(),
+                package: "brokkr-cli".into(),
+                module: "empty".into(),
+            },
+        ),
+        (
+            "cargo test -p brokkr-cli --test it -- --exact empty::helper",
+            exact("empty::helper"),
+        ),
+        (
+            "cargo test -p brokkr-cli --test it -- --exact broken::a",
+            Refusal::UnreadSource {
+                path: "broken.rs".into(),
+                why: "an unterminated string".into(),
+            },
+        ),
+        (
+            "cargo test -p brokkr-cli --test it broken::",
+            Refusal::UnreadSource {
+                path: "broken.rs".into(),
+                why: "an unterminated string".into(),
             },
         ),
         (
@@ -1446,8 +1476,93 @@ fn a_character_outside_the_grammar_refuses_a_held_line_wherever_it_stands() {
     }
 }
 
-/// Two packages' roots, and the one module file whose tests an `--exact`
-/// name is held to.
+/// The `#[test]` reader takes the forms a module file is written in and
+/// refuses what it cannot read: a run of attributes and doc comments
+/// across lines is one marking, a pair inside a string literal, a
+/// comment or a nested item is none, and a `cfg` predicate the binary of
+/// this host may not carry vouches for nothing.
+#[test]
+fn the_test_reader_takes_the_forms_a_module_is_written_in() {
+    let run = "#[test]\n#[ignore = \"x\"]\n/// A test.\nfn a() {}\n";
+    assert_eq!(
+        rust_source::tests(run),
+        Ok(BTreeSet::from(["a".to_string()]))
+    );
+    let across_lines =
+        "#[test]\n#[expect(\n    clippy::too_many_lines,\n    reason = \"baseline\"\n)]\nfn b() {}\n";
+    assert_eq!(
+        rust_source::tests(across_lines),
+        Ok(BTreeSet::from(["b".to_string()]))
+    );
+    let planted = concat!(
+        "fn main() {}\n",
+        "r#\"\n",
+        "#[test]\n",
+        "fn planted() {}\n",
+        "\"#;\n",
+        "#[test]\nfn real() {}\n",
+    );
+    assert_eq!(
+        rust_source::tests(planted),
+        Ok(BTreeSet::from(["real".to_string()]))
+    );
+    let nested = "mod inner {\n    #[test]\n    fn nested() {}\n}\n#[test]\nfn top() {}\n";
+    assert_eq!(
+        rust_source::tests(nested),
+        Ok(BTreeSet::from(["top".to_string()]))
+    );
+    let commented = "// #[test]\n// fn nope() {}\n#[test]\nfn kept() {}\n";
+    assert_eq!(
+        rust_source::tests(commented),
+        Ok(BTreeSet::from(["kept".to_string()]))
+    );
+    let marked_something_else = "#[test]\nstruct S;\n#[test]\nfn kept() {}\n";
+    assert_eq!(
+        rust_source::tests(marked_something_else),
+        Ok(BTreeSet::from(["kept".to_string()]))
+    );
+    let not_read_alone = "#[test]\nasync fn later() {}\n#[test]\npub fn placed() {}\n";
+    assert_eq!(rust_source::tests(not_read_alone), Ok(BTreeSet::new()));
+    let raw = "#[test]\nfn r#type() {}\n#[test]\nfn kept() {}\n";
+    assert_eq!(
+        rust_source::tests(raw),
+        Ok(BTreeSet::from(["kept".to_string()]))
+    );
+    let unix_gated = "#[cfg(unix)]\n#[test]\nfn u() {}\n";
+    assert_eq!(
+        rust_source::tests(unix_gated),
+        Ok(BTreeSet::from(["u".to_string()]))
+    );
+    let host_gated = "#[cfg(target_os = \"macos\")]\n#[test]\nfn m() {}\n";
+    let expected = if cfg!(target_os = "macos") {
+        BTreeSet::from(["m".to_string()])
+    } else {
+        BTreeSet::new()
+    };
+    assert_eq!(rust_source::tests(host_gated), Ok(expected));
+    let unevaluated = "#[cfg(feature = \"x\")]\n#[test]\nfn f() {}\n";
+    assert_eq!(rust_source::tests(unevaluated), Ok(BTreeSet::new()));
+    let not_in_a_test_build = "#[cfg(not(test))]\n#[test]\nfn n() {}\n";
+    assert_eq!(rust_source::tests(not_in_a_test_build), Ok(BTreeSet::new()));
+}
+
+/// Source the reader cannot read is an error, never an absence: an
+/// unterminated literal, comment or attribute is refused by its name.
+#[test]
+fn the_test_reader_refuses_a_source_it_cannot_read() {
+    for (source, why) in [
+        ("\"unterminated", "an unterminated string"),
+        ("/* never closed", "an unterminated block comment"),
+        ("#[test", "an unterminated attribute"),
+    ] {
+        assert_eq!(rust_source::tests(source), Err(why.into()), "{source}");
+    }
+}
+
+/// Two packages' roots, and the module files an `--exact` name is held
+/// to: `suppressions` carries a test, `packaging` carries one, `empty`
+/// carries none, `gone` cannot be read, and `broken`'s source the reader
+/// cannot lex.
 fn fixture() -> (Roots, impl Fn(&Path) -> io::Result<String>) {
     let roots = BTreeMap::from([
         (
@@ -1455,6 +1570,9 @@ fn fixture() -> (Roots, impl Fn(&Path) -> io::Result<String>) {
             BTreeMap::from([
                 ("packaging".to_string(), PathBuf::from("packaging.rs")),
                 ("suppressions".to_string(), PathBuf::from("suppressions.rs")),
+                ("empty".to_string(), PathBuf::from("empty.rs")),
+                ("broken".to_string(), PathBuf::from("broken.rs")),
+                ("gone".to_string(), PathBuf::from("gone.rs")),
             ]),
         ),
         ("brokkr-core".to_string(), BTreeMap::new()),
@@ -1462,6 +1580,9 @@ fn fixture() -> (Roots, impl Fn(&Path) -> io::Result<String>) {
     let read = |path: &Path| {
         match path.to_str() {
         Some("suppressions.rs") => Ok("#[test]\n#[ignore = \"x\"]\n/// A test.\nfn a_b() {}\n\nfn helper() {}\nmod inner {\n    #[test]\n    fn nested() {}\n}\n".to_string()),
+        Some("packaging.rs") => Ok("/// A test of its own.\n#[test]\nfn packaging_holds_a_test() {}\n".to_string()),
+        Some("empty.rs") => Ok("fn helper() {}\n".to_string()),
+        Some("broken.rs") => Ok("\"unterminated".to_string()),
         _ => Err(io::Error::from(io::ErrorKind::NotFound)),
     }
     };

@@ -16,10 +16,15 @@
 //! One binary runs a file's tests by a filter, `--test it <file>::`, and a
 //! filter that matches nothing runs 0 tests and passes, where the old
 //! `--test <file>` failed. So every `--test it` filter a workflow, script,
-//! recipe, bundle or guide runs must name a module of its crate's root,
-//! and an `--exact` name a test of that module. `run_commands` reads each
-//! command that may pass `--test it` word by word in a closed grammar, and
-//! refuses the first character outside it.
+//! recipe, bundle or guide runs must name a module of its crate's root
+//! that carries a `#[test]` of its own, and an `--exact` name one of
+//! those tests. `run_commands` reads each command that may pass `--test
+//! it` word by word in a closed grammar, and refuses the first character
+//! outside it; a module's `#[test]`s are found by parsing its source as
+//! Rust (`crate::rust_source::tests`), so a pair a string literal, a
+//! comment or a nested item shows is no test of the binary, and a name
+//! behind a `cfg` predicate the binary of the compiling host may not
+//! carry is refused.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -29,7 +34,7 @@ use std::path::{Path, PathBuf};
 
 use super::{metadata, workspace, Package};
 use crate::tracked_files::tracked;
-use run_commands::filters_in;
+use run_commands::{filters_in, Filter};
 
 #[path = "test_targets/run_commands.rs"]
 mod run_commands;
@@ -65,12 +70,20 @@ enum Refusal {
         package: String,
         module: String,
     },
+    /// A `--test it` filter whose module holds no `#[test]` of its own.
+    TestlessModule {
+        at: String,
+        package: String,
+        module: String,
+    },
     /// An `--exact` name no `#[test]` of its module carries.
     UnknownTest {
         at: String,
         package: String,
         name: String,
     },
+    /// A module's source the `#[test]` reader cannot read.
+    UnreadSource { path: PathBuf, why: String },
     /// A `--test it` command with a filter and no `-p`.
     NoPackage { at: String, command: String },
     /// A `--test it` command with a word, flag or form the reader does not
@@ -114,10 +127,24 @@ impl fmt::Display for Refusal {
                 "{at}: `--test it {module}::` names no module of {package}'s tests/it.rs, \
                  so it would run 0 tests and pass"
             ),
+            Self::TestlessModule {
+                at,
+                package,
+                module,
+            } => write!(
+                f,
+                "{at}: `--test it {module}::` names no #[test] in {package}'s {module} module, \
+                 so it would run 0 tests and pass"
+            ),
             Self::UnknownTest { at, package, name } => write!(
                 f,
                 "{at}: `--exact {name}` names no #[test] function of {package}'s tests/it.rs, \
                  so it would run 0 tests and pass"
+            ),
+            Self::UnreadSource { path, why } => write!(
+                f,
+                "{}: {why}, so the #[test]s there cannot be read",
+                path.display()
             ),
             Self::NoPackage { at, command } => write!(
                 f,
@@ -369,6 +396,67 @@ fn every_test_it_filter_names_a_module_of_its_crates_root() {
     }
 }
 
+/// #543: a name is held to a test the binary carries and a filter to a
+/// module that holds tests. A pair a string literal of `hands.rs` shows
+/// at column 0 is no test of it, each support module of a root holds no
+/// test, and a filter into a directory module still reads: `layering`
+/// carries tests of its own.
+#[test]
+fn a_filter_is_held_to_a_module_that_holds_tests_and_a_name_to_a_test() {
+    let roots: BTreeMap<String, BTreeMap<String, PathBuf>> = members()
+        .map(|package| (package.name.clone(), root_modules(package)))
+        .collect();
+    let module_file = |path: &Path| std::fs::read_to_string(path);
+    for (package, module) in [
+        ("brokkr-cli", "numbered"),
+        ("brokkr-cli", "rust_source"),
+        ("brokkr-cli", "test_paths"),
+        ("brokkr-cli", "tracked_files"),
+        ("brokkr-cli", "workflow"),
+        ("brokkr-cli", "workspace_root"),
+        ("brokkr-runtime", "witnesses"),
+    ] {
+        let text = format!("cargo test --locked -p {package} --test it {module}::\n");
+        let refused = Refusal::TestlessModule {
+            at: "f:1".into(),
+            package: package.into(),
+            module: module.into(),
+        };
+        assert_eq!(
+            filters_in("f", &text, &roots, &module_file),
+            Err(refused),
+            "{text}"
+        );
+    }
+    for name in ["hands::named_pass", "hands::named_fail_when_requested"] {
+        let text = format!("cargo test --locked -p brokkr-cli --test it -- --exact {name}\n");
+        let refused = Refusal::UnknownTest {
+            at: "f:1".into(),
+            package: "brokkr-cli".into(),
+            name: name.into(),
+        };
+        assert_eq!(
+            filters_in("f", &text, &roots, &module_file),
+            Err(refused),
+            "{text}"
+        );
+    }
+    let held = Ok(vec![Filter {
+        at: "f:1".into(),
+        package: "brokkr-cli".into(),
+        module: "layering".into(),
+    }]);
+    assert_eq!(
+        filters_in(
+            "f",
+            "cargo test --locked -p brokkr-cli --test it layering::test_targets\n",
+            &roots,
+            &module_file
+        ),
+        held
+    );
+}
+
 /// A probe that fails for any reason but absence is refused, never read
 /// as an absence: an unreadable directory would hide the file in it.
 #[test]
@@ -480,6 +568,15 @@ fn each_refusal_reads_as_the_operator_sees_it() {
              so it would run 0 tests and pass",
         ),
         (
+            Refusal::TestlessModule {
+                at: "ci.yml:9".into(),
+                package: "brokkr-cli".into(),
+                module: "gone".into(),
+            },
+            "ci.yml:9: `--test it gone::` names no #[test] in brokkr-cli's gone module, \
+             so it would run 0 tests and pass",
+        ),
+        (
             Refusal::UnknownTest {
                 at: "ci.yml:9".into(),
                 package: "brokkr-cli".into(),
@@ -487,6 +584,13 @@ fn each_refusal_reads_as_the_operator_sees_it() {
             },
             "ci.yml:9: `--exact gone::a` names no #[test] function of brokkr-cli's \
              tests/it.rs, so it would run 0 tests and pass",
+        ),
+        (
+            Refusal::UnreadSource {
+                path: "/w/tests/gone.rs".into(),
+                why: "an unterminated string".into(),
+            },
+            "/w/tests/gone.rs: an unterminated string, so the #[test]s there cannot be read",
         ),
         (
             Refusal::NoPackage {
