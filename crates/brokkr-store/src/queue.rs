@@ -17,8 +17,9 @@
 //! re-pin writes a new one beside it, which the entry stands for from
 //! then on. A latch is a realm-drift hold admission found on an entry,
 //! kept verbatim as the runtime encodes it too, and it stands until the
-//! entry is re-pinned after it: nothing else clears one, and a re-pin is
-//! written only over the latch its caller read. Priority and
+//! entry is re-pinned after it: nothing else clears one, and a latch or a
+//! re-pin is written only over the pin and the latch its caller read
+//! ([`Seen`]). Priority and
 //! waits are operator data, stored and listed here; admission weighs them.
 
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
@@ -27,9 +28,12 @@ use thiserror::Error;
 
 use crate::{now_rfc3339, patiently, Store, StoreError};
 
+mod beside;
 mod storage;
 
-use storage::{latch_row, queue_stored, PINNED_PAYLOAD, QUEUE_SCHEMA, STANDING_LATCH};
+pub use beside::Seen;
+use beside::{beside_once, Beside};
+use storage::{latch_row, queue_stored, PINNED_PAYLOAD, PINNED_SEQ, QUEUE_SCHEMA, STANDING_LATCH};
 pub(crate) use storage::{migrate_queue, queue_intact};
 
 /// A queue entry's id: assigned at `add`, never reused, since no entry is
@@ -228,10 +232,24 @@ pub struct QueueEntry {
     /// The launch, as the runtime encoded it: the one the entry was last
     /// re-pinned to, else the one it was queued with.
     pub payload: String,
+    /// The `repin` command that wrote that launch, by its seq; `None`
+    /// while it stands for the launch it was queued with.
+    pub pin: Option<i64>,
     pub added_at: String,
     /// The realm-drift hold latched on it since it was last re-pinned,
     /// the latest one; `None` when none stands.
     pub latch: Option<Latch>,
+}
+
+impl QueueEntry {
+    /// The pin and the latch read here, which a latch or a re-pin of this
+    /// entry is written over.
+    pub fn seen(&self) -> Seen {
+        Seen {
+            pin: self.pin,
+            latch: self.latch.as_ref().map(|latch| latch.seq),
+        }
+    }
 }
 
 /// A realm-drift hold admission latched on an entry (#430): the `latch`
@@ -315,6 +333,17 @@ pub enum QueueRefusal {
         entry: EntryId,
         standing: Option<Latch>,
     },
+    /// A re-pin over a pin that no longer stands: a peer re-pinned after
+    /// the caller read it.
+    #[error("queue entry {entry} was re-pinned after the re-pin was shown")]
+    PinMoved { entry: EntryId },
+    /// A latch measured against a pin or a latch that no longer stands: a
+    /// peer re-pinned or latched after the caller read the entry.
+    #[error(
+        "queue entry {entry} was re-pinned or latched after its finding was measured, and the \
+         finding was not latched"
+    )]
+    Unmeasured { entry: EntryId },
     /// A journal that records its queue, and has lost one of its tables.
     #[error(
         "the journal records a queue but its {table} table is gone; what the queue held cannot \
@@ -564,72 +593,6 @@ fn claim_once(conn: &mut Connection, entry: EntryId, run: &str) -> Result<(), St
     Ok(())
 }
 
-/// Refuse a re-pin or a latch of an entry that has left the queue.
-fn left_the_queue(entry: EntryId, state: EntryState) -> Option<QueueRefusal> {
-    match state {
-        EntryState::Dropped => Some(QueueRefusal::Dropped(entry)),
-        EntryState::Claimed { run } => Some(QueueRefusal::Claimed { entry, run }),
-        EntryState::Queued | EntryState::Held => None,
-    }
-}
-
-/// What a command writes beside a waiting entry, keyed by the command.
-#[derive(Debug, Clone, Copy)]
-enum Beside {
-    /// A realm-drift hold admission found.
-    Latch,
-    /// The launch the operator re-pinned the entry to, written only over
-    /// the latch `over` names, the one the caller read: `None` where it
-    /// read none.
-    Pin { over: Option<i64> },
-}
-
-impl Beside {
-    fn word(self) -> &'static str {
-        match self {
-            Beside::Latch => "latch",
-            Beside::Pin { .. } => "repin",
-        }
-    }
-
-    fn insert(self) -> &'static str {
-        match self {
-            Beside::Latch => {
-                "INSERT INTO queue_latches (seq, entry_id, finding) VALUES (?1, ?2, ?3)"
-            }
-            Beside::Pin { .. } => {
-                "INSERT INTO queue_pins (seq, entry_id, payload) VALUES (?1, ?2, ?3)"
-            }
-        }
-    }
-}
-
-fn beside_once(
-    conn: &mut Connection,
-    entry: EntryId,
-    beside: Beside,
-    text: &str,
-    by: Attribution<'_>,
-) -> Result<(), StoreError> {
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    queue_stored(&tx)?;
-    if let Some(refusal) = left_the_queue(entry, standing(&tx, entry)?) {
-        return Err(refusal.into());
-    }
-    if let Beside::Pin { over } = beside {
-        let standing = tx
-            .query_row(STANDING_LATCH, [entry.0], latch_row)
-            .optional()?;
-        if standing.as_ref().map(|latch| latch.seq) != over {
-            return Err(QueueRefusal::LatchMoved { entry, standing }.into());
-        }
-    }
-    let seq = record(&tx, entry, beside.word(), None, by)?;
-    tx.execute(beside.insert(), params![seq, entry.0, text])?;
-    tx.commit()?;
-    Ok(())
-}
-
 /// The entries `filter` selects with `key`, in the queue's order, each
 /// with its waits, the launch it stands for and the latch that stands on
 /// it. A version 1 queue holds no pins and no latches.
@@ -639,12 +602,12 @@ fn entries(
     filter: &str,
     key: &dyn rusqlite::ToSql,
 ) -> Result<Vec<QueueEntry>, StoreError> {
-    let (payload, latched) = match stored {
-        QUEUE_SCHEMA => (PINNED_PAYLOAD, true),
-        _ => ("payload", false),
+    let (payload, pin, latched) = match stored {
+        QUEUE_SCHEMA => (PINNED_PAYLOAD, PINNED_SEQ, true),
+        _ => ("payload", "NULL", false),
     };
     let mut entries = conn.prepare(&format!(
-        "SELECT entry_id, position, state, run_id, priority, {payload}, added_at
+        "SELECT entry_id, position, state, run_id, priority, {payload}, added_at, {pin}
          FROM queue_entries WHERE {filter}
          ORDER BY position IS NULL, position, entry_id"
     ))?;
@@ -657,6 +620,7 @@ fn entries(
                 priority: row.get(4)?,
                 payload: row.get(5)?,
                 added_at: row.get(6)?,
+                pin: row.get(7)?,
                 waits: Vec::new(),
                 latch: None,
             })
@@ -751,38 +715,40 @@ impl Store {
     /// one it was queued with stays beside it, and no latch from before
     /// stands on it. This is how the operator releases an entry admission
     /// latched a realm-drift hold on (#430): the caller pins the map now
-    /// on disk, and only when it is the map the latch found. `over` is the
-    /// seq of the latch the caller read, `None` where it read none: the
-    /// re-pin is refused unless that latch is the one standing in the
-    /// transaction that writes it, so a peer's latch in between is never
-    /// cleared unseen.
+    /// on disk, and only when it is the map the latch found. `seen` is the
+    /// pin and the latch the caller read: the re-pin is refused unless
+    /// both stand in the transaction that writes it, so a peer's latch or
+    /// re-pin in between is never cleared unseen.
     pub fn queue_repin(
         &mut self,
         entry: EntryId,
         payload: &str,
-        over: Option<i64>,
+        seen: Seen,
         by: Attribution<'_>,
     ) -> Result<(), StoreError> {
         let conn = &mut self.conn;
-        let pin = Beside::Pin { over };
         patiently("queue_repin", self.patience, || {
-            beside_once(conn, entry, pin, payload, by)
+            beside_once(conn, entry, Beside::Pin, seen, payload, by)
         })
     }
 
     /// Latch a realm-drift hold on a waiting entry, journaling the
     /// `latch` with its reason: `finding` stands on the entry until a
     /// later re-pin, whatever admission sees after (#430). A later latch
-    /// stands in its place, and every one stays.
+    /// stands in its place, and every one stays. `seen` is the pin and the
+    /// latch the finding was measured against: the latch is refused unless
+    /// both stand in the transaction that writes it, so a finding measured
+    /// against a pin since replaced never stands.
     pub fn queue_latch(
         &mut self,
         entry: EntryId,
         finding: &str,
+        seen: Seen,
         by: Attribution<'_>,
     ) -> Result<(), StoreError> {
         let conn = &mut self.conn;
         patiently("queue_latch", self.patience, || {
-            beside_once(conn, entry, Beside::Latch, finding, by)
+            beside_once(conn, entry, Beside::Latch, seen, finding, by)
         })
     }
 }

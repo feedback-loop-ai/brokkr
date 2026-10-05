@@ -17,6 +17,7 @@ pub brokkr_runtime::admission::AdmissionError::LatchMoved::entry: brokkr_store::
 pub brokkr_runtime::admission::AdmissionError::MapMoved(brokkr_store::queue::EntryId)
 pub brokkr_runtime::admission::AdmissionError::NothingLatched(brokkr_store::queue::EntryId)
 pub brokkr_runtime::admission::AdmissionError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::admission::AdmissionError::Unmeasured(brokkr_store::queue::EntryId)
 pub enum brokkr_runtime::admission::Difference
 pub brokkr_runtime::admission::Difference::Boundary
 pub brokkr_runtime::admission::Difference::Boundary::now: brokkr_core::realms::Boundary

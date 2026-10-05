@@ -504,10 +504,99 @@ fn a_repin_refuses_a_latch_a_peer_wrote_after_it_compared() {
     map(ws.path(), json!({"boundary": "harness"}));
     judge(&mut store, BY).unwrap();
     let compared = shown(&store, entry).unwrap();
-    store.queue_latch(entry, "{}", BY).unwrap();
+    let read = store.queue_entry(entry).unwrap().seen();
+    store.queue_latch(entry, "{}", read, BY).unwrap();
     let error = repin(&mut store, entry, compared, BY).unwrap_err();
     assert!(matches!(error, AdmissionError::Latch { entry: at, .. } if at == entry));
     assert_eq!(store.queue_entry(entry).unwrap().payload, peers);
+}
+
+/// #430's H3, the chief's reproduction in one process: a `queue judge`
+/// never latches a finding measured against a pin the operator has since
+/// replaced. Queued under A (open, web-search) and judged under B
+/// (harness, no grant), a judge measures the map STALE against the pin A;
+/// the operator re-pins to B; with the map at STALE again the measured
+/// finding is refused, nothing is latched, and judged afresh the latch
+/// and the re-pin say what the pin B differs by. STALE is C (namespace,
+/// web-search), then A itself, whose stale finding records no difference.
+#[test]
+fn a_judge_never_latches_a_finding_measured_against_a_pin_since_replaced() {
+    let grant = json!({"web-search": {"dialect": "web"}});
+    let a = json!({"boundary": "open", "capabilities": grant});
+    let b = json!({"boundary": "harness"});
+    let c = json!({"boundary": "namespace", "capabilities": grant});
+    let boundary = |was, now| Difference::Boundary { was, now };
+    let variants = [
+        (
+            c,
+            vec![boundary(Boundary::Open, Boundary::Namespace)],
+            "grant web-search added; boundary harness → namespace",
+        ),
+        (
+            a.clone(),
+            vec![],
+            "grant web-search added; boundary harness → open",
+        ),
+    ];
+    for (stale, measured_as, afresh) in variants {
+        let ws = workspace();
+        map(ws.path(), a.clone());
+        let (mut store, entry) = queued(ws.path());
+        map(ws.path(), b.clone());
+        judge(&mut store, BY).unwrap();
+        map(ws.path(), stale.clone());
+        let measured = read(&store).unwrap();
+        let finding = measured[0].1.as_ref().unwrap();
+        assert_eq!(finding.differences, measured_as);
+        map(ws.path(), b.clone());
+        let accepted = release(&mut store, entry, BY).unwrap();
+        assert_eq!(
+            accepted.to_string(),
+            "grant web-search removed; boundary open → harness"
+        );
+        let peers = store.queue_entry(entry).unwrap();
+        map(ws.path(), stale);
+        let error = latch(&mut store, measured, BY).unwrap_err();
+        assert!(matches!(error, AdmissionError::Unmeasured(at) if at == entry));
+        assert_eq!(
+            error.to_string(),
+            "queue entry 1 was re-pinned or latched while `brokkr queue judge` measured it, and \
+             what it found was not latched; `brokkr queue judge` measures it afresh"
+        );
+        assert_eq!(store.queue_entry(entry).unwrap(), peers);
+        judge(&mut store, BY).unwrap();
+        let released = release(&mut store, entry, BY).unwrap();
+        assert_eq!(released.to_string(), afresh);
+    }
+
+    // Measured before any latch, and a peer judged and re-pinned since:
+    // only the pin moved, and the finding is refused all the same.
+    let ws = workspace();
+    map(ws.path(), a);
+    let (mut store, entry) = queued(ws.path());
+    map(ws.path(), b);
+    let measured = read(&store).unwrap();
+    judge(&mut store, BY).unwrap();
+    release(&mut store, entry, BY).unwrap();
+    let peers = store.queue_entry(entry).unwrap();
+    let error = latch(&mut store, measured, BY).unwrap_err();
+    assert!(matches!(error, AdmissionError::Unmeasured(at) if at == entry));
+    assert_eq!(store.queue_entry(entry).unwrap(), peers);
+    assert_eq!(
+        verdicts(&store),
+        vec![(entry.0, Standing::Admissible, vec![])]
+    );
+
+    // Measured, and dropped by a peer before the latch: the store's own
+    // refusal stands.
+    map(ws.path(), json!({"boundary": "open"}));
+    let measured = read(&store).unwrap();
+    store.queue_command(entry, QueueCommand::Drop, BY).unwrap();
+    let error = latch(&mut store, measured, BY).unwrap_err();
+    assert!(matches!(
+        error,
+        AdmissionError::Store(StoreError::Queue(QueueRefusal::Dropped(at))) if at == entry
+    ));
 }
 
 /// The operator's ruling of 2026-10-04 (#430's M1): an entry queued under
@@ -734,7 +823,9 @@ fn a_queue_the_pass_cannot_read_admits_nothing_and_says_why() {
 
     // A latch this brokkr cannot read, which no release takes either.
     let latched = add(&mut store, &payload, &[]);
-    store.queue_latch(latched, "{}", BY).unwrap();
+    store
+        .queue_latch(latched, "{}", Seen::default(), BY)
+        .unwrap();
     let unread = |error: AdmissionError| {
         assert!(matches!(error, AdmissionError::Latch { entry, .. } if entry == latched));
         let chain = (error.to_string(), error.source().unwrap().to_string());

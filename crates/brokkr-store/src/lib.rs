@@ -84,7 +84,7 @@ pub mod test_support;
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
 pub use queue::{
     Attribution, EntryId, EntryState, Latch, NewEntry, NotAWait, QueueCommand, QueueEntry,
-    QueueRefusal, Wait, WaitOn,
+    QueueRefusal, Seen, Wait, WaitOn,
 };
 pub use redact::{redact_export, Redactor};
 pub use schema::DATABASE_SCHEMA;

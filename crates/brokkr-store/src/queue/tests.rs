@@ -72,6 +72,19 @@ fn refusal(result: Result<impl std::fmt::Debug, StoreError>) -> QueueRefusal {
     }
 }
 
+/// What a caller reads of `entry` now, to write a latch or re-pin over.
+fn seen(store: &Store, entry: EntryId) -> Seen {
+    store.queue_entry(entry).unwrap().seen()
+}
+
+/// A read of an entry never re-pinned, with latch `seq` standing on it.
+fn over(seq: Option<i64>) -> Seen {
+    Seen {
+        pin: None,
+        latch: seq,
+    }
+}
+
 fn started(store: &mut Store, run: &str) {
     store
         .create_run(
@@ -453,8 +466,8 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
         for refused in [
             refusal(store.queue_list()),
             refusal(store.queue_entry(entry)),
-            refusal(store.queue_repin(entry, "x", None, BY)),
-            refusal(store.queue_latch(entry, "x", BY)),
+            refusal(store.queue_repin(entry, "x", Seen::default(), BY)),
+            refusal(store.queue_latch(entry, "x", Seen::default(), BY)),
             refusal(store.queue_command(entry, QueueCommand::Hold, BY)),
             refusal(store.queue_claim(entry, "r")),
             refusal(store.queue_add(
@@ -573,9 +586,11 @@ fn the_queue_guards_refuse_every_rewrite_of_what_is_fixed() {
         waits: &waits,
     };
     let second = store.queue_add(new, BY).unwrap();
-    store.queue_latch(second, "drifted", BY).unwrap();
     store
-        .queue_repin(second, "second, re-pinned", Some(3), BY)
+        .queue_latch(second, "drifted", Seen::default(), BY)
+        .unwrap();
+    store
+        .queue_repin(second, "second, re-pinned", over(Some(3)), BY)
         .unwrap();
     started(&mut store, "run-a");
     started(&mut store, "run-b");
@@ -666,7 +681,7 @@ fn a_version_1_queue_is_read_as_it_stands_and_migrated_with_its_entries_kept() {
     let mut store = opened_whole(&path);
     assert_eq!(rows(&store), vec![first]);
     store
-        .queue_repin(EntryId(1), "launch 1, re-pinned", None, BY)
+        .queue_repin(EntryId(1), "launch 1, re-pinned", Seen::default(), BY)
         .unwrap();
     assert_eq!(
         store.queue_list().unwrap()[0].payload,
@@ -713,7 +728,8 @@ fn a_repin_stands_beside_the_launch_queued_and_survives_a_reopen() {
     let ids = queue(&mut store, 2);
     store.queue_command(ids[1], QueueCommand::Hold, BY).unwrap();
     for (entry, pinned) in [(0, "1, again"), (1, "2, again"), (0, "1, a third time")] {
-        store.queue_repin(ids[entry], pinned, None, BY).unwrap();
+        let read = seen(&store, ids[entry]);
+        store.queue_repin(ids[entry], pinned, read, BY).unwrap();
     }
     drop(store);
 
@@ -770,7 +786,7 @@ fn a_repin_of_an_entry_that_left_the_queue_is_refused_and_writes_nothing() {
     let (mut store, [_, _, dropped, claimed]) = every_standing(dir.path());
     let before = (rows(&store), commands(&store.conn));
     let absent = EntryId(99);
-    let mut repin = |entry| refusal(store.queue_repin(entry, "x", None, BY));
+    let mut repin = |entry| refusal(store.queue_repin(entry, "x", Seen::default(), BY));
     refused_as(
         repin(dropped),
         QueueRefusal::Dropped(dropped),
@@ -827,8 +843,10 @@ fn a_latch_stands_until_a_later_repin_and_survives_a_reopen() {
             finding: finding.into(),
         })
     };
-    store.queue_latch(ids[0], "boundary moved", BY).unwrap();
-    store.queue_latch(ids[0], "boundary back", BY).unwrap();
+    for finding in ["boundary moved", "boundary back"] {
+        let read = seen(&store, ids[0]);
+        store.queue_latch(ids[0], finding, read, BY).unwrap();
+    }
     store.queue_command(ids[0], QueueCommand::Hold, BY).unwrap();
     store
         .queue_command(ids[0], QueueCommand::Release, BY)
@@ -837,9 +855,19 @@ fn a_latch_stands_until_a_later_repin_and_survives_a_reopen() {
 
     let mut store = Store::open(&path).unwrap();
     assert_eq!(standing(&store), vec![latch(4, "boundary back"), None]);
-    store.queue_repin(ids[0], "1, again", Some(4), BY).unwrap();
+    store
+        .queue_repin(ids[0], "1, again", over(Some(4)), BY)
+        .unwrap();
     assert_eq!(standing(&store), vec![None, None]);
-    store.queue_latch(ids[0], "grant added", BY).unwrap();
+    let read = seen(&store, ids[0]);
+    assert_eq!(
+        read,
+        Seen {
+            pin: Some(7),
+            latch: None
+        }
+    );
+    store.queue_latch(ids[0], "grant added", read, BY).unwrap();
     assert_eq!(
         store.queue_entry(ids[0]).unwrap().latch,
         latch(8, "grant added")
@@ -863,7 +891,7 @@ fn a_latch_on_an_entry_that_left_the_queue_is_refused_and_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let (mut store, [_, _, dropped, claimed]) = every_standing(dir.path());
     let before = (rows(&store), commands(&store.conn));
-    let mut latch = |entry| refusal(store.queue_latch(entry, "x", BY));
+    let mut latch = |entry| refusal(store.queue_latch(entry, "x", Seen::default(), BY));
     refused_as(
         latch(dropped),
         QueueRefusal::Dropped(dropped),
@@ -885,8 +913,10 @@ fn a_repin_over_a_latch_that_no_longer_stands_is_refused_and_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
     let entry = queue(&mut store, 1)[0];
-    store.queue_latch(entry, "open -> harness", BY).unwrap();
-    store.queue_latch(entry, "open -> namespace", BY).unwrap();
+    for finding in ["open -> harness", "open -> namespace"] {
+        let read = seen(&store, entry);
+        store.queue_latch(entry, finding, read, BY).unwrap();
+    }
     let before = (rows(&store), commands(&store.conn));
     let peer = Latch {
         seq: 3,
@@ -895,14 +925,62 @@ fn a_repin_over_a_latch_that_no_longer_stands_is_refused_and_writes_nothing() {
     let moved = |standing| QueueRefusal::LatchMoved { entry, standing };
     let text = "queue entry 1's latched hold is not the one the re-pin was shown";
     for read in [Some(2), None] {
-        let refused = refusal(store.queue_repin(entry, "x", read, BY));
+        let refused = refusal(store.queue_repin(entry, "x", over(read), BY));
         refused_as(refused, moved(Some(peer.clone())), text);
     }
     assert_eq!((rows(&store), commands(&store.conn)), before);
 
     // A peer's re-pin since: no latch stands to take.
-    store.queue_repin(entry, "1, again", Some(3), BY).unwrap();
-    let refused = refusal(store.queue_repin(entry, "x", Some(3), BY));
+    store
+        .queue_repin(entry, "1, again", over(Some(3)), BY)
+        .unwrap();
+    let refused = refusal(store.queue_repin(entry, "x", over(Some(3)), BY));
     refused_as(refused, moved(None), text);
     assert_eq!(store.queue_entry(entry).unwrap().payload, "1, again");
+}
+
+/// A latch is written only over the pin and the latch its finding was
+/// measured against (#430's H3): a peer's re-pin or latch since refuses
+/// it in the writing transaction, and a re-pin over a pin it was not
+/// shown is refused too, whatever latch stands; nothing is written.
+#[test]
+fn a_latch_or_repin_over_a_pin_or_latch_that_no_longer_stands_is_refused_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let entry = queue(&mut store, 1)[0];
+    let measured = seen(&store, entry);
+    store.queue_latch(entry, "found", measured, BY).unwrap();
+    let unmeasured = QueueRefusal::Unmeasured { entry };
+    let text = "queue entry 1 was re-pinned or latched after its finding was measured, and the \
+                finding was not latched";
+    // A peer latched since the finding was measured.
+    let before = (rows(&store), commands(&store.conn));
+    let refused = refusal(store.queue_latch(entry, "stale", measured, BY));
+    refused_as(refused, unmeasured.clone(), text);
+    assert_eq!((rows(&store), commands(&store.conn)), before);
+
+    // A peer re-pinned since, and no latch stands before or after.
+    store
+        .queue_repin(entry, "1, again", over(Some(2)), BY)
+        .unwrap();
+    let before = (rows(&store), commands(&store.conn));
+    let refused = refusal(store.queue_latch(entry, "stale", measured, BY));
+    refused_as(refused, unmeasured, text);
+    assert_eq!((rows(&store), commands(&store.conn)), before);
+
+    // A re-pin shown the latch standing, but not the pin: refused.
+    let pinned = seen(&store, entry);
+    store.queue_latch(entry, "found again", pinned, BY).unwrap();
+    let stale = Seen {
+        pin: None,
+        latch: Some(4),
+    };
+    let before = (rows(&store), commands(&store.conn));
+    refused_as(
+        refusal(store.queue_repin(entry, "x", stale, BY)),
+        QueueRefusal::PinMoved { entry },
+        "queue entry 1 was re-pinned after the re-pin was shown",
+    );
+    assert_eq!((rows(&store), commands(&store.conn)), before);
+    assert_eq!(store.queue_entry(entry).unwrap().latch.unwrap().seq, 4);
 }

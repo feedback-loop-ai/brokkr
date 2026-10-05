@@ -12,6 +12,14 @@ use crate::StoreError;
 pub(super) const PINNED_PAYLOAD: &str = "COALESCE((SELECT pin.payload FROM queue_pins AS pin
     WHERE pin.entry_id = queue_entries.entry_id ORDER BY pin.seq DESC LIMIT 1), payload)";
 
+/// The seq of that pin, read in the same statement as [`PINNED_PAYLOAD`];
+/// `NULL` while the entry stands for the launch it was queued with.
+pub(super) const PINNED_SEQ: &str = "(SELECT MAX(pin.seq) FROM queue_pins AS pin
+    WHERE pin.entry_id = queue_entries.entry_id)";
+
+/// The seq of the pin an entry stands for now, as [`PINNED_SEQ`] reads it.
+pub(super) const STANDING_PIN: &str = "SELECT MAX(seq) FROM queue_pins WHERE entry_id = ?1";
+
 /// The latch that stands on an entry: its latest, unless a re-pin came
 /// after it. [`latch_row`] reads its row.
 pub(super) const STANDING_LATCH: &str =

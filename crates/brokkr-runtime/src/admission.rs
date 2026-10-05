@@ -19,8 +19,11 @@
 //! operator's ruling of 2026-10-04): [`judge`] records what it found in the
 //! queue's own append-only storage, journaled, and from then on the entry
 //! is held by that record, whatever the map on disk comes to, a map put
-//! back as it was queued included. Only [`release`] (`brokkr queue repin`)
-//! clears it, and only under the map the latch found: a map edited since
+//! back as it was queued included. A finding is latched only over the pin
+//! and the latch it was measured against: one a peer re-pinned or latched
+//! in between is refused, and judged again, so a latch always records the
+//! differences from the pin that stands. Only [`release`]
+//! (`brokkr queue repin`) clears it, and only under the map the latch found: a map edited since
 //! is refused, and judged again before it is taken; and the re-pin is
 //! written over the latch it compared, so one a peer latched since is
 //! refused too, never cleared unseen. Dropping the entry,
@@ -42,8 +45,8 @@ use std::path::Path;
 use brokkr_core::fold::{fold, FoldError, Status};
 use brokkr_core::realms::{Boundary, CapabilityGrant};
 use brokkr_store::{
-    Attribution, EntryId, EntryState, Latch, QueueEntry, QueueRefusal, Store, StoreError, Wait,
-    WaitOn,
+    Attribution, EntryId, EntryState, Latch, QueueEntry, QueueRefusal, Seen, Store, StoreError,
+    Wait, WaitOn,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -377,6 +380,13 @@ pub enum AdmissionError {
         entry: EntryId,
         differences: Vec<Difference>,
     },
+    /// A finding measured against a pin or a latch a peer replaced before
+    /// it was latched: it is not latched, and the pass stops.
+    #[error(
+        "queue entry {0} was re-pinned or latched while `brokkr queue judge` measured it, and \
+         what it found was not latched; `brokkr queue judge` measures it afresh"
+    )]
+    Unmeasured(EntryId),
 }
 
 /// Judge the queue: every entry `brokkr queue list` lists, in its order,
@@ -389,14 +399,38 @@ pub fn pass(store: &Store) -> Result<Vec<Judged>, AdmissionError> {
 /// entry the realm drift it finds that no latch records yet, or that the
 /// map on disk has moved past since its latch, journaling each `latch` as
 /// `by` asks it. The verdicts are the queue's after the latches.
+/// A finding is latched only over the pin and the latch it was measured
+/// against, so one a peer re-pinned or latched since refuses the pass.
 pub fn judge(store: &mut Store, by: Attribution<'_>) -> Result<Vec<Judged>, AdmissionError> {
-    for (judged, finding) in read(store)? {
-        if let Some(finding) = finding {
-            let finding = json!(finding).to_string();
-            store.queue_latch(judged.entry.id, &finding, by)?;
-        }
-    }
+    latch(store, read(store)?, by)?;
     pass(store)
+}
+
+/// Latch each finding `measured`, over the pin and the latch its entry
+/// was read with; refused, naming the entry, when either moved since.
+fn latch(
+    store: &mut Store,
+    measured: Vec<(Judged, Option<Finding>)>,
+    by: Attribution<'_>,
+) -> Result<(), AdmissionError> {
+    measured
+        .into_iter()
+        .filter_map(|(judged, finding)| Some((judged.entry, finding?)))
+        .try_for_each(|(entry, finding)| {
+            let finding = json!(finding).to_string();
+            store
+                .queue_latch(entry.id, &finding, entry.seen(), by)
+                .map_err(unmeasured)
+        })
+}
+
+/// A latch's refusal as judge says it: a finding measured against a pin
+/// or a latch a peer replaced is judged again.
+fn unmeasured(refused: StoreError) -> AdmissionError {
+    match refused {
+        StoreError::Queue(QueueRefusal::Unmeasured { entry }) => AdmissionError::Unmeasured(entry),
+        other => AdmissionError::Store(other),
+    }
 }
 
 /// Release a waiting entry from its latched realm-drift hold: re-pin it
@@ -415,12 +449,14 @@ pub fn release(
     repin(store, entry, shown, by)
 }
 
-/// What a release compared before it writes: the latch standing on the
-/// entry, the pin to the map on disk that latch found, and the
-/// differences that pin accepts.
+/// What a release compared before it writes: the pin the entry stands
+/// for and the latch standing on it, the pin to the map on disk that
+/// latch found, and the differences that pin accepts. The latch was
+/// measured against that pin, since a latch is written only over the pin
+/// it was measured against and a later pin stands it down.
 #[derive(Debug)]
 struct Shown {
-    latch: i64,
+    seen: Seen,
     payload: String,
     differences: Vec<Difference>,
 }
@@ -429,6 +465,7 @@ struct Shown {
 /// the pin to that map is the one the latch found.
 fn shown(store: &Store, entry: EntryId) -> Result<Shown, AdmissionError> {
     let queued = store.queue_entry(entry)?;
+    let seen = queued.seen();
     let latch = queued.latch.ok_or(AdmissionError::NothingLatched(entry))?;
     let finding = Finding::read(entry, &latch.finding)?;
     let (payload, digest) = QueuedLaunch::decode(&queued.payload)
@@ -443,22 +480,22 @@ fn shown(store: &Store, entry: EntryId) -> Result<Shown, AdmissionError> {
         return Err(AdmissionError::MapMoved(entry));
     }
     Ok(Shown {
-        latch: latch.seq,
+        seen,
         payload,
         differences: finding.differences,
     })
 }
 
-/// Write the re-pin `shown` compared, over its latch only: the store
-/// refuses it in the writing transaction when another latch stands, or
-/// none, and the refusal names what stands now.
+/// Write the re-pin `shown` compared, over its pin and latch only: the
+/// store refuses it in the writing transaction when another latch
+/// stands, or none, naming what stands now, or another pin.
 fn repin(
     store: &mut Store,
     entry: EntryId,
     shown: Shown,
     by: Attribution<'_>,
 ) -> Result<Released, AdmissionError> {
-    match store.queue_repin(entry, &shown.payload, Some(shown.latch), by) {
+    match store.queue_repin(entry, &shown.payload, shown.seen, by) {
         Err(StoreError::Queue(QueueRefusal::LatchMoved { standing, .. })) => {
             Err(latch_moved(entry, standing))
         }
