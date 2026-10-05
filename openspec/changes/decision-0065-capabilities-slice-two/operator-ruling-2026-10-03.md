@@ -13,3 +13,7 @@ U5a's binding-minimum comparison (MB4) needs `crates/brokkr-runtime/src/bundle.r
 ## Addendum, 2026-10-04: reserved keys are stripped, not searched for
 
 Three U5a council rounds each found a new construct where a static walk of a dialect's restriction schema disagreed with the draft-07 validator (pointer decoding, `$id` rebasing, inactive conditionals). Ruled: SC2's guarantee is that a grant's reserved keys never reach restriction validation (the restrictions validated are the grant's keys minus its version's reserved keys), so no schema composition can decide one. The collision refusal covers direct claims only: a key of the root `properties` or `dependencies`, or an entry of the root `required` or a root `dependencies` array. Indirect claims are not searched and are inert.
+
+## Addendum, 2026-10-05: U5f may drop one cfg(test) in binding.rs
+
+Manifest v12 records each holding's effective retention, whose one owner is `Retention::effective` in `crates/brokkr-runtime/src/capabilities/binding.rs`, staged `#[cfg(test)]` by U5a. Ruled: a one-time exception admits that file to U5f only to drop the attribute and fix its doc comment, so the manifest reads the rule in production; copying the rule (decision 0071 ruling 5) stays forbidden. Test files beyond the owning suites (v11 validator swaps, a child test module beside an over-ceiling suite) are the controller's standing clarification, not an exception.

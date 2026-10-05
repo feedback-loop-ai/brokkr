@@ -18,7 +18,7 @@ const RETAIN_RESERVED: &str = "realm 'private': capability 'web-search': tool di
 
 /// The `private` realm's grants as the map version `schema` reads them,
 /// beside the root [`context`] names.
-fn context_at(schema: &str, root: &Path, capabilities: Value) -> CapabilityContext {
+pub(super) fn context_at(schema: &str, root: &Path, capabilities: Value) -> CapabilityContext {
     let private = json!([{"name": "private", "path": "repo", "default_branch": "main",
                           "capabilities": capabilities}]);
     let written = json!({"schema": schema, "journal": "forge.db", "realms": private});

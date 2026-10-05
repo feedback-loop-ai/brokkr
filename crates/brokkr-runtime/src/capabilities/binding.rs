@@ -233,10 +233,8 @@ impl Retention {
     }
 
     /// True exactly where the dialect retains and the realm does not
-    /// veto; a realm can never require retention. Its first production
-    /// reader is manifest v12's effective retention (U5f), which lifts the
-    /// `cfg`: until then nothing in a build reads it (ruling 6).
-    #[cfg(test)]
+    /// veto; a realm can never require retention. Manifest v12's effective
+    /// retention reads it (`manifest.rs`, `Retention::value`).
     pub(super) fn effective(self) -> bool {
         match self.realm {
             GrantRetention::Veto => false,

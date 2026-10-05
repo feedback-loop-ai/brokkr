@@ -1873,8 +1873,7 @@ fn a_site_records_each_candidate_apart_and_serves_the_selected_one() {
         "search-native"
     );
     assert_eq!(manifest["candidates"][1]["held"], json!({}));
-    // The realm-wide half pins the grant, its definition and its dialect —
-    // and a consulted definition no grant names.
+    // The realm-wide half pins the grant, definition, dialect and an ungranted consulted one.
     define(root.path(), "operator-library-docs", &["reads"]);
     let consulted = authority(
         root.path(),
@@ -2101,3 +2100,4 @@ fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
 mod binding;
 mod dialect_policy;
 mod gate_class;
+mod manifest;

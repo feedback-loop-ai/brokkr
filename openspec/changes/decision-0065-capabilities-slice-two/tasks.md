@@ -254,8 +254,8 @@ Dependencies: U5a. Split from group 24 by operator ruling of 2026-10-04. Files a
 
 Dependencies: U5a. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 25.1 (U5f; [SC3](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md)) Extract manifest projections and emit v12 native implementation/retention plus the typed MCP shape while MCP still refuses compilation. Keep every consulted and inactive grant identity fact. Verify: Real native compiles validate v12; internal MCP projection is typed; independent identity changes and old manifest reads are exact.
-- [ ] 25.2 (U5f; [SC3](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 25.1. Apply the shared verification duty above.
+- [x] 25.1 (U5f; [SC3](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md)) Extract manifest projections and emit v12 native implementation/retention plus the typed MCP shape while MCP still refuses compilation. Keep every consulted and inactive grant identity fact. Verify: Real native compiles validate v12; internal MCP projection is typed; independent identity changes and old manifest reads are exact.
+- [x] 25.2 (U5f; [SC3](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 25.1. Apply the shared verification duty above.
 
 ## 26. U6a — Share the one secret injector
 

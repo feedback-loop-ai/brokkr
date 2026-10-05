@@ -43,12 +43,14 @@ use serde_json::{json, Map, Value};
 mod binding;
 mod dialect;
 mod gates;
+mod manifest;
 use crate::bundle::SeatClass;
 use binding::Unserved;
 pub(crate) use binding::ABSENT_EGRESS_MINIMUM;
 pub use binding::{Native, Retention, Unbound};
 pub use dialect::{Connection, DialectKind, McpServer, Sends, ToolDialect};
 use gates::Cause;
+pub(crate) use manifest::Implementation;
 
 /// Why a candidate holds no capability: a [`Cause`], which the ask's
 /// strength settles, or SC4's unrepresentable identity, which refuses the
@@ -858,8 +860,9 @@ pub struct Holding {
     pub tools: Vec<String>,
     /// The realm's restriction object, exactly as written.
     pub restrictions: Map<String, Value>,
-    /// The dialect's declaration beside the grant's veto (CR1); manifest
-    /// v12 (U5f) pins it.
+    /// What carries it (SC3), from the dialect's kind.
+    pub(crate) implementation: Implementation,
+    /// The dialect's declaration beside the grant's veto (CR1).
     pub retention: Retention,
 }
 
@@ -997,62 +1000,6 @@ pub struct Outcome {
 }
 
 impl Outcome {
-    /// The per-candidate record of `run-manifest/v11`.
-    pub fn manifest(&self) -> Value {
-        let held: Map<String, Value> = self
-            .held
-            .iter()
-            .map(|(name, holding)| {
-                (
-                    name.clone(),
-                    json!({
-                        "classes": holding.classes,
-                        "dialect": holding.dialect,
-                        "dialect_sha256": holding.dialect_sha256,
-                        "definition_sha256": holding.definition_sha256,
-                        "tools": holding.tools,
-                        "restrictions": holding.restrictions,
-                    }),
-                )
-            })
-            .collect();
-        let native = match &self.native {
-            // A known power whose OFF nobody measured used to be listed
-            // here as `unmeasured`; such a seat is now refused (decision
-            // 0066 ruling 1), so a record that exists names every declared
-            // power as on or off.
-            NativePlan::Known {
-                declaration,
-                on,
-                off,
-                ..
-            } => json!({"inventory": "known", "declaration": declaration,
-                        "on": on, "off": off}),
-            NativePlan::Unmeasured {
-                declaration,
-                reason,
-                ..
-            } => {
-                let mut native = json!({"inventory": "unmeasured", "reason": reason});
-                if let Some(declaration) = declaration {
-                    native["declaration"] = json!(declaration);
-                }
-                native
-            }
-        };
-        let mut record = json!({
-            "provider": self.provider,
-            "held": held,
-            "not_held": self.not_held,
-            "notices": self.notices.iter().map(|(_, message)| message).collect::<Vec<_>>(),
-            "native": native,
-        });
-        if let Some(model) = &self.model {
-            record["model"] = json!(model);
-        }
-        record
-    }
-
     /// The driver input's `native_controls`: the engine-owned plan the
     /// protocol composes the final argv from.
     pub fn controls(&self) -> Value {
@@ -1097,22 +1044,6 @@ pub struct SiteCapabilities {
 }
 
 impl SiteCapabilities {
-    /// The per-site record of `run-manifest/v11`.
-    pub fn manifest(&self) -> Value {
-        let asks: Map<String, Value> = self
-            .asks
-            .asks
-            .iter()
-            .map(|(name, strength)| (name.clone(), json!(strength.word())))
-            .collect();
-        json!({
-            "office": self.asks.office,
-            "asks": asks,
-            "subtracted": self.asks.subtracted,
-            "candidates": self.outcomes.iter().map(Outcome::manifest).collect::<Vec<_>>(),
-        })
-    }
-
     /// The outcome that serves one attempt: the selected link's own — by
     /// provider and model, so a fallback never borrows its primary's
     /// holdings — or an inline site's single one.
@@ -1296,35 +1227,6 @@ impl Authority {
         })
     }
 
-    /// The manifest's realm-wide half: the grants as written, and every
-    /// definition and dialect the compile consulted, used or not.
-    pub fn manifest(&self, consulted: &[String]) -> Value {
-        let grants: Map<String, Value> = self
-            .context
-            .grants
-            .iter()
-            .map(|(capability, grant)| (capability.clone(), grant.value()))
-            .collect();
-        let definitions: Map<String, Value> = self
-            .context
-            .grants
-            .keys()
-            .chain(consulted)
-            .filter_map(|name| Some((name.clone(), self.definitions.get(name)?.value())))
-            .collect();
-        let dialects: Map<String, Value> = self
-            .dialects
-            .values()
-            .map(|dialect| (dialect.name.clone(), dialect.value()))
-            .collect();
-        json!({
-            "realm": self.context.realm,
-            "grants": grants,
-            "definitions": definitions,
-            "dialects": dialects,
-        })
-    }
-
     /// An authority that grants and defines nothing: what a readout reads
     /// a realm as when its declared grants did not validate, so the lines
     /// that do not depend on them can still be printed. Never what a
@@ -1456,6 +1358,8 @@ impl Authority {
                 definition_sha256: definition.sha256.clone(),
                 tools,
                 restrictions: grant.restrictions.clone(),
+                implementation: Implementation::of(capability, &dialect.kind)
+                    .expect("a carried binding is never the reserved hands kind"),
                 retention: Retention::of(dialect, grant),
             },
             adapter_key.to_string(),
