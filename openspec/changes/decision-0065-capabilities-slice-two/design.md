@@ -552,7 +552,7 @@ evidence; U2/U3 do not. The listed order serializes their merges and conflicts,
 not their logic. Later feature units explicitly join their outputs. U5c's
 versioned grant change and U6a's injector extraction also have independent roots.
 
-The merge order has 46 PRs (U5a2 split from U5a by operator ruling, 2026-10-04). Shared-file combinations U5a/U5c/U6f/U7d/U9b/U10a
+The merge order has 47 PRs (U5a2 split from U5a by operator ruling of 2026-10-04, and U4a2 split ahead of U4b by operator ruling of 2026-10-05). Shared-file combinations U5a/U5c/U6f/U7d/U9b/U10a
 retain their consumers and proof ownership; U4a/U4b and U8a/U8a2 stay separate
 because their unions exceed three production files. Stable task IDs identify
 work, not numeric merge order. No fourth file or gate exemption is implied.
@@ -757,7 +757,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/init.rs` (1895) | U1f2 | Generated adapters and agents/README; keep copied strictness metadata bound to shipped declarations by parity proof |
 | `crates/brokkr-cli/src/init/adapters.rs` | U1f2 | Consumed extraction from init.rs; registration included in that parent |
 | `crates/brokkr-cli/src/verbs/setup.rs` | U1f2 | Printed scaffold instructions and matching guide transcripts |
-| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g, U4e, U7c, U8a2, U8c, U8e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g, U4a2, U4e, U7c, U8a2, U8c, U8e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a | Recheck concurrent main edits and module registration before the row |
@@ -772,7 +772,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-protocol/src/lib.rs` | U4c | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/capabilities/attribution.rs` | U4d | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/engine/capability_calls.rs` | U4e, U4f, U8d | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/engine/checkpoints.rs` | U4e, U8d | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine/checkpoints.rs` | U4a2, U4e, U8d | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/engine/sequence.rs` | U4f, U8a2, U8e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/engine/resume.rs` (1062) | U4f | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-view/src/lib.rs` (2767) | U4g, U8f | Recheck concurrent main edits and module registration before the row |
@@ -866,7 +866,8 @@ witness/compose pins accompany only rows that change their inputs.
 | U3b | U3a | Check loaded office charters; 11.1–11.2 | `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/agents/load.rs`; `crates/brokkr-runtime/src/agents/charter_data.rs` |
 | U3c | U3b | Check inline requester charters; 12.1–12.2 | `crates/brokkr-runtime/src/bundle.rs`; `crates/brokkr-runtime/src/bundle/charters.rs`; `crates/brokkr-runtime/src/agents/charter_data.rs` |
 | U4a | U0 | Make room for additive record validation; 13.1–13.2 | `crates/brokkr-store/src/seat_record.rs`; `crates/brokkr-store/src/seat_record/validation.rs` |
-| U4b | U4a | Publish and consume seat-record v6; 14.1–14.2 | `contracts/seat-record.v6.schema.json`; `crates/brokkr-store/src/seat-record.v6.schema.json`; `crates/brokkr-store/src/seat_record.rs` |
+| U4a2 | U4a | Erase driver-supplied attribution at the engine edge; 13.3–13.4 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/checkpoints.rs` |
+| U4b | U4a2 | Publish and consume seat-record v6; 14.1–14.2 | `contracts/seat-record.v6.schema.json`; `crates/brokkr-store/src/seat-record.v6.schema.json`; `crates/brokkr-store/src/seat_record.rs` |
 | U4c | U4b | Normalize calls while retaining legacy emission; 15.1–15.2 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/capability_calls.rs`; `crates/brokkr-protocol/src/lib.rs` |
 | U4d | U4c | Bind attribution to compiled holdings; 16.1–16.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/attribution.rs`; `crates/brokkr-runtime/src/bundle.rs` |
 | U4e | U4d | Stamp single and panel calls; 17.1–17.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/capability_calls.rs`; `crates/brokkr-runtime/src/engine/checkpoints.rs` |
@@ -1048,6 +1049,15 @@ Closes tasks 13.1 and 13.2; requirements [CC3](specs/capability-call-checkpoints
 Proof: D9's native legacy compile-to-journal matrix passes at this merge. Historical version and exact refusal tests stay green; the oversized parent shrinks.
 
 Owning tests: `crates/brokkr-store/src/tests.rs`, `crates/brokkr-runtime/tests/frozen_contracts.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`.
+
+### U4a2 — Erase driver-supplied attribution at the engine edge
+
+Split ahead of U4b by operator ruling of 2026-10-05. U4b's council found that seat-record v6 would admit a complete capability-call attribution group supplied by a driver, so a forged `response_sha256` would become sealed journal evidence, before U4e and U4f teach the engine to own that group. Before any checkpoint is appended, the engine removes every CC1 attribution field a driver supplied, at both seams: engine.rs's single-site and panel sinks, through engine/checkpoints.rs. Only the engine can ever write that group. Legacy telemetry passes unchanged, and nothing new is emitted.
+
+Closes tasks 13.3 and 13.4; requirements [CC1](specs/capability-call-checkpoints/spec.md), [SD2](specs/slice-two-delivery/spec.md).
+Proof: A deterministic driver fixture supplies a complete forged group through the real process, engine and store path. The appended record carries none of it, under v5 now and under v6 once U4b lands; legacy rows are unchanged; each assertion has a compiling removal.
+
+Owning tests: `crates/brokkr-runtime/src/engine/tests.rs`, `crates/brokkr-runtime/src/engine/boundary_tests.rs`.
 
 ### U4b — Publish and consume seat-record v6
 
