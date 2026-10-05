@@ -27,15 +27,30 @@ SHALL return typed errors with the existing safe operator text.
 
 Execution uses direct argv and declared child-environment bindings only.
 V1 declared secret references remain valid DATA under the frozen grammar;
-they cannot be executed by substitution. After U9 an applicable request with
+they cannot be executed by substitution. After U9b an applicable request with
 an argv secret reference SHALL refuse requires or drop wants with cause
 "MCP connection argv cannot contain secret references; declare environment
 bindings in secrets". URL execution likewise has cause "MCP URL connections
 are not implemented in decision 0065 slice two". Both use GP1's complete
 required/optional diagnostic forms; unused valid grants stay pinned/inactive.
 Neither incompatibility becomes a new schema-wide v1 migration refusal.
-Before U9, SD3's existing unbuilt-kind fence wins after structural validity.
+Before U9b, SD3's existing unbuilt-kind fence wins after structural validity.
 Undeclared or malformed references retain the existing loader refusal.
+
+The server box SHALL consume the same bound connection and typed dialect
+egress, not a second capability policy. The private engine-bound plan SHALL
+add typed box intent: selected hands reach roots, resolved executable and
+MB3's deterministic package root, source/ancestry/mount identity observations,
+network disposition derived from egress, fixed environment names, bootstrap
+identity and excluded control/store roots. Secret values SHALL never enter
+that plan or its digest. Host observations occur above core/view at preparation
+and are rechecked before lookup; the sealed selected connection/dialect and
+plan digest still bind authority. Observation failure never supplies defaults.
+No new authored mount, package-root or environment key is added to frozen v1;
+MB3's layout and failure rules define this slice's supported execution.
+No new public manifest/seat-record version is required merely to carry the
+private checked box plan. Internal failure/launch/ready states SHALL be closed
+types, with MB3/MB4's exact causes and bounded parsing at each pipe/file edge.
 
 #### Scenario: Typed MCP fields are not discarded
 
@@ -51,16 +66,23 @@ Undeclared or malformed references retain the existing loader refusal.
 
 #### Scenario: A valid reference is not permission to expose a value in argv
 
-- **WHEN** an otherwise eligible request selects a v1 MCP dialect with a declared argv secret reference after U9
+- **WHEN** an otherwise eligible request selects a v1 MCP dialect with a declared argv secret reference after U9b
 - **THEN** requires refuses and wants drops with the exact argv-reference cause above, with no interpolation or child spawn
 - **AND** removing the reference and retaining the declared environment binding makes that connection executable; no shell is added by Brokkr
-- **AND** an unused valid reference-bearing grant stays pinned/inactive, while before U9 all valid MCP grants retain SD3's unbuilt-kind refusal
+- **AND** an unused valid reference-bearing grant stays pinned/inactive, while before U9b all valid MCP grants retain SD3's unbuilt-kind refusal
 
 #### Scenario: URL declarations are preserved without pretending support
 
-- **WHEN** an otherwise eligible site requests a v1 URL-connected capability after U9
+- **WHEN** an otherwise eligible site requests a v1 URL-connected capability after U9b
 - **THEN** requires refuses and wants drops with the exact URL cause above
 - **AND** no URL request, credential lookup or stdio substitute occurs; an unused valid URL grant stays pinned/inactive
+
+#### Scenario: Box observations cannot change sealed authority
+
+- **WHEN** preparation resolves a v1 installed server and its MB3 package root for a selected holding
+- **THEN** the private plan digest binds the executable/tree/reach identities and the network projected from that holding's egress, with no store value or fresh grant
+- **AND** substituting another tree, reach set, egress or bootstrap after sealing refuses "broker plan is not bound to this attempt"; filesystem drift after a correctly bound plan takes MB3's filesystem-identity cause before lookup
+- **AND** a v1 file with an invented program-root or mount key remains invalid under the frozen closed schema; observations do not become authored permissions
 
 ### Requirement: SC2 only the new realm version reserves the retention veto
 
@@ -223,13 +245,13 @@ capabilities.rs:1626's self.bindings[capability] and doctor.rs:999–1001's
 kind-specific handling. A valid MCP declaration SHALL not be required to
 have a native provider/key pair. Missing necessary state SHALL return a
 typed refusal, never panic, unreachable, silent empty provider or native
-substitution. Until U9 the ordinary compiler still returns the old refusal.
+substitution. Until U9b the ordinary compiler still returns the old refusal.
 
 #### Scenario: Both latent panic paths have regressions
 
 - **WHEN** a test supplies a structurally valid non-native grant directly to the bounded resolver and doctor seams
 - **THEN** both return an exact typed MCP-not-enabled outcome or MCP-specific facts appropriate to their stage, without indexing a native binding or expecting one
-- **AND** native valid and missing-binding controls retain exact behavior; the public compile path still refuses all MCP grants before U9
+- **AND** native valid and missing-binding controls retain exact behavior; the public compile path still refuses all MCP grants before U9b
 
 ## Decisions
 
@@ -253,3 +275,10 @@ before a digest preserve truthful evidence. Keep old-shaped v5 acceptance,
 native observed semantics and bounded refusal identities without truncation
 (0071 rulings 3, 7–9). U4 installs these consumers before new driver emission;
 private observations never become public schema extensions.
+
+Boxing changes private execution preparation, not v1's data grammar. The
+installed-entry layout makes the bind root deterministic without a guessed
+interpreter analyzer or an unused public version (0071 rulings 2, 3, 5, 6).
+The engine version and pinned dialect/connection still identify semantics;
+per-attempt filesystem observations bind the private plan, never grant a new
+mount from a model argument or retrofit authority into an old run.

@@ -1,20 +1,32 @@
-Status: proposed specification and design; implementation awaits the operator.
+Status: proposed amendment to the adopted specification and design; implementation units retain their recorded status.
 Change: decision-0065-capabilities-slice-two.
 Provenance: [evidence.md](evidence.md#scope-and-source).
-Authority: [operator rulings R1–R5](operator-ruling-2026-10-03.md).
+Authority: [operator rulings R1–R5 and addenda](operator-ruling-2026-10-03.md).
+Box amendment: [2026-10-05 visit](evidence/design-boxed-broker.md); the ruling is authority, not a claim of implementation.
 
 ## Why
 
 Slice one built decision 0065 rulings 1–5 and capability identity, but MCP
 grants still refuse, gates lack capability class checks, and calls lack
 capability attribution and retained evidence. Slice two specifies those
-remaining protections before narrow implementation PRs begin.
+remaining protections, delivered through narrow implementation PRs.
+
+The operator's 2026-10-05 ruling replaces U6c's arbitrary-startup proofs with
+one Linux bubblewrap box per dialect server, built from decision 0043's
+machinery. The two held U6c attempts are reference only; U6c restarts from
+main after this documentary amendment passes specify, clarify, design, tasks
+and analyze. U6a's shared injector and U6b's closed command already stand.
 
 ## What Changes
 
 - Brokkr supplies `broker serve`, launched by the harness from the engine's
   MCP configuration beside hands, one `cap-<capability>` per held MCP
-  capability. Proposed decision 0077 amends 0065's "launched by the engine".
+  capability. Decision 0077 amends 0065's "launched by the engine". The
+  broker stays outside the seat box and launches its server in a separate
+  empty-root box: approved system and program trees read-only, no workspace
+  or declared hands reach, private tmpfs HOME/TMPDIR, and network chosen from
+  the dialect's egress. Reach, hard-link, ancestry and store-identity checks
+  precede secret lookup; missing unbound dependencies fail inside the box.
 - **BREAKING:** every model serving path excludes ambient MCP configuration;
   U0 measures the applicable mechanism per harness, including Codex and dsh.
   Unmeasured isolation refuses, even with no requests. Generated Claude, Codex
@@ -30,8 +42,10 @@ remaining protections before narrow implementation PRs begin.
   legacy checkpoints. Every granted call gains capability/dialect/tool attribution. MCP calls
   pass through a protected durable ledger; the engine alone appends journal
   checkpoints, one settled record per accepted broker call. Secret-bearing
-  holdings require measured read isolation; executable startup inputs and
-  evidence across every managed writer require protection. Opted-in,
+  holdings require measured read isolation; server mounts and host-side
+  evidence across every managed writer require protection. Box readiness
+  precedes secret lookup, and only the boxed server receives bindings through
+  the single injector; the host launcher receives no secret environment. Opted-in,
   non-vetoed responses have a fixed aggregate budget, are masked, content-addressed at
   `.forge/artifacts/sha256/<hex>`, and openable through inspect. Fatal broker
   session outcomes remain durable even when the harness reports success;
@@ -43,7 +57,7 @@ remaining protections before narrow implementation PRs begin.
 - Repair both native-binding panic assumptions before activation. Keep
   slice-one D4 precedence, D11's nonempty-restriction deferral and native OFF.
 - Deliver each bounded implementation unit as a signed PR from main through
-  the merge queue. U9 alone lifts MCP compile refusal; U1–U4 can protect
+  the merge queue. U9b alone lifts MCP compile refusal; U1–U4 can protect
   existing native paths independently.
 
 ## Capabilities
@@ -61,16 +75,20 @@ remaining protections before narrow implementation PRs begin.
 ### Modified Capabilities
 
 None. Slice one's deltas are unarchived at this base. These seven new deltas
-continue them; the earlier MCP exclusion is lifted only by U9, and historical
+continue them; the earlier MCP exclusion is lifted only by U9b, and historical
 slice-one artifacts/evidence are not rewritten.
 
 ## Impact
 
-The specification touches proposal, deltas, design, tasks, proposed decision
-0077 and [evidence.md](evidence.md#scope-and-source). Production, tests and frozen
-contracts remain unchanged. The operator record, decision index and 0065
-amendment pointer are preserved. U0 and runtime proofs remain implementation
-work; document gates qualify no harness and do not accept 0077.
+The specification touches proposal, deltas, design, tasks, decision
+0077's one-line amendment pointer and
+[evidence/design-boxed-broker.md](evidence/design-boxed-broker.md). Production,
+tests and frozen contracts remain unchanged; this visit does not update
+evidence.md, decision acceptance or completed implementation facts. The
+operator record, decision index and 0065 amendment pointer are preserved.
+Document gates qualify no harness or runtime protection. The council and
+tasks seats reconcile the dependent design/unit inventory and task ledger
+before analyze; this specify visit authors the proposal and deltas.
 
 ## Decisions
 
@@ -83,6 +101,12 @@ restriction transport remain outside scope.
 Generated scaffold declarations and instructions migrate before strict
 admission, with fresh-scaffold scenarios under SI2. Driver emission waits
 until the store and all attribution consumers exist, with CC1/SC4 boundary
-proofs. One durable evidence record holds specification history; delivery
-scenarios state behavior. Choices and rejected alternatives are in
+proofs. This amendment has its commissioned evidence file; earlier evidence remains
+historical. Delivery scenarios state behavior. Choices and rejected alternatives are in
 [design Decisions](design.md#decisions) (0071 rulings 3, 5 and 9).
+
+The ruling replaces argument, shebang and loader qualification with mount
+confinement. It does not waive plan/digest binding, R2, U5a2 route clearance,
+secret-read isolation, masking, durable failure or cleanup. MB3/MB4 scenarios
+own the boundary and exact causes; their Decisions record H1–H7 dispositions.
+The new box implementation remains inert behind the MCP fence until U9b.

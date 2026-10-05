@@ -1,7 +1,8 @@
 ## Purpose
 
 Serve a realm-held MCP capability through Brokkr's own harness child outside
-the seat's namespace, preserving the box and the realm's exclusive authority.
+the seat's namespace, with each dialect server in its own Linux namespace
+box, preserving the realm's exclusive authority.
 
 ## ADDED Requirements
 
@@ -11,8 +12,9 @@ As R1 says, "a granted mcp capability is served by `brokkr broker serve`,
 listed in that same engine-written MCP config beside the hands server, one
 server per held capability." The engine SHALL derive the set from the selected
 site and candidate's sealed holdings. The harness SHALL start the broker;
-the broker SHALL start the dialect's real server with stdio. Neither SHALL
-detach from the attempt's process group. The engine SHALL not start an
+the broker SHALL start the dialect's real server with piped stdio inside a
+separate MB3 box. The broker, bubblewrap supervisor and boxed payload SHALL
+remain owned by the attempt under MB5. The engine SHALL not start an
 independent unsupervised sibling or ship a third-party capability server.
 
 Each server SHALL be named exactly `cap-<capability>`, with no truncation,
@@ -26,7 +28,7 @@ the same output. An authored equal-byte server definition SHALL still refuse.
 #### Scenario: Two holdings produce three servers
 
 - **WHEN** a namespace seat holds library-docs and issue-tracker through two admitted MCP dialects
-- **THEN** the engine supplies exactly brokkr, cap-library-docs and cap-issue-tracker; each cap entry invokes the current brokkr executable with broker serve and only its own sealed plan
+- **THEN** the engine supplies exactly brokkr, cap-library-docs and cap-issue-tracker; each cap entry invokes the current brokkr executable with broker serve and only its own sealed plan; each broker prepares a distinct server box with private HOME/TMPDIR
 - **AND** dropping either holding removes that server; an unused grant adds no server
 
 #### Scenario: A counterfeit or missing server refuses
@@ -57,8 +59,8 @@ Native-tool write containment is also mandatory: inability to protect the
 plan/ledger/artifacts refuses with "MCP capability '<capability>' cannot
 protect broker evidence from this provider's native tools". Provider carriage is ruling 5 compatibility: requires refuses, wants drops
 with its exact reason, provided SI2 and native OFF can still hold.
-The former realm-wide unbuilt-kind refusal SHALL remain until U9.
-After U9, valid unused grants stay pinned and inactive; they need no site
+The former realm-wide unbuilt-kind refusal SHALL remain until U9b.
+After U9b, valid unused grants stay pinned and inactive; they need no site
 or server, consistent with D4. There is no implicit grant or auto-fallback
 to another dialect.
 
@@ -105,7 +107,7 @@ refusals remain in force on both supported hosts.
 
 #### Scenario: Nonempty restrictions remain deferred for MCP
 
-- **WHEN** a structurally valid MCP grant has nonempty restrictions and an otherwise eligible site requests it after U9
+- **WHEN** a structurally valid MCP grant has nonempty restrictions and an otherwise eligible site requests it after U9b
 - **THEN** requires refuses and wants drops with "MCP nonempty restrictions are deferred to the restriction-transport slice", in GP1's full diagnostic forms
 - **AND** an unused valid grant remains pinned/inactive; a child claiming support never bypasses D11
 
@@ -131,21 +133,121 @@ unbound path in the workspace. Plans and ledgers SHALL be outside writable
 seat reach; a changed, missing or forged plan SHALL refuse before contacting
 the child, with "broker plan is not bound to this attempt".
 
-Before any secret lookup or child spawn, the broker SHALL select a protected
-working directory and resolve the executable and startup inputs outside
-seat-writable reach, including aliases and replaceable ancestors. An executable
-inside that reach SHALL refuse "MCP server launch resolves inside seat-writable reach"; unprotected scripts, configuration, package/plugin loading or an
-unprovable startup arrangement SHALL refuse "MCP server startup inputs are not protected from seat writes". Direct argv and a server-reported version alone
-are insufficient. No heuristic interpreter-flag parser can grant an exception.
-The protected startup environment SHALL remain protected after secret injection.
-Before store lookup or spawn, the broker SHALL reject a bound secret name that
-collides with any fixed startup key owned by its environment builder, including
-HOME and TMPDIR, with the startup-input cause above. The builder SHALL own both
-those fixed values and their reserved-name set; later assignments SHALL NOT
-replace them. This is broker launch validation, not a change to the shared
-secret-name grammar. Other environment-driven startup loading still requires
-the protected arrangement above; reserving these keys alone proves no such
-arrangement for arbitrary server code.
+The 2026-10-05 ruling requires "the broker spawns each MCP server inside
+its own Brokkr box (bubblewrap, the machinery of decision 0043)". The broker
+SHALL use the hands namespace builder through a consumed shared builder
+profile, with an empty root and no implicit workspace, Git, bundle, declared
+hands or host-home mount. It SHALL NOT call the current workspace profile
+with a dummy workdir: that profile always grants workspace and Git reach.
+Decision 0043's "The boundary is never simulated: no `bwrap`, no tool" holds.
+Only Linux bubblewrap is admitted; macOS keeps MB2/R2's refusal.
+
+The fixed read-only system set SHALL be the existing shared
+`hands::HOST_TOOLCHAIN_BINDS`: `/usr/bin`, `/usr/lib`, `/usr/lib64`,
+`/usr/include`, `/usr/share`, `/usr/local`, `/usr/libexec`, `/bin`, `/sbin`,
+`/lib`, `/lib64`, `/etc/ssl`, `/etc/ca-certificates`, `/etc/alternatives`,
+`/etc/ld.so.cache`, `/etc/ld.so.conf`, `/etc/ld.so.conf.d`, where present.
+Absent optional system sources are omitted; they are never replaced by a
+broader mount. Existing symlink spellings and their resolved mount identities
+SHALL be checked. A fresh `/proc` sees only the server PID namespace; `/dev`
+is minimal. Identity, hosts and nsswitch files SHALL be generated without host
+credentials. Local egress uses a files-only resolver. Shared-network egress
+may additionally bind only the checked `/etc/resolv.conf` read-only and use
+files/DNS resolution; the whole of `/etc` is never bound. A required trusted
+Brokkr bootstrap executable MAY be bound read-only as one file, subject to
+the same reach, link and ancestry checks. No control plan, ledger, stage,
+artifact root or store SHALL be mounted or inherited as an open descriptor.
+
+The program tree SHALL be determined without running server code or parsing
+arguments, shebangs, ELF metadata or loader behavior. Resolve argv[0] once
+from an absolute path or the fixed `/usr/local/bin:/usr/bin:/bin` search path;
+never search cwd or ambient PATH. Relative paths containing `/` refuse.
+Canonicalize the executable, retaining the original resolution chain and
+file identity for the pre-mount checks. An entry already contained in the
+fixed system set uses that set without widening it. For any other installed
+entry, its package root is its canonical parent, or that parent's parent
+when the immediate directory is named `bin` or `sbin`. Bind that root
+read-only at its canonical absolute path, and execute the resolved file.
+This is a conservative installation-layout rule, not a promise to discover
+an arbitrary language's dependencies. A package needing sibling code SHALL
+place its installed entry under `<package>/bin/` or `<package>/sbin/` so that
+the containing package is bound. A symlinked launcher uses its resolved
+installation, never an enclosing host HOME. The broker SHALL neither ascend
+further nor add mounts from argv, shebangs, environment values, imports or
+runtime errors. A standalone file uses its parent tree; `/`, the host HOME
+or an ancestor containing the host HOME SHALL NOT become a package root.
+Such a derived root takes the program-tree resolution cause below. A bare runtime is confined by the same rule, not qualified as
+an arbitrary program. Anything it needs outside the binds fails INSIDE the
+box; there is no unboxed retry or automatic dependency bind.
+
+Seat reach means the canonical workspace and every declared hands bind
+root, including `ro`, `rw` and `overlay`, and any additional effective
+workspace/Git reach supplied by hands. The fixed read-only system toolchain
+is shared infrastructure, not a declaration of seat-controlled reach; an
+explicit hands bind overlapping it still counts as a reach root. All server
+sources and destinations SHALL be disjoint from these reach roots in both
+directions: a broad system/package bind cannot contain a reach root. In
+particular the program tree SHALL lie outside every root by canonical path,
+and every regular file in it, including the executable, SHALL have link count
+exactly one. Directories are not subjected to the regular-file link-count
+rule. Symlinks SHALL NOT add implicit binds: targets outside the approved
+mount set are absent, and targets in seat reach refuse. No device, socket,
+FIFO or other host endpoint SHALL ride inside a program-tree bind.
+
+Canonical path comparison is necessary, not sufficient. Before lookup,
+owner-rooted no-follow checks SHALL retain source and ancestry identities,
+exclude replacement through any seat reach, and check resolved mount aliases
+using host filesystem/mount identity. A bind alias can have another canonical
+path and link count one. Uncertain alias exclusion SHALL refuse; a textual
+prefix test is not a substitute. Apply this to system binds, the program tree,
+bootstrap, the host bubblewrap executable and its resolution ancestry, store
+and host-side plan/evidence roots, not just argv[0]. Check
+nested mounts rather than assuming a parent read-only bind excludes them.
+An admitted namespace SHALL expose every source read-only and no hidden
+writable submount. Pin checked sources through namespace establishment; an
+identity change SHALL refuse before lookup, never reopen a pathname blindly.
+Host operator replacement outside managed-seat reach is not a promised threat
+model; seat-mediated replacement is.
+
+Admission order SHALL be plan/inventory/digest binding, MB2 eligibility and
+existing compatibility checks, valid/reserved binding names, executable and
+package resolution, reach/link/ancestry/mount checks, MB4 store exclusion,
+then empty-box establishment. All those refusals SHALL precede secret lookup
+and dialect-server execution, for requires and wants alike. Metadata-only
+store identity checks are not secret-value lookup. Establish the actual box
+with a trusted waiting bootstrap and verify its ready state, complete mounts,
+private directories and network before resolving bindings. The bootstrap
+SHALL wait on private control pipes and SHALL NOT run the dialect executable
+before admission and injection complete. No secret is required to prove a
+box can stand. Missing dependencies discovered only during server execution
+are later execution/protocol failures, not pre-secret admission failures.
+
+The following exact typed causes SHALL be used, with bounded site/holding
+context and no raw child text. If several checks fail, the order above wins;
+within filesystem checks use reach, hard links, then remaining identity.
+
+| Refusal | Exact cause |
+| --- | --- |
+| Missing/forged/mismatched plan or inventory | `broker plan is not bound to this attempt` (kept) |
+| Executable resolves into seat-writable reach | `MCP server launch resolves inside seat-writable reach` (kept; checked before other tree overlap) |
+| Binding name collides with a fixed environment key | `MCP server startup inputs are not protected from seat writes` (kept for this collision; no arbitrary-startup qualification) |
+| Executable missing/unresolvable, relative slash path, or root cannot be determined without widening | `MCP server box program tree cannot be resolved` (new) |
+| Any source/destination overlaps a reach root, including a readable or overlay root | `MCP server box bind overlaps seat reach` (new) |
+| A regular program-tree or bootstrap file has more than one link | `MCP server box program tree contains a multiply-linked file` (new) |
+| Unsafe/changed ancestry, special file, mount alias, writable nested mount, or incomplete identity proof | `MCP server box filesystem identity is not protected` (new) |
+| Linux box launcher unavailable after the normal start-time availability check | `MCP server box is unavailable` (new) |
+| Namespace/mount/private-directory/network establishment or ready handshake fails | `MCP server box could not be established` (new) |
+
+MB4 owns the distinct store-reach and store-in-box causes. The readiness
+handshake shares initialization's absolute 30 s bound and the attempt's
+remaining deadline; no helper can wait indefinitely before lookup. A refused
+box has zero secret lookups and zero dialect-server starts (a waiting trusted
+bootstrap is not the dialect server). Once an owned ledger is opened, a fatal
+box refusal SHALL close it Failed with that cause under CR3. An unbound plan
+creates no invented ledger. Post-admission failure to exec the boxed server,
+including an absent loader/interpreter, SHALL use the distinct typed cause
+`MCP server could not start inside its box`, close Failed with zero calls,
+and never widen mounts or retry on the host.
 
 Only MCP initialization and the measured protocol operations necessary for
 listing/calling granted tools SHALL be proxied. Tool listing SHALL expose
@@ -216,11 +318,54 @@ alone SHALL remain a call outcome, not a fatal session failure.
 - **AND** catalog overflow, more than 32 pages or a repeated cursor returns the catalog-limit cause; exact-limit positive controls still work
 - **AND** invalid tool vocabulary or parameter shape refuses "MCP tool call request is invalid" before acceptance; a valid bounded concurrent call has one recorded refused outcome and no child forwarding
 
-#### Scenario: Startup cannot execute a seat replacement with secrets
+#### Scenario: Installed program trees run without workspace mounts
 
-- **WHEN** a seat substitutes a repository-relative executable, interpreter script, startup config, plugin, package or ancestor before launch
-- **THEN** launch refuses the corresponding executable or startup-input cause before reading or injecting a secret
-- **AND** a protected installed fake-server control starts with a private working directory and the permitted binding; serverInfo.version alone never admits the replacement
+- **WHEN** an admitted user installation has entry `/opt/docs/bin/server` or a symlink resolving to that entry, with singly linked files outside all seat reach
+- **THEN** `/opt/docs` is the read-only package tree, the resolved server executes inside its own empty-root box, and its sibling modules remain available without a loader or shebang proof
+- **AND** the workspace, declared hands binds, Git metadata, host HOME, store and broker evidence are absent; legitimate tool calls still pass through the broker
+- **AND** an entry directly in `/opt/docs` uses that same package root, while a system-contained entry adds no broader system mount
+
+#### Scenario: Runtime arguments do not widen the bind set
+
+- **WHEN** a dialect starts a system Python or Node runtime with a script outside all approved binds, or a loader/RUNPATH/import refers outside those binds
+- **THEN** access fails inside the box without exposing the missing host bytes; missing executable loader/interpreter yields "MCP server could not start inside its box", while a running server that fails initialization yields the existing bounded protocol/timeout cause
+- **AND** an equivalent installed package whose dependencies are in its read-only tree can work; no argument/shebang/loader analyzer or host retry supplies authority
+
+#### Scenario: Resolution failures and workspace executables refuse before lookup
+
+- **WHEN** argv[0] is a relative slash path or cannot resolve under the fixed search path, or its package root would be `/`, the host HOME or an ancestor of that HOME
+- **THEN** launch refuses "MCP server box program tree cannot be resolved" with zero secret lookups and dialect-server starts
+- **AND** an executable resolving into seat-writable reach instead receives the kept "MCP server launch resolves inside seat-writable reach" cause; a server version assertion never admits it
+
+#### Scenario: Reach includes every declared bind and containing mounts
+
+- **WHEN** a program tree or system source overlaps the workspace or a declared hands `ro`, `rw` or `overlay` bind, whether it contains that root or lies inside it
+- **THEN** launch refuses "MCP server box bind overlaps seat reach" before lookup or dialect-server start
+- **AND** separate controls cover each bind mode, a symlink target in reach and a workspace beneath `/usr/local`; no broad system mount is an exception
+
+#### Scenario: A hard link cannot hide a writable program alias
+
+- **WHEN** the program executable or a sibling module has link count greater than one, including a second link in seat reach
+- **THEN** launch refuses "MCP server box program tree contains a multiply-linked file" before lookup or dialect-server start
+- **AND** a singly linked protected package passes this check; directory link counts alone do not cause the regular-file refusal
+
+#### Scenario: Whole-chain identity and mount aliases remain admission checks
+
+- **WHEN** a resolution directory or package ancestor can be replaced through seat reach, a special file or writable submount is present, or a bind alias cannot be excluded by filesystem/mount identity
+- **THEN** launch refuses "MCP server box filesystem identity is not protected" with zero lookups and dialect-server starts
+- **AND** replacing a checked source between observation and mount cannot substitute another tree; owner-bound plan failure retains "broker plan is not bound to this attempt"
+
+#### Scenario: Box establishment precedes secret resolution
+
+- **WHEN** Linux loses its checked bubblewrap launcher, or namespace/mount/private-tmpfs/network setup or its ready handshake fails
+- **THEN** the broker refuses respectively "MCP server box is unavailable" or "MCP server box could not be established" before any secret lookup or dialect-server start
+- **AND** failed readiness by its fixed deadline terminates the waiting helper under MB5; there is no ordinary host-process fallback
+
+#### Scenario: Kernel execution is confined rather than predicted
+
+- **WHEN** an installed script has a shebang the kernel rejects, or names an interpreter not mounted inside the box
+- **THEN** the boxed exec fails with "MCP server could not start inside its box" and a zero-call Failed session; Brokkr neither emulates the shebang nor retries outside the box
+- **AND** a valid shebang whose interpreter and program tree are bound executes under that kernel's normal semantics inside the admitted box
 
 #### Scenario: Secret bindings cannot replace protected startup directories
 
@@ -239,10 +384,10 @@ alone SHALL remain a call outcome, not a fatal session failure.
 
 Per R1, "never in argv, never in the harness's environment": the broker SHALL
 resolve only dialect-declared names from the operator's decision 0012 store
-at child spawn. Dialect argv SHALL execute directly, without interpolation
+only after MB3 box admission, immediately before boxed server exec. Dialect argv SHALL execute directly, without interpolation
 or a shell added by Brokkr. The actual child environment alone receives
-values through the existing single plaintext injector, refactored for reuse
-if needed without adding a second accessor call. The harness, hands box,
+values through U6a's existing single plaintext injector and the confined
+handoff below, without adding a second accessor call. The harness, hands box,
 manifest, broker plan and argv SHALL contain no resolved value. Dialect secret
 names SHALL be removed from the inherited harness and broker environment;
 they are resolved afresh only for the real child. A measured harness auth
@@ -258,8 +403,73 @@ egress SHALL meet the operator's existing binding minimum under 0036;
 a capability class or gate office does not grant secret clearance. The
 compatibility cause is exactly "MCP dialect '<dialect>' has egress '<class>'
 below binding minimum '<minimum>'", in GP1's required/optional forms.
-The child SHALL receive a bounded base environment plus declared bindings,
-not inherited harness credentials. Known literals and common encodings SHALL
+The actual server environment SHALL be cleared and contain exactly its
+declared bindings plus these builder-owned fixed entries: `PATH` =
+`/usr/local/bin:/usr/bin:/bin`, `HOME` = `/runtime/home`, `TMPDIR` = `/tmp`,
+`USER` = `runner`, `LOGNAME` = `runner`, `LANG` = `C.UTF-8`, `LC_ALL` =
+`C.UTF-8`, and `BROKKR_HANDS_BOX` = `1`. HOME and TMPDIR SHALL be distinct
+fresh private tmpfs mounts per server lifetime, with cwd `/runtime/home`.
+No inherited git, updater, cache, credential, locale or loader environment
+is copied. Fixed entries and their reserved-name check have one builder
+owner. Shared decision-0012 name validation runs first; otherwise-valid
+collisions such as HOME/TMPDIR take MB3's kept startup-input cause before
+lookup, regardless of current or rotated values.
+
+A declared code-loading name permitted by decision 0012, such as
+`PYTHONUSERBASE`, `CLASSPATH`, `LUA_PATH`, `GEM_HOME` or
+`PHPRC`, SHALL NOT be rejected merely for affecting code loading. It exists
+only in the boxed server environment: host path targets are approved read-only
+binds or absent; private tmpfs is initially empty and only that server can
+populate it. Existing `PATH`, `IFS`, `LD_PRELOAD`, `LD_LIBRARY_PATH` and
+`BROKKR_` refusals remain. `_JAVA_OPTIONS` is already invalid under the
+shared `[A-Z][A-Z0-9_]*` grammar and remains refused, not newly admitted.
+No growing broker-specific loader denylist or
+semantic inspection of secret values replaces the box. Operator-selected
+server code remains trusted; arbitrary transformations of secrets retain
+0012's stated limit.
+
+The broker SHALL read the store outside the server box with the existing
+name, clearance, ownership and read-isolation checks. The store SHALL never
+be mounted, even through a system/program subtree, nested mount, symlink or
+bind alias. Metadata-only checks SHALL compare the store's owner-rooted
+identity against both hands-readable and server-readable reach; canonical
+spelling alone is insufficient. Hands exposure keeps "MCP secret store is
+reachable by workspace hands"; server exposure has the new exact cause
+"MCP secret store would be mounted in the server box". When alias or ancestry
+exclusion cannot be proved, MB3's filesystem-identity cause applies. These
+checks precede value lookup, even when the server declares no secrets.
+Store file descriptors SHALL be closed before server exec and never passed
+into its namespace. Plans, ledgers and staging stay with broker/engine outside
+that namespace as CR2 requires.
+
+Secret values SHALL NOT be passed in bubblewrap `--setenv`/`--args`, process
+argv, a temporary file, or the host launcher's environment. An already-ready
+trusted in-box bootstrap SHALL receive a bounded, private, anonymous pipe
+handoff of only declared bindings, close that channel and all unrelated
+descriptors, and execute the server with its final environment. The handoff
+SHALL reuse U6a's `secret::bind_environment` as the sole plaintext injector;
+`machine_proof.rs` SHALL still find exactly one production `expose_for_spawn`
+call site, inside that function. Any environment serialization needed for
+the pipe stays inside the shared secret module and consumes that injector's
+prepared environment, never a second plaintext accessor or encoder of Secret.
+The host bubblewrap and bootstrap loader start with only their fixed safe
+environment; code-loading bindings become environment entries only for the
+final exec inside the established box. The bootstrap accepts no fresh mounts,
+argv or authority from the pipe. A broken/invalid handoff SHALL refuse with
+"MCP server secret environment could not be delivered" and end the session;
+this is a post-lookup failure with zero server starts, not a box admission
+refusal. No result/log/artifact exposes the handoff bytes.
+
+Network SHALL be a closed projection of the pinned dialect egress:
+`local` unshares the network namespace with no host loopback or external
+network; `contracted` and `uncontracted` share the host network, as declared.
+This sets no destination allowlist and does not implement D11 restrictions.
+Absent dialect egress still means `uncontracted`. R2 independently keeps
+workspace hands at network false. U5a2's binding-minimum comparison and
+GP1's gate office/class checks run unchanged before launch; shared network
+does not upgrade clearance, and a higher-clearance harness grants none.
+
+Known literals and common encodings SHALL
 be masked before any response, stderr, ledger, artifact or diagnostic leaves
 the broker. Masking SHALL preserve protocol structure and work across stream
 chunk boundaries. Before staging or delivery, the broker SHALL check bounded
@@ -278,7 +488,7 @@ shared encoding definitions. Exact-number preservation is a separate check.
 #### Scenario: Secret values stop at the child environment
 
 - **WHEN** the fake MCP server needs DOCS_TOKEN and the operator store supplies it
-- **THEN** the child receives DOCS_TOKEN; captured harness/broker argv, harness environment, plans, journal and artifacts contain none of its raw or decision-0012 encoded values
+- **THEN** the boxed child receives DOCS_TOKEN; captured harness/broker/bubblewrap argv, harness and host launcher environments, plans, journal and artifacts contain none of its raw or decision-0012 encoded values
 - **AND** an applicable argv secret-reference connection refuses under SC1 before spawning, with "MCP connection argv cannot contain secret references; declare environment bindings in secrets"
 
 #### Scenario: Undeclared or missing secrets do not fall back to ambient values
@@ -298,6 +508,39 @@ shared encoding definitions. Exact-number preservation is a separate check.
 - **WHEN** DOCS_TOKEN is exported by the operator as well as stored, and a broker holding declares that name
 - **THEN** the harness and broker inherit no DOCS_TOKEN; only the real child receives the store's binding
 - **AND** a measured auth-name collision receives the exact collision compatibility cause, while a store inside hands reach receives the exact store-path launch refusal above
+
+#### Scenario: A store under a read-only bind is still exposed
+
+- **WHEN** the selected store lies under a proposed system/program bind, or the same store inode is exposed through a nested bind mount or another readable alias
+- **THEN** launch refuses "MCP secret store would be mounted in the server box" before any value lookup or server start, even for a secret-free dialect
+- **AND** a store alias visible to hands instead receives the kept hands-reach cause first; unresolved alias identity receives MB3's filesystem-identity cause
+- **AND** an inaccessible owner-bound store outside both reach sets supplies declared values while its path and open descriptors remain absent from the box
+
+#### Scenario: Declared loading variables never reach a host loader
+
+- **WHEN** a valid declared PYTHONUSERBASE, CLASSPATH, LUA_PATH, GEM_HOME or PHPRC points to code in seat reach
+- **THEN** the value reaches only the boxed server, which cannot read that target; no binding appears in the host bubblewrap or bootstrap loader environment
+- **AND** an approved read-only target inside the program/system binds is usable under that runtime's semantics; an undeclared ambient variable is absent
+- **AND** existing denied names still take decision 0012's name-only cause; `_JAVA_OPTIONS` refuses "secret name '_JAVA_OPTIONS' does not match [A-Z][A-Z0-9_]*"; fixed HOME/TMPDIR collisions still refuse before lookup under MB3
+
+#### Scenario: Fresh private directories and exact environment are per server
+
+- **WHEN** two otherwise identical admitted brokers start with DOCS_TOKEN and no other declared binding
+- **THEN** each child observes exactly MB4's eight fixed entries plus DOCS_TOKEN, private tmpfs HOME and TMPDIR, and cwd `/runtime/home`
+- **AND** a marker written by one server in its HOME or TMPDIR is invisible to the other and to a replacement attempt; host home/tmp markers are absent
+
+#### Scenario: Failed environment delivery does not start a server
+
+- **WHEN** the private binding handoff fails after the box is ready and values have been resolved
+- **THEN** the broker reports "MCP server secret environment could not be delivered", closes Failed with zero accepted calls and starts no dialect server
+- **AND** pipe bytes never become argv, a file, a log or a host loader environment; cleanup closes both ends and removes the box
+
+#### Scenario: Egress chooses only the server network
+
+- **WHEN** otherwise eligible dialects declare local, contracted, uncontracted or omit egress
+- **THEN** their server boxes have respectively isolated, shared, shared and shared network; the local control cannot reach a host-loopback sentinel or an external endpoint
+- **AND** networked positive controls can reach the test endpoint without changing the hands box's network-false state, and shared-network DNS uses only its checked resolver input
+- **AND** U5a2 still refuses/drops a below-minimum route with its existing exact cause before lookup; GP1 still denies unlisted gate egress
 
 #### Scenario: Known encodings are masked before persistence and delivery
 
@@ -320,14 +563,24 @@ shared encoding definitions. Exact-number preservation is a separate check.
 
 ### Requirement: MB5 attempt cleanup covers broker and child
 
-The broker and child SHALL remain in the harness attempt's process tree,
-with cancellation, timeout, normal shutdown and failed initialization using
-the existing #403 ownership and cleanup machinery. No broker daemon,
-detached server or separate untracked engine group SHALL be introduced.
+The broker, bubblewrap supervisor, waiting bootstrap, server and descendants
+SHALL remain owned by the harness attempt's process tree and host process
+group. The server profile SHALL NOT inherit hands' `--new-session`, call
+`setsid`, or create a broker-owned detached group. Reuse #403 ownership and
+settlement; retain `--die-with-parent`, PID/IPC/UTS isolation, supported cgroup
+namespace isolation and all capabilities dropped from the common builder.
+Cancellation, timeout, normal shutdown and failed box establishment or
+initialization SHALL close pipes and settle that owned tree before folding.
+Server stdin/stdout SHALL be piped exclusively through the broker's MB3
+filter and MB4 masker, with bounded stderr drainage. No daemon, direct harness
+to server pipe, or separate untracked engine group is introduced. HOME/TMPDIR
+tmpfs disappear with namespace teardown; host bootstrap scratch, if required,
+uses the existing Session lifetime/reaper only after owner/ancestry checks.
+Persistent plans/ledgers/staging SHALL NOT use delete-on-drop Session scratch.
 Each new child failure SHALL leave an attributable ledger outcome even when
 its result cannot be delivered: call evidence when a call was accepted, and
 CR3's failed session disposition for a fatal ending, including zero-call
-initialization failure. The engine SHALL judge that disposition under CR4
+box setup or initialization failure. The engine SHALL judge that disposition under CR4
 before accepting a harness success; child stderr or process exit alone does
 not prove the harness reported failure. Existing #403 residuals SHALL remain named;
 a process-group assertion SHALL not claim cgroup guarantees.
@@ -335,20 +588,28 @@ a process-group assertion SHALL not claim cgroup guarantees.
 #### Scenario: Cancellation leaves no owned child running
 
 - **WHEN** a fake server blocks and the attempt is cancelled or times out
-- **THEN** the broker and its owned fake child terminate under the same attempt cleanup, and engine folding records the interrupted call
+- **THEN** the broker, bubblewrap supervisor, bootstrap and owned fake child settle under the same attempt cleanup, private tmpfs disappear, and engine folding records the interrupted call
 - **AND** a failed initialization cleans up the child without exposing a tool; real Linux evidence is required for namespace enablement
+
+#### Scenario: Startup and normal exit settle the same owned box
+
+- **WHEN** the box fails readiness, the server fails initialization, the server exits mid-call, or normal MCP shutdown completes
+- **THEN** every case closes the broker pipes and settles the supervised box; no server or bootstrap remains outside the attempt's ownership
+- **AND** established failed sessions keep their exact MB3/MB4 cause and call count under CR3/CR4, while a normal zero-call session can close Clean
+- **AND** real Linux process and mount evidence, including cancellation during the pre-secret wait, is required; a process-group assertion alone supplies no cgroup guarantee
 
 ## Decisions
 
 R1's harness child is adopted because engine.rs:4434 and hands.rs:1119 show
 that ownership today; an engine-spawned sibling would require new supervision
-and transport. Proposed 0077 records the difference from 0065's literal
+and transport. 0077 records the difference from 0065's literal
 "launched by the engine".
 
 R2's explicit refusal takes precedence over a wants drop for a site that is
 not safely boxed; ordinary unsupported carriage still follows ruling 5.
-The box here is 0043's tool-call box, not the proposed whole-harness seat box.
-No 0072 boundary or full-access behavior is smuggled into this change.
+R2 still names 0043's workspace tool-call box. The new ruling adds an
+independent server box and leaves the broker/harness outside both; it builds
+no whole-harness box or 0072 boundary.
 
 Native read-only access is not secrecy (hands.rs:1–13, decision 0043),
 process.rs:173–178 otherwise inherits the workdir, and a method result needs
@@ -368,10 +629,41 @@ shape. Reject inheriting that residual, coercing scalars or relying on
 precision: 876543210 is exactly representable. Keep text masking, shared
 encodings and the independent precision check (0071 rulings 3, 5, 8, 9).
 
-adapters.rs:687–704 overwrites environment entries; secret.rs:20–30,105–137
-allows HOME/TMPDIR. Checking before injection or pinning a version cannot
-protect the final child environment. Reserve builder-owned startup keys
-before lookup, even for benign values: secret rotation is outside dialect
-identity. Reject a global grammar/schema change or second injector. U6c/U6f/U9b
-own independent collision controls; U6f/U8b/U9b own masking, and
-U6d/U6e/U8d/U8e/U9b own session/settlement proofs (rulings 2, 3, 5, 8–10).
+The shared injector at secret.rs:122 overwrites environment entries, while
+shared name validation permits HOME/TMPDIR. Keep fixed-key checks before
+lookup, even for benign values: rotation does not change dialect identity.
+Reject a global grammar change or second injector. A host bubblewrap process
+with declared loading variables could run code before confinement, so its
+environment carries no bindings; the anonymous handoff is gated by actual
+box readiness (0071 rulings 3, 5, 8–10). Boxing does not make host-side
+store/native-read or evidence checks unnecessary.
+
+The conservative installed-entry layout above deliberately bounds the tree
+without inventing v1 fields or predicting a language's loader. Reject automatic
+root discovery by running package managers or expanding mounts after failure.
+User-installed packages can use a protected `<package>/bin/server`; unusual
+layouts may fail safely inside the box until separately commissioned support.
+A bare interpreter no longer needs a language-specific program proof: the
+same mounted filesystem bounds everything it can read. It grants no tool
+until the existing initialization/version/catalog checks pass.
+
+The seven supplied HIGH findings are reconciled individually. These are
+design dispositions, not claims that held code was repaired or measured.
+
+| Finding | Removed by construction | Check that remains before lookup |
+| --- | --- | --- |
+| H1 resolution identity skipped directory protection | Once pinned mounts stand, seat paths cannot replace boxed resolution inputs. Boxing alone does not establish those mounts' origin. | Retain the executable's resolution chain and all source ancestry identities through mount readiness; reach/identity refusals cover replacement and uncertainty. |
+| H2 implicit ELF loader/RUNPATH and Python sibling loading | Yes, loading sees only approved read-only system/program binds or fails inside the empty root. | Check the whole program tree and all mounted sources, including nested mounts and aliases. No ELF/import closure proof remains. |
+| H3 bare runtime without protected program | Yes, the runtime has the same bounded filesystem even without a separately recognized program argument; an absent script cannot expose host bytes. | Executable/tree admission and initialization/version/catalog checks remain; arguments never authorize new mounts. |
+| H4 ever more loading environment names | Yes for seat tampering inside the admitted box, including valid declared loading names; no inherited loading variables and none in a host loader environment. | Keep shared name denials, builder-key collisions, cleared environment, pre-lookup readiness and confined handoff. No expanded language denylist. |
+| H5 owner/private whole-chain protection | Child HOME/TMPDIR/cwd are fresh private tmpfs by construction. Host plan/ledger/store/bootstrap ancestry is outside that protection. | Owner-rooted no-follow whole-chain and alias checks remain for every host control/source root; Session lifetime alone is insufficient. |
+| H6 store identity hidden by bind mounts | Not automatically. A read-only bind can still expose the store. | Prove store identity absent from hands-readable and server mounts, including nested/bind aliases; uncertainty refuses before lookup. Keep U0 native process/store read isolation. |
+| H7 shebang proof differed from host execution | Yes. The actual kernel interprets the shebang only inside the admitted box; an absent or invalid interpreter fails there. | Protected executable/tree and normal typed boxed-exec/protocol failure handling remain. No shebang parser or host fallback. |
+
+Reuse the hands builder's common namespace/system-mount machinery with a
+separate typed server profile; copying `box_argv` or passing a fake worktree
+would duplicate policy or leak reach. Existing hands behavior keeps its own
+consumer during extraction (0071 rulings 2, 4–6, 10). Network is derived once
+from typed egress; no environment, provider or model flag can override it.
+D11 restrictions, masking, durable failure, filtering and U9b's enablement
+fence remain independent obligations (0071 rulings 3, 8, 9).

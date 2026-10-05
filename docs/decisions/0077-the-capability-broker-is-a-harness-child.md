@@ -5,6 +5,7 @@ Date: 2026-10-03
 
 Built: unbuilt (#467) — strict MCP prerequisite; complete slice-two work is in the linked change tasks
 Amends: 0065
+Amended by the [2026-10-05 ruling](../../openspec/changes/decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md#addendum-2026-10-05-each-mcp-server-runs-in-its-own-box): each MCP server runs in its own box.
 
 ## Context
 
