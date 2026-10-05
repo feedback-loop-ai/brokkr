@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::fold::Status;
 use brokkr_core::realms::Boundary;
+use brokkr_protocol::adapters::capability_calls::{Format, Observation, Tool, OBSERVATION_KEY};
 use brokkr_protocol::adapters::AdapterKind;
 use brokkr_runtime::capabilities::CapabilityContext;
 use brokkr_runtime::{Bundle, Engine, World};
@@ -33,16 +34,16 @@ use super::{workspace, write};
 /// arguments the engine handed `driver claude` after its `--`, one a line.
 const SERVE: &str = "BROKKR_LEGACY_JOURNAL_SERVE";
 
-/// The fields SC4 reserves for v6's attribution group, and the private
-/// observation key a driver could leak before its consumer exists. None
-/// may reach the journal at a preparation merge.
+/// The fields SC4 reserves for v6's attribution group, and protocol's
+/// private observation key, which a driver could leak before its consumer
+/// exists. None may reach the journal at a preparation merge.
 const UNRECORDED: [&str; 6] = [
     "capability",
     "dialect",
     "call_id",
     "call_state",
     "response_sha256",
-    "observation",
+    OBSERVATION_KEY,
 ];
 
 const V6: &str = "contracts/seat-record.v6.schema.json";
@@ -492,6 +493,52 @@ fn wanted_launches() -> BTreeMap<String, Vec<String>> {
         .collect()
 }
 
+/// The observation of the native search call the fake harness makes, as
+/// protocol types it.
+fn web_search() -> Observation {
+    Observation {
+        format: Format::Claude,
+        call: Some("toolu_01".into()),
+        tool: Tool::Named {
+            name: "WebSearch".into(),
+        },
+    }
+}
+
+/// D9's handoff, from the engine's crate: protocol's one encoding of an
+/// observation decodes here into protocol's one type, and an encoding
+/// that adds a field, or names a tool kind the type does not, is refused
+/// with serde's exact cause rather than read around.
+#[test]
+fn the_shared_observation_decodes_in_the_engine_crate_and_refuses_extras() {
+    let wire = json!({"format": "claude", "call": "toolu_01",
+                      "tool": {"kind": "named", "name": "WebSearch"}});
+    let decoded: Observation = serde_json::from_value(wire.clone()).unwrap();
+    assert_eq!(decoded, web_search());
+    let mut forged = wire.clone();
+    forged["capability"] = json!("web-search");
+    let mut stamped = wire.clone();
+    stamped["tool"]["dialect"] = json!("claude-native-search");
+    let mut unnamed = wire;
+    unnamed["tool"] = json!({"kind": "native", "name": "WebSearch"});
+    let refusals = [
+        (
+            forged,
+            "unknown field `capability`, expected one of `format`, `call`, `tool`",
+        ),
+        (stamped, "unknown field `dialect`, expected `name`"),
+        (
+            unnamed,
+            "unknown variant `native`, expected one of `named`, `mcp`, \
+             `mcp_unidentified`, `missing`",
+        ),
+    ];
+    for (wire, cause) in refusals {
+        let refused = serde_json::from_value::<Observation>(wire).unwrap_err();
+        assert_eq!(refused.to_string(), cause);
+    }
+}
+
 /// A direct append of a partial attribution group or a private
 /// observation, each beside a legacy native row, is refused with the
 /// exact v6 violation at the seq it would have taken, and the journal
@@ -511,7 +558,7 @@ fn fences_the_attribution_group(store: &mut Store, run_id: &str) {
     let mut partial = base.clone();
     partial["capability"] = json!("web-search");
     let mut private = base;
-    private["observation"] = json!({"call": "toolu_01", "name": "WebSearch"});
+    private[OBSERVATION_KEY] = serde_json::to_value(web_search()).unwrap();
     for checkpoint in [partial, private] {
         let payload = json!({"effect_id": "fx", "checkpoint": checkpoint});
         let error = store
