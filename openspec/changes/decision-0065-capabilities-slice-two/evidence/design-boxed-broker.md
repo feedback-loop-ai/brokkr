@@ -607,3 +607,132 @@ ledger test again passed one test. Working and staged `git diff --check`
 passed. The eight-document candidate is committed unsigned in repository
 style; the mandatory result uses `drafted` and `inputs.change`. Spelling
 remains pending because typos is unavailable. No next phase is selected here.
+
+
+## Returned council design visit
+
+Date: 2026-10-05. Run: `amend-decision-0065-slice-two-s--a9a103e3`.
+Design chief adopted `decision-0065-capabilities-slice-two` at `d53745b7`.
+The journal returned clarify `clear`, with no outstanding ambiguity or
+upstream finding. This visit retains the answered C1/C2, S1–S3 and SC-1
+repairs; it does not re-author the change or accept a proposed decision.
+The 2026-10-05 operator addendum remains verbatim once, and decision 0077's
+Context pointer remains unchanged. The dialect was read through workspace
+hands; no workflow runner was invoked and this seat selects no next phase.
+
+### Reading and source evidence
+
+Read the entire current robustness and simplicity positions, both against
+`d53745b7`, including their source references, H1–H7 dispositions, unit cuts
+and limits. D14 records the disposition of each current claim. D12 is now
+explicitly the historical first council, so its rejected 51-row sketch
+cannot be mistaken for the replacement simplicity position, which supports
+54 units. Neither panel pass is runtime security approval.
+
+Read the change's proposal, design, seven deltas, tasks, ruling and existing
+visit evidence; the dialect's specify/clarify/design/tasks/analyze and return
+instructions; README and decisions 0004/0005, 0009, 0012, 0043, 0046, 0063,
+0065, 0071 and 0077. Checked the current hands builder and its overlay/session
+consumers, engine namespace composition and hands command, shared injector
+and store reader, the broker CLI/refusal tests, machine proof and #403
+process ownership code. The held U6c records were read from local git objects
+`65c879c5` and `08171090` without checkout, merge or reuse. Their seven HIGH
+findings remain motivation and future proof obligations, not findings
+reproduced or closed by this visit. U6c still restarts from main.
+
+The source still has one hands system table and two builder consumers;
+workspace/Git/declared mounts, host-backed private paths and `--new-session`
+make an unchanged builder unsuitable for servers. The planned shared profile
+extraction remains necessary. The injector is crate-private and overwrites
+environment entries; the current reader checks and reopens a pathname, and
+empty bindings skip resolution. Therefore readiness, fixed-key refusal,
+same-descriptor reads and the confined protocol-owned handoff remain real
+implementation work. The accessor-count test does not establish delivery
+isolation. Main's public broker remains PlanUnbound, and #403 retains its
+recorded #472 races. No existing host-wide lease service was inferred from
+those sources.
+
+### Council decisions and dependent changes
+
+Adopt both positions' shared-builder plan, exact source predicate, one
+injector, separate hands/server networks, typed causes and durable zero-call
+failure. Retain all H1–H7 dispositions: filesystem confinement removes loader,
+argument and shebang prediction, but identity/ancestry, writable aliases,
+store exclusion, safe host environment and actual readiness remain checks.
+Both positions retain the installation/history, shared-network, transformed
+secret and process-cleanup limits. Reject extra discovery, credential scans,
+attestation, source caches, filtering, public lifecycle or supervision
+services; none is needed to meet the ruling (0071 rulings 2–6, 8–10).
+
+Adopt robustness's later-writer scenario. A per-worktree evidence lease or a
+snapshot of current writers cannot protect a source from a later zero-grant
+writer in another worktree. D6 now orders dispatch through a short-lived
+owner-bound admission lock and the already planned protected inventories;
+it reserves complete reach/source facts before any writer and releases only
+after durable owned-process settlement. Unknown participation and survivors
+refuse; engine death or advisory unlock is insufficient. Inventory work and
+lock acquisition share the existing bounds. This is proposed U8a2 work, not
+a claim that main already supplies the mechanism. It adds no separate
+registry, daemon or inventory authority. MB3 tests both start orders,
+simultaneous admission, crash retention and a disjoint positive control;
+U9b repeats the real path. No next-call detection substitutes for exclusion
+(rulings 1, 3, 5, 8–10).
+
+Adopt complete-frame EOF before exec. Reading a valid first frame cannot
+prove absence of trailing bytes. MB4 now requires sender close, complete
+receipt and EOF, with independent open-pipe timeout, truncation and trailing
+byte controls. Combine the private exec-status proposal with receiver-side
+handoff failure reporting: one close-on-exec pipe carries at most one fixed
+HandoffFailed or ExecFailed tag. An exec-only tag would misclassify a receiver
+rejection after the sender closed. EOF after sender completion permits MCP
+initialization only; it cannot distinguish bootstrap death from successful
+exec. The protocol check and durable Failed outcome still decide success.
+MB3's exact observed-stage causes replace no refusal and add no public
+protocol or positive acknowledgement. U6c8 owns the consumed implementation;
+U6f/U8e/U9b repeat its controls (rulings 3, 5, 8–10).
+
+Adopt the complete-path qualification criterion. SD4 counts both engine
+observation and broker reobservation, reports each under the existing 10 s
+observation budget and their startup total under 20 s, within the unchanged
+30 s runtime deadline. Blocking observation/control I/O must be cancellable
+without a detached admission worker; metadata limits do not establish general
+CPU, memory or denial-of-service containment. Host qualification remains
+pending with its existing owners and positive controls (rulings 1, 9–10).
+
+The dependency-order amendment was proposal, owning MB3/MB4 and SD4 deltas,
+D5/D6/D9/D12/D14 and affected unit descriptions, then their stable task IDs
+and scenario map. The evidence is recorded here, never in `evidence.md`.
+The exact 54-unit merge order, three-production-file ceilings, U9b-only
+compile fence, earlier direct-serving/retention fences, historical task
+preamble and completed work remain unchanged. Every new criterion has a
+current owner and repeat at integration; no task is checked off. House gates
+remain authoritative for measured ceilings and clones (0071 rulings 4, 11).
+No architectural principle is waived.
+
+### Verification for this visit
+
+`openspec validate --all --strict` passed all 20 items, with informational
+notices only. Working and staged `git diff --check` passed. The document
+audit confirmed 54
+unique dependency-ordered units with at most three production files each,
+matching unit details and Hot files in both directions; 124 stable unique task
+IDs and unchanged dependencies, complete preamble and 32 completed task lines;
+26 requirements with 146 scenarios and task coverage; all six new box causes
+covered and H1–H7 explicit. All 802 local file-link targets in the six changed
+Markdown artifacts resolve, including the D14 evidence link and the three
+added scenario owners. The ruling is unchanged and appears verbatim once;
+this visit only appends to this evidence file.
+
+`typos --hidden` exited 127, `typos: command not found`. Spelling remains
+pending outside this box; neither council's earlier pass is substituted for
+this candidate. No installation was attempted. This docs-only visit changes
+no production, test, frozen contract, fixture, policy, reference, recipe or
+release file, and never changes historical `evidence.md`. No Cargo, namespace,
+coverage, mutation or host-performance result is claimed; those remain
+implementation prerequisites before U9b. Earlier observations in this file
+remain attributed to their own visits.
+
+Boxed git reports `commit.gpgsign=false`. The six-document candidate is
+prepared for an unsigned commit in repository style, as commissioned; the
+controller signs the squash. The result records `drafted` and the adopted
+`inputs.change`, with no next-phase choice. No push is performed.

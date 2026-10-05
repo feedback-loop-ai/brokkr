@@ -266,6 +266,18 @@ host guarantee. Source inspection retains root handles and the active
 ancestor stack, not one live FD per traversed file. It SHALL NOT cache a
 previous preparation's verdict or skip a subtree to meet a budget.
 
+Source exclusion SHALL also govern later managed writers, including zero-grant
+runs in other worktrees. Admission of a writer and reservation of protected
+sources SHALL be ordered atomically: neither start order nor simultaneous
+starts may admit a writable alias beside a live server. Preserve reservations
+until owned-process settlement, including after engine death; advisory-lock
+release alone is not settlement. A conflicting or unprovable combination
+SHALL refuse before the incoming dispatch with
+"MCP server box filesystem identity is not protected"; when the incoming
+party is the broker this is before lookup. An already admitted server SHALL
+NOT be protected merely by detecting the write on its next call. Disjoint
+worktrees may proceed when their complete write reach is proved disjoint.
+
 Installation is a trust prerequisite, not a historical authenticity check.
 The operator SHALL provision a trusted dedicated package tree. An otherwise
 admissible broad tree such as `~/.cargo` derived from `~/.cargo/bin/server`
@@ -321,6 +333,19 @@ creates no invented ledger. Post-admission failure to exec the boxed server,
 including an absent loader/interpreter, SHALL use the distinct typed cause
 `MCP server could not start inside its box`, close Failed with zero calls,
 and never widen mounts or retry on the host.
+The bootstrap SHALL report handoff rejection or exec failure on one private
+close-on-exec status pipe, with at most one fixed tag from a closed typed
+failure enum: HandoffFailed maps to MB4's handoff cause, ExecFailed to the
+boxed-exec cause. Neither stderr nor an MCP frame decides that status.
+Successful exec closes the descriptor. After the sender completes its frame
+and closes, EOF without a failure tag permits bounded MCP initialization,
+not a successful-session claim. Before that sender completion, channel loss
+or invalid status takes the handoff cause; afterward an invalid tag takes
+the boxed-exec cause. A valid HandoffFailed tag still takes the handoff cause
+after sender completion. EOF cannot prove whether a bootstrap died before
+exec: without a functioning MCP child, the existing protocol/timeout cause
+applies. No missing status invents success or a host retry, and no status
+descriptor survives server exec.
 
 Only MCP initialization and the measured protocol operations necessary for
 listing/calling granted tools SHALL be proxied. Tool listing SHALL expose
@@ -429,6 +454,13 @@ alone SHALL remain a call outcome, not a fatal session failure.
 - **THEN** launch refuses "MCP server box filesystem identity is not protected" with zero lookups and dialect-server starts
 - **AND** replacing a checked source between observation and mount cannot substitute another tree; owner-bound plan failure retains "broker plan is not bound to this attempt"
 
+#### Scenario: Later writers cannot invalidate an admitted source
+
+- **WHEN** worktree A has an admitted live server and a zero-grant writer from B requests a writable alias to its program or system support source
+- **THEN** B refuses "MCP server box filesystem identity is not protected" before dispatch, and A's source bytes remain unchanged throughout its lifetime
+- **AND** in reverse order A refuses with that cause before lookup or server start; simultaneous starts admit at most one conflicting party, while a disjoint B can run
+- **AND** killing A's engine does not free its reservation while an owned bootstrap/server may survive; uncertain settlement refuses the incoming conflict rather than trusting lock release
+
 #### Scenario: Box establishment precedes secret resolution
 
 - **WHEN** Linux loses its checked bubblewrap launcher, or namespace/mount/private-tmpfs/network setup or its ready handshake fails
@@ -470,6 +502,14 @@ alone SHALL remain a call outcome, not a fatal session failure.
 - **WHEN** an installed script has a shebang the kernel rejects, or names an interpreter not mounted inside the box
 - **THEN** the boxed exec fails with "MCP server could not start inside its box" and a zero-call Failed session; Brokkr neither emulates the shebang nor retries outside the box
 - **AND** a valid shebang whose interpreter and program tree are bound executes under that kernel's normal semantics inside the admitted box
+
+#### Scenario: Exec status is separate from protocol output
+
+- **WHEN** the confined exec syscall fails for an absent interpreter or loader
+- **THEN** the broker receives ExecFailed and records "MCP server could not start inside its box" with zero calls, regardless of misleading or empty stderr
+- **AND** HandoffFailed instead records "MCP server secret environment could not be delivered", including when sent after sender completion; an invalid tag after sender completion takes the boxed-exec cause
+- **AND** successful exec closes the status pipe and permits only MCP initialization, whose failure keeps its existing protocol/timeout cause; bootstrap death before sender completion takes the handoff cause, while EOF afterward without a functioning child cannot certify success
+- **AND** a healthy child inherits only its intended stdio
 
 #### Scenario: Secret bindings cannot replace protected startup directories
 
@@ -569,9 +609,14 @@ final exec inside the established box. The bootstrap accepts no fresh mounts,
 argv or authority from the pipe. The handoff is one length-delimited frame
 of at most 1 MiB, at most 256 bindings and depth 4, with exact declared-name
 equality, no duplicate keys, unknown fields, NUL or trailing frame. Values
-are not truncated. Sending and receiving share the absolute startup deadline
-and are interruptible; invalid framing, excess, EOF or timeout takes the
-handoff cause below. Temporary plaintext buffers stay inside the secret
+are not truncated. The sender SHALL close its write end after the one frame;
+the receiver SHALL consume the complete frame and then establish EOF before
+exec. Any trailing byte, including an incomplete second frame, refuses. EOF
+before the frame completes is truncation; EOF immediately after the complete
+frame is the required terminator. A complete frame whose sender keeps the
+pipe open waits only until the shared deadline. Sending and receiving share
+the absolute startup deadline and are interruptible; invalid framing,
+excess, premature EOF or timeout takes the handoff cause below. Temporary plaintext buffers stay inside the secret
 boundary without Debug/logging and are best-effort wiped after use. A broken/invalid handoff SHALL refuse with
 "MCP server secret environment could not be delivered" and end the session;
 this is a post-lookup failure with zero server starts, not a box admission
@@ -648,6 +693,13 @@ shared encoding definitions. Exact-number preservation is a separate check.
 - **WHEN** the post-readiness handoff exceeds 1 MiB or 256 bindings or depth 4, repeats a name, changes the declared name set, includes unknown fields or NUL, truncates, stalls or sends a trailing frame
 - **THEN** it fails "MCP server secret environment could not be delivered" with zero server starts and a Failed session; exact-bound valid frames retain every value
 - **AND** independent controls bind each limit and framing check, and the server receives only its intended stdio after all control, store and mount-source descriptors close
+
+#### Scenario: A complete binding frame still waits for EOF
+
+- **WHEN** the sender supplies one valid complete binding frame but leaves its write end open
+- **THEN** the bootstrap starts no dialect server; expiry returns "MCP server secret environment could not be delivered" and closes Failed with zero calls
+- **AND** closing immediately after that frame permits confined exec; adding any byte or a second frame before closing instead gives the same handoff refusal, even when the first frame was already decoded
+- **AND** each case records its actual lookup count; no source, store, ledger or control descriptor remains readable through the server's `/proc/self/fd`
 
 #### Scenario: Declared loading variables never reach a host loader
 
@@ -821,3 +873,15 @@ limits above. S2 is adopted as the explicit shared-network service reach;
 reject a new destination filter or loopback ban contrary to the ruling.
 These choices retain user-installed protected packages without claiming all
 layouts or histories qualify (0071 rulings 3, 5, 8–10).
+
+Lifetime exclusion cannot be inferred from a snapshot of current writers or
+from leases keyed only by worktree. Order source reservation against every
+managed dispatch and preserve it through settlement; reject a shape whose
+coordination cannot prove that exclusion. The new scenario makes the existing
+attempt-lifetime promise observable in both start orders (0071 rulings 3, 8–10).
+Complete-frame EOF and a private close-on-exec failure pipe preserve the existing
+handoff and boxed-exec causes without reading server prose. Its two fixed tags
+retain receiver-side handoff errors after the sender has closed; EOF itself
+cannot distinguish a dead bootstrap from successful exec, so initialization
+remains mandatory. Neither
+adds negotiation, authority or a public lifecycle (rulings 3, 5, 8–10).

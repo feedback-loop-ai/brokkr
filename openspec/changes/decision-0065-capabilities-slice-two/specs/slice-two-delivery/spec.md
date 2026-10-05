@@ -242,7 +242,14 @@ budgets are at most 10 s for complete source observation and 20 s through
 readiness, handoff and initialization on those recorded profiles, leaving
 headroom within MB3's unchanged absolute 30 s runtime refusal bound.
 U6c5 measures observation; U6f and U9b SHALL repeat the complete path with
-readiness/handoff/startup timings. Use at least one cold and five warm samples
+readiness/handoff/startup timings. Include every mandatory observation in the
+real path, including engine preparation and broker reobservation: report each
+cost and the total startup cost, without hiding a second traversal outside
+the 20 s qualification budget. Each complete observation retains the 10 s
+budget. Deadline proofs SHALL cover blocking preparation and control I/O,
+not just clock checks between calls; cancellation must leave no detached
+worker doing admission work. These bounds are not general memory, CPU or
+server denial-of-service containment. Use at least one cold and five warm samples
 per profile and record every sample, not just an average. Missing host legs
 stay pending and block the corresponding positive claim and U9b enablement.
 Large source sets beyond MB3's limits fail closed; no source pruning, cached

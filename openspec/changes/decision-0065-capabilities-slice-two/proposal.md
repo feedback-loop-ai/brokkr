@@ -119,3 +119,7 @@ confinement. It does not waive plan/digest binding, R2, U5a2 route clearance,
 secret-read isolation, masking, durable failure or cleanup. MB3/MB4 scenarios
 own the boundary and exact causes; their Decisions record H1–H7 dispositions.
 The new box implementation remains inert behind the MCP fence until U9b.
+The returned council keeps that design and makes lifetime source exclusion,
+complete binding-frame receipt before exec, and private exec-failure reporting
+explicit in the existing proof owners; it introduces no additional service
+or public contract. See [design D14](design.md#d14-returned-council-reconciliation).

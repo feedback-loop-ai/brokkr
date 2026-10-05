@@ -355,8 +355,12 @@ plan and evidence roots. Retained handles close path substitution, not writes
 to their contents; absent writable aliases and reach confinement supply that
 second obligation. Check mount destinations for collisions, inspect all actual
 nested read-only state at readiness and fail closed on mismatch. All admitted
-managed writers must preserve the same exclusion; arbitrary operator host
-mutation remains outside the claim. No new registry or daemon is invented.
+managed writers must preserve the same exclusion, including writers admitted
+later from another worktree. D6 orders their admission against durable source
+reservations; a snapshot of current reach or a worktree-local lease alone
+cannot supply the lifetime guarantee. Reuse the protected inventories for
+coordination, with no separate registry or daemon. Arbitrary operator host
+mutation remains outside the claim.
 No previous preparation's verdict may be cached or subtree skipped to meet
 limits. Source metadata is bounded independently of live handles; overflow
 or cancellation refuses through MB3's identity cause before lookup.
@@ -364,7 +368,12 @@ or cancellation refuses through MB3's identity cause before lookup.
 C2 feasibility is measured under SD4: U6c5's actual observer must complete
 within 10 s on each recorded Linux qualification profile, and U6f/U9b must
 complete readiness/handoff/initialization within 20 s overall on those
-profiles. These qualification budgets leave margin under the unchanged
+profiles. Include both engine preparation and broker reobservation in that
+full-path total, and report each observation separately under its 10 s budget.
+Deadline/cancellation proof covers blocking source operations and control I/O;
+a clock check between potentially stuck calls is insufficient. These limits
+claim no general containment of server CPU, memory or denial of service.
+These qualification budgets leave margin under the unchanged
 30 s runtime bound; they introduce no bypass or configurable timeout.
 Record cold and five warm samples, counts, FD/memory high-water marks,
 kernel/filesystem and mapped privilege facts for Linux x86_64/aarch64.
@@ -431,13 +440,30 @@ handle, U6a's crate-private `secret::bind_environment` on a cleared prepared
 Command, and serializes that prepared environment inside the secret boundary.
 One bounded length-delimited frame (1 MiB, 256 bindings, depth 4) crosses an
 anonymous pipe to the waiting bootstrap; the shared receiver checks exactly
-the declared names and framing, closes unrelated FDs, sets the final server
+the declared names and framing. The sender closes its write end after the
+frame. The receiver requires exact completion followed by EOF before exec:
+premature EOF, any trailing byte or an open pipe past the deadline takes
+MB4's handoff cause. Then it closes unrelated FDs, sets the final server
 environment and execs the sealed command. Neither handoff direction can
 change command, mounts, network or grants. No value appears in argv,
 `--setenv`, `--args`, temporary files or host launcher environment. Temporary
 plaintext has no Debug/logging and is best-effort wiped. Keep exactly one
 `expose_for_spawn` invocation inside `bind_environment`, pinned by
 `machine_proof.rs`, and separate leak scans at the actual host launch edge.
+
+Keep one private status pipe from bootstrap to broker, whose write end is
+close-on-exec. It carries at most one fixed tag from MB3's closed failure enum:
+HandoffFailed or ExecFailed. No errno text, stderr or MCP content decides the
+cause. The handoff tag preserves receiver-side rejection even after the sender
+has closed; one exec-only tag would lose that distinction. Exec success closes
+the pipe atomically. After sender completion, EOF advances only to bounded MCP
+initialization, never to a successful session. It cannot distinguish bootstrap
+death from exec success; the protocol check must still succeed. Apply MB3's
+observed-stage causes for invalid status, death and initialization failure.
+Close all other control/source descriptors before exec; the status descriptor
+closes on exec, leaving only intended stdio. This private launch result is
+consumed in U6c8, with no positive handoff acknowledgement, public protocol,
+second handshake negotiation or additional authority channel.
 
 All box admission refusals are pre-lookup, with MB3/MB4's exact typed causes.
 Missing/invalid store values require lookup. Invalid/failed handoff has
@@ -609,14 +635,50 @@ A site unable to honor it takes CR2's managed-writer refusal before dispatch.
 Serialize managed runs sharing that root with one exclusive host-side writer
 lease held across the run's owned-process lifetime, not one lock per member.
 Panel members of the same admitted run share its protection; separate worktrees
-retain parallelism. All current-version runs take this lease, even with no MCP
-holding/artifact yet, so a retaining run cannot race an already active writer.
+retain parallelism only under the additional source admission below. All
+current-version runs take this lease, even with no MCP holding/artifact yet, so a retaining run cannot race an already active writer.
 Use the existing process/attempt facts to recover abandoned ownership; an
 uncertain surviving writer refuses rather than treating lock release as process
 settlement. No daemon or general lock service is introduced. U9 migration must
 quiesce older engines that cannot participate; arbitrary operator host writes
 remain outside this managed-seat guarantee. The observable serialization cost
 and refusal of unsafe writer shapes are accepted for evidence integrity.
+
+Source protection has a wider coordination scope than the artifact-root lease.
+U8a2's `engine/broker.rs` admission operation takes one short-lived exclusive
+host admission lock under the protected `HOME/.local/state/brokkr/capabilities/`
+root. All participating current-version engines use that same owner-bound
+root; alternate or unprovable coordination domains cannot qualify a shared
+source. While holding the lock, read the existing protected run/attempt
+inventories and owned-process settlement facts, compare the incoming run's
+complete writer reach/privileges and protected sources with every unsettled
+reservation, then durably seal its reservation before releasing the lock or
+spawning. Zero-grant runs also publish their writer facts in that inventory;
+there is no separate editable writer list or service. Inventory traversal and
+lock acquisition share D5's metadata/entry limits and absolute startup deadline;
+exhaustion takes MB3's identity cause. Refuse incomplete, inaccessible or
+ambiguous participation; do not assume
+an absent answer means disjointness. This lock orders admissions only, so
+proved-disjoint worktrees can execute concurrently.
+
+The common `spawn_site` door and sequence path consume the reservation before
+any writer starts. Reserve the union of permitted member/fallback/step reach
+before the first dispatch, or atomically extend and recheck it before the new
+writer; sealed per-attempt plans still describe only the selected holding.
+A source/writer conflict takes MB3's identity cause before incoming dispatch
+(and before lookup when the incoming party is a broker). Artifact-root
+conflicts retain CR2's existing cause. Keep a source reservation until all
+its owned processes have settled; release it under the same admission lock
+only after durable settlement. Engine death or a free advisory lock does not
+release it: uncertain survivors keep the reservation and refuse conflicting
+starts. Use existing attempt facts and #403 settlement, not a new process
+scanner or stronger cleanup claim. This is proposed work, not an existing
+host-wide lease facility on main. A mechanism needing a fourth file is split
+before implementation; no deferred runtime recheck may replace this exclusion.
+The coordination root and lock are themselves protected control inputs for
+every writer, including zero-grant runs. A writer that could replace either
+cannot participate. Engines unable to establish the same coordination domain
+refuse a source admission; operator migration must quiesce nonparticipants.
 
 U8a/U8a2 real namespace proofs must include a retaining member plus a zero-grant
 attacker, boxed exec, an already-running writer, historical artifacts, ancestor
@@ -799,6 +861,10 @@ U6c7 needs only landed U6a; the chosen order serializes them. U6c4 joins
 the session and builder, and U6c8 joins bootstrap and store reader.
 
 The merge order has **54 PRs**: the prior 47 rows plus U6c2–U6c8.
+The returned council's EOF/status and writer-lifetime criteria refine the
+existing U6c6/U6c8 and U8a2 responsibilities; they add no file, row or task ID.
+Their integration controls remain U6f/U8e/U9b's, with SD4 measuring all source
+observations rather than hiding engine preparation outside the total.
 The returned source-policy repair stays in U6c4/U6c5's existing three-file
 budgets; new measurement task 28.17 belongs to U6c5 and adds no production
 file or PR. U6f/U7c/U8a2/U9b consume and prove the same amended facts.
@@ -934,8 +1000,10 @@ implementation units; a document pass supplies no behavioral evidence.
 
 ### D12. Council reconciliation for the boxed-server amendment
 
-Read every supplied position in full: robustness and simplicity. Their
-claims are advisory; the ruling, MB3/MB4 and checked source decide. The
+This records the first council at `35593f8c`, whose robustness and simplicity
+positions were read in full. The returned positions at `d53745b7` supersede
+those notes and are reconciled in D14; the rejected 51-row sketch below is
+historical. Claims are advisory; the ruling, MB3/MB4 and checked source decide. The
 durable record is in [this visit's evidence](evidence/design-boxed-broker.md#council-reconciliation).
 
 | Claim / position | Disposition and evidence |
@@ -980,6 +1048,32 @@ These are documentary repairs and explicit threat-model limits, not runtime
 closure of any held finding. The specification is still proposed and U9b
 remains fenced pending every actual host/behavior proof.
 
+### D14. Returned council reconciliation
+
+The journal's `returned_from` is clarify `clear` at `d53745b7`: no ambiguity
+or earlier-artifact fault was returned. Read both replacement council positions
+in full, robustness and simplicity, against that head and the current source.
+Retain D13's C1/C2, S1–S3 and SC-1 repairs and every recorded answer. These
+refinements make existing lifetime/framing/failure promises testable; they do
+not reopen the operator ruling or claim a runtime finding closed. The durable
+record is [the returned council visit](evidence/design-boxed-broker.md#returned-council-design-visit).
+
+| Current claim | Disposition and evidence |
+| --- | --- |
+| Both: retain shared builder, bounded installation rule and delete startup analysis | Adopt. `box_argv` has two live callers, one system table and mandatory workspace/private-host mounts. U6c3/U6c4 keep the consumers while introducing the separate server profile; missing dependencies fail inside. No second box, package discovery, v2 field or language analyzer (0071 rulings 2, 4–6, 10). |
+| Both: retain C1's complete system write-exclusion predicate, unconditional program links and certificate narrowing | Adopt. The returned observations support those distinctions; root ownership alone is not the predicate, and a blanket system-link refusal defeats the required positive controls. MB3/D5 remain the owners (rulings 3, 8–9). |
+| Robustness: a later cross-worktree writer can invalidate preparation-time source facts | Adopt as an explicit lifetime proof. The artifact-root lease alone is insufficient. D6 orders admissions through one host lock and the already planned protected inventories, keeping reservations through settlement; MB3 now tests both orders, concurrent starts, engine death and a disjoint control. Reject next-call detection as protection (rulings 1, 3, 8–10). |
+| Robustness: a decoded first frame does not prove no trailing frame | Adopt. Require sender close and receiver EOF before exec, with open-pipe, partial-frame and trailing-byte controls in MB4/U6c8. One fixed frame remains sufficient; no negotiation or generic RPC (rulings 3, 5, 8–10). |
+| Robustness: distinguish failed exec from failed MCP initialization | Combine with receiver-side handoff reporting on the private close-on-exec status pipe. At most one of two fixed failure tags preserves MB4's handoff cause or MB3's boxed-exec cause; an exec-only tag would lose a late receiver rejection. EOF permits initialization only. Stderr and bootstrap death cannot certify success. U6c8 consumes it and U6f/U8e/U9b repeat stage-specific failures (rulings 3, 8–10). |
+| Both: one injector, safe host environment, pre-secret readiness, independent native reads and durable zero-call failure | Adopt without duplication. The crate-private injector overwrites entries, `read_store` currently reopens a path, and the machine proof counts accessor calls only. Keep U6c7/U6c8's descriptor read, fixed-key checks and separate leak scans, plus U8's engine judgment (rulings 3, 5, 8–9). |
+| Robustness: count engine observation and broker reobservation; prove cancellation of blocking work | Adopt in SD4/D5 and existing measurement task 28.17, repeated by U6f/U9b. No survey, cached admission, source pruning or timeout knob supplies qualification; metadata bounds do not claim general resource containment (rulings 1, 9–10). |
+| Simplicity: retain 54 units, withdrawing its old 51-row sketch | Adopt the current position. Private visibility and the measured hands/secret file sizes still justify the exact extraction cuts. Keep all stable IDs, three-file budgets and U9b-only compilation; no new module or service is needed for these criteria (rulings 4–6). |
+| Both: explicit installation/network/cleanup risks and no additional services | Adopt. S1–S3, 0012 transformations and #403/#472 residuals stay named. Reject credential scanners, attestation, destination filters, source caches, public lifecycle events and a separate supervision/registration service; the existing protected inventory owns coordination (rulings 5–6, 9–10). |
+
+No architectural principle is waived. File/function/clone checks remain the
+house gates' authority (0071 ruling 11). The final document audit retains all
+26 requirements and existing task owners; no task is closed by this visit.
+
 ## Risks / Trade-offs
 
 - Harness config precedence may defeat isolation → U0 controls admission,
@@ -1006,7 +1100,9 @@ remains fenced pending every actual host/behavior proof.
 - Protected artifacts live under a writable repository ancestor → bound
   handles, read-only mount overlays, alias refusal and adversarial real
   namespace proofs for every managed writer precede enablement. Same-root runs
-  serialize, and an unsafe zero-grant writer may now refuse.
+  serialize, and an unsafe zero-grant writer may now refuse. Source admission
+  also orders cross-worktree starts; crash-stale or unprovable reservations
+  can refuse a conflicting run until settlement is established.
 - Process groups are not cgroups → reuse #403, retain #472/macOS residuals;
   namespace activation requires real Linux cleanup evidence.
 - Exact recording costs a sync before each external call → pay it, with
@@ -1044,8 +1140,10 @@ all attribution consumers before U4f2 emits new fields, preserving valid
 legacy checkpoints at every merge without rewriting history. U5 adds the next realms version after v7 and v12
 identity, without editing frozen contracts. U9b alone enables admitted v1
 stdio grants with empty restrictions. Before that migration, quiesce older
-Brokkr engines writing the same worktree; their launches cannot honor the new
-managed-writer lease. New runs protect existing artifacts even without grants.
+Brokkr engines whose write reach could overlap the protected sources or
+artifact roots; a different worktree name does not exclude that overlap. Their
+launches cannot honor the new managed-writer coordination. New runs protect
+existing artifacts even without grants.
 
 Rollback before U9 simply leaves the MCP fence. After U9, an emergency
 rollback restores the compile refusal and refuses new starts; it does not
@@ -1122,7 +1220,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/broker/rpc.rs` | U6e, U6f | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-cli/src/broker/output.rs` | U6f, U8b | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-protocol/src/hands.rs` (1267 at this visit) | U6c3, U6c4, U7a, U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/engine/broker.rs` | U7c, U8a2, U8c, U8d, U8e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine/broker.rs` | U7c, U8a2, U8c, U8d, U8e | Protected inventory, cross-worktree admission lock and lifetime reservations; #403/#415 cleanup and ongoing splits |
 | `crates/brokkr-runtime/src/engine/marks.rs` | U7c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-protocol/src/hands/evidence.rs` | U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/engine/artifacts.rs` | U8c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
@@ -1130,7 +1228,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/doctor/capabilities.rs` | U9a | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-protocol/src/hands/namespace.rs` | U6c3, U6c4, U6c5 | Count registration and same-unit consumers; recheck size and concurrent main edits |
 | `crates/brokkr-protocol/src/hands/namespace/sources.rs` | U6c5 | Includes system write-exclusion/credential observation and task 28.17 measurement; split before implementation if ceilings cannot hold |
-| `crates/brokkr-cli/src/broker/bootstrap.rs` | U6c6, U6c8 | Count registration and same-unit consumers; recheck size and concurrent main edits |
+| `crates/brokkr-cli/src/broker/bootstrap.rs` | U6c6, U6c8 | Ready state, complete-frame EOF and close-on-exec status; count registration/consumers and recheck ceilings |
 | `crates/brokkr-protocol/src/secret/store.rs` | U6c7 | Count registration and same-unit consumers; recheck size and concurrent main edits |
 | `crates/brokkr-protocol/src/broker.rs` | U6c, U6d | Shared consumed protocol edge; registration counts in lib.rs |
 Also coordinate `crates/brokkr-cli/tests/init_doctor.rs` and
@@ -1598,6 +1696,8 @@ Owning tests: `crates/brokkr-protocol/src/hands/tests.rs`, `crates/brokkr-cli/te
 
 Add a private BrokerCmd variant and exhaustive handler in the existing binary, with registration in broker.rs. The bootstrap consumes sealed nonsecret intent from inherited control descriptors, verifies the actual namespace/mount/tmpfs/network state and emits the bounded ready message. It accepts no store/grant locator as authority and no arbitrary unconfined exec. Absent or invalid private control context takes the box-establishment cause. Its complete waiting/verification handler is a production consumer; actual binding receipt is wired in U6c8, and incomplete serving still cannot start a dialect server.
 
+Keep readiness distinct from the subsequent private binding and exec-status channels specified in D5. This row grants neither a public bootstrap API nor early exec; U6c8 supplies those channels with their consumers.
+
 Closes tasks 28.11 and 28.12; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [MB5](specs/mcp-capability-broker/spec.md), [SD3](specs/slice-two-delivery/spec.md).
 Proof: Real CLI invalid-context refusal, wrong-child/digest/namespace and duplicate/truncated/excess readiness controls, fixed absolute deadline, no marker-only or stdout readiness, safe host loader environment and pre-secret cancellation. Real Linux control-descriptor carriage must be measured; unavailable support refuses with zero lookups/starts.
 
@@ -1614,10 +1714,20 @@ Owning tests: `crates/brokkr-protocol/src/secret/tests.rs`, `crates/brokkr-cli/t
 
 ### U6c8 — Wire the confined environment handoff
 
-Add only the narrow protocol sender/receiver API consumed immediately by session and bootstrap. The sender reads the admitted descriptor after verified readiness, calls bind_environment on a prepared cleared Command and encodes that environment inside secret.rs; receiver validates the same closed frame and builds only the final confined environment. Session consumes the complete preparation/launch operation through the existing command seam; the public incomplete-serving check stays before invoking it until U6f. No second plaintext accessor, encoding catalogue, shell wrapper, file transport or host env binding. Carry typed read errors from U6c7 and keep secret buffers out of Debug/logging. Close all unrelated/control FDs before actual server exec.
+Add only the narrow protocol sender/receiver API consumed immediately by session and bootstrap. The sender reads the admitted descriptor after verified readiness, calls bind_environment on a prepared cleared Command and encodes that environment inside secret.rs; receiver validates the same closed frame and builds only the final confined environment. Session consumes the complete preparation/launch operation through the existing command seam; the public incomplete-serving check stays before invoking it until U6f. No second plaintext accessor, encoding catalogue, shell wrapper, file transport or host env binding. Carry typed read errors from U6c7 and keep secret buffers out of Debug/logging. Require a complete binding frame followed by EOF before actual server exec;
+close the sender after its one frame and reject any trailing byte. Close all
+unrelated descriptors, keeping only the private typed-failure status pipe marked
+close-on-exec until exec. Use that pipe for a typed handoff or exec error, never stderr;
+EOF authorizes initialization only, and all startup uncertainty stays failed.
 
 Closes tasks 28.15 and 28.16; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [MB5](specs/mcp-capability-broker/spec.md), [SD3](specs/slice-two-delivery/spec.md).
 Proof: Single-injector machine proof plus independent host argv/env/pipe-diagnostic leak scans; exact one-frame limits/name equality, EOF/timeout/NUL/duplicate refusals, zero starts on handoff failure, and protected installed server with DOCS_TOKEN and allowed loading names. Fixed HOME/TMPDIR collisions remain zero lookup/start, while missing/invalid store values and delivery failures are accurately post-readiness/post-lookup. Real namespace and bootstrap consumers prove the handoff; the public fence stays unchanged.
+Also bind open-after-frame timeout, truncation, trailing bytes/second frames,
+each failure tag, malformed status and bootstrap death at each side of sender completion.
+Independently remove the EOF check and status-error propagation. A successful
+exec with failed initialization must retain its separate protocol cause;
+assert the child's exact environment and `/proc/self/fd` with a purpose-built
+fixture rather than compensating for a shell's startup changes.
 
 Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`, `crates/brokkr-cli/tests/machine_proof.rs`, `crates/brokkr-protocol/src/secret/tests.rs`.
 
@@ -1648,6 +1758,9 @@ Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
 Complete the serving protections in session.rs using existing secret masking and canonical byte/hash functions at the edge. Share one masked buffer, reject duplicate keys and numeric value changes, and independently refuse unsafe scalar/structural secret occurrences before staging or delivery with MB4's exact cause. Keep legacy masker semantics and shared encodings. Drain stderr with raw-byte overlap before lossy decoding. Only then can the bound public session serve; retained plans still refuse until U8b.
 
 Complete the boxed launch path before removing incomplete-serving refusal: exact approved read-only system/package/bootstrap binds, absent workspace/store/evidence, two-server tmpfs separation, each egress class, safe host launch environment and confined binding delivery. Repeat all pre-secret cause counters, singleton system and dedicated native/script/package controls with ordinary protected system hard links left intact, SD4's full-startup budget, missing dependency failures and valid code-loading-name controls. The single-injector machine proof and leak scans cover the actual launcher as well as output; masking and readiness have independent removals. Use installation canaries to prove the stated credential/history limits without claiming authenticity or unknown-secret masking; test host-loopback and abstract Unix socket sentinels for both local denial and shared reach.
+Repeat complete-frame/EOF and exec-status controls through the enabled public
+session, including bootstrap death and successful exec followed by failed
+initialization. SD4's total includes every actual source observation.
 
 Closes tasks 31.1 and 31.2; requirements [MB3](specs/mcp-capability-broker/spec.md), [SD3](specs/slice-two-delivery/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md).
 Proof: Literal/encoded/split/multibyte leak scans, digits-only scalar refusal versus text-redaction/unrelated-number controls, masking-created key collisions, and unsafe-correlation failure without raw frames. Assert failed forwarded call with no digest and no unsafe body for retention on/off/veto; the refusal itself passes leak scans. Remove the scalar check independently of numeric-precision validation; direct command cannot bypass plan/ledger/startup/masking protections, and a retained plan never silently degrades. Repeat the independent HOME/TMPDIR collision removals at the final public spawn boundary, including zero lookup/start and normal-binding/private-directory controls.
@@ -1720,8 +1833,22 @@ Carry the protected root to every writer before composition and recheck at the c
 
 Carry all managed writers' effective reach in the admitted protection facts, including zero-grant siblings; any writer able to mutate an admitted server source through an alias fails the source-identity check before server lookup. Server boxing does not waive this coordination or protection of historical artifacts. Other worktrees remain parallel only when their admitted write reach is disjoint from these protected sources. Include their mapped identities/privileges in system write-exclusion admission. This coordinates current and concurrent writers; it does not authenticate earlier installed bytes after a past bind was removed (D5).
 
+Implement D6's atomic admission operation and durable reservations in the
+already inventoried engine/broker.rs, consumed at engine.rs's common dispatch
+and the sequence path. Reuse the protected inventory and existing settlement
+facts; the worktree lease alone is insufficient. Keep the host admission lock
+short-lived and owner-bound, protect its root from every writer and refuse
+unknown participation. Reservation release follows durable owned-process
+settlement, never just engine death or advisory unlock.
+
 Closes tasks 38.3 and 38.4; requirements [CR2](specs/capability-response-retention/spec.md), [MB3](specs/mcp-capability-broker/spec.md).
 Proof: A retaining panel member plus zero-grant attacker and boxed exec cannot replace root/digest; an already-running writer refuses, abandoned ownership cannot outlive cleanup, later no-grant runs preserve old evidence, and separate worktrees remain independent.
+For source exclusion, test A-server/B-writer in both start orders, concurrent
+starts and engine death with surviving payload, using both program and system
+source aliases and a disjoint-worktree positive control. Assert MB3's exact
+incoming-dispatch refusal, unchanged protected bytes and no lookup/start on
+a refused incoming broker. Independently remove reservation admission and
+settlement retention; a same-worktree artifact test proves neither.
 
 Owning tests: `crates/brokkr-runtime/tests/capability_broker_launch.rs`, `crates/brokkr-runtime/tests/capability_ledger.rs`.
 
@@ -1761,6 +1888,9 @@ Owning tests: `crates/brokkr-runtime/tests/capability_ledger.rs`.
 Fold only after owned processes settle and before every ordinary/panel/step terminal result, including failed, cancelled, timed-out and engine-restart paths. Reuse existing append patiences and failed/indeterminate transitions; preserve disk evidence on failure.
 
 Use a success-reporting harness after pre-secret box/readiness failure and post-lookup handoff/exec failure. Assert each exact cause, zero accepted-call checkpoints, settled supervisor/bootstrap and restart persistence without retry. Keep these separate from the existing 0/1/4,096-call version/protocol/capacity controls and from cleanup removals.
+Include the private exec-status error, invalid tag and EOF followed by no
+functioning child at their observed stage; none can acquire a Clean closure merely
+because a pipe ended. Writer reservations stay while settlement is uncertain.
 
 Closes tasks 42.1 and 42.2; requirements [CR3](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [MB5](specs/mcp-capability-broker/spec.md).
 Proof: Live half-record causes no premature corruption finding; settled half-record fails exactly, every terminal route meets the barrier, and restart appends each call once without replaying external work. A deterministic harness deliberately reports success after fatal broker failure; assert CR4's exact 0/1/4,096 call counts and causes, and catch an independent compiling removal of the engine disposition check. Preserve native lost/stranded failure handling too.
@@ -1801,6 +1931,11 @@ Owning tests: `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, box admission/readiness, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination.
 
 The enabling matrix also traverses all boxed-server seams: singleton system and user-installed package entries with ordinary protected system hard links intact, SD4's measured host budgets, every reach mode and containment direction, resolution ancestors, hard links and bind aliases, store exclusion including empty/missing stores, bounded observation/readiness/handoff, and actual kernel shebang execution. Pin all pre-secret refusals to zero lookups/starts and distinguish later delivery/exec failures. A success-reporting harness cannot hide any zero-call box failure. Real Linux proof includes private tmpfs per server, local/shared network with hands still network-false, safe host loader environment, allowed loading bindings and cancellation at every startup window. macOS proves its existing refusal; no successful box is claimed there.
+Repeat MB3's two-worktree lifetime matrix and MB4's complete-frame/EOF
+matrix, with the private exec-status controls and exact descriptor/environment
+fixture. Quiesce any older writer whose reach overlaps protected sources,
+not just writers using the same worktree. All engine/broker observations
+count in SD4's measured total startup cost.
 
 Closes tasks 46.1 and 46.2; requirements [GP1](specs/gate-capability-policy/spec.md), [MB3](specs/mcp-capability-broker/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD3](specs/slice-two-delivery/spec.md).
 Proof: Real compile/launch/broker/fold/inspect with fake dialect; exact native/MCP gate reads/writes/explicit-office-egress required/wanted outcomes, same-name MCP holding keeps native power OFF, zero-grant sibling and exec cannot alter evidence, unsafe secret reads refuse, and quota/recovery/cold/fallback/member/step cases bind. Include the success-reporting harness after zero-call version failure, post-call fatal protocol and 4,096-call exhaustion, plus scalar-secret refusal on the real retention/inspect path; pin exact causes, counts and absent unsafe bodies.
