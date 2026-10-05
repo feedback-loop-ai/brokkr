@@ -60,10 +60,12 @@ fn requested() -> Journal {
 }
 
 /// One codex attempt's stream, as the driver journals it: the attempt
-/// starts, each turn opens, the work inside it arrives as
-/// `item-completed` checkpoints, each completed turn closes. The
-/// attempt id is the caller's, so a retried seat's second attempt is
-/// the same stream again.
+/// starts, each turn opens, one item is announced (`item-started`, the
+/// neighbour step the reader emits beside `item-completed` from the
+/// same arm) and the completed items arrive as `item-completed`
+/// checkpoints, each completed turn closes. The attempt id is the
+/// caller's, so a retried seat's second attempt is the same stream
+/// again.
 fn codex_attempt(
     journal: &mut Journal,
     attempt: &str,
@@ -81,6 +83,10 @@ fn codex_attempt(
             seat_checkpoint(attempt, "turn-started", turn, None),
         );
     }
+    journal.push(
+        EventType::EffectCheckpointed,
+        seat_checkpoint(attempt, "item-started", 1, Some("command_execution")),
+    );
     for tool in items {
         journal.push(
             EventType::EffectCheckpointed,
@@ -143,18 +149,20 @@ fn a_working_codex_seat_counts_its_items_live_at_every_checkpoint() {
     // An OPEN attempt — no `codex-session-finished`, no terminal
     // event — folded prefix by prefix, the way a reader watches a seat
     // work: the cell is the absence mark until the first item lands,
-    // grows at each `item-completed`, and stands beside the turn the
-    // moment it closes. The seat is working at every prefix, so the
-    // count is live from the same checkpoints and no snapshot of a
-    // concluded participant stands in for it.
+    // an item that has only been announced does not count, the cell
+    // grows at each `item-completed`, and it stands beside the turn
+    // the moment it closes. The seat is working at every prefix, so
+    // the count is live from the same checkpoints and no snapshot of
+    // a concluded participant stands in for it.
     let full = open_codex_journal(&["command_execution", "reasoning"], 1, 1);
     let expected: &[(usize, &str, bool, Option<u64>)] = &[
         (1, ABSENT, true, None), // requested: the seat exists, nothing has arrived
         (2, ABSENT, true, None), // attempt one started
         (3, ABSENT, true, None), // turn-started opens the turn; it is not a completed item
-        (4, "1 items", false, None),
-        (5, "2 items", false, None),
-        (6, "1 · 2 items", false, Some(1)), // the turn closes behind the items
+        (4, ABSENT, true, None), // item-started announces the work; it does not count it
+        (5, "1 items", false, None),
+        (6, "2 items", false, None),
+        (7, "1 · 2 items", false, Some(1)), // the turn closes behind the items
     ];
     for &(prefix, text, absent, turns) in expected {
         let view = run_view(&full[..prefix], None);
@@ -173,8 +181,9 @@ fn a_working_codex_seat_counts_its_items_live_at_every_checkpoint() {
 
 #[test]
 fn a_codex_seat_whose_harness_journals_no_items_reads_as_before() {
-    // An item that has only started is not a completed item: nothing
-    // counts, and the cell keeps the turn count it always had.
+    // The fixture plants an `item-started` that never completes beside
+    // zero `item-completed` checkpoints: nothing counts, and the cell
+    // keeps the turn count it always had.
     let view = run_view(&codex_journal(&[], 1, 1), None);
     assert_eq!(view.participants[0].turns, Some(1));
     assert_eq!(view.participants[0].turns_cell.text, "1");

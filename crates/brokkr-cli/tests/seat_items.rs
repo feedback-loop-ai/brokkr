@@ -53,10 +53,14 @@ fn plant(db: &Path, run_id: &str, feature: &str, checkpoints: Vec<Value>) {
 }
 
 /// The work inside one codex turn, as the driver journals it: the turn
-/// opens, three items complete carrying their `tool` types, the turn
-/// closes, the thread closes.
+/// opens, an item is announced (`item-started`) and three items
+/// complete carrying their `tool` types, the turn closes, the thread
+/// closes.
 fn codex_checkpoints() -> Vec<Value> {
     let mut checkpoints = vec![json!({"step": "turn-started", "turn": 1, "harness": "codex"})];
+    checkpoints.push(
+        json!({"step": "item-started", "turn": 1, "tool": "command_execution", "harness": "codex"}),
+    );
     for tool in ["command_execution", "reasoning", "agent_message"] {
         checkpoints
             .push(json!({"step": "item-completed", "turn": 1, "tool": tool, "harness": "codex"}));
