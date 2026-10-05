@@ -42,10 +42,7 @@ use std::collections::BTreeMap;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
 
-#[path = "support/rust_source.rs"]
-mod rust_source;
-#[path = "support/tracked.rs"]
-mod tracked_files;
+use crate::{rust_source, tracked_text};
 
 use rust_source::{skip_literal, units};
 
@@ -266,15 +263,9 @@ fn findings(path: &str, text: &str) -> Vec<String> {
 #[test]
 fn no_tracked_file_spells_a_windows_conditional() {
     let root = workspace();
-    let mut refused = Vec::new();
-    for path in tracked_files::tracked(&root, &[]) {
-        let bytes = match std::fs::read(root.join(&path)) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => panic!("{path} is tracked and cannot be read: {error}"),
-        };
-        refused.extend(findings(&path, &String::from_utf8_lossy(&bytes)));
-    }
+    let refused: Vec<String> = tracked_text::texts(&root)
+        .flat_map(|(path, text)| findings(&path, &text))
+        .collect();
     assert_eq!(
         refused,
         Vec::<String>::new(),

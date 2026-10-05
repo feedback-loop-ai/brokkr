@@ -1,6 +1,6 @@
-//! A workflow's jobs, for the test binaries that hold the repository's
-//! workflows to their rulings. Each includes this through `#[path]`, so
-//! the rule that splits a workflow into its jobs has one home.
+//! A workflow's jobs, for the test files that hold the repository's
+//! workflows to their rulings. `tests/it.rs` declares this once, so the
+//! rule that splits a workflow into its jobs has one home.
 
 /// The jobs of a workflow's text, keyed by job id, in file order. A job
 /// starts at a key indented two spaces under `jobs:`; its body is every

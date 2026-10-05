@@ -863,11 +863,7 @@ fn every_shipped_model_is_promoted_and_every_shipped_recipe_still_compiles() {
             adapter.provider
         );
     }
-    let compiled = shipped_compiles(&root.join("adapters"));
-    assert!(compiled.len() >= 17, "{compiled:?}");
-    for (path, result) in compiled {
-        assert_eq!(result, Ok(()), "{path}");
-    }
+    assert_every_shipped_compiles(&root.join("adapters"));
 }
 
 /// The removal control the test above stands on: mark the model a
@@ -903,6 +899,23 @@ fn a_shipped_recipe_is_refused_once_a_model_it_hires_turns_provisional() {
     }
 }
 
+/// The #487 landing's C2 on the shipped tree: once a model is declared
+/// provisional, every inline pin is judged against its adapter's declared
+/// ids, so a recipe pinning an id its adapter does not declare stops
+/// compiling. Marking a dsh model no shipped recipe hires provisional
+/// leaves every shipped recipe compiling: each inline pin names a
+/// declared id, the dsh lanes `spark-glm/GLM-5.3-Flash-EXL3` (#532).
+#[test]
+fn every_shipped_recipe_compiles_beside_a_provisional_model_it_does_not_hire() {
+    let copy = shipped_adapters_with(|adapter| {
+        if adapter["provider"] == "dsh" {
+            let id = adapter["models"]["studio-pro"].clone();
+            adapter["models"]["studio-pro"] = json!({"id": id, "tier": "provisional"});
+        }
+    });
+    assert_every_shipped_compiles(copy.path());
+}
+
 /// A copy of the shipped adapters, each edited by `edit`.
 fn shipped_adapters_with(edit: impl Fn(&mut Value)) -> tempfile::TempDir {
     let copy = tempfile::tempdir().unwrap();
@@ -917,6 +930,16 @@ fn shipped_adapters_with(edit: impl Fn(&mut Value)) -> tempfile::TempDir {
         .unwrap();
     }
     copy
+}
+
+/// Every shipped bundle and recipe, at least the seventeen shipped today,
+/// compiles against `adapters`.
+fn assert_every_shipped_compiles(adapters: &Path) {
+    let compiled = shipped_compiles(adapters);
+    assert!(compiled.len() >= 17, "{compiled:?}");
+    for (path, result) in compiled {
+        assert_eq!(result, Ok(()), "{path}");
+    }
 }
 
 /// Each shipped bundle and recipe compiled against `adapters`, in no

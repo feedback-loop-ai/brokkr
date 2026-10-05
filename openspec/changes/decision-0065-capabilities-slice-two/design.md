@@ -552,7 +552,7 @@ evidence; U2/U3 do not. The listed order serializes their merges and conflicts,
 not their logic. Later feature units explicitly join their outputs. U5c's
 versioned grant change and U6a's injector extraction also have independent roots.
 
-The merge order has 45 PRs. Shared-file combinations U5a/U5c/U6f/U7d/U9b/U10a
+The merge order has 46 PRs (U5a2 split from U5a by operator ruling, 2026-10-04). Shared-file combinations U5a/U5c/U6f/U7d/U9b/U10a
 retain their consumers and proof ownership; U4a/U4b and U8a/U8a2 stay separate
 because their unions exceed three production files. Stable task IDs identify
 work, not numeric merge order. No fourth file or gate exemption is implied.
@@ -752,14 +752,14 @@ At each PR recheck these paths and baseline counts against main.
 | `adapters/lanetally.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `adapters/dsh.json` | U1e | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `adapters/exec.json` | U1e | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-runtime/src/bundle.rs` (7815) | U1f, U3a, U3c, U4d | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-runtime/src/bundle.rs` (7815) | U1f, U3a, U3c, U4d, U5a2 | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/bundle/mcp.rs` | U1f, U7b, U9b | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/init.rs` (1895) | U1f2 | Generated adapters and agents/README; keep copied strictness metadata bound to shipped declarations by parity proof |
 | `crates/brokkr-cli/src/init/adapters.rs` | U1f2 | Consumed extraction from init.rs; registration included in that parent |
 | `crates/brokkr-cli/src/verbs/setup.rs` | U1f2 | Printed scaffold instructions and matching guide transcripts |
 | `crates/brokkr-runtime/src/engine.rs` (4862) | U1g, U4e, U7c, U8a2, U8c, U8e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5f, U9b | 0065 follow-up refactors; identity and gate ordering must survive |
-| `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U9a, U9b | 0065 follow-up refactors; identity and gate ordering must survive |
+| `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b | 0065 follow-up refactors; identity and gate ordering must survive |
+| `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/capabilities/gates.rs` | U3a | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/agents/charter_data.rs` | U3b, U3c | #347/#348 harness splits; #467 strictness and #500 probe evidence |
@@ -875,6 +875,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U4g | U4f2 | Derive call evidence once; 19.1–19.2 | `crates/brokkr-view/src/lib.rs`; `crates/brokkr-view/src/capability_calls.rs` |
 | U5c | Independent | Extract grants and mint the versioned veto; 22.1–23.2 | `crates/brokkr-core/src/realms.rs`; `crates/brokkr-core/src/realms/grants.rs`; `contracts/realms.v<N>.schema.json` |
 | U5a | U2, U5c | Extract typed dialect policy and bind retention; 20.1–21.2, 24.1–24.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/dialect.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs` |
+| U5a2 | U5a | Compare MCP egress with the bundle's binding minimum; 24.3–24.4 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle.rs` |
 | U5f | U5a | Publish manifest v12 with its live native consumer; 25.1–25.2 | `contracts/run-manifest.v12.schema.json`; `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/manifest.rs` |
 | U6a | Independent | Share the one secret injector; 26.1–26.2 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/secret.rs` |
 | U6b | U5f, U6a | Introduce the broker command as a closed handler; 27.1–27.2 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/lib.rs`; `crates/brokkr-cli/src/broker.rs` |
@@ -894,7 +895,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U8e | U8d | Settle and recover every attempt's evidence; 42.1–42.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/sequence.rs`; `crates/brokkr-runtime/src/engine/broker.rs` |
 | U8f | U8e | Expose retained evidence in the pure view; 43.1–43.2 | `crates/brokkr-view/src/capability_calls.rs`; `crates/brokkr-view/src/lib.rs` |
 | U8g | U8f | Open a cited artifact through inspect; 44.1–44.2 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/verbs/readouts.rs` |
-| U9a | U8g, U2, U3c | Prepare whole-plan MCP doctor reporting; 45.1–45.2 | `crates/brokkr-cli/src/doctor.rs`; `crates/brokkr-cli/src/doctor/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs` |
+| U9a | U8g, U2, U3c, U5a2 | Prepare whole-plan MCP doctor reporting; 45.1–45.2 | `crates/brokkr-cli/src/doctor.rs`; `crates/brokkr-cli/src/doctor/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs` |
 | U9b | U9a | Enable the proved namespace path with guides; 46.1–47.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U10a | U9b | Audit removals, validate, fold and hand off; 48.1–49.2, 49.3 | None |
 
@@ -1146,12 +1147,21 @@ Proof: Exact retained fields/digests, duplicate/schema/containment parity, no st
 
 Owning tests: `crates/brokkr-runtime/src/agents/tests.rs`, `crates/brokkr-runtime/src/capabilities/tests.rs`, `crates/brokkr-runtime/src/bundle/agent_tests.rs`.
 
-Make dialect restriction-reservation checks use the grant's version, carry inherit/veto into the typed holding and preserve D11. Bound identifiers and egress minimum without granting secret clearance.
+Make dialect restriction-reservation checks use the grant's version, carry inherit/veto into the typed holding and preserve D11. Bound identifiers without granting secret clearance. The egress-minimum comparison belongs to U5a2 (operator ruling, 2026-10-04): the minimum is parsed and every serving context is built in bundle.rs, which this row does not own.
 
 Closes tasks 24.1 and 24.2; requirements [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md).
-Proof: Four retention outcomes, legacy retain as restriction, reserved collisions through refs/composition and unchanged inactive grants.
+Proof: Four retention outcomes, legacy retain as restriction, direct reserved-key claims refused, reserved keys absent from restriction validation whatever the schema's composition (operator ruling 2026-10-04), and unchanged inactive grants.
 
 Owning tests: `crates/brokkr-runtime/src/agents/tests.rs`, `crates/brokkr-runtime/src/capabilities/tests.rs`, `crates/brokkr-runtime/src/bundle/agent_tests.rs`.
+
+### U5a2 — Compare MCP egress with the bundle's binding minimum
+
+Split from U5a by operator ruling of 2026-10-04. Carry the minimum bundle.rs already parses (`parse_egress_minimum`) into capability resolution, and judge each MCP dialect's typed egress, as U5a retains it, against that minimum before provider carriage. A requires refuses and a wants drops with MB4's exact cause, "MCP dialect '<dialect>' has egress '<class>' below binding minimum '<minimum>'". Native holdings and the realm-wide MCP compile fence stay as they are until U9b. Doctor's matching comparison is U9a's.
+
+Closes tasks 24.3 and 24.4; requirements [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md).
+Proof: Below, at and above each minimum (local, contracted, uncontracted) for requires and wants, an absent minimum, unchanged native outcomes and the unchanged fenced compile, each with a compiling removal.
+
+Owning tests: `crates/brokkr-runtime/src/capabilities/tests.rs`, `crates/brokkr-runtime/src/bundle/agent_tests.rs`.
 
 ### U5f — Publish manifest v12 with its live native consumer
 
@@ -1335,7 +1345,7 @@ Owning tests: `crates/brokkr-view/src/tests.rs`, `crates/brokkr-cli/tests/capabi
 
 ### U9a — Prepare whole-plan MCP doctor reporting
 
-Extract capability reporting into the named module and use the shared complete planner for native/MCP metadata; preserve pre-U9 public compile refusal until U9b.
+Extract capability reporting into the named module and use the shared complete planner for native/MCP metadata; preserve pre-U9 public compile refusal until U9b. Doctor also reports each MCP grant's dialect egress against the bundle's binding minimum, as U5a2 judges it at compile (operator ruling, 2026-10-04).
 
 Closes tasks 45.1 and 45.2; requirements [SC5](specs/slice-two-contracts/spec.md), [SD3](specs/slice-two-delivery/spec.md).
 Proof: Grant versus holding and retention facts with static scope, native denial and exact no-spawn assertions.

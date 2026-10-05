@@ -36,7 +36,7 @@
  101 crates/brokkr-runtime/src/bundle.rs:7416 walk_files
  101 crates/brokkr-runtime/src/bundle/compose.rs:234 read_layers
  368 crates/brokkr-runtime/src/bundle/compose.rs:807 merge_layer
- 256 crates/brokkr-runtime/src/capabilities.rs:1869 native_plan
+ 256 crates/brokkr-runtime/src/capabilities.rs:1544 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:320 check
  159 crates/brokkr-runtime/src/engine.rs:1097 seat_input
  150 crates/brokkr-runtime/src/engine.rs:1311 execute
@@ -217,8 +217,7 @@
  131 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3358 ruling_4s_own_binding_is_pinned_against_the_shipped_adapters
  130 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3856 every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured
  176 crates/brokkr-runtime/src/bundle/tests.rs:702 panel_and_sequence_parsers_refuse_every_ambiguous_shape
- 102 crates/brokkr-runtime/src/capabilities/tests.rs:627 a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys
- 102 crates/brokkr-runtime/src/capabilities/tests.rs:1732 a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks
+ 102 crates/brokkr-runtime/src/capabilities/tests.rs:1685 a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks
  101 crates/brokkr-runtime/src/dialect/tests.rs:108 every_checked_dialect_boundary_is_named
  164 crates/brokkr-runtime/src/engine/boundary_tests.rs:342 every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands
  263 crates/brokkr-runtime/src/engine/boundary_tests.rs:694 compose_site_follows_the_boundary_and_the_class
@@ -292,7 +291,7 @@
  226 crates/brokkr-runtime/tests/capability_launch.rs:11177 a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape
  157 crates/brokkr-runtime/tests/capability_launch.rs:11448 a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_shape
  221 crates/brokkr-runtime/tests/capability_launch.rs:11650 a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
- 109 crates/brokkr-runtime/tests/frozen_contracts.rs:169 the_new_contracts_exist_beside_the_frozen_ones
+ 109 crates/brokkr-runtime/tests/frozen_contracts.rs:175 the_new_contracts_exist_beside_the_frozen_ones
  108 crates/brokkr-runtime/tests/roster.rs:297 every_shipped_verify_and_ship_office_is_a_boxed_exec_script
  158 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/ledger.rs:460 build_ledger
  165 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/ledger.rs:1040 parse_template

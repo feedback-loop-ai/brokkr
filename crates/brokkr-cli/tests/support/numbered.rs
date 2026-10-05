@@ -1,7 +1,7 @@
 //! The numbered documents a registry directory holds, and the linked rows
-//! of the index that lists them, for the test binaries that hold a
+//! of the index that lists them, for the test files that hold a
 //! registry's index to its files (`decisions_index.rs`,
-//! `research_registry.rs`). Each includes this through `#[path]`, so the
+//! `research_registry.rs`). `tests/it.rs` declares this once, so the
 //! listing and the row reader have one home.
 
 use std::path::Path;

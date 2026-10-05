@@ -13,9 +13,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-#[path = "support/workspace.rs"]
-mod workspace_root;
-use workspace_root::{read, workspace};
+use crate::workspace_root::{read, workspace};
 
 /// The mermaid blocks of a Markdown page, in order, fence lines removed.
 fn mermaid_blocks(markdown: &str) -> Vec<String> {

@@ -6,9 +6,25 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+# The integration tests are declared below (#423).
+autotests = false
 
 [lints]
 workspace = true
+
+# Each integration test file here needs a process of its own, so this crate
+# has no one-binary root (#423); brokkr-cli's `test_targets` refuses a file
+# under tests/ that is not declared below.
+#
+# Writes PATH and TMPDIR through the env guard, which every other file's
+# spawned children and temporary directories would inherit.
+[[test]]
+name = "hands_exits"
+
+# Installs its own global allocator to witness what a secret's drop wipes:
+# a process holds one allocator.
+[[test]]
+name = "secret_drop"
 
 [dependencies]
 serde = { workspace = true }

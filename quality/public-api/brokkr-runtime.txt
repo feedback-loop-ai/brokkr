@@ -522,13 +522,16 @@ pub fn brokkr_runtime::bundle::site_charter_text(&brokkr_runtime::bundle::Bundle
 pub type brokkr_runtime::bundle::CharterPins = alloc::collections::btree::map::BTreeMap<std::path::PathBuf, alloc::collections::btree::set::BTreeSet<brokkr_runtime::bundle::CharterPin>>
 pub type brokkr_runtime::bundle::DriverDigests = serde_json::map::Map<alloc::string::String, serde_json::value::Value>
 pub mod brokkr_runtime::capabilities
+pub enum brokkr_runtime::capabilities::Connection
+pub brokkr_runtime::capabilities::Connection::Stdio(alloc::vec::Vec<alloc::string::String>)
+pub brokkr_runtime::capabilities::Connection::Url(alloc::string::String)
 pub enum brokkr_runtime::capabilities::Denial<'a>
 pub brokkr_runtime::capabilities::Denial::Delivered
 pub brokkr_runtime::capabilities::Denial::Impossible(&'a str)
 pub brokkr_runtime::capabilities::Denial::Unmeasured(&'a str)
 pub enum brokkr_runtime::capabilities::DialectKind
 pub brokkr_runtime::capabilities::DialectKind::Hands
-pub brokkr_runtime::capabilities::DialectKind::Mcp
+pub brokkr_runtime::capabilities::DialectKind::Mcp(brokkr_runtime::capabilities::McpServer)
 pub brokkr_runtime::capabilities::DialectKind::Native
 pub brokkr_runtime::capabilities::DialectKind::Native::adapter_key: alloc::string::String
 pub brokkr_runtime::capabilities::DialectKind::Native::provider: alloc::string::String
@@ -599,11 +602,12 @@ pub brokkr_runtime::capabilities::Authority::dialects: alloc::collections::btree
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::assess(&self, &brokkr_runtime::agents::Adapter, &str, brokkr_runtime::capabilities::Requests) -> core::result::Result<brokkr_runtime::capabilities::Outcome, alloc::string::String>
 pub fn brokkr_runtime::capabilities::Authority::load(brokkr_runtime::capabilities::CapabilityContext) -> core::result::Result<brokkr_runtime::capabilities::Authority, alloc::string::String>
-pub fn brokkr_runtime::capabilities::Authority::manifest(&self, &[alloc::string::String]) -> serde_json::value::Value
 pub fn brokkr_runtime::capabilities::Authority::nothing(&str, &std::path::Path) -> brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::resolve(&self, &brokkr_runtime::capabilities::SiteAsks, &brokkr_runtime::capabilities::Serving<'_>) -> core::result::Result<brokkr_runtime::capabilities::Outcome, alloc::string::String>
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::binding(&self, &str) -> core::result::Result<brokkr_runtime::capabilities::Native<'_>, brokkr_runtime::capabilities::Unbound>
+impl brokkr_runtime::capabilities::Authority
+pub fn brokkr_runtime::capabilities::Authority::manifest(&self, &[alloc::string::String]) -> serde_json::value::Value
 pub struct brokkr_runtime::capabilities::CapabilityContext
 pub brokkr_runtime::capabilities::CapabilityContext::grants: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::realms::grants::CapabilityGrant>
 pub brokkr_runtime::capabilities::CapabilityContext::realm: alloc::string::String
@@ -633,10 +637,16 @@ pub brokkr_runtime::capabilities::Holding::definition_sha256: alloc::string::Str
 pub brokkr_runtime::capabilities::Holding::dialect: alloc::string::String
 pub brokkr_runtime::capabilities::Holding::dialect_sha256: alloc::string::String
 pub brokkr_runtime::capabilities::Holding::restrictions: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub brokkr_runtime::capabilities::Holding::retention: brokkr_runtime::capabilities::Retention
 pub brokkr_runtime::capabilities::Holding::tools: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_runtime::capabilities::ListFlag
 pub brokkr_runtime::capabilities::ListFlag::flag: alloc::string::String
 pub brokkr_runtime::capabilities::ListFlag::separator: alloc::string::String
+pub struct brokkr_runtime::capabilities::McpServer
+pub brokkr_runtime::capabilities::McpServer::connection: brokkr_runtime::capabilities::Connection
+pub brokkr_runtime::capabilities::McpServer::retained: bool
+pub brokkr_runtime::capabilities::McpServer::secrets: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::capabilities::McpServer::version: alloc::string::String
 pub struct brokkr_runtime::capabilities::Native<'a>
 pub brokkr_runtime::capabilities::Native::adapter_key: &'a str
 pub brokkr_runtime::capabilities::Native::dialect: &'a brokkr_runtime::capabilities::ToolDialect
@@ -669,12 +679,19 @@ pub brokkr_runtime::capabilities::Outcome::provider: alloc::string::String
 impl brokkr_runtime::capabilities::Outcome
 pub fn brokkr_runtime::capabilities::Outcome::controls(&self) -> serde_json::value::Value
 pub fn brokkr_runtime::capabilities::Outcome::identity(&self) -> brokkr_protocol::native_controls::Identity
-pub fn brokkr_runtime::capabilities::Outcome::manifest(&self) -> serde_json::value::Value
 pub fn brokkr_runtime::capabilities::Outcome::prompt(&self) -> serde_json::value::Value
+impl brokkr_runtime::capabilities::Outcome
+pub fn brokkr_runtime::capabilities::Outcome::manifest(&self) -> serde_json::value::Value
+pub struct brokkr_runtime::capabilities::Retention
+pub brokkr_runtime::capabilities::Retention::declared: bool
+pub brokkr_runtime::capabilities::Retention::realm: brokkr_core::realms::grants::GrantRetention
 pub struct brokkr_runtime::capabilities::SelectionFlags
 pub brokkr_runtime::capabilities::SelectionFlags::allow: brokkr_runtime::capabilities::ListFlag
 pub brokkr_runtime::capabilities::SelectionFlags::deny: brokkr_runtime::capabilities::ListFlag
 pub brokkr_runtime::capabilities::SelectionFlags::include: brokkr_runtime::capabilities::ListFlag
+pub struct brokkr_runtime::capabilities::Sends
+pub brokkr_runtime::capabilities::Sends::description: alloc::string::String
+pub brokkr_runtime::capabilities::Sends::seat_composed: bool
 pub struct brokkr_runtime::capabilities::Serving<'a>
 pub brokkr_runtime::capabilities::Serving::authored: &'a [alloc::string::String]
 pub brokkr_runtime::capabilities::Serving::fragment: &'a [alloc::string::String]
@@ -697,14 +714,15 @@ pub brokkr_runtime::capabilities::SiteCapabilities::asks: brokkr_runtime::capabi
 pub brokkr_runtime::capabilities::SiteCapabilities::outcomes: alloc::vec::Vec<brokkr_runtime::capabilities::Outcome>
 impl brokkr_runtime::capabilities::SiteCapabilities
 pub fn brokkr_runtime::capabilities::SiteCapabilities::manifest(&self) -> serde_json::value::Value
+impl brokkr_runtime::capabilities::SiteCapabilities
 pub fn brokkr_runtime::capabilities::SiteCapabilities::serving(&self, core::option::Option<(&str, &str)>) -> core::option::Option<&brokkr_runtime::capabilities::Outcome>
 pub struct brokkr_runtime::capabilities::ToolDialect
 pub brokkr_runtime::capabilities::ToolDialect::classes: core::option::Option<alloc::vec::Vec<alloc::string::String>>
-pub brokkr_runtime::capabilities::ToolDialect::egress: alloc::string::String
+pub brokkr_runtime::capabilities::ToolDialect::egress: brokkr_runtime::agents::EgressClass
 pub brokkr_runtime::capabilities::ToolDialect::kind: brokkr_runtime::capabilities::DialectKind
 pub brokkr_runtime::capabilities::ToolDialect::name: alloc::string::String
 pub brokkr_runtime::capabilities::ToolDialect::restrictions: serde_json::value::Value
-pub brokkr_runtime::capabilities::ToolDialect::seat_composed: bool
+pub brokkr_runtime::capabilities::ToolDialect::sends: brokkr_runtime::capabilities::Sends
 pub brokkr_runtime::capabilities::ToolDialect::serves: alloc::string::String
 pub brokkr_runtime::capabilities::ToolDialect::sha256: alloc::string::String
 pub brokkr_runtime::capabilities::ToolDialect::source: alloc::string::String

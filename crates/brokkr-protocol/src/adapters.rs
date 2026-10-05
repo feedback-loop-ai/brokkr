@@ -19,6 +19,7 @@ use std::process::{Command, Stdio};
 use serde_json::{json, Map, Value};
 
 mod composite;
+mod dsh_stderr;
 mod route_overlay;
 mod start;
 // Design D6 (b) seals the producer: the seams, the structured
@@ -36,6 +37,7 @@ use crate::overrides::{Override, OverrideError};
 use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
 use crate::{Body, Message, ResultStatus};
+use dsh_stderr::redact_dsh_reasoning;
 use start::start_prompt;
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -3907,6 +3909,7 @@ fn invoke_dsh(
             .map(|status| status.map(|status| status.code().unwrap_or(-1)))
     };
     invoke_dsh_launch_observed(launch, command, workdir, bindings, emit, wait, &mut |_| {})
+        .map(|invocation| dsh_stderr::name_the_pin(invocation, pinned.extra))
 }
 
 /// The DSH plugin's own value-taking selectors and the launcher's control
@@ -5628,39 +5631,6 @@ fn dsh_failure_before_promotion(
         Some((_, _, staged)) => dsh_sandbox::keep_store(staged, problem),
         None => problem,
     }
-}
-
-/// The one dsh stderr stream the journal may not quote.
-///
-/// dsh 0.1.2-rc.1's headless profile streams the model's reasoning to
-/// stderr under a `dsh: reasoning:` line (measured 2026-09-04: one
-/// header, then the raw thinking text, until the harness's next `dsh: `
-/// line or the end of the stream). The driver's stderr tail is what a
-/// parked seat quotes into the journal, and a journal admits no
-/// reasoning text (decisions 0032 and 0034). So a reasoning block is
-/// replaced by one line that says it was there, and every harness line
-/// survives, because those are what a park needs to be read.
-fn redact_dsh_reasoning(stderr: &str) -> String {
-    const HEADER: &str = "dsh: reasoning:";
-    const REDACTED: &str = "dsh: reasoning: [not journaled — decision 0034]";
-    let mut kept = Vec::new();
-    let mut inside = false;
-    for line in stderr.lines() {
-        if line.trim_end() == HEADER {
-            inside = true;
-            kept.push(REDACTED);
-        } else if line.starts_with("dsh: ") {
-            inside = false;
-            kept.push(line);
-        } else if !inside {
-            kept.push(line);
-        }
-    }
-    let mut text = kept.join("\n");
-    if stderr.ends_with('\n') {
-        text.push('\n');
-    }
-    text
 }
 
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]

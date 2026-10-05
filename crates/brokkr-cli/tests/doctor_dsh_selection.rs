@@ -1679,7 +1679,7 @@ fn inherited_oracle(cwd: &Path, name: &str, path: Option<&str>, marks: &Path) ->
     let mut child = Command::new(std::env::current_exe().unwrap());
     child
         .args([
-            "terminal_path_lengths_refuse_before_doctor_probe",
+            "doctor_dsh_selection::terminal_path_lengths_refuse_before_doctor_probe",
             "--exact",
             "--nocapture",
             "--test-threads=1",

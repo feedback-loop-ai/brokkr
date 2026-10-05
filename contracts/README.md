@@ -739,3 +739,32 @@ explicit edit that changes the pinned grant. A v8 map that writes no
 and v6's refusal of a key written twice included. Reading the veto into a
 run's held capability, and a dialect restriction schema that claims
 `retain` under a v8 grant, are the runtime's later work in this slice.
+
+Decision 0065's slice two (SC3 and CR1, U5f) adds one more file and changes
+none of the bytes above — `run-manifest.v11`'s included, which is now
+pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Run manifest with what implements and retains each holding | `run-manifest.v12.schema.json` | brokkr-runtime (`capabilities/manifest.rs`), brokkr-store export/resume |
+
+`run-manifest.v12` is `v11` with each candidate's held record closed over
+two more REQUIRED records, and no other clause moved. `implementation`
+names what carries the capability: `provider-native` with its `provider`
+and `adapter_key`, or `mcp` with the `server` it is carried under
+(`cap-<capability>`), its one `connection` form as the dialect wrote it,
+its pinned `version` and the decision-0012 binding NAMES in `secrets`.
+`retention` pins the dialect's `declared` retention, the realm's
+disposition (`veto` where a v8 grant writes `retain: false`, `inherit`
+otherwise, a v6 or v7 grant included, since it cannot veto) and the
+`effective` result, true exactly where the dialect retains and the realm
+does not veto. A provider-native holding declares false and is
+effectively false. No resolved secret value, ledger path, process id or
+call id is recorded, so none is identity. The key stays BUNDLE identity,
+so a changed declaration moves the digest even under a veto that keeps
+the effect false. A manifest whose candidates hold nothing reads the same
+under v11 and v12, and a v11 holding is not a v12 one: a run pinned under
+v11 with a holding meets the existing resume refusal, which names
+capabilities, and is never rewritten. Every `mcp` grant still refuses
+the compile until slice two's enabling unit, so today only provider-native
+holdings are written.

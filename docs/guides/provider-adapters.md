@@ -154,7 +154,7 @@ own Qwen catalog lists, and pins `xhigh` (decision 0035, second
 addendum).
 
 The `glm-flash` alias pins `spark-glm/GLM-5.3-Flash-EXL3`, a vLLM
-on the DGX Spark (`http://spark:8888/v1`), keyed by the same
+on the operator's DGX Spark, keyed by the same
 `SPARK_API_KEY` placeholder as the `spark` route — the server checks
 no key, but the route requires one to be named. Verified 2026-09-16
 with a headless turn: the endpoint lists the model at `max_model_len`
@@ -167,6 +167,10 @@ none. Capacity is the shared KV figure, not a default: 700k across
 `maxTokens` 32768, and compaction measures against that cap
 (`thresholdRatio` 0.8, so it fires at 160k — four seats at the
 trigger together hold ~640k — with `retainRatio` 0.16).
+`recipes/night-shift` and `recipes/wager-harness-dsh` pin their dsh
+implement lanes to this id with no effort (the operator's ruling of
+2026-10-04, [#532](https://github.com/feedback-loop-ai/brokkr/issues/532)),
+so both run only on a host serving the `spark-glm` route.
 
 The `studio-flash41` and `glm53` aliases pin `dashscope/deepseek-v4.1-flash`
 and `dashscope/glm-5.3` on the Model Studio route. Both ids appeared in
@@ -290,7 +294,7 @@ commit the rewritten `crates/brokkr-runtime/tests/witnesses.json`
 beside the change:
 
 ```
-BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests
+BROKKR_BLESS=1 cargo test -p brokkr-runtime --test it witness_digests::
 ```
 
 ### The provisional tier

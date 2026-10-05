@@ -579,6 +579,62 @@ pub(super) enum ProbeCmd {
     Harness(ProbeHarnessArgs),
 }
 
+/// The operator's libraries and stores, flattened into the top-level
+/// verbs so the command line reads as it always has, and dispatched as
+/// one group (`lib::library`).
+#[derive(clap::Subcommand)]
+pub(super) enum LibraryCmd {
+    /// The recipe library: bundle directories as named, swappable
+    /// delivery strategies.
+    Recipes {
+        #[command(subcommand)]
+        command: super::RecipesCmd,
+    },
+    /// The agent library (decision 0016): one definition per agent —
+    /// description, charter, an ordered chain of abstract model names,
+    /// abstract tool/MCP configuration — that seats reference by name.
+    Agents {
+        #[command(subcommand)]
+        command: super::AgentsCmd,
+    },
+    /// The standing overseer (decision 0020): read the fleet, propose to
+    /// the operator, execute nothing. It opens the journal read-only,
+    /// issues no operator command, starts no run, and records every
+    /// proposal — with the run ids and sequence numbers it was derived
+    /// from — in its own append-only file beside the journal.
+    Muninn {
+        #[command(subcommand)]
+        command: super::MuninnCmd,
+    },
+    /// Manage the operator-side secrets store (decision 0012): bundles
+    /// and journals carry NAMES only; values live in this env-format
+    /// file outside version control. There is no value-printing verb.
+    Secrets {
+        #[command(subcommand)]
+        command: SecretsCmd,
+    },
+}
+
+/// The MCP capability broker's one verb (decision 0077).
+#[derive(clap::Subcommand)]
+pub(super) enum BrokerCmd {
+    /// Serve one held MCP capability on stdio from the engine's plan
+    /// bound to this attempt. The locator and digest name a plan; they
+    /// confer no authority, and an unbound plan is refused.
+    Serve(BrokerServeArgs),
+}
+
+#[derive(clap::Args)]
+#[group(skip)]
+pub(super) struct BrokerServeArgs {
+    /// The engine-written plan, as an absolute path.
+    #[arg(long, value_parser = super::broker::plan_locator)]
+    pub(super) plan: PathBuf,
+    /// The plan's sha256, 64 lowercase hex characters.
+    #[arg(long, value_parser = super::broker::plan_digest)]
+    pub(super) plan_digest: String,
+}
+
 /// The queue's operator commands (decision 0068 ruling 1). Each one that
 /// changes the queue is journaled with its reason.
 #[derive(clap::Subcommand)]

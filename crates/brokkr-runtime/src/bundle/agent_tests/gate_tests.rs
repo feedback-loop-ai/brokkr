@@ -1,6 +1,8 @@
 //! GP1 (decision 0065 slice two, U3a) at every executable site a compile
 //! resolves: each judged at its own canonical class and stable office,
-//! once per provider candidate, whatever contains or relocates it.
+//! once per provider candidate, whatever contains or relocates it. Beside
+//! it, the bundle's binding minimum (MB4, U5a2) as a compile meets it:
+//! the MCP fence unchanged, and native holdings untouched.
 
 use super::*;
 use crate::capabilities::CapabilityContext;
@@ -197,12 +199,9 @@ fn every_fallback_candidate_drops_a_gates_unnamed_egress() {
     );
 }
 
-/// An inline gate is judged at its own class, as the office its label is:
-/// GP1 refuses its egress unless the grant names that label, and the same
-/// site at work holds it unnamed.
-#[test]
-fn an_inline_gate_is_judged_at_its_own_class_and_label() {
-    let fixture = AgentFixture::new();
+/// An inline codex site of `class` requiring `web-search`, its adapter
+/// trusted to seat a gate.
+fn inline_codex(fixture: &AgentFixture, class: &str) -> Value {
     let mut adapter = codex();
     adapter["trust_tier"] = json!("trusted");
     fixture.write("adapters/codex.json", adapter);
@@ -216,11 +215,19 @@ fn an_inline_gate_is_judged_at_its_own_class_and_label() {
         "--effort",
         "high"
     ]);
+    json!({"results": ["complete"], "class": class, "role": "roles/work.md",
+           "driver": {"command": command}, "capabilities": {"web-search": "requires"}})
+}
+
+/// An inline gate is judged at its own class, as the office its label is:
+/// GP1 refuses its egress unless the grant names that label, and the same
+/// site at work holds it unnamed.
+#[test]
+fn an_inline_gate_is_judged_at_its_own_class_and_label() {
+    let fixture = AgentFixture::new();
     let compile = |class: &str, named: Option<&[&str]>| {
         let mut config = fixture.config();
-        config["seats"]["work"] = json!({"results": ["complete"], "class": class,
-            "role": "roles/work.md", "driver": {"command": command},
-            "capabilities": {"web-search": "requires"}});
+        config["seats"]["work"] = inline_codex(&fixture, class);
         fixture.stage(&config, &policy());
         held(compiled(&fixture, None, &offices(&fixture, named)), "work")
     };
@@ -307,4 +314,163 @@ fn a_dialect_step_is_recorded_at_the_class_its_step_compiles_to() {
         record.unwrap().asks.class,
     );
     assert_eq!(classes, ("validate", SeatClass::Gate, SeatClass::Gate));
+}
+
+/// The bundle's binding minimum, written as `minimum` or left absent.
+fn at_minimum(fixture: &AgentFixture, minimum: Option<&str>) -> Value {
+    let mut config = fixture.config();
+    if let Some(minimum) = minimum {
+        config["egress_minimum"] = json!(minimum);
+    }
+    config
+}
+
+/// The fixture's realm, also granting `library-docs` as `grant` through
+/// the `mcp` dialect `docs-mcp`, whose egress is `egress`.
+fn granting_docs(fixture: &AgentFixture, egress: &str, grant: Value) -> CapabilityContext {
+    let mut context = offices(fixture, None);
+    define(fixture, "library-docs", json!(["reads", "egress"]));
+    fixture.write(
+        "dialects/tools/docs-mcp.json",
+        json!({"schema": "brokkr.tool-dialect/v1", "name": "docs-mcp", "serves": "library-docs",
+               "kind": "mcp", "connection": {"argv": ["/nonexistent/docs-mcp"]},
+               "version": "1.4.2", "secrets": ["DOCS_TOKEN"], "tools": ["resolve", "read"],
+               "egress": egress, "sends": {"description": "a library", "seat_composed": true}}),
+    );
+    let map = json!({"schema": "forge.realms/v6", "journal": "forge.db", "realms": [
+        {"name": "private", "path": "repo", "default_branch": "main",
+         "capabilities": {"library-docs": grant}}]});
+    let (map, _) = brokkr_core::realms::RealmMap::of("realms.json", map).unwrap();
+    context.grants.extend(map.realms[0].grants.clone());
+    context
+}
+
+/// SC5's fence is unchanged by MB4 until U9b: under every binding
+/// minimum, with the dialect's egress below, at or above it, an unused,
+/// an office-excluded and an asked `mcp` grant — asked at an agent's
+/// candidate and at an inline site — each refuse the compile with the
+/// fence's own words. Comparing egress authorizes nothing.
+#[test]
+fn every_mcp_grant_still_refuses_the_compile_under_every_binding_minimum() {
+    let fixture = AgentFixture::new();
+    fixture.write(
+        "agents/reader.json",
+        json!({"description": "a reader", "charter": "charters/work.md", "models": ["opus"],
+               "efforts": {"opus": "high"}, "capabilities": {"library-docs": "requires"}}),
+    );
+    let fence = "bundle: realm 'private' grants capability 'library-docs' through dialect \
+                 'docs-mcp' of kind 'mcp', whose broker support is not implemented until \
+                 decision 0065 slice two";
+    let agent = |name: &str| json!({"results": ["complete"], "agent": name});
+    let mut inline = inline_codex(&fixture, "work");
+    inline["capabilities"] = json!({"library-docs": "requires"});
+    let granted = json!({"dialect": "docs-mcp"});
+    let grants = [
+        ("unused", granted.clone(), agent("worker")),
+        (
+            "scoped to none",
+            json!({"dialect": "docs-mcp", "offices": []}),
+            agent("reader"),
+        ),
+        (
+            "excluded",
+            json!({"dialect": "docs-mcp", "offices": ["judge"]}),
+            agent("reader"),
+        ),
+        ("asked", granted.clone(), agent("reader")),
+        ("asked inline", granted, inline),
+    ];
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for minimum in [
+        None,
+        Some("local"),
+        Some("contracted"),
+        Some("uncontracted"),
+    ] {
+        for egress in ["local", "contracted", "uncontracted"] {
+            for (label, grant, seat) in &grants {
+                let mut config = at_minimum(&fixture, minimum);
+                config["seats"]["work"] = seat.clone();
+                fixture.stage(&config, &policy());
+                let context = granting_docs(&fixture, egress, grant.clone());
+                let refusal = compiled(&fixture, None, &context).map(|_| ());
+                rows.push((
+                    format!("{minimum:?} {egress} {label}"),
+                    held_or(refusal),
+                    fence.to_string(),
+                ));
+            }
+        }
+    }
+    assert_eq!(rows.len(), 60);
+    each_row(rows);
+}
+
+/// What a compile came to: its refusal, or that it compiled.
+fn held_or(result: Result<(), CompileError>) -> String {
+    result.map_or_else(|error| error.to_string(), |()| "compiled".to_string())
+}
+
+/// MB4 judges an `mcp` dialect alone: at an agent's candidate and at an
+/// inline site, a native holding through the `uncontracted` dialect
+/// `codex-search` is what it was under every binding minimum.
+#[test]
+fn a_native_holding_is_unchanged_at_every_serving_path_under_every_binding_minimum() {
+    let fixture = AgentFixture::new();
+    hire_judge(&fixture, "requires", &["astra"]);
+    let inline = inline_codex(&fixture, "work");
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for minimum in [
+        None,
+        Some("local"),
+        Some("contracted"),
+        Some("uncontracted"),
+    ] {
+        for (path, seat) in [
+            ("agent", json!({"results": ["complete"], "agent": "judge"})),
+            ("inline", inline.clone()),
+        ] {
+            let mut config = at_minimum(&fixture, minimum);
+            config["seats"]["work"] = seat;
+            fixture.stage(&config, &policy());
+            rows.push((
+                format!("{minimum:?} {path}"),
+                held(compiled(&fixture, None, &offices(&fixture, None)), "work"),
+                r#"["web-search"] []"#.to_string(),
+            ));
+        }
+    }
+    each_row(rows);
+}
+
+/// The minimum a compile parses is the one its authority holds: the route
+/// policy reads it from there, so a seat binding a secret over the
+/// `contracted` claude route meets every minimum but `local`, as the
+/// bundle declares it and not the authority's absent default.
+#[test]
+fn the_authority_holds_the_binding_minimum_the_bundle_declares() {
+    let fixture = AgentFixture::new();
+    let below = "bundle: seat 'work' declares secret bindings [\"TOKEN\"] but seats driver \
+                 'claude' on its own declared destination, whose egress class is contracted; \
+                 this bundle binds no secret below local (decision 0021 ruling 4 as enacted \
+                 by 0036 ruling 4 — an undeclared class is uncontracted, and 'egress_minimum' \
+                 is where the operator rules the bar)";
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for (minimum, expected) in [
+        (None, "compiled"),
+        (Some("local"), below),
+        (Some("contracted"), "compiled"),
+        (Some("uncontracted"), "compiled"),
+    ] {
+        let mut config = at_minimum(&fixture, minimum);
+        config["seats"]["work"]["secrets"] = json!(["TOKEN"]);
+        fixture.stage(&config, &policy());
+        let compile = compiled(&fixture, None, &offices(&fixture, None)).map(|_| ());
+        rows.push((
+            format!("{minimum:?}"),
+            held_or(compile),
+            expected.to_string(),
+        ));
+    }
+    each_row(rows);
 }

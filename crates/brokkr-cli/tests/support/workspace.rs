@@ -1,6 +1,6 @@
 //! The workspace root and a reader for files under it, for the test
-//! binaries that judge the repository's own files. Each includes this
-//! through `#[path]`, so the helpers have one home.
+//! files that judge the repository's own files. `tests/it.rs` declares
+//! this once, so the helpers have one home.
 
 use std::path::PathBuf;
 

@@ -15,8 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
-#[path = "support/workflow.rs"]
-mod workflow;
+use crate::workflow;
 
 const BUBBLEWRAP_ACTION: &str = ".github/actions/setup-bubblewrap/action.yml";
 const BUBBLEWRAP: &str = "uses: ./.github/actions/setup-bubblewrap";

@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+# The integration tests are declared below, one binary and the files that
+# need a process of their own (#423).
+autotests = false
 
 [lints]
 workspace = true
@@ -102,6 +105,38 @@ gungraun = "=0.19.4"
 # binary because dhat allows one profiler per process. Here rather than in
 # brokkr-view, whose dependency set is closed (decision 0071 ruling 1).
 dhat = "=0.3.3"
+
+# The integration tests link as one binary (#423): `tests/it.rs` holds every
+# file under tests/ as a module, so a test runs as `<file>::<name>`. A file
+# that needs a process of its own is its own binary below, with the reason.
+# Cargo builds no test it is not told of here, so `test_targets` refuses a
+# file under tests/ that is neither a module of the root nor its own binary.
+[[test]]
+name = "it"
+
+# Writes HOME, BROKKR_CODEX_BIN and CODEX_HOME through the env guard, which
+# every other file's spawned children would inherit; and it starts driver
+# attempts in the test process itself, which makes that process a child
+# subreaper that would read another file's orphans as its strays (#403).
+[[test]]
+name = "driver_conformance"
+
+# Writes HOME through the env guard, which every other file's spawned
+# children would inherit.
+[[test]]
+name = "transcript_surfaces"
+
+# Each installs dhat as the process's global allocator and measures the peak
+# heap of its one projection: a process holds one allocator, and another
+# file's allocations would count against the budget.
+[[test]]
+name = "heap_claude"
+
+[[test]]
+name = "heap_codex"
+
+[[test]]
+name = "heap_dsh"
 
 # The CPU budgets (#342). Library benches measure the fold, the run view,
 # a compile of bundles/self and one TUI frame; binary benches measure the
