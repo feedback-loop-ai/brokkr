@@ -314,3 +314,91 @@ implementation gates and were not run or claimed in this docs-only visit.
 No production, test, fixture, policy, reference, contract, recipe or release
 file is changed. The phase result is written through workspace hands to the
 commissioned result path with `result: drafted` and `inputs.change`.
+
+## Tasks visit — executable proof ownership
+
+Seat: author, tasks phase only, run `amend-decision-0065-slice-two-s--a9a103e3`.
+Starting HEAD: `a9ea02ba`; `git status --short` reported a clean tracked tree.
+The journal supplied design's `drafted` result. Read the amended proposal,
+whole design and tasks, all seven requirement deltas and operator addenda,
+then refined the breakdown without changing an upstream requirement or choice.
+No `returned_from` finding was supplied and no upstream repair was needed.
+
+The workspace reads (`cat` and `sed`) covered decisions 0012, 0043, 0046,
+0065 and 0077, README, 0004/0005 and the applicable architecture/host rules;
+hands.rs, hands/overlay.rs, hands/session.rs, engine.rs's Namespace and
+hands_command seams, secret.rs's injector/store readers, broker.rs and the
+capability_broker and machine_proof tests. `git log -5 --oneline --` over the
+hands, secret and broker sources confirmed the landed injector/closed-command
+base. `git show 65c879c5:openspec/changes/decision-0065-capabilities-slice-two/evidence/U6c.md`
+and the same path at `08171090` supplied historical held-attempt evidence.
+Those records were read as reference, not reproduced, adopted or merged.
+
+The initial `python3 .forge/design/audit_boxed_docs.py` reported 54 units,
+123 unique task IDs, 32 completed task lines and 26 requirements. The council
+had already introduced the seven new cuts and their unchecked IDs. This seat
+preserved that inventory and order, including U6c's restart from main,
+U6c3's consumed hands-builder extraction and U6c7/U6c8's shared store/injector
+boundary. No fourth production file or unused staging API was authorized
+(decision 0071 rulings 4–6 and 10).
+
+The task edits make that plan easier to execute and audit:
+
+- Affected groups link directly to their design scope and owning suites;
+  the design table remains the sole production-file inventory.
+- Every affected task cites its box, binding, cleanup or fence requirement;
+  the coverage table follows actual task ownership in execution order.
+- The new 26-row scenario map names initial and integration proof owners,
+  linking to the scenarios that own exact causes and bounds. It distinguishes
+  zero-lookup admission from post-readiness handoff/exec failure and assigns
+  independent checks for every observation/handoff limit, alias and readiness
+  condition (rulings 3, 8–9).
+- U6f's retention-on masking controls explicitly use private seams while its
+  public retained-plan refusal stands. U8b owns removal of that temporary
+  refusal and the repeated public proof; U9b alone lifts compilation. This
+  resolves task execution timing within the existing SD3 design.
+- Group 36 owns configuration and group 37 owns discovery rendering in their
+  shared U7d row. U10a audits each mapped box proof and D5's H1–H7 remaining
+  checks. Final task 49.3 still owns the eventual archive and living-spec fold.
+
+All new implementation work remains unchecked. Completed tasks and their
+adjacent evidence, the entire preamble (including historical counts), upstream
+artifacts and historical evidence.md remain byte-identical to this seat's base.
+No production/test/frozen/living-spec file changed; no archive, runtime test,
+mutation, namespace launch, store lookup, harness measurement or push occurred.
+The H1–H7 design dispositions do not close the held runtime findings.
+
+## Tasks validation and handoff
+
+Commands observed in this session through workspace hands:
+
+- `python3 .forge/design/audit_boxed_docs.py`: passed before and after the
+  breakdown edit; 54 bounded rows, dependencies/Hot files, 123 IDs, unchanged
+  completed task lines/preamble, 26 requirements and six new box causes.
+- `python3 .forge/tasks/audit_boxed_breakdown.py`: passed. It expands each
+  design row's task ranges and checks exact ownership, ordered groups/direct
+  dependencies, both directions of Hot files, unchanged task states and full
+  completed evidence blocks, requirement citations/coverage and scenario links.
+  Its first run wrongly demanded duplicate cause text in design.md; the audit
+  was corrected to check the owning MB3 scenarios, with no artifact exception.
+  The passing run checked 793 local file targets and 53 newly added fragments.
+  These ignored run-local scripts audit documents; they are not shipped tests.
+- `git diff --check` and `git diff --cached --check`: passed with no
+  whitespace errors on the complete two-document candidate.
+- `openspec validate --all --strict`: 20 passed, zero failed, including the
+  final repeat after the evidence appendix was added. Long-requirement
+  notices are informational. The command's output is in the ignored run-local
+  `.forge/tasks/boxed-breakdown-openspec.log`; the counts above are the durable
+  result and confer no runtime proof.
+- `typos --hidden`: exit 127, `/bin/bash: line 1: typos: command not found`.
+  Spelling validation remains pending outside this box.
+- `git config --get commit.gpgsign`: `false`. The document commit is unsigned
+  under decision 0043 ruling 6 and this commission; the controller signs the
+  squash. No signing key is brought into the box.
+
+Cargo tests, bundle compiles, formatting/clippy, exact coverage and supported-
+host/remote runtime results remain with their implementation owners. This
+commission's document gates do not replace them. The tasks phase result is
+`drafted` with `inputs.change`; the engine alone determines routing. The
+required result file is written through workspace hands after the document
+commit, with no extra top-level keys or next-phase assertion.
