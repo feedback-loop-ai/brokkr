@@ -1064,7 +1064,7 @@ fn a_held_result_the_fence_refuses_settles_the_attempt_indeterminate() {
                 "effect_id": "effect-1",
                 "attempt_id": "attempt-1",
                 "reason": "the journal refused the result a peer's lock had held back: seat \
-                           record at journal seq 5 violates contracts/seat-record.v5.schema.json \
+                           record at journal seq 5 violates contracts/seat-record.v6.schema.json \
                            at /",
             })
         )
@@ -1207,7 +1207,7 @@ fn a_site_that_lost_checkpoints_and_met_a_refusal_names_both() {
 /// Why the site [`lost_then_refused`] settles is indeterminate.
 const LOST_THEN_REFUSED: &str = "1 checkpoint(s) were not journaled: a peer held the journal's \
      write lock past this attempt's 12-byte checkpoint hold; seat record at journal seq 6 \
-     violates contracts/seat-record.v5.schema.json at /";
+     violates contracts/seat-record.v6.schema.json at /";
 
 /// The settlement of a site that lost a checkpoint to a full hold behind
 /// a peer's lock, then had one refused by the seat-record fence.

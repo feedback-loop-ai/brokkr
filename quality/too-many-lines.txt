@@ -291,7 +291,7 @@
  226 crates/brokkr-runtime/tests/capability_launch.rs:11177 a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape
  157 crates/brokkr-runtime/tests/capability_launch.rs:11448 a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_shape
  221 crates/brokkr-runtime/tests/capability_launch.rs:11650 a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
- 109 crates/brokkr-runtime/tests/frozen_contracts.rs:175 the_new_contracts_exist_beside_the_frozen_ones
+ 109 crates/brokkr-runtime/tests/frozen_contracts.rs:182 the_new_contracts_exist_beside_the_frozen_ones
  108 crates/brokkr-runtime/tests/roster.rs:297 every_shipped_verify_and_ship_office_is_a_boxed_exec_script
  158 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/ledger.rs:460 build_ledger
  165 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/ledger.rs:1040 parse_template

@@ -51,6 +51,7 @@ pub brokkr_store::SeatRecordVersion::V2
 pub brokkr_store::SeatRecordVersion::V3
 pub brokkr_store::SeatRecordVersion::V4
 pub brokkr_store::SeatRecordVersion::V5
+pub brokkr_store::SeatRecordVersion::V6
 impl brokkr_store::SeatRecordVersion
 pub fn brokkr_store::SeatRecordVersion::contract(self) -> &'static str
 pub fn brokkr_store::SeatRecordVersion::of_engine(&str) -> brokkr_store::SeatRecordVersion
