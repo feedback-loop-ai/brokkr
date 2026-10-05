@@ -41,17 +41,33 @@ fn workspace() -> tempfile::TempDir {
 /// Write the map: realm `b` at the workspace, with `facts` beside its
 /// name, path and branch.
 fn map(ws: &Path, facts: Value) {
-    let mut realm = json!({"name": "b", "path": ".", "default_branch": "main"});
+    realms(ws, json!([realm("b", ".", facts)]));
+}
+
+/// The realm `name` at `path`, with `facts` beside its name, path and
+/// branch.
+fn realm(name: &str, path: &str, facts: Value) -> Value {
+    let mut realm = json!({"name": name, "path": path, "default_branch": "main"});
     realm
         .as_object_mut()
         .unwrap()
         .extend(facts.as_object().unwrap().clone());
-    let map = json!({"schema": "forge.realms/v7", "journal": "forge.db", "realms": [realm]});
+    realm
+}
+
+/// Write the map of `realms`.
+fn realms(ws: &Path, realms: Value) {
+    let map = json!({"schema": "forge.realms/v7", "journal": "forge.db", "realms": realms});
     std::fs::write(ws.join("realms.json"), map.to_string()).unwrap();
 }
 
 /// The launch `brokkr queue add` makes in `ws`, under its map or none.
 fn launch(ws: &Path, mapped: bool) -> String {
+    launch_in(ws, mapped, None)
+}
+
+/// The launch `brokkr queue add --repo <repo>` makes in `ws`.
+fn launch_in(ws: &Path, mapped: bool, repo: Option<&str>) -> String {
     let map = match mapped {
         true => RunMap::Named(World::load(&ws.join("realms.json")).unwrap()),
         false => RunMap::Unmapped,
@@ -60,7 +76,7 @@ fn launch(ws: &Path, mapped: bool) -> String {
         workspace: ws.to_path_buf(),
         bundle: BundleSource::Dir("bundle".into()),
         journal: ws.join("forge.db"),
-        repo: None,
+        repo: repo.map(Into::into),
         secrets: None,
         host_path: OsString::new(),
     };
@@ -635,6 +651,198 @@ fn an_entry_queued_under_no_map_is_held_when_a_map_names_its_repository() {
         verdicts(&store),
         vec![(entry.0, Standing::Held, vec![held])]
     );
+}
+
+/// The facts of a realm open with web-search.
+fn web() -> Value {
+    json!({"boundary": "open", "capabilities": {"web-search": {"dialect": "web"}}})
+}
+
+/// The trees `a` and `b` in `ws`.
+fn trees(ws: &Path) {
+    for tree in ["a", "b"] {
+        std::fs::create_dir(ws.join(tree)).unwrap();
+    }
+}
+
+/// Point the symlink `name` in `ws` at `to`, which need not exist, as an
+/// operator retargets a `current`-style alias.
+fn alias(ws: &Path, name: &str, to: &str) {
+    let link = ws.join(name);
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink(ws.join(to), link).unwrap();
+}
+
+/// Write the map of `ra` at `a`, with `facts`, and `rb` at `b`, open with
+/// web-search.
+fn two(ws: &Path, facts: Value) {
+    realms(
+        ws,
+        json!([realm("ra", "a", facts), realm("rb", "b", web())]),
+    );
+}
+
+/// A workspace whose map holds `ra` at `a` under `harness` with no grant,
+/// beside `rb`, and one entry queued with `--repo selected`, an alias of
+/// `a`: queued in `ra`, and admissible.
+fn aliased() -> (tempfile::TempDir, Store, EntryId) {
+    let ws = workspace();
+    trees(ws.path());
+    two(ws.path(), json!({"boundary": "harness"}));
+    alias(ws.path(), "selected", "a");
+    let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
+    let entry = add(
+        &mut store,
+        &launch_in(ws.path(), true, Some("selected")),
+        &[],
+    );
+    let admissible = vec![(entry.0, Standing::Admissible, vec![])];
+    assert_eq!(verdicts(&store), admissible);
+    (ws, store, entry)
+}
+
+/// The drift `pass` shows on `entry`, the queue's one waiting entry, in
+/// `realm`: `judge` latches it as found, and the operator's re-pin accepts
+/// it, saying `said`, and admits the entry.
+fn drifts(store: &mut Store, entry: EntryId, realm: &str, found: Vec<Difference>, said: &str) {
+    let changed = Reason::RealmChanged {
+        realm: realm.into(),
+        differences: found.clone(),
+    };
+    let text = format!("realm {realm} changed since queued: {said}");
+    assert_eq!(changed.to_string(), text);
+    assert_eq!(
+        verdicts(store),
+        vec![(entry.0, Standing::Held, vec![changed])]
+    );
+    judge(store, BY).unwrap();
+    let latched = Reason::RealmLatched {
+        realm: realm.into(),
+        differences: found.clone(),
+        moved: false,
+    };
+    assert_eq!(
+        verdicts(store),
+        vec![(entry.0, Standing::Held, vec![latched])]
+    );
+    let released = release(store, entry, BY).unwrap();
+    assert_eq!(
+        (released.to_string(), released.0),
+        (said.to_string(), found)
+    );
+    assert_eq!(
+        verdicts(store),
+        vec![(entry.0, Standing::Admissible, vec![])]
+    );
+}
+
+/// A change to a workspace, the drift it makes and how the operator
+/// reads it.
+type Variant = (fn(&Path), Vec<Difference>, &'static str);
+
+/// #430's H4, the chief's reproduction: the realm an entry was queued in
+/// is the one its pin selected, never the one its repository's path
+/// resolves to now. Queued with `--repo selected`, an alias of `a`, in
+/// `ra` (harness, no grant), the alias retargeted to `b`, or left
+/// dangling, under a map that has not changed holds the entry as the
+/// control does: the map giving `ra` what `rb` has, the alias untouched.
+#[test]
+fn a_repository_alias_retargeted_or_dangling_since_queued_holds_the_entry() {
+    let from_harness = |now| Difference::Boundary {
+        was: Boundary::Harness,
+        now,
+    };
+    let moved = |now: Option<&str>| Difference::Realm {
+        was: Some("ra".into()),
+        now: now.map(Into::into),
+    };
+    let added = Difference::GrantAdded("web-search".into());
+    let variants: [Variant; 3] = [
+        (
+            |ws| alias(ws, "selected", "b"),
+            vec![
+                moved(Some("rb")),
+                added.clone(),
+                from_harness(Boundary::Open),
+            ],
+            "the repository's realm ra → rb; grant web-search added; boundary harness → open",
+        ),
+        (
+            |ws| alias(ws, "selected", "gone"),
+            vec![moved(None), from_harness(Boundary::Namespace)],
+            "the repository's realm ra → none; boundary harness → namespace",
+        ),
+        (
+            |ws| two(ws, web()),
+            vec![added, from_harness(Boundary::Open)],
+            "grant web-search added; boundary harness → open",
+        ),
+    ];
+    for (change, found, said) in variants {
+        let (ws, mut store, entry) = aliased();
+        change(ws.path());
+        drifts(&mut store, entry, "ra", found, said);
+    }
+}
+
+/// #430's H4, the chief's second variant, with no alias in `--repo`: the
+/// map's own realm `live` is at `current`, an alias of `a`, so an entry
+/// queued with `--repo b` is in no realm; `current` retargeted to `b`
+/// under a map that has not changed names the entry's repository `live`,
+/// open with web-search, and holds it.
+#[test]
+fn a_realm_path_retargeted_to_the_repository_an_entry_operates_holds_it() {
+    let ws = workspace();
+    trees(ws.path());
+    alias(ws.path(), "current", "a");
+    realms(ws.path(), json!([realm("live", "current", web())]));
+    let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
+    let entry = add(&mut store, &launch_in(ws.path(), true, Some("b")), &[]);
+    let admissible = vec![(entry.0, Standing::Admissible, vec![])];
+    assert_eq!(verdicts(&store), admissible);
+    alias(ws.path(), "current", "b");
+    let found = vec![
+        Difference::Realm {
+            was: None,
+            now: Some("live".into()),
+        },
+        Difference::GrantAdded("web-search".into()),
+        Difference::Boundary {
+            was: Boundary::Namespace,
+            now: Boundary::Open,
+        },
+    ];
+    let said = "the repository's realm none → live; grant web-search added; boundary namespace → \
+                open";
+    drifts(&mut store, entry, "live", found, said);
+}
+
+/// A held pin is read for the realm it selected, so one whose selection
+/// cannot be read, or names a realm its map does not hold, is refused.
+#[test]
+fn a_held_pin_selecting_no_realm_its_map_holds_is_refused() {
+    let ws = workspace();
+    map(ws.path(), json!({}));
+    let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
+    let payload = launch(ws.path(), true);
+    let forgeries = [
+        ("\"ghost\"", "ghost is not a realm its map holds"),
+        (
+            "7",
+            "cannot be read: invalid type: integer `7`, expected a string",
+        ),
+    ];
+    for (selects, said) in forgeries {
+        let forged = payload.replace("\"realm\":\"b\"", &format!("\"realm\":{selects}"));
+        let forged = add(&mut store, &forged, &[]);
+        let error = pass(&store).unwrap_err();
+        assert!(matches!(error, AdmissionError::Entry { entry, .. } if entry == forged));
+        assert_eq!(
+            error.source().unwrap().to_string(),
+            format!("this run's pinned realms map is unreadable: its selected realm {said}")
+        );
+        store.queue_command(forged, QueueCommand::Drop, BY).unwrap();
+    }
 }
 
 /// A run in the journal that reads `events` past its start.

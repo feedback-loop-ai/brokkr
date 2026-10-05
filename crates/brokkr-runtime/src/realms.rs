@@ -85,7 +85,7 @@ pub struct MovedCrossing {
     pub observed: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 struct TextPin {
     source: String,
     sha256: String,
@@ -711,21 +711,22 @@ impl World {
 
     /// The world as it goes into a run manifest: named, hashed, embedded.
     pub fn pin(&self, repo: Option<&Path>) -> Result<Value, WorldError> {
+        self.pin_of(repo.and_then(|repo| self.realm_for(repo)))
+    }
+
+    /// [`World::pin`] with `realm` selected by name, never resolved from a
+    /// path: a queued entry's held realm as its pin selected it (#430).
+    pub(crate) fn pin_of(&self, realm: Option<&Realm>) -> Result<Value, WorldError> {
         let mut pin = json!({
             "source": self.source.display().to_string(),
             "sha256": self.sha256,
             "map": self.content,
         });
-        if let Some(realm) = repo.and_then(|repo| self.realm_for(repo)) {
+        if let Some(realm) = realm {
             pin["realm"] = json!(realm.name);
             if let Some((house, dialect)) = self.texts.get(&realm.name) {
-                let house = house.as_ref().map_err(RealmTextFailure::error)?;
-                if let Some(house) = house {
-                    pin["house"] = json!({
-                        "source": house.source,
-                        "sha256": house.sha256,
-                        "content": house.content
-                    });
+                if let Some(house) = house.as_ref().map_err(RealmTextFailure::error)? {
+                    pin["house"] = json!(house);
                 }
                 let dialect = dialect
                     .as_ref()

@@ -19,6 +19,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical;
+use brokkr_core::realms::Realm;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -61,6 +62,24 @@ impl HeldWorld {
         Ok(world)
     }
 
+    /// The world the entry was queued with and the realm its pin selected
+    /// then, read off the pin and never resolved through the disk again:
+    /// refused when the selection cannot be read, or names a realm its map
+    /// does not hold.
+    fn held(&self, workspace: &Path) -> Result<Held, WorldError> {
+        let world = self.world(workspace)?;
+        let unselected = |problem| WorldError::Unpinned(format!("its selected realm {problem}"));
+        let Selection { realm } = Selection::deserialize(&self.0)
+            .map_err(|error| unselected(format!("cannot be read: {error}")))?;
+        let selected = realm
+            .map(|name| {
+                let at = world.map.realms.iter().position(|realm| realm.name == name);
+                at.ok_or_else(|| unselected(format!("{name} is not a realm its map holds")))
+            })
+            .transpose()?;
+        Ok(Held { world, selected })
+    }
+
     /// The world the entry was queued with, stood on the disk as it is at
     /// admission: what the run it starts pins, crossings and all.
     fn stood(&self, workspace: &Path) -> Result<World, WorldError> {
@@ -70,6 +89,30 @@ impl HeldWorld {
     /// The map file the entry's world was read from, as it is on disk now.
     fn on_disk(&self, workspace: &Path) -> Result<World, WorldError> {
         World::load(&self.world(workspace)?.source)
+    }
+}
+
+/// The selection a held world's pin records ([`World::pin`]): the realm
+/// the operated repository resolved to when the entry was queued, none
+/// where the map named it none.
+#[derive(Deserialize)]
+struct Selection {
+    realm: Option<String>,
+}
+
+/// A held world and the realm its pin selected, by its place in the map:
+/// the facts an entry was queued with, which admission compares as they
+/// were recorded, never as the disk resolves the repository's path now
+/// (#430's H4).
+pub(crate) struct Held {
+    pub(crate) world: World,
+    selected: Option<usize>,
+}
+
+impl Held {
+    /// The realm the entry was queued in, `None` for none.
+    pub(crate) fn realm(&self) -> Option<&Realm> {
+        self.selected.map(|at| &self.world.map.realms[at])
     }
 }
 
@@ -105,11 +148,12 @@ impl MapSource {
         }
     }
 
-    /// The world the entry was queued with, or `None` under no map.
-    fn held(&self, workspace: &Path) -> Result<Option<World>, WorldError> {
+    /// The world the entry was queued with and the realm it selected, or
+    /// `None` under no map.
+    fn held(&self, workspace: &Path) -> Result<Option<Held>, WorldError> {
         match self {
             MapSource::Unmapped => Ok(None),
-            MapSource::Ambient(held) | MapSource::Named(held) => held.world(workspace).map(Some),
+            MapSource::Ambient(held) | MapSource::Named(held) => held.held(workspace).map(Some),
         }
     }
 
@@ -131,7 +175,7 @@ impl MapSource {
 /// An entry's two worlds: the one it was queued with, if any, and the
 /// map that would govern it now, or why that cannot be read.
 pub(crate) struct HeldAndNow {
-    pub(crate) held: Option<World>,
+    pub(crate) held: Option<Held>,
     pub(crate) now: Result<Now, WorldError>,
     /// The repository the entry operates, whose realm each map names.
     pub(crate) repo: PathBuf,
@@ -224,7 +268,8 @@ impl QueuedLaunch {
         workspace.join(self.repo.as_deref().unwrap_or(workspace))
     }
 
-    /// The world this entry was queued with, beside the map that would
+    /// The world this entry was queued with and the realm its pin
+    /// selected, beside the map that would
     /// govern it now ([`MapSource::now`]), and the repository the entry
     /// operates: what admission compares (#430's realm-drift ruling). The
     /// map now is the one fault an operator can mend, so it comes back as

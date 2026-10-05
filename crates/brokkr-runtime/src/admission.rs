@@ -10,7 +10,9 @@
 //! operator's own hold; a wait that can never be met, because the awaited
 //! entry was dropped or its run stopped where `completed` was asked; a
 //! realm whose governing facts changed since the entry was queued; and a
-//! map that cannot be read to tell. Admission never resolves a hold. It
+//! map that cannot be read to tell. The facts it was queued with are its
+//! pin's, the realm the pin selected included, never re-resolved through
+//! the disk. Admission never resolves a hold. It
 //! never starts an entry on a grant the map no longer gives, and never
 //! takes one the map gives now that the entry was not queued with: the
 //! operator re-pins the entry to the map on disk, or re-queues or drops it.
@@ -40,10 +42,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::path::Path;
 
 use brokkr_core::fold::{fold, FoldError, Status};
-use brokkr_core::realms::{Boundary, CapabilityGrant};
+use brokkr_core::realms::{Boundary, CapabilityGrant, Realm};
 use brokkr_store::{
     Attribution, EntryId, EntryState, Latch, QueueEntry, QueueRefusal, Seen, Store, StoreError,
     Wait, WaitOn,
@@ -660,9 +661,10 @@ struct Governing {
     dialect: Value,
 }
 
-/// The facts that govern a run in `repo` under `world`, or under no map.
-fn governing(world: Option<&World>, repo: &Path) -> Result<Governing, WorldError> {
-    let Some(world) = world else {
+/// The facts that govern a run in `realm` of `world`, `None` where the
+/// world names the repository no realm, or under no map at all.
+fn governing(selected: Option<(&World, Option<&Realm>)>) -> Result<Governing, WorldError> {
+    let Some((world, realm)) = selected else {
         return Ok(Governing {
             realm: None,
             boundary: Boundary::Namespace,
@@ -671,11 +673,10 @@ fn governing(world: Option<&World>, repo: &Path) -> Result<Governing, WorldError
             dialect: Value::Null,
         });
     };
-    let pin = world.pin(Some(repo))?;
-    let realm = world.realm_for(repo);
+    let pin = world.pin_of(realm)?;
     Ok(Governing {
         realm: realm.map(|realm| realm.name.clone()),
-        boundary: world.boundary_for(repo),
+        boundary: realm.map_or(Boundary::Namespace, Realm::boundary),
         grants: realm.map(|realm| realm.grants.clone()).unwrap_or_default(),
         house: unplaced(&pin, "house"),
         dialect: unplaced(&pin, "dialect"),
@@ -701,10 +702,14 @@ enum Sight {
     Unreadable(String),
 }
 
+/// The held side is the realm the entry's pin selected, as recorded; only
+/// the side now resolves the repository's path on disk, so a path that
+/// resolves elsewhere since is a difference too (#430's H4).
 fn sight(worlds: &HeldAndNow) -> Sight {
-    let held = governing(worlds.held.as_ref(), &worlds.repo);
+    let held = governing(worlds.held.as_ref().map(|held| (&held.world, held.realm())));
     let now = worlds.now.as_ref().map(|now| {
-        let facts = governing(now.world.as_ref(), &worlds.repo);
+        let world = now.world.as_ref();
+        let facts = governing(world.map(|world| (world, world.realm_for(&worlds.repo))));
         (facts, &now.digest)
     });
     match (held, now) {
