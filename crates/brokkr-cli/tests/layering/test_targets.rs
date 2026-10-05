@@ -31,6 +31,7 @@ use super::{metadata, workspace, Package};
 use crate::tracked_files::tracked;
 use run_commands::filters_in;
 
+#[path = "test_targets/run_commands.rs"]
 mod run_commands;
 
 /// How Cargo reaches a file under a crate's tests/.

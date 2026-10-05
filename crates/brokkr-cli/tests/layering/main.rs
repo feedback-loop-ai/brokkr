@@ -27,7 +27,9 @@ use std::sync::OnceLock;
 
 use serde::Deserialize;
 
+#[path = "scan.rs"]
 mod scan;
+#[path = "test_targets.rs"]
 mod test_targets;
 
 use crate::workspace_root::{read, workspace};
