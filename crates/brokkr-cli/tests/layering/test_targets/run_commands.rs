@@ -1,43 +1,51 @@
-//! The `--test it` commands a tracked file runs, read word by word as the
-//! shell reads them (#423; the operator's ruling of 2026-10-04, "do exact
-//! command line parsing").
+//! The `--test it` commands a tracked file runs, read exactly in a closed
+//! grammar (#423; the operator's ruling of 2026-10-04, "do exact command
+//! line parsing", read as the fifth hold asked: close the grammar).
 //!
 //! A file is first cut into the lines its format makes, each read as its
 //! format reads it. A workflow's literal block (`|`) is its lines, and a
-//! plain value on its key's line is that value; every other YAML form
-//! that names `--test` is refused, since its folding or escapes are not
-//! the shell's. Each string of a JSON file is decoded by serde_json and
-//! its lines read. A Markdown code span that wraps is joined, as Markdown
-//! joins it, and a prose line gives its code spans, and its runs of prose
-//! too when they name `--test`, each a line. A file in a format the
-//! reader does not know is refused where it names `--test`. Each line is
-//! then split into words as the shell splits it: quotes, backslashes and
-//! continuations; `|`, `&`, `;` or a subshell's parenthesis ends one
-//! command; a redirect takes its target, which the command never sees,
-//! and the words after it are still the command's, an unquoted word of
-//! digits before it being a descriptor. A command substitution, `` `…` ``
-//! or `$(…)`, is joined to the word it touches, as is a `(` that abuts a
-//! word's text, and on a line that names `--test` that word is refused. A
-//! comment, and a quoted word that holds `--test`, are read again as
-//! lines of their own, since a person or a wrapper may run them.
+//! plain value on its key's line is that value, its comment a line of its
+//! own; every other YAML form that names `--test` is refused, since its
+//! folding or escapes are not the shell's. Each string of a JSON file is
+//! decoded by serde_json and its lines read. A file in a format the reader
+//! does not know is refused where it names `--test`. In a Markdown file a
+//! backtick run opens a code span the next run of its length closes, as
+//! Markdown pairs them, and a span that wraps is joined, as Markdown joins
+//! a paragraph. A prose line is cut at its spans only where each stands as
+//! Markdown's delimiters do, at the line's start or after a space or `(`,
+//! and at its end or before a space or one of `.,:;)`, and where no run of
+//! prose between them is a `cargo` command that names `--test`. A cut line
+//! gives its spans, and its runs of prose too when they name `--test`,
+//! each a line. Every other line is read whole, so a backtick the shell
+//! may run reaches the shell's reader inside its command.
 //!
-//! In each command the words after `cargo` are an invocation. One that
-//! passes `--test it` (as `--test it`, `--test=it`, or quoted) is read by
-//! closed tables of the flags Cargo and libtest take, and every word the
-//! tables do not consume is a filter: before the flag, after it and after
-//! `--`. A word, flag or form outside the tables is refused, never
-//! skipped; so is a `--test it` outside such an invocation, a line the
-//! shell could not split that holds `--test`, and a `--test` the reader
-//! cannot read: one a break or the line's end cuts off, or one whose value
-//! the shell has yet to make (a parameter, a substitution, a brace or a
-//! glob, or a workflow's `${{ }}`) unless its literal text proves it is
-//! not `it`. The reader evaluates nothing.
+//! A line that is wholly a comment is read as its text. A line names
+//! `--test` when its text does, or its text with every character outside
+//! the alphabet taken out, so that a quote, an escape or an expansion
+//! inside the flag still names it. A line whose every `--test` plainly
+//! passes another target, `--test` or `--test=` then a word of the
+//! alphabet that is not `it`, passes no `--test it` and is not this gate's
+//! business; nor is a line that names no `--test`. Every other line is read
+//! in the closed grammar alone: words of the alphabet (letters, digits and
+//! `_-./:=,@+`), each bare or a plain word of it in `'…'` or `"…"`, and one
+//! space between words. The first character outside that grammar refuses
+//! the line, by that character: an expansion, a separator, a redirect, a
+//! glob, a continuation, a comment, a tab, a second space, a quote that
+//! does not close or holds what no plain word does, and every other. No
+//! shell semantics is emulated, and none is needed.
+//!
+//! A read line is one command. Its words after `cargo` are an invocation,
+//! and one that passes `--test it` (as `--test it`, `--test=it`, or quoted)
+//! is read by closed tables of the flags Cargo and libtest take: every word
+//! they do not consume is a filter, before the flag, after it and after
+//! `--`. A word, flag or form outside the tables is refused, never skipped;
+//! so is a `--test it` outside such an invocation, a `--test` with no
+//! target, and a word that runs `--test` into other text.
 //!
 //! The threat model is the operator's of 2026-09-26: realistic accidental
-//! misuse is caught and what cannot be read is refused. A quote is read
-//! within its line, so a command quoted across lines is read in parts;
-//! that, like a flag spelled in split quotes on a line the shell could not
-//! split, is a low residual.
+//! misuse is caught and what cannot be read is refused. A `--test it` that
+//! a program makes from text that never spells it, as `xargs` does from
+//! its input, is a low residual.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
@@ -54,6 +62,10 @@ type Read<'r> = &'r dyn Fn(&Path) -> io::Result<String>;
 /// One line as a command reads it: the number of the file line it starts
 /// on, and its text.
 type Line = (usize, String);
+
+/// A Markdown code span: the byte its opening run starts at, the byte its
+/// closing run starts at, and the runs' length.
+type Span = (usize, usize, usize);
 
 /// One `--test it` filter as a command passes it: where, a package its
 /// `-p` names, and the module its first path segment names.
@@ -143,298 +155,117 @@ struct Invocation {
     exact: bool,
 }
 
-/// A word as the command receives it, its quotes and escapes resolved.
+/// What a `--test` passes.
 #[derive(Debug, PartialEq, Eq)]
-struct Word {
-    text: String,
-    /// Where in `text` the shell begins to make the word: the first `$`,
-    /// backtick, brace or glob character outside single quotes, or `${{`,
-    /// which a workflow substitutes before any shell reads the line. What
-    /// the shell makes there the reader does not know.
-    made: Option<usize>,
-    /// Whether the word holds what the reader cannot read at all: a
-    /// command substitution, `` `…` `` or `$(…)`, outside single quotes,
-    /// or a `(` that abuts its text. A line that names `--test` refuses it.
-    opaque: bool,
-}
-
-/// What the shell passes a `--test` as.
-#[derive(Debug, PartialEq, Eq)]
-enum Target<'w> {
-    /// `it`, written as a plain literal.
+enum Target {
+    /// `it`.
     It,
-    /// A target whose literal text proves it is not `it`.
+    /// Another target.
     Other,
-    /// A target the reader cannot know is not `it`, by the word that
-    /// names it: one the shell has yet to make, or none, a break or the
-    /// line's end cutting the command off first.
-    Unread(&'w str),
+    /// None: the command ends first.
+    Missing,
 }
 
-/// A shell token.
-#[derive(Debug, PartialEq, Eq)]
-enum Token {
-    Word(Word),
-    /// The word a redirect names, which the command never receives.
-    Target(Word),
-    /// `|`, `&`, `;`, or a parenthesis that joins no word: one command
-    /// ends.
-    Break,
-    /// The text after a `#` that starts a word.
-    Comment(String),
+/// Whether `c` is of the closed alphabet: a letter, a digit, or one of
+/// `_-./:=,@+`.
+fn is_safe(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '=' | ',' | '@' | '+')
 }
 
-/// Why the shell could not split a line.
-#[derive(Debug, PartialEq, Eq)]
-enum Unlexed {
-    /// A backslash ends it: the command goes on on the next line.
-    Continues,
-    /// A quote or a substitution it never closes, by the character that
-    /// would close it.
-    Unclosed(char),
-    /// A redirect with no word to name.
-    Dangling(String),
+/// `text` with every character outside the alphabet, the space aside,
+/// taken out.
+fn plain(text: &str) -> String {
+    text.chars().filter(|&c| c == ' ' || is_safe(c)).collect()
 }
 
-impl Unlexed {
-    /// The text the refusal names.
-    fn word(&self) -> String {
-        match self {
-            Self::Continues => "\\".to_string(),
-            Self::Unclosed(quote) => quote.to_string(),
-            Self::Dangling(operator) => operator.clone(),
-        }
-    }
+fn is_cargo(word: &str) -> bool {
+    word == "cargo" || word.ends_with("/cargo")
 }
 
-/// The shell's split of one line, built a character at a time.
-#[derive(Default)]
-struct Lexer {
-    tokens: Vec<Token>,
-    word: String,
-    /// Whether a word has begun, which an empty quoted word does.
-    started: bool,
-    /// Where the shell begins to make the word, as `Word::made`.
-    made: Option<usize>,
-    /// Whether the word holds what the reader cannot read, as
-    /// `Word::opaque`.
-    opaque: bool,
-    /// Whether a quote or a backslash wrote part of the word, so that it
-    /// is an argument even when it is all digits.
-    quoted: bool,
-    /// The redirect whose target the next word is.
-    redirect: Option<String>,
+/// What follows each `--test` that `text` names as a flag could, not run
+/// into a longer flag such as `--tests` or `--test-threads`: in its text,
+/// and in its text made plain.
+fn tests_named(text: &str) -> Vec<String> {
+    let plain = plain(text);
+    [text, plain.as_str()]
+        .into_iter()
+        .flat_map(|text| {
+            (text.match_indices("--test")).map(move |(at, flag)| &text[at + flag.len()..])
+        })
+        .filter(|rest| {
+            !rest.starts_with(|c: char| c == '_' || c == '-' || c.is_ascii_alphanumeric())
+        })
+        .map(str::to_string)
+        .collect()
 }
 
-type Chars<'t> = std::iter::Peekable<std::str::Chars<'t>>;
-
-impl Lexer {
-    fn push(&mut self, c: char) {
-        self.word.push(c);
-        self.started = true;
-    }
-
-    /// A character the shell expands rather than passes.
-    fn make(&mut self, c: char) {
-        self.made.get_or_insert(self.word.len());
-        self.push(c);
-    }
-
-    /// A quote opens, or a backslash escapes: the word is begun and is an
-    /// argument.
-    fn quote_opens(&mut self) {
-        self.started = true;
-        self.quoted = true;
-    }
-
-    /// A command substitution, `` `…` `` or `$(…)`, which the shell runs
-    /// and joins to the word it touches. It is kept whole in the word, up
-    /// to the unescaped `close` that ends it, and makes the word opaque.
-    fn substitution(
-        &mut self,
-        open: &str,
-        close: char,
-        chars: &mut Chars<'_>,
-    ) -> Result<(), Unlexed> {
-        self.made.get_or_insert(self.word.len());
-        self.word.push_str(open);
-        (self.started, self.opaque) = (true, true);
-        let mut depth = 1;
-        while depth > 0 {
-            let c = chars.next().ok_or(Unlexed::Unclosed(close))?;
-            self.word.push(c);
-            match c {
-                '\\' => self.word.extend(chars.next()),
-                c if c == close => depth -= 1,
-                '(' if close == ')' => depth += 1,
-                _ => {}
-            }
-        }
-        Ok(())
-    }
-
-    /// A parenthesis. A `(` that abuts the text of a word joins it and
-    /// makes it opaque, as in `@(it)` or `f()`, and a `)` joins a word so
-    /// made; any other ends a command, as a subshell's `(cd` and `x)` do.
-    fn parenthesis(&mut self, c: char) -> Result<(), Unlexed> {
-        if self.started && (c == '(' || self.opaque) {
-            self.opaque = true;
-            self.push(c);
-            Ok(())
-        } else {
-            self.command_ends()
-        }
-    }
-
-    fn end_word(&mut self) {
-        let (made, opaque) = (
-            std::mem::take(&mut self.made),
-            std::mem::take(&mut self.opaque),
-        );
-        self.quoted = false;
-        if !std::mem::take(&mut self.started) {
-            return;
-        }
-        let text = std::mem::take(&mut self.word);
-        let made = [made, text.find("${{")].into_iter().flatten().min();
-        let word = Word { text, made, opaque };
-        self.tokens.push(match self.redirect.take() {
-            Some(_) => Token::Target(word),
-            None => Token::Word(word),
-        });
-    }
-
-    fn dangling(&self) -> Result<(), Unlexed> {
-        match &self.redirect {
-            Some(operator) => Err(Unlexed::Dangling(operator.clone())),
-            None => Ok(()),
-        }
-    }
-
-    fn command_ends(&mut self) -> Result<(), Unlexed> {
-        self.end_word();
-        self.dangling()?;
-        self.tokens.push(Token::Break);
-        Ok(())
-    }
-
-    fn single(&mut self, chars: &mut Chars<'_>) -> Result<(), Unlexed> {
-        self.quote_opens();
-        loop {
-            match chars.next() {
-                Some('\'') => return Ok(()),
-                Some(c) => self.word.push(c),
-                None => return Err(Unlexed::Unclosed('\'')),
-            }
-        }
-    }
-
-    /// A double-quoted part, in which a backslash escapes only `$`, a
-    /// backtick, `"`, itself and the line's end, and an unescaped `$` or
-    /// backtick is still the shell's to expand: a backtick, or a `$` before
-    /// `(`, substitutes a command.
-    fn double(&mut self, chars: &mut Chars<'_>) -> Result<(), Unlexed> {
-        self.quote_opens();
-        loop {
-            match chars.next() {
-                Some('"') => return Ok(()),
-                Some('\\') => match chars.next() {
-                    Some(c @ ('$' | '`' | '"' | '\\')) => self.word.push(c),
-                    Some(c) => self.word.extend(['\\', c]),
-                    None => return Err(Unlexed::Continues),
-                },
-                Some(c @ ('$' | '`')) => {
-                    self.opaque |= c == '`' || chars.peek() == Some(&'(');
-                    self.make(c);
-                }
-                Some(c) => self.word.push(c),
-                None => return Err(Unlexed::Unclosed('"')),
-            }
-        }
-    }
-
-    /// A redirect: `>`, `>>`, `>|`, `>&`, `<`, `<<`, `<<<`, `<&`, `<>`,
-    /// `&>` or `&>>`. An unquoted word of digits just before it names a
-    /// descriptor, not an argument; a quoted one, as `"2"`, is an argument.
-    fn redirect(&mut self, first: char, chars: &mut Chars<'_>) -> Result<(), Unlexed> {
-        if self.started && !self.quoted && self.word.chars().all(|c| c.is_ascii_digit()) {
-            self.word.clear();
-            self.started = false;
-        } else {
-            self.end_word();
-        }
-        self.dangling()?;
-        let mut operator = first.to_string();
-        while let Some(c) = chars.next_if(|&c| matches!(c, '<' | '>')) {
-            operator.push(c);
-        }
-        operator.extend(chars.next_if(|&c| matches!(c, '&' | '|')));
-        self.redirect = Some(operator);
-        Ok(())
-    }
-
-    fn finish(mut self) -> Result<Vec<Token>, Unlexed> {
-        self.end_word();
-        self.dangling()?;
-        Ok(self.tokens)
-    }
+fn names_test(text: &str) -> bool {
+    !tests_named(text).is_empty()
 }
 
-/// `text` split as the shell splits one line.
-fn lex(text: &str) -> Result<Vec<Token>, Unlexed> {
-    let mut lexer = Lexer::default();
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            ' ' | '\t' => lexer.end_word(),
-            '\'' => lexer.single(&mut chars)?,
-            '"' => lexer.double(&mut chars)?,
-            '\\' => {
-                lexer.quote_opens();
-                lexer.push(chars.next().ok_or(Unlexed::Continues)?);
-            }
-            '#' if !lexer.started => lexer.tokens.push(Token::Comment(chars.by_ref().collect())),
-            '`' => lexer.substitution("`", '`', &mut chars)?,
-            '$' if chars.next_if_eq(&'(').is_some() => lexer.substitution("$(", ')', &mut chars)?,
-            '(' | ')' => lexer.parenthesis(c)?,
-            '|' | ';' => lexer.command_ends()?,
-            '&' if chars.peek() != Some(&'>') => lexer.command_ends()?,
-            '&' | '<' | '>' => lexer.redirect(c, &mut chars)?,
-            '$' | '{' | '*' | '?' | '[' => lexer.make(c),
-            _ => lexer.push(c),
-        }
-    }
-    lexer.finish()
-}
-
-/// Whether `text` holds `--test` as a flag could, not run into a longer
-/// flag such as `--tests` or `--test-threads`.
-fn mentions_test(text: &str) -> bool {
-    text.match_indices("--test").any(|(at, flag)| {
-        !text[at + flag.len()..]
-            .starts_with(|c: char| c == '_' || c == '-' || c.is_ascii_alphanumeric())
+/// Whether `text` may pass `--test it`: it names a `--test` that does not
+/// plainly pass another target, as `--test` or `--test=` and then a word
+/// of the alphabet, not `it`, that a space or the text's end ends.
+fn may_pass_it(text: &str) -> bool {
+    tests_named(text).iter().any(|rest| {
+        let target = (rest.strip_prefix([' ', '='])).and_then(|value| value.split(' ').next());
+        !target.is_some_and(|target| {
+            !target.is_empty() && target != "it" && target.chars().all(is_safe)
+        })
     })
 }
 
+/// A line's words in the closed grammar: runs of the alphabet, each bare
+/// or a plain word in quotes, the words split by one space. The first
+/// character outside it is the error.
+fn words_of(line: &str) -> Result<Vec<String>, char> {
+    let (mut words, mut word) = (Vec::new(), String::new());
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            ' ' if chars.peek().is_some_and(|&next| next != ' ') => {
+                words.push(std::mem::take(&mut word));
+            }
+            '\'' | '"' => word.push_str(&quoted(c, &mut chars)?),
+            c if is_safe(c) => word.push(c),
+            c => return Err(c),
+        }
+    }
+    words.push(word);
+    Ok(words)
+}
+
+/// The plain word of the alphabet in the quotes `quote` opened, up to the
+/// one that closes them. A quote that does not close, or closes on
+/// nothing, is refused by that quote.
+fn quoted(quote: char, chars: &mut impl Iterator<Item = char>) -> Result<String, char> {
+    let mut word = String::new();
+    for c in chars {
+        match c {
+            c if c == quote && !word.is_empty() => return Ok(word),
+            c if is_safe(c) => word.push(c),
+            c => return Err(c),
+        }
+    }
+    Err(quote)
+}
+
 /// What the `--test` at `words[index]` passes, or `None` when the word is
-/// no `--test`. A target the shell makes is `Other` only when the literal
-/// text before what it makes is no prefix of `it`, as `heap_` in
-/// `heap_$kind` is not; the reader evaluates nothing.
-fn test_target(words: &[Word], index: usize) -> Option<Target<'_>> {
+/// no `--test`.
+fn test_target(words: &[String], index: usize) -> Option<Target> {
     let word = &words[index];
-    let (value, from) = match word.text.strip_prefix("--test=") {
-        Some(_) => (word, "--test=".len()),
-        None if word.text == "--test" => match words.get(index + 1) {
-            Some(value) => (value, 0),
-            None => return Some(Target::Unread(&word.text)),
+    let value = match word.strip_prefix("--test=") {
+        Some(value) => value,
+        None if word == "--test" => match words.get(index + 1) {
+            Some(value) => value,
+            None => return Some(Target::Missing),
         },
         None => return None,
     };
-    Some(match value.made {
-        None if value.text[from..] == *"it" => Target::It,
-        None => Target::Other,
-        Some(made) if "it".starts_with(&value.text[from..made]) => Target::Unread(&value.text),
-        Some(_) => Target::Other,
+    Some(if value == "it" {
+        Target::It
+    } else {
+        Target::Other
     })
 }
 
@@ -469,8 +300,8 @@ fn flag<'w>(
 
 /// `args`, the words after `cargo`, read as `[+toolchain] [flags] test
 /// [args]`. The word the tables cannot read is the error.
-fn invocation(args: &[Word]) -> Result<Invocation, &str> {
-    let mut words = args.iter().map(|word| word.text.as_str());
+fn invocation(args: &[String]) -> Result<Invocation, &str> {
+    let mut words = args.iter().map(String::as_str);
     let mut first = true;
     loop {
         match words.next().ok_or("cargo")? {
@@ -514,112 +345,65 @@ pub(super) fn filters_in(
     roots: &Roots,
     read: Read<'_>,
 ) -> Result<Vec<Filter>, Refusal> {
-    let lines = lines_of(file, text)?;
-    let (mut filters, mut next) = (Vec::new(), 0);
-    while let Some((number, first)) = lines.get(next) {
-        let mut command = first.clone();
-        next += 1;
-        while let (Err(Unlexed::Continues), Some((_, more))) = (lex(&command), lines.get(next)) {
-            command.pop();
-            command.push_str(more);
-            next += 1;
-        }
-        let (at, mut found) = (format!("{file}:{number}"), Vec::new());
-        read_line(&at, &command, &mut found)?;
-        for (command, invocation) in found {
+    let mut filters = Vec::new();
+    for (number, line) in lines_of(file, text)? {
+        let at = format!("{file}:{number}");
+        if let Some((command, invocation)) = read_line(&at, &line)? {
             filters.extend(hold(&at, &command, &invocation, roots, read)?);
         }
     }
     Ok(filters)
 }
 
-/// One line's `--test it` invocations, each with the text it was read
-/// from, into `found`. On a line that names `--test`, in its text or in a
-/// word, an opaque word is refused.
-fn read_line(at: &str, text: &str, found: &mut Vec<(String, Invocation)>) -> Result<(), Refusal> {
-    let tokens = match lex(text) {
-        Ok(tokens) => tokens,
-        Err(_) if !mentions_test(text) => return Ok(()),
-        Err(unlexed) => return Err(unread_filter(at, &unlexed.word(), text)),
-    };
-    let names_test = mentions_test(text)
-        || (tokens.iter()).any(|token| {
-            matches!(token, Token::Word(word) | Token::Target(word) if mentions_test(&word.text))
-        });
-    let mut command = Vec::new();
-    for token in tokens {
-        match token {
-            Token::Word(word) | Token::Target(word) if word.opaque && names_test => {
-                return Err(unread_filter(at, &word.text, text));
-            }
-            Token::Word(word) => command.push(word),
-            Token::Target(target) if mentions_test(&target.text) => {
-                return Err(unread_filter(at, &target.text, text));
-            }
-            Token::Target(_) => {}
-            Token::Comment(comment) => read_line(at, &comment, found)?,
-            Token::Break => read_command(at, text, &std::mem::take(&mut command), found)?,
-        }
+/// The `--test it` invocation one line runs, with the command it was read
+/// from: none when the line may pass no `--test it`, and otherwise the
+/// line read in the closed grammar or refused by its first character
+/// outside it. A line that is wholly a comment is read as its text.
+fn read_line(at: &str, line: &str) -> Result<Option<(String, Invocation)>, Refusal> {
+    let line = line.trim_matches(' ');
+    let line = (line.strip_prefix('#')).map_or(line, |comment| comment.trim_start_matches(' '));
+    if !may_pass_it(line) {
+        return Ok(None);
     }
-    read_command(at, text, &command, found)
+    let words = words_of(line).map_err(|outside| unread_filter(at, &outside.to_string(), line))?;
+    let invocation = read_command(at, line, &words)?;
+    Ok(invocation.map(|invocation| (line.to_string(), invocation)))
 }
 
 /// One command's words: an invocation that passes `--test it` by the
-/// tables, and every other word loosely. A `cargo` whose `--test` the
-/// reader cannot read is refused by that word.
-fn read_command(
-    at: &str,
-    text: &str,
-    words: &[Word],
-    found: &mut Vec<(String, Invocation)>,
-) -> Result<(), Refusal> {
-    let cargo =
-        (words.iter()).position(|word| word.text == "cargo" || word.text.ends_with("/cargo"));
-    let Some(cargo) = cargo else {
-        return loose(at, text, words, words.len(), found);
+/// tables, and every other word loosely. A `cargo` whose `--test` names
+/// no target is refused by that word.
+fn read_command(at: &str, line: &str, words: &[String]) -> Result<Option<Invocation>, Refusal> {
+    let Some(cargo) = words.iter().position(|word| is_cargo(word)) else {
+        return loose(at, line, words).map(|()| None);
     };
     let args = &words[cargo + 1..];
     let mut passes_it = false;
     for index in 0..args.len() {
         match test_target(args, index) {
-            Some(Target::Unread(word)) => return Err(unread_filter(at, word, text)),
+            Some(Target::Missing) => return Err(unread_filter(at, &args[index], line)),
             Some(Target::It) => passes_it = true,
             Some(Target::Other) | None => {}
         }
     }
     if !passes_it {
-        return loose(at, text, words, words.len(), found);
+        return loose(at, line, words).map(|()| None);
     }
-    let invocation = invocation(args).map_err(|word| unread_filter(at, word, text))?;
-    loose(at, text, words, cargo, found)?;
-    found.push((text.trim().to_string(), invocation));
-    Ok(())
+    let invocation = invocation(args).map_err(|word| unread_filter(at, word, line))?;
+    loose(at, line, &words[..cargo])?;
+    Ok(Some(invocation))
 }
 
-/// The first `upto` of a command's words, outside any `--test it`
-/// invocation: a `--test it` here is refused, as is a `--test` the reader
-/// cannot read and a word that runs `--test` into other text; a quoted
-/// word that holds `--test` among other words is read as a line. Only a
-/// space or a tab splits a word, and a word a quote made is shorter than
-/// its text, so the reading ends.
-fn loose(
-    at: &str,
-    text: &str,
-    words: &[Word],
-    upto: usize,
-    found: &mut Vec<(String, Invocation)>,
-) -> Result<(), Refusal> {
-    for (index, word) in words.iter().enumerate().take(upto) {
-        let word_text = word.text.as_str();
+/// Words outside any `--test it` invocation: a `--test it` here is
+/// refused, as is a `--test` with no target and a word that runs `--test`
+/// into other text.
+fn loose(at: &str, line: &str, words: &[String]) -> Result<(), Refusal> {
+    for (index, word) in words.iter().enumerate() {
         match test_target(words, index) {
-            Some(Target::It) => return Err(unread_filter(at, word_text, text)),
-            Some(Target::Unread(unread)) => return Err(unread_filter(at, unread, text)),
+            Some(Target::It | Target::Missing) => return Err(unread_filter(at, word, line)),
             Some(Target::Other) => {}
-            None if !mentions_test(word_text) => {}
-            None if word_text.contains([' ', '\t']) && word_text.len() < text.len() => {
-                read_line(at, word_text, found)?;
-            }
-            None => return Err(unread_filter(at, word_text, text)),
+            None if !names_test(word) => {}
+            None => return Err(unread_filter(at, word, line)),
         }
     }
     Ok(())
@@ -726,7 +510,7 @@ fn lines_of(file: &str, text: &str) -> Result<Vec<Line>, Refusal> {
 /// exactly: they give no command, and the first that names `--test` is
 /// refused.
 fn unread(file: &str, first: usize, lines: &[&str]) -> Result<(), Refusal> {
-    match lines.iter().position(|line| mentions_test(line)) {
+    match lines.iter().position(|line| names_test(line)) {
         Some(offset) => Err(unread_filter(
             &format!("{file}:{}", first + offset),
             "--test",
@@ -737,9 +521,8 @@ fn unread(file: &str, first: usize, lines: &[&str]) -> Result<(), Refusal> {
 }
 
 /// A JSON file's strings, each decoded by serde_json and given its lines,
-/// numbered by the line its literal starts on. An empty line closes each,
-/// so a backslash that ends one string continues into no other. A file
-/// serde_json cannot parse is read as a form the reader does not know.
+/// numbered by the line its literal starts on. A file serde_json cannot
+/// parse is read as a form the reader does not know.
 fn json_lines(file: &str, text: &str) -> Result<Vec<Line>, Refusal> {
     if serde_json::from_str::<serde::de::IgnoredAny>(text).is_err() {
         return unread(file, 1, &text.lines().collect::<Vec<_>>()).map(|()| Vec::new());
@@ -760,7 +543,6 @@ fn json_lines(file: &str, text: &str) -> Result<Vec<Line>, Refusal> {
                 let string: String = serde_json::from_str(&text[start..=end])
                     .expect("a string of parsed JSON decodes");
                 read.extend(string.lines().map(|line| (number, line.to_string())));
-                read.push((number, String::new()));
             }
             _ => {}
         }
@@ -820,8 +602,9 @@ fn scalar_of(line: &str) -> Option<(usize, &str)> {
 
 /// A workflow's lines as YAML holds its scalars, read in the two forms the
 /// workflows use and read exactly: a literal block (`|`) under a plain key
-/// line by line, and a plain value on its key's line alone, as its value.
-/// A comment is read as a line. Every other form is one the reader does
+/// line by line, and a plain value on its key's line alone, as its value,
+/// which a ` #` ends, the comment after it read as a line of its own. A
+/// comment line is read as a line. Every other form is one the reader does
 /// not read exactly: a folded block, a quoted value, whose escapes YAML
 /// and the shell read apart, a plain value that wraps or starts under its
 /// key, a flow collection, and any line under a key the reader does not
@@ -851,7 +634,8 @@ fn yaml_lines(file: &str, text: &str) -> Result<Vec<Line>, Refusal> {
         if opens_literal(value) {
             read.extend((index..end).map(|at| (at + 1, lines[at].to_string())));
         } else if is_plain(value) && alone {
-            read.push((index + 1, value.to_string()));
+            let (value, comment) = value.split_once(" #").unwrap_or((value, ""));
+            read.extend([value, comment].map(|part| (index + 1, part.to_string())));
         } else {
             unread(file, index + 1, &lines[index..end])?;
         }
@@ -860,15 +644,53 @@ fn yaml_lines(file: &str, text: &str) -> Result<Vec<Line>, Refusal> {
     Ok(read)
 }
 
-/// A Markdown file's lines: a code span a line leaves open joined to the
-/// next with a space, as Markdown joins a paragraph, until it closes or a
-/// blank line ends the paragraph. A fence and the lines between fences
-/// stand alone.
+/// A line's backtick runs, each by the byte it starts at and its length.
+fn backtick_runs(text: &str) -> Vec<(usize, usize)> {
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for (at, _) in text.match_indices('`') {
+        match runs.last_mut() {
+            Some((start, length)) if *start + *length == at => *length += 1,
+            _ => runs.push((at, 1)),
+        }
+    }
+    runs
+}
+
+/// The code spans Markdown makes of a line's backtick runs: a run opens a
+/// span that the next run of its length closes, and the runs between are
+/// the span's text. With them, whether a run is left with no partner,
+/// which Markdown reads as text and which may yet pair on the next line.
+fn code_spans(text: &str) -> (Vec<Span>, bool) {
+    let runs = backtick_runs(text);
+    let (mut spans, mut unpaired, mut next) = (Vec::new(), false, 0);
+    while let Some(&(start, length)) = runs.get(next) {
+        let partner = (runs[next + 1..].iter()).position(|&(_, other)| other == length);
+        match partner {
+            Some(offset) => {
+                spans.push((start, runs[next + 1 + offset].0, length));
+                next += offset + 2;
+            }
+            None => {
+                unpaired = true;
+                next += 1;
+            }
+        }
+    }
+    (spans, unpaired)
+}
+
+/// A Markdown file's lines: a line that leaves a backtick run with no
+/// partner joined to the next with a space, the next's indentation
+/// dropped, as Markdown joins a paragraph, until the run pairs or a blank
+/// line ends the paragraph. A fence and the
+/// lines between fences stand alone.
 fn markdown_lines(text: &str) -> Vec<Line> {
     let (mut joined, mut open, mut fenced) = (Vec::new(), None::<Line>, false);
     for (index, line) in text.lines().enumerate() {
         let current = match open.take() {
-            Some((number, span)) if !line.trim().is_empty() => (number, format!("{span} {line}")),
+            Some((number, span)) if !line.trim().is_empty() => {
+                (number, format!("{span} {}", line.trim_start()))
+            }
             left => {
                 joined.extend(left.map(|left| (left, false)));
                 let fence = line.trim_start().starts_with("```");
@@ -880,10 +702,10 @@ fn markdown_lines(text: &str) -> Vec<Line> {
                 (index + 1, line.to_string())
             }
         };
-        if current.1.matches('`').count() % 2 == 0 {
-            joined.push((current, false));
-        } else {
+        if code_spans(&current.1).1 {
             open = Some(current);
+        } else {
+            joined.push((current, false));
         }
     }
     joined.extend(open.map(|open| (open, false)));
@@ -892,27 +714,58 @@ fn markdown_lines(text: &str) -> Vec<Line> {
         .collect()
 }
 
-/// The commands a Markdown line holds: a fenced line, or a prose line with
-/// no code span, whole; otherwise each of its code spans, and each run of
-/// its prose too when the prose itself names `--test`. The backticks that
-/// bound a span are Markdown's, cut here, and never reach the shell's
-/// reader.
+/// The commands a Markdown line holds: a fenced line, or a prose line the
+/// reader does not cut at its code spans, whole; otherwise the text of
+/// each span, and each run of its prose too when the prose itself names
+/// `--test`. The runs that bound a span are Markdown's, cut here, and
+/// never reach the shell's reader.
 fn code_of((number, text): Line, fenced: bool) -> Vec<Line> {
-    let parts: Vec<&str> = text.split('`').collect();
-    if fenced || parts.len() == 1 {
+    let (spans, _) = code_spans(&text);
+    let mut prose = Vec::new();
+    let mut from = 0;
+    for &(start, close, length) in &spans {
+        prose.push(&text[from..start]);
+        from = close + length;
+    }
+    prose.push(&text[from..]);
+    if fenced || spans.is_empty() || !cut_at_spans(&text, &spans, &prose) {
         return vec![(number, text)];
     }
-    let prose_names_test = parts.iter().step_by(2).any(|part| mentions_test(part));
-    (parts.iter().enumerate())
-        .filter(|(index, _)| index % 2 == 1 || prose_names_test)
-        .map(|(_, part)| (number, (*part).to_string()))
-        .collect()
+    let prose_names_test = prose.iter().any(|part| names_test(part));
+    let mut pieces = Vec::new();
+    for (index, part) in prose.iter().enumerate() {
+        if prose_names_test {
+            pieces.push((number, (*part).to_string()));
+        }
+        if let Some(&(start, close, length)) = spans.get(index) {
+            pieces.push((number, text[start + length..close].to_string()));
+        }
+    }
+    pieces
+}
+
+/// Whether the reader cuts a prose line at its code spans: each opens at
+/// the line's start or after a space or `(`, and closes at its end or
+/// before a space or one of `.,:;)`, as Markdown's delimiters stand, and
+/// no run of prose between them is a `cargo` command that names `--test`.
+/// Anywhere else a backtick may be the shell's, and the line is read
+/// whole.
+fn cut_at_spans(text: &str, spans: &[Span], prose: &[&str]) -> bool {
+    let delimits = spans.iter().all(|&(start, close, length)| {
+        let before = text[..start].chars().next_back();
+        let after = text[close + length..].chars().next();
+        before.is_none_or(|c| matches!(c, ' ' | '('))
+            && after.is_none_or(|c| matches!(c, ' ' | '.' | ',' | ':' | ';' | ')'))
+    });
+    let command = |part: &&str| names_test(part) && plain(part).split(' ').any(is_cargo);
+    delimits && !prose.iter().any(command)
 }
 
 /// The filter reader reads each form of `--test it` Cargo takes, every
-/// filter around it, a wrapper's, a comment's and each file format's
-/// lines, and holds each filter to its crate's root and an `--exact` name
-/// to a test of its module.
+/// filter around it, a comment's and each file format's lines, and holds
+/// each filter to its crate's root and an `--exact` name to a test of its
+/// module. A line that names no `--test`, or plainly passes another
+/// target, is not read, whatever else it holds.
 #[test]
 fn the_filter_reader_holds_each_filter_to_its_crates_root() {
     let (roots, read) = fixture();
@@ -924,18 +777,18 @@ fn the_filter_reader_holds_each_filter_to_its_crates_root() {
     for (file, text, held) in [
         ("f", "cargo test --locked -p brokkr-cli --test it packaging::\n", vec![cli("f:1", "packaging")]),
         ("f", "cargo +nightly --locked test -p brokkr-cli --test=it -- --ignored --exact suppressions::a_b\n", vec![cli("f:1", "suppressions")]),
-        ("f", "\nX=1 cargo test -p brokkr-cli --test it \\\n  suppressions::a > /dev/null 2>&1\n", vec![cli("f:2", "suppressions")]),
+        ("f", "{\n  X=1 cargo test -p brokkr-cli --test it suppressions::a\n} > /dev/null 2>&1\n", vec![cli("f:2", "suppressions")]),
         ("f", "cargo test -p brokkr-cli --test it -- --skip gone:: --test-threads=1 --nocapture packaging::\n", vec![cli("f:1", "packaging")]),
-        ("f", "run \"cargo test -p brokkr-cli --test it packaging::\" cargo test -p brokkr-cli --test it suppressions::\n", vec![cli("f:1", "packaging"), cli("f:1", "suppressions")]),
+        ("f", "\"cargo\" test -p 'brokkr-cli' --te\"st\" 'it' pack\"aging\"::\n", vec![cli("f:1", "packaging")]),
         ("f", "# Regenerate: X=1 cargo test -p brokkr-cli --test it suppressions::\n", vec![cli("f:1", "suppressions")]),
-        ("f", "cargo test -p brokkr-cli --test it\ncargo test -p brokkr-cli --test heap_dsh x\ncargo test --tests --test-threads 1 x | tee out\n", vec![]),
-        ("f", "cargo test -p brokkr-cli --test \"heap_$kind\" x\ncargo test -p brokkr-cli --test=x$y{z} x\n", vec![]),
+        ("f", "cargo test -p brokkr-cli --test it\ncargo test -p brokkr-cli --test heap_dsh \\\n  -- x 2>&1 | tee out\ncargo test --tests --test-threads 1 x | tee out\n", vec![]),
+        ("f", "echo `date` $(pwd) @(x) \"2\">f; (cd x)\nBROKKR_X=1 \\\n  cargo test -p brokkr-cli --test it packaging::\n", vec![cli("f:3", "packaging")]),
         ("f.yml", "    run: |\n      cargo test -p brokkr-cli --test it packaging::\n      echo gone::\n", vec![cli("f.yml:2", "packaging")]),
         ("f.yml", "# cargo test -p brokkr-cli --test it packaging::\n  - run: cargo test -p brokkr-cli --test it suppressions:: # note\n  - run: echo gone::\n", vec![cli("f.yml:1", "packaging"), cli("f.yml:2", "suppressions")]),
-        ("f.json", "{\"a\": \"cargo test -p brokkr-cli --test\\tit packaging:: \\\\\",\n \"b\": [\"no_such_file::\"]}\n", vec![cli("f.json:1", "packaging")]),
+        ("f.json", "{\"a\": \"X=a\\/b cargo test -p brokkr-cli --test it packaging::\",\n \"b\": [\"no_such_file::\"]}\n", vec![cli("f.json:1", "packaging")]),
         ("f.md", "Run `cargo test -p brokkr-cli --test\nit packaging::` once; it's quick.\n```sh\ncargo test -p brokkr-cli --test it suppressions::\n```\n", vec![cli("f.md:1", "packaging"), cli("f.md:4", "suppressions")]),
         ("f.md", "Pass --test heap_x or `cargo test -p brokkr-cli --test it packaging::` here.\n", vec![cli("f.md:1", "packaging")]),
-        ("f", "echo `date` $(pwd) @(x) \"2\">f\n(cd x; cargo test -p brokkr-cli --test it packaging::)\n", vec![cli("f:2", "packaging")]),
+        ("f.md", "`cargo test -p brokkr-cli --test it packaging::`: or (``cargo test -p brokkr-cli --test it suppressions::``).\n", vec![cli("f.md:1", "packaging"), cli("f.md:1", "suppressions")]),
     ] {
         assert_eq!(filters_in(file, text, &roots, &read), Ok(held), "{text}");
     }
@@ -943,8 +796,9 @@ fn the_filter_reader_holds_each_filter_to_its_crates_root() {
 
 /// Every spelling of a stale filter the shell would pass is held and
 /// refused: each form of `--test it`, a filter after `--skip`'s argument,
-/// a second filter, one before the flag, one after a redirect, a second
-/// package, a wrapped Markdown span, and a JSON string's escapes, decoded.
+/// a second filter, one before the flag, a second package, a comment's, a
+/// workflow value's before its comment, a wrapped Markdown span of either
+/// length, and a JSON string's escapes, decoded.
 #[test]
 fn the_filter_reader_refuses_a_stale_filter_in_every_form() {
     let (roots, read) = fixture();
@@ -965,7 +819,12 @@ fn the_filter_reader_refuses_a_stale_filter_in_every_form() {
         package: "brokkr-cli".into(),
         name: name.into(),
     };
-    let no_package = "cargo b && cargo test --test it packaging::";
+    let no_package = "cargo test --test it packaging::";
+    let tilde = (
+        "f.md",
+        "~~~sh\ncargo test --locked -p brokkr-cli --test it no_such_file::\n~~~",
+        refusal("f.md:2", "brokkr-cli", "no_such_file"),
+    );
     let other = [
         (
             "cargo test -p brokkr-cli -p brokkr-core --test it packaging::",
@@ -994,11 +853,8 @@ fn the_filter_reader_refuses_a_stale_filter_in_every_form() {
             },
         ),
     ];
-    for (file, text, refused) in stale.chain(
-        other
-            .into_iter()
-            .map(|(text, refused)| ("f", text, refused)),
-    ) {
+    let other = (other.into_iter()).map(|(text, refused)| ("f", text, refused));
+    for (file, text, refused) in stale.chain([tilde]).chain(other) {
         assert_eq!(
             filters_in(file, text, &roots, &read),
             Err(refused),
@@ -1009,15 +865,9 @@ fn the_filter_reader_refuses_a_stale_filter_in_every_form() {
 
 /// A stale filter in each spelling, by file; each names `no_such_file` on
 /// the file's first line.
-const STALE: [(&str, &str); 13] = [
+const STALE: [(&str, &str); 15] = [
     ("f", "cargo test -p brokkr-cli --test=it no_such_file::"),
-    ("f", "cargo test -p brokkr-cli --test  it no_such_file::"),
-    ("f", "cargo test -p brokkr-cli --test\tit no_such_file::"),
     ("f", "cargo test -p brokkr-cli --test 'it' no_such_file::"),
-    (
-        "f",
-        "cargo test -p brokkr-cli --test \\\n  it no_such_file::",
-    ),
     (
         "f",
         "cargo test -p brokkr-cli --test it -- --skip packaging:: no_such_file::",
@@ -1032,19 +882,36 @@ const STALE: [(&str, &str); 13] = [
     ),
     (
         "f",
-        "cargo test -p brokkr-cli --test it 2>&1 no_such_file::",
-    ),
-    (
-        "f",
         "cargo test -p brokkr-cli -p brokkr-core --test it no_such_file::",
+    ),
+    ("f", "#cargo test -p brokkr-cli --test it no_such_file::"),
+    (
+        "f.yml",
+        "run: cargo test -p brokkr-cli --test it no_such_file:: # x",
     ),
     (
         "f.md",
-        "Run `cargo test -p brokkr-cli --test it\nno_such_file::` once.",
+        "Run `cargo test -p brokkr-cli --test it\n  no_such_file::` once.",
+    ),
+    (
+        "f.md",
+        "Run ``cargo test --locked -p brokkr-cli --test it no_such_file::`` once.",
+    ),
+    (
+        "f.md",
+        "Run ``cargo test --locked -p brokkr-cli\n--test it no_such_file::`` once.",
+    ),
+    (
+        "f.md",
+        "    cargo test --locked -p brokkr-cli --test it no_such_file::",
+    ),
+    (
+        "f.md",
+        "| `cargo test --locked -p brokkr-cli --test it no_such_file::` | x |",
     ),
     (
         "f.json",
-        "{\"run\": \"cargo test --locked -p brokkr-cli --test it\\tno_such_file::\"}",
+        "{\"run\": \"cargo test --locked -p brokkr-cli --test it no_such_file::\"}",
     ),
     (
         "f.json",
@@ -1058,21 +925,13 @@ const STALE: [(&str, &str); 13] = [
 /// Every word, flag or form the reader does not know is refused by its
 /// word, never skipped: a filter that is not a module path, a flag outside
 /// the tables or in a form they do not take, a subcommand other than
-/// `test`, a `--test it` outside `cargo test`, a `--test` a break or the
-/// line's end cuts off or run into other text, a line the shell cannot
-/// split, a `--test` the shell has yet to make that could be `it`, and a
-/// form a file's format does not let the reader read exactly.
+/// `test`, a `--test it` outside `cargo test`, a `--test` with no target
+/// or run into other text, and a form a file's format does not let the
+/// reader read exactly.
 #[test]
 fn the_filter_reader_refuses_a_word_or_form_it_cannot_read() {
     let (roots, read) = fixture();
-    let space = char::from(0xa0);
-    let (nbsp, joined) = (
-        format!("cargo test -p brokkr-cli --test{space}it x::"),
-        format!("--test{space}it"),
-    );
-    let in_f = (UNREAD_WORDS.into_iter())
-        .chain([(nbsp.as_str(), joined.as_str())])
-        .map(|(text, word)| ("f", text, 1, word, text));
+    let in_f = (UNREAD_WORDS.into_iter()).map(|(text, word)| ("f", text, 1, word, text));
     let one_line = (UNREAD_LINES.into_iter()).map(|(file, text)| (file, text, 1, "--test", text));
     for (file, text, line, word, command) in in_f.chain(one_line).chain(UNREAD_FORMS) {
         assert_eq!(
@@ -1083,13 +942,10 @@ fn the_filter_reader_refuses_a_word_or_form_it_cannot_read() {
     }
 }
 
-/// A command, on a file's first line, the reader refuses by a word.
-const UNREAD_WORDS: [(&str, &str); 53] = [
+/// A command in the closed grammar, on a file's first line, the reader
+/// refuses by a word.
+const UNREAD_WORDS: [(&str, &str); 17] = [
     ("cargo test -p brokkr-cli --test it packaging", "packaging"),
-    (
-        "cargo test -p brokkr-cli --test it \"packaging:: x\"",
-        "packaging:: x",
-    ),
     (
         "cargo test -p brokkr-cli --test it -- --exact suppressions::a::b",
         "suppressions::a::b",
@@ -1119,106 +975,8 @@ const UNREAD_WORDS: [(&str, &str); 53] = [
     ("report -p brokkr-cli --test it x::", "--test"),
     ("report -p brokkr-cli --test=it x::", "--test=it"),
     ("cargo test -p brokkr-cli --test", "--test"),
+    ("echo --test", "--test"),
     ("cargo test -p brokkr-cli x--test it", "x--test"),
-    ("cargo test -p brokkr-cli --test it 'x::", "'"),
-    ("cargo test -p brokkr-cli --test it \"x::", "\""),
-    ("cargo test -p brokkr-cli --test it x:: >", ">"),
-    ("cargo test -p brokkr-cli --test it x:: \\", "\\"),
-    ("cargo test -p brokkr-cli --test it x:: > --test", "--test"),
-    (
-        "test_target=it; cargo test --locked -p brokkr-cli --test \"$test_target\" no_such_file::",
-        "$test_target",
-    ),
-    (
-        "cargo test --locked -p brokkr-cli --test ${TEST_TARGET:-it} no_such_file::",
-        "${TEST_TARGET:-it}",
-    ),
-    (
-        "for t in it; do cargo test --locked -p brokkr-cli --test \"$t\" no_such_file::; done",
-        "$t",
-    ),
-    (
-        "cargo test --locked -p brokkr-cli --test {it,no_such_file::}",
-        "{it,no_such_file::}",
-    ),
-    ("cargo test --locked -p brokkr-cli --test i* x::", "i*"),
-    (
-        "cargo test --locked -p brokkr-cli --test=[i]t x::",
-        "--test=[i]t",
-    ),
-    ("cargo test --locked -p brokkr-cli --test it$x x::", "it$x"),
-    (
-        "cargo test --locked -p brokkr-cli --test $(echo it) no_such_file::",
-        "$(echo it)",
-    ),
-    ("cargo test -p brokkr-cli --test `echo it` x::", "`echo it`"),
-    ("cargo test -p brokkr-cli --test; echo it", "--test"),
-    ("report --test \"$x\" x::", "$x"),
-    (
-        "cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
-        "i`printf t`",
-    ),
-    (
-        "cargo test --locked -p brokkr-cli --test=i`printf t` no_such_file::",
-        "--test=i`printf t`",
-    ),
-    (
-        "cargo test --locked -p brokkr-cli --test it`printf ''` no_such_file::",
-        "it`printf ''`",
-    ),
-    (
-        "cargo test --locked -p brokkr-cli --test it `echo no_such_file::`",
-        "`echo no_such_file::`",
-    ),
-    (
-        "cargo test --locked -p brokkr-cli --test it -- --exact packaging::every_workspace_path_dependency_names_the_workspace_version`echo x`",
-        "packaging::every_workspace_path_dependency_names_the_workspace_version`echo x`",
-    ),
-    (
-        "cargo test -p brokkr-cli --test it -- --exact suppressions::a_b`echo x`",
-        "suppressions::a_b`echo x`",
-    ),
-    (
-        "echo $(date); cargo test -p brokkr-cli --test it packaging::",
-        "$(date)",
-    ),
-    (
-        "echo \"$(date)\"; cargo test -p brokkr-cli --test it packaging::",
-        "$(date)",
-    ),
-    (
-        "echo \"`date`\"; cargo test -p brokkr-cli --test it packaging::",
-        "`date`",
-    ),
-    (
-        "cargo test -p brokkr-cli --test it packaging:: > `mktemp`",
-        "`mktemp`",
-    ),
-    (
-        "cargo test -p brokkr-cli --te\\st it packaging:: > `mktemp`",
-        "`mktemp`",
-    ),
-    (
-        "cargo test -p brokkr-cli --test it $(echo $(x) y) z::",
-        "$(echo $(x) y)",
-    ),
-    ("cargo test -p brokkr-cli --test it `echo (` x::", "`echo (`"),
-    ("cargo test -p brokkr-cli --test it x:: `x", "`"),
-    ("cargo test -p brokkr-cli --test it $(x \\) y", ")"),
-    (
-        "cargo test --locked -p brokkr-cli --test @(it) no_such_file::",
-        "@(it)",
-    ),
-    (
-        "f() { cargo test -p brokkr-cli --test it packaging::; }",
-        "f()",
-    ),
-    (
-        "cargo test --locked -p brokkr-cli --test it \"2\">/dev/null",
-        "2",
-    ),
-    ("cargo test -p brokkr-cli --test it '2'>/dev/null", "2"),
-    ("cargo test -p brokkr-cli --test it \\2>/dev/null", "2"),
 ];
 
 /// A one-line form, by file, the reader does not read exactly, refused at
@@ -1250,21 +1008,7 @@ const UNREAD_LINES: [(&str, &str); 7] = [
 
 /// A form, by file, the reader refuses at a line and a word, with the
 /// command it names.
-const UNREAD_FORMS: [(&str, &str, usize, &str, &str); 9] = [
-    (
-        "f.yml",
-        "run: cargo test --locked -p brokkr-cli --test ${{ matrix.target }} no_such_file::",
-        1,
-        "${{",
-        "cargo test --locked -p brokkr-cli --test ${{ matrix.target }} no_such_file::",
-    ),
-    (
-        "f.yml",
-        "run: |\n  cargo test -p brokkr-cli --test '${{ matrix.target }}' x::",
-        2,
-        "${{ matrix.target }}",
-        "cargo test -p brokkr-cli --test '${{ matrix.target }}' x::",
-    ),
+const UNREAD_FORMS: [(&str, &str, usize, &str, &str); 6] = [
     (
         "f.yml",
         "run:\n  cargo test --locked -p brokkr-cli --test it\n  no_such_file::b",
@@ -1301,13 +1045,6 @@ const UNREAD_FORMS: [(&str, &str, usize, &str, &str); 9] = [
         "--test",
     ),
     (
-        "f.yml",
-        "run: |\n  cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
-        2,
-        "i`printf t`",
-        "cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
-    ),
-    (
         "f.md",
         "Pass --test it with `cargo b`.",
         1,
@@ -1315,6 +1052,399 @@ const UNREAD_FORMS: [(&str, &str, usize, &str, &str); 9] = [
         "Pass --test it with",
     ),
 ];
+
+/// A line that may pass `--test it` is refused by its first character
+/// outside the closed grammar, whatever the shell would make of it: every
+/// input of the earlier reviews, and each Markdown code form whose
+/// backticks the shell may run.
+#[test]
+fn the_filter_reader_refuses_a_line_by_its_first_character_outside_the_grammar() {
+    let (roots, read) = fixture();
+    let (nbsp, acute) = (char::from(0xa0), char::from(0xe9));
+    let foreign = [
+        (format!("cargo test -p brokkr-cli --test{nbsp}it x::"), nbsp),
+        (
+            format!("cargo test -p brokkr-cli --test it pack{acute}::"),
+            acute,
+        ),
+    ];
+    let in_f = (OUTSIDE.into_iter())
+        .map(|(text, outside)| (text.to_string(), outside))
+        .chain(foreign)
+        .map(|(text, outside)| ("f", text.clone(), 1, outside, text));
+    let forms = (OUTSIDE_FORMS.into_iter()).map(|(file, text, line, outside, command)| {
+        (file, text.to_string(), line, outside, command.to_string())
+    });
+    for (file, text, line, outside, command) in in_f.chain(forms) {
+        assert_eq!(
+            filters_in(file, &text, &roots, &read),
+            Err(unread_filter(
+                &format!("{file}:{line}"),
+                &outside.to_string(),
+                &command
+            )),
+            "{text}"
+        );
+    }
+}
+
+/// A command, on a file's first line, refused by the character named.
+const OUTSIDE: [(&str, char); 51] = [
+    ("cargo test -p brokkr-cli --test  it no_such_file::", ' '),
+    ("cargo test -p brokkr-cli --test\tit no_such_file::", '\t'),
+    ("cargo test -p brokkr-cli --test it \"packaging:: x\"", ' '),
+    ("cargo test -p brokkr-cli --test it ''", '\''),
+    ("cargo test -p brokkr-cli --test it 'x::", '\''),
+    ("cargo test -p brokkr-cli --test it \"x::", '"'),
+    ("cargo test -p brokkr-cli --test it \"it's\"", '\''),
+    ("cargo test -p brokkr-cli --test it x:: >", '>'),
+    ("cargo test -p brokkr-cli --test it x:: \\", '\\'),
+    ("cargo test -p brokkr-cli --test it x:: > --test", '>'),
+    (
+        "cargo test -p brokkr-cli --test it 2>&1 no_such_file::",
+        '>',
+    ),
+    ("cargo test -p brokkr-cli --test it packaging:: # `x`", '#'),
+    (
+        "test_target=it; cargo test --locked -p brokkr-cli --test \"$test_target\" no_such_file::",
+        ';',
+    ),
+    (
+        "cargo test --locked -p brokkr-cli --test ${TEST_TARGET:-it} no_such_file::",
+        '$',
+    ),
+    (
+        "for t in it; do cargo test --locked -p brokkr-cli --test \"$t\" no_such_file::; done",
+        ';',
+    ),
+    (
+        "cargo test --locked -p brokkr-cli --test {it,no_such_file::}",
+        '{',
+    ),
+    ("cargo test --locked -p brokkr-cli --test i* x::", '*'),
+    ("cargo test --locked -p brokkr-cli --test=[i]t x::", '['),
+    ("cargo test --locked -p brokkr-cli --test it$x x::", '$'),
+    (
+        "cargo test --locked -p brokkr-cli --test $(echo it) no_such_file::",
+        '$',
+    ),
+    ("cargo test -p brokkr-cli --test `echo it` x::", '`'),
+    ("cargo test -p brokkr-cli --test; echo it", ';'),
+    ("report --test \"$x\" x::", '$'),
+    (
+        "cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+        '`',
+    ),
+    (
+        "cargo test --locked -p brokkr-cli --test=i`printf t` no_such_file::",
+        '`',
+    ),
+    (
+        "cargo test --locked -p brokkr-cli --test it`printf ''` no_such_file::",
+        '`',
+    ),
+    (
+        "cargo test --locked -p brokkr-cli --test it `echo no_such_file::`",
+        '`',
+    ),
+    (
+        "cargo test -p brokkr-cli --test it -- --exact suppressions::a_b`echo x`",
+        '`',
+    ),
+    (
+        "echo $(date); cargo test -p brokkr-cli --test it packaging::",
+        '$',
+    ),
+    (
+        "echo \"`date`\"; cargo test -p brokkr-cli --test it packaging::",
+        '`',
+    ),
+    (
+        "cargo test -p brokkr-cli --test it packaging:: > `mktemp`",
+        '>',
+    ),
+    (
+        "cargo test -p brokkr-cli --te\\st it packaging:: > `mktemp`",
+        '\\',
+    ),
+    ("cargo test -p brokkr-cli --test it $(echo $(x) y) z::", '$'),
+    ("cargo test -p brokkr-cli --test it x:: `x", '`'),
+    (
+        "cargo test --locked -p brokkr-cli --test @(it) no_such_file::",
+        '(',
+    ),
+    ("args=(--test it no_such_file::)", '('),
+    (
+        "(cd x; cargo test -p brokkr-cli --test it packaging::)",
+        '(',
+    ),
+    (
+        "it) cargo test -p brokkr-cli --test it no_such_file:: ;;",
+        ')',
+    ),
+    (
+        "f() { cargo test -p brokkr-cli --test it packaging::; }",
+        '(',
+    ),
+    (
+        "cargo test --locked -p brokkr-cli --test it \"2\">/dev/null",
+        '>',
+    ),
+    ("cargo test -p brokkr-cli --test it 1\"2\">/dev/null", '>'),
+    (
+        "cargo test -p brokkr-cli --test it 2>/dev/null no_such_file::",
+        '>',
+    ),
+    ("cargo test -p brokkr-cli --test it \\2>/dev/null", '\\'),
+    (
+        "bash -c 'cargo test -p brokkr-cli --test it `echo x::`'",
+        ' ',
+    ),
+    (
+        "cargo test -p brokkr-cli --test it \"$(echo \"no_such_file::\")\"",
+        '$',
+    ),
+    ("cargo test -p brokkr-cli --test it <(echo x)", '<'),
+    ("cargo test -p brokkr-cli --test $'it' x::", '$'),
+    ("cargo test -p brokkr-cli --test it x:: | tee out", '|'),
+    ("cargo test -p brokkr-cli --test it x:: && echo ok", '&'),
+    (
+        "echo no_such_file:: | xargs cargo test --locked -p brokkr-cli --test it",
+        '|',
+    ),
+    ("cargo test -p brokkr-cli --test it ~/x::", '~'),
+];
+
+/// A form, by file, refused at a line by the character named, with the
+/// command it names: a workflow's expansions and backticks, a continued
+/// line, a decoded tab, and in Markdown every code form whose backticks
+/// the shell may run, among them the eleven of the fifth review.
+const OUTSIDE_FORMS: [(&str, &str, usize, char, &str); 22] = [
+    (
+        "f.yml",
+        "run: cargo test --locked -p brokkr-cli --test ${{ matrix.target }} no_such_file::",
+        1,
+        '$',
+        "cargo test --locked -p brokkr-cli --test ${{ matrix.target }} no_such_file::",
+    ),
+    (
+        "f.yml",
+        "run: |\n  cargo test -p brokkr-cli --test '${{ matrix.target }}' x::",
+        2,
+        '$',
+        "cargo test -p brokkr-cli --test '${{ matrix.target }}' x::",
+    ),
+    (
+        "f.yml",
+        "run: |\n  cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+        2,
+        '`',
+        "cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+    ),
+    (
+        "f",
+        "cargo test -p brokkr-cli --test \\\n  it no_such_file::",
+        1,
+        '\\',
+        "cargo test -p brokkr-cli --test \\",
+    ),
+    (
+        "f",
+        "X=1 cargo test -p brokkr-cli --test it \\\n  suppressions::a > /dev/null",
+        1,
+        '\\',
+        "X=1 cargo test -p brokkr-cli --test it \\",
+    ),
+    (
+        "f.json",
+        "{\"run\": \"cargo test --locked -p brokkr-cli --test it\\tno_such_file::\"}",
+        1,
+        '\t',
+        "cargo test --locked -p brokkr-cli --test it\tno_such_file::",
+    ),
+    (
+        "f.md",
+        "Run ``cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::``.",
+        1,
+        '`',
+        "cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+    ),
+    (
+        "f.md",
+        "Run ``cargo test --locked -p brokkr-cli --test=i`printf t` no_such_file::``.",
+        1,
+        '`',
+        "cargo test --locked -p brokkr-cli --test=i`printf t` no_such_file::",
+    ),
+    (
+        "f.md",
+        "Run ``cargo test --locked -p brokkr-cli --test it`printf ''` no_such_file::``.",
+        1,
+        '`',
+        "cargo test --locked -p brokkr-cli --test it`printf ''` no_such_file::",
+    ),
+    (
+        "f.md",
+        "Run `` cargo test --locked -p brokkr-cli --test it `echo no_such_file::` `` once.",
+        1,
+        '`',
+        "cargo test --locked -p brokkr-cli --test it `echo no_such_file::`",
+    ),
+    (
+        "f.md",
+        "Run ``cargo test --locked -p brokkr-cli --test it -- --exact suppressions::a_b`echo x` ``.",
+        1,
+        '`',
+        "cargo test --locked -p brokkr-cli --test it -- --exact suppressions::a_b`echo x`",
+    ),
+    (
+        "f.md",
+        "Run ``cargo test --locked -p brokkr-cli\n--test i`printf t` no_such_file::``.",
+        1,
+        '`',
+        "cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+    ),
+    (
+        "f.md",
+        "~~~sh\ncargo test --locked -p brokkr-cli --test i`printf t` no_such_file::\n~~~",
+        2,
+        '`',
+        "cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+    ),
+    (
+        "f.md",
+        "Run:\n\n    cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+        3,
+        '`',
+        "cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+    ),
+    (
+        "f.md",
+        "Run:\n\n    cargo test --locked -p brokkr-cli --test it `echo no_such_file::`",
+        3,
+        '`',
+        "cargo test --locked -p brokkr-cli --test it `echo no_such_file::`",
+    ),
+    (
+        "f.md",
+        "> ```sh\n> cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::\n> ```",
+        1,
+        '>',
+        "sh > cargo test --locked -p brokkr-cli --test i`printf t` no_such_file:: >",
+    ),
+    (
+        "f.md",
+        "````\n```sh\ncargo test --locked -p brokkr-cli --test i`printf t` no_such_file::\n```\n````",
+        3,
+        '`',
+        "cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::",
+    ),
+    (
+        "f.md",
+        "<pre>cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::</pre>",
+        1,
+        '<',
+        "<pre>cargo test --locked -p brokkr-cli --test i`printf t` no_such_file::</pre>",
+    ),
+    (
+        "f.md",
+        "Run cargo test -p brokkr-cli `printf -- --test=i`t no_such_file:: here.",
+        1,
+        '`',
+        "Run cargo test -p brokkr-cli `printf -- --test=i`t no_such_file:: here.",
+    ),
+    (
+        "f.md",
+        "cargo test -p brokkr-cli `true` --test=i`printf t` no_such_file::",
+        1,
+        '`',
+        "cargo test -p brokkr-cli `true` --test=i`printf t` no_such_file::",
+    ),
+    (
+        "f.md",
+        "Run `` cargo test -p brokkr-cli --test it ` no_such_file:: ` `` once.",
+        1,
+        '`',
+        "cargo test -p brokkr-cli --test it ` no_such_file:: `",
+    ),
+    (
+        "f.md",
+        "Run `cargo test -p brokkr-cli --test it no_such_file::`s once.",
+        1,
+        '`',
+        "Run `cargo test -p brokkr-cli --test it no_such_file::`s once.",
+    ),
+];
+
+/// Each character outside the closed grammar, and a second space, put
+/// anywhere in a line the reader holds, refuses the line by that
+/// character; only a `#` that opens it, making it a comment, leaves it
+/// read as it was.
+#[test]
+fn a_character_outside_the_grammar_refuses_a_held_line_wherever_it_stands() {
+    let (roots, read) = fixture();
+    let outside = [
+        '#',
+        '$',
+        '`',
+        '\\',
+        ';',
+        '&',
+        '|',
+        '<',
+        '>',
+        '(',
+        ')',
+        '{',
+        '}',
+        '*',
+        '?',
+        '[',
+        ']',
+        '!',
+        '~',
+        '%',
+        '^',
+        '\t',
+        char::from(0xa0),
+        char::from(0xe9),
+    ];
+    for (line, module) in [
+        (
+            "cargo test --locked -p brokkr-cli --test it packaging::",
+            "packaging",
+        ),
+        (
+            "X=1 cargo test -p brokkr-cli --test=it -- --exact suppressions::a_b",
+            "suppressions",
+        ),
+    ] {
+        let held = || {
+            Ok(vec![Filter {
+                at: "f:1".into(),
+                package: "brokkr-cli".into(),
+                module: module.into(),
+            }])
+        };
+        assert_eq!(filters_in("f", line, &roots, &read), held(), "{line}");
+        let spaces = line
+            .match_indices(' ')
+            .map(|(at, space)| (at, space.to_string()));
+        let inserted = (0..=line.len()).flat_map(|at| outside.map(|c| (at, c.to_string())));
+        for (at, c) in inserted.chain(spaces) {
+            let variant = format!("{}{c}{}", &line[..at], &line[at..]);
+            let refused = match (at, c.as_str()) {
+                (0, "#") => held(),
+                _ => Err(unread_filter("f:1", &c, &variant)),
+            };
+            assert_eq!(
+                filters_in("f", &variant, &roots, &read),
+                refused,
+                "{variant:?}"
+            );
+        }
+    }
+}
 
 /// Two packages' roots, and the one module file whose tests an `--exact`
 /// name is held to.

@@ -17,8 +17,9 @@
 //! filter that matches nothing runs 0 tests and passes, where the old
 //! `--test <file>` failed. So every `--test it` filter a workflow, script,
 //! recipe, bundle or guide runs must name a module of its crate's root,
-//! and an `--exact` name a test of that module. `run_commands` reads the
-//! commands word by word, as the shell does.
+//! and an `--exact` name a test of that module. `run_commands` reads each
+//! command that may pass `--test it` word by word in a closed grammar, and
+//! refuses the first character outside it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -72,7 +73,8 @@ enum Refusal {
     /// A `--test it` command with a filter and no `-p`.
     NoPackage { at: String, command: String },
     /// A `--test it` command with a word, flag or form the reader does not
-    /// know, by that word.
+    /// know, by that word, or with a character outside its grammar, by
+    /// that character.
     UnreadFilter {
         at: String,
         word: String,

@@ -27,6 +27,9 @@ run() {
         write_result fail; exit 0
     fi
 }
+# A command run under its own words as its label, so the line that runs it
+# is the one plain command the test-target gate reads (#423).
+run_itself() { run "$*" "$@"; }
 dirty="$(git status --porcelain 2>&1 || true)"
 [ -z "$dirty" ] || { printf 'git status --porcelain is not empty; the researcher left uncommitted work:\n%s' "$dirty" > "$notes"; write_result fail; exit 0; }
 base="main"
@@ -41,6 +44,6 @@ else
     added=0
 fi
 export CARGO_NET_OFFLINE=true
-run "cargo test --locked -p brokkr-cli --test it research_registry::" cargo test --locked -p brokkr-cli --test it research_registry::
+run_itself cargo test --locked -p brokkr-cli --test it research_registry::
 printf 'the registry parses, every citation resolves, and %s new entries were written on top of %s (cap ten); the classifications are proposals until the operator rules them' "$added" "$base" > "$notes"
 write_result pass
