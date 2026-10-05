@@ -37,6 +37,7 @@ fn embedded_schemas_are_the_published_contracts() {
         (CONTRACT_V3, SCHEMA_V3),
         (CONTRACT_V4, SCHEMA_V4),
         (CONTRACT_V5, SCHEMA_V5),
+        (CONTRACT_V6, SCHEMA_V6),
     ] {
         let published = std::fs::read(workspace.join(relative)).unwrap();
         assert_eq!(
@@ -204,12 +205,13 @@ fn the_version_is_the_one_the_runs_engine_wrote() {
     // 0.9 line and everything after it reads v4.
     assert_eq!(SeatRecordVersion::of_engine("0.9.0"), SeatRecordVersion::V4);
     assert_eq!(SeatRecordVersion::of_engine("0.9.1"), SeatRecordVersion::V4);
-    // Proposed decision 0056 ruling 7 moved the top of this ladder:
-    // the 0.10 line and everything after it reads v5, on the same
-    // superset argument, so a release-candidate of 1.0.0 does too.
+    // Proposed decision 0056 ruling 7 moved the top of this ladder to
+    // v5 at the 0.10 line, and decision 0065 ruling 8 to v6 at the 0.12
+    // line, on the same superset argument, so a release-candidate of
+    // 1.0.0 reads v6.
     assert_eq!(
         SeatRecordVersion::of_engine("1.0.0-rc.1"),
-        SeatRecordVersion::V5
+        SeatRecordVersion::V6
     );
     assert_eq!(
         SeatRecordVersion::of_engine("0.10.0"),
@@ -536,7 +538,7 @@ fn the_zero_ten_line_reads_v5_and_the_nine_line_still_reads_v4() {
         ("0.9.99", SeatRecordVersion::V4),
         ("0.10.0", SeatRecordVersion::V5),
         ("0.10.1", SeatRecordVersion::V5),
-        ("1.0.0", SeatRecordVersion::V5),
+        ("0.11.99", SeatRecordVersion::V5),
         ("not a version", SeatRecordVersion::V1),
     ] {
         assert_eq!(SeatRecordVersion::of_engine(engine), want, "{engine}");
@@ -615,4 +617,279 @@ fn one_record_is_judged_by_the_engine_that_wrote_its_run() {
         .contract,
         CONTRACT_V1
     );
+}
+
+/// A complete SC4 attribution group, as the engine stamps one: the
+/// selected capability and dialect, the concrete tool and the call. No
+/// turn: only a settled broker state may stand without one.
+fn attributed(state: &str) -> Value {
+    json!({
+        "step":"capability-call", "tool":"WebSearch",
+        "capability":"web-search", "dialect":"claude-native-search",
+        "call_id":"attempt-1:toolu_01", "call_state": state
+    })
+}
+
+fn with(mut record: Value, field: &str, value: Value) -> Value {
+    record[field] = value;
+    record
+}
+
+fn without(mut record: Value, field: &str) -> Value {
+    record.as_object_mut().unwrap().remove(field);
+    record
+}
+
+/// A native call the harness reported, on the turn that reported it.
+fn observed() -> Value {
+    with(attributed("observed"), "turn", json!(3))
+}
+
+const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const SETTLED: [&str; 4] = ["succeeded", "failed", "refused", "interrupted"];
+
+fn refused_by(seq: u64, contract: &'static str) -> Result<(), SeatRecordError> {
+    let path = "/".to_string();
+    Err(SeatRecordError {
+        seq,
+        path,
+        contract,
+    })
+}
+
+/// The v6 boundary is the 0.12 line, the development line on main when
+/// v6 landed, read through the same `major.minor.patch` convention as
+/// every earlier boundary: a pre-release or build of the line is the
+/// line, and a malformed or missing engine falls back to v1. The 0.11
+/// line keeps v5, so the identical complete group is admitted in a 0.12
+/// run and refused, as v5's violation, in a 0.11 one.
+#[test]
+fn the_zero_twelve_line_reads_v6_and_the_eleven_line_still_reads_v5() {
+    for (engine, want) in [
+        ("0.11.0", SeatRecordVersion::V5),
+        ("0.11.99", SeatRecordVersion::V5),
+        ("0.11.99+build.7", SeatRecordVersion::V5),
+        ("0.12.0-rc.1", SeatRecordVersion::V6),
+        ("0.12.0+build.7", SeatRecordVersion::V6),
+        ("0.12.0", SeatRecordVersion::V6),
+        ("0.12.3", SeatRecordVersion::V6),
+        ("1.0.0", SeatRecordVersion::V6),
+        ("0.12", SeatRecordVersion::V1),
+        ("0.12.0.1", SeatRecordVersion::V1),
+        ("", SeatRecordVersion::V1),
+    ] {
+        assert_eq!(SeatRecordVersion::of_engine(engine), want, "{engine}");
+    }
+    let group = event(
+        2,
+        EventType::EffectCheckpointed,
+        json!({"checkpoint": observed()}),
+    );
+    validate_events(&[started("0.12.0"), group.clone()]).unwrap();
+    assert_eq!(
+        validate_events(&[started("0.11.99"), group.clone()]),
+        refused_by(2, CONTRACT_V5)
+    );
+    let unnamed = event(1, EventType::RunStarted, json!({"feature": "f"}));
+    assert_eq!(
+        validate_events(&[unnamed, group]),
+        refused_by(2, CONTRACT_V1)
+    );
+}
+
+/// SC4's admitted shapes: one native observed group on its real turn,
+/// and each of the four settled broker states with or without a turn —
+/// the broker's call identity owns it, and a correlated turn when one was
+/// measured stays the real one. A digest rides succeeded and failed. The
+/// bounds are inclusive and the tool is never truncated to fit.
+#[test]
+fn v6_admits_one_native_observed_or_broker_settled_group() {
+    let admitted = |record: &Value| validate_seat_record(record, 3, SeatRecordVersion::V6);
+    assert_eq!(admitted(&observed()), Ok(()));
+    for state in SETTLED {
+        assert_eq!(admitted(&attributed(state)), Ok(()), "{state}");
+        let turned = with(attributed(state), "turn", json!(2));
+        assert_eq!(admitted(&turned), Ok(()), "{state} on its turn");
+    }
+    for state in ["succeeded", "failed"] {
+        let retained = with(attributed(state), "response_sha256", json!(DIGEST));
+        assert_eq!(admitted(&retained), Ok(()), "{state} with its digest");
+    }
+    let mut widest = observed();
+    for (field, bytes) in [("capability", 128), ("dialect", 128), ("call_id", 128)] {
+        widest[field] = json!("a".repeat(bytes));
+    }
+    widest["tool"] = json!(format!("mcp:{}", "t".repeat(252)));
+    assert_eq!(admitted(&widest), Ok(()));
+}
+
+/// SC4's refusals, each the exact v6 violation at the record's seq: a
+/// partial group, a public `started` or unknown state, a digest beside a
+/// state with no retained response or in the wrong form, every identity
+/// one byte over or outside its vocabulary, a dependency met by no turn,
+/// and a private observation or an unknown key.
+#[test]
+fn v6_refuses_partial_groups_bad_states_digests_and_identities() {
+    let broker = attributed("succeeded");
+    let legacy = json!({"step":"seat-turn", "turn":1, "tool":"WebSearch"});
+    let mut refused: Vec<Value> = ["capability", "dialect", "tool", "call_id", "call_state"]
+        .iter()
+        .map(|field| without(observed(), field))
+        .collect();
+    refused.extend([
+        // Each group field alone on an old-shaped row, so only its own
+        // dependency entry can refuse it.
+        with(legacy.clone(), "capability", json!("web-search")),
+        with(legacy.clone(), "dialect", json!("claude-native-search")),
+        with(legacy.clone(), "call_id", json!("attempt-1:toolu_01")),
+        with(legacy.clone(), "call_state", json!("observed")),
+        with(legacy.clone(), "response_sha256", json!(DIGEST)),
+        // On a real turn, so the state alone decides.
+        with(observed(), "call_state", json!("started")),
+        with(observed(), "call_state", json!("pending")),
+        with(observed(), "response_sha256", json!(DIGEST)),
+        with(attributed("refused"), "response_sha256", json!(DIGEST)),
+        with(attributed("interrupted"), "response_sha256", json!(DIGEST)),
+        with(
+            broker.clone(),
+            "response_sha256",
+            json!(DIGEST.to_uppercase()),
+        ),
+        with(broker.clone(), "response_sha256", json!(&DIGEST[1..])),
+        with(broker.clone(), "capability", json!("a".repeat(129))),
+        with(broker.clone(), "capability", json!("Web-Search")),
+        with(broker.clone(), "dialect", json!("d".repeat(129))),
+        with(broker.clone(), "dialect", json!("Claude-Native-Search")),
+        with(broker.clone(), "call_id", json!("c".repeat(129))),
+        with(broker.clone(), "call_id", json!("attempt 1")),
+        with(broker.clone(), "call_id", json!("attempt-é")),
+        with(broker.clone(), "tool", json!("t".repeat(257))),
+        with(broker.clone(), "tool", json!("Web Search")),
+        with(legacy.clone(), "tool", json!("t".repeat(81))),
+        without(observed(), "turn"),
+        without(legacy.clone(), "turn"),
+        json!({"step":"seat-turn", "tool":"Read", "target":"src/lib.rs"}),
+        with(
+            observed(),
+            "observation",
+            json!({"call":"toolu_01", "name":"WebSearch"}),
+        ),
+        with(broker, "server", json!("cap-web-search")),
+    ]);
+    for record in refused {
+        assert_eq!(
+            validate_seat_record(&record, 4, SeatRecordVersion::V6),
+            refused_by(4, CONTRACT_V6),
+            "{record}"
+        );
+    }
+}
+
+/// CC3's old absence is honest: every valid v5 shape — a legacy tool
+/// row on its turn, an 80-byte tool, an unstamped historical resume, a
+/// stamped root launch, a refusal token, a dialect step's result — is a
+/// valid v6 record with no group invented, and v5's two stamped-row
+/// conditions still refuse under v6.
+#[test]
+fn every_valid_v5_shape_is_a_valid_v6_record_and_v5s_conditions_stand() {
+    for record in [
+        json!({"step":"seat-turn", "turn":1, "tool":"Read", "target":"src/lib.rs"}),
+        json!({"step":"seat-turn", "turn":1, "tool":"t".repeat(80)}),
+        json!({"step":"harness-started", "harness":"codex", "launch":"resumed"}),
+        json!({"step":"harness-started", "launch":"resumed", "site_ref": SITE,
+               "root_session": root("019c4b7e")}),
+        json!({"step":"harness-started", "launch":"cold", "resume_refusal":"instance-changed"}),
+        json!({"result":"pass", "state":"framework-state", "boundary":"namespace"}),
+    ] {
+        validate_seat_record(&record, 5, SeatRecordVersion::V5).unwrap();
+        assert_eq!(
+            validate_seat_record(&record, 5, SeatRecordVersion::V6),
+            Ok(()),
+            "{record}"
+        );
+    }
+    let stamped = json!({"step":"harness-started", "launch":"resumed", "site_ref": SITE});
+    assert_eq!(
+        validate_seat_record(&stamped, 6, SeatRecordVersion::V6),
+        refused_by(6, CONTRACT_V6)
+    );
+}
+
+/// Append, export and offline verification read one contract for a
+/// 0.12 run: a partial group is refused at the seq it would take with
+/// the journal standing still; complete native and broker groups land
+/// and export and verify; a malformed group planted past the fence is
+/// refused by both read sweeps with the same violation. A 0.11 run's
+/// fence refuses the complete group under v5.
+#[test]
+fn append_export_and_verify_judge_one_v6_contract() {
+    let (_dir, mut store) = crate::tests::store();
+    for (run, engine) in [("twelve", "0.12.0"), ("eleven", "0.11.0")] {
+        let manifest = json!({"engine": engine});
+        store.create_run(run, "feat", "self", &manifest).unwrap();
+        for (event_type, payload) in [
+            (
+                EventType::RunStarted,
+                json!({"feature":"feat", "manifest": manifest}),
+            ),
+            (EventType::PhaseEntered, json!({"phase":"implement"})),
+            (
+                EventType::EffectRequested,
+                json!({"effect_id":"fx", "seat":"implement"}),
+            ),
+            (
+                EventType::EffectStarted,
+                json!({"effect_id":"fx", "attempt_id":"attempt-1"}),
+            ),
+        ] {
+            store
+                .append_next(run, event_type, payload, None, None)
+                .unwrap();
+        }
+    }
+    let append = |store: &mut crate::Store, run: &str, record: Value| {
+        let payload = json!({"effect_id":"fx", "checkpoint": record});
+        store.append_next(run, EventType::EffectCheckpointed, payload, None, None)
+    };
+    let head = store.head_hash("twelve").unwrap();
+    let crate::StoreError::SeatRecord(partial) =
+        append(&mut store, "twelve", without(observed(), "call_id")).unwrap_err()
+    else {
+        panic!("a partial group is a seat-record refusal");
+    };
+    assert_eq!(
+        partial.to_string(),
+        "seat record at journal seq 5 violates contracts/seat-record.v6.schema.json at /"
+    );
+    assert_eq!(Err(partial), refused_by(5, CONTRACT_V6));
+    assert_eq!(store.head_hash("twelve").unwrap(), head);
+    for record in [observed(), attributed("refused")] {
+        append(&mut store, "twelve", record).unwrap();
+    }
+    let exported = store.export_ndjson("twelve").unwrap();
+    assert_eq!(crate::verify_export(&exported).unwrap().seq, 6);
+    let crate::StoreError::SeatRecord(old) = append(&mut store, "eleven", observed()).unwrap_err()
+    else {
+        panic!("v5 has no attribution group");
+    };
+    assert_eq!(Err(old), refused_by(5, CONTRACT_V5));
+
+    let malformed = with(attributed("refused"), "response_sha256", json!(DIGEST));
+    let payload = json!({"effect_id":"fx", "checkpoint": malformed});
+    crate::tests::plant_unfenced(&mut store, "twelve", EventType::EffectCheckpointed, payload);
+    let crate::StoreError::SeatRecord(exported) = store.export_ndjson("twelve").unwrap_err() else {
+        panic!("export refuses a malformed group as a seat record");
+    };
+    assert_eq!(Err(exported), refused_by(7, CONTRACT_V6));
+    // The sealed rows themselves, as another writer could hand them over.
+    let ndjson: String = store
+        .load("twelve")
+        .unwrap()
+        .iter()
+        .map(|event| serde_json::to_string(event).unwrap() + "\n")
+        .collect();
+    let Err(crate::VerifyError::SeatRecord(verified)) = crate::verify_export(&ndjson) else {
+        panic!("offline verify refuses a malformed group as a seat record");
+    };
+    assert_eq!(Err(verified), refused_by(7, CONTRACT_V6));
 }

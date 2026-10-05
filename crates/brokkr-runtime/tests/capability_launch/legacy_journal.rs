@@ -45,7 +45,7 @@ const UNRECORDED: [&str; 6] = [
     "observation",
 ];
 
-const V5: &str = "contracts/seat-record.v5.schema.json";
+const V6: &str = "contracts/seat-record.v6.schema.json";
 
 /// The version the fake harness reports, and the fixture assessment
 /// qualifies against.
@@ -492,11 +492,14 @@ fn wanted_launches() -> BTreeMap<String, Vec<String>> {
         .collect()
 }
 
-/// A direct append of a partial attribution group, a whole one, or a
-/// private observation, each beside a legacy native row, is refused with
-/// the exact v5 violation at the seq it would have taken, and the
-/// journal stands still.
-fn refuses_unrecorded_fields(store: &mut Store, run_id: &str) {
+/// A direct append of a partial attribution group or a private
+/// observation, each beside a legacy native row, is refused with the
+/// exact v6 violation at the seq it would have taken, and the journal
+/// stands still. A whole engine-owned group is v6's to admit (SC4), and
+/// the export sweep passes the journal that takes it: append and export
+/// read one contract. (Verify also folds, and a completed run takes no
+/// further event, so store's own suite proves verify on a live run.)
+fn fences_the_attribution_group(store: &mut Store, run_id: &str) {
     let head = store.head_hash(run_id).unwrap();
     let base = json!({"step": "seat-turn", "turn": 3, "model": "claude-opus-5-5",
                       "tool": "WebSearch"});
@@ -509,7 +512,7 @@ fn refuses_unrecorded_fields(store: &mut Store, run_id: &str) {
     partial["capability"] = json!("web-search");
     let mut private = base;
     private["observation"] = json!({"call": "toolu_01", "name": "WebSearch"});
-    for checkpoint in [partial, whole, private] {
+    for checkpoint in [partial, private] {
         let payload = json!({"effect_id": "fx", "checkpoint": checkpoint});
         let error = store
             .append_next(run_id, EventType::EffectCheckpointed, payload, None, None)
@@ -521,11 +524,18 @@ fn refuses_unrecorded_fields(store: &mut Store, run_id: &str) {
         let want = SeatRecordError {
             seq,
             path: "/".into(),
-            contract: V5,
+            contract: V6,
         };
         assert_eq!(refusal, want, "{checkpoint}");
         assert_eq!(store.head_hash(run_id).unwrap(), head);
     }
+    let payload = json!({"effect_id": "fx", "checkpoint": whole});
+    let landed = store
+        .append_next(run_id, EventType::EffectCheckpointed, payload, None, None)
+        .unwrap();
+    assert_eq!(landed.seq, head.0 + 1);
+    let exported = store.export_ndjson(run_id).unwrap();
+    assert_eq!(exported.lines().count() as u64, landed.seq);
 }
 
 /// D9's preparation proof at this merge: every site shape journals the
@@ -572,5 +582,5 @@ fn every_site_shape_journals_its_legacy_native_rows_through_export_and_verify() 
     let verified = brokkr_store::verify_export(&exported).unwrap();
     let journal = (Status::Completed, events.len() as u64);
     assert_eq!((verified.status, verified.seq), journal);
-    refuses_unrecorded_fields(&mut engine.store, &run_id);
+    fences_the_attribution_group(&mut engine.store, &run_id);
 }

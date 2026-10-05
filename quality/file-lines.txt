@@ -103,7 +103,7 @@
     83 crates/brokkr-store/src/read.rs
    264 crates/brokkr-store/src/redact.rs
    295 crates/brokkr-store/src/schema.rs
-   199 crates/brokkr-store/src/seat_record.rs
+   220 crates/brokkr-store/src/seat_record.rs
     89 crates/brokkr-store/src/seat_record/validation.rs
     77 crates/brokkr-store/src/test_support.rs
    407 crates/brokkr-view/src/fleet.rs
@@ -239,7 +239,7 @@
    481 crates/brokkr-runtime/src/dialect/tests.rs
    545 crates/brokkr-runtime/src/engine/agent_tests.rs
    152 crates/brokkr-runtime/src/engine/artifact_gate_tests.rs
-  4620 crates/brokkr-runtime/src/engine/boundary_tests.rs
+  4616 crates/brokkr-runtime/src/engine/boundary_tests.rs
   2231 crates/brokkr-runtime/src/engine/capability_tests.rs
     58 crates/brokkr-runtime/src/engine/capability_tests/resume_tests.rs
    128 crates/brokkr-runtime/src/engine/checkpoints/tests.rs
@@ -259,11 +259,11 @@
     94 crates/brokkr-runtime/tests/anchor_test.rs
    384 crates/brokkr-runtime/tests/budgets.rs
  11883 crates/brokkr-runtime/tests/capability_launch.rs
-   576 crates/brokkr-runtime/tests/capability_launch/legacy_journal.rs
+   586 crates/brokkr-runtime/tests/capability_launch/legacy_journal.rs
    263 crates/brokkr-runtime/tests/crucible_review_sequence.rs
    214 crates/brokkr-runtime/tests/dispatch_seam.rs
    104 crates/brokkr-runtime/tests/fenced_commands.rs
-  1123 crates/brokkr-runtime/tests/frozen_contracts.rs
+  1141 crates/brokkr-runtime/tests/frozen_contracts.rs
    445 crates/brokkr-runtime/tests/gpt_flash_shape.rs
     88 crates/brokkr-runtime/tests/inline_resume.rs
    274 crates/brokkr-runtime/tests/landing_shape.rs
@@ -291,7 +291,7 @@
   2562 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/tests.rs
    157 crates/brokkr-store/src/origin/tests.rs
    176 crates/brokkr-store/src/read/tests.rs
-   618 crates/brokkr-store/src/seat_record/tests.rs
+   895 crates/brokkr-store/src/seat_record/tests.rs
   1996 crates/brokkr-store/src/tests.rs
    145 crates/brokkr-store/tests/concurrent_processes.rs
    152 crates/brokkr-store/tests/incremental_replay.rs

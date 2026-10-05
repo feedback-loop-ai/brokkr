@@ -938,7 +938,7 @@ fn the_tool_vocabulary_is_seat_records_own() {
     let published: Value = serde_json::from_str(
         &std::fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../contracts/seat-record.v5.schema.json"),
+                .join("../../contracts/seat-record.v6.schema.json"),
         )
         .unwrap(),
     )
