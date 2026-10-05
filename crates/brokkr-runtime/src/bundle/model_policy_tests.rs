@@ -2222,7 +2222,7 @@ fn the_shipped_dsh_adapter_re_measures_its_tool_gap_on_the_pinned_release() {
         dsh.tool_permissions_gap.is_none(),
         "dsh tool_permissions_gap"
     );
-    assert!(dsh.mcp.is_none(), "dsh mcp");
+    assert_eq!(dsh.mcp, crate::agents::McpSupport::Legacy { flag: None });
 }
 
 #[test]

@@ -345,6 +345,22 @@ fn granting_docs(fixture: &AgentFixture, egress: &str, grant: Value) -> Capabili
     context
 }
 
+/// SC5's realm-wide fence on an `mcp` grant, in its own words, until U9b.
+const MCP_FENCE: &str = "bundle: realm 'private' grants capability 'library-docs' through \
+                         dialect 'docs-mcp' of kind 'mcp', whose broker support is not \
+                         implemented until decision 0065 slice two";
+
+/// The fixture with a second office, `reader`, requiring `library-docs`.
+fn with_reader() -> AgentFixture {
+    let fixture = AgentFixture::new();
+    fixture.write(
+        "agents/reader.json",
+        json!({"description": "a reader", "charter": "charters/work.md", "models": ["opus"],
+               "efforts": {"opus": "high"}, "capabilities": {"library-docs": "requires"}}),
+    );
+    fixture
+}
+
 /// SC5's fence is unchanged by MB4 until U9b: under every binding
 /// minimum, with the dialect's egress below, at or above it, an unused,
 /// an office-excluded and an asked `mcp` grant — asked at an agent's
@@ -352,15 +368,8 @@ fn granting_docs(fixture: &AgentFixture, egress: &str, grant: Value) -> Capabili
 /// fence's own words. Comparing egress authorizes nothing.
 #[test]
 fn every_mcp_grant_still_refuses_the_compile_under_every_binding_minimum() {
-    let fixture = AgentFixture::new();
-    fixture.write(
-        "agents/reader.json",
-        json!({"description": "a reader", "charter": "charters/work.md", "models": ["opus"],
-               "efforts": {"opus": "high"}, "capabilities": {"library-docs": "requires"}}),
-    );
-    let fence = "bundle: realm 'private' grants capability 'library-docs' through dialect \
-                 'docs-mcp' of kind 'mcp', whose broker support is not implemented until \
-                 decision 0065 slice two";
+    let fixture = with_reader();
+    let fence = MCP_FENCE;
     let agent = |name: &str| json!({"results": ["complete"], "agent": name});
     let mut inline = inline_codex(&fixture, "work");
     inline["capabilities"] = json!({"library-docs": "requires"});
@@ -472,5 +481,69 @@ fn the_authority_holds_the_binding_minimum_the_bundle_declares() {
             expected.to_string(),
         ));
     }
+    each_row(rows);
+}
+
+/// U1b: typed adapter MCP facts grant nothing. With the serving adapter
+/// declaring every carriage and isolation axis measured, or a legacy map
+/// naming the very server, an asked `mcp` grant still meets SC5's fence in
+/// its own words, and a seat asking nothing composes the same argv as
+/// under a bare `"unsupported"`.
+#[test]
+fn typed_or_legacy_adapter_mcp_facts_grant_nothing_and_the_fence_holds() {
+    let fixture = with_reader();
+    define(&fixture, "library-docs", json!(["reads", "egress"]));
+    let measured = json!({"measured": "a sentinel measurement"});
+    let typed = json!({"carriage": measured, "shapes": [{
+        "invocation": "cold", "hands": "none",
+        "measured_on": {"harness": "claude", "binary": "claude", "version": "2.1.287",
+                        "host": "linux"},
+        "ambient": measured, "native_write": measured,
+        "store_read": measured, "process_read": measured}]});
+    let legacy = json!({"flag": "--mcp-config", "servers": {"cap-library-docs": "/srv/docs"}});
+    let argv = |mcp: Value, grant: Option<Value>, seat: &str| {
+        let mut adapter = claude();
+        adapter["mcp"] = mcp;
+        fixture.write("adapters/claude.json", adapter);
+        let mut config = fixture.config();
+        config["seats"]["work"]["agent"] = json!(seat);
+        fixture.stage(&config, &policy());
+        let context = match grant {
+            Some(grant) => granting_docs(&fixture, "local", grant),
+            None => offices(&fixture, None),
+        };
+        compiled(&fixture, None, &context).map_or_else(
+            |error| error.to_string(),
+            |bundle| match &bundle.seats["work"].body {
+                SeatBody::Single { command, .. } => format!("{command:?}"),
+                _ => "not a single seat".to_string(),
+            },
+        )
+    };
+    let unsupported = argv(json!("unsupported"), None, "worker");
+    assert!(unsupported.contains("\"claude-opus-5\""), "{unsupported}");
+    let asked = json!({"dialect": "docs-mcp"});
+    let rows: Vec<Row<String>> = vec![
+        (
+            "typed asks nothing".into(),
+            argv(typed.clone(), None, "worker"),
+            unsupported.clone(),
+        ),
+        (
+            "legacy asks nothing".into(),
+            argv(legacy.clone(), None, "worker"),
+            unsupported,
+        ),
+        (
+            "typed asked".into(),
+            argv(typed, Some(asked.clone()), "reader"),
+            MCP_FENCE.into(),
+        ),
+        (
+            "legacy asked".into(),
+            argv(legacy, Some(asked), "reader"),
+            MCP_FENCE.into(),
+        ),
+    ];
     each_row(rows);
 }

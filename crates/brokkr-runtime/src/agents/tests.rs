@@ -2361,7 +2361,7 @@ fn a_provider_may_declare_every_capability_unsupported() {
     let exec = adapters.providers().next().unwrap();
     assert!(exec.model_flag.is_none());
     assert!(exec.tool_permissions.is_none());
-    assert!(exec.mcp.is_none());
+    assert_eq!(exec.mcp, McpSupport::Legacy { flag: None });
     assert!(adapters.serving("opus").is_none());
     assert_eq!(adapters.digest("nobody"), None);
     assert!(adapters.digest("exec").is_some());
