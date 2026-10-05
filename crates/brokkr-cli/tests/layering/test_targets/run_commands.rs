@@ -415,7 +415,9 @@ fn loose(at: &str, line: &str, words: &[String]) -> Result<(), Refusal> {
 /// is read either way, through `read`, as `rust_source::tests` holds it:
 /// a filter is held to a module that carries a `#[test]` the reader
 /// vouches for, and an `--exact` name to one of those tests, so a name a
-/// literal's text or a nested item shows is no test of the binary.
+/// literal's text or a nested item shows is no test of the binary, and
+/// neither is one a `cfg`, a `cfg_attr` or the module's own `#![cfg]`
+/// gates away from the build the binary is made in.
 fn hold(
     at: &str,
     command: &str,
@@ -1540,10 +1542,59 @@ fn the_test_reader_takes_the_forms_a_module_is_written_in() {
         BTreeSet::new()
     };
     assert_eq!(rust_source::tests(host_gated), Ok(expected));
+    let linux_gated = "#[cfg(target_os = \"linux\")]\n#[test]\nfn l() {}\n";
+    let expected = if cfg!(target_os = "linux") {
+        BTreeSet::from(["l".to_string()])
+    } else {
+        BTreeSet::new()
+    };
+    assert_eq!(rust_source::tests(linux_gated), Ok(expected));
     let unevaluated = "#[cfg(feature = \"x\")]\n#[test]\nfn f() {}\n";
     assert_eq!(rust_source::tests(unevaluated), Ok(BTreeSet::new()));
     let not_in_a_test_build = "#[cfg(not(test))]\n#[test]\nfn n() {}\n";
     assert_eq!(rust_source::tests(not_in_a_test_build), Ok(BTreeSet::new()));
+}
+
+/// A `cfg_attr` on a test is judged by the attributes it applies when
+/// its own predicate holds, and a module's own `#![cfg]` holds every
+/// test of it or none: one that does not stand in this build leaves no
+/// test to name, a helper between it and the tests among them, as
+/// `hands.rs` is written.
+#[test]
+fn a_cfg_attr_is_judged_and_a_modules_own_cfg_holds_it_or_none() {
+    let attr_gated = "#[cfg_attr(test, cfg(target_os = \"macos\"))]\n#[test]\nfn absent() {}\n";
+    let expected = if cfg!(target_os = "macos") {
+        BTreeSet::from(["absent".to_string()])
+    } else {
+        BTreeSet::new()
+    };
+    assert_eq!(rust_source::tests(attr_gated), Ok(expected));
+    let attr_not_applied =
+        "#[cfg_attr(not(test), cfg(target_os = \"macos\"))]\n#[test]\nfn kept() {}\n";
+    assert_eq!(
+        rust_source::tests(attr_not_applied),
+        Ok(BTreeSet::from(["kept".to_string()]))
+    );
+    let inner_not_in_a_test_build =
+        "#![cfg(not(test))]\n\nfn helper() {}\n\n#[test]\nfn absent() {}\n";
+    assert_eq!(
+        rust_source::tests(inner_not_in_a_test_build),
+        Ok(BTreeSet::new())
+    );
+    let inner_host_gated = "#![cfg(target_os = \"macos\")]\nuse std::io::Write as _;\n#[test]\nfn absent() {}\n#[test]\nfn first() {}\n";
+    let expected = if cfg!(target_os = "macos") {
+        BTreeSet::from(["absent".to_string(), "first".to_string()])
+    } else {
+        BTreeSet::new()
+    };
+    assert_eq!(rust_source::tests(inner_host_gated), Ok(expected));
+    let inner_linux_gated = "#![cfg(target_os = \"linux\")]\nuse std::io::Write as _;\n#[test]\nfn absent() {}\n#[test]\nfn first() {}\n";
+    let expected = if cfg!(target_os = "linux") {
+        BTreeSet::from(["absent".to_string(), "first".to_string()])
+    } else {
+        BTreeSet::new()
+    };
+    assert_eq!(rust_source::tests(inner_linux_gated), Ok(expected));
 }
 
 /// Source the reader cannot read is an error, never an absence: an
@@ -1554,15 +1605,68 @@ fn the_test_reader_refuses_a_source_it_cannot_read() {
         ("\"unterminated", "an unterminated string"),
         ("/* never closed", "an unterminated block comment"),
         ("#[test", "an unterminated attribute"),
+        ("#[cfg_attr()]\n#[test]\nfn a() {}\n", "an empty cfg_attr"),
     ] {
         assert_eq!(rust_source::tests(source), Err(why.into()), "{source}");
+    }
+}
+
+/// A test a `cfg_attr` gates and a module its own `#![cfg]` gates are
+/// the binary's where the predicate holds and no test of its binary
+/// anywhere else: each refuses an `--exact` name and a module filter
+/// where it does not hold, and is held where it does.
+#[test]
+fn a_test_or_module_gated_from_this_host_is_no_test_of_the_binary() {
+    let (roots, read) = fixture();
+    for (module, name) in [("attr_gated", "absent"), ("inner_gated", "absent")] {
+        let module_form = format!("cargo test -p brokkr-cli --test it {module}::\n");
+        let exact_form =
+            format!("cargo test -p brokkr-cli --test it -- --exact {module}::{name}\n");
+        let held = Ok(vec![Filter {
+            at: "f:1".into(),
+            package: "brokkr-cli".into(),
+            module: module.to_string(),
+        }]);
+        if cfg!(target_os = "macos") {
+            assert_eq!(
+                filters_in("f", &module_form, &roots, &read),
+                held,
+                "{module_form}"
+            );
+            assert_eq!(
+                filters_in("f", &exact_form, &roots, &read),
+                held,
+                "{exact_form}"
+            );
+        } else {
+            assert_eq!(
+                filters_in("f", &module_form, &roots, &read),
+                Err(Refusal::TestlessModule {
+                    at: "f:1".into(),
+                    package: "brokkr-cli".into(),
+                    module: module.to_string(),
+                }),
+                "{module_form}"
+            );
+            assert_eq!(
+                filters_in("f", &exact_form, &roots, &read),
+                Err(Refusal::UnknownTest {
+                    at: "f:1".into(),
+                    package: "brokkr-cli".into(),
+                    name: format!("{module}::{name}"),
+                }),
+                "{exact_form}"
+            );
+        }
     }
 }
 
 /// Two packages' roots, and the module files an `--exact` name is held
 /// to: `suppressions` carries a test, `packaging` carries one, `empty`
 /// carries none, `gone` cannot be read, and `broken`'s source the reader
-/// cannot lex.
+/// cannot lex. `attr_gated`'s only test a `cfg_attr` gates and
+/// `inner_gated` the module's own `#![cfg]` does, each away from this
+/// host unless it is macOS.
 fn fixture() -> (Roots, impl Fn(&Path) -> io::Result<String>) {
     let roots = BTreeMap::from([
         (
@@ -1573,6 +1677,8 @@ fn fixture() -> (Roots, impl Fn(&Path) -> io::Result<String>) {
                 ("empty".to_string(), PathBuf::from("empty.rs")),
                 ("broken".to_string(), PathBuf::from("broken.rs")),
                 ("gone".to_string(), PathBuf::from("gone.rs")),
+                ("attr_gated".to_string(), PathBuf::from("attr_gated.rs")),
+                ("inner_gated".to_string(), PathBuf::from("inner_gated.rs")),
             ]),
         ),
         ("brokkr-core".to_string(), BTreeMap::new()),
@@ -1583,6 +1689,13 @@ fn fixture() -> (Roots, impl Fn(&Path) -> io::Result<String>) {
         Some("packaging.rs") => Ok("/// A test of its own.\n#[test]\nfn packaging_holds_a_test() {}\n".to_string()),
         Some("empty.rs") => Ok("fn helper() {}\n".to_string()),
         Some("broken.rs") => Ok("\"unterminated".to_string()),
+        Some("attr_gated.rs") => {
+            Ok("#[cfg_attr(test, cfg(target_os = \"macos\"))]\n#[test]\nfn absent() {}\n".to_string())
+        }
+        Some("inner_gated.rs") => Ok(
+            "#![cfg(target_os = \"macos\")]\nuse std::io::Write as _;\n#[test]\nfn absent() {}\n"
+                .to_string(),
+        ),
         _ => Err(io::Error::from(io::ErrorKind::NotFound)),
     }
     };

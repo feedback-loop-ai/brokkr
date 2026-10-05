@@ -22,9 +22,10 @@
 //! it` word by word in a closed grammar, and refuses the first character
 //! outside it; a module's `#[test]`s are found by parsing its source as
 //! Rust (`crate::rust_source::tests`), so a pair a string literal, a
-//! comment or a nested item shows is no test of the binary, and a name
-//! behind a `cfg` predicate the binary of the compiling host may not
-//! carry is refused.
+//! comment or a nested item shows is no test of the binary, a name behind
+//! a `cfg` or `cfg_attr` predicate the binary of the compiling host may
+//! not carry is refused, and a module whose own `#![cfg]` does not hold
+//! carries no test at all.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -454,6 +455,29 @@ fn a_filter_is_held_to_a_module_that_holds_tests_and_a_name_to_a_test() {
             &module_file
         ),
         held
+    );
+    // `hands.rs` is gated by its own `#![cfg(target_os = "linux")]`: its
+    // tests are the binary's where that holds and no test of its binary
+    // anywhere else.
+    let hands = "cargo test --locked -p brokkr-cli --test it hands::\n";
+    let held = Ok(vec![Filter {
+        at: "f:1".into(),
+        package: "brokkr-cli".into(),
+        module: "hands".into(),
+    }]);
+    let refused = Refusal::TestlessModule {
+        at: "f:1".into(),
+        package: "brokkr-cli".into(),
+        module: "hands".into(),
+    };
+    assert_eq!(
+        filters_in("f", hands, &roots, &module_file),
+        if cfg!(target_os = "linux") {
+            held
+        } else {
+            Err(refused)
+        },
+        "{hands}"
     );
 }
 
