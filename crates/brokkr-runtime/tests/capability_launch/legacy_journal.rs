@@ -15,7 +15,7 @@
 //! shipped telemetry lowering is what writes every seat row, and no
 //! provider need be installed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
@@ -124,7 +124,8 @@ fn fake_claude(root: &Path, tag: &str, retried: bool) -> PathBuf {
 /// The engine token of one `driver claude` command: a wrapper that
 /// drops `driver claude --`, hands the rest to [`claude_driver_child`]
 /// with `tag`'s harness, and passes on only protocol lines, because
-/// libtest owns the head of stdout.
+/// libtest owns the head of stdout. Where [`OBSERVING`] is written under
+/// the root, those lines then pass through it.
 fn wrapper(root: &Path, tag: &str, retried: bool) -> String {
     let claude = fake_claude(root, tag, retried);
     let path = root.join(format!("bin/driver-{tag}"));
@@ -134,15 +135,37 @@ fn wrapper(root: &Path, tag: &str, retried: bool) -> String {
             "#!/bin/sh\n\
              shift 3\n\
              extra=$(printf '%s\\n' \"$@\")\n\
-             BROKKR_CLAUDE_BIN='{claude}' HOME='{home}' {SERVE}=\"$extra\" exec '{exe}' \
-             --exact legacy_journal::claude_driver_child --nocapture | grep --line-buffered '^{{'\n",
+             serve() {{ BROKKR_CLAUDE_BIN='{claude}' HOME='{home}' {SERVE}=\"$extra\" exec '{exe}' \
+             --exact legacy_journal::claude_driver_child --nocapture | grep --line-buffered '^{{'; }}\n\
+             [ -e '{observing}' ] || {{ serve; exit; }}\n\
+             serve | while IFS= read -r line; do printf '%s\\n' \"$line\" | sed -f '{observing}'; done\n",
             claude = claude.display(),
             home = root.join("home").display(),
             exe = std::env::current_exe().unwrap().display(),
+            observing = root.join(OBSERVING).display(),
         ),
     );
     path.to_str().unwrap().to_string()
 }
+
+/// The sed script, under the root, that a wrapper passes each of the
+/// shipped driver's protocol lines through, one at a time, when it is
+/// written.
+const OBSERVING: &str = "observing.sed";
+
+/// What U4f2's serializer will add beside each of the fake harness's two
+/// calls, until then injected by the wrapper: the observation protocol
+/// encodes, and on the search a forged call id, state and response digest.
+const OBSERVATIONS: &str = concat!(
+    r#"s/"tool":"WebSearch"/&,"call_id":"forged","call_state":"succeeded","#,
+    r#""response_sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","#,
+    r#""observation":"#,
+    r#"{"format":"claude","call":"toolu_01","tool":{"kind":"named","name":"WebSearch"}}/"#,
+    "\n",
+    r#"s/"tool":"Read"/&,"observation":"#,
+    r#"{"format":"claude","call":"toolu_02","tool":{"kind":"named","name":"Read"}}/"#,
+    "\n",
+);
 
 /// The shipped Claude adapter served through the `agent` wrapper, with a
 /// model whose launch never starts, and a supported assessment for the
@@ -312,7 +335,8 @@ type Sites = BTreeMap<(String, String), Vec<Value>>;
 /// Every checkpoint the run journaled, by site, with the engine's two
 /// digest stamps (proposed decision 0056 ruling 1) proved lowercase hex
 /// and then named rather than spelled: one hashes this machine's command.
-/// The temporary root a transcript address names is spelled `<root>`.
+/// The temporary root a transcript address names is spelled `<root>`, and
+/// the attempt that owns an attributed call id `<attempt>`.
 fn journaled(events: &[EventEnvelope], root: &Path) -> Sites {
     let field =
         |event: &EventEnvelope, name: &str| event.payload[name].as_str().unwrap().to_string();
@@ -329,6 +353,17 @@ fn journaled(events: &[EventEnvelope], root: &Path) -> Sites {
         let text = event.payload["checkpoint"].to_string();
         let text = text.replace(root.to_str().unwrap(), "<root>");
         let mut checkpoint: Value = serde_json::from_str(&text).unwrap();
+        // The call id the design spells for the one search, owned by this
+        // row's attempt and own site stamps; any other value stays to fail.
+        if let Some(call_id) = checkpoint.get("call_id").and_then(Value::as_str) {
+            let tuple = json!({"attempt": field(event, "attempt_id"), "provider": "claude",
+                               "site": checkpoint["site_ref"], "call": "toolu_01",
+                               "instance": checkpoint["instance_ref"]});
+            let owned = format!("n-{}", brokkr_core::canonical::sha256_hex(&tuple));
+            if call_id == owned {
+                checkpoint["call_id"] = json!("<owned toolu_01>");
+            }
+        }
         for stamp in ["site_ref", "instance_ref"] {
             if let Some(digest) = checkpoint.get(stamp).and_then(Value::as_str) {
                 let hex = digest
@@ -592,25 +627,7 @@ fn fences_the_attribution_group(store: &mut Store, run_id: &str) {
 /// a direct append of either is refused.
 #[test]
 fn every_site_shape_journals_its_legacy_native_rows_through_export_and_verify() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
-    for sub in ["bin", "state", "home", "work"] {
-        std::fs::create_dir_all(root.join(sub)).unwrap();
-    }
-    let store = Store::open(&root.join("forge.db")).unwrap();
-    let world = world(&root);
-    let bundle = bundle(&root, &world);
-    let repo = Some(root.join("work"));
-    let mut engine =
-        Engine::start_in_world(store, bundle, "Feature: legacy", repo, Some(world)).unwrap();
-    let end = engine.drive().unwrap();
-    assert_eq!(
-        end.state.status,
-        Status::Completed,
-        "{:?}",
-        end.state.park_reason
-    );
-
+    let (_dir, root, mut engine) = driven(None);
     let run_id = engine.run_id.clone();
     let events = engine.store.load(&run_id).unwrap();
     assert_eq!(launches(&root), wanted_launches());
@@ -623,11 +640,80 @@ fn every_site_shape_journals_its_legacy_native_rows_through_export_and_verify() 
             }
         }
     }
-
-    let exported = engine.store.export_ndjson(&run_id).unwrap();
-    assert_eq!(exported.lines().count(), events.len());
-    let verified = brokkr_store::verify_export(&exported).unwrap();
-    let journal = (Status::Completed, events.len() as u64);
-    assert_eq!((verified.status, verified.seq), journal);
+    exports_and_verifies(&engine.store, &run_id, events.len());
     fences_the_attribution_group(&mut engine.store, &run_id);
+}
+
+/// The matrix compiled and driven to completion under a canonicalised
+/// temporary root, with `observing` written as the wrappers' filter.
+fn driven(observing: Option<&str>) -> (tempfile::TempDir, PathBuf, Engine) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    for sub in ["bin", "state", "home", "work"] {
+        std::fs::create_dir_all(root.join(sub)).unwrap();
+    }
+    if let Some(program) = observing {
+        std::fs::write(root.join(OBSERVING), program).unwrap();
+    }
+    let store = Store::open(&root.join("forge.db")).unwrap();
+    let world = world(&root);
+    let bundle = bundle(&root, &world);
+    let repo = Some(root.join("work"));
+    let mut engine =
+        Engine::start_in_world(store, bundle, "Feature: legacy", repo, Some(world)).unwrap();
+    let end = engine.drive().unwrap();
+    let status = end.state.status;
+    assert_eq!(status, Status::Completed, "{:?}", end.state.park_reason);
+    (dir, root, engine)
+}
+
+/// The run exports all `count` of its events and the export verifies
+/// offline to the completed run.
+fn exports_and_verifies(store: &Store, run_id: &str, count: usize) {
+    let exported = store.export_ndjson(run_id).unwrap();
+    assert_eq!(exported.lines().count(), count);
+    let verified = brokkr_store::verify_export(&exported).unwrap();
+    let journal = (Status::Completed, count as u64);
+    assert_eq!((verified.status, verified.seq), journal);
+}
+
+/// U4e's consumer at every site shape (CC1, CC3, SC4): the shipped Claude
+/// driver's rows, each call carrying the observation U4f2 will emit and
+/// the search a forged call id and state, journal exactly the legacy rows
+/// with the engine's own whole group on the held search — its call id
+/// the digest of its attempt, site stamps, provider and harness id — and the
+/// local read ordinary. No observation or forged value reaches the store,
+/// and the run exports and verifies.
+#[test]
+fn every_site_shape_journals_the_engines_group_on_an_observed_held_call() {
+    let (_dir, root, engine) = driven(Some(OBSERVATIONS));
+    let run_id = engine.run_id.clone();
+    let events = engine.store.load(&run_id).unwrap();
+    let mut wanted = wanted();
+    for rows in wanted.values_mut() {
+        for row in rows.iter_mut().filter(|row| row["tool"] == "WebSearch") {
+            let group = json!({"capability": "web-search", "dialect": "claude-native-search",
+                               "call_id": "<owned toolu_01>", "call_state": "observed"});
+            row.as_object_mut()
+                .unwrap()
+                .extend(group.as_object().unwrap().clone());
+        }
+    }
+    assert_eq!(journaled(&events, &root), wanted);
+    let attributed: BTreeSet<&str> = events
+        .iter()
+        .filter_map(|event| event.payload["checkpoint"].get("call_id"))
+        .filter_map(Value::as_str)
+        .collect();
+    // One search per invocation, each its own call: eight seats, the
+    // panel's and the sequence's second site, and the retried seats'
+    // second launches.
+    assert_eq!(attributed.len(), 12);
+    for event in &events {
+        let checkpoint = &event.payload["checkpoint"];
+        for field in ["response_sha256", OBSERVATION_KEY] {
+            assert_eq!(checkpoint.get(field), None, "{field} at seq {}", event.seq);
+        }
+    }
+    exports_and_verifies(&engine.store, &run_id, events.len());
 }

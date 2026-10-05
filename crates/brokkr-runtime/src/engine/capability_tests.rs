@@ -398,7 +398,6 @@ fn every_nested_dispatch_hands_its_driver_the_selected_links_own_controls() {
 fn strings(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| part.to_string()).collect()
 }
-
 /// A link of `provider`/`model` whose composition is spelled here, segment
 /// by segment, as the resolver would have carried it (design D5.7).
 fn composed_link(
@@ -2228,4 +2227,5 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
         )
     );
 }
+mod call_tests;
 mod resume_tests;

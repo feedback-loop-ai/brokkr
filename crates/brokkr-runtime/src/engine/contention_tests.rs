@@ -397,10 +397,10 @@ fn checkpoints_held_behind_a_peers_lock_land_in_order_once_it_lets_go() {
     let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, retake);
 
     for name in ["a", "b", "c"] {
-        checkpoints.offer("", step(name));
+        checkpoints.offer("", step(name), Ok(None));
     }
     let_go();
-    checkpoints.offer("", step("d"));
+    checkpoints.offer("", step("d"), Ok(None));
     let_go();
     let settled = checkpoints.settle().expect("the lock was released");
 
@@ -434,8 +434,8 @@ fn two_held_then_settled(
         }
     };
     let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, between);
-    checkpoints.offer("", step("a"));
-    checkpoints.offer("", step("b"));
+    checkpoints.offer("", step("a"), Ok(None));
+    checkpoints.offer("", step("b"), Ok(None));
     let settled = checkpoints.settle().expect("contention is not a failure");
     (dir, engine, calls.get(), settled)
 }
@@ -485,7 +485,7 @@ fn a_burst_behind_a_held_lock_never_waits_on_the_reader() {
     let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, |_| {});
     let burst = std::time::Instant::now();
     for name in ["a", "b", "c", "d", "e"] {
-        checkpoints.offer("", step(name));
+        checkpoints.offer("", step(name), Ok(None));
     }
     assert!(burst.elapsed() < patience, "{:?}", burst.elapsed());
     drop(holder);
@@ -506,10 +506,10 @@ fn a_burst_past_a_full_hold_makes_the_attempt_indeterminate_and_says_how_many() 
     let holder = write_lock_on(&db);
     let mut checkpoints = sink(&mut engine, limit, |_| {});
     for name in ["a", "b", "c"] {
-        checkpoints.offer("", step(name));
+        checkpoints.offer("", step(name), Ok(None));
     }
     drop(holder);
-    checkpoints.offer("", step("d"));
+    checkpoints.offer("", step("d"), Ok(None));
     let settled = checkpoints.settle().expect("the lock was released");
 
     assert_eq!(landed(&engine), ["a", "d"]);
@@ -1109,7 +1109,7 @@ fn a_lock_that_outlasts_the_settlement_leaves_the_attempt_to_the_next_resume() {
     let mut engine = in_flight(dir.path());
     let run_id = engine.run_id.clone();
     let holder = write_lock_on(&dir.path().join("realm.db"));
-    sink(&mut engine, checkpoints::HELD_BYTES, |_| {}).offer("", step("a"));
+    sink(&mut engine, checkpoints::HELD_BYTES, |_| {}).offer("", step("a"), Ok(None));
     let before = engine.store.load(&run_id).unwrap().len();
     let handed_back = engine
         .lawful_end_under_contention(contended("append"))
@@ -1215,10 +1215,10 @@ fn lost_then_refused(engine: &mut Engine, dir: &Path) -> checkpoints::Settled {
     let limit = step("a").to_string().len();
     let holder = write_lock_on(&dir.join("realm.db"));
     let mut checkpoints = sink(engine, limit, |_| {});
-    checkpoints.offer("", step("a"));
-    checkpoints.offer("", step("b"));
+    checkpoints.offer("", step("a"), Ok(None));
+    checkpoints.offer("", step("b"), Ok(None));
     drop(holder);
-    checkpoints.offer("", json!({"step": "seat-turn", "turn": "one"}));
+    checkpoints.offer("", json!({"step": "seat-turn", "turn": "one"}), Ok(None));
     checkpoints
         .settle()
         .expect("a refusal is an outcome, not a failure")

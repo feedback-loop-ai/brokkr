@@ -38,9 +38,9 @@
  368 crates/brokkr-runtime/src/bundle/compose.rs:807 merge_layer
  240 crates/brokkr-runtime/src/capabilities.rs:1547 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:320 check
- 159 crates/brokkr-runtime/src/engine.rs:1097 seat_input
- 150 crates/brokkr-runtime/src/engine.rs:1311 execute
- 191 crates/brokkr-runtime/src/engine.rs:2487 decide
+ 159 crates/brokkr-runtime/src/engine.rs:1099 seat_input
+ 150 crates/brokkr-runtime/src/engine.rs:1313 execute
+ 191 crates/brokkr-runtime/src/engine.rs:2503 decide
  115 crates/brokkr-seatbelt-probe/src/main.rs:346 run_payload
  177 crates/brokkr-view/src/lib.rs:1044 scan_participants
  150 crates/brokkr-view/src/lib.rs:1847 participants
@@ -234,10 +234,10 @@
  114 crates/brokkr-runtime/src/engine/boundary_tests.rs:3746 the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin
  117 crates/brokkr-runtime/src/engine/capability_tests.rs:78 a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null
  150 crates/brokkr-runtime/src/engine/capability_tests.rs:228 every_nested_dispatch_hands_its_driver_the_selected_links_own_controls
- 126 crates/brokkr-runtime/src/engine/capability_tests.rs:576 the_dispatch_door_admits_only_the_record_sealed_for_its_spawn
- 259 crates/brokkr-runtime/src/engine/capability_tests.rs:736 the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed
- 106 crates/brokkr-runtime/src/engine/capability_tests.rs:1588 a_moved_charter_refuses_the_start_and_resume_in_a_mapped_and_an_unmapped_context
- 369 crates/brokkr-runtime/src/engine/capability_tests.rs:1837 every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings
+ 126 crates/brokkr-runtime/src/engine/capability_tests.rs:575 the_dispatch_door_admits_only_the_record_sealed_for_its_spawn
+ 259 crates/brokkr-runtime/src/engine/capability_tests.rs:735 the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed
+ 106 crates/brokkr-runtime/src/engine/capability_tests.rs:1587 a_moved_charter_refuses_the_start_and_resume_in_a_mapped_and_an_unmapped_context
+ 369 crates/brokkr-runtime/src/engine/capability_tests.rs:1836 every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings
  234 crates/brokkr-runtime/src/engine/notice_tests.rs:1337 a_recipe_cannot_declare_or_suppress_the_notice_structurally
  112 crates/brokkr-runtime/src/engine/notice_tests.rs:1682 inputs_house_feature_and_charter_text_neither_replace_nor_create_the_notice
  103 crates/brokkr-runtime/src/engine/resume_tests.rs:1047 every_fact_the_offer_rests_on_can_refuse_it_alone
