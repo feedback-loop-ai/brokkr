@@ -394,6 +394,39 @@ fn an_orphan_that_exited_before_its_first_read_is_reaped() {
     );
 }
 
+/// #470: the reap stops at the engine's own group. A child the engine
+/// spawned there, and still holds a `Child` to, reads as a same-group
+/// grandchild the subreaper adopted would: the engine's child, in the
+/// engine's group. So a read that shows its zombie leaves it to its
+/// handle, whose wait still returns its status. Widen the reap to every
+/// child of the engine and the wait fails. Linux only: the reap is a
+/// no-op on macOS.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_zombie_in_the_engines_group_is_left_to_its_handle() {
+    let mut child = Command::new("sh").args(["-c", "exit 7"]).spawn().unwrap();
+    let pid = i32::try_from(child.id()).unwrap();
+    let listed = || {
+        let entries = live().read(Host::REAL.table).unwrap();
+        entries.into_iter().find(|entry| entry.id.pid == pid)
+    };
+    let until = Instant::now() + Duration::from_secs(10);
+    let seen = loop {
+        let seen = listed();
+        if seen.as_ref().is_some_and(|entry| entry.zombie) || Instant::now() >= until {
+            break seen;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let group = rustix::process::getpgrp().as_raw_pid();
+    assert!(
+        seen.as_ref()
+            .is_some_and(|entry| entry.zombie && (entry.ppid, entry.pgid) == (me(), group)),
+        "{seen:?}"
+    );
+    assert_eq!(child.wait().unwrap().code(), Some(7));
+}
+
 /// #403 finding 3: a host that refused the engine a means parks an
 /// attempt that had descendants, naming the means, and leaves one that
 /// had none settled.

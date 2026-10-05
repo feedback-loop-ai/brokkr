@@ -1,6 +1,6 @@
 use super::*;
 
-use std::process::Command;
+use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
 fn me() -> i32 {
@@ -24,6 +24,37 @@ fn ended(pid: i32) -> bool {
         std::thread::sleep(Duration::from_millis(10));
     }
     true
+}
+
+/// A stub a test may fail before it ends it: killed and reaped on drop,
+/// so a failed assertion cannot leak it for its own half minute (#470).
+struct Guard(Child);
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// The guard ends its stub even when the test does not: dropped with
+/// nothing done to it, the stub is killed at once, not left for its own
+/// half minute, and reaped, so the table holds no row of it, not even a
+/// zombie. Without the kill the drop waits the stub out; without the
+/// wait its zombie stays.
+#[test]
+fn the_guard_ends_its_stub_on_drop() {
+    let stub = Guard(Command::new("sleep").arg("30").spawn().unwrap());
+    let pid = i32::try_from(stub.0.id()).unwrap();
+    let id = row(pid).expect("the stub is in the table").id;
+    let began = Instant::now();
+    drop(stub);
+    assert!(
+        began.elapsed() < Duration::from_secs(10),
+        "the stub was not killed"
+    );
+    let left = row(pid).filter(|entry| entry.id == id);
+    assert_eq!(left, None, "the stub was not reaped");
 }
 
 /// The table names a child that leads a group of its own with its parent,
@@ -240,8 +271,8 @@ fn output(code: i32, stdout: &str) -> std::process::Output {
 /// the identity gone.
 #[test]
 fn a_kill_by_listing_needs_the_row_whole() {
-    let mut child = Command::new("sleep").arg("30").spawn().unwrap();
-    let pid = i32::try_from(child.id()).unwrap();
+    let mut child = Guard(Command::new("sleep").arg("30").spawn().unwrap());
+    let pid = i32::try_from(child.0.id()).unwrap();
     let row = format!("{pid} 1 {pid} S Mon Sep 28 10:00:00 2026");
     let id = parse_ps(&row).unwrap().id;
     assert!(kill_listed(&id, listed(output(1, ""))).is_ok());
@@ -259,10 +290,13 @@ fn a_kill_by_listing_needs_the_row_whole() {
         format!("the ps row \"{pid} 1 {pid} S\" could not be read")
     );
     std::thread::sleep(Duration::from_millis(100));
-    assert!(child.try_wait().unwrap().is_none(), "signalled unconfirmed");
+    assert!(
+        child.0.try_wait().unwrap().is_none(),
+        "signalled unconfirmed"
+    );
     assert!(kill_listed(&id, listed(output(0, &row))).is_ok());
     assert!(
-        child.wait().unwrap().code().is_none(),
+        child.0.wait().unwrap().code().is_none(),
         "the listed identity was not killed"
     );
 }
