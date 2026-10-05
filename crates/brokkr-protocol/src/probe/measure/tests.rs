@@ -10,7 +10,9 @@ use serde_json::{json, Map, Value};
 
 use super::forms::Origin;
 use super::read::{Class, Counted, Harness, Refused, Said, Server};
-use super::{parse_lines, Captured, Fault, Lines, Reader};
+use super::tools::mcp_server;
+use super::{parse_lines, Captured, Event, Fault, Lines, Reader, Stream, Streams};
+use crate::probe::facts::Fact;
 use crate::probe::plan::NO_SUCH_MODEL;
 
 const CLAUDE_PLAIN: &str = include_str!("streams/claude-plain.stdout");
@@ -816,4 +818,41 @@ fn every_event_one_key_or_one_value_type_off_a_recorded_one_is_unread() {
         }
     }
     assert_eq!((tried, admitted), (7712, Vec::<String>::new()));
+}
+
+/// The hands server's status when the turn's every line was read, a
+/// listing named servers, and none of them the hands server: the exact
+/// `not listed` spelling the report carries (the review rounds' carried
+/// L7; ruling 9's tests that bind).
+#[test]
+fn mcp_server_listing_whole_without_the_hands_server_reads_not_listed() {
+    let stream = Stream {
+        source: "stdout".to_string(),
+        lines: Lines::Events,
+        events: vec![Event {
+            line: 1,
+            label: "system/init".to_string(),
+            said: vec![Said::Servers {
+                at: "/mcp_servers",
+                servers: vec![Server {
+                    name: "github".to_string(),
+                    status: "connected",
+                }],
+            }],
+        }],
+        text: Vec::new(),
+        unread: Vec::new(),
+        empty: false,
+    };
+    let streams = Streams {
+        all: vec![stream],
+        primary: 0,
+    };
+    assert_eq!(
+        mcp_server(&streams),
+        Fact::Measured {
+            value: "not listed".to_string(),
+            evidence: "the system/init event on line 1 of stdout listed mcp_servers: 1".to_string(),
+        }
+    );
 }
