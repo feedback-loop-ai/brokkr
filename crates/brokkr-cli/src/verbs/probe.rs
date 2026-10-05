@@ -9,13 +9,14 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use brokkr_protocol::adapters::AdapterKind;
+use brokkr_protocol::native_controls::harness_arguments;
 use brokkr_protocol::probe::{
     self, Declared, DeclaredOff, Native, NativePower, OffControl, ProbeInput, Report,
 };
 use brokkr_protocol::secret;
 use brokkr_runtime::agents::{Adapter, Adapters, ResumeIdentity};
 use brokkr_runtime::capabilities::{
-    Authority, Denial, NativeInventory, NativePlan, Requests, ADAPTER_SEAT, UNMAPPED,
+    harness_of, Authority, Denial, NativeInventory, NativePlan, Requests, ADAPTER_SEAT, UNMAPPED,
 };
 
 use crate::cli_args::{ProbeCmd, ProbeHarnessArgs};
@@ -33,7 +34,8 @@ pub(crate) fn probe(command: ProbeCmd) -> Result<ExitCode> {
 }
 
 /// The adapter's fields the probe launches by and compares against. The
-/// passthrough is what its driver hands the CLI after `--`.
+/// passthrough is what its driver hands the CLI, read by the engine's own
+/// [`harness_arguments`], with or without a `--` before it.
 fn declared(adapter: &Adapter) -> Declared {
     Declared {
         adapter: adapter.provider.clone(),
@@ -42,13 +44,7 @@ fn declared(adapter: &Adapter) -> Declared {
         efforts: adapter.efforts.clone(),
         hands: adapter.hands.clone(),
         hands_gap: adapter.hands_gap.clone(),
-        passthrough: adapter
-            .driver
-            .iter()
-            .skip_while(|part| *part != "--")
-            .skip(1)
-            .cloned()
-            .collect(),
+        passthrough: harness_arguments(&adapter.driver).to_vec(),
         resume_versions: adapter
             .resume
             .0
@@ -83,6 +79,8 @@ fn native(adapter: &Adapter) -> Native {
     let assessed =
         Authority::nothing(UNMAPPED, Path::new("")).assess(adapter, ADAPTER_SEAT, Requests::new());
     let off = match assessed.as_ref().map(|outcome| (outcome, &outcome.native)) {
+        // The launch's own lowering refuses a plan its harness cannot
+        // consume, and the probe reports that as the OFF control it is not.
         Ok((
             outcome,
             NativePlan::Known {
@@ -90,12 +88,10 @@ fn native(adapter: &Adapter) -> Native {
                 expected,
                 ..
             },
-        )) => OffControl::Argv(
-            contribution
-                .segment(&outcome.provider, &outcome.harness, expected)
-                .expect("resolve admitted the plan through the composer that lowers it")
-                .argv,
-        ),
+        )) => match contribution.segment(&outcome.provider, &outcome.harness, expected) {
+            Ok(segment) => OffControl::Argv(segment.argv),
+            Err(refusal) => OffControl::Refused(refusal.cause),
+        },
         Ok((_, NativePlan::Unmeasured { reason, .. })) | Err(reason) => {
             OffControl::Refused(reason.clone())
         }
@@ -122,11 +118,13 @@ fn harness(args: ProbeHarnessArgs) -> Result<ExitCode> {
             args.adapters_dir.display()
         )
     })?;
+    // What the adapter declares is read as the engine reads it, whatever
+    // launches it, so a driver the probe cannot launch is refused after.
+    let declared = declared(adapter);
     let kind = launch_kind(adapter, &args.adapter)?;
     let bindings = secret::resolve_bindings(&args.secrets_file, &args.credentials)
         .map_err(anyhow::Error::msg)?;
     let previous = previous_report(args.out.as_deref())?;
-    let declared = declared(adapter);
     let cli = args.cli.unwrap_or_else(|| adapter.binary.clone());
     let brokkr = std::env::current_exe()?;
     let report = probe::run(&ProbeInput {
@@ -150,20 +148,16 @@ fn harness(args: ProbeHarnessArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// The built-in driver kind that launches `adapter`'s CLI. A built-in
-/// driver is `{brokkr} driver <kind> -- …`; any other driver has no launch
-/// grammar the probe knows.
+/// The built-in driver kind that launches `adapter`'s CLI, as the engine's
+/// own [`harness_of`] reads it; any other driver has no launch grammar the
+/// probe knows.
 fn launch_kind(adapter: &Adapter, name: &str) -> Result<AdapterKind> {
-    adapter
-        .driver
-        .get(2)
-        .and_then(|word| AdapterKind::parse(word))
-        .ok_or_else(|| {
-            anyhow!(
-                "adapter '{name}' is not launched by a built-in driver, so the probe has no \
+    AdapterKind::parse(harness_of(&adapter.driver)).ok_or_else(|| {
+        anyhow!(
+            "adapter '{name}' is not launched by a built-in driver, so the probe has no \
                  launch grammar for its CLI"
-            )
-        })
+        )
+    })
 }
 
 /// The report `--out` already holds, which the new one's drift is read

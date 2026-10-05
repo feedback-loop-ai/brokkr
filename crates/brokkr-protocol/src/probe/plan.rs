@@ -79,6 +79,19 @@ pub(crate) struct Plan {
     pub(crate) unlike_driver: &'static str,
     /// The typed reader the harness's streams are read by.
     pub(crate) reader: Harness,
+    pub(crate) transcripts: Transcripts,
+}
+
+/// Where a harness writes its transcripts. Every file under one of its
+/// directories is read as a transcript or refuses the probe, save a file
+/// a recording showed there that holds no turn: nothing there is skipped
+/// by default, so a tool run never reads as no tool run (#484).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Transcripts {
+    /// Each directory, relative to HOME.
+    pub(crate) dirs: &'static [&'static str],
+    /// The names of the files under them a recording showed are inert.
+    pub(crate) inert: &'static [&'static str],
 }
 
 /// Where a launch gives the prompt, as an argument.
@@ -118,7 +131,32 @@ struct Grammar {
     user_config: UserConfig,
     unlike_driver: &'static str,
     reader: Harness,
+    transcripts: Transcripts,
 }
+
+/// Claude's project directories, `<cwd>/<session>.jsonl`. Recorded
+/// 2026-10-05, the project directory held the session files and an empty
+/// `memory/` directory, which holds no file and so needs no entry; a file
+/// in it is read or refused like any other.
+const CLAUDE_TRANSCRIPTS: Transcripts = Transcripts {
+    dirs: &[".claude/projects"],
+    inert: &[],
+};
+
+/// Codex's session days, `<y>/<m>/<d>/rollout-*.jsonl`. Recorded
+/// 2026-10-05, a day directory held the rollout files alone.
+const CODEX_TRANSCRIPTS: Transcripts = Transcripts {
+    dirs: &[".codex/sessions"],
+    inert: &[],
+};
+
+/// dsh's sessions, `session.v3.jsonl.zstd` in a session directory.
+/// Recorded 2026-10-05, a session directory held the log and a
+/// `session.lock`, the lock dsh holds the session by.
+const DSH_TRANSCRIPTS: Transcripts = Transcripts {
+    dirs: &[".dsh/sessions"],
+    inert: &["session.lock"],
+};
 
 /// How the probe's turn departs from the codex driver.
 const PROMPT_AS_ARGUMENT: &str = "the prompt is the last argument and stdin is closed, where \
@@ -160,6 +198,7 @@ fn grammar(kind: AdapterKind, adapter: &str) -> Result<Grammar, ProbeError> {
             },
             unlike_driver: PROMPT_BEFORE_FLAGS,
             reader: Harness::Claude,
+            transcripts: CLAUDE_TRANSCRIPTS,
         }),
         AdapterKind::Codex => Ok(Grammar {
             head: &["exec", "--json", "-C", "{workdir}"],
@@ -172,6 +211,7 @@ fn grammar(kind: AdapterKind, adapter: &str) -> Result<Grammar, ProbeError> {
             },
             unlike_driver: PROMPT_AS_ARGUMENT,
             reader: Harness::Codex,
+            transcripts: CODEX_TRANSCRIPTS,
         }),
         AdapterKind::Dsh => Ok(Grammar {
             head: &["--profile", "headless"],
@@ -185,6 +225,7 @@ fn grammar(kind: AdapterKind, adapter: &str) -> Result<Grammar, ProbeError> {
                             overlay is given, where the adapter's driver writes the prompt to \
                             stdin and always composes a --patch profile overlay",
             reader: Harness::Dsh,
+            transcripts: DSH_TRANSCRIPTS,
         }),
         AdapterKind::Lanetally | AdapterKind::Exec => Err(ProbeError::NotAHarness {
             adapter: adapter.to_string(),
@@ -269,5 +310,6 @@ pub(crate) fn plan(kind: AdapterKind, declared: &Declared) -> Result<Plan, Probe
         user_config: grammar.user_config,
         unlike_driver: grammar.unlike_driver,
         reader: grammar.reader,
+        transcripts: grammar.transcripts,
     })
 }

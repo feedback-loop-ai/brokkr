@@ -9,7 +9,7 @@ use std::io::ErrorKind;
 
 use serde_json::{json, Value};
 
-use super::observe::{packing, unpacked, Packing};
+use super::observe::{packing, reading, unpacked, Packing};
 use super::*;
 
 /// The controller's dsh skeleton, and the same bytes compressed by the
@@ -18,7 +18,8 @@ const SKELETON: &str = include_str!("../measure/streams/dsh-plain.jsonl");
 const PACKED: &[u8] = include_bytes!("../measure/streams/dsh-plain.jsonl.zstd");
 
 /// A dsh-like fake that prints the reply and copies `log` to `name` in a
-/// session directory, where dsh writes its session log.
+/// session directory, where dsh writes its session log beside the
+/// `session.lock` the controller's recording of 2026-10-05 showed there.
 fn dsh_writing(log: &Path, name: &str) -> String {
     format!(
         r#"#!/bin/sh
@@ -26,6 +27,7 @@ case " $* " in *" --version "*) echo "0.1.5-rc.1"; exit 0 ;; esac
 [ -n "$FAKE_TOKEN" ] || {{ echo "error: FAKE_TOKEN is not set" >&2; exit 1; }}
 dir="$HOME/.dsh/sessions/workdir/session-1"
 mkdir -p "$dir"
+: > "$dir/session.lock"
 cp '{}' "$dir/{name}"
 echo "PROBE-OK"
 "#,
@@ -160,7 +162,9 @@ fn claude_writing(
     claude_writing_as(world, name, "turn.jsonl.zstd", transcript)
 }
 
-/// [`claude_writing`], the transcript written as `file`.
+/// [`claude_writing`], the transcript written as `file` in a project
+/// directory holding the empty `memory/` the controller's recording of
+/// 2026-10-05 showed there.
 fn claude_writing_as(
     world: &World,
     name: &str,
@@ -172,7 +176,7 @@ fn claude_writing_as(
             let log = world.dir.path().join(format!("{name}.log"));
             std::fs::write(&log, bytes).unwrap();
             format!(
-                r#"{BOXED_CLEAN}; mkdir -p "$HOME/.claude/projects/workdir"; cp '{}' "$HOME/.claude/projects/workdir/{file}""#,
+                r#"{BOXED_CLEAN}; mkdir -p "$HOME/.claude/projects/workdir/memory"; cp '{}' "$HOME/.claude/projects/workdir/{file}""#,
                 log.display()
             )
         }
@@ -317,26 +321,103 @@ fn no_single_bit_flip_of_a_checksummed_frame_decodes_to_changed_bytes() {
 /// `turn.ndjson`, where they read as no tool run and admitted boxed.
 #[test]
 fn a_transcript_in_a_packing_the_probe_does_not_read_refuses_the_probe() {
-    if !in_its_own_engine(
+    let Some(rulings) = rulings_on(
         "probe::tests::compressed::a_transcript_in_a_packing_the_probe_does_not_read_refuses_the_probe",
-    ) {
+        ["turn.jsonl.zst", "turn.ndjson"],
+    ) else {
         return;
+    };
+    assert_eq!(rulings, [unread("turn.jsonl.zst"), unread("turn.ndjson")]);
+}
+
+/// The probe's ruling on a Claude-like fake whose boxed turn writes
+/// [`WEB_SEARCH`] as each of `files` in its project directory: the
+/// verdict, or the text of the I/O refusal it ends in; `None` outside the
+/// test's own engine.
+fn rulings_on<const N: usize>(test: &str, files: [&str; N]) -> Option<[Value; N]> {
+    if !in_its_own_engine(test) {
+        return None;
     }
     let world = world();
-    let refused = |file: &str| {
-        let error = claude_writing_as(&world, file, file, Some(WEB_SEARCH)).unwrap_err();
-        assert!(matches!(error, ProbeError::Io { .. }), "{error:?}");
-        error.to_string()
-    };
-    let unread = |file: &str| {
-        format!(
-            "could not read the transcript ~/.claude/projects/workdir/{file} under the \
-             scratch HOME: the probe reads a transcript only as .jsonl or .jsonl.zstd"
-        )
+    Some(files.map(|file| {
+        let name = format!("ruling-{}", file.replace('/', "-"));
+        match claude_writing_as(&world, &name, file, Some(WEB_SEARCH)) {
+            Ok(report) => serde_json::to_value(report).unwrap()["eligibility"]["verdict"].clone(),
+            Err(error) => {
+                assert!(matches!(error, ProbeError::Io { .. }), "{error:?}");
+                json!(error.to_string())
+            }
+        }
+    }))
+}
+
+/// How the probe refuses `file` in claude's project directory, unread.
+fn unread(file: &str) -> Value {
+    json!(format!(
+        "could not read the transcript ~/.claude/projects/workdir/{file} under the scratch \
+         HOME: the probe reads a transcript only as .jsonl or .jsonl.zstd"
+    ))
+}
+
+/// The chief's H2 on a9bd05c0: the bytes that keep the boxed turn's web
+/// search in view as `turn.jsonl.zstd` refuse the probe, naming the file,
+/// as `turn.json` in the same project directory, where they read as no
+/// tool run and admitted boxed; and so does a file in the recording's
+/// `memory/` once it is not empty.
+#[test]
+fn every_file_in_a_transcript_directory_is_read_or_refuses_the_probe() {
+    let files = ["turn.jsonl.zstd", "turn.json", "memory/MEMORY.md"];
+    let Some(rulings) = rulings_on(
+        "probe::tests::compressed::every_file_in_a_transcript_directory_is_read_or_refuses_the_probe",
+        files,
+    ) else {
+        return;
     };
     assert_eq!(
-        [refused("turn.jsonl.zst"), refused("turn.ndjson")],
-        [unread("turn.jsonl.zst"), unread("turn.ndjson")]
+        rulings,
+        [json!("unboxed-only"), unread(files[1]), unread(files[2])]
+    );
+}
+
+/// Under a harness's transcript directories a file is read or unread
+/// whatever its name, save an inert one a recording showed in that
+/// harness's; outside them a file is a transcript by its name alone.
+#[test]
+fn a_file_under_a_transcript_directory_is_read_or_unread_whatever_its_name() {
+    let home = Path::new("/h");
+    let kept = |kind, declared: &Declared| plan::plan(kind, declared).unwrap().transcripts;
+    let claude = kept(AdapterKind::Claude, &claude_declared());
+    let codex = kept(AdapterKind::Codex, &codex_declared());
+    let dsh = kept(AdapterKind::Dsh, &dsh_declared());
+    let read = |kept: &plan::Transcripts, path: &str| reading(home, &home.join(path), kept);
+    let (unread, zstd, plain) = (
+        Some(Packing::Unread),
+        Some(Packing::Zstd),
+        Some(Packing::Plain),
+    );
+    assert_eq!(
+        [
+            read(&claude, ".claude/projects/w/turn.json"),
+            read(&claude, ".claude/projects/w/turn.jsonl~"),
+            read(&claude, ".claude/projects/w/jsonl"),
+            read(&claude, ".claude/projects/w/turn-jsonl.zst"),
+            read(&claude, ".claude/projects/w/state.sqlite"),
+            read(&claude, ".claude/projects/w/memory/MEMORY.md"),
+            read(&claude, ".claude/projects/w/session.lock"),
+            read(&codex, ".codex/sessions/2026/10/05/notes.txt"),
+            read(&dsh, ".dsh/sessions/w/s/session.lock"),
+        ],
+        [unread, unread, unread, unread, unread, unread, unread, unread, None]
+    );
+    assert_eq!(
+        [
+            read(&dsh, ".dsh/sessions/w/s/session.v3.jsonl.zstd"),
+            read(&claude, ".claude/projects/w/s.jsonl"),
+            read(&claude, ".claude/todos/t.jsonl"),
+            read(&claude, ".claude/settings.json"),
+            read(&claude, ".claude/projects-old/turn.json"),
+        ],
+        [zstd, plain, plain, None, None]
     );
 }
 

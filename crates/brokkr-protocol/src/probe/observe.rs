@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use ruzstd::decoding::{FrameDecoder, StreamingDecoder};
 use sha2::{Digest, Sha256};
 
-use super::plan::{Step, UserConfig, PROMPT};
+use super::plan::{Step, Transcripts, UserConfig, PROMPT};
 use super::ProbeError;
 use crate::hands::{mcp_config, serve_args, HandsSpec};
 use crate::process::Launched;
@@ -209,6 +209,7 @@ pub(crate) struct Runner<'a> {
     pub(crate) brokkr: &'a Path,
     pub(crate) bindings: &'a [BoundSecret],
     pub(crate) deadline: Duration,
+    pub(crate) transcripts: Transcripts,
 }
 
 impl Runner<'_> {
@@ -253,10 +254,11 @@ impl Runner<'_> {
     ) -> Result<Observation, ProbeError> {
         let argv = self.argv(template);
         let bindings: &[BoundSecret] = if credentials { self.bindings } else { &[] };
-        let before: BTreeMap<PathBuf, Seen> = transcripts_under(&self.scratch.home)?
-            .into_iter()
-            .map(|(path, bytes)| (path, Seen::of(&bytes)))
-            .collect();
+        let before: BTreeMap<PathBuf, Seen> =
+            transcripts_under(&self.scratch.home, &self.transcripts)?
+                .into_iter()
+                .map(|(path, bytes)| (path, Seen::of(&bytes)))
+                .collect();
         let mut command = Command::new(&argv[0]);
         command
             .args(&argv[1..])
@@ -291,7 +293,7 @@ impl Runner<'_> {
     /// an earlier launch created and this one wrote to is this one's too.
     fn written(&self, before: &BTreeMap<PathBuf, Seen>) -> Result<Vec<Transcript>, ProbeError> {
         let mut transcripts = Vec::new();
-        for (path, bytes) in transcripts_under(&self.scratch.home)? {
+        for (path, bytes) in transcripts_under(&self.scratch.home, &self.transcripts)? {
             let added = match before.get(&path) {
                 Some(seen) => seen.added(&bytes),
                 None => Some((Written::Created, bytes.as_slice())),
@@ -361,12 +363,16 @@ fn wait(launched: Launched, deadline: Duration) -> Result<Option<i32>, ProbeErro
 /// Every transcript under `root` and its bytes, decompressed where it is
 /// compressed. One that cannot be read refuses the probe rather than read
 /// as nothing written, and so does a compressed one that is malformed or
-/// decompresses past [`UNPACKED_BOUND`], and one named as a transcript in
-/// a packing the probe does not read (#484).
-fn transcripts_under(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, ProbeError> {
+/// decompresses past [`UNPACKED_BOUND`], one named as a transcript in a
+/// packing the probe does not read, and any other file under the
+/// harness's transcript directories that is not inert (#484).
+fn transcripts_under(
+    root: &Path,
+    kept: &Transcripts,
+) -> Result<BTreeMap<PathBuf, Vec<u8>>, ProbeError> {
     let mut transcripts = BTreeMap::new();
     for path in files_under(root)? {
-        let Some(packing) = packing(&path) else {
+        let Some(packing) = reading(root, &path, kept) else {
             continue;
         };
         let read = || {
@@ -417,9 +423,25 @@ pub(super) enum Packing {
 
 /// The name segments that mark a file a transcript, in any case and under
 /// any further extension: `turn.jsonl.zst`, `turn.ndjson`, `turn.JSONL`.
-/// Discovery by name cannot refuse every file a CLI writes; an inventory
-/// of every file, each read or declared inert, is the operator's to rule.
+/// They name a transcript outside the harness's transcript directories,
+/// where every file is read or refused whatever its name ([`reading`]).
 const TRANSCRIPT_SEGMENTS: [&str; 3] = ["jsonl", "ndjson", "jsonlines"];
+
+/// How the file at `path` under `home` is read, when it is read at all.
+/// Under one of the harness's transcript directories a file is a
+/// transcript in a packing the probe reads, or one of the inert names a
+/// recording showed there, or unread, which refuses the probe: none is
+/// skipped by default. Elsewhere a file is a transcript by its name.
+pub(super) fn reading(home: &Path, path: &Path, kept: &Transcripts) -> Option<Packing> {
+    let under = kept.dirs.iter().any(|dir| path.starts_with(home.join(dir)));
+    let inert = path
+        .file_name()
+        .is_some_and(|name| kept.inert.iter().any(|inert| name == OsStr::new(inert)));
+    match packing(path) {
+        Some(packing) => Some(packing),
+        None => (under && !inert).then_some(Packing::Unread),
+    }
+}
 
 /// How the file at `path` is stored, when it is a transcript at all.
 pub(super) fn packing(path: &Path) -> Option<Packing> {

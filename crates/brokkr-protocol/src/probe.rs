@@ -150,6 +150,7 @@ pub fn run(input: &ProbeInput<'_>) -> Result<Report, ProbeError> {
         brokkr: input.brokkr,
         bindings: input.bindings,
         deadline: input.deadline,
+        transcripts: plan.transcripts,
     };
     let no_credentials = if input.bindings.is_empty() {
         Trial::Untried(

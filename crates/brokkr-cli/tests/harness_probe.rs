@@ -265,16 +265,104 @@ fn custom_claude_report(host: &Host, cli: Option<&Path>) -> Value {
     claude_report_in(host, cli, &custom_adapters(host))
 }
 
-/// The report of the shipped claude adapter with `alter` applied to its
-/// `native_capabilities`, written under `dir`.
-fn altered_native_report(host: &Host, dir: &str, alter: impl Fn(&mut Value)) -> Value {
+/// An adapters directory under `dir` holding the shipped claude adapter
+/// with `alter` applied.
+fn altered_claude(host: &Host, dir: &str, alter: impl Fn(&mut Value)) -> PathBuf {
     let adapters = host.path(dir);
     std::fs::create_dir(&adapters).unwrap();
     let text = std::fs::read_to_string(repo_adapters().join("claude.json")).unwrap();
     let mut claude: Value = serde_json::from_str(&text).unwrap();
-    alter(&mut claude["native_capabilities"]);
+    alter(&mut claude);
     std::fs::write(adapters.join("claude.json"), claude.to_string()).unwrap();
+    adapters
+}
+
+/// The report of the shipped claude adapter with `alter` applied to its
+/// `native_capabilities`, written under `dir`.
+fn altered_native_report(host: &Host, dir: &str, alter: impl Fn(&mut Value)) -> Value {
+    let adapters = altered_claude(host, dir, |claude| {
+        alter(&mut claude["native_capabilities"])
+    });
     claude_report_in(host, Some(&host.cli), &adapters)
+}
+
+/// The chief's H1 (b) on a9bd05c0: the driver's tail is what the engine
+/// hands the CLI (`harness_arguments`), with or without a `--` before it,
+/// so the probe launches it either way and rules on the same launch.
+#[test]
+fn the_driver_s_tail_is_launched_with_or_without_its_terminator() {
+    let host = host();
+    let tail = [
+        "--permission-mode",
+        "acceptEdits",
+        "--settings",
+        "/opt/op-settings.json",
+    ];
+    let launched = |dir: &str, terminator: &[&str]| {
+        let adapters = altered_claude(&host, dir, |claude| {
+            let head = ["{brokkr}", "driver", "claude"];
+            claude["driver"] = json!([&head[..], terminator, &tail[..]].concat());
+        });
+        let report = claude_report_in(&host, Some(&host.cli), &adapters);
+        (
+            report["facts"]["headless"]["value"]["argv"].clone(),
+            report["eligibility"].clone(),
+        )
+    };
+    let head = ["{cli}", "-p", "--output-format", "stream-json", "--verbose"];
+    let argv = json!([&head[..], &["{prompt}"], &tail[..]].concat());
+    let eligibility = json!({
+        "verdict": "boxed-only",
+        "reason": "its own tools switch off and the hands MCP server connects, but its turn \
+                   under the declared OFF controls, the launch a seat granted nothing uses, is \
+                   not shown to keep another MCP server out (#467): the engine composes no OFF \
+                   control for a seat granted nothing: seat 'adapter-plan' (office \
+                   'adapter-plan') in realm '<unmapped>': refusing to invoke the agent CLI: the \
+                   arguments of seat 'adapter-plan' carry '--settings', which configures a \
+                   capability server or admits a server's tools for provider 'claude'. A \
+                   recipe's driver arguments are recipe data, and only the realm grants a \
+                   capability (decision 0065 ruling 3); the workspace hands are the engine's \
+                   own to compose and need no authored configuration (decision 0066 ruling 4), \
+                   so it may hold boxed offices only",
+    });
+    assert_eq!(
+        [launched("terminated", &["--"]), launched("bare", &[])],
+        [(argv.clone(), eligibility.clone()), (argv, eligibility)]
+    );
+}
+
+/// The chief's H1 (a) on a9bd05c0: a driver the engine reads as no
+/// built-in one (`harness_of`) is refused by name, though its third word
+/// names claude, and the OFF control the engine cannot lower for it,
+/// claude's tool selection under `<custom>`, is read as the refusal it
+/// is on the way, never a panic.
+#[test]
+fn a_driver_the_engine_reads_as_no_built_in_one_is_refused_by_name() {
+    let host = host();
+    let adapters = altered_claude(&host, "wrapped", |claude| {
+        claude["driver"] = json!([
+            "env",
+            "X=1",
+            "claude",
+            "--",
+            "--permission-mode",
+            "acceptEdits"
+        ]);
+    });
+    let output = host.launch(
+        Some(&host.cli),
+        &adapters,
+        &["--adapter", "claude", "--credential", "FAKE_TOKEN"],
+    );
+    assert_eq!(
+        (output.status.code(), stderr(&output)),
+        (
+            Some(1),
+            "error: adapter 'claude' is not launched by a built-in driver, so the probe has no \
+             launch grammar for its CLI\n"
+                .to_string()
+        )
+    );
 }
 
 #[test]
