@@ -736,3 +736,107 @@ Boxed git reports `commit.gpgsign=false`. The six-document candidate is
 prepared for an unsigned commit in repository style, as commissioned; the
 controller signs the squash. The result records `drafted` and the adopted
 `inputs.change`, with no next-phase choice. No push is performed.
+
+
+## Returned tasks visit — lifetime and startup proof execution
+
+Date: 2026-10-05. Run: `amend-decision-0065-slice-two-s--a9a103e3`.
+Starting HEAD: `839d2b2a765a7083727963e5cbe3a1f8e44268d9`; `git status --short`
+returned no changes at entry. This seat holds tasks only. The journal's
+`returned_from` is design `drafted`, with strict change validation and no
+unanswered finding. D14 supplies the settled source-lifetime, frame-EOF,
+private-status and complete-startup-budget refinements. No upstream artifact
+must change to write their honest breakdown; the result is `drafted`.
+
+Read `dialects/openspec/tasks.md`, the archive instruction and dialect data,
+and ran `openspec instructions tasks --change decision-0065-capabilities-slice-two
+--json`. The instruction requires dependency-ordered checkbox groups,
+requirement citations and verification per task. Read the proposal, complete
+design and task ledger, all seven deltas, operator addenda and the returned
+council evidence in this file; `## Open Questions` has no policy ambiguity.
+Read decisions 0012, 0043, 0046, 0065, 0071 and 0077, the full hands builder,
+overlay and Session modules, engine's `BuiltBoundary::Namespace` and
+`hands_command`, the existing injector and its machine proof, and the broker
+CLI and its real-binary tests. These were `cat`, `sed` and `grep` reads through
+workspace hands; `rg` is absent in this box.
+
+`git log --all --oneline --grep='U6c' -12` identified the two held attempts'
+local commits. `git show 65c879c5:openspec/changes/decision-0065-capabilities-slice-two/evidence/U6c.md`
+and the same command at `08171090` returned their historical implementation
+records. The journal anchor's patch-object IDs were unavailable to
+`git cat-file -s`; the commit-tree reads succeeded. Their startup analyzers,
+loader denylist, pathname store reread, mirrored egress enum and proof claims
+remain reference material, never this visit's implementation evidence or
+U6c's base. No held branch was checked out or merged. Main's broker still
+unconditionally returns PlanUnbound, and the injector remains crate-private
+with one accessor call; the tasks keep their counted extraction consumers.
+
+### Task reconciliation
+
+Targeted edits change only six pending task descriptions and three existing
+scenario-map rows; all IDs, checkboxes, dependencies and upstream documents
+remain as received. These are execution details of MB3/MB4/MB5, CR2/CR3/CR4
+and SD2/SD3/SD4 under D5/D6/D14, not new design choices or waived principles.
+
+- 28.10 makes blocking-observation cancellation a distinct proof from each
+  traversal limit, with zero lookup/start and no detached admission worker.
+  The observer measurement stays 28.17; source lifetime stays U8a2.
+- 28.16 orders sender/receiver controls before private launch controls and
+  independently binds sender close, receiver EOF, late HandoffFailed and
+  ExecFailed propagation. Both sides of sender completion have their own
+  exact stage/counter assertions. Environment/descriptor and launch leak
+  proofs remain distinct from accessor cardinality (0071 rulings 3, 5, 8–9).
+- 38.3 carries D6's complete permitted writer reach into the task explicitly:
+  reserve before first dispatch or atomically extend before a new writer,
+  seal before unlock/spawn and release only after durable settlement.
+  38.4 independently tests atomicity, reach completeness and retention,
+  both start orders, concurrent starts, unknown coordination and surviving
+  payloads. Artifact-root and source conflicts retain their separate owning
+  causes (rulings 1, 3, 8–10).
+- 42.2 carries status failures through the success-reporting harness,
+  settlement and restart; unavailable closure preserves its actual evidence
+  refusal. Cleanup, status propagation and engine judgment have separate
+  removals. 46.2 repeats those controls on the real enabling path and counts
+  both engine preparation and broker reobservation in SD4's budget (ruling 9).
+
+The scenario map points each refinement to those same task owners. D9's 54
+units, at most three production files each, remain the only merge order;
+U6c starts from main, public serving opens only at U6f, retention at U8b,
+and U9b alone lifts compilation. The entire task preamble, its historical
+45/105 counts and all 32 completed task lines are byte-identical to entry.
+The live ledger has 124 stable tasks; none is ticked here. Task 49.3 remains
+the last implementation task and the only final archive/fold operation.
+This design visit does not archive an unimplemented change (SD1/SD2/SD3).
+
+### Task document verification
+
+The commands below ran in this session through workspace hands, in the
+foreground. Results describe documents only.
+
+| Command | Observed output |
+| --- | --- |
+| `openspec validate --all --strict` | Exit 0, `Totals: 20 passed, 0 failed (20 items)`. Existing informational long-requirement and unrelated archive notices remain; no failed item. |
+| `git diff --check` and `git diff --cached --check` | Exit 0, no whitespace diagnostics before the evidence append; repeated on the final staged documents below. |
+| `typos --hidden` | Exit 127, `/bin/bash: line 1: typos: command not found`. Spelling remains pending outside this box; no earlier visit's pass substitutes. |
+| Inline `python3` task-ledger audit | Exit 0: 54 dependency-ordered units with maximum three production files; 124 unique stable IDs; 32 completed lines and entire preamble unchanged; six pending task descriptions refined; 26 requirements and 146 scenarios; every task cites requirements; 624 task links, including anchors, resolve; 33 box scenario owners; final 49.3 pending. |
+| `git diff --numstat` and `git status --short` before this append | Only `tasks.md`, 9 insertions and 9 deletions: six task descriptions and three scenario rows. |
+| `git config --get commit.gpgsign` | `false`; the commissioned document commit is unsigned and the controller signs the squash. |
+
+The first inline audit failed its table-count assertion because its full-file
+pattern included three U4 boundary rows and the word Underspecification.
+A diagnostic counted 58 matches and 54 in the actual `Slice two units` table.
+Restricting the audit to that authoritative table and numeric unit IDs made
+all assertions pass; no artifact was changed to satisfy the audit. The edit
+command's printed phrase "six verification tasks" was imprecise: the verified
+diff contains five verification tasks plus implementation task 38.3.
+
+No production/test/frozen-contract/fixture/policy/reference/recipe/release
+file is changed, and historical `evidence.md` is untouched. No Cargo,
+namespace, mutation, coverage, timing or host result is claimed by this
+visit; those remain the assigned implementation tasks' obligations. Missing
+host measurements still block U9b. No workflow runner, remote operation or
+push was invoked. The mandatory phase JSON is written through workspace
+hands after the document commit; it carries only result, inputs and notes
+and makes no next-phase choice.
+
+Final staged document validation repeated `openspec validate --all --strict`: 20 passed, 0 failed, exit 0. Staged and unstaged `git diff --check` again produced no diagnostics. The final scope audit found exactly `tasks.md` and this append-only evidence record changed, with all local file links resolving. Production and test files remain unchanged.
