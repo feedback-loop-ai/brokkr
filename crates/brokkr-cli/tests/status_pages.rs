@@ -167,12 +167,12 @@ fn render(adapter: &Adapter, dialects: &[ToolDialect]) -> Rendered {
         }
         (None, None) => "no".to_string(),
     };
-    // The flag Brokkr can pass a seat's declared servers through, not
-    // whether the seat reaches MCP: the operator's own configuration
-    // reaches it either way. The server map is what an agent may name.
+    // The flag a legacy declaration names, not whether the seat reaches
+    // MCP: the operator's own configuration reaches it either way. Typed
+    // facts (decision 0065 slice two, U1b) name no flag.
     let mcp = match mcp {
-        Some(McpSupport { flag, servers: _ }) => format!("`{flag}`"),
-        None => "none".to_string(),
+        McpSupport::Legacy { flag: Some(flag) } => format!("`{flag}`"),
+        _ => "none".to_string(),
     };
     let boxed = match (hands, hands_gap) {
         (Some(_), _) => "yes".to_string(),

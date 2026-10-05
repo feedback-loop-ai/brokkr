@@ -18,9 +18,9 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 
 use super::{
-    valid_name, Adapter, Agent, EgressClass, HarnessHands, LocalTools, McpSupport, ResultDoor,
-    ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus, Sandbox,
-    ToolPermissions, TrustTier, NAME_GRAMMAR,
+    mcp::McpContext, valid_name, Adapter, Agent, EgressClass, HarnessHands, LocalTools, McpRefusal,
+    McpSupport, ResultDoor, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape,
+    ResumeStatus, Sandbox, ToolPermissions, TrustTier, NAME_GRAMMAR,
 };
 use crate::bundle::Limits;
 
@@ -32,6 +32,8 @@ pub enum LibraryError {
     Invalid(String),
     #[error("agent library io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Mcp(#[from] McpRefusal),
 }
 
 fn invalid<T>(message: String) -> Result<T, LibraryError> {
@@ -874,17 +876,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
             }
         }
     };
-    let mcp = match capability(map, "mcp", &what)? {
-        None => None,
-        Some(value) => {
-            let raw = object(value, &format!("{what} 'mcp'"))?;
-            only_keys(raw, &["flag", "servers"], &format!("{what} 'mcp'"))?;
-            Some(McpSupport {
-                flag: string(raw, "flag", &format!("{what} 'mcp'"))?,
-                servers: name_map(raw, "servers", &format!("{what} 'mcp'"))?,
-            })
-        }
-    };
+    let mcp = McpSupport::decode(&what, capability(map, "mcp", &what)?, &driver)?;
     let hint = match map.get("hint") {
         None => None,
         Some(_) => Some(string(map, "hint", &what)?),
@@ -967,6 +959,14 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
                 }
             }
         };
+    let resume = resume_assessment(map, &what)?;
+    let mcp = mcp.admit(&McpContext {
+        what: &what,
+        binary: &binary,
+        workspace: hands.is_some(),
+        harness: &harness,
+        resume: &resume,
+    })?;
     Ok(Adapter {
         provider,
         trust_tier: trust_tier(map, &what)?,
@@ -990,7 +990,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         harness,
         hands_notice,
         mcp,
-        resume: resume_assessment(map, &what)?,
+        resume,
         native,
         digest: sha256_bytes(&std::fs::read(path)?),
     })
@@ -1003,7 +1003,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
 /// a tool name or a refusal token because these lines have to name a
 /// dated capture, a file and a line, or a measured behaviour — and a
 /// reason too short to be checkable is worse than none.
-const RESUME_TEXT_LIMIT: usize = 400;
+pub(super) const RESUME_TEXT_LIMIT: usize = 400;
 
 /// Proposed decision 0056 ruling 5's assessment, per named execution
 /// shape.

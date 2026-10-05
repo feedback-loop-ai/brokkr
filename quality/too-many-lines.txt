@@ -23,8 +23,8 @@
  106 crates/brokkr-protocol/src/native_controls/grammar.rs:690 parse_span
  110 crates/brokkr-protocol/src/process.rs:398 run_attempt_resuming
  122 crates/brokkr-runtime/src/agents.rs:1100 compose
- 198 crates/brokkr-runtime/src/agents/load.rs:766 parse_adapter
- 101 crates/brokkr-runtime/src/agents/load.rs:1032 resume_assessment
+ 195 crates/brokkr-runtime/src/agents/load.rs:770 parse_adapter
+ 101 crates/brokkr-runtime/src/agents/load.rs:1033 resume_assessment
  643 crates/brokkr-runtime/src/bundle.rs:1455 assemble
  128 crates/brokkr-runtime/src/bundle.rs:2732 resolve_reference
  112 crates/brokkr-runtime/src/bundle.rs:3220 lower_inline_sandbox
