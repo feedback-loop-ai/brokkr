@@ -31,10 +31,7 @@
 use std::net::Ipv4Addr;
 use std::path::Path;
 
-#[path = "support/tracked.rs"]
-mod tracked_files;
-#[path = "support/tracked_text.rs"]
-mod tracked_text;
+use crate::tracked_text;
 
 /// Single-label hosts that name no machine: loopback, and the endpoint
 /// grammar's own vectors as the #226 acceptance ledger quotes them.

@@ -42,12 +42,7 @@ use std::collections::BTreeMap;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
 
-#[path = "support/rust_source.rs"]
-mod rust_source;
-#[path = "support/tracked.rs"]
-mod tracked_files;
-#[path = "support/tracked_text.rs"]
-mod tracked_text;
+use crate::{rust_source, tracked_text};
 
 use rust_source::{skip_literal, units};
 

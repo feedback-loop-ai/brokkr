@@ -14,7 +14,7 @@
 //! A move is re-pinned by one command, never by hand:
 //!
 //! ```text
-//! BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests
+//! BROKKR_BLESS=1 cargo test -p brokkr-runtime --test it witness_digests::
 //! ```
 //!
 //! Without it the suite compares every witness and fails once with a
@@ -29,8 +29,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_runtime::Bundle;
 
-#[path = "support/witnesses.rs"]
-mod witnesses;
+use crate::witnesses;
 
 use witnesses::{Witnesses, TABLE};
 
@@ -45,7 +44,7 @@ fn workspace() -> PathBuf {
 }
 
 /// The one command that rewrites the table.
-const BLESS: &str = "BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests";
+const BLESS: &str = "BROKKR_BLESS=1 cargo test -p brokkr-runtime --test it witness_digests::";
 
 /// What a run does with the measured table.
 #[derive(Debug, PartialEq)]
@@ -295,7 +294,7 @@ fn a_drift_reports_every_moved_witness_in_one_table() {
     assert_eq!(
         drift_report(&moved(&pinned, &measured)),
         "4 witness(es) moved. Say why in the commit, then re-pin with \
-         `BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests`:\n\
+         `BROKKR_BLESS=1 cargo test -p brokkr-runtime --test it witness_digests::`:\n\
          \n\
          | witness | old | new |\n\
          |---|---|---|\n\

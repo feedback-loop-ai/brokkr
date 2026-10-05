@@ -99,6 +99,8 @@ fi
 } > "$out/too-many-lines.txt"
 
 # 6. Suppressions by lint (#337). The suppressions test is their one reader:
-# it holds the tree to this file on every run, and rewrites it here.
-BROKKR_REGENERATE_SUPPRESSIONS=1 cargo test --locked -q -p brokkr-cli --test suppressions \
-  every_suppression_in_the_tree_is_counted_in_the_baseline > /dev/null
+# it holds the tree to this file on every run, and rewrites it here. The
+# command is one plain line, so the test-target gate reads its filter (#423).
+{
+  BROKKR_REGENERATE_SUPPRESSIONS=1 cargo test --locked -q -p brokkr-cli --test it suppressions::every_suppression_in_the_tree_is_counted_in_the_baseline
+} > /dev/null

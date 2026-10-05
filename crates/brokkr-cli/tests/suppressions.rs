@@ -21,12 +21,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
-#[path = "support/rust_source.rs"]
-mod rust_source;
-#[path = "support/test_paths.rs"]
-mod test_paths;
-#[path = "support/workspace.rs"]
-mod workspace_root;
+use crate::{rust_source, test_paths, workspace_root};
 
 use rust_source::{skip_literal, units};
 use test_paths::is_gate_test_path as is_test_path;
@@ -238,7 +233,7 @@ fn render(repo: &Path) -> String {
     }
     let mut text = String::from(
         "# Every #[expect] and #[allow] in the Rust sources, by lint (issue #337).\n\
-         # Regenerate: BROKKR_REGENERATE_SUPPRESSIONS=1 cargo test -p brokkr-cli --test suppressions\n",
+         # Regenerate: BROKKR_REGENERATE_SUPPRESSIONS=1 cargo test -p brokkr-cli --test it suppressions::\n",
     );
     for (test, heading) in [(false, "# production\n"), (true, "# test\n")] {
         text.push_str(heading);
@@ -379,7 +374,7 @@ fn ci_runs_the_added_suppression_check_on_every_pull_request() {
     let ci = read(".github/workflows/ci.yml");
     for needle in [
         "BROKKR_SUPPRESSION_BASE: ${{ github.event.pull_request.base.sha }}",
-        "--test suppressions -- --ignored --exact an_added_suppression_of_a_ratcheted_lint_names_a_ruling",
+        "--test it -- --ignored --exact suppressions::an_added_suppression_of_a_ratcheted_lint_names_a_ruling",
     ] {
         assert!(ci.contains(needle), "ci.yml does not carry: {needle}");
     }

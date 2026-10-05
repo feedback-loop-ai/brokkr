@@ -36,7 +36,7 @@ in one run, and the gate refuses an eleventh entry.
   where the realm's boundary is `namespace`; under `harness` it runs
   unboxed and no network denial is reported): the tree is
   clean, nothing outside `docs/research/` changed, at most ten entries
-  were added, and `cargo test --test research_registry` passes: the
+  were added, and `cargo test -p brokkr-cli --test it research_registry::` passes: the
   index equals the entries, every class is in the vocabulary, every
   citation resolves. It runs none of `cargo fmt`, clippy or
   `scripts/lint-non-rust.sh` (#427): the branch may change only prose

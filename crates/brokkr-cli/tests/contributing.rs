@@ -9,8 +9,7 @@ use std::process::Command;
 
 use serde_json::Value;
 
-#[path = "support/workflow.rs"]
-mod workflow;
+use crate::workflow;
 
 #[path = "contributing/inline_copies.rs"]
 mod inline_copies;

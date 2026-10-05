@@ -34,8 +34,7 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-#[path = "support/witnesses.rs"]
-mod witnesses;
+use crate::witnesses;
 
 use witnesses::Witnesses;
 

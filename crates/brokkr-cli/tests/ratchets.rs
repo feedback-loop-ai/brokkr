@@ -13,9 +13,7 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-#[path = "support/workspace.rs"]
-mod workspace_root;
-use workspace_root::read;
+use crate::workspace_root::read;
 
 fn git(repo: &Path, args: &[&str]) {
     let status = Command::new("git")

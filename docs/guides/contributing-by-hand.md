@@ -183,7 +183,7 @@ be a review finding.
 ### An added suppression names a ruling
 
 ```
-BROKKR_SUPPRESSION_BASE=origin/main cargo test --locked -p brokkr-cli --test suppressions -- --ignored --exact an_added_suppression_of_a_ratcheted_lint_names_a_ruling
+BROKKR_SUPPRESSION_BASE=origin/main cargo test --locked -p brokkr-cli --test it -- --ignored --exact suppressions::an_added_suppression_of_a_ratcheted_lint_names_a_ruling
 ```
 
 The `quality` job runs this after Clippy, on pull requests only
@@ -918,7 +918,7 @@ should not need a Rust edit. What a data change faces:
    all with one command:
 
    ```
-   BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests
+   BROKKR_BLESS=1 cargo test -p brokkr-runtime --test it witness_digests::
    ```
 
    It rewrites `witnesses.json` in place and refuses where `CI` is set.
