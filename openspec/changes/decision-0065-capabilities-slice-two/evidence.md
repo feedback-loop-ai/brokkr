@@ -2307,3 +2307,113 @@ and `budgets` among them without a bless. `bundles/self` compiled to
 323 and `agent_tests/gate_tests.rs` 444 to 476; `bundle.rs` stayed at
 7808. The `files` and `clones` ratchets held. Exact coverage and remote
 CI on Linux and macOS are pending.
+
+## U4a: seat-record validation in a consumed child (tasks 13.1–13.2)
+
+Run `0065-slice-two-unit-u4a-see-the--9d9abe21` built U4a on branch
+`s2/U4a` from main at `c118b1ce`. It touched the row's two production
+files and no others.
+
+### What changed
+
+`seat_record.rs` keeps the version table and its dispatch: the embedded
+schemas, the contract paths, the three engine lines, `SeatRecordVersion`
+with `of_engine`, `of_manifest`, `contract` and `source`, `semver_triple`,
+`SeatRecordError` with its unchanged text, and the five validator cells.
+A new private `compiled` names each version's cell, so a version's bytes,
+contract and cache are one row of that table and U4b adds v6 there alone.
+The new private child `seat_record/validation.rs` holds what judges a
+record: `compile`, `validator`, `SUBSETS`, `validate_seat_record`,
+`record_of` and `validate_events`, moved without a changed line of logic.
+The parent re-exports them at their old paths (`pub use` for
+`validate_seat_record`, `pub(crate) use` for the other two), so `lib.rs`'s
+append fence, its export sweep and `import.rs`'s offline verify call
+exactly what they called before, and the `api` ratchet holds. The parent's
+unit tests moved verbatim to `seat_record/tests.rs`, only dedented and
+given the two imports the parent no longer carries. The parent shrank from
+880 to 199 lines; the child is 89 and the moved tests 618.
+
+### Tests
+
+The thirteen moved tests pass unedited: embedded-byte parity for v1–v5,
+every historical version's fields and refusals, the engine-line matrix
+including malformed and missing engines, the token-subset rule and event
+selection. The store suite's append, fence-reads-the-manifest and
+export/offline-verify refusal tests pass unedited too.
+
+D9's native legacy boundary matrix is new, in
+`tests/capability_launch/legacy_journal.rs`, a child module of
+capability_launch. Its two-line registration was paid for by removing two
+`#[cfg(unix)]` attributes on helpers that already only run on unix hosts
+(decision 0063), so capability_launch stays at its 11,883-line baseline.
+`every_site_shape_journals_its_legacy_native_rows_through_export_and_verify`
+(`legacy_journal.rs:460`) compiles one bundle on fixture adapters and
+drives it through a real `Engine` and `Store`. Its driver is the test
+binary re-entered as `legacy_driver_child`, the pattern
+`two_engines_one_journal.rs` established, writing what the shipped Claude
+lowering writes for a native `WebSearch` call and a local `Read`. The
+sites are an agent-backed single seat, an inline seat, an agent whose
+primary's driver is never installed (so decision 0016's fallback serves
+the second model), a panel and a sequence each with one inline and one
+agent site, two inline seats whose first attempt fails after it accepted,
+and the protected review gate. One `assert_eq!` compares every journaled
+checkpoint, keyed by seat and member, with the expected rows written out:
+27 rows under 11 seat-and-member keys, with the engine's `boundary`, stamps and member
+tags and its own `panel-member-finished` and `sequence-step-finished` rows.
+The persistent root is rejoined with the engine's offer
+(`launch: resumed`, root `resumed-root-0`). The other root is not offered,
+so it is replaced cold (`replaced-root-1`). Both stamps are checked as 64
+lowercase hex before they are named. No checkpoint or result in the run
+carries `capability`, `dialect`, `call_id`, `call_state`,
+`response_sha256` or a private `observation`. `export_ndjson` returns one
+line per event, and `verify_export` folds it to `Completed` at the last
+seq. Then a direct append of a partial group, a whole group and a private
+observation, each beside a legacy `WebSearch` row, is refused with exactly
+`SeatRecordError { seq: head + 1, path: "/", contract: v5 }`, and the head
+does not move. The test passed three runs in a row.
+
+### Removal mutations
+
+Each mutation compiled, was run, and was undone with the Edit tool before
+the next.
+
+| Mutation | Tests that failed |
+| --- | --- |
+| M1: `validate_seat_record`'s schema check became `false && …` | the matrix (`legacy_journal.rs:440`: the partial-group append was accepted at seq 77) and 14 store tests, among them all three fence and export/verify tests and eleven moved version tests |
+| M2: `record_of` returned `None` for a checkpoint | the matrix (`legacy_journal.rs:440`, the same acceptance) and 8 store tests, among them the three fence and export/verify tests |
+| M3: `validate_events` swept `&events[..0]` | `export_and_offline_verify_refuse_a_nonconforming_seat_record` (export returned the planted prose row) and five moved event-sweep tests |
+| M4: `of_engine`'s v5 arm removed | the matrix: the run parked at its first stamped row, "seat record at journal seq 5 violates contracts/seat-record.v4.schema.json at /" |
+| M5: `compiled` handed v5 the v4 cell | `the_root_the_stamps_and_the_new_refusals_belong_to_v5_alone` and `the_zero_ten_line_reads_v5_and_the_nine_line_still_reads_v4` (`tests.rs:551`) |
+
+After the restore, the store package passed (80 library tests and every
+integration binary) and the matrix passed again.
+
+### 13.1 and 13.2
+
+The extraction is consumed by the existing fence, export and verify
+callers, dispatch and refusal text did not move, and the parent shrank.
+D9's legacy matrix passes at this merge, and the historical-version and
+exact-refusal tests stay green. M1–M5 each failed an intended assertion
+and were restored. That is the evidence both tasks are ticked on.
+
+### Gates on this visit's tree
+
+Formatting is clean and workspace clippy with `-D warnings` finished
+without a diagnostic. The runtime library passed 763 tests and every
+runtime integration binary passed: capability_launch 70 of 70 (the matrix
+and its driver among them), `frozen_contracts`, and `witness_digests` and
+`budgets` without a bless, so no witness pin moved. The CLI package
+printed 46 passing result lines and no failure, and core, protocol, view,
+store and bridge passed. `bundles/self` compiled to `11c7d0e7…`,
+unchanged. OpenSpec strict validation passed 20 of 20, `typos --hidden`
+found nothing and `git diff --check` was clean. The `files`, `clones` and
+`api` ratchets held, and `baselines` against `c118b1ce` reports nothing
+raised. `quality/file-lines.txt` was re-measured: `seat_record.rs` 880 to
+199, plus `seat_record/validation.rs` (89), `seat_record/tests.rs` (618)
+and `capability_launch/legacy_journal.rs` (496). No `too-many-lines.txt`
+anchor moved, because every listed capability_launch function sits below
+the two edits, which cancel. No suppression was added.
+`scripts/measure-budgets.sh` rewrote only main's existing drift (the
+measurement dates, and prompt budgets 13 bytes lower from earlier merges).
+U4a moves no prompt, dependency or transcript, so those files were left
+as they were. Exact coverage and remote CI on Linux and macOS are pending.
