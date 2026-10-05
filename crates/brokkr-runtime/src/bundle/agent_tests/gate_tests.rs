@@ -496,7 +496,8 @@ fn typed_or_legacy_adapter_mcp_facts_grant_nothing_and_the_fence_holds() {
     let measured = json!({"measured": "a sentinel measurement"});
     let typed = json!({"carriage": measured, "shapes": [{
         "invocation": "cold", "hands": "none",
-        "measured_on": {"binary": "claude", "version": "2.1.287"},
+        "measured_on": {"harness": "claude", "binary": "claude", "version": "2.1.287",
+                        "host": "linux"},
         "ambient": measured, "native_write": measured,
         "store_read": measured, "process_read": measured}]});
     let legacy = json!({"flag": "--mcp-config", "servers": {"cap-library-docs": "/srv/docs"}});

@@ -17,15 +17,16 @@ facts and their loader:
 | Item | What it is |
 | --- | --- |
 | `McpSupport` | The whole `mcp` declaration, a closed enum: `Legacy { flag }` for `"unsupported"` and `{flag, servers}`, `Inapplicable { reason }` for a harness with no model MCP surface, and `Declared { carriage, shapes }` for typed facts. |
-| `McpShape` | One invocation shape: `McpInvocation` (`Cold`, `Replacement`, `Resume(name)`) under `McpHands` (`Boxed`, `Harness`, `NoHands`). |
+| `McpShape` | One invocation shape: `McpInvocation` (`Cold`, `Replacement`, `Resume(name)`) under `McpHands` (`Boxed`, `Harness`, `NoHands`) on `McpHost` (`Linux`, `Macos`). |
+| `McpMeasurement` | One declared shape's value: the harness `version` it was measured on and its `McpIsolation`. |
 | `McpIsolation` | One shape's four axes, each its own value: `ambient`, `native_write`, `store_read`, `process_read`. |
 | `McpAxis` | `Measured { evidence }`, `Unsupported { reason }`, `Unmeasured(McpUnmeasured)` or `Inapplicable { reason }`. |
 | `McpUnmeasured` | Why nothing is known: `Absent`, `Legacy` or `Declared(reason)`. |
 | `McpError`, `McpRefusal` | The `thiserror` refusals. `McpRefusal` renders `"{adapter} 'mcp' {problem}"` and reaches the caller as the new `LibraryError::Mcp`. |
-| `McpSupport::carriage`, `McpSupport::isolation` | The reading: a shape no entry names reads `Unmeasured(Absent)` on every axis, and `Legacy` reads `Unmeasured(Legacy)` everywhere. |
+| `McpSupport::carriage`, `McpSupport::isolation` | The reading: a shape no entry names reads `Unmeasured(Absent)` on every axis, and `Legacy` reads `Unmeasured(Legacy)` everywhere. Since the second visit both are private and `#[cfg(test)]` until a broker consumes them (review F3). |
 
 The typed form an adapter may now write is
-`{"carriage": <axis>, "shapes": [{"invocation", "hands", "measured_on": {"binary", "version"}, "ambient", "native_write", "store_read", "process_read"}]}`,
+`{"carriage": <axis>, "shapes": [{"invocation", "hands", "measured_on": {"harness", "binary", "version", "host"}, "ambient", "native_write", "store_read", "process_read"}]}`,
 where each axis is exactly one of `{"measured": …}`, `{"unsupported": …}` or
 `{"unmeasured": …}`, and every text is a bounded non-empty line of at most 400
 characters (the existing `RESUME_TEXT_LIMIT`, now `pub(super)` so it has one
@@ -61,9 +62,9 @@ of the new types. `parse_adapter` shrank from 198 to 195 lines.
   still renders (`crates/brokkr-cli/tests/status_pages.rs`). Without it,
   `docs/status.md` would have to move, and that file is outside this row. The
   server map is checked and discarded. Nothing grants on either.
-- **Version.** `measured_on.version` is required and bounded (SI1: every
-  result names the harness binary and version), but it is not retained.
-  Nothing compares it until U1g.
+- **Version and host.** Superseded by the second visit below: both are
+  now kept. Nothing compares them with the running harness or host until
+  U1g, and the MCP fence still grants nothing.
 
 ## Tests
 
@@ -148,12 +149,77 @@ only the MCP types and `LibraryError::Mcp`.
 Its prompt-byte differences come from earlier changes on main (no prompt
 path reads the adapter's `mcp`). Those files were restored unchanged.
 
+## Second visit: the review return
+
+The council's review of `3a4284f7` (result `residual`, medium) returned
+findings F1 to F11. This visit answers them in the same three production
+files (`agents.rs` changes only its re-exports; `load.rs` is untouched and
+stays at its 1,335-line baseline).
+
+| Finding | What changed |
+| --- | --- |
+| F1 (medium) version and host discarded | `measured_on` now reads `harness`, `binary`, `version` and a typed `host` (`linux` or `macos`, decision 0063). The version is kept in `McpMeasurement`. The host is part of `McpShape`, so a Linux and a macOS result for one invocation are two facts, and a host no entry names reads `Unmeasured(Absent)`. |
+| F2 (medium) expectations built by the production helper | The tests build their all-axes expectation with their own `every`. The production helper is gone; `isolation` builds its own value inside the test-only readout. |
+| F3 (low) readouts exported without a consumer | `carriage` and `isolation` are private and `#[cfg(test)]`. |
+| F4 (low) resume hands not checked | A resume shape's MCP entry must name the same hands its `resume` assessment declares, or it is refused as `ResumeHands`. `McpHands::word` is the one place the module writes the three words: the shape display and this comparison both read it. Typing `ResumeShape::hands` itself as an enum would touch its other readers and is left as the low residual the review allowed. |
+| F5 (low) a same-binary wrapper passed | `measured_on.harness` must equal the driver's harness (`capabilities::harness_of`), checked at decode. Otherwise the shape is refused as `BorrowedHarness`. The binary mismatch is now `BorrowedBinary`. |
+| F6 (low) legacy values newly bounded | The legacy form is decoded by hand again. Any non-empty flag and server path loads whatever its length. Its refusals read as the old loader wrote them: `needs a non-empty string 'flag'`, `needs 'servers' as an object of strings`, `'servers' names …` and `'servers.<name>' must be a non-empty string`. |
+| F7 (low) wildcard in the status-page test | `status_pages.rs` names `Legacy { flag: None }`, `Inapplicable` and `Declared` explicitly. The match moved into a helper, `mcp_flag`, so `render` stays within 100 lines. |
+| F8 (info) control characters accepted | A measured text that holds a control character is refused, with the same bounded-line text. |
+| F9 (info) resume name grammar | Not changed. A name that is not declared is already refused as `UndeclaredResume`, and every declared name obeys the name grammar. The echo of an undeclared name stays unbounded, as the loader's other name refusals are. |
+| F10 (info) public-API baseline | Still pending. See below. |
+| F11 (low) review-run integrity | Concerns the review run, not this code. Nothing to change here. |
+
+New and changed tests in `agents/mcp/tests.rs`:
+`the_measured_version_and_host_survive_loading` (F1) and
+`legacy_values_keep_their_old_bounds_and_refusals` (F6) are new.
+`each_shape_reads_its_own_axes_and_an_absent_shape_is_unmeasured` adds the
+macOS row. `a_wrapper_hands_or_resume_shape_cannot_borrow_a_measurement`
+adds the same-binary LaneTally row (F5) and the resume declared under
+harness hands but measured boxed (F4).
+`closed_decoding_refuses_each_malformed_fact_by_variant` adds a two-line
+text (F8) and a `windows` host. `each_refusal_reads_as_the_operator_sees_it`
+pins every new variant's text. The gate test's typed fixture gained
+`harness` and `host`.
+
+Each mutation below compiled and was applied alone to `agents/mcp.rs`, and
+the named test failed. Production was then restored from a saved copy, and
+`cmp` confirmed the bytes. With the restored file, all nine module tests
+passed.
+
+| # | Mutation (production) | Failing test, assertion |
+| --- | --- | --- |
+| N1 | the readout's all-axes value sets `store_read` to `Measured` | `each_shape_…` at `mcp/tests.rs:147` and `legacy_maps_…` at `:268`, the `assert_eq!` on the expected rows |
+| N2 | `McpMeasurement::version` stored empty | `the_measured_version_and_host_…` at `:179`, the `Declared` `assert_eq!` |
+| N3 | the shape's host forced to `Linux` | `the_measured_version_and_host_…`, `support`'s `unwrap` at `:19` (`DuplicateShape` on the cold, boxed, Linux shape) |
+| N4 | the harness check disabled (`false &&`) | `a_wrapper_…`, `problem` panics at `:27` (the same-binary LaneTally adapter loaded) |
+| N5 | the resume-hands guard disabled (`false &&`) | `a_wrapper_…`, `problem` panics at `:27` (the boxed measurement of a harness-hands resume loaded) |
+| N6 | an empty legacy server path accepted | `legacy_values_…`, `problem` panics at `:27` |
+| N7 | the 400-character bound put back on the legacy flag | `legacy_values_…`, `support`'s `unwrap` at `:19` (`LegacyFlag`) |
+| N8 | the control-character check disabled | `closed_decoding_…`, `problem` panics at `:27` (the two-line row loaded) |
+
+Gates on this visit. `cargo fmt --all -- --check` and workspace clippy
+(all targets and features, locked, warnings denied) are clean. The
+brokkr-runtime lib passed 785 tests, `--test it` 120 (witness digests
+included, so no witness pin moved), `capability_launch` 71,
+`operated_repo` 1 and `queued_launch` 3. brokkr-cli passed 627 lib tests
+(1 ignored), `--test it` 459 (2 ignored), `driver_conformance` 27, each
+heap test, and `transcript_surfaces` 13. The self bundle compiled.
+`openspec validate --all --strict` passed 20 of 20. `typos --hidden` and
+`git diff --check` reported nothing. `quality/ratchet.sh` reported "file
+size holds", "duplication holds" and "public API holds". In
+`quality/file-lines.txt`, `agents/mcp.rs` is 549 lines, its tests 579 and
+`gate_tests.rs` 549. No function moved in `quality/too-many-lines.txt`, and
+no suppression was added. `scripts/measure-budgets.sh` was not rerun on
+this visit: nothing on a prompt or heap path changed.
+
 ## Pending
 
 - **Public-API raise.** `quality/ratchet.sh baselines ed67ed15` refuses the
-  brokkr-runtime raise from 1,467 to 1,523 items until the pull request
-  carries the operator's `Ruling:` line. The raise is the new public MCP
-  types: `Adapter::mcp` is a public field read by the CLI status test.
+  brokkr-runtime raise from 1,467 to 1,537 items (1,523 on the first visit)
+  until the pull request carries the operator's `Ruling:` line. The raise
+  is the new public MCP types: `Adapter::mcp` is a public field read by the
+  CLI status test.
 - **External checks.** Exact coverage (`scripts/coverage-exact.sh`) on a
   capable host, remote CI on both operating systems, and macOS have not been
   run in this session. A local diagnostic is not the gate. It was

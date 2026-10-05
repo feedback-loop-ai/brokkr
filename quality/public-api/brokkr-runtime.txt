@@ -27,15 +27,25 @@ pub brokkr_runtime::agents::McpAxis::Unmeasured(brokkr_runtime::agents::McpUnmea
 pub brokkr_runtime::agents::McpAxis::Unsupported
 pub brokkr_runtime::agents::McpAxis::Unsupported::reason: alloc::string::String
 pub enum brokkr_runtime::agents::McpError
+pub brokkr_runtime::agents::McpError::BorrowedBinary
+pub brokkr_runtime::agents::McpError::BorrowedBinary::binary: alloc::string::String
+pub brokkr_runtime::agents::McpError::BorrowedBinary::measured: alloc::string::String
+pub brokkr_runtime::agents::McpError::BorrowedBinary::shape: brokkr_runtime::agents::McpShape
 pub brokkr_runtime::agents::McpError::BorrowedHarness
-pub brokkr_runtime::agents::McpError::BorrowedHarness::binary: alloc::string::String
+pub brokkr_runtime::agents::McpError::BorrowedHarness::harness: alloc::string::String
 pub brokkr_runtime::agents::McpError::BorrowedHarness::measured: alloc::string::String
 pub brokkr_runtime::agents::McpError::BorrowedHarness::shape: brokkr_runtime::agents::McpShape
 pub brokkr_runtime::agents::McpError::Decode(alloc::string::String)
 pub brokkr_runtime::agents::McpError::DuplicateShape(brokkr_runtime::agents::McpShape)
+pub brokkr_runtime::agents::McpError::LegacyFlag
 pub brokkr_runtime::agents::McpError::LegacyServer(alloc::string::String)
+pub brokkr_runtime::agents::McpError::LegacyServerPath(alloc::string::String)
+pub brokkr_runtime::agents::McpError::LegacyServers
 pub brokkr_runtime::agents::McpError::MixedForms
 pub brokkr_runtime::agents::McpError::ModelHarness(alloc::string::String)
+pub brokkr_runtime::agents::McpError::ResumeHands
+pub brokkr_runtime::agents::McpError::ResumeHands::declared: alloc::string::String
+pub brokkr_runtime::agents::McpError::ResumeHands::shape: brokkr_runtime::agents::McpShape
 pub brokkr_runtime::agents::McpError::UndeclaredHands(brokkr_runtime::agents::McpShape)
 pub brokkr_runtime::agents::McpError::UndeclaredResume(brokkr_runtime::agents::McpShape)
 pub brokkr_runtime::agents::McpError::UnknownKey(alloc::string::String)
@@ -43,6 +53,9 @@ pub enum brokkr_runtime::agents::McpHands
 pub brokkr_runtime::agents::McpHands::Boxed
 pub brokkr_runtime::agents::McpHands::Harness
 pub brokkr_runtime::agents::McpHands::NoHands
+pub enum brokkr_runtime::agents::McpHost
+pub brokkr_runtime::agents::McpHost::Linux
+pub brokkr_runtime::agents::McpHost::Macos
 pub enum brokkr_runtime::agents::McpInvocation
 pub brokkr_runtime::agents::McpInvocation::Cold
 pub brokkr_runtime::agents::McpInvocation::Replacement
@@ -50,14 +63,11 @@ pub brokkr_runtime::agents::McpInvocation::Resume(alloc::string::String)
 pub enum brokkr_runtime::agents::McpSupport
 pub brokkr_runtime::agents::McpSupport::Declared
 pub brokkr_runtime::agents::McpSupport::Declared::carriage: brokkr_runtime::agents::McpAxis
-pub brokkr_runtime::agents::McpSupport::Declared::shapes: alloc::collections::btree::map::BTreeMap<brokkr_runtime::agents::McpShape, brokkr_runtime::agents::McpIsolation>
+pub brokkr_runtime::agents::McpSupport::Declared::shapes: alloc::collections::btree::map::BTreeMap<brokkr_runtime::agents::McpShape, brokkr_runtime::agents::McpMeasurement>
 pub brokkr_runtime::agents::McpSupport::Inapplicable
 pub brokkr_runtime::agents::McpSupport::Inapplicable::reason: alloc::string::String
 pub brokkr_runtime::agents::McpSupport::Legacy
 pub brokkr_runtime::agents::McpSupport::Legacy::flag: core::option::Option<alloc::string::String>
-impl brokkr_runtime::agents::McpSupport
-pub fn brokkr_runtime::agents::McpSupport::carriage(&self) -> brokkr_runtime::agents::McpAxis
-pub fn brokkr_runtime::agents::McpSupport::isolation(&self, &brokkr_runtime::agents::McpShape) -> brokkr_runtime::agents::McpIsolation
 pub enum brokkr_runtime::agents::McpUnmeasured
 pub brokkr_runtime::agents::McpUnmeasured::Absent
 pub brokkr_runtime::agents::McpUnmeasured::Declared(alloc::string::String)
@@ -258,11 +268,15 @@ pub brokkr_runtime::agents::McpIsolation::ambient: brokkr_runtime::agents::McpAx
 pub brokkr_runtime::agents::McpIsolation::native_write: brokkr_runtime::agents::McpAxis
 pub brokkr_runtime::agents::McpIsolation::process_read: brokkr_runtime::agents::McpAxis
 pub brokkr_runtime::agents::McpIsolation::store_read: brokkr_runtime::agents::McpAxis
+pub struct brokkr_runtime::agents::McpMeasurement
+pub brokkr_runtime::agents::McpMeasurement::isolation: brokkr_runtime::agents::McpIsolation
+pub brokkr_runtime::agents::McpMeasurement::version: alloc::string::String
 pub struct brokkr_runtime::agents::McpRefusal
 pub brokkr_runtime::agents::McpRefusal::problem: brokkr_runtime::agents::McpError
 pub brokkr_runtime::agents::McpRefusal::what: alloc::string::String
 pub struct brokkr_runtime::agents::McpShape
 pub brokkr_runtime::agents::McpShape::hands: brokkr_runtime::agents::McpHands
+pub brokkr_runtime::agents::McpShape::host: brokkr_runtime::agents::McpHost
 pub brokkr_runtime::agents::McpShape::invocation: brokkr_runtime::agents::McpInvocation
 impl core::fmt::Display for brokkr_runtime::agents::McpShape
 pub fn brokkr_runtime::agents::McpShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

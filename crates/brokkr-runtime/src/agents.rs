@@ -52,8 +52,8 @@ mod mcp;
 
 pub use brokkr_protocol::adapters::HandsNotice;
 pub use load::{resolve_route, Adapters, Library, LibraryError};
-pub use mcp::{McpAxis, McpError, McpHands, McpInvocation, McpIsolation, McpRefusal, McpShape};
-pub use mcp::{McpSupport, McpUnmeasured};
+pub use mcp::{McpAxis, McpError, McpHands, McpHost, McpInvocation, McpIsolation, McpMeasurement};
+pub use mcp::{McpRefusal, McpShape, McpSupport, McpUnmeasured};
 
 /// The grammar every agent, model, provider and MCP server name obeys.
 /// Quoted verbatim in rejection messages so a reader can act on them.
