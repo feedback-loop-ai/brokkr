@@ -33,7 +33,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::boundary::{refuse_unboxable, Unboxable};
-use crate::bundle::{CompileError, DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
+use crate::bundle::{CompileError, RealmLaw, DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
 use crate::capabilities::{CapabilityContext, UNMAPPED};
 use crate::engine::verify_dispatch_bundle_bounds;
 use crate::realms::{World, WorldError};
@@ -466,7 +466,8 @@ fn unreproducible(run: &str, error: LaunchError) -> LaunchError {
 }
 
 /// The bundle compiled in the realm `name`: its dialect, its boundary,
-/// or none and `namespace` when the world names no such realm, and the
+/// or none and `namespace` when the world names no such realm, the
+/// world's provisional offices (proposed decision 0075 ruling 5), and the
 /// capability grants of that realm for the operated `repo`.
 fn compile_in_realm(
     workspace: &Path,
@@ -480,14 +481,13 @@ fn compile_in_realm(
         Some((world, realm)) => world.dialect_for_realm(realm)?,
         None => None,
     };
-    let boundary = realm.map_or(Boundary::Namespace, Realm::boundary);
     Ok(Bundle::compile_with_capabilities(
         dir,
         &workspace.join(DEFAULT_AGENTS_DIR),
         &workspace.join(DEFAULT_ADAPTERS_DIR),
         Some(name),
         dialect,
-        boundary,
+        RealmLaw::of(world, realm),
         &capability_context(workspace, world, realm, repo),
     )?)
 }

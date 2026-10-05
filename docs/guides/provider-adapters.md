@@ -154,7 +154,7 @@ own Qwen catalog lists, and pins `xhigh` (decision 0035, second
 addendum).
 
 The `glm-flash` alias pins `spark-glm/GLM-5.3-Flash-EXL3`, a vLLM
-on the DGX Spark (`http://spark:8888/v1`), keyed by the same
+on the operator's DGX Spark, keyed by the same
 `SPARK_API_KEY` placeholder as the `spark` route — the server checks
 no key, but the route requires one to be named. Verified 2026-09-16
 with a headless turn: the endpoint lists the model at `max_model_len`
@@ -167,6 +167,10 @@ none. Capacity is the shared KV figure, not a default: 700k across
 `maxTokens` 32768, and compaction measures against that cap
 (`thresholdRatio` 0.8, so it fires at 160k — four seats at the
 trigger together hold ~640k — with `retainRatio` 0.16).
+`recipes/night-shift` and `recipes/wager-harness-dsh` pin their dsh
+implement lanes to this id with no effort (the operator's ruling of
+2026-10-04, [#532](https://github.com/feedback-loop-ai/brokkr/issues/532)),
+so both run only on a host serving the `spark-glm` route.
 
 The `studio-flash41` and `glm53` aliases pin `dashscope/deepseek-v4.1-flash`
 and `dashscope/glm-5.3` on the Model Studio route. Both ids appeared in
@@ -292,6 +296,41 @@ beside the change:
 ```
 BROKKR_BLESS=1 cargo test -p brokkr-runtime --test it witness_digests::
 ```
+
+### The provisional tier
+
+A new model, on a new harness or an existing one (a dsh route
+included), starts provisional (proposed decision 0075 ruling 5). Its
+`models` entry names the concrete id and the tier together:
+
+```json
+"models": {
+  "opus": "claude-opus-5-5",
+  "newcomer": {"id": "claude-newcomer-1", "tier": "provisional"}
+}
+```
+
+An entry that declares no tier, a bare id or an object without `tier`,
+is promoted, which is every model shipped today. A provisional model
+may hold only the offices, agents by name, that the world's
+`realms.json` lists under `provisional_offices` (`forge.realms/v7`),
+and never a gate, whatever the list says. The compile refuses any seat
+whose chain reaches it otherwise, on any fallback link, naming the
+seat, the link, the model, the adapter and the rule that fired. The
+tier belongs to the concrete id, not to one adapter's entry: a seat
+that reaches the id through another adapter, or under another name, is
+judged as if it hired the provisional entry. An inline command names no
+agent, so it holds no office. Once any adapter declares a provisional
+model, every inline model seat must pin, on its adapter's model flag,
+an id its own adapter declares: a pin that cannot be read as one id, no
+pin at all, and an alias or id the adapter does not declare are each
+refused, since any of them may reach the provisional model. A driver
+that declares no model and takes none, such as `exec`, is not judged.
+`brokkr doctor` prints one `provisional` line per such model with the
+offices it may hold. Promotion is data only: remove `"tier":
+"provisional"`, or rewrite the entry as its bare id. Pricing a new
+model before its first seat is LaneTally's unpriced audit, not this
+check.
 
 ## Hands
 

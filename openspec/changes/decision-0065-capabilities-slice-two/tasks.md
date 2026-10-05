@@ -1,10 +1,12 @@
 # Decision 0065 slice two — implementation tasks
 
-Status: proposed; all implementation and measurement tasks remain open.
+Status: in progress. Each unit ticks its own tasks on observed evidence.
+U0's measurement tasks 1.1–1.2 are closed with dated evidence, pending legs
+named there.
 Startup binding checks belong to groups 28/31/46, masking to 31/39/46 and
 session judgment to 29/30/41/42/46, each with independent removals. Discovery
 selection belongs to U7c and rendering to U7d. The plan has 45 PRs and 105
-open tasks. Historical counts and dispositions live in
+tasks. Historical counts and dispositions live in
 [evidence.md](evidence.md#visit-chronology). No checkbox closes by planning.
 
 Follow design.md's final **Slice two units** section: one PR per row, from
@@ -55,15 +57,19 @@ No extra production file or relaxation of the MCP fence is implied.
 
 Dependencies: none; independent objective. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 1.1 (U0; [MB2](specs/mcp-capability-broker/spec.md), [SI1](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md)) Execute D2's per-harness ambient sentinels, strict config, Codex discovery/event and dsh loading matrix, including native historical-replay detection and separate store/process canary read-isolation controls. Record adapter evidence only; no code changes. Verify: Positive controls and each cold/resume/replacement shape are reproducible; missing read isolation refuses secret-bearing holdings, while secret-free eligibility is assessed separately.
-- [ ] 1.2 (U0; [MB2](specs/mcp-capability-broker/spec.md), [SI1](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Review the listed documents/evidence against the named requirements and retain explicit unmeasured/pending outcomes. Apply the shared verification duty above.
+- [x] 1.1 (U0; [MB2](specs/mcp-capability-broker/spec.md), [SI1](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md)) Execute D2's per-harness ambient sentinels, strict config, Codex discovery/event and dsh loading matrix, including native historical-replay detection and separate store/process canary read-isolation controls. Record adapter evidence only; no code changes. Verify: Positive controls and each cold/resume/replacement shape are reproducible; missing read isolation refuses secret-bearing holdings, while secret-free eligibility is assessed separately.
+  Evidence (2026-10-03/04, Linux, [slice-two-mcp-isolation.md](../../../docs/evidence/adapters/slice-two-mcp-isolation.md), [observations](../../../docs/evidence/adapters/slice-two-mcp-observations.json)): positive controls started, listed and answered every planted ambient sentinel. Claude 2.1.287 `--strict-mcp-config` with an explicit engine config passed cold with and without hands, and refused the flag under a managed MCP file. dsh 0.1.5-rc.1's engine-only `DSH_HOME` passed cold. Both codex-cli 0.160.0 candidates failed (project, system and managed MCP configuration loaded). LaneTally's wrapper excluded every ambient source at startup. Native/MCP event shapes and resumed-history behaviour are recorded. Store and process canaries were read separately: Claude's cold hands shape excluded both, Codex's and dsh's native shells read the store. Pending: LaneTally's engine answer and canaries, and Codex ChatGPT-login auth and OpenAI-model discovery (PENDING OPERATOR APPROVAL: each needs a credential copy that was not made); macOS (no host); resume shapes other than Codex's work-site stay unmeasured. exec is inapplicable.
+- [x] 1.2 (U0; [MB2](specs/mcp-capability-broker/spec.md), [SI1](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Review the listed documents/evidence against the named requirements and retain explicit unmeasured/pending outcomes. Apply the shared verification duty above.
+  Evidence: the record states binary/version, host, shape, config sources, candidate, argv and environment names, planted sentinels, positive controls, lifecycle logs, listings, outcomes and limitations for every cell (SI1). SD2: no production file, test, pin or witness changed. SD4 docs-only gates on the U0 head: `openspec validate --all --strict` 20 passed, 0 failed; `typos --hidden` and `git diff --check` clean. Unmeasured and pending outcomes stay explicit in the record.
 
 ## 2. U1a — Extract existing MCP transport checks
 
 Dependencies: U0. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 2.1 (U1a; [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Move the current single-server transport/parser checks into the named module, retaining production callers and exact behavior; create room under the existing file baseline. Verify: Unchanged hands-only exact-state and authored-option tests, with no added server acceptance.
-- [ ] 2.2 (U1a; [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 2.1. Apply the shared verification duty above.
+- [x] 2.1 (U1a; [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Move the current single-server transport/parser checks into the named module, retaining production callers and exact behavior; create room under the existing file baseline. Verify: Unchanged hands-only exact-state and authored-option tests, with no added server acceptance.
+  Evidence ([evidence.md](evidence.md#u1a-implementation-evidence-tasks-2122)): `toml_basic`, `Transport`, `untransported` and `authored_server_conflict` moved into the private `native_controls/mcp.rs`, and the public names are re-exported at their old paths. `sealed_inputs`' R1 comparison became `Transport::carried_by`. `native_controls.rs` went from 4,539 to 4,320 lines. No test assertion changed and no server is newly accepted.
+- [x] 2.2 (U1a; [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 2.1. Apply the shared verification duty above.
+  Evidence ([evidence.md](evidence.md#u1a-implementation-evidence-tasks-2122)): M1–M7 each removed one moved behavior and failed exact assertions in `native_controls/tests.rs`, `adapters/tests.rs` or `capability_launch.rs`. After they were restored, the protocol, runtime and CLI suites passed, witness pins held unblessed, and the files, clones, API and baselines ratchets held.
 
 ## 3. U1b — Type adapter MCP facts
 
@@ -118,15 +124,17 @@ Dependencies: U1f2. Files and scope: [design.md](design.md#u1g--seal-and-enforce
 
 Dependencies: none; independent objective. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 9.1 (U2; [SC5](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Extract kind-specific binding projection and replace the indexed native binding and doctor expect with exhaustive typed outcomes. Native behavior and the public MCP fence stay unchanged. Verify: Direct non-native seam fixtures prove both panic sites fixed; native controls and the old compile refusal are exact.
-- [ ] 9.2 (U2; [SC5](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 9.1. Apply the shared verification duty above.
+- [x] 9.1 (U2; [SC5](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Extract kind-specific binding projection and replace the indexed native binding and doctor expect with exhaustive typed outcomes. Native behavior and the public MCP fence stay unchanged. Verify: Direct non-native seam fixtures prove both panic sites fixed; native controls and the old compile refusal are exact.
+  Evidence ([evidence.md](evidence.md#u2-implementation-evidence-tasks-9192)): `capabilities/binding.rs` projects the binding by kind (`Unbound::{Mcp, Hands, Missing}`). The resolver's two index sites and doctor's `expect` became typed outcomes. Three new tests use direct seam fixtures, and six compiling mutations each fail an intended assertion and were restored. The fence tests are unedited and pass.
+- [x] 9.2 (U2; [SC5](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 9.1. Apply the shared verification duty above.
+  Evidence ([evidence.md](evidence.md#u2-implementation-evidence-tasks-9192)): run `ca7233a6` applied M1–M6 again, and each fails its recorded assertion in `capabilities/tests.rs`'s child module or `doctor/capability_tests.rs`. After the restore, both suites pass. Typos, the files, clones and API ratchets, the budget measure and the crate suites all pass. The public-API raise is ruled. Exact coverage and remote CI are pending.
 
 ## 10. U3a — Apply gate classes
 
 Dependencies: none; independent objective. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 10.1 (U3a; [GP1](specs/gate-capability-policy/spec.md)) Thread canonical executable SeatClass and stable office once; extract the common pure class check. Writes precedes egress; D4 scope and independent native OFF remain. Verify: Exact native reads/writes/egress requires/wants, all nested sites, subtraction and fallback tests; helper-level MCP cases do not bypass compile.
-- [ ] 10.2 (U3a; [GP1](specs/gate-capability-policy/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 10.1. Apply the shared verification duty above.
+- [x] 10.1 (U3a; [GP1](specs/gate-capability-policy/spec.md)) Thread canonical executable SeatClass and stable office once; extract the common pure class check. Writes precedes egress; D4 scope and independent native OFF remain. Verify: Exact native reads/writes/egress requires/wants, all nested sites, subtraction and fallback tests; helper-level MCP cases do not bypass compile.
+- [x] 10.2 (U3a; [GP1](specs/gate-capability-policy/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 10.1. Apply the shared verification duty above.
 
 ## 11. U3b — Check loaded office charters
 
@@ -202,36 +210,43 @@ Dependencies: U4f2. Files and scope: [design.md](design.md#slice-two-units).
 
 Dependencies: none; independent objective. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 22.1 (U5c; [SC2](specs/slice-two-contracts/spec.md)) Extract current grant parsing/serialization and reserved-key selection, retaining its v6 behavior and any landed v7 fields. Typed errors keep old text. Verify: Legacy realm round trips, empty/omitted lists and restriction identity remain exact.
-- [ ] 22.2 (U5c; [SC2](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 22.1. Apply the shared verification duty above.
+- [x] 22.1 (U5c; [SC2](specs/slice-two-contracts/spec.md)) Extract current grant parsing/serialization and reserved-key selection, retaining its v6 behavior and any landed v7 fields. Typed errors keep old text. Verify: Legacy realm round trips, empty/omitted lists and restriction identity remain exact.
+- [x] 22.2 (U5c; [SC2](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 22.1. Apply the shared verification duty above.
 
 ## 23. U5c — Mint the retention-veto realm version
 
 Dependencies: none; same PR as group 22, not a second merge. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 23.1 (U5c; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md)) N denotes the next realms version after v7, allocated against main at this PR; preserve #487's v7 fields. Decode retain false as Veto only in that new version; prior spellings stay restrictions. Verify: New/old round trips, bad veto values and provisional-office compatibility; frozen pins do not move.
-- [ ] 23.2 (U5c; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 23.1. Apply the shared verification duty above.
+- [x] 23.1 (U5c; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md)) N denotes the next realms version after v7, allocated against main at this PR; preserve #487's v7 fields. Decode retain false as Veto only in that new version; prior spellings stay restrictions. Verify: New/old round trips, bad veto values and provisional-office compatibility; frozen pins do not move.
+- [x] 23.2 (U5c; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 23.1. Apply the shared verification duty above.
 
 ## 20. U5a — Extract dialect loading
 
 Dependencies: U2, U5c. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 20.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Move the current dialect edge loader and contained read use to a consumed module without changing v1 acceptance or the MCP fence. Verify: Existing schema/duplicate/containment and refusal tests prove extraction parity.
-- [ ] 20.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 20.1. Apply the shared verification duty above.
+- [x] 20.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Move the current dialect edge loader and contained read use to a consumed module without changing v1 acceptance or the MCP fence. Verify: Existing schema/duplicate/containment and refusal tests prove extraction parity.
+- [x] 20.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 20.1. Apply the shared verification duty above.
 
 ## 21. U5a — Retain typed MCP connection and policy
 
 Dependencies: U2, U5c; same PR as groups 20 and 24, not a second merge. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 21.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md)) Carry typed v1 connection, version, names, retained, egress and sends. Use exhaustive kind and retention variants; reject runtime use of references/URL only through the specified compatibility causes after enablement. Verify: Exact field retention/digests, no process/store read, old native data and pre-U9 refusal intact.
-- [ ] 21.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 21.1. Apply the shared verification duty above.
+- [x] 21.1 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md)) Carry typed v1 connection, version, names, retained, egress and sends. Use exhaustive kind and retention variants; reject runtime use of references/URL only through the specified compatibility causes after enablement. Verify: Exact field retention/digests, no process/store read, old native data and pre-U9 refusal intact.
+- [x] 21.2 (U5a; [SC1](specs/slice-two-contracts/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 21.1. Apply the shared verification duty above.
 
 ## 24. U5a — Bind reservation and effective retention
 
 Dependencies: U2, U5c; same PR as groups 20 and 21, not a second merge. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 24.1 (U5a; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md)) Make dialect restriction-reservation checks use the grant's version, carry inherit/veto into the typed holding and preserve D11. Bound identifiers and egress minimum without granting secret clearance. Verify: Four retention outcomes, legacy retain as restriction, reserved collisions through refs/composition and unchanged inactive grants.
-- [ ] 24.2 (U5a; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 24.1. Apply the shared verification duty above.
+- [x] 24.1 (U5a; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md)) Make dialect restriction-reservation checks use the grant's version, carry inherit/veto into the typed holding and preserve D11. Bound identifiers without granting secret clearance; the egress-minimum comparison is task 24.3 (U5a2, operator ruling 2026-10-04). Verify: Four retention outcomes, legacy retain as restriction, direct reserved-key claims refused, reserved keys absent from restriction validation whatever the schema's composition (operator ruling 2026-10-04), and unchanged inactive grants.
+- [x] 24.2 (U5a; [SC2](specs/slice-two-contracts/spec.md), [CR1](specs/capability-response-retention/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 24.1. Apply the shared verification duty above.
+
+## 24b. U5a2 — Compare MCP egress with the binding minimum
+
+Dependencies: U5a. Split from group 24 by operator ruling of 2026-10-04. Files and scope: [design.md](design.md#slice-two-units).
+
+- [x] 24.3 (U5a2; [MB4](specs/mcp-capability-broker/spec.md)) Carry the bundle's parsed binding minimum into capability resolution and judge each MCP dialect's typed egress against it before carriage; requires refuses and wants drops with MB4's exact below-minimum cause, natives and the MCP compile fence unchanged. Verify: Below/at/above each minimum for requires and wants, absent minimum, native and fenced controls.
+- [x] 24.4 (U5a2; [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 24.3. Apply the shared verification duty above.
 
 ## 25. U5f — Publish manifest v12 with its live native consumer
 
@@ -244,8 +259,8 @@ Dependencies: U5a. Files and scope: [design.md](design.md#slice-two-units).
 
 Dependencies: none; independent objective. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 26.1 (U6a; [MB4](specs/mcp-capability-broker/spec.md)) Move bind_environment into existing protocol/secret.rs with a narrow typed error; existing harness spawns consume it immediately and location comments follow it. Keep exactly one expose_for_spawn production invocation, counting secret.rs too. No new module or lib registration. Verify: The machine proof counts actual accessor calls across all production modules including secret.rs, distinguishes the method definition, and asserts the one injector location. Adding a second call inside secret.rs and separately outside it must fail; existing leak scans and safe diagnostic text remain bound. No environment fallback.
-- [ ] 26.2 (U6a; [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 26.1. Apply the shared verification duty above.
+- [x] 26.1 (U6a; [MB4](specs/mcp-capability-broker/spec.md)) Move bind_environment into existing protocol/secret.rs with a narrow typed error; existing harness spawns consume it immediately and location comments follow it. Keep exactly one expose_for_spawn production invocation, counting secret.rs too. No new module or lib registration. Verify: The machine proof counts actual accessor calls across all production modules including secret.rs, distinguishes the method definition, and asserts the one injector location. Adding a second call inside secret.rs and separately outside it must fail; existing leak scans and safe diagnostic text remain bound. No environment fallback.
+- [x] 26.2 (U6a; [MB4](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 26.1. Apply the shared verification duty above.
 
 ## 27. U6b — Introduce the broker command as a closed handler
 

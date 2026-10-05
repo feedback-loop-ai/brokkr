@@ -40,6 +40,30 @@ use brokkr_protocol::native_controls::{
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
+mod binding;
+mod dialect;
+mod gates;
+use crate::bundle::SeatClass;
+use binding::Unserved;
+pub(crate) use binding::ABSENT_EGRESS_MINIMUM;
+pub use binding::{Native, Retention, Unbound};
+pub use dialect::{Connection, DialectKind, McpServer, Sends, ToolDialect};
+use gates::Cause;
+
+/// Why a candidate holds no capability: a [`Cause`], which the ask's
+/// strength settles, or SC4's unrepresentable identity, which refuses the
+/// compile whatever the strength.
+enum Unheld {
+    Cause(Cause),
+    Identity,
+}
+
+impl From<Cause> for Unheld {
+    fn from(cause: Cause) -> Unheld {
+        Unheld::Cause(cause)
+    }
+}
+
 /// The realm name of a repository no map names.
 pub const UNMAPPED: &str = "<unmapped>";
 
@@ -54,8 +78,6 @@ pub const DIALECTS_DIR: &str = "dialects/tools";
 /// canonical JSON of the whole validated restriction object, substituted
 /// as one argument value and never as shell text.
 pub const RESTRICTIONS_SLOT: &str = "{restrictions_json}";
-
-const TOOL_DIALECT_SCHEMA: &str = include_str!("tool-dialect.v1.schema.json");
 
 const DEFINITION_SCHEMA: &str = r#"{
   "type": "object",
@@ -230,7 +252,7 @@ pub fn parse_requests(what: &str, raw: &Value) -> Result<Requests, String> {
 
 /// One executable site's asks: the office they belong to, what remains
 /// after the seat's subtraction, and what it subtracted.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteAsks {
     /// The execution label: `research`, `review:security`, `verify:checks`.
     pub label: String,
@@ -239,15 +261,20 @@ pub struct SiteAsks {
     pub office: String,
     pub asks: Requests,
     pub subtracted: Vec<String>,
+    /// The executable site's own canonical class, never a container's
+    /// (GP1). Every construction names it: there is no default to inherit.
+    pub(crate) class: SeatClass,
 }
 
 impl SiteAsks {
-    /// Office asks minus seat subtractions (ruling 5). An inline site's
-    /// map IS its office's asks. A site naming an agent inherits the
-    /// agent's asks when it writes no map; a map it does write is a subset
-    /// with unchanged strengths, and what it leaves out is subtracted —
-    /// `{}` subtracts everything. A seat never adds and never re-rates.
-    pub fn of(
+    /// Office asks minus seat subtractions (ruling 5), at the executable
+    /// site's own canonical `class` (GP1). An inline site's map IS its
+    /// office's asks. A site naming an agent inherits the agent's asks
+    /// when it writes no map; a map it does write is a subset with
+    /// unchanged strengths, and what it leaves out is subtracted — `{}`
+    /// subtracts everything. A seat never adds and never re-rates.
+    pub fn at(
+        class: SeatClass,
         label: &str,
         agent: Option<(&str, &Requests)>,
         site: Option<&Value>,
@@ -260,6 +287,7 @@ impl SiteAsks {
                 office: label.to_string(),
                 asks: written.unwrap_or_default(),
                 subtracted: Vec::new(),
+                class,
             });
         };
         let asks = match written {
@@ -298,6 +326,7 @@ impl SiteAsks {
                 .cloned()
                 .collect(),
             asks,
+            class,
         })
     }
 }
@@ -445,279 +474,6 @@ impl Definitions {
                     .collect::<Vec<_>>()
             })
             .collect()
-    }
-}
-
-/// The one implementation kind a tool dialect binds (ruling 2).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DialectKind {
-    /// A capability a harness already has, addressed through its adapter.
-    Native {
-        provider: String,
-        adapter_key: String,
-    },
-    /// An MCP server. Whole as data; refused as a grant until slice two.
-    Mcp,
-    /// Reserved: decision 0043's workspace tool, which does not move.
-    Hands,
-}
-
-impl DialectKind {
-    pub fn word(&self) -> &'static str {
-        match self {
-            DialectKind::Native { .. } => "provider-native",
-            DialectKind::Mcp => "mcp",
-            DialectKind::Hands => "hands",
-        }
-    }
-}
-
-/// One tool dialect, as loaded from `dialects/tools/<name>.json`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ToolDialect {
-    pub name: String,
-    pub serves: String,
-    pub kind: DialectKind,
-    pub tools: Vec<String>,
-    pub classes: Option<Vec<String>>,
-    /// Decision 0036's class; absent reads `uncontracted`.
-    pub egress: String,
-    pub seat_composed: bool,
-    /// The embedded schema a grant's restriction keys are judged against.
-    pub restrictions: Value,
-    pub source: String,
-    pub sha256: String,
-}
-
-/// The draft an embedded restriction schema is read as. One written
-/// against any other is refused rather than judged by rules it did not
-/// mean.
-const DRAFT_07: &str = "http://json-schema.org/draft-07/schema";
-
-/// The keywords whose value is DATA, not a schema: a `$ref` spelled inside
-/// one is an example of a reference, not a reference.
-const DATA_KEYWORDS: [&str; 4] = ["const", "default", "enum", "examples"];
-
-/// The keywords that apply a further schema to the SAME instance, so a
-/// schema reached through one still describes the grant's own top level.
-const SAME_INSTANCE: [&str; 7] = ["allOf", "anyOf", "oneOf", "not", "if", "then", "else"];
-
-/// What is wrong with an embedded restriction schema before it is ever
-/// compiled: it is written against another draft; a `$ref` anywhere in it
-/// leaves the dialect file or points at nothing in it; or, where it
-/// describes the grant's own top level, it names a key the engine owns.
-fn embedded_schema_fault(schema: &Value) -> Option<String> {
-    if let Some(draft) = schema.get("$schema") {
-        if draft.as_str().map(|uri| uri.trim_end_matches('#')) != Some(DRAFT_07) {
-            return Some(format!(
-                "declares '$schema' {draft}; a restriction schema is draft-07 ('{DRAFT_07}#')"
-            ));
-        }
-    }
-    reference_fault(schema, schema).or_else(|| reserved_fault(schema, schema, &mut Vec::new()))
-}
-
-/// Every `$ref` stays inside the dialect file and resolves in it. Walked
-/// through the whole document, data keywords aside: a reference is never
-/// fetched, wherever it hides.
-fn reference_fault(root: &Value, node: &Value) -> Option<String> {
-    match node {
-        Value::Object(map) => {
-            if let Some(reference) = map.get("$ref").and_then(Value::as_str) {
-                let Some(pointer) = reference.strip_prefix('#') else {
-                    return Some(format!(
-                        "references '{reference}', which is outside the dialect file; a \
-                         restriction schema is never fetched"
-                    ));
-                };
-                if root.pointer(pointer).is_none() {
-                    return Some(format!(
-                        "references '{reference}', which names nothing in the dialect file"
-                    ));
-                }
-            }
-            map.iter()
-                .filter(|(keyword, _)| !DATA_KEYWORDS.contains(&keyword.as_str()))
-                .find_map(|(_, value)| reference_fault(root, value))
-        }
-        Value::Array(items) => items.iter().find_map(|item| reference_fault(root, item)),
-        _ => None,
-    }
-}
-
-/// `node` describes the grant's own top level: refuse a reserved key it
-/// names — by `properties`, `required`, `dependencies`, or a
-/// `patternProperties` pattern that matches one — then follow composition
-/// and local references, which describe that same level. A key of the same
-/// name NESTED inside a restriction (`allow.tools`) is the dialect's own
-/// and is never looked at. `propertyNames` names no key, so it redefines
-/// none. `seen` ends a reference cycle.
-fn reserved_fault<'a>(root: &'a Value, node: &'a Value, seen: &mut Vec<&'a str>) -> Option<String> {
-    let map = node.as_object()?;
-    let reserved = brokkr_core::realms::GRANT_KEYS;
-    let keys_of = |keyword: &str| {
-        map.get(keyword)
-            .and_then(Value::as_object)
-            .into_iter()
-            .flat_map(|named| named.keys().map(String::as_str))
-    };
-    let required = map
-        .get("required")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str);
-    let named = keys_of("properties")
-        .chain(keys_of("dependencies"))
-        .chain(required)
-        .find(|key| reserved.contains(key));
-    // A pattern is judged by the validator that will later read it: the
-    // schema `{patternProperties: {<pattern>: false}}` refuses exactly the
-    // objects one of whose keys the pattern matches.
-    let matched = || {
-        keys_of("patternProperties").find_map(|pattern| {
-            let probe = jsonschema::draft7::new(&json!({"patternProperties": {pattern: false}}));
-            reserved.iter().copied().find(|key| {
-                probe
-                    .as_ref()
-                    .is_ok_and(|probe| !probe.is_valid(&json!({*key: null})))
-            })
-        })
-    };
-    if let Some(key) = named.or_else(matched) {
-        return Some(format!(
-            "redefines '{key}', which is a key of the grant the engine owns"
-        ));
-    }
-    let target = map
-        .get("$ref")
-        .and_then(Value::as_str)
-        .filter(|reference| !seen.contains(reference))
-        .map(|reference| {
-            seen.push(reference);
-            root.pointer(&reference[1..])
-                .expect("reference_fault resolved every reference first")
-        });
-    let applied = SAME_INSTANCE
-        .iter()
-        .filter_map(|keyword| map.get(*keyword))
-        .flat_map(|applied| match applied {
-            Value::Array(branches) => branches.iter().collect::<Vec<_>>(),
-            single => vec![single],
-        });
-    target
-        .into_iter()
-        .chain(applied)
-        .find_map(|branch| reserved_fault(root, branch, seen))
-}
-
-impl ToolDialect {
-    pub fn source_of(name: &str) -> String {
-        format!("{DIALECTS_DIR}/{name}.json")
-    }
-
-    /// Load one dialect by library name. Executes nothing and contacts
-    /// nothing: an `mcp` dialect's argv and URL are read as data.
-    pub fn load(root: &Path, name: &str) -> Result<ToolDialect, String> {
-        let source = ToolDialect::source_of(name);
-        let (value, sha256) = read_document(root, &source)?.ok_or_else(|| {
-            format!("tool dialect '{name}' is not at '{source}' in the operator configuration")
-        })?;
-        // Judged in two steps so a refusal names the FIELD: first what
-        // every dialect shares — which settles its kind — then the one
-        // branch that kind selects. The branches are told apart by `kind`
-        // alone, so this admits exactly what the whole contract admits,
-        // without the contract's `oneOf` reducing every fault to "none of
-        // the three".
-        let contract = embedded(TOOL_DIALECT_SCHEMA);
-        let outside = |problem: String| {
-            format!("tool dialect '{source}' is outside brokkr.tool-dialect/v1 {problem}")
-        };
-        let mut shared = contract.clone();
-        shared["oneOf"] = json!([{}]);
-        violation(&shared, &value).map_err(outside)?;
-        let branch = contract["oneOf"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|branch| branch["properties"]["kind"]["const"] == value["kind"])
-            .expect("the contract's kind enum and its branches name the same kinds");
-        violation(branch, &value).map_err(outside)?;
-        let text = |key: &str| value[key].as_str().unwrap_or_default().to_string();
-        if text("name") != name {
-            return Err(format!(
-                "tool dialect '{source}' names itself '{}'; a dialect's name is its file's stem",
-                text("name")
-            ));
-        }
-        let restrictions = value
-            .get("restrictions")
-            .cloned()
-            .unwrap_or_else(|| json!({"type": "object", "additionalProperties": false}));
-        if let Some(fault) = embedded_schema_fault(&restrictions) {
-            return Err(format!(
-                "tool dialect '{source}' restriction schema {fault}"
-            ));
-        }
-        jsonschema::draft7::new(&restrictions).map_err(|error| {
-            format!("tool dialect '{source}' restriction schema is not valid draft-07: {error}")
-        })?;
-        // An `mcp` launch names a credential only by decision 0012's
-        // `{{secret:NAME}}`, and only a NAME the dialect declares under
-        // `secrets`. Judged as text: no store is opened, and neither
-        // refusal repeats the argument, which may be where somebody pasted
-        // a credential by hand. The contract's pattern already keeps
-        // userinfo out of a `url`.
-        let declared = value["secrets"].as_array().into_iter().flatten();
-        let declared: Vec<&str> = declared.filter_map(Value::as_str).collect();
-        let launch = value["connection"]["argv"].as_array().into_iter().flatten();
-        for (index, part) in launch.filter_map(Value::as_str).enumerate() {
-            let names = brokkr_protocol::secret::scan_secret_refs(part).map_err(|_| {
-                format!(
-                    "tool dialect '{source}' connection argv[{index}] carries a malformed secret \
-                     reference; a reference is {{{{secret:NAME}}}} with NAME matching \
-                     [A-Z][A-Z0-9_]*"
-                )
-            })?;
-            if let Some(name) = names.iter().find(|name| !declared.contains(&name.as_str())) {
-                return Err(format!(
-                    "tool dialect '{source}' connection argv[{index}] references secret '{name}', \
-                     which its 'secrets' does not declare; a server reaches only the bindings \
-                     its dialect names (decision 0012)"
-                ));
-            }
-        }
-        let kind = match value["kind"].as_str() {
-            Some("provider-native") => DialectKind::Native {
-                provider: text("provider"),
-                adapter_key: text("adapter_key"),
-            },
-            Some("mcp") => DialectKind::Mcp,
-            _ => DialectKind::Hands,
-        };
-        let strings = |key: &str| -> Option<Vec<String>> {
-            serde_json::from_value(value.get(key)?.clone()).ok()
-        };
-        Ok(ToolDialect {
-            name: name.to_string(),
-            serves: text("serves"),
-            kind,
-            tools: strings("tools").unwrap_or_default(),
-            classes: strings("classes"),
-            egress: value["egress"]
-                .as_str()
-                .unwrap_or("uncontracted")
-                .to_string(),
-            seat_composed: value["sends"]["seat_composed"] == json!(true),
-            restrictions,
-            source,
-            sha256,
-        })
-    }
-
-    fn value(&self) -> Value {
-        json!({"source": self.source, "sha256": self.sha256,
-               "kind": self.kind.word(), "serves": self.serves})
     }
 }
 
@@ -1102,6 +858,9 @@ pub struct Holding {
     pub tools: Vec<String>,
     /// The realm's restriction object, exactly as written.
     pub restrictions: Map<String, Value>,
+    /// The dialect's declaration beside the grant's veto (CR1); manifest
+    /// v12 (U5f) pins it.
+    pub retention: Retention,
 }
 
 /// The native contribution as typed data, before `controls` renders it
@@ -1367,15 +1126,6 @@ impl SiteCapabilities {
     }
 }
 
-/// Why an ask is not held. `through` names the dialect once a grant was
-/// found. Whether a native OFF stands behind the loss is NOT decided
-/// here: only the candidate's native plan knows what was switched off, and
-/// a provider whose inventory is unmeasured denies nothing it can show.
-struct Cause {
-    through: Option<String>,
-    but: String,
-}
-
 /// Why a known native power that no ask of the seat reached is not held
 /// (operator ruling of 2026-09-29, rebuild unit 21-fix-a, R3): the realm
 /// grants it to the seat's office and nothing requests it, or the realm
@@ -1420,9 +1170,43 @@ pub struct Authority {
     pub definitions: Definitions,
     /// Capability to the dialect its grant selected.
     pub dialects: BTreeMap<String, ToolDialect>,
-    /// Capability to the `(provider, adapter key)` its dialect binds.
-    /// Every grant has one: a grant of any other kind was refused.
-    bindings: BTreeMap<String, (String, String)>,
+    /// The bundle's binding minimum an `mcp` dialect's egress meets (MB4).
+    minimum: crate::agents::EgressClass,
+    /// Private, so only [`Authority::load`] and [`Authority::nothing`]
+    /// construct one: a struct literal elsewhere skips load's checks.
+    loaded: Loaded,
+}
+
+/// The mark only this module's loaders can write; `#[non_exhaustive]`
+/// would fence other crates and leave this one's other modules open.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Loaded;
+
+/// The serving provider's own native capability `adapter_key`, where its
+/// inventory is known and that entry serves `capability`; else why not.
+fn native_serving<'a>(
+    serving: &Serving<'a>,
+    adapter_key: &str,
+    capability: &str,
+) -> Result<&'a NativeCapability, String> {
+    let provider = serving.provider;
+    let known = match serving.native {
+        Some((NativeInventory::Known { known, .. }, _)) => known,
+        Some((NativeInventory::Unmeasured(reason), _)) => {
+            return Err(format!(
+                "provider '{provider}' declares its native capabilities unmeasured ({reason})"
+            ))
+        }
+        None => return Err(format!("no adapter declares provider '{provider}'")),
+    };
+    known
+        .get(adapter_key)
+        .filter(|native| native.capability == capability)
+        .ok_or_else(|| {
+            format!(
+                "provider '{provider}' declares no native capability '{adapter_key}' serving it"
+            )
+        })
 }
 
 impl Authority {
@@ -1445,9 +1229,17 @@ impl Authority {
                     Definition::source_of(capability)
                 )
             })?;
-            let dialect = ToolDialect::load(&context.root, &grant.dialect).map_err(|problem| {
-                format!("realm '{realm}': capability '{capability}': {problem}")
-            })?;
+            // Which keys the grant reserves is its map version's (SC2).
+            let dialect = ToolDialect::load(&context.root, &grant.dialect)
+                .and_then(|dialect| {
+                    let reserved = dialect.reserves(grant.retention);
+                    reserved
+                        .map(|()| dialect)
+                        .map_err(|collision| collision.to_string())
+                })
+                .map_err(|problem| {
+                    format!("realm '{realm}': capability '{capability}': {problem}")
+                })?;
             if dialect.serves != *capability {
                 return Err(format!(
                     "realm '{realm}' grants capability '{capability}' through dialect '{}', \
@@ -1490,38 +1282,17 @@ impl Authority {
             })?;
             dialects.insert(capability.clone(), dialect);
         }
-        let mut bindings = BTreeMap::new();
+        // The compile fence (SC5): until slice two's enabling unit, every
+        // grant binds a native provider, used by a seat or not.
         for (capability, dialect) in &dialects {
-            match &dialect.kind {
-                DialectKind::Native {
-                    provider,
-                    adapter_key,
-                } => {
-                    bindings.insert(capability.clone(), (provider.clone(), adapter_key.clone()));
-                }
-                DialectKind::Mcp => {
-                    return Err(format!(
-                        "realm '{realm}' grants capability '{capability}' through dialect '{}' \
-                         of kind 'mcp', whose broker support is not implemented until decision \
-                         0065 slice two",
-                        dialect.name
-                    ))
-                }
-                DialectKind::Hands => {
-                    return Err(format!(
-                        "realm '{realm}' grants capability '{capability}' through dialect '{}' \
-                         of kind 'hands', which is reserved: the workspace tool stays governed \
-                         by decisions 0043 and 0046 and is not a realm grant",
-                        dialect.name
-                    ))
-                }
-            }
+            binding::native(realm, capability, dialect).map_err(|unbound| unbound.to_string())?;
         }
         Ok(Authority {
             context,
             definitions,
             dialects,
-            bindings,
+            minimum: ABSENT_EGRESS_MINIMUM,
+            loaded: Loaded,
         })
     }
 
@@ -1563,18 +1334,9 @@ impl Authority {
             context: CapabilityContext::no_grants(realm, root),
             definitions: Definitions::default(),
             dialects: BTreeMap::new(),
-            bindings: BTreeMap::new(),
+            minimum: ABSENT_EGRESS_MINIMUM,
+            loaded: Loaded,
         }
-    }
-
-    /// The `(provider, adapter key)` a granted capability is bound to —
-    /// what `brokkr doctor` compares an installed harness's native
-    /// declarations against. A same-name grant bound to another provider
-    /// covers nothing of this one's.
-    pub fn binding(&self, capability: &str) -> Option<(&str, &str)> {
-        self.bindings
-            .get(capability)
-            .map(|(provider, key)| (provider.as_str(), key.as_str()))
     }
 
     /// The site every capability refusal and notice opens with, typed so
@@ -1587,70 +1349,58 @@ impl Authority {
         }
     }
 
+    /// The realm's grant of `capability` that reaches the site's office
+    /// (design D4), or why none does: no dialect is chosen before it.
+    fn reaching(&self, site: &SiteAsks, capability: &str) -> Result<&CapabilityGrant, Cause> {
+        let Some(grant) = self.context.grants.get(capability) else {
+            return Err(Cause::Ungranted(
+                "the realm does not grant it to this office".into(),
+            ));
+        };
+        if grant.reaches(&site.office) {
+            return Ok(grant);
+        }
+        let scope = grant.offices.as_deref().unwrap_or_default();
+        Err(Cause::Ungranted(match scope.is_empty() {
+            true => "the realm grants it to no office".to_string(),
+            false => format!(
+                "the realm grants it only to offices [{}], not to this office",
+                scope.join(", ")
+            ),
+        }))
+    }
+
     /// Why this candidate cannot hold `capability`, or the holding and
     /// the native key that serves it.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-    )]
     fn holding(
         &self,
         site: &SiteAsks,
         capability: &str,
         serving: &Serving<'_>,
-    ) -> Result<(Holding, String), Cause> {
-        let bare = |but: String| Cause { through: None, but };
-        let Some(grant) = self.context.grants.get(capability) else {
-            return Err(bare("the realm does not grant it to this office".into()));
-        };
-        if !grant.reaches(&site.office) {
-            let scope = grant.offices.as_deref().unwrap_or_default();
-            return Err(bare(match scope.is_empty() {
-                true => "the realm grants it to no office".to_string(),
-                false => format!(
-                    "the realm grants it only to offices [{}], not to this office",
-                    scope.join(", ")
-                ),
-            }));
-        }
-        let dialect = &self.dialects[capability];
-        let through = |but: String| Cause {
-            through: Some(dialect.name.clone()),
-            but,
-        };
+    ) -> Result<(Holding, String), Unheld> {
+        let grant = self.reaching(site, capability)?;
+        let dialect = self
+            .dialect(capability)
+            .map_err(|missing| Cause::incompatible(&grant.dialect, missing.to_string()))?;
+        let through = |but| Unheld::Cause(Cause::incompatible(&dialect.name, but));
         let tools = grant.tools.clone().unwrap_or_else(|| dialect.tools.clone());
         if tools.is_empty() {
             return Err(through("the realm's grant admits no tool".into()));
         }
+        // GP1, before any provider carries it (design D3 steps 5 and 6).
+        let definition = &self.definitions.0[capability];
+        gates::check(site, definition, grant)
+            .map_err(|refusal| Cause::gate(&dialect.name, refusal))?;
         let provider = serving.provider;
-        let (bound, adapter_key) = &self.bindings[capability];
+        let (bound, adapter_key) = self
+            .carried(capability, dialect, &tools)
+            .map_err(|unserved| unserved.unheld(dialect))?;
         if bound != provider {
             return Err(through(format!(
                 "provider '{provider}' cannot carry a binding to provider '{bound}'"
             )));
         }
-        let known = match serving.native {
-            Some((NativeInventory::Known { known, .. }, _)) => known,
-            Some((NativeInventory::Unmeasured(reason), _)) => {
-                return Err(through(format!(
-                    "provider '{provider}' declares its native capabilities unmeasured \
-                     ({reason})"
-                )))
-            }
-            None => {
-                return Err(through(format!(
-                    "no adapter declares provider '{provider}'"
-                )))
-            }
-        };
-        let Some(native) = known
-            .get(adapter_key)
-            .filter(|native| native.capability == capability)
-        else {
-            return Err(through(format!(
-                "provider '{provider}' declares no native capability '{adapter_key}' serving it"
-            )));
-        };
+        let native = native_serving(serving, adapter_key, capability).map_err(through)?;
         if let Some(tool) = tools.iter().find(|tool| !native.tools.contains(tool)) {
             return Err(through(format!(
                 "provider '{provider}' native '{adapter_key}' has no tool '{tool}'"
@@ -1698,7 +1448,6 @@ impl Authority {
                 names.join("', '")
             )));
         }
-        let definition = &self.definitions.0[capability];
         Ok((
             Holding {
                 classes: definition.classes.clone(),
@@ -1707,8 +1456,9 @@ impl Authority {
                 definition_sha256: definition.sha256.clone(),
                 tools,
                 restrictions: grant.restrictions.clone(),
+                retention: Retention::of(dialect, grant),
             },
-            adapter_key.clone(),
+            adapter_key.to_string(),
         ))
     }
 
@@ -1735,28 +1485,14 @@ impl Authority {
                     keys.insert(key, capability.clone());
                     held.insert(capability.clone(), holding);
                 }
-                Err(cause) => {
-                    let through = cause
-                        .through
-                        .as_ref()
-                        .map(|dialect| format!(" through dialect '{dialect}'"))
-                        .unwrap_or_default();
-                    if *strength == Strength::Requires {
-                        return Err(match cause.through {
-                            None => format!(
-                                "{who}: requires capability '{capability}' but {}",
-                                cause.but
-                            ),
-                            Some(_) => format!(
-                                "{who}: requires capability '{capability}'{through}, but {}; \
-                                 the capability cannot be held under this grant",
-                                cause.but
-                            ),
-                        });
-                    }
+                Err(Unheld::Identity) => return Err(format!("{who}: {}", Unserved::Identity)),
+                Err(Unheld::Cause(cause)) if *strength == Strength::Requires => {
+                    return Err(cause.required(who, capability));
+                }
+                Err(Unheld::Cause(cause)) => {
                     // `through` is empty where no grant was found at all.
-                    dropped.push((capability.clone(), through, cause.but.clone()));
-                    not_held.insert(capability.clone(), cause.but);
+                    dropped.push((capability.clone(), cause.through(), cause.but()));
+                    not_held.insert(capability.clone(), cause.but());
                 }
             }
         }
@@ -1865,11 +1601,14 @@ impl Authority {
         office: &str,
         asks: Requests,
     ) -> Result<Outcome, String> {
+        // A seatless hypothesis has no class to read: judged as work, it
+        // answers no gate's holding (GP1) and authorizes no launch.
         let site = SiteAsks {
             label: ADAPTER_SEAT.to_string(),
             office: office.to_string(),
             asks,
             subtracted: Vec::new(),
+            class: SeatClass::Work,
         };
         let outcome = self.resolve(
             &site,

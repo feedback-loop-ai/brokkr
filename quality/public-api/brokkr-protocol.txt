@@ -153,6 +153,8 @@ impl brokkr_protocol::hands::HandsSpec
 pub fn brokkr_protocol::hands::HandsSpec::parse(&serde_json::value::Value) -> core::result::Result<brokkr_protocol::hands::HandsSpec, alloc::string::String>
 pub fn brokkr_protocol::hands::HandsSpec::to_value(&self) -> serde_json::value::Value
 pub struct brokkr_protocol::hands::Reaped
+impl brokkr_protocol::hands::Reaped
+pub fn brokkr_protocol::hands::Reaped::lines_with(&self, fn(&str) -> alloc::string::String) -> alloc::string::String
 impl core::fmt::Display for brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::Reaped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_protocol::hands::Session

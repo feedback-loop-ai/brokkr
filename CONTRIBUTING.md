@@ -42,7 +42,7 @@ git switch -c <your-branch>
 
 Costs are relative, not quotes; provider rates and retries vary. Pick a
 delivery recipe. `landing` is the delivery for a branch that already
-exists; `preflight` is an optional branch check, not a delivery. `night-shift` and `wager-harness-dsh` compile but are unavailable until [#264](https://github.com/feedback-loop-ai/brokkr/issues/264); [what works today](docs/status.md) says what each harness can do.
+exists; `preflight` is an optional branch check, not a delivery. `night-shift` and `wager-harness-dsh` run only on a host serving the dsh `spark-glm` route; [what works today](docs/status.md) says what each harness can do.
 
 <!-- recipe-table:start -->
 | Recipe | When to use it | What it seats | Rough cost |

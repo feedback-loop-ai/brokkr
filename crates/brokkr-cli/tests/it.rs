@@ -14,6 +14,8 @@ mod rust_source;
 mod test_paths;
 #[path = "support/tracked.rs"]
 mod tracked_files;
+#[path = "support/tracked_text.rs"]
+mod tracked_text;
 #[path = "support/workflow.rs"]
 mod workflow;
 #[path = "support/workspace.rs"]
@@ -44,6 +46,7 @@ mod machine_proof;
 mod muninn;
 mod mutants_gate;
 mod packaging;
+mod private_hosts;
 mod provenance;
 mod ratchets;
 mod realms;

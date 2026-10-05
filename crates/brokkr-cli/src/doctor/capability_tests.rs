@@ -895,6 +895,72 @@ fn docs_mcp(root: &Path) {
     );
 }
 
+/// SC5 at the doctor's grant line: an `mcp` grant handed straight to the
+/// seam, past the compile fence the test above pins, and a grant whose
+/// dialect is not loaded each fail their line with the binding's own words
+/// and bind nothing; the native grant beside them still binds its provider.
+#[test]
+fn a_grant_line_reads_its_binding_by_kind_and_assumes_no_native_provider() {
+    use brokkr_runtime::capabilities::{CapabilityContext, ToolDialect};
+    let dir = workspace_with(None);
+    let root = dir.path();
+    docs_mcp(root);
+    let grant = |dialect: &str| CapabilityGrant {
+        dialect: dialect.into(),
+        tools: None,
+        offices: None,
+        retention: brokkr_core::realms::GrantRetention::Unreserved,
+        restrictions: Default::default(),
+    };
+    let (search, docs) = (grant("codex-native-search"), grant("docs-mcp"));
+    let native = Authority::load(CapabilityContext {
+        realm: "private".into(),
+        grants: [("web-search".to_string(), search.clone())].into(),
+        root: root.to_path_buf(),
+    });
+    let mut mcp = native.clone().unwrap();
+    mcp.context.grants = [("library-docs".to_string(), docs.clone())].into();
+    let dialect = ToolDialect::load(root, "docs-mcp").unwrap();
+    mcp.dialects = [("library-docs".to_string(), dialect)].into();
+    let mut missing = native.clone().unwrap();
+    missing.dialects.clear();
+    let adapters = Adapters::load(&root.join("adapters")).unwrap();
+    let plan = |_: &Adapter, _: &str, _: Requests| Err("no plan is submitted".to_string());
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    let mut read = |capability: &str, grant: &CapabilityGrant, alone| {
+        let entry = (&capability.to_string(), grant);
+        report_grant(
+            &mut report,
+            "capabilities private",
+            entry,
+            &alone,
+            Some(&adapters),
+            &plan,
+        )
+    };
+    assert_eq!(read("library-docs", &docs, Ok(mcp)), None);
+    assert_eq!(read("web-search", &search, Ok(missing)), None);
+    let bound = read("web-search", &search, native);
+    assert_eq!(bound, Some(("codex".to_string(), "web-search".to_string())));
+    assert!(!report.healthy);
+    assert_eq!(
+        report.lines,
+        [
+            "MISSING  capabilities private 'library-docs': realm 'private' grants capability \
+             'library-docs' through dialect 'docs-mcp' of kind 'mcp', whose broker support is \
+             not implemented until decision 0065 slice two",
+            "MISSING  capabilities private 'web-search': realm 'private' has no loaded dialect \
+             for capability 'web-search', so it is bound to no provider",
+            "ok       capabilities private 'web-search': dialect 'codex-native-search' \
+             (provider-native, provider 'codex') · tools [web_search] · all requesting offices · \
+             restrictions none",
+        ]
+    );
+}
+
 /// One realm, three grants, two of them refused: each refusal is its own
 /// failing line with the compiler's whole reason, the grant that validates
 /// is still shown, and Claude's fetch — whose grant is the one that could
@@ -1754,10 +1820,11 @@ fn a_final_validation_refusal_is_bounded_as_a_compile_refusal_is() {
 /// (operator ruling of 2026-09-30): a DSH or LaneTally plan is admitted or
 /// refused by the final validation its own launch runs, never by a
 /// doctor-only substitute. DSH's launch refuses a template's effort level
-/// with no model beside it and admits a model pin; LaneTally's admits a
-/// plan whose OFF is its measured deny list (its default-OFF refusal is
-/// above). `brokkr-protocol`'s own suite shows each reading equal to its
-/// launch's outcome on the same command.
+/// with no model beside it; LaneTally's admits a plan whose OFF is its
+/// measured deny list (its default-OFF refusal is above). `brokkr-protocol`'s
+/// own suite shows each reading equal to its launch's outcome on the same
+/// command, a DSH model pin admitted among them: a template that pins a
+/// model is no adapter's to declare (proposed decision 0075 ruling 5).
 #[test]
 fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
     let dir = workspace_with(Some(json!([realm("private", None)])));
@@ -1768,12 +1835,6 @@ fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
             "dsh",
             json!({"known": {}}),
             &["--effort", "high"][..],
-        ),
-        (
-            "dsh-model",
-            "dsh",
-            json!({"known": {}}),
-            &["--model", "deepseek-v4-flash"],
         ),
         ("lanetally", "lanetally", selecting(), &[]),
     ] {
@@ -1802,7 +1863,6 @@ fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
                     hypothetical("private", "adapter-plan")
                 ),
             ),
-            admitted("private", "dsh-model"),
             admitted("private", "lanetally"),
             format!(
                 "warn     capabilities private native lanetally 'web-fetch': NOT granted here: \

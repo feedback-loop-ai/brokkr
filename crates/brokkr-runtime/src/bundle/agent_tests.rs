@@ -6162,6 +6162,15 @@ fn a_dialect_step_owns_only_a_checked_empty_declaration() {
     assert!(!bundle.sites.contains_key("clarify:check"));
 }
 
+/// The shipped `openspec` dialect, the shipped `exec` adapter its generated
+/// validator dispatches copied beside the fixture's own claude.
+fn openspec_with_exec(fixture: &AgentFixture) -> Dialect {
+    let (root, exec) = (workspace_root(), fixture.adapters().join("exec.json"));
+    std::fs::copy(root.join("adapters/exec.json"), exec).unwrap();
+    let openspec = root.join("dialects/openspec.json");
+    Dialect::load(&openspec).unwrap().0
+}
+
 /// SCM "Site-local narrowing cannot contaminate a shared office", last
 /// clause: wrapper relocation carries the local value with the other site
 /// facts — a dialect-wrapped agent-backed `verify` keeps its effective
@@ -6172,17 +6181,7 @@ fn a_dialect_step_owns_only_a_checked_empty_declaration() {
 fn a_dialect_wrapped_verify_relocates_its_declaration_and_the_validator_records_a_checked_value() {
     let fixture = AgentFixture::new();
     write_office(&fixture);
-    // The generated validator dispatches `exec`, so the fixture carries
-    // the shipped exec adapter's bytes beside its own claude.
-    let root = workspace_root();
-    std::fs::copy(
-        root.join("adapters/exec.json"),
-        fixture.adapters().join("exec.json"),
-    )
-    .unwrap();
-    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
-        .unwrap()
-        .0;
+    let dialect = openspec_with_exec(&fixture);
     let policy = json!({
         "phases": ["design", "verify", "review", "done"], "initial": "design",
         "terminal": ["done"],
@@ -6786,3 +6785,4 @@ fn a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified() {
     }
     each_row(rows);
 }
+mod gate_tests;

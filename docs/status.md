@@ -170,13 +170,15 @@ web cell from the adapter and the agent library.
 | `lanetally` | As `claude` | As `claude`, and the record carries `capture: lanetally` | Yes, the harness's list price | As `claude` | No at the default minimum: the adapter declares no egress, which reads `uncontracted` | Not switched off: LaneTally's native inventory is unmeasured, so no denial is composed, and whether Claude Code's controls hold through the wrapper is unmeasured |
 <!-- harness-behaviour:end -->
 
-## Recipes that do not run today
+## Recipes that need a local route
 
-`night-shift` and `wager-harness-dsh` compile, but are **unavailable**
-until [#264](https://github.com/feedback-loop-ai/brokkr/issues/264) is
-fixed. Each pins its dsh implement seat to `deepseek/deepseek-flash`.
-The dsh adapter maps no `deepseek/` route, and #264 records dsh refusing
-that prefix with `NO_ADAPTER` at launch.
+`night-shift` and `wager-harness-dsh` run only on a host serving the
+dsh `spark-glm` route. Each pins its dsh implement seat to
+`spark-glm/GLM-5.3-Flash-EXL3`, the adapter's `glm-flash`, with no
+effort, because the route is effortless
+([#532](https://github.com/feedback-loop-ai/brokkr/issues/532)). A
+host without the route, a CI runner among them, fails the implement
+seat at launch.
 
 ## Known limitations
 
@@ -188,8 +190,6 @@ that prefix with `NO_ADAPTER` at launch.
   ([#282](https://github.com/feedback-loop-ai/brokkr/issues/282)).
 - **dsh per-turn telemetry is unverified**
   ([#281](https://github.com/feedback-loop-ai/brokkr/issues/281)).
-- **`night-shift` and `wager-harness-dsh` do not run**
-  ([#264](https://github.com/feedback-loop-ai/brokkr/issues/264)).
 - **dsh seats can search and fetch the web.** dsh 0.1.5's base profile
   turns on `web_search` (DeepSeek's own search) and `web_fetch` in
   every seat. Its adapter declares its native inventory unmeasured, so

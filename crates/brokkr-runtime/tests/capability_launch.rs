@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::realms::{Boundary, RealmMap};
 use brokkr_runtime::capabilities::CapabilityContext;
+use brokkr_runtime::SeatClass::{Gate, Work};
 use brokkr_runtime::{Bundle, SeatBody};
 use serde_json::{json, Value};
 
@@ -5553,24 +5554,7 @@ fn a_recipe_defines_nothing_and_the_pinned_section_names_no_host_path_or_argv() 
 #[test]
 fn a_restriction_value_moves_the_manifest_digest_even_where_it_is_inactive() {
     let operator = Operator::new();
-    let mut hosts: Value = serde_json::from_slice(
-        &std::fs::read(
-            operator
-                .root()
-                .join("dialects/tools/codex-native-search.json"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    hosts["name"] = json!("codex-search-hosts");
-    hosts["restrictions"] = json!({"type": "object", "additionalProperties": false,
-        "properties": {"allow": {"type": "object", "additionalProperties": false,
-            "properties": {"hosts": {"type": "array", "items": {"type": "string"}}}}}});
-    write(
-        operator.root(),
-        "dialects/tools/codex-search-hosts.json",
-        &hosts,
-    );
+    hosts_dialect(&operator);
     let compiled = |allow: Option<Value>| {
         let mut grant = json!({"dialect": "codex-search-hosts"});
         if let Some(allow) = allow {
@@ -9041,6 +9025,13 @@ fn carrier_sites(carrier: &str, gate: bool) -> Vec<(String, brokkr_runtime::Seat
     sites
 }
 
+/// Every office [`compile_every_shape_on`] seats: each [`carrier_sites`] label, whose first
+/// is the carrier itself, the office of an agent-backed carrier's every site.
+fn matrix_offices() -> Vec<String> {
+    let labels = |(c, g): &(&str, bool)| carrier_sites(c, *g).into_iter().map(|(site, ..)| site);
+    CARRIERS.iter().flat_map(labels).collect()
+}
+
 /// Rebuild unit 20's recipe, `matrix`, extending `base`: every executable
 /// site shape of every harness, compiled on the shipped adapters under
 /// `harness` in a realm that grants nothing. Each of the [`CARRIERS`] is
@@ -10615,23 +10606,37 @@ fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_invent
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// Rebuild unit 21: the dialect `codex-search-hosts` — the shipped Codex
-/// search dialect with a schema-valid `allow.hosts` restriction — written
-/// into the operator's configuration, and the v6 grant of `web-search`
-/// through it restricted to `a.example`: the grant as written, and the
-/// realm context that carries it.
-fn hosts_grant(operator: &Operator) -> (Value, CapabilityContext) {
+/// Rebuild unit 21: the dialect `codex-search-hosts` — the shipped Codex search dialect with a
+/// schema-valid `allow.hosts` restriction — written into the operator's configuration.
+fn hosts_dialect(operator: &Operator) {
     let root = operator.root();
-    let mut hosts: Value = serde_json::from_slice(
-        &std::fs::read(root.join("dialects/tools/codex-native-search.json")).unwrap(),
-    )
-    .unwrap();
+    let raw = std::fs::read(root.join("dialects/tools/codex-native-search.json"));
+    let mut hosts: Value = serde_json::from_slice(&raw.unwrap()).unwrap();
     hosts["name"] = json!("codex-search-hosts");
     hosts["restrictions"] = json!({"type": "object", "additionalProperties": false,
         "properties": {"allow": {"type": "object", "additionalProperties": false,
             "properties": {"hosts": {"type": "array", "items": {"type": "string"}}}}}});
     write(root, "dialects/tools/codex-search-hosts.json", &hosts);
-    let grant = json!({"dialect": "codex-search-hosts", "allow": {"hosts": ["a.example"]}});
+}
+
+/// The operator both CQ1 matrices compile under, and its Codex 0.154.0 stand-in.
+#[cfg(unix)]
+fn cq1_codex() -> (Operator, PathBuf) {
+    let operator = Operator::new();
+    let codex = codex_reporting(operator.root(), "0.154.0");
+    (operator, codex)
+}
+
+/// [`hosts_dialect`], and the v6 grant of `web-search` through it restricted to `a.example`
+/// and, where any is given, to `offices`, each once — every office a caller seats, since a
+/// gate's egress needs its own named (GP1): the grant as written, and its realm context.
+fn hosts_grant(operator: &Operator, offices: &[String]) -> (Value, CapabilityContext) {
+    hosts_dialect(operator);
+    let mut grant = json!({"dialect": "codex-search-hosts", "allow": {"hosts": ["a.example"]}});
+    let offices: std::collections::BTreeSet<&String> = offices.iter().collect();
+    if !offices.is_empty() {
+        grant["offices"] = json!(offices);
+    }
     let context = operator.context(json!({"web-search": grant}));
     (grant, context)
 }
@@ -10668,7 +10673,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
     use brokkr_runtime::bundle::CharterOwner;
     let operator = Operator::new();
     let shim = codex_reporting(operator.root(), "0.154.0");
-    let (grant, restricted) = hosts_grant(&operator);
+    let (grant, restricted) = hosts_grant(&operator, &[]);
     let unrestricted = operator.context(json!({"web-search": {"dialect": "codex-search-hosts"}}));
     let shipped = workspace().join("adapters");
     let transported = copied_adapters();
@@ -11441,12 +11446,10 @@ fn a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape() {
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_shape() {
-    use brokkr_runtime::SeatClass::{Gate, Work};
-    let operator = Operator::new();
+    let (operator, codex) = cq1_codex();
     let root = operator.root();
-    let codex = codex_reporting(root, "0.154.0");
     let shim = codex.to_str().unwrap();
-    let (grant, restricted) = hosts_grant(&operator);
+    let (grant, restricted) = hosts_grant(&operator, &matrix_offices());
     let shipped = workspace().join("adapters");
     let mut failures = Vec::new();
 
@@ -11645,12 +11648,9 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_sh
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape() {
-    use brokkr_runtime::SeatClass::{Gate, Work};
-    let operator = Operator::new();
+    let (operator, codex) = cq1_codex();
     let root = operator.root();
-    let codex = codex_reporting(root, "0.154.0");
     let shim = codex.to_str().unwrap();
-    let (grant, restricted) = hosts_grant(&operator);
     let shipped = workspace().join("adapters");
     let hands = json!({"kind": "workspace", "network": false, "binds": []});
     // The office `office` with `models`, boxed, asking for `asks`.
@@ -11728,6 +11728,10 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
             strength => Some(json!({"web-search": strength})),
         };
         for (carrier, candidate) in [("inline", 0), ("boxed-codex", 0), ("boxed-fallback", 1)] {
+            // The realm names every office this carrier seats (GP1).
+            let office_of = |l: &&str| (if carrier == "inline" { l } else { carrier }).to_string();
+            let every: Vec<String> = shapes.iter().flat_map(|s| s.1).map(office_of).collect();
+            let (grant, restricted) = hosts_grant(&operator, &every);
             let site = match carrier {
                 "inline" => {
                     let mut site = json!({"role": "roles/x.md", "hands": hands,
@@ -11756,10 +11760,6 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
                     shape,
                     &site,
                 );
-                let office_of = |label: &str| match carrier {
-                    "inline" => label.to_string(),
-                    office => office.to_string(),
-                };
                 if case == "requires" {
                     // Behind a Claude primary, the primary refuses first:
                     // no Claude link carries a Codex binding.
@@ -11775,7 +11775,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
                          {but}; the capability cannot be held under this grant (composed: \
                          shape -> shape-base)",
                         labels[0],
-                        office_of(labels[0])
+                        office_of(&labels[0])
                     );
                     let observed = compiled.map(|bundle| bundle.sites.len());
                     if observed != Err(refused.clone()) {
@@ -11838,7 +11838,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
                                 "seat '{label}' (office '{}') in realm 'private': dropped wanted \
                                  capability 'web-search' through dialect 'codex-search-hosts' \
                                  because {dropped}",
-                                office_of(label)
+                                office_of(&label)
                             )]),
                         ),
                         _ => (unasked, json!([])),

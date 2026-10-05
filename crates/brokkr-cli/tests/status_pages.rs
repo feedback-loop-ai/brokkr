@@ -104,6 +104,9 @@ fn render(adapter: &Adapter, dialects: &[ToolDialect]) -> Rendered {
         hint: _,
         driver: _,
         models: _,
+        // Which models may be seated where is the compile's to judge and
+        // doctor's to list (proposed decision 0075 ruling 5).
+        provisional: _,
         model_flag: _,
         effort_flag: _,
         credentials: _,
@@ -241,7 +244,7 @@ fn native_powers(
                     provider: serves,
                     adapter_key,
                 } => serves == provider && adapter_key == key,
-                DialectKind::Mcp | DialectKind::Hands => false,
+                DialectKind::Mcp(_) | DialectKind::Hands => false,
             })
             .map(|dialect| &dialect.name)
             .collect();

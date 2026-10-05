@@ -52,6 +52,14 @@
 //! every realm under v1 through v5 does (ruling 4: no grandfathering).
 //! This module judges the grant's SHAPE only; finding the dialect file,
 //! and everything the grant means for a seat, is `brokkr-runtime`'s work.
+//!
+//! v7 (proposed decision 0075 ruling 5) adds one WORLD-level list, the
+//! `provisional_offices`, judged in `realms/provisional.rs`.
+//!
+//! v8 (decision 0065 slice two, SC2) reserves one more grant key, `retain`,
+//! whose only legal value is `false`: the retention veto, judged with the
+//! rest of the grant in `realms/grants.rs`. Under v6 and v7 the same
+//! spelling stays the dialect's restriction.
 
 use std::fmt;
 use std::str::FromStr;
@@ -85,10 +93,18 @@ pub const SCHEMA_V5: &str = "forge.realms/v5";
 /// and grants nothing — there is no grandfathering (ruling 4).
 pub const SCHEMA_V6: &str = "forge.realms/v6";
 
+/// The provisional tier (proposed decision 0075 ruling 5): v6 plus one
+/// optional world-level `provisional_offices`, and nothing else.
+pub const SCHEMA_V7: &str = "forge.realms/v7";
+
+/// The retention veto (decision 0065 slice two, SC2): v7 plus one reserved
+/// grant key, `retain`, and nothing else.
+pub const SCHEMA_V8: &str = "forge.realms/v8";
+
 /// Every label this build reads, oldest first — the one list a refusal
 /// spells out and the version gates are written against.
-pub const SCHEMAS: [&str; 6] = [
-    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6,
+pub const SCHEMAS: [&str; 8] = [
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
 ];
 
 /// What stands between a box's hands and the machine (decision 0046
@@ -394,128 +410,6 @@ fn written<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, 
     Value::deserialize(deserializer).map(Some)
 }
 
-/// One capability a realm grants (decision 0065 ruling 3): the tool
-/// dialect that serves it here, and how the grant is narrowed. The two
-/// lists keep absence apart from emptiness, because they mean opposite
-/// things: no `offices` reaches every requesting office and `[]` reaches
-/// none; no `tools` admits the dialect's whole set and `[]` admits none.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CapabilityGrant {
-    /// A tool dialect's name under `dialects/tools/`.
-    pub dialect: String,
-    pub tools: Option<Vec<String>>,
-    pub offices: Option<Vec<String>>,
-    /// Every other key of the grant, exactly as written. The selected
-    /// dialect's schema defines them; this crate interprets none.
-    pub restrictions: serde_json::Map<String, Value>,
-}
-
-impl CapabilityGrant {
-    /// The grant as the realm wrote it: what a manifest pins and what a
-    /// restriction schema is asked about.
-    pub fn value(&self) -> Value {
-        let mut grant = self.restrictions.clone();
-        grant.insert("dialect".into(), Value::String(self.dialect.clone()));
-        for (key, list) in [("tools", &self.tools), ("offices", &self.offices)] {
-            if let Some(list) = list {
-                grant.insert(key.into(), serde_json::json!(list));
-            }
-        }
-        Value::Object(grant)
-    }
-
-    /// Does this grant reach the office? Absent scope reaches every
-    /// office that asks.
-    pub fn reaches(&self, office: &str) -> bool {
-        self.offices
-            .as_ref()
-            .is_none_or(|offices| offices.iter().any(|named| named == office))
-    }
-}
-
-/// The keys of a grant the engine owns; every other key is the dialect's.
-pub const GRANT_KEYS: [&str; 3] = ["dialect", "tools", "offices"];
-
-/// A list of distinct non-empty strings, or no list at all.
-fn distinct_names(value: Option<&Value>) -> Option<Option<Vec<String>>> {
-    let Some(value) = value else {
-        return Some(None);
-    };
-    let mut names: Vec<String> = Vec::new();
-    for item in value.as_array()? {
-        let name = item.as_str().filter(|name| !name.trim().is_empty())?;
-        if names.iter().any(|known| known == name) {
-            return None;
-        }
-        names.push(name.to_string());
-    }
-    Some(Some(names))
-}
-
-/// Judge one realm's written `capabilities` map. The refusals name the
-/// realm, the capability and the field, in the map's own voice.
-fn parse_grants(
-    realm: &str,
-    written: &Value,
-) -> Result<std::collections::BTreeMap<String, CapabilityGrant>, String> {
-    let Some(map) = written.as_object() else {
-        return Err(format!(
-            "realm '{realm}' writes capabilities as {written}; a capabilities map is an object \
-             from capability name to grant, and a realm that grants nothing leaves the word out"
-        ));
-    };
-    let mut grants = std::collections::BTreeMap::new();
-    for (name, grant) in map {
-        if !is_name(name) {
-            return Err(format!(
-                "realm '{realm}' grants a capability named '{name}'; a capability name is \
-                 lowercase letters, digits, '.', '_' and '-', starting with a letter or digit"
-            ));
-        }
-        let Some(fields) = grant.as_object() else {
-            return Err(format!(
-                "realm '{realm}' grants capability '{name}' as {grant}; a grant is an object \
-                 naming the tool dialect that serves the capability"
-            ));
-        };
-        let Some(dialect) = fields
-            .get("dialect")
-            .and_then(Value::as_str)
-            .filter(|dialect| is_name(dialect))
-        else {
-            return Err(format!(
-                "realm '{realm}' grants capability '{name}' without a tool dialect name; \
-                 'dialect' names a file under dialects/tools/ in the realm-name grammar"
-            ));
-        };
-        let mut lists = [None, None];
-        for (slot, field) in lists.iter_mut().zip(["tools", "offices"]) {
-            *slot = distinct_names(fields.get(field)).ok_or_else(|| {
-                format!(
-                    "realm '{realm}' grants capability '{name}' with a malformed '{field}'; it \
-                     is a list of distinct non-empty strings, and leaving it out is how a \
-                     grant says all"
-                )
-            })?;
-        }
-        let [tools, offices] = lists;
-        grants.insert(
-            name.clone(),
-            CapabilityGrant {
-                dialect: dialect.to_string(),
-                tools,
-                offices,
-                restrictions: fields
-                    .iter()
-                    .filter(|(key, _)| !GRANT_KEYS.contains(&key.as_str()))
-                    .map(|(key, value)| (key.clone(), value.clone()))
-                    .collect(),
-            },
-        );
-    }
-    Ok(grants)
-}
-
 impl Realm {
     /// The boundary this realm runs under: the word it declares, else
     /// `namespace`. This is the whole of decision 0046 ruling 1's
@@ -545,6 +439,10 @@ pub struct RealmMap {
     pub schema: String,
     pub realms: Vec<Realm>,
     pub journal: String,
+    /// The offices, agents by name, a provisional model may hold: v7
+    /// vocabulary, judged in `realms/provisional.rs`. Absent lists none.
+    #[serde(default, deserialize_with = "provisional::null_as_none")]
+    pub provisional_offices: Vec<String>,
 }
 
 /// A realm name is a journal key: lowercase, digits, and the three
@@ -594,9 +492,12 @@ impl RealmMap {
             })?;
         // A v6 map carries grants, and a grant written twice would be
         // granted as whichever copy came second (decision 0065). The rule
-        // arrives WITH the version: an older map keeps the reading it has
-        // always had.
-        if content.get("schema").and_then(Value::as_str) == Some(SCHEMA_V6) {
+        // arrives WITH the version, and v7 and v8 keep it: an older map
+        // keeps the reading it has always had.
+        if matches!(
+            content.get("schema").and_then(Value::as_str),
+            Some(SCHEMA_V6 | SCHEMA_V7 | SCHEMA_V8)
+        ) {
             crate::canonical::parse_strict(text).map_err(|detail| RealmsError::Malformed {
                 path: path.to_string(),
                 detail,
@@ -644,7 +545,7 @@ impl RealmMap {
         if !SCHEMAS.contains(&map.schema.as_str()) {
             return Err(invalid(format!(
                 "it calls itself '{}'; this build reads {SCHEMA_V1}, {SCHEMA_V2}, {SCHEMA_V3}, \
-                 {SCHEMA_V4}, {SCHEMA_V5} and {SCHEMA_V6}",
+                 {SCHEMA_V4}, {SCHEMA_V5}, {SCHEMA_V6}, {SCHEMA_V7} and {SCHEMA_V8}",
                 map.schema
             )));
         }
@@ -666,7 +567,7 @@ impl RealmMap {
                     realm.name
                 )));
             }
-            realm.grants = parse_grants(&realm.name, capabilities).map_err(&invalid)?;
+            realm.grants = grants::parse_grants(path, &realm.name, &schema, capabilities)?;
         }
         if map.realms.is_empty() {
             return Err(invalid("it names no realms".to_string()));
@@ -866,7 +767,7 @@ impl RealmMap {
                 }
             }
         }
-        Ok((map, content))
+        provisional::judge(path, &map, &content).map(|()| (map, content))
     }
 
     /// The journal one realm's runs live in: its own when it names one,
@@ -897,6 +798,11 @@ pub fn recorded_head<'a>(recorded: &'a Value, realm: Option<&str>) -> Option<&'a
         .or_else(|| heads.get(LEGACY_REALM_KEY))?
         .as_str()
 }
+
+mod grants;
+mod provisional;
+
+pub use grants::{CapabilityGrant, GrantRetention, GRANT_KEYS};
 
 #[cfg(test)]
 mod tests;

@@ -500,6 +500,8 @@ fn summarize(state: &RunState) -> Value {
 
 /// Drive a started run to its ending. The start first reaps the scratch
 /// trees of hands servers whose owners died and says each on stderr,
+/// through the same safe renderer as every other operator-facing line —
+/// a hostile tree name must not reach the terminal as written (#468) —
 /// journaling nothing (#415). Then the conclusion's anchor and keep-ref
 /// gaps on stderr, and the summary `finish` prints. `drive` drives it:
 /// alone, or beside the run view (#508).
@@ -507,7 +509,11 @@ fn drive_to_end(
     engine: &mut brokkr_runtime::Engine,
     drive: impl FnOnce(&mut brokkr_runtime::Engine) -> Result<DriveEnd, EngineError>,
 ) -> Result<ExitCode> {
-    eprint!("{}", brokkr_protocol::hands::reap_dead_sessions());
+    let reaped = brokkr_protocol::hands::reap_dead_sessions();
+    eprint!(
+        "{}",
+        reaped.lines_with(|tree| render::Safe::new(tree).as_str().to_owned())
+    );
     let end = drive(engine)?;
     for gap in &end.gaps {
         eprintln!("{gap}");
@@ -1844,12 +1850,19 @@ fn manifest_beside(journal: &std::path::Path) -> PathBuf {
 /// adapter data for a bundle that names no agent at all (a gate seat's
 /// trust tier and a secret binding's grant live there), and a verb that
 /// resolved one tree while compiling against another would be the machine
-/// diagnosing itself wrong.
-pub(crate) fn compile_in(workspace: &std::path::Path, dir: &std::path::Path) -> Result<Bundle> {
-    Ok(Bundle::compile_with(
+/// diagnosing itself wrong. In no realm, but under the world's
+/// provisional offices when a map is given (proposed decision 0075 ruling
+/// 5): a recipe verb judges a recipe as the run that seats it would.
+pub(crate) fn compile_in(
+    workspace: &std::path::Path,
+    dir: &std::path::Path,
+    world: Option<&World>,
+) -> Result<Bundle> {
+    Ok(Bundle::compile_under(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+        brokkr_runtime::bundle::RealmLaw::of(world, None),
     )?)
 }
 
