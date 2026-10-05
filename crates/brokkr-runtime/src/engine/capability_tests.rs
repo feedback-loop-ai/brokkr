@@ -1374,8 +1374,7 @@ fn a_run_starts_only_under_the_grants_its_bundle_was_compiled_under() {
             .unwrap()
             .len()
     };
-    // Compiled under a grant, started where the realm grants nothing —
-    // with a map, and with none at all.
+    // Compiled under a grant, started where the realm grants nothing, with a map or none.
     for world in [Some(world_granting(dir.path(), &repo, json!({}))), None] {
         let world_realm = if world.is_some() {
             "private"
@@ -2229,3 +2228,4 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
         )
     );
 }
+mod resume_tests;
