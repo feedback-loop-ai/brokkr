@@ -28,10 +28,13 @@ them with. An unmeasured plan knows nothing.
 call it describes. A row without the key is legacy and passes unchanged. An
 observation that does not decode is refused as unattributable. A
 `Tool::Named` call to a held tool yields a `Stamp`: the concrete tool,
-unclamped, the capability, the dialect, and the call id
-`<attempt>[:<member or step>]:<harness id>`, with call state `observed` and
-no response digest. A held call without a harness id, or with an empty one,
-is refused with `capability telemetry cannot be attributed`. No id is
+unclamped, the capability, the dialect, and the call id, with call state
+`observed` and no response digest. The call id is design.md's native
+identity: `n-` followed by the SHA-256 of the canonical tuple of attempt,
+site, instance, provider and the harness's call id (see "Return visit"
+below). A held call without a harness id, or with an empty one, or at a site
+with no engine stamps, is refused with `capability telemetry cannot be
+attributed`. No id is
 guessed. A known tool that no holding admits is refused with `observed
 capability tool '<tool>' is not held by this attempt`. Every other call
 stays ordinary: a local tool, workspace hands, an MCP call whose evidence
@@ -188,6 +191,85 @@ under their budgets, from prompt inputs this diff does not touch, so the
 rewritten budget files were reverted rather than re-baselined here. Remote
 CI on both operating systems is pending.
 
+## Return visit: the native call id (review F1)
+
+The review of `1a2adb4b` found that the first visit built the call id by
+joining the attempt, the display tag and the harness id. design.md asks for
+`n-` plus SHA-256 over the canonical typed attempt/site/instance/provider/
+measured-call tuple. The joined form had no length bound: a 36-character
+attempt, an 80-character tag and a 30-character harness id give 148
+characters, and seat-record v6 caps `call_id` at 128. It also took ownership
+from a display tag rather than from the site's structure. The tests and the
+evidence above (M4, M5 and M7, and the `attempt:item_1` and
+`attempt:searcher:item_1` values in the test table) pinned that joined
+form. Those rows are kept as the history of the first visit. The return
+replaced them as described below.
+
+`capability_calls.rs` now builds the tuple as the typed `NativeCall`:
+`attempt`, `site` (the site's `site_ref`), `instance` (its `instance_ref`),
+`provider` (the selected outcome's provider) and `call` (the harness id).
+These are the engine-owned site and instance stamps that design.md's "Engine-owned
+site/instance/boundary stamps" names, read from the same `SiteContext` that
+stamps the rows. The id is `n-` followed by `brokkr_core::canonical::sha256_hex` of that
+tuple, always 66 characters. `Calls::of` takes the attempt and the site's
+`SiteContext` and keeps an `Owner`, so `Calls::consume` no longer takes an
+owner string and the `owner()` helper is gone. A held call at a site with no
+`SiteContext` is refused as unattributable. In production only a dialect
+step has no plan, and a dialect step spawns no driver. `engine.rs` passes
+`stamp.as_ref()` at the single-site sink and each `MemberRun`'s own
+`context` at the panel sink. It shrank from 4,861 to 4,859 lines.
+`capability_calls.rs` is 232 lines.
+
+In the tests, `call_tests.rs` (now 392 lines) gives each single-site run a
+`SitePlan` built by `planned(site, instance)` and gives each panel member its
+own plan. Its oracle `native(site, instance, provider, call)` writes the
+design's tuple with `json!` and digests it. The held-call test also pins one
+literal, `n-bd4253357a0ad826b23b1b22fb3ab73c28fe5dc7637dab75a4aa23b4e52597b3`.
+`printf` of the canonical bytes into `sha256sum` printed the same digest.
+The new `a_call_id_is_owned_by_its_site_and_bounded_whatever_the_harness_id`
+drives four runs end to end through the v6 fence:
+
+- a 200-character harness id;
+- `item_1`;
+- `item_1` under another `instance_ref`;
+- `item_1` under another `site_ref`.
+
+Each stores exactly its oracle id. Each id is 66 characters, and the four
+ids are distinct. `an_unheld_or_unattributable_call_fails_its_attempt`
+gains a fifth case: a held call at an unplanned site. In
+`legacy_journal.rs`, `journaled` checks each stored call id against the
+oracle, computed from the event's attempt, the row's own `site_ref` and
+`instance_ref`, the provider `claude` and `toolu_01`. A match becomes
+`<owned toolu_01>`; any other id is left in place and fails the comparison.
+The compile-path test now asserts 12 distinct call ids, one per attributed
+row.
+
+| # | Mutation (compiled, run, restored) | Failed (test: assertion) |
+| --- | --- | --- |
+| N1 | `call_id` returns `<attempt>:<call>`, the joined form | `a_call_id_is_owned…`: the 200-character case is refused, `Some(Failed { error: "seat record at journal seq 5 violates contracts/seat-record.v6.schema.json at /" })` with no rows. `a_held_call…` and `a_panel_member…`: rows (`attempt:item_1` against the digest). Compile path: `journaled == wanted` |
+| N2 | the tuple's `instance` is `""` | `a_call_id_is_owned…`, `a_held_call…`, `a_panel_member…`: rows. Compile path: `journaled == wanted` |
+| N3 | an unplanned site still gets an `Owner`, with empty stamps | `an_unheld…`: the unplanned case stores an attributed `n-25cc…` row instead of refusing |
+| N4 | the tuple's `provider` is `""` | `a_call_id_is_owned…`, `a_held_call…`, `a_panel_member…`: rows |
+| N5 | the empty-id filter is removed (M5 again) | `an_unheld…`: the empty-id case stores an attributed `n-a6f0…` row |
+| N6 | every panel member takes the last member's `SiteContext` (M7 again) | `a_panel_member…`: the searcher's id is `n-a055…`, not its own. Compile path: `journaled == wanted` |
+
+N5 and N6 were applied together. Each failed a different test, as the
+assertions show. After each restore, `call_tests` passed 6 of 6 and
+`capability_launch` 72 of 72.
+
+The gates were rerun on the return tree. Formatting was clean, and
+workspace clippy with all targets, all features, `--locked` and `-D
+warnings` finished without a diagnostic. brokkr-runtime passed its lib
+(781), `capability_launch` (72) and `it` (120). `bundles/self` and
+`bundles/verify` compiled. The files and clones ratchets held.
+`quality/file-lines.txt` was edited by hand: engine.rs is 4,859,
+capability_calls.rs 232, call_tests.rs 392 and legacy_journal.rs 719.
+`quality/too-many-lines.txt` records `decide` moving from line 2505 to 2503,
+measured by clippy with `--force-warn clippy::too_many_lines`, and its
+length is unchanged. No suppression was added and no witness input moved.
+The exact-coverage gate and remote CI were not rerun on the return, so both
+are pending.
+
 ## Findings carried
 
 LOW (decision 0071 ruling 5): the exact-name map from native holdings to
@@ -203,3 +285,14 @@ The known-tool set is read from the sealed plan's rendered `controls`
 through protocol's typed `managed` decoder, with an `expect` that the
 engine's own known plan reads back. The engine holds no adapter at spawn,
 and carrying the inventory on `Outcome` would edit `capabilities.rs`.
+
+LOW security, carried from the review as F4 (decision 0065 ruling 8,
+decision 0034 ruling 6). In a panel, `Checkpoints` latches the first
+member's refusal and then silently drops later checkpoints from the other
+members. `Settled::outcome` filters the refusal by owner, but it does not
+count those drops as lost or stranded. A sibling can therefore be marked
+succeeded with incomplete telemetry. The latch predates U4e, and
+`Refused::Call` adds a new way to trigger it. Any failed member already
+fails the whole panel, so no successful panel follows a refusal. The fix
+and its proof, which must bind exact per-member counts, are left to a
+follow-up and are not in this return.

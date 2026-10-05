@@ -8,7 +8,11 @@
 //! A tool the selected candidate's native holdings admit, by its exact
 //! name, is attributed to that holding under an attempt-owned call id. A
 //! tool the candidate's adapter inventory knows but no holding admits
-//! refuses the attempt. Any other call — workspace hands, a local tool, an
+//! refuses the attempt. The id is `n-` and the SHA-256 of the canonical
+//! [`NativeCall`]: the attempt, the site's two engine stamps, the
+//! selected provider and the harness's own id, so it is bounded whatever
+//! the harness id's length and owned by its structural site, never by a
+//! display tag. Any other call — workspace hands, a local tool, an
 //! MCP call whose evidence is its broker's ledger (CC2) — stays an
 //! ordinary checkpoint. A checkpoint that carries no observation is a
 //! legacy row and passes unchanged: shipped drivers emit no observation
@@ -20,8 +24,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_protocol::adapters::capability_calls::{Observation, Tool, OBSERVATION_KEY};
 use brokkr_protocol::native_controls::managed;
+use serde::Serialize;
 use serde_json::{json, Value};
 
+use super::resume::SiteContext;
 use super::SiteSpawn;
 use crate::bundle::SiteFacts;
 use crate::capabilities::{Implementation, NativePlan, Outcome};
@@ -33,8 +39,9 @@ pub(super) enum Refusal {
     /// admits. It is never journaled as an ordinary call.
     #[error("observed capability tool '{tool}' is not held by this attempt")]
     Unheld { tool: String },
-    /// A held tool's call without the harness's own id to own it by, or
-    /// an observation that cannot be read. No id is guessed.
+    /// A held tool's call without the harness's own id to own it by, at a
+    /// site with no engine stamps, or an observation that cannot be read.
+    /// No id is guessed.
     #[error("capability telemetry cannot be attributed")]
     Unattributable,
 }
@@ -47,12 +54,50 @@ struct Holder {
 }
 
 /// One site's call authority: each tool the selected candidate's native
-/// holdings admit, by its exact name, and every tool its adapter inventory
-/// knows.
+/// holdings admit, by its exact name, every tool its adapter inventory
+/// knows, and who owns the calls it makes.
 #[derive(Debug, Default)]
 pub(super) struct Calls {
     held: BTreeMap<String, Holder>,
     known: BTreeSet<String>,
+    owner: Option<Owner>,
+}
+
+/// The engine-owned part of a native call's identity: the attempt, the
+/// site's structural stamps and the selected candidate's provider.
+#[derive(Debug)]
+struct Owner {
+    attempt: String,
+    site: String,
+    instance: String,
+    provider: String,
+}
+
+/// The canonical tuple a native call id is the digest of: the owner and
+/// the harness's own measured id for the call.
+#[derive(Serialize)]
+struct NativeCall<'a> {
+    attempt: &'a str,
+    site: &'a str,
+    instance: &'a str,
+    provider: &'a str,
+    call: &'a str,
+}
+
+impl Owner {
+    /// `n-` and the SHA-256 of the canonical tuple: 66 characters, so
+    /// any harness id fits seat-record v6's call id.
+    fn call_id(&self, call: &str) -> String {
+        let tuple = NativeCall {
+            attempt: &self.attempt,
+            site: &self.site,
+            instance: &self.instance,
+            provider: &self.provider,
+            call,
+        };
+        let tuple = serde_json::to_value(tuple).expect("a tuple of strings serializes");
+        format!("n-{}", brokkr_core::canonical::sha256_hex(&tuple))
+    }
 }
 
 /// The attribution group the engine writes on one observed call: SC4's
@@ -82,19 +127,37 @@ impl Calls {
     /// candidate's own, found by the identity its launch record names, so
     /// a fallback never borrows its primary's holdings nor a member its
     /// sibling's. A spawn no outcome serves holds and knows nothing.
-    pub(super) fn of(facts: Option<&SiteFacts>, spawn: &SiteSpawn) -> Calls {
+    /// `attempt` and `site`, the site's engine stamps, own its calls.
+    pub(super) fn of(
+        facts: Option<&SiteFacts>,
+        spawn: &SiteSpawn,
+        attempt: &str,
+        site: Option<&SiteContext>,
+    ) -> Calls {
         let sealed = spawn
             .record
             .as_ref()
             .map(|record| &record.expected.identity);
-        facts
+        let Some(outcome) = facts
             .and_then(|facts| facts.capabilities.as_ref())
             .and_then(|site| {
                 site.outcomes
                     .iter()
                     .find(|outcome| Some(&outcome.identity()) == sealed)
             })
-            .map_or_else(Calls::default, Calls::serving)
+        else {
+            return Calls::default();
+        };
+        let owner = site.map(|site| Owner {
+            attempt: attempt.to_string(),
+            site: site.site_ref.clone(),
+            instance: site.instance_ref.clone(),
+            provider: outcome.provider.clone(),
+        });
+        Calls {
+            owner,
+            ..Calls::serving(outcome)
+        }
     }
 
     fn serving(outcome: &Outcome) -> Calls {
@@ -125,17 +188,16 @@ impl Calls {
                 .collect(),
             NativePlan::Unmeasured { .. } => BTreeSet::new(),
         };
-        Calls { held, known }
+        Calls {
+            held,
+            known,
+            owner: None,
+        }
     }
 
     /// Take the observation off `checkpoint`, whatever it says, and judge
-    /// the call it describes. `owner` is the attempt, and the member or
-    /// step under it, that the call id is owned by.
-    pub(super) fn consume(
-        &self,
-        checkpoint: &mut Value,
-        owner: &str,
-    ) -> Result<Option<Stamp>, Refusal> {
+    /// the call it describes.
+    pub(super) fn consume(&self, checkpoint: &mut Value) -> Result<Option<Stamp>, Refusal> {
         let Some(observed) = checkpoint
             .as_object_mut()
             .and_then(|object| object.remove(OBSERVATION_KEY))
@@ -158,21 +220,13 @@ impl Calls {
             };
         };
         let call = observation.call.filter(|call| !call.is_empty());
-        let call_id = call.map(|call| format!("{owner}:{call}"));
+        let call_id = call.zip(self.owner.as_ref());
+        let call_id = call_id.map(|(call, owner)| owner.call_id(&call));
         Ok(Some(Stamp {
             tool,
             capability: holder.capability.clone(),
             dialect: holder.dialect.clone(),
             call_id: call_id.ok_or(Refusal::Unattributable)?,
         }))
-    }
-}
-
-/// Who owns the calls a site makes: its attempt, and the member or step
-/// tag it runs under.
-pub(super) fn owner(attempt_id: &str, tag: Option<&str>) -> String {
-    match tag {
-        None => attempt_id.to_string(),
-        Some(tag) => format!("{attempt_id}:{tag}"),
     }
 }

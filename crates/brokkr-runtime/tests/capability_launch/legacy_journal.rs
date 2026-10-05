@@ -15,7 +15,7 @@
 //! shipped telemetry lowering is what writes every seat row, and no
 //! provider need be installed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
@@ -353,6 +353,17 @@ fn journaled(events: &[EventEnvelope], root: &Path) -> Sites {
         let text = event.payload["checkpoint"].to_string();
         let text = text.replace(root.to_str().unwrap(), "<root>");
         let mut checkpoint: Value = serde_json::from_str(&text).unwrap();
+        // The call id the design spells for the one search, owned by this
+        // row's attempt and own site stamps; any other value stays to fail.
+        if let Some(call_id) = checkpoint.get("call_id").and_then(Value::as_str) {
+            let tuple = json!({"attempt": field(event, "attempt_id"), "provider": "claude",
+                               "site": checkpoint["site_ref"], "call": "toolu_01",
+                               "instance": checkpoint["instance_ref"]});
+            let owned = format!("n-{}", brokkr_core::canonical::sha256_hex(&tuple));
+            if call_id == owned {
+                checkpoint["call_id"] = json!("<owned toolu_01>");
+            }
+        }
         for stamp in ["site_ref", "instance_ref"] {
             if let Some(digest) = checkpoint.get(stamp).and_then(Value::as_str) {
                 let hex = digest
@@ -361,13 +372,6 @@ fn journaled(events: &[EventEnvelope], root: &Path) -> Sites {
                 assert!(digest.len() == 64 && hex, "{stamp}: {digest}");
                 checkpoint[stamp] = json!(stamp);
             }
-        }
-        if let Some(call_id) = checkpoint.get("call_id").and_then(Value::as_str) {
-            let attempt = field(event, "attempt_id");
-            let owned = call_id
-                .strip_prefix(&attempt)
-                .expect("the attempt owns its call");
-            checkpoint["call_id"] = json!(format!("<attempt>{owned}"));
         }
         let member = checkpoint["member"]
             .as_str()
@@ -677,7 +681,7 @@ fn exports_and_verifies(store: &Store, run_id: &str, count: usize) {
 /// driver's rows, each call carrying the observation U4f2 will emit and
 /// the search a forged call id and state, journal exactly the legacy rows
 /// with the engine's own whole group on the held search — its call id
-/// owned by the attempt and the member or step it ran under — and the
+/// the digest of its attempt, site stamps, provider and harness id — and the
 /// local read ordinary. No observation or forged value reaches the store,
 /// and the run exports and verifies.
 #[test]
@@ -686,28 +690,25 @@ fn every_site_shape_journals_the_engines_group_on_an_observed_held_call() {
     let run_id = engine.run_id.clone();
     let events = engine.store.load(&run_id).unwrap();
     let mut wanted = wanted();
-    for ((_, member), rows) in &mut wanted {
-        let owner = match member.as_str() {
-            "" => String::new(),
-            member => format!(":{member}"),
-        };
+    for rows in wanted.values_mut() {
         for row in rows.iter_mut().filter(|row| row["tool"] == "WebSearch") {
             let group = json!({"capability": "web-search", "dialect": "claude-native-search",
-                               "call_id": format!("<attempt>{owner}:toolu_01"),
-                               "call_state": "observed"});
+                               "call_id": "<owned toolu_01>", "call_state": "observed"});
             row.as_object_mut()
                 .unwrap()
                 .extend(group.as_object().unwrap().clone());
         }
     }
     assert_eq!(journaled(&events, &root), wanted);
-    let attributed = events
+    let attributed: BTreeSet<&str> = events
         .iter()
-        .filter(|event| event.payload["checkpoint"].get("call_id").is_some())
-        .count();
-    // One search per invocation: eight seats, the panel's and the
-    // sequence's second site, and the retried seats' second launches.
-    assert_eq!(attributed, 12);
+        .filter_map(|event| event.payload["checkpoint"].get("call_id"))
+        .filter_map(Value::as_str)
+        .collect();
+    // One search per invocation, each its own call: eight seats, the
+    // panel's and the sequence's second site, and the retried seats'
+    // second launches.
+    assert_eq!(attributed.len(), 12);
     for event in &events {
         let checkpoint = &event.payload["checkpoint"];
         for field in ["response_sha256", OBSERVATION_KEY] {

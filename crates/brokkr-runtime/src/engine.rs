@@ -2082,8 +2082,8 @@ impl Engine {
             effect_id,
             attempt_id,
         };
-        let calls = Calls::of(self.bundle.sites.get(driver_seat), spawn);
-        let owner = capability_calls::owner(attempt_id, member_tag);
+        let facts = self.bundle.sites.get(driver_seat);
+        let calls = Calls::of(facts, spawn, attempt_id, stamp.as_ref());
         let mut sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let mut report = process.run_attempt_resuming(
             ENGINE_VERSION,
@@ -2094,7 +2094,7 @@ impl Engine {
             session_ref,
             |data| {
                 let mut checkpoint = data.clone();
-                let call = calls.consume(&mut checkpoint, &owner);
+                let call = calls.consume(&mut checkpoint);
                 let checkpoint = match member_tag {
                     None => checkpoint,
                     Some(tag) => tag_member(checkpoint, tag),
@@ -2332,7 +2332,10 @@ impl Engine {
         // Each member's own call authority, never a sibling's.
         let calls: Vec<Calls> = runs
             .iter()
-            .map(|run| Calls::of(bundle.sites.get(&run.driver_seat), &run.spawn))
+            .map(|run| {
+                let facts = bundle.sites.get(&run.driver_seat);
+                Calls::of(facts, &run.spawn, attempt_id, run.context.as_ref())
+            })
             .collect();
         // The member whose checkpoint the fence refused, if one was
         // (decision 0034, ruling 6), is the tagged member name the
@@ -2407,12 +2410,7 @@ impl Engine {
                     .iter()
                     .position(|run| format!("{tag_prefix}{}", run.name) == member);
                 let owner = at.map(|at| &runs[at]);
-                let call = at.map_or(Ok(None), |at| {
-                    calls[at].consume(
-                        &mut checkpoint,
-                        &capability_calls::owner(attempt_id, Some(&member)),
-                    )
-                });
+                let call = at.map_or(Ok(None), |at| calls[at].consume(&mut checkpoint));
                 let boundary = owner.and_then(|run| run.boundary);
                 let checkpoint = stamp_boundary(tag_member(checkpoint, &member), boundary);
                 // The member's own stamp, applied by the one journal

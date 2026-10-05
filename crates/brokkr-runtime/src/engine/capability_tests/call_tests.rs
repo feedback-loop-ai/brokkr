@@ -55,6 +55,35 @@ fn observed(tool: &str, observation: Value) -> Value {
     observed
 }
 
+/// The site stamps a planned fixture site carries.
+const SITE: &str = "5e11000000000000000000000000000000000000000000000000000000000011";
+const INSTANCE: &str = "1a22000000000000000000000000000000000000000000000000000000000022";
+
+/// A plan offering nothing, at the site whose engine stamps are `site`
+/// and `instance`.
+fn planned(site: &str, instance: &str) -> SitePlan {
+    let context = resume::SiteContext {
+        site_ref: site.into(),
+        instance_ref: instance.into(),
+        class: SeatClass::Work,
+    };
+    SitePlan {
+        context,
+        offer: None,
+        assessment: Value::Null,
+        originating: None,
+        route_overlay: None,
+    }
+}
+
+/// The native call id the design spells: `n-` and the SHA-256 of the
+/// canonical attempt, site, instance, provider and harness call id.
+fn native(site: &str, instance: &str, provider: &str, call: &str) -> String {
+    let tuple = json!({"attempt": "attempt", "site": site, "instance": instance,
+                       "provider": provider, "call": call});
+    format!("n-{}", brokkr_core::canonical::sha256_hex(&tuple))
+}
+
 /// `row("web_search")` with the engine's group for `call_id`.
 fn attributed(call_id: &str) -> Value {
     row_with(
@@ -115,11 +144,27 @@ fn journaled(engine: &Engine) -> Vec<Value> {
 
 /// One attempt at site `work`, which holds `capabilities`, run by the
 /// `provider`/`model` candidate whose driver streams `rows`, its spawn
-/// sealed as dispatch seals it: what it journaled, and its report.
+/// sealed as dispatch seals it and planned with the `SITE` and `INSTANCE`
+/// stamps: what it journaled, and its report.
 fn served(
     capabilities: SiteCapabilities,
     (provider, model): (&str, &str),
     rows: &[Value],
+) -> (Vec<Value>, AttemptReport) {
+    served_at(
+        capabilities,
+        (provider, model),
+        rows,
+        Some(&planned(SITE, INSTANCE)),
+    )
+}
+
+/// `served`, at a site planned by `plan`, or by none.
+fn served_at(
+    capabilities: SiteCapabilities,
+    (provider, model): (&str, &str),
+    rows: &[Value],
+    plan: Option<&SitePlan>,
 ) -> (Vec<Value>, AttemptReport) {
     let (_dir, mut engine, effect) = in_flight();
     let site = engine.bundle.sites.entry("work".into()).or_default();
@@ -127,7 +172,7 @@ fn served(
     let link = streaming(provider, model, &effect, rows);
     let (spawn, input) = marked(&engine, &link, json!({}));
     let run = engine.run_driver(
-        &effect, "attempt", "work", &spawn, input, DEADLINE, None, None,
+        &effect, "attempt", "work", &spawn, input, DEADLINE, None, plan,
     );
     let Ok(DriverRun::Ran(report)) = run else {
         panic!("the fixture driver spawns");
@@ -148,9 +193,39 @@ fn a_held_call_is_attributed_to_the_selected_holding_and_local_calls_stay_ordina
     ];
     let (journaled, report) = served(searching("work"), ("codex", "astra"), &rows);
     let local = row("command_execution");
-    let wanted = [attributed("attempt:item_1"), local, row("web_search")];
+    let call_id = native(SITE, INSTANCE, "codex", "item_1");
+    let wanted = [attributed(&call_id), local, row("web_search")];
     assert_eq!(journaled, wanted);
     assert_eq!(report.refused, None);
+    // The tuple's canonical bytes, pinned once.
+    let pinned = "n-bd4253357a0ad826b23b1b22fb3ab73c28fe5dc7637dab75a4aa23b4e52597b3";
+    assert_eq!(call_id, pinned);
+}
+
+/// A call id is owned by its structural site: the same harness id at
+/// another site, or another instance of this one, is another call; and a
+/// harness id of any length yields a call id seat-record v6 carries.
+#[test]
+fn a_call_id_is_owned_by_its_site_and_bounded_whatever_the_harness_id() {
+    let long = "item_".repeat(40);
+    let other = "0".repeat(64);
+    let sites = [(SITE, INSTANCE, long.as_str()), (SITE, INSTANCE, "item_1")];
+    let sites = sites.into_iter().chain([(SITE, other.as_str(), "item_1")]);
+    let mut seen = std::collections::BTreeSet::new();
+    for (site, instance, call) in sites.chain([(other.as_str(), INSTANCE, "item_1")]) {
+        let search = observed("web_search", observation(Some(call), "web_search"));
+        let plan = planned(site, instance);
+        let at = ("codex", "astra");
+        let (journaled, report) = served_at(searching("work"), at, &[search], Some(&plan));
+        let call_id = native(site, instance, "codex", call);
+        assert_eq!(
+            (journaled, report.refused),
+            (vec![attributed(&call_id)], None)
+        );
+        assert_eq!(call_id.len(), 66);
+        seen.insert(call_id);
+    }
+    assert_eq!(seen.len(), 4);
 }
 
 /// The DSH fallback serves the attempt: the search its primary holds is no
@@ -164,38 +239,46 @@ fn a_fallback_never_borrows_its_primarys_holding() {
 }
 
 /// A known tool no holding admits fails the attempt in CC1's words; so does
-/// a held call with no harness id, an empty one, or an observation that
-/// cannot be read. Rows before the refused call land; nothing after it.
+/// a held call with no harness id, an empty one, one at a site with no
+/// engine stamps to own it, or an observation that cannot be read. Rows
+/// before the refused call land; nothing after it.
 #[test]
 fn an_unheld_or_unattributable_call_fails_its_attempt() {
     let mut unreadable = observation(Some("item_1"), "web_search");
     unreadable["capability"] = json!("web-search");
     let unattributable = "capability telemetry cannot be attributed";
+    let plan = planned(SITE, INSTANCE);
+    let item = || observation(Some("item_1"), "web_search");
     let cases = [
         (
             two_candidates(),
-            observation(Some("item_1"), "web_search"),
+            item(),
+            Some(&plan),
             "observed capability tool 'web_search' is not held by this attempt",
         ),
         (
             searching("work"),
             observation(None, "web_search"),
+            Some(&plan),
             unattributable,
         ),
         (
             searching("work"),
             observation(Some(""), "web_search"),
+            Some(&plan),
             unattributable,
         ),
-        (searching("work"), unreadable, unattributable),
+        (searching("work"), item(), None, unattributable),
+        (searching("work"), unreadable, Some(&plan), unattributable),
     ];
-    for (capabilities, observation, cause) in cases {
+    for (capabilities, observation, plan, cause) in cases {
         let rows = [
             row("first"),
             observed("web_search", observation),
             row("later"),
         ];
-        let (journaled, report) = served(capabilities, ("codex", "astra"), &rows);
+        let at = ("codex", "astra");
+        let (journaled, report) = served_at(capabilities, at, &rows, plan);
         assert_eq!(journaled, [row("first")], "{cause}");
         let refused = AttemptOutcome::Failed {
             error: cause.into(),
@@ -223,7 +306,10 @@ fn an_mcp_holding_or_an_mcp_call_attributes_nothing() {
     site.capabilities = Some(capabilities);
     let link = streaming("codex", "astra", &effect, &[]);
     let (spawn, _) = marked(&engine, &link, json!({}));
-    let calls = super::super::capability_calls::Calls::of(engine.bundle.sites.get("work"), &spawn);
+    let plan = planned(SITE, INSTANCE);
+    let facts = engine.bundle.sites.get("work");
+    let calls =
+        super::super::capability_calls::Calls::of(facts, &spawn, "attempt", Some(&plan.context));
     let mcp = serde_json::to_value(Observation {
         format: Format::Codex,
         call: Some("item_3".into()),
@@ -234,12 +320,12 @@ fn an_mcp_holding_or_an_mcp_call_attributes_nothing() {
     })
     .unwrap();
     let mut called = observed("mcp_tool_call", mcp);
-    assert_eq!(calls.consume(&mut called, "attempt"), Ok(None));
+    assert_eq!(calls.consume(&mut called), Ok(None));
     let mut searched = search();
     let unheld = super::super::capability_calls::Refusal::Unheld {
         tool: "web_search".into(),
     };
-    assert_eq!(calls.consume(&mut searched, "attempt"), Err(unheld));
+    assert_eq!(calls.consume(&mut searched), Err(unheld));
     for checkpoint in [called, searched] {
         assert_eq!(checkpoint.get(OBSERVATION_KEY), None);
     }
@@ -266,6 +352,12 @@ fn a_panel_member_is_attributed_by_its_own_holding_never_its_siblings() {
         Some("sibling".into()),
         streaming("dsh", "flash", &effect, &rows),
     );
+    let sibling_site = "0".repeat(64);
+    let plans = [("searcher", SITE), ("sibling", &sibling_site)];
+    for (name, site) in plans {
+        let plan = planned(site, INSTANCE);
+        selection.plans.insert(Some(name.into()), plan);
+    }
     let members = [
         member("searcher", Vec::new()),
         member("sibling", Vec::new()),
@@ -288,7 +380,7 @@ fn a_panel_member_is_attributed_by_its_own_holding_never_its_siblings() {
                "session_ref": "session", "inner_checkpoints": 1, "model": "not reported",
                "boundary": "not applicable"})
     };
-    let mut searcher = attributed("attempt:searcher:item_1");
+    let mut searcher = attributed(&native(SITE, INSTANCE, "codex", "item_1"));
     searcher["member"] = json!("searcher");
     let mut sibling = row("web_search");
     sibling["member"] = json!("sibling");

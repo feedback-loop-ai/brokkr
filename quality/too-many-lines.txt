@@ -40,7 +40,7 @@
  127 crates/brokkr-runtime/src/dialect.rs:320 check
  159 crates/brokkr-runtime/src/engine.rs:1099 seat_input
  150 crates/brokkr-runtime/src/engine.rs:1313 execute
- 191 crates/brokkr-runtime/src/engine.rs:2505 decide
+ 191 crates/brokkr-runtime/src/engine.rs:2503 decide
  115 crates/brokkr-seatbelt-probe/src/main.rs:346 run_payload
  177 crates/brokkr-view/src/lib.rs:1044 scan_participants
  150 crates/brokkr-view/src/lib.rs:1847 participants
