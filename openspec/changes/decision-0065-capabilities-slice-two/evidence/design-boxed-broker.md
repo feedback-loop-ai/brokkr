@@ -402,3 +402,46 @@ commission's document gates do not replace them. The tasks phase result is
 `drafted` with `inputs.change`; the engine alone determines routing. The
 required result file is written through workspace hands after the document
 commit, with no extra top-level keys or next-phase assertion.
+
+## Implement visit — document delivery
+
+Seat: implement, run `amend-decision-0065-slice-two-s--a9a103e3`, after
+analyze's `consistent`. Starting HEAD `351b8bbb`; clean tracked tree. This
+commission is docs only, so the implement seat checks and commits the
+documents the earlier seats drafted; it adds no production or test change.
+
+Checked against the commission's five deliverables:
+
+- D5 states the bind set, the conservative package-root rule, the reach rule
+  (canonical containment both ways, program-tree regular files with link
+  count one), the fixed environment and loading names allowed only at final
+  confined exec, egress-to-network mapping beside R2 and U5a2, the unmounted
+  store read outside the box through U6a's single injector, in-group
+  lifetime with no `--new-session`, Linux-only hosts with macOS's R2 refusal,
+  and what is removed and kept. Its H1–H7 table gives each finding's
+  construction and remaining check.
+- MB3/MB4/MB5 and the dependent deltas carry the new pre-secret box causes
+  with scenarios; `openspec validate` passes them strictly.
+- "Slice two units" has 54 rows (design.md lines 1103–1156), each with at
+  most three production files; U6c restarts from main and U9b alone lifts
+  the compile fence.
+- The tasks.md preamble is unchanged; new boxed work carries new IDs.
+- The ruling addendum matches the commission verbatim, proposal.md links it,
+  and decision 0077 has its one-line pointer.
+
+No task in tasks.md belongs to this visit: every affected task is future
+unit work and stays unchecked.
+
+Gates observed in this session:
+
+- `git diff --check 19bca5ff HEAD`: passed over the whole amendment.
+- `openspec validate --all --strict`: 20 passed, 0 failed; only
+  informational long-requirement notices.
+- `typos --hidden`: available in this box and clean (no output). This
+  replaces the earlier visits' pending spelling check.
+- `python3 .forge/design/audit_boxed_docs.py`: not run; this seat's box
+  refuses it. The earlier seats' passes stand as their own evidence.
+
+Cargo tests, bundle compiles, fmt/clippy and exact coverage do not apply to
+a docs-only commission and are not claimed. The commit is unsigned; the
+controller signs the squash. Nothing is pushed.
