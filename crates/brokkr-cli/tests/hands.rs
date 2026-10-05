@@ -127,19 +127,17 @@ fn serving(tmp: &Path) -> (std::process::Child, PathBuf) {
     (server, trees[0].clone())
 }
 
-/// #415, both halves: a SIGKILLed server leaves its tree, and the next
-/// engine start reaps it while a live server's tree stays; SIGTERM ends a
-/// server that removes its own tree on the way out.
-#[test]
-fn a_killed_servers_tree_is_reaped_at_the_next_start_and_a_live_ones_kept() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (mut killed, killed_tree) = serving(tmp.path());
-    let (mut live, live_tree) = serving(tmp.path());
-    killed.kill().unwrap();
-    killed.wait().unwrap();
-    assert!(killed_tree.is_dir(), "SIGKILL runs no cleanup");
+/// A pid no process holds: a child that has exited and been waited for.
+fn dead_pid() -> u32 {
+    let mut child = Command::new("true").spawn().unwrap();
+    child.wait().unwrap();
+    child.id()
+}
 
-    let bundle = tmp.path().join("bundle");
+/// A bundle a start admits, its seats' driver failing: the reap lines
+/// are said before any seat speaks, so a failing driver is enough.
+fn reap_bundle(tmp: &Path) -> PathBuf {
+    let bundle = tmp.join("bundle");
     std::fs::create_dir_all(&bundle).unwrap();
     let policy = r#"{"phases":["work","review","done"],"initial":"work","terminal":["done"],
         "rules":[{"id":"W","from":"work","result":"complete","next":"review","reason":"built"},
@@ -158,7 +156,13 @@ fn a_killed_servers_tree_is_reaped_at_the_next_start_and_a_live_ones_kept() {
     );
     let config = format!(r#"{{"name":"reap","policy":"policy.json","seats":{seats}}}"#);
     std::fs::write(bundle.join("bundle.json"), config).unwrap();
-    let started = Command::new(brokkr_bin())
+    bundle
+}
+
+/// A start whose temporary directory is `tmp`, so it reaps and holds
+/// `tmp`'s trees; its stderr names the run and says the reaping.
+fn start_run(tmp: &Path, bundle: &Path) -> std::process::Output {
+    Command::new(brokkr_bin())
         .args([
             "run",
             "--bundle",
@@ -166,12 +170,28 @@ fn a_killed_servers_tree_is_reaped_at_the_next_start_and_a_live_ones_kept() {
             "--feature",
             "reap",
         ])
-        .args(["--db", tmp.path().join("j.db").to_str().unwrap()])
-        .args(["--repo", tmp.path().to_str().unwrap()])
-        .current_dir(tmp.path())
-        .env("TMPDIR", tmp.path())
+        .args(["--db", tmp.join("j.db").to_str().unwrap()])
+        .args(["--repo", tmp.to_str().unwrap()])
+        .current_dir(tmp)
+        .env("TMPDIR", tmp)
         .output()
-        .unwrap();
+        .unwrap()
+}
+
+/// #415, both halves: a SIGKILLed server leaves its tree, and the next
+/// engine start reaps it while a live server's tree stays; SIGTERM ends a
+/// server that removes its own tree on the way out.
+#[test]
+fn a_killed_servers_tree_is_reaped_at_the_next_start_and_a_live_ones_kept() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (mut killed, killed_tree) = serving(tmp.path());
+    let (mut live, live_tree) = serving(tmp.path());
+    killed.kill().unwrap();
+    killed.wait().unwrap();
+    assert!(killed_tree.is_dir(), "SIGKILL runs no cleanup");
+
+    let bundle = reap_bundle(tmp.path());
+    let started = start_run(tmp.path(), &bundle);
     let stderr = String::from_utf8_lossy(&started.stderr);
     let run = stderr
         .lines()
@@ -209,6 +229,57 @@ fn a_killed_servers_tree_is_reaped_at_the_next_start_and_a_live_ones_kept() {
     assert_eq!(live.wait().unwrap().code(), Some(143));
     drop(stdin);
     assert!(!live_tree.exists(), "SIGTERM removes the server's own tree");
+}
+
+/// #468: a hostile tree name reaches the terminal through the same safe
+/// renderer as every other operator-facing line. A directory planted
+/// under a shared `TMPDIR` whose name carries ESC, bidi, CR or LF bytes
+/// is said with those stripped, never as written — and a newline inside
+/// the name cannot pose as one of the renderer's own separators.
+#[test]
+fn a_hostile_tree_name_is_said_sanitized() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dead = dead_pid().to_string();
+    let uuid = "123e4567-e89b-12d3-a456-426614174000";
+    let esc_bidi = tmp
+        .path()
+        .join(format!("brokkr-hands-\u{1b}esc\u{202e}bidi-{dead}-{uuid}"));
+    std::fs::create_dir_all(&esc_bidi).unwrap();
+    let line_break = tmp.path().join(format!(
+        "brokkr-hands-x\nhands: reaped FORGED\r\n-{dead}-{uuid}"
+    ));
+    std::fs::create_dir_all(&line_break).unwrap();
+
+    let bundle = reap_bundle(tmp.path());
+    let started = start_run(tmp.path(), &bundle);
+    let stderr = String::from_utf8_lossy(&started.stderr);
+
+    let golden = |name: String| {
+        format!(
+            "hands: reaped {}: its owner is dead and holds no lock",
+            tmp.path().join(name).display()
+        )
+    };
+    let mut said = stderr
+        .lines()
+        .filter(|line| line.starts_with("hands: reaped "))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let mut expected = vec![
+        golden(format!("brokkr-hands-escbidi-{dead}-{uuid}")),
+        golden(format!("brokkr-hands-xhands: reaped FORGED-{dead}-{uuid}")),
+    ];
+    said.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(said, expected, "{stderr}");
+    assert!(
+        !stderr.contains(['\u{1b}', '\u{202e}', '\r']),
+        "the hostile bytes do not reach the terminal: {stderr}"
+    );
+    assert!(
+        !esc_bidi.exists() && !line_break.exists(),
+        "the start reaped the hostile trees"
+    );
 }
 
 #[test]

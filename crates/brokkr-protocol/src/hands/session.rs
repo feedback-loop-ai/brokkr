@@ -56,6 +56,15 @@ fn flock(fd: BorrowedFd<'_>) -> Result<(), Errno> {
     rustix::fs::flock(fd, FlockOperation::NonBlockingLockExclusive)
 }
 
+/// Create a session's lock file. The one seam a test fails: a
+/// filesystem that refuses the create — `ENOSPC` or `EDQUOT` on a full
+/// RAM `/tmp`, `EMFILE` — cannot be planted.
+type Create = fn(&Path) -> std::io::Result<File>;
+
+fn create_lock(path: &Path) -> std::io::Result<File> {
+    File::create(path)
+}
+
 /// An errno in the kernel's words, as `std::io::Error` prints it.
 fn said(errno: Errno) -> std::io::Error {
     std::io::Error::from_raw_os_error(errno.raw_os_error())
@@ -91,10 +100,15 @@ pub struct Session {
 impl Session {
     /// A new session under the temporary directory (`TMPDIR` honoured).
     pub fn create(label: &str) -> Result<Session, SessionError> {
-        Session::create_in(&std::env::temp_dir(), label, flock)
+        Session::create_in(&std::env::temp_dir(), label, flock, create_lock)
     }
 
-    fn create_in(tmp: &Path, label: &str, lock: Flock) -> Result<Session, SessionError> {
+    fn create_in(
+        tmp: &Path,
+        label: &str,
+        lock: Flock,
+        create: Create,
+    ) -> Result<Session, SessionError> {
         let name = format!(
             "{PREFIX}{label}-{}-{}",
             std::process::id(),
@@ -105,8 +119,22 @@ impl Session {
         let staged = tmp.join(format!("{STAGING}{name}"));
         let dir = tmp.join(name);
         std::fs::create_dir_all(&staged)?;
+        let lock_file = create(&staged.join(LOCK)).inspect_err(|_| {
+            // The directory removed is the one this call made a line
+            // above, under a name `owner_pid` rejects, so no reaper
+            // would ever collect it: a lock file that cannot be created
+            // must not leave it behind. `remove_dir` needs no descriptor,
+            // so it clears the empty tree even when the create failed for
+            // want of one (`EMFILE`), which the walk `remove_dir_all`
+            // opens would not survive; the walk is the fallback for a
+            // planted directory at `.owner.lock`, which leaves the tree
+            // non-empty. The create's own error is the one returned.
+            if std::fs::remove_dir(&staged).is_err() {
+                let _ = std::fs::remove_dir_all(&staged);
+            }
+        })?;
         let mut session = Session {
-            lock: File::create(staged.join(LOCK))?,
+            lock: lock_file,
             dir: staged,
         };
         // A session holding no lock would read as unowned the moment its
@@ -162,17 +190,32 @@ pub struct Reaped {
     kept: Vec<(PathBuf, Unprobed)>,
 }
 
-impl fmt::Display for Reaped {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Reaped {
+    /// The reaping said on lines, one per tree, each tree's path through
+    /// `safe` before the lines are joined: the one derivation of the
+    /// line. `Display` paints it with the identity, and the start's
+    /// renderer passes the safe one, so a newline inside a tree's path is
+    /// stripped with its control and directional bytes and only the
+    /// renderer's own separators remain (#468).
+    pub fn lines_with(&self, safe: fn(&str) -> String) -> String {
+        let mut said = String::new();
         for tree in &self.removed {
-            let tree = tree.display();
-            writeln!(f, "hands: reaped {tree}: {REAPED_BECAUSE}")?;
+            let tree = safe(&tree.display().to_string());
+            said.push_str(&format!("hands: reaped {tree}: {REAPED_BECAUSE}\n"));
         }
         for (tree, why) in &self.kept {
-            let tree = tree.display();
-            writeln!(f, "hands: kept {tree}: its lock cannot be probed: {why}")?;
+            let tree = safe(&tree.display().to_string());
+            said.push_str(&format!(
+                "hands: kept {tree}: its lock cannot be probed: {why}\n"
+            ));
         }
-        Ok(())
+        said
+    }
+}
+
+impl fmt::Display for Reaped {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.lines_with(|tree| tree.to_owned()))
     }
 }
 
