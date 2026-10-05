@@ -13,7 +13,7 @@ use serde::de::IgnoredAny;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use super::claude_message::{message_said, searched, Message, ModelUsage};
+use super::claude_message::{message_said, runs, searched, Message, ModelUsage};
 use super::read::{decode, envelope, Decoded, Empty, Given, Harness, Null, Prompt, Said, Server};
 use super::Fault;
 
@@ -456,24 +456,24 @@ struct HookInfo {
     _duration: u64,
 }
 
-/// The session's running cost: each model's searches, and, inert, the
-/// totals the result restates.
+/// The session's running cost: each model's searches; the time spent in
+/// tools and the lines written, each a tool run when positive, since
+/// only a tool spends the one or writes the other (#484); and, inert,
+/// its cost, its timings and when it started, which a turn that runs no
+/// tool accrues as well.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Cost {
     model_usage: BTreeMap<String, ModelUsage>,
+    total_tool_duration: u64,
+    total_lines_added: u64,
+    total_lines_removed: u64,
     #[serde(rename = "totalCostUSD")]
     _cost: f64,
     #[serde(rename = "totalAPIDuration")]
     _api: u64,
     #[serde(rename = "totalAPIDurationWithoutRetries")]
     _api_once: u64,
-    #[serde(rename = "totalToolDuration")]
-    _tools: u64,
-    #[serde(rename = "totalLinesAdded")]
-    _added: u64,
-    #[serde(rename = "totalLinesRemoved")]
-    _removed: u64,
     #[serde(rename = "totalDuration")]
     _duration: u64,
     #[serde(rename = "startTime")]
@@ -498,12 +498,24 @@ pub(super) fn row(mut fields: Map<String, Value>) -> Result<Decoded, Fault> {
             let said = failed.then_some(Said::Failed { at }).into_iter().collect();
             ("system/stop_hook_summary", said)
         }
-        Row::CostState(cost) => ("cost-state", searched(&cost.model_usage)),
+        Row::CostState(cost) => ("cost-state", cost_said(&cost)),
     };
     Ok(Decoded {
         label: label.to_string(),
         said,
     })
+}
+
+/// The session's running cost: each model's searches, and a tool run,
+/// naming no tool, for each total only a tool run makes positive.
+fn cost_said(cost: &Cost) -> Vec<Said> {
+    let mut said = searched(&cost.model_usage);
+    said.extend(runs([
+        (cost.total_tool_duration > 0, "/totalToolDuration"),
+        (cost.total_lines_added > 0, "/totalLinesAdded"),
+        (cost.total_lines_removed > 0, "/totalLinesRemoved"),
+    ]));
+    said
 }
 
 /// A reply's row: its message, whose text is read unless the row states

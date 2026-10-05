@@ -494,6 +494,58 @@ fn early_returns() -> Vec<Row> {
     ]
 }
 
+/// The chief's H3 on dcf4344f beside its controls: the boxed turn that
+/// lists no tool writes claude's recorded cost-state row as a transcript,
+/// and each total only a tool run makes positive, raised, is a tool run,
+/// as a web search the row counts is; the row as recorded keeps the turn
+/// boxed.
+fn worked_in_tools() -> Vec<Row> {
+    let recorded = CLAUDE_PLAIN_LOG.lines().nth(23).unwrap();
+    let cost = |from: &str, to: &str| {
+        assert!(recorded.contains(from), "{recorded}");
+        let row = recorded.replace(from, to);
+        let written = format!(r#"printf '%s\n' '{row}' > "$dir/cost.jsonl""#);
+        in_box(format!("{}; {written}", boxed_result("")))
+    };
+    let ran = |what: &str, at: &str| {
+        let ran = format!(
+            "the turn's tools listed none, but the cost-state event on line 1 of \
+             ~/.claude/projects/{{workdir}}/cost.jsonl ran {what} at {at}"
+        );
+        let servers = "the system/init event on line 1 of stdout listed mcp_servers: 1";
+        unboxed(unmeasured(&ran), &ran, servers)
+    };
+    let raised = |shape, key: &str| {
+        let at = format!("/{key}");
+        row(
+            shape,
+            cost(&format!(r#""{key}":0,"#), &format!(r#""{key}":3,"#)),
+            "boxed_tools",
+            ran("a tool", &at),
+        )
+    };
+    vec![
+        row(
+            "h3 control: the recorded row",
+            cost("", ""),
+            "boxed_tools",
+            boxed_beside(measured(
+                json!([]),
+                "the system/init event on line 1 of stdout listed tools: 0",
+            )),
+        ),
+        row(
+            "h3 comparator: a web search the row counts",
+            cost(r#""webSearchRequests":0"#, r#""webSearchRequests":1"#),
+            "boxed_tools",
+            ran("WebSearch", "/modelUsage/*/webSearchRequests"),
+        ),
+        raised("h3a: time spent in tools", "totalToolDuration"),
+        raised("h3b: lines added", "totalLinesAdded"),
+        raised("h3c: lines removed", "totalLinesRemoved"),
+    ]
+}
+
 /// A clean exit is not an answer (#484): a turn holding a refusal of any
 /// class on any stream, or no reply on its stdout or a transcript, is
 /// unread, its stderr's reply not being one, and says why.
@@ -651,6 +703,7 @@ fn a_decoded_failure_or_tool_run_never_rests_quietly_under_a_verdict() {
         transcript_rows(),
         reply_origins(),
         early_returns(),
+        worked_in_tools(),
     ]
     .into_iter()
     .flatten()

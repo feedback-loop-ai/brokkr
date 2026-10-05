@@ -18,7 +18,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use super::claude_message::{
-    message_said, searched, stopped, usage_said, Ending, Message, ModelUsage, Usage, IN_RESULT,
+    message_said, runs, searched, stopped, usage_said, Ending, Message, ModelUsage, Usage,
+    IN_RESULT,
 };
 use super::forms::{self, Form, Origin, Says, UNKNOWN_OPTION};
 use super::read::{
@@ -523,12 +524,6 @@ pub(super) fn texts(text: &str, origin: Origin) -> Result<Vec<Said>, Fault> {
 fn failures<const N: usize>(tests: [(bool, &'static str); N]) -> impl Iterator<Item = Said> {
     let failed = tests.into_iter().filter(|(failed, _)| *failed);
     failed.map(|(_, at)| Said::Failed { at })
-}
-
-/// A tool run, naming no tool, at each pointer whose test holds.
-fn runs<const N: usize>(tests: [(bool, &'static str); N]) -> impl Iterator<Item = Said> {
-    let ran = tests.into_iter().filter(|(ran, _)| *ran);
-    ran.map(|(_, at)| Said::Ran { tool: None, at })
 }
 
 fn assistant_said(assistant: Assistant) -> Result<Decoded, Fault> {

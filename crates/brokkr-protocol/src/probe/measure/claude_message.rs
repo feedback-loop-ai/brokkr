@@ -254,6 +254,12 @@ pub(super) fn usage_said(at: &UsageAt, message: Option<String>, usage: Usage) ->
     std::iter::once(counted).chain(ran).collect()
 }
 
+/// A tool run, naming no tool, at each pointer whose test holds.
+pub(super) fn runs<const N: usize>(tests: [(bool, &'static str); N]) -> impl Iterator<Item = Said> {
+    let ran = tests.into_iter().filter(|(ran, _)| *ran);
+    ran.map(|(_, at)| Said::Ran { tool: None, at })
+}
+
 /// A stop for a tool use, as a tool run at `at`.
 pub(super) fn stopped(stop: Option<&Ending>, at: &'static str) -> Option<Said> {
     (stop == Some(&Ending::ToolUse)).then_some(Said::Ran { tool: None, at })
