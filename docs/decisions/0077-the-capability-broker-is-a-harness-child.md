@@ -5,7 +5,6 @@ Date: 2026-10-03
 
 Built: unbuilt (#467) — strict MCP prerequisite; complete slice-two work is in the linked change tasks
 Amends: 0065
-Amended by the [2026-10-05 ruling](../../openspec/changes/decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md#addendum-2026-10-05-each-mcp-server-runs-in-its-own-box): each MCP server runs in its own box.
 
 ## Context
 
@@ -13,6 +12,8 @@ Decision 0065 ruling 6 says an MCP dialect's server is "launched by the engine
 beside the hands server". The operator's R1 of 2026-10-03 requires an explicit
 amendment: the intended authority stands, but that launch ownership does not
 describe the implementation we must extend.
+
+The [operator ruling dated 2026-10-05](../../openspec/changes/decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md#addendum-2026-10-05-each-mcp-server-runs-in-its-own-box) supplies the amendment: each MCP server runs in its own box.
 
 In the checked source, crates/brokkr-runtime/src/engine.rs:4434–4440 documents the
 harness-spawned hands child. crates/brokkr-protocol/src/hands.rs:1119–1142

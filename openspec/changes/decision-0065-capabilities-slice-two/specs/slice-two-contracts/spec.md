@@ -40,7 +40,8 @@ Undeclared or malformed references retain the existing loader refusal.
 The server box SHALL consume the same bound connection and typed dialect
 egress, not a second capability policy. The private engine-bound plan SHALL
 add typed box intent: selected hands reach roots, resolved executable and
-MB3's deterministic package root, source/ancestry/mount identity observations and their bounded source-set digest,
+MB3's closed system-entry/package-entry tree and its root, source/ancestry/mount
+identity observations, managed credential/privilege facts and their bounded source-set digest,
 network disposition derived once from egress (isolated or shared, not a
 duplicate egress vocabulary), fixed environment names, bootstrap
 identity and excluded control/store roots. Secret values SHALL never enter
@@ -83,7 +84,7 @@ types, with MB3/MB4's exact causes and bounded parsing at each pipe/file edge.
 
 - **WHEN** preparation resolves a v1 installed server and its MB3 package root for a selected holding
 - **THEN** the private plan digest binds the executable/tree/reach identities and the network projected from that holding's egress, with no store value or fresh grant
-- **AND** substituting another tree, reach set, egress or bootstrap after sealing refuses "broker plan is not bound to this attempt"; filesystem drift after a correctly bound plan takes MB3's filesystem-identity cause before lookup
+- **AND** substituting another tree kind/root, reach set, mapped writer identity/privilege fact, egress or bootstrap after sealing refuses "broker plan is not bound to this attempt"; filesystem drift after a correctly bound plan takes MB3's filesystem-identity cause before lookup
 - **AND** a v1 file with an invented program-root or mount key remains invalid under the frozen closed schema; observations do not become authored permissions
 
 ### Requirement: SC2 only the new realm version reserves the retention veto

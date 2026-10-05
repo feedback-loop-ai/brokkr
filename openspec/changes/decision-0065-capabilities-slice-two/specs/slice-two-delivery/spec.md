@@ -163,7 +163,11 @@ exact refusal without native-binding assumptions. It SHALL start no capability
 server for reporting. Guides SHALL state the actual Linux namespace/stdio/empty-restriction limits,
 conservative installed-entry package layout, pre-secret box refusals versus
 post-admission failures, separate hands/server network rules, retained U0
-read-isolation requirement, and Codex discovery behavior.
+read-isolation requirement, and Codex discovery behavior. Guidance SHALL
+name MB3's installation credential/history limits and MB4's host-loopback
+and Linux abstract Unix socket reach under shared network; it SHALL NOT
+claim credential discovery, historical byte authentication or a network
+allowlist from these checks.
 
 The engine SHALL render a fixed capability discovery notice, following
 0069's adapter-facts/engine-applicability pattern, listing the held capability
@@ -227,11 +231,37 @@ frozen contracts/fixtures/policy/reference bytes and measured witness/compose
 pins. It SHALL not substitute a historical pass, zero-test run or docs
 validation for behavioral evidence. Production remains Rust under crates/.
 
+Source-observer feasibility SHALL be measured with the actual U6c5 observer,
+not inferred from a metadata survey. U6c5 SHALL record repeatable Linux
+x86_64 and aarch64 profiles using the unpruned system source set specified by
+MB3, a protected package and a singleton system entry, including ordinary
+protected system hard links. Record kernel/filesystem, source and mount
+counts, mapped credentials, ACL/privilege assumptions, cold versus warm cache,
+FD high-water mark, peak metadata memory and elapsed time. Qualification
+budgets are at most 10 s for complete source observation and 20 s through
+readiness, handoff and initialization on those recorded profiles, leaving
+headroom within MB3's unchanged absolute 30 s runtime refusal bound.
+U6c5 measures observation; U6f and U9b SHALL repeat the complete path with
+readiness/handoff/startup timings. Use at least one cold and five warm samples
+per profile and record every sample, not just an average. Missing host legs
+stay pending and block the corresponding positive claim and U9b enablement.
+Large source sets beyond MB3's limits fail closed; no source pruning, cached
+verdict, timeout increase or weaker proof may manufacture a passing budget.
+If ordinary installations cannot meet these budgets with the required
+observer, return to the owning specification before activation.
+
 A docs-only change SHALL run staged/unstaged git diff --check and
 openspec validate --all --strict without altering tests. Where the commission
 authorizes an unsigned document commit and external formatting/spelling/signing,
 those obligations SHALL be recorded as pending until their results exist.
 No publication or push SHALL be inferred from local validation.
+
+#### Scenario: Source admission has a measured Linux budget
+
+- **WHEN** U6c5, U6f and U9b report installed-server positive controls
+- **THEN** the recorded Linux profiles include ordinary protected system hard links, unpruned admitted sources, actual observer and full-startup timings within the qualification budgets above; macOS remains a refusal control
+- **AND** a metadata-only or boxed survey is labeled partial feasibility evidence, never namespace/identity or supported-host qualification
+- **AND** exceeding an entry/depth/metadata/mount/symlink bound or expiring during source observation still takes "MCP server box filesystem identity is not protected" before lookup; expiry during readiness takes "MCP server box could not be established"; later phases retain their own exact causes
 
 #### Scenario: Unavailable document checks remain an explicit handoff
 

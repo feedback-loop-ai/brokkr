@@ -142,13 +142,17 @@ with a dummy workdir: that profile always grants workspace and Git reach.
 Decision 0043's "The boundary is never simulated: no `bwrap`, no tool" holds.
 Only Linux bubblewrap is admitted; macOS keeps MB2/R2's refusal.
 
-The fixed read-only system set SHALL be the existing shared
-`hands::HOST_TOOLCHAIN_BINDS`: `/usr/bin`, `/usr/lib`, `/usr/lib64`,
+The fixed read-only system set SHALL use the shared
+`hands::HOST_TOOLCHAIN_BINDS` with the server-only certificate narrowing below: `/usr/bin`, `/usr/lib`, `/usr/lib64`,
 `/usr/include`, `/usr/share`, `/usr/local`, `/usr/libexec`, `/bin`, `/sbin`,
-`/lib`, `/lib64`, `/etc/ssl`, `/etc/ca-certificates`, `/etc/alternatives`,
+`/lib`, `/lib64`, `/etc/ssl/certs`, `/etc/ca-certificates`, `/etc/alternatives`,
 `/etc/ld.so.cache`, `/etc/ld.so.conf`, `/etc/ld.so.conf.d`, where present.
-Absent optional system sources are omitted; they are never replaced by a
-broader mount. Existing symlink spellings and their resolved mount identities
+The server profile SHALL replace the table's `/etc/ssl` source with only
+`/etc/ssl/certs`; `/etc/ssl/private` and other siblings are never mounted.
+This is a consumed projection of the shared table, not a second bind list;
+workspace hands retain their existing set. Missing TLS configuration fails
+inside the server box without broadening this source. Absent optional system
+sources are omitted; they are never replaced by a broader mount. Existing symlink spellings and their resolved mount identities
 SHALL be checked. A fresh `/proc` sees only the server PID namespace; `/dev`
 is minimal. Identity, hosts and nsswitch files SHALL be generated without host
 credentials. Local egress uses a files-only resolver. Shared-network egress
@@ -163,20 +167,34 @@ arguments, shebangs, ELF metadata or loader behavior. Resolve argv[0] once
 from an absolute path or the fixed `/usr/local/bin:/usr/bin:/bin` search path;
 never search cwd or ambient PATH. Relative paths containing `/` refuse.
 Canonicalize the executable, retaining the original resolution chain and
-file identity for the pre-mount checks. The program/package root is its
-canonical parent, or that parent's parent when the immediate directory is
-named `bin` or `sbin`. Derive and check that root for system-contained entries
-too; its regular-file link rule is never skipped. An entry already contained
-in the fixed system set uses that set without adding or widening a mount.
-For any other installed entry, bind its root read-only at its canonical
-absolute path. Execute the resolved file.
+file identity for the pre-mount checks. Use a closed distinction:
+
+- **System entry:** the resolved file's immediate parent is a canonical
+  `/usr/bin`, `/usr/sbin`, `/usr/local/bin` or `/usr/local/sbin` directory
+  (including `/bin` and `/sbin` aliases), already covered by the fixed system
+  binds. Its program tree is that one executable file; there is no inferred
+  `/usr` or `/usr/local` package root. The executable still MUST be singly
+  linked. Loading support comes solely from the separately admitted system
+  set, not an inferred package closure.
+- **Package entry:** every other resolved file uses its canonical parent,
+  or that parent's parent when the immediate directory is `bin` or `sbin`.
+  The entire derived package tree MUST be singly linked, including when
+  already covered by a system bind (for example `/usr/lib/docs/bin/server`).
+  Bind the root read-only at its canonical absolute path only if the system
+  set does not already cover it; never add a broader system mount.
+
+Execute the resolved file. Classification is by this layout, never by uid
+or whether a link-count check would pass. A symlink from a system bin into
+`/opt/docs/bin/server` is a package entry. A launcher installed directly in
+a shared system bin needs all dependencies already in the fixed system set;
+otherwise install a dedicated package entry or fail inside the box.
 This is a conservative installation-layout rule, not a promise to discover
 an arbitrary language's dependencies. A package needing sibling code SHALL
 place its installed entry under `<package>/bin/` or `<package>/sbin/` so that
 the containing package is bound. A symlinked launcher uses its resolved
 installation, never an enclosing host HOME. The broker SHALL neither ascend
 further nor add mounts from argv, shebangs, environment values, imports or
-runtime errors. A standalone file uses its parent tree; `/`, the host HOME
+runtime errors. A standalone non-system file uses its parent tree; `/`, the host HOME
 or an ancestor containing the host HOME SHALL NOT become a package root.
 Such a derived root takes the program-tree resolution cause below. A bare runtime is confined by the same rule, not qualified as
 an arbitrary program. Anything it needs outside the binds fails INSIDE the
@@ -223,13 +241,42 @@ SHALL refuse. The checked handles SHALL be the actual mount sources (Linux
 bubblewrap `--ro-bind-fd`), not re-opened path strings. A launcher lacking
 that facility takes "MCP server box is unavailable". Readiness SHALL verify
 all effective mounts, including nested read-only state, against this intent.
-Multiply-linked regular files in the remaining system/launcher source
-set take the filesystem-identity cause unless the program-tree cause applies.
-This conservative rule closes hard-link loading aliases without a language
-analyzer. Managed native write surfaces SHALL also exclude creation of new
+Program-tree and bootstrap files retain their unconditional single-link
+rule, regardless of ownership. Only a regular system support/launcher file
+outside that tree may have multiple links, and only with this complete
+kernel write-exclusion proof: its filesystem owner differs from every managed
+writer's mapped uid; group and other write bits are clear; no extended access
+ACL is present; and no managed write surface can obtain the owner's identity,
+change those permissions/ACLs, bypass DAC, or remount the backing filesystem.
+Observe identities in the source filesystem's user namespace, including
+idmapped mounts; an unmapped/overflow uid is not an owner proof. Bind these
+credential/privilege facts to the plan and enforce them for the full attempt
+lifetime, alongside whole-chain and mount-alias protection. Unknown mappings,
+ACL semantics, privilege confinement or any failed condition take
+"MCP server box filesystem identity is not protected" before lookup. A
+read-only bind, root ownership alone or `fs.protected_hardlinks=1` alone
+SHALL NOT qualify. Write permission and ownership belong to the inode, so a
+protected file cannot become writable merely through an unenumerated hard
+link; this avoids scanning the whole host for its names. A user-owned linked
+library cannot take this exception. No exception applies to program files,
+known reach overlap, store/evidence exclusion or writable mount aliases. Managed native write surfaces SHALL also exclude creation of new
 writable aliases to these sources during the attempt; an unproved surface
 refuses the filesystem-identity cause. Read-only mounts alone prove no such
-host guarantee.
+host guarantee. Source inspection retains root handles and the active
+ancestor stack, not one live FD per traversed file. It SHALL NOT cache a
+previous preparation's verdict or skip a subtree to meet a budget.
+
+Installation is a trust prerequisite, not a historical authenticity check.
+The operator SHALL provision a trusted dedicated package tree. An otherwise
+admissible broad tree such as `~/.cargo` derived from `~/.cargo/bin/server`
+can expose unrelated `credentials.toml` to the trusted server. Store exclusion
+protects the selected store only; masking knows only declared values. Admission
+SHALL NOT claim discovery or masking of arbitrary installation credentials.
+Current/concurrent managed-reach checks do not authenticate bytes planted by
+a completed seat whose earlier bind has since been removed. Trusted
+installation provenance and remediation of such earlier writes remain the
+operator's responsibility; a version assertion or source-set metadata digest
+supplies neither.
 
 Admission order SHALL be plan/inventory/digest binding, MB2 eligibility and
 existing compatibility checks, valid/reserved binding names, executable and
@@ -349,7 +396,8 @@ alone SHALL remain a call outcome, not a fatal session failure.
 - **WHEN** an admitted user installation has entry `/opt/docs/bin/server` or a symlink resolving to that entry, with singly linked files outside all seat reach
 - **THEN** `/opt/docs` is the read-only package tree, the resolved server executes inside its own empty-root box, and its sibling modules remain available without a loader or shebang proof
 - **AND** the workspace, declared hands binds, Git metadata, host HOME, store and broker evidence are absent; legitimate tool calls still pass through the broker
-- **AND** an entry directly in `/opt/docs` uses that same package root, while a system-contained entry adds no broader system mount
+- **AND** an entry directly in `/opt/docs` uses that same package root; `/usr/bin/server` is a singleton system entry, while `/usr/lib/docs/bin/server` has package root `/usr/lib/docs`; neither adds a broader system mount
+- **AND** the singleton entry and every package regular file still refuse the program-tree hard-link cause when multiply linked, even if root-owned and not writable
 
 #### Scenario: Runtime arguments do not widen the bind set
 
@@ -389,9 +437,27 @@ alone SHALL remain a call outcome, not a fatal session failure.
 
 #### Scenario: Source protection includes system loading aliases and bounded observation
 
-- **WHEN** a system library outside the derived program root has a second hard link, mountinfo exposes a different-path alias into seat reach, a source walk exceeds any bound above, or a managed native surface can create a writable source alias
+- **WHEN** a multiply-linked system support file fails any kernel write-exclusion condition above, mountinfo exposes a different-path alias into seat reach, a source walk exceeds any bound above, or a managed native surface can create a writable source alias
 - **THEN** launch refuses "MCP server box filesystem identity is not protected" with zero lookups and server starts; a multiply-linked regular file within the program tree retains the more specific program-tree cause
 - **AND** controls cover each bound independently, a nlink-one bind alias and a hard-linked user-owned library under `/usr/local`; a complete protected source set passes without interpreting imports
+
+#### Scenario: Ordinary protected system hard links do not reject a package
+
+- **WHEN** a singly linked `/opt/docs/bin/server` package or singleton system entry uses system binds containing ordinary multiply-linked support files whose mapped owner, modes, absent access ACL and managed privilege confinement establish the complete kernel write-exclusion proof
+- **THEN** those support files pass source admission without renaming, unlinking, copying or pruning the installed system; the program-tree single-link rule still applies independently
+- **AND** independently introducing owner equality, group/other write, an access ACL, unresolved uid mapping or a permission-bypassing native surface refuses "MCP server box filesystem identity is not protected" with zero lookups/starts; a root-owned hard-linked program file instead takes the program-tree cause
+
+#### Scenario: Public certificates do not bind private TLS material
+
+- **WHEN** the host has readable `/etc/ssl/certs` beside an unreadable `/etc/ssl/private`
+- **THEN** only the certificates subtree enters the server source set; private material is neither traversed nor mounted, and its presence cannot fail that source walk
+- **AND** an unreadable entry inside an actual admitted source still refuses "MCP server box filesystem identity is not protected" before lookup; no skipped entry becomes an admitted source
+
+#### Scenario: Installation reach is not credential discovery or historical authentication
+
+- **WHEN** an otherwise admissible package tree contains an unrelated credential canary or bytes installed before the current managed reach was established
+- **THEN** tests record that the trusted server can read those bound bytes; they assert no generic credential redaction or historical authenticity from admission
+- **AND** a separate current or concurrent seat-writable alias still refuses the owning reach/identity cause before lookup, and selected-store exposure still takes MB4's exact store cause
 
 #### Scenario: Readiness is evidence from the owned empty namespace
 
@@ -514,7 +580,11 @@ refusal. No result/log/artifact exposes the handoff bytes.
 Network SHALL be a closed projection of the pinned dialect egress:
 `local` unshares the network namespace with no host loopback or external
 network; `contracted` and `uncontracted` share the host network, as declared.
-This sets no destination allowlist and does not implement D11 restrictions.
+Shared network includes host loopback and Linux abstract Unix sockets;
+filesystem mount exclusion does not isolate those services. This is the
+ruling's declared shared-network reach, not a destination allowlist or D11
+restriction enforcement. Operator-selected servers and the host services
+they can reach remain trusted under that declaration.
 Absent dialect egress still means `uncontracted`. R2 independently keeps
 workspace hands at network false. U5a2's binding-minimum comparison and
 GP1's gate office/class checks run unchanged before launch; shared network
@@ -602,7 +672,7 @@ shared encoding definitions. Exact-number preservation is a separate check.
 
 - **WHEN** otherwise eligible dialects declare local, contracted, uncontracted or omit egress
 - **THEN** their server boxes have respectively isolated, shared, shared and shared network; the local control cannot reach a host-loopback sentinel or an external endpoint
-- **AND** networked positive controls can reach the test endpoint without changing the hands box's network-false state, and shared-network DNS uses only its checked resolver input
+- **AND** networked positive controls can reach the test endpoint, host-loopback sentinel and Linux abstract Unix socket sentinel without changing the hands box's network-false state; local controls cannot reach any of them, and shared-network DNS uses only its checked resolver input
 - **AND** U5a2 still refuses/drops a below-minimum route with its existing exact cause before lookup; GP1 still denies unlisted gate egress
 
 #### Scenario: Known encodings are masked before persistence and delivery
@@ -737,7 +807,17 @@ An empty protected store is a bounded compatibility cost. Source traversal
 and handoff bounds above are execution limits, not edits to frozen v1.
 Descriptor mounts and descriptor-bound store reads close observation/use
 replacement; accepting a pathname recheck would leave H1/H5/H6 unresolved.
-System-source hard links conservatively refuse instead of trying to enumerate
-every host hard-link name. These choices retain user-owned protected installs
-without claiming that every existing installation qualifies (0071 rulings
-3, 5, 8, 9, 10).
+The returned correctness finding C1 is adopted: blanket system-link refusal
+and deriving `/usr` for a `/usr/bin` entry rejected ordinary Linux sources.
+Separate singleton system entries from package trees, and replace that blanket
+refusal only for system support with the complete kernel write-exclusion
+proof. Reject the suggested uid-only relaxation and any exception to the
+commission's program-tree single-link rule (0071 rulings 3, 8, 9).
+A metadata survey also found unreadable `/etc/ssl/private`; narrow the server
+certificate source instead of silently skipping unreadable bound content.
+C2's budget is owned by SD4 and U6c5, then repeated end to end by U6f/U9b;
+limits remain fail closed. S1 and S3 are adopted as the installation trust
+limits above. S2 is adopted as the explicit shared-network service reach;
+reject a new destination filter or loopback ban contrary to the ruling.
+These choices retain user-installed protected packages without claiming all
+layouts or histories qualify (0071 rulings 3, 5, 8–10).

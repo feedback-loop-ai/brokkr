@@ -243,18 +243,24 @@ Extract the common namespace/mount construction from
 `hands.rs::box_argv` into `hands/namespace.rs`. Keep `box_argv`'s existing
 workspace/exec callers (`execute_in`, `run_boxed_in`), its workspace/Git/bind
 orchestration and `overlay_argv` behavior. Both profiles use one builder and
-one `HOST_TOOLCHAIN_BINDS` table. The closed server profile has no workdir,
+one `HOST_TOOLCHAIN_BINDS` table. The server profile narrows that table's
+`/etc/ssl` entry to `/etc/ssl/certs`; hands retains its existing source.
+This consumed projection is the only certificate difference, not a copied
+system list. The closed server profile has no workdir,
 Git, bundle, declared hands, host HOME or host-backed private-directory
 mount, and never uses a fake workdir or copies the workspace argv skeleton
 (0071 rulings 4, 5, 10).
 
 Exactly these system sources are read-only where present: `/usr/bin`,
 `/usr/lib`, `/usr/lib64`, `/usr/include`, `/usr/share`, `/usr/local`,
-`/usr/libexec`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc/ssl`,
+`/usr/libexec`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc/ssl/certs`,
 `/etc/ca-certificates`, `/etc/alternatives`, `/etc/ld.so.cache`,
 `/etc/ld.so.conf`, `/etc/ld.so.conf.d`. Canonical aliases such as `/bin` to
 `/usr/bin` preserve in-box spelling without adding sources. Missing optional
 sources stay absent. No entire `/`, `/usr`, `/etc` or host home is a shortcut.
+Never bind `/etc/ssl/private` or other certificate-directory siblings; missing
+TLS configuration fails inside. An unreadable entry within an actual source
+still refuses, rather than being silently omitted.
 Use generated passwd/group/hosts/nsswitch, PID-scoped procfs and minimal dev.
 Only shared network adds the checked read-only resolver `/etc/resolv.conf`.
 Generated nonsecret identity bytes can use sealed memory FDs and
@@ -262,13 +268,20 @@ Generated nonsecret identity bytes can use sealed memory FDs and
 
 Resolve argv[0] using its absolute path or fixed `/usr/local/bin:/usr/bin:/bin`,
 never ambient PATH/cwd; a relative slash path refuses. Retain its search and
-symlink resolution chain. The package/program root is the canonical
-executable's parent, or one level above an immediate `bin`/`sbin` parent.
-Derive and check that tree even for system-contained executables; the existing
-system bind then suffices without another mount. Otherwise bind the tree
-read-only at its canonical absolute path and exec the resolved executable.
-A user installation `/opt/docs/bin/server` therefore binds `/opt/docs`,
-including siblings. Root `/`, host HOME or an ancestor containing HOME refuses.
+symlink resolution chain. MB3 owns the closed tree distinction: a resolved
+entry directly in the fixed system set's shared bin/sbin directories is a
+single-file system entry. It never derives `/usr` or `/usr/local` as a
+package root. The file itself must be singly linked; its support files are
+admitted by the separate system-source rule. A symlink into a dedicated
+installation is classified by its resolved location, not its launcher path.
+Every other entry is a package: its canonical parent, or one level above an
+immediate `bin`/`sbin` parent. `/opt/docs/bin/server` binds `/opt/docs` with
+siblings; `/usr/lib/docs/bin/server` checks the entire `/usr/lib/docs` tree
+but adds no mount when already covered. Every regular package file must be
+singly linked, including system-contained or root-owned packages. Otherwise
+bind that tree read-only at its canonical absolute path. Root `/`, host HOME
+or an ancestor containing HOME refuses. Exec the resolved executable; do not
+invent a package closure for a system runtime or add mounts from its argv.
 The current Brokkr binary, if needed outside the system set, is bound as one
 checked read-only bootstrap file, never its development checkout.
 
@@ -278,6 +291,18 @@ or expand mounts after errors. Anything missing fails **inside** this box;
 a bare runtime has exactly the same filesystem and receives no extra mounts
 from its arguments. Operator-installed code remains trusted, and version
 negotiation is an assertion after exec, not executable authentication.
+
+The installation is trusted as a whole. A broad but otherwise admissible
+`~/.cargo/bin/server` derives `~/.cargo` and can expose unrelated
+`credentials.toml`; masking knows declared values only and store exclusion
+protects the selected store only. Recommend a dedicated credential-free
+package tree. Admission discovers neither arbitrary credentials nor malicious
+installed content. It excludes current/concurrent managed seat writes; it
+cannot authenticate bytes planted by a completed seat whose earlier bind was
+removed. The operator must establish trusted installation provenance or
+reinstall after such exposure. A source metadata digest and version assertion
+are not historical byte authentication. Future proofs must stay within these
+limits (0071 ruling 9).
 
 #### Reach and host-source admission
 
@@ -291,8 +316,9 @@ directory link counts do not decide this. Special files refuse; symlinks
 never add binds, and a target in seat reach refuses even if not mounted.
 
 Use a bounded Linux observer in `hands/namespace/sources.rs`: descriptor-
-relative `openat`/`fstatat` with no-follow component walks, retained directory
-and source handles, and strictly parsed `/proc/self/mountinfo`. Record device,
+relative `openat`/`fstatat` with no-follow component walks, retained source
+root handles and an active ancestor stack, and strictly parsed
+`/proc/self/mountinfo`. Do not retain one FD per traversed file. Record device,
 inode, mount root and relative subpath. Map nested mounts independently;
 different mount IDs do not make a bind alias a different file. Resolve chain
 identity before and after observation. Refuse unknown/ambiguous filesystem
@@ -306,10 +332,21 @@ MB3 fixes traversal at 1,000,000 entries, depth 64, 40 symlink hops per
 resolution, 65,536 mount records, 256 MiB metadata and the absolute startup
 deadline. There is no skipped unreadable entry or permissive truncation.
 Check the entire effective source set, not just the extra package bind.
-A regular system-source hard link outside the program tree conservatively
-takes the filesystem-identity refusal; program-tree links keep their specific
-cause. Protect original resolution ancestors and aliases against managed
-seat replacement, not merely other uids. Native surfaces must be measured to
+Program/bootstrap links keep their unconditional specific cause. For a
+multiply-linked system support/launcher file outside the program tree, apply
+MB3's complete kernel write-exclusion predicate: mapped owner distinct from
+every managed writer, no group/other write bits or extended access ACL, and
+proved inability of any managed surface to acquire owner authority, change
+permissions/ACLs, bypass DAC or remount the source. Identity/mode/ACL facts are
+observed through bound descriptors; credential mappings and privilege
+confinement are bound to the plan and enforced for its lifetime. Unknown or
+overflow mappings refuse. Root ownership or protected_hardlinks alone is
+insufficient. The proof holds across unenumerated hard-link names because
+ownership and write permissions are inode properties; it never waives reach,
+store or mount-alias checks. A linked user-owned library refuses. Program
+files cannot use this exception even when root-owned. Protect original
+resolution ancestors and aliases against managed seat replacement, not
+merely other uids. Native surfaces must be measured to
 exclude new writable aliases for the attempt lifetime too, or refuse. A
 read-only mount is no snapshot of a source writable under another name.
 
@@ -320,6 +357,22 @@ second obligation. Check mount destinations for collisions, inspect all actual
 nested read-only state at readiness and fail closed on mismatch. All admitted
 managed writers must preserve the same exclusion; arbitrary operator host
 mutation remains outside the claim. No new registry or daemon is invented.
+No previous preparation's verdict may be cached or subtree skipped to meet
+limits. Source metadata is bounded independently of live handles; overflow
+or cancellation refuses through MB3's identity cause before lookup.
+
+C2 feasibility is measured under SD4: U6c5's actual observer must complete
+within 10 s on each recorded Linux qualification profile, and U6f/U9b must
+complete readiness/handoff/initialization within 20 s overall on those
+profiles. These qualification budgets leave margin under the unchanged
+30 s runtime bound; they introduce no bypass or configurable timeout.
+Record cold and five warm samples, counts, FD/memory high-water marks,
+kernel/filesystem and mapped privilege facts for Linux x86_64/aarch64.
+The current boxed descriptor-metadata survey is only partial cost evidence;
+no native identity observer or namespace was qualified by it. Large CUDA/TeX
+installations can exceed the fixed limits and refuse. If ordinary profiles
+cannot qualify, repair this specification before U9b, without pruning the
+source set or weakening writable-alias exclusion.
 
 #### Environment, store and readiness
 
@@ -397,7 +450,10 @@ shebangs in the box; no parser or host fallback attempts to predict it.
 
 `local` selects an unshared network namespace (no host loopback or external
 network); `contracted`/`uncontracted` select shared network; omission remains
-uncontracted. This implements no destination allowlist or D11 restrictions.
+uncontracted. Shared network includes host loopback and Linux abstract Unix sockets,
+which filesystem mount exclusion cannot hide. Those host services remain
+reachable to the trusted server as the ruling requires. This implements no
+destination allowlist or D11 restrictions.
 R2 independently keeps the seat's workspace hands at network false. U5a2
 compares the dialect's existing typed egress with the binding minimum before
 carriage, using its exact requires refusal/wants drop; shared network never
@@ -743,6 +799,9 @@ U6c7 needs only landed U6a; the chosen order serializes them. U6c4 joins
 the session and builder, and U6c8 joins bootstrap and store reader.
 
 The merge order has **54 PRs**: the prior 47 rows plus U6c2–U6c8.
+The returned source-policy repair stays in U6c4/U6c5's existing three-file
+budgets; new measurement task 28.17 belongs to U6c5 and adds no production
+file or PR. U6f/U7c/U8a2/U9b consume and prove the same amended facts.
 U6c restarts from current main; both held attempts are reference only.
 Its former fourth-file visibility exception is not carried forward: U6c
 counts the shared protocol module and its lib.rs registration, and U6c2 separately extracts the session.
@@ -856,6 +915,8 @@ This docs-only amendment runs staged/unstaged diff checks, strict OpenSpec
 and typos where available; it changes no tests and claims no Cargo or runtime
 proof. Its validation and handoff are recorded in
 [evidence/design-boxed-broker.md](evidence/design-boxed-broker.md#council-design-validation).
+The returned specify visit also runs the existing decision-ledger test when
+available, because SC-1 is a defect that gate owns (0071 ruling 11).
 Earlier document validation stays in [evidence.md](evidence.md#repair-validation). Runtime results stay with their
 implementation units; a document pass supplies no behavioral evidence.
 
@@ -895,6 +956,30 @@ ruling is rewritten, no unresolved upstream fault is hidden downstream, and
 no runtime HIGH is claimed closed by a document. D11's consistency judgment
 is qualified by this visit's document audit and pending implementation gates.
 
+### D13. Returned review dispositions
+
+The returned chief's C1/C2, S1–S3 and SC-1 are answered at their earliest
+owners, before this design and tasks. All three review positions were read
+in full as well as both original council positions. The earlier D12 adoption
+of blanket system-link refusal is superseded only by the distinctions below;
+its reasons remain historical, not an additional rule to enforce.
+
+| Finding / claim | Decision and evidence |
+| --- | --- |
+| C1, medium correctness: ordinary system links and `/usr` package root defeat positive controls | Adopt. MB3 now distinguishes singleton shared-bin entries from whole package trees and admits multiply-linked system support only under a complete kernel write-exclusion proof. The review saw 146 linked `/usr` entries; this seat's boxed survey also found linked support files. Reject uid-only or blanket root-owned relaxation of program files: the commission requires every regular program file singly linked (0071 rulings 3, 8–9). U6c4/U6c5 own it, U6f/U9b repeat it. |
+| C2, low correctness: no measured observer/startup budget | Adopt. The descriptor-metadata survey is partial evidence only. SD4 sets Linux profiles, cold/warm samples, 10 s observation and 20 s full-startup qualification budgets within the existing 30 s hard bound. New 28.17 owns real observer measurement; U6f/U9b own full-path measurement. No cache, skipped sources or relaxed refusal; missing measurements block qualification (ruling 9). |
+| Additional source feasibility observation | The broad certificate bind reaches unreadable `/etc/ssl/private`. MB3 narrows the server projection to public `/etc/ssl/certs`, preserving hands' source set and all actual-source refusal checks. This removes unneeded authority instead of skipping unreadable bound bytes (rulings 5, 9–10). |
+| S1, low security: package roots can contain unrelated credentials | Adopt as a trust residual in MB3/D5. A dedicated installation is recommended; otherwise trusted server code sees those bound bytes. Selected-store exclusion and declared-value masking do not cover arbitrary credentials. Do not invent credential scanning or claim a stronger boundary (ruling 9). |
+| S2, low security: shared network includes local services | Adopt in MB4/D5. Explicitly name host loopback and Linux abstract Unix sockets and positive/negative sentinels. Reject a loopback ban/allowlist contrary to the supplied egress ruling (rulings 3, 9). |
+| S3, low security: current reach cannot authenticate historical installations | Adopt in MB3/D5 and U8a2. Earlier planted bytes remain an operator installation-provenance concern. Keep current/concurrent managed-writer alias exclusion; no historical authentication claim (ruling 9). |
+| SC-1, info: amendment note breaks decision ledger | Adopt the gate's finding. Put the one-line ruling link in ordinary Context prose without a malformed header marker or amendment-verb/date target. Preserve accepted status, ruling and test; run the existing ledger gate where available (ruling 11). |
+| Correctness INFO: prepared-environment serialization is not proved by accessor count | Retain U6c8's separate leak scans over the actual pipe/launcher boundary. The one-accessor pin proves cardinality only (rulings 5, 9). |
+| Correctness INFO: empty store and dist-only layout costs | Retain the deliberate MB3/MB4 rules. Empty protected stores and dedicated package/bin entries are documented controls; no lookup or widening exemption is added (rulings 3, 8–9). |
+
+These are documentary repairs and explicit threat-model limits, not runtime
+closure of any held finding. The specification is still proposed and U9b
+remains fenced pending every actual host/behavior proof.
+
 ## Risks / Trade-offs
 
 - Harness config precedence may defeat isolation → U0 controls admission,
@@ -903,10 +988,17 @@ is qualified by this visit's document audit and pending implementation gates.
   holding; a secret-free control may still qualify. U0 decides, not mode bits.
 - Version reporting happens after code executes → admit protected source mounts
   and exec only inside the box; the operator installation is still trusted code.
-- Conservative package layout, single-link sources, bounded traversal and a
-  required existing store can refuse legitimate installations → document these
-  limits, use a protected package/bin entry and empty store for secret-free use;
-  never widen mounts or skip an uncertain identity proof.
+- Conservative package layout, single-link program files, unproved system
+  write exclusion, bounded traversal and a required existing store can refuse
+  legitimate installations → use a dedicated protected package and empty store
+  for secret-free use; never widen mounts or skip uncertain identity. Shared
+  system support permits protected hard links under MB3's full predicate.
+- Installation credentials/history and shared-network host services remain
+  trust limits → document S1–S3 explicitly; no unknown-secret masking,
+  historical authentication or network allowlist is claimed.
+- A metadata survey is not a startup benchmark → SD4's cold/warm Linux
+  qualification budgets and U6c5/U6f/U9b owners gate positive claims. Large
+  installations may still hit the fixed bounds; missing measurements stay pending.
 - Descriptor mounts/control-FD carriage require real host proof → missing
   support refuses; document validation cannot establish readiness.
 - One box and private tmpfs per server add startup and memory cost → accept
@@ -1037,7 +1129,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/verbs/readouts.rs` | U8g | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/doctor/capabilities.rs` | U9a | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-protocol/src/hands/namespace.rs` | U6c3, U6c4, U6c5 | Count registration and same-unit consumers; recheck size and concurrent main edits |
-| `crates/brokkr-protocol/src/hands/namespace/sources.rs` | U6c5 | Count registration and same-unit consumers; recheck size and concurrent main edits |
+| `crates/brokkr-protocol/src/hands/namespace/sources.rs` | U6c5 | Includes system write-exclusion/credential observation and task 28.17 measurement; split before implementation if ceilings cannot hold |
 | `crates/brokkr-cli/src/broker/bootstrap.rs` | U6c6, U6c8 | Count registration and same-unit consumers; recheck size and concurrent main edits |
 | `crates/brokkr-protocol/src/secret/store.rs` | U6c7 | Count registration and same-unit consumers; recheck size and concurrent main edits |
 | `crates/brokkr-protocol/src/broker.rs` | U6c, U6d | Shared consumed protocol edge; registration counts in lib.rs |
@@ -1132,7 +1224,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U6c2 | U6c | Extract the consumed broker session; 28.3–28.4 | `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/session.rs` |
 | U6c3 | Independent | Extract the shared namespace builder; 28.5–28.6 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/namespace.rs` |
 | U6c4 | U6c2, U6c3 | Consume the server namespace profile; 28.7–28.8 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-cli/src/broker/session.rs` |
-| U6c5 | U6c4 | Bind and verify host source identity; 28.9–28.10 | `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-protocol/src/hands/namespace/sources.rs`; `crates/brokkr-cli/src/broker/session.rs` |
+| U6c5 | U6c4 | Bind and verify host source identity; 28.9–28.10, 28.17 | `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-protocol/src/hands/namespace/sources.rs`; `crates/brokkr-cli/src/broker/session.rs` |
 | U6c6 | U6c5 | Register the private waiting bootstrap; 28.11–28.12 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs` |
 | U6c7 | U6a | Extract the shared typed store reader; 28.13–28.14 | `crates/brokkr-protocol/src/secret.rs`; `crates/brokkr-protocol/src/secret/store.rs` |
 | U6c8 | U6c6, U6c7 | Wire the confined environment handoff; 28.15–28.16 | `crates/brokkr-protocol/src/secret.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs`; `crates/brokkr-cli/src/broker/session.rs` |
@@ -1486,19 +1578,19 @@ Owning tests: `crates/brokkr-protocol/src/hands/tests.rs`, `crates/brokkr-runtim
 
 ### U6c4 — Consume the server namespace profile
 
-Add the closed server profile and the narrow hands API that session preparation consumes immediately. Reuse the extracted builder and system table. Derive MB3's program root, canonical reach checks and MB4's one fixed environment table/reserved set here; construct the full nonsecret server intent with private tmpfs, egress-projected network and no new-session. The public preparation path consumes/checks this intent then retains incomplete-serving refusal before box spawn; it does not claim that identity or readiness is complete yet. Namespace methods keep room for U6c5's observer.
+Add the closed server profile and the narrow hands API that session preparation consumes immediately. Reuse the extracted builder and system table. Derive MB3's system-entry/package-entry tree, server-only public-certificate projection, canonical reach checks and MB4's one fixed environment table/reserved set here; construct the full nonsecret server intent with private tmpfs, egress-projected network and no new-session. The public preparation path consumes/checks this intent then retains incomplete-serving refusal before box spawn; it does not claim that identity or readiness is complete yet. Namespace methods keep room for U6c5's observer.
 
 Closes tasks 28.7 and 28.8; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [MB5](specs/mcp-capability-broker/spec.md), [SC1](specs/slice-two-contracts/spec.md).
-Proof: Exact system and user-installed root derivation, relative/root refusals, all reach modes and containment directions, fixed-key collisions with zero lookups, exact fixed environment/network and absence of workspace/Git/overlay/default host private directories. Independent builder and reserved-key removals fail separately; no dummy workspace or second table.
+Proof: Exact singleton system and dedicated package roots (including a system-contained package), certificate narrowing with an unreadable private sibling, relative/root refusals, all reach modes and containment directions, fixed-key collisions with zero lookups, exact fixed environment/network and absence of workspace/Git/overlay/default host private directories. Independent builder and reserved-key removals fail separately; no dummy workspace or second table.
 
 Owning tests: `crates/brokkr-protocol/src/hands/tests.rs`, `crates/brokkr-cli/tests/capability_broker.rs`.
 
 ### U6c5 — Bind and verify host source identity
 
-Register the source observer under namespace.rs and consume it in the server profile and broker admission. Implement D5's bounded no-follow observation, mountinfo root/subpath alias comparison, complete source/link/ancestry checks and handle-backed --ro-bind-fd inputs. Secure launcher/bootstrap/control inputs and store identity, including secret-free empty-store handling, without reading values. Use existing protocol rustix/libc dependencies; no hidden Cargo file. Unknown facilities or identities refuse, and all public serving stays closed. The returned owned handles remain live until actual box readiness in the later launch path.
+Register the source observer under namespace.rs and consume it in the server profile and broker admission. Implement D5's bounded no-follow observation, mountinfo root/subpath alias comparison, complete source/link/ancestry checks, MB3's system-support kernel write-exclusion predicate and handle-backed --ro-bind-fd inputs. Bind mapped writer credentials and privilege confinement with the source facts; unknown mappings or unsupported ACL facts refuse, and program/bootstrap links have no exception. Secure launcher/bootstrap/control inputs and store identity, including secret-free empty-store handling, without reading values. Use existing protocol rustix/libc dependencies; no hidden Cargo file. Unknown facilities or identities refuse, and all public serving stays closed. The returned owned handles remain live until actual box readiness in the later launch path.
 
-Closes tasks 28.9 and 28.10; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SC1](specs/slice-two-contracts/spec.md).
-Proof: Each MB3/MB4 filesystem cause and precedence with zero lookup/start: both overlap directions/modes, resolution chain replacement, program and system hard links, nlink-one bind alias, nested mount, special/unreadable/cyclic/over-limit data, absent/aliased store, mount-source replacement and native alias creation. Exact-bound positive controls and descriptor-source identity checks each have independent removals.
+Closes tasks 28.9, 28.10 and 28.17; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SC1](specs/slice-two-contracts/spec.md).
+Proof: Each MB3/MB4 filesystem cause and precedence with zero lookup/start: both overlap directions/modes, resolution chain replacement, unconditional program/bootstrap hard-link refusals, protected system-link positives and independent owner/mode/ACL/mapping/privilege negatives, nlink-one bind alias, nested mount, special/unreadable/cyclic/over-limit data, absent/aliased store, mount-source replacement and native alias creation. Exact-bound positive controls and descriptor-source identity checks each have independent removals. Task 28.17 records SD4's actual observer cost and Linux profiles; a boxed metadata survey cannot close it. Ordinary system entries and protected packages must pass with installed system hard links left intact.
 
 Owning tests: `crates/brokkr-protocol/src/hands/tests.rs`, `crates/brokkr-cli/tests/capability_broker.rs`, `crates/brokkr-runtime/src/engine/boundary_tests.rs`.
 
@@ -1555,7 +1647,7 @@ Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
 
 Complete the serving protections in session.rs using existing secret masking and canonical byte/hash functions at the edge. Share one masked buffer, reject duplicate keys and numeric value changes, and independently refuse unsafe scalar/structural secret occurrences before staging or delivery with MB4's exact cause. Keep legacy masker semantics and shared encodings. Drain stderr with raw-byte overlap before lossy decoding. Only then can the bound public session serve; retained plans still refuse until U8b.
 
-Complete the boxed launch path before removing incomplete-serving refusal: exact approved read-only system/package/bootstrap binds, absent workspace/store/evidence, two-server tmpfs separation, each egress class, safe host launch environment and confined binding delivery. Repeat all pre-secret cause counters, installed native/script/package controls, missing dependency failures and valid code-loading-name controls. The single-injector machine proof and leak scans cover the actual launcher as well as output; masking and readiness have independent removals.
+Complete the boxed launch path before removing incomplete-serving refusal: exact approved read-only system/package/bootstrap binds, absent workspace/store/evidence, two-server tmpfs separation, each egress class, safe host launch environment and confined binding delivery. Repeat all pre-secret cause counters, singleton system and dedicated native/script/package controls with ordinary protected system hard links left intact, SD4's full-startup budget, missing dependency failures and valid code-loading-name controls. The single-injector machine proof and leak scans cover the actual launcher as well as output; masking and readiness have independent removals. Use installation canaries to prove the stated credential/history limits without claiming authenticity or unknown-secret masking; test host-loopback and abstract Unix socket sentinels for both local denial and shared reach.
 
 Closes tasks 31.1 and 31.2; requirements [MB3](specs/mcp-capability-broker/spec.md), [SD3](specs/slice-two-delivery/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md).
 Proof: Literal/encoded/split/multibyte leak scans, digits-only scalar refusal versus text-redaction/unrelated-number controls, masking-created key collisions, and unsafe-correlation failure without raw frames. Assert failed forwarded call with no digest and no unsafe body for retention on/off/veto; the refusal itself passes leak scans. Remove the scalar check independently of numeric-precision validation; direct command cannot bypass plan/ledger/startup/masking protections, and a retained plan never silently degrades. Repeat the independent HOME/TMPDIR collision removals at the final public spawn boundary, including zero lookup/start and normal-binding/private-directory controls.
@@ -1593,7 +1685,7 @@ Owning tests: `crates/brokkr-runtime/src/agents/tests.rs`, `crates/brokkr-runtim
 
 Provision the single sealed plan inventory and private roots before launch, with complete owner identity and disjoint fixed retention shares including permitted fallback slots. Reuse existing launch facts; do not add a duplicate capability inventory or launch state machine. In marks.rs project and clear selected server/tool/discovery identifiers from the same intent consumed by configuration, using existing adapter hands.notice facts. Carry no plan or storage locator into prompt rendering; parse new edge data once into types.
 
-Prepare box facts through U6c4/U6c5's existing consumed API: effective selected hands/Git roots, source identities/digest, deterministic package root, trusted bootstrap and store/control exclusions. Project the existing typed egress once into network disposition and bind the already judged clearance receipt to the policy digest. Seal these facts for each selected fallback/member/step without serializing live handles; the broker reobserves before lookup. Runtime observes the host above pure core/view and never uses a display admission function. Drift is a hard failure, including for wants; tests mutate each bound fact independently.
+Prepare box facts through U6c4/U6c5's existing consumed API: effective selected hands/Git roots, source identities/digest, mapped writer/privilege facts, closed system-entry/package-entry tree, trusted bootstrap and store/control exclusions. Project the existing typed egress once into network disposition and bind the already judged clearance receipt to the policy digest. Seal these facts for each selected fallback/member/step without serializing live handles; the broker reobserves before lookup. Runtime observes the host above pure core/view and never uses a display admission function. Drift is a hard failure, including for wants; tests mutate each bound fact independently.
 
 Closes tasks 35.1 and 35.2; requirements [SD3](specs/slice-two-delivery/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [MB3](specs/mcp-capability-broker/spec.md), [CR3](specs/capability-response-retention/spec.md).
 Proof: Substitution/missing inventory/pre-start uncertainty refuse exactly; simultaneous slots cannot share quota, oversized allocation refuses before launch, and resume cannot create fresh budget. Bind selected-fact construction and clearing independently: fallback and wanted drop remove stale facts, original requested digest and native/no-MCP behavior stay unchanged, and prompt facts contain no secret-store/ledger locator.
@@ -1626,7 +1718,7 @@ Owning tests: `crates/brokkr-protocol/src/hands/tests.rs`, `crates/brokkr-runtim
 
 Carry the protected root to every writer before composition and recheck at the common dispatch door. Hold one exclusive canonical-worktree writer lease per run through owned-process settlement, including no-grant runs; protect historical artifacts and refuse unsafe or uncertain concurrent writers. No new authored protection key or daemon.
 
-Carry all managed writers' effective reach in the admitted protection facts, including zero-grant siblings; any writer able to mutate an admitted server source through an alias fails the source-identity check before server lookup. Server boxing does not waive this coordination or protection of historical artifacts. Other worktrees remain parallel only when their admitted write reach is disjoint from these protected sources.
+Carry all managed writers' effective reach in the admitted protection facts, including zero-grant siblings; any writer able to mutate an admitted server source through an alias fails the source-identity check before server lookup. Server boxing does not waive this coordination or protection of historical artifacts. Other worktrees remain parallel only when their admitted write reach is disjoint from these protected sources. Include their mapped identities/privileges in system write-exclusion admission. This coordinates current and concurrent writers; it does not authenticate earlier installed bytes after a past bind was removed (D5).
 
 Closes tasks 38.3 and 38.4; requirements [CR2](specs/capability-response-retention/spec.md), [MB3](specs/mcp-capability-broker/spec.md).
 Proof: A retaining panel member plus zero-grant attacker and boxed exec cannot replace root/digest; an already-running writer refuses, abandoned ownership cannot outlive cleanup, later no-grant runs preserve old evidence, and separate worktrees remain independent.
@@ -1708,7 +1800,7 @@ Owning tests: `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 
 Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, box admission/readiness, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination.
 
-The enabling matrix also traverses all boxed-server seams: protected system/user-installed entries, every reach mode and containment direction, resolution ancestors, hard links and bind aliases, store exclusion including empty/missing stores, bounded observation/readiness/handoff, and actual kernel shebang execution. Pin all pre-secret refusals to zero lookups/starts and distinguish later delivery/exec failures. A success-reporting harness cannot hide any zero-call box failure. Real Linux proof includes private tmpfs per server, local/shared network with hands still network-false, safe host loader environment, allowed loading bindings and cancellation at every startup window. macOS proves its existing refusal; no successful box is claimed there.
+The enabling matrix also traverses all boxed-server seams: singleton system and user-installed package entries with ordinary protected system hard links intact, SD4's measured host budgets, every reach mode and containment direction, resolution ancestors, hard links and bind aliases, store exclusion including empty/missing stores, bounded observation/readiness/handoff, and actual kernel shebang execution. Pin all pre-secret refusals to zero lookups/starts and distinguish later delivery/exec failures. A success-reporting harness cannot hide any zero-call box failure. Real Linux proof includes private tmpfs per server, local/shared network with hands still network-false, safe host loader environment, allowed loading bindings and cancellation at every startup window. macOS proves its existing refusal; no successful box is claimed there.
 
 Closes tasks 46.1 and 46.2; requirements [GP1](specs/gate-capability-policy/spec.md), [MB3](specs/mcp-capability-broker/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD3](specs/slice-two-delivery/spec.md).
 Proof: Real compile/launch/broker/fold/inspect with fake dialect; exact native/MCP gate reads/writes/explicit-office-egress required/wanted outcomes, same-name MCP holding keeps native power OFF, zero-grant sibling and exec cannot alter evidence, unsafe secret reads refuse, and quota/recovery/cold/fallback/member/step cases bind. Include the success-reporting harness after zero-call version failure, post-call fatal protocol and 4,096-call exhaustion, plus scalar-secret refusal on the real retention/inspect path; pin exact causes, counts and absent unsafe bodies.
@@ -1716,7 +1808,7 @@ Add the separate HOME/TMPDIR collisions through real compile and selected launch
 
 Owning tests: `crates/brokkr-runtime/tests/capability_broker_launch.rs`, `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 
-Publish grant/veto migration and measured namespace/stdio/empty-restriction limits, secret-read refusal, conservative installed-entry layout and protected source requirements, delayed settled checkpoints, fixed retention budgets, historical evidence protection and same-root run serialization. Explain separate hands/server networks, pre-secret box refusals versus post-lookup failures, private tmpfs, valid loading names only at confined exec, durable session failures, the broker's scalar/structural masking refusal and its fixed startup-key collisions; distinguish broker validation from the unchanged shared secret grammar and legacy mask_json semantics.
+Publish grant/veto migration and measured namespace/stdio/empty-restriction limits, secret-read refusal, conservative installed-entry layout and protected source requirements, delayed settled checkpoints, fixed retention budgets, historical evidence protection and same-root run serialization. Explain the dedicated-installation credential/history limits, shared host-loopback/abstract-socket reach, certificate narrowing, measured source/startup budgets, separate hands/server networks, pre-secret box refusals versus post-lookup failures, private tmpfs, valid loading names only at confined exec, durable session failures, the broker's scalar/structural masking refusal and its fixed startup-key collisions; distinguish broker validation from the unchanged shared secret grammar and legacy mask_json semantics.
 
 Closes tasks 47.1 and 47.2; requirements [SD3](specs/slice-two-delivery/spec.md), [SC1](specs/slice-two-contracts/spec.md), [SC2](specs/slice-two-contracts/spec.md), [SC3](specs/slice-two-contracts/spec.md), [SC4](specs/slice-two-contracts/spec.md).
 Proof: Guides agree with actual compile/report/inspect evidence and explain quiescing old writers; no new realm grant, MCP server or unmeasured support claim is shipped.

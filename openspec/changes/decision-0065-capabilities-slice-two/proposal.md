@@ -17,6 +17,15 @@ machinery. The two held U6c attempts are reference only; U6c restarts from
 main after this documentary amendment passes specify, clarify, design, tasks
 and analyze. U6a's shared injector and U6b's closed command already stand.
 
+The returned review corrects the installation/source policy: a system entry
+is a singly linked executable, not all of `/usr` as its package tree;
+multiply-linked system support files require kernel-enforced write exclusion
+from every managed seat. Package files keep the unconditional single-link
+rule. The server binds public TLS certificates rather than `/etc/ssl`'s
+private material. D5 records installation/history and shared-network trust
+limits; source-observer cost has an explicit measurement owner and budget.
+See [the returned visit](evidence/design-boxed-broker.md#returned-specify-visit).
+
 ## What Changes
 
 - Brokkr supplies `broker serve`, launched by the harness from the engine's

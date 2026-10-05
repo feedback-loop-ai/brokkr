@@ -445,3 +445,165 @@ Gates observed in this session:
 Cargo tests, bundle compiles, fmt/clippy and exact coverage do not apply to
 a docs-only commission and are not claimed. The commit is unsigned; the
 controller signs the squash. Nothing is pushed.
+
+
+## Returned specify visit
+
+Seat: chief architect, specify phase only; run
+`amend-decision-0065-slice-two-s--a9a103e3`. Starting HEAD `75d2fa01`, clean
+tracked tree. Adopted `decision-0065-capabilities-slice-two`; no new change,
+workflow runner, archive or phase routing was invoked. Read the dialect's
+own specify/return and clarify/design/tasks/analyze instructions through
+workspace hands. This visit repairs the returned review's earliest owning
+specification, then its dependent design and tasks; it does not claim to
+have run the other offices. The engine determines their subsequent visits.
+
+Read the commissioned proposal, design and task inventory, MB1–MB5,
+contracts/delivery and affected isolation/retention deltas; README and the
+cited decisions; hands builder/overlay/session, runtime namespace composition,
+shared injector/store reader, broker handler and its CLI proofs. Both original
+council positions and all three review position results were read in full.
+The two held U6c evidence records were read through local git objects
+`65c879c5` and `08171090`, without checkout, merge or code reuse. They remain
+reference only. The operator addendum is already present verbatim once and
+was preserved; historical evidence.md and completed implementation facts
+were not rewritten.
+
+### Answers to the returned findings
+
+[Design D13](../design.md#d13-returned-review-dispositions) records each
+adoption/refutation in the dialect's Decisions place; the behavioral answers
+are MB3/MB4 and SD4 scenarios, with typed SC1 plan facts. In dependency order:
+
+- **C1, medium correctness:** corrected the proposal and MB3 first. Shared
+  system-bin entries have a singleton executable tree; dedicated packages,
+  including system-contained ones, retain whole-tree single-link checks.
+  An unrelated system hard link no longer rejects every protected package.
+  System support alone may use the complete mapped-owner/mode/ACL/privilege
+  write-exclusion proof. Rejected correctness's uid-only relaxation and any
+  ownership exception for program files. Aliases, ancestry, store exclusion,
+  readiness and all zero-lookup refusal obligations remain.
+- **C2, low correctness:** added explicit qualification budgets and proof
+  ownership. The actual U6c5 observer must be measured on Linux x86_64 and
+  aarch64, with cold/warm samples and resource facts; U6f/U9b measure the full
+  path. Task 28.17 is new and unchecked. This visit's metadata survey below
+  is partial feasibility evidence only. Large installations may still refuse;
+  no timeout increase, skipped source or cached authority is authorized.
+- **S1, low security:** documented that an admissible broad installation
+  can expose unrelated credentials, including `~/.cargo/credentials.toml`.
+  Dedicated credential-free packages are recommended. Selected-store
+  exclusion and known-binding masking do not discover arbitrary credentials.
+- **S2, low security:** documented shared host loopback and Linux abstract
+  Unix socket reach and assigned sentinels. This follows the operator's
+  shared-network ruling; no new allowlist or loopback ban is invented.
+- **S3, low security:** documented trusted installation/history limits.
+  Current/concurrent managed-writer exclusion cannot authenticate bytes
+  planted before a removed bind. U8a2 and guides retain that limit.
+- **SC-1, info, gate-owned:** moved the one-line ruling link from the
+  decision header into Context prose after its first paragraph. No accepted
+  ruling, status, reciprocal decision pointer or test changed. The existing
+  live-tree ledger test passes as recorded below (0071 ruling 11).
+
+Retained the review's INFO limitations: the single-accessor count is not a
+pipe-confidentiality proof (U6c8 still owes separate leak scans), a secret-free
+server needs a protected empty store, and a dist-only installation gets no
+implicit sibling dependency mounts. H1–H7 dispositions remain design duties,
+not runtime security closure. These documentary answers do not erase the
+review's historical severity or claim operator acceptance.
+
+### Source feasibility observations
+
+Observed through the Linux workspace box on kernel `6.17.0-41-generic`,
+x86_64, with uid 1000. This namespace exposes source owners as overflow uid
+65534 in examples: that is deliberately **not** qualification of the new
+mapped-owner proof. The review's separate host observation of 146 linked
+`/usr` entries and protected_hardlinks=1 is attributed to that review; no
+sysctl or owner assumption grants admission here.
+
+A foreground Python metadata survey read the source list from
+hands.rs::HOST_TOOLCHAIN_BINDS. For each present root it used
+`O_PATH|O_NOFOLLOW|O_CLOEXEC`, descriptor-relative opens and fstat, retained
+only the active directory stack, listed directory entries through a directory
+FD, and queried `system.posix_acl_access` for multiply-linked regular files.
+It did not read file contents, follow symlinks as traversal roots, launch a
+namespace, resolve a secret or modify any source. Repeated source spellings
+were counted as path visits, not distinct inodes. Each pass had a 25 s survey
+ceiling, independent of the proposed runtime's limit.
+
+The original broad source survey stopped at unreadable `/etc/ssl/private`:
+257,407 entries in 0.835/0.791/0.790 s. A diagnostic inventory continuing past
+that error counted 257,780 visits, with exactly that unreadable directory;
+continuing is diagnostic only and is forbidden for admission. The earliest
+owning MB3 rule was therefore narrowed to `/etc/ssl/certs` for the server
+profile. Hands keeps its current table entry. No private TLS sibling is
+mounted, and actual-source unreadability still refuses. Missing unbound TLS
+configuration may fail inside, as the ruling permits.
+
+The narrowed source survey completed three warm/unknown-cache passes with
+257,777 visits, 200,280 regular entries, 30,740 symlinks, 286 multiply-linked
+regular entries and depth 15, with zero traversal errors. Times were
+0.759/0.756/0.761 s; process peak RSS was 12,048 KiB. All 286 linked entries
+had a displayed owner different from this uid, clear group/other write bits
+and no access ACL. Overflow mapping means those observations are insufficient
+to admit them. No cold-cache claim, full symlink/mount-alias/digest observer,
+privilege proof, retained-root binding, bootstrap or supported-host startup
+measurement was made. These numbers do not replace the review's host count
+or establish that the actual 10 s/20 s qualification budgets will pass.
+
+SD4 now requires the actual observer within 10 s and complete startup within
+20 s on recorded Linux profiles, leaving margin within the unchanged 30 s
+absolute runtime deadline. It specifies one cold and five warm samples per
+profile, all counts/resource facts, and honest pending legs. U6c5 owns the
+observer; U6f and U9b own full startup. A failure on ordinary profiles returns
+to the specification before enablement. macOS still proves refusal only.
+
+### Dependent artifacts and verification
+
+The plan remains 54 ordered PRs, each with at most three production files.
+Source classification/certificate projection belongs to U6c4; complete source
+and mapped-credential observation plus measurement belongs to U6c5. U6f,
+U7c, U8a2 and U9b consume/prove those facts. New task 28.17 increases the
+unique task inventory to 124; the entire preamble and 32 completed task
+blocks retain their original bytes. Hot files and scenario ownership follow
+that same plan. U9b alone lifts compilation; earlier direct-serving and
+retention fences retain their owners. No production, test, frozen, recipe,
+release or historical evidence.md file changes in this visit.
+
+Initial strict OpenSpec validation passed 20/20 with informational notices
+only. Cargo was unavailable: the requested targeted command exited 127,
+`cargo: command not found`. The existing compiled CLI integration binary
+`target/debug/deps/it-4bfc99cc4d5fb01d` lists the ledger test and embeds this
+worktree's `crates/brokkr-cli` path; the test reads documents at runtime.
+Running that unchanged binary with
+`decisions_index::the_ledger_in_the_tree_breaks_no_rule --exact` against the
+first relocated note still failed: immediately after Context, the preceding
+header's amendment clause reached the date. Moving the note after the first
+complete Context paragraph repaired that failure. The repeated command passed
+one test, zero failures, 460 filtered out. This is a live-document gate pass
+through the existing binary, not a Cargo rebuild or workspace test pass.
+
+`typos --hidden` exited 127 (`typos: command not found`) in this seat's box;
+the amended spelling check remains pending outside it. Earlier visits' passes
+are historical. No dependency or tool installation was attempted. Cargo
+workspace tests, bundle compilation, formatting, clippy, exact coverage and
+real namespace proofs are not claimed from this document visit; their
+implementation owners and gates remain unchanged. Signing is disabled by
+boxed git (`commit.gpgsign=false`); the document commit is unsigned as
+commissioned, for the controller to sign at squash. Nothing is pushed.
+
+
+Final document audit: 54 unique units in dependency order, at most three
+production files each, exact task-to-unit ownership and matching Hot files;
+124 unique tasks with all 32 completed blocks and the full preamble unchanged;
+26 requirements with scenarios/task coverage, all six new box causes covered,
+and H1–H7 explicit. All 802 local file-link targets in the eight changed
+Markdown artifacts resolve. The ruling remains verbatim once; production,
+tests, frozen surfaces and historical evidence.md are unchanged. The adopted
+change also passed `openspec validate decision-0065-capabilities-slice-two
+--strict --no-interactive`. These audits establish document consistency only.
+
+The final strict all-items validation passed 20/20, and the live-document
+ledger test again passed one test. Working and staged `git diff --check`
+passed. The eight-document candidate is committed unsigned in repository
+style; the mandatory result uses `drafted` and `inputs.change`. Spelling
+remains pending because typos is unavailable. No next phase is selected here.
