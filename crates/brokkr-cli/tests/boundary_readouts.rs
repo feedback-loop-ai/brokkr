@@ -190,7 +190,10 @@ fn brokkr_bin() -> &'static str {
     env!("CARGO_BIN_EXE_brokkr")
 }
 
-fn brokkr(dir: &Path, args: &[&str]) -> (String, String, bool) {
+/// One command through the brokkr binary. `pub(crate)` so a sibling
+/// file of the one test binary reaches the same runner instead of
+/// copying it (#550).
+pub(crate) fn brokkr(dir: &Path, args: &[&str]) -> (String, String, bool) {
     let out = Command::new(brokkr_bin())
         .args(args)
         .current_dir(dir)
