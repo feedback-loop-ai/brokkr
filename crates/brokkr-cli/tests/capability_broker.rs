@@ -414,7 +414,7 @@ impl Sealed {
             "server": "cap-library-docs", "capability": "library-docs",
             "dialect": {"name": "docs-mcp", "digest": digest("a"), "definition": digest("b"),
                         "version": "1.4.2"},
-            "connection": {"argv": ["docs-mcp", "--stdio"]},
+            "connection": {"argv": [path("opt/docs/bin/docs-mcp"), "--stdio"]},
             "tools": ["resolve", "read"], "restrictions": {}, "retained": true,
             "secrets": ["DOCS_TOKEN"],
             "clearance": {"dialect": digest("a"), "policy": digest("c")},
@@ -461,6 +461,22 @@ impl Sealed {
     /// The broker's exit and stderr for the plan at `locator` and `digest`,
     /// started by an engine whose HOME is `home`, or unset.
     fn serve_as(&self, home: Option<&Path>, locator: &Path, digest: &str) -> (Option<i32>, String) {
+        self.serve_in(locator, digest, |command| {
+            match home {
+                Some(home) => command.env("HOME", home),
+                None => command.env_remove("HOME"),
+            };
+        })
+    }
+
+    /// The broker's exit and stderr for the plan at `locator` and `digest`,
+    /// its environment as `environment` leaves it.
+    fn serve_in(
+        &self,
+        locator: &Path,
+        digest: &str,
+        environment: impl FnOnce(&mut Command),
+    ) -> (Option<i32>, String) {
         let locator = locator.to_str().unwrap();
         let args = [
             "broker",
@@ -471,10 +487,7 @@ impl Sealed {
             digest,
         ];
         let mut command = self.root.command(&args);
-        match home {
-            Some(home) => command.env("HOME", home),
-            None => command.env_remove("HOME"),
-        };
+        environment(&mut command);
         let ran = self.root.ran(command);
         assert_eq!(ran.stdout, "");
         (ran.code, ran.stderr)
@@ -895,6 +908,24 @@ fn a_sealed_plan_of_the_wrong_shape_is_unbound() {
         ("/box/environment", json!([])),
         ("/box/environment", json!(["PATH", "PATH"])),
         ("/box/environment", json!(["PATH", "lower"])),
+        // The server box's fixed names, in its order, and nothing else.
+        (
+            "/box/environment",
+            json!([
+                "HOME",
+                "PATH",
+                "TMPDIR",
+                "USER",
+                "LOGNAME",
+                "LANG",
+                "LC_ALL",
+                "BROKKR_HANDS_BOX"
+            ]),
+        ),
+        (
+            "/box/environment",
+            json!(["PATH", "HOME", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL"]),
+        ),
         ("/connection/argv", json!([])),
         ("/connection/argv", json!([""])),
         ("/connection/argv", json!(["docs-mcp", ""])),
@@ -932,11 +963,15 @@ fn binding_names_are_checked_then_fixed_keys_refuse_before_lookup() {
         named("LD_PRELOAD"),
         refused(Refusal::Name(cause("LD_PRELOAD")))
     );
-    for fixed in ["HOME", "TMPDIR", "LANG"] {
-        assert_eq!(
-            (fixed, named(fixed)),
-            (fixed, refused(Refusal::StartupInputs))
-        );
+    // A fixed key of the server box's own refuses before any lookup.
+    let store = sealed.path("store/secrets.env");
+    for fixed in ["HOME", "TMPDIR", "LANG", "USER"] {
+        let opened = Store::new(store.clone());
+        let answer = named(fixed);
+        let lookups = opened.lookups(Instant::now());
+        std::fs::remove_file(&store).unwrap();
+        let startup = refused(Refusal::StartupInputs);
+        assert_eq!((fixed, answer, lookups), (fixed, startup, 0));
     }
     // An invalid name outranks a fixed-key collision.
     let both = sealed.with("/secrets", json!(["HOME", "lower"]));
@@ -950,6 +985,12 @@ fn binding_names_are_checked_then_fixed_keys_refuse_before_lookup() {
             "error: secret name 'X\\nerror: forged' does not match [A-Z][A-Z0-9_]*\n"
         )
     );
+    // NUL keeps its spelling of before the shared bound.
+    let nul = concat!(
+        "error: secret name 'X\\",
+        "u{0}Y' does not match [A-Z][A-Z0-9_]*\n"
+    );
+    assert_eq!(named("X\0Y"), (Some(1), nul.to_string()));
 }
 
 /// The plan's name is escaped first, then the cause is cut to the shared
@@ -965,13 +1006,24 @@ fn a_long_binding_name_is_cut_to_one_bounded_line() {
     assert_eq!((code, stderr), (Some(1), format!("error: {cause}\n")));
 }
 
+/// An executable at `path`, its directories made.
+fn plant(path: &Path) -> PathBuf {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, "#!/bin/sh\n").unwrap();
+    chmod(path, 0o755);
+    path.to_path_buf()
+}
+
+/// The program tree is resolved from the launch name on the host, never
+/// read from the plan: the plan must have sealed the canonical executable
+/// and MB3's tree of it that the server profile resolves (U6c4).
 #[test]
 fn the_program_tree_is_mb3s_layout_of_the_executable() {
     let sealed = Sealed::new();
-    let tree = |argv0: &str, executable: &Value, tree: Value| {
+    let tree = |argv0: Value, executable: &Path, tree: Value| {
         sealed.answer(|plan| {
-            set(plan, "/connection/argv/0", json!(argv0));
-            set(plan, "/box/executable", executable.clone());
+            set(plan, "/connection/argv/0", argv0);
+            set(plan, "/box/executable", json!(executable));
             set(plan, "/box/tree", tree);
         })
     };
@@ -979,47 +1031,48 @@ fn the_program_tree_is_mb3s_layout_of_the_executable() {
     let system = || json!({"kind": "system"});
     let admitted = refused(Refusal::ServingIncomplete);
     let docs = sealed.path("opt/docs");
+    let entry = docs.join("bin/docs-mcp");
+    let link = sealed.path("docs-mcp");
+    std::os::unix::fs::symlink(&entry, &link).unwrap();
+    let sbin = plant(&docs.join("sbin/d"));
     let cargo = sealed.home.join(".cargo");
-    let lib = Path::new("/usr/lib/docs");
-    // A system entry is its own tree; a package is its parent, or the
-    // parent of a `bin` or `sbin`; a path names it or the fixed search does.
+    let cargo_entry = plant(&cargo.join("bin/d"));
+    let sh = std::fs::canonicalize("/bin/sh").unwrap();
+    // A system entry is its own tree, named bare on the fixed search path
+    // or by a path; a package is its parent, or the parent of a `bin` or
+    // `sbin`, whichever link the launch name took to it.
     for (argv0, executable, sealed_tree) in [
-        ("/usr/bin/docs-mcp", json!("/usr/bin/docs-mcp"), system()),
-        ("docs-mcp", json!("/usr/local/sbin/docs-mcp"), system()),
-        ("docs-mcp", json!(lib.join("server")), package(lib)),
-        ("docs-mcp", json!(docs.join("sbin/d")), package(&docs)),
-        ("docs-mcp", json!(cargo.join("bin/d")), package(&cargo)),
+        (json!("sh"), &sh, system()),
+        (json!("/bin/sh"), &sh, system()),
+        (json!(entry), &entry, package(&docs)),
+        (json!(link), &entry, package(&docs)),
+        (json!(sbin), &sbin, package(&docs)),
+        (json!(cargo_entry), &cargo_entry, package(&cargo)),
     ] {
-        let answer = tree(argv0, &executable, sealed_tree);
-        assert_eq!((&executable, answer), (&executable, admitted.clone()));
+        let answer = tree(argv0, executable, sealed_tree);
+        assert_eq!((executable, answer), (executable, admitted.clone()));
     }
-    let entry = json!(docs.join("bin/docs-mcp"));
+    let home_entry = plant(&sealed.home.join("d"));
+    let root_entry = plant(&sealed.path("bin/d"));
+    let missing = sealed.path("opt/none/bin/x");
     for (argv0, executable, sealed_tree) in [
-        ("bin/docs-mcp", entry.clone(), package(&docs)),
-        ("docs-mcp", json!("opt/docs/bin/docs-mcp"), package(&docs)),
-        ("docs-mcp", json!("/"), system()),
-        ("docs-mcp", entry.clone(), system()),
-        (
-            "docs-mcp",
-            json!("/usr/bin/docs-mcp"),
-            package(Path::new("/usr")),
-        ),
-        ("docs-mcp", entry.clone(), package(&docs.join("bin"))),
-        ("docs-mcp", json!("/docs-mcp"), package(Path::new("/"))),
-        (
-            "docs-mcp",
-            json!(sealed.home.join("d")),
-            package(&sealed.home),
-        ),
-        (
-            "docs-mcp",
-            json!(sealed.path("bin/d")),
-            package(&sealed.root.path),
-        ),
+        // A relative path holding a `/`; a bare name off the fixed path.
+        (json!("bin/docs-mcp"), &entry, package(&docs)),
+        (json!("docs-mcp"), &entry, package(&docs)),
+        // A sealed executable that is not the canonical file, or a tree
+        // that is not MB3's layout of it.
+        (json!(link), &link, package(&docs)),
+        (json!(entry), &entry, system()),
+        (json!("sh"), &sh, package(sh.parent().unwrap())),
+        (json!(entry), &entry, package(&docs.join("bin"))),
+        // No file, or a root that is the host HOME or holds it.
+        (json!(missing), &missing, package(missing.parent().unwrap())),
+        (json!(home_entry), &home_entry, package(&sealed.home)),
+        (json!(root_entry), &root_entry, package(&sealed.root.path)),
     ] {
-        let answer = tree(argv0, &executable, sealed_tree);
+        let answer = tree(argv0, executable, sealed_tree);
         let unresolved = refused(Refusal::ProgramTree);
-        assert_eq!((&executable, answer), (&executable, unresolved));
+        assert_eq!((executable, answer), (executable, unresolved));
     }
 }
 
@@ -1027,7 +1080,9 @@ fn the_program_tree_is_mb3s_layout_of_the_executable() {
 fn the_box_neither_launches_from_nor_binds_over_the_seats_reach() {
     let sealed = Sealed::new();
     let inside = |executable: PathBuf| {
+        plant(&executable);
         sealed.answer(|plan| {
+            set(plan, "/connection/argv/0", json!(executable));
             set(plan, "/box/tree/root", json!(executable.parent().unwrap()));
             set(plan, "/box/executable", json!(executable));
         })
@@ -1036,6 +1091,22 @@ fn the_box_neither_launches_from_nor_binds_over_the_seats_reach() {
     let launched = refused(Refusal::LaunchInReach);
     assert_eq!(inside(sealed.path("work/tool/server")), launched);
     assert_eq!(inside(sealed.path("cache/tool/server")), overlapping);
+    // A launch name in writable reach, though it resolves outside it.
+    let link = sealed.path("work/docs-mcp");
+    std::os::unix::fs::symlink(sealed.path("opt/docs/bin/docs-mcp"), &link).unwrap();
+    assert_eq!(sealed.with("/connection/argv/0", json!(link)), launched);
+    // An explicit bind into a system source is reach the box keeps clear
+    // of, and so is a root holding the box's generated identity: here the
+    // broker's TMPDIR inside the seat's writable reach.
+    let system = json!(["/usr/lib/u6c4-tool"]);
+    assert_eq!(sealed.with("/box/reach/readable", system), overlapping);
+    let tmp = sealed.path("work/tmp");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
+    let answer = sealed.serve_in(&sealed.locator, &digest, |command| {
+        command.env("HOME", &sealed.home).env("TMPDIR", &tmp);
+    });
+    assert_eq!(answer, overlapping);
     // A reach root inside the package, either kind, or over the bootstrap.
     for (pointer, root) in [
         ("/box/reach/writable", sealed.path("opt/docs/data")),
@@ -1074,6 +1145,13 @@ fn unprovable_writers_unbounded_sources_and_exposed_control_roots_refuse() {
     );
     let control = json!([&sealed.attempt, sealed.path("opt/docs/state")]);
     assert_eq!(sealed.with("/box/excluded/control", control), identity);
+    // A box whose private scratch cannot be made generates no identity.
+    let file = sealed.root.write("not-a-directory", "");
+    let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
+    let answer = sealed.serve_in(&sealed.locator, &digest, |command| {
+        command.env("HOME", &sealed.home).env("TMPDIR", &file);
+    });
+    assert_eq!(answer, identity);
 }
 
 #[test]

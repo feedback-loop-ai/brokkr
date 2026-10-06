@@ -288,6 +288,21 @@ impl brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::Reaped::lines_with(&self, fn(&str) -> alloc::string::String) -> alloc::string::String
 impl core::fmt::Display for brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::Reaped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_protocol::hands::ServerBox
+impl brokkr_protocol::hands::ServerBox
+pub fn brokkr_protocol::hands::ServerBox::argv(&self) -> &[alloc::string::String]
+pub fn brokkr_protocol::hands::ServerBox::paths(&self) -> impl core::iter::traits::iterator::Iterator<Item = &std::path::Path>
+pub fn brokkr_protocol::hands::ServerBox::prepare(&brokkr_protocol::hands::ServerProgram, &brokkr_protocol::hands::ServerProfile<'_>) -> core::result::Result<brokkr_protocol::hands::ServerBox, brokkr_protocol::broker::Refusal>
+pub struct brokkr_protocol::hands::ServerProfile<'a>
+pub brokkr_protocol::hands::ServerProfile::arguments: &'a [alloc::string::String]
+pub brokkr_protocol::hands::ServerProfile::bootstrap: &'a std::path::Path
+pub brokkr_protocol::hands::ServerProfile::network: &'a brokkr_protocol::broker::Network
+pub brokkr_protocol::hands::ServerProfile::reach: &'a brokkr_protocol::broker::Reach
+pub struct brokkr_protocol::hands::ServerProgram
+impl brokkr_protocol::hands::ServerProgram
+pub fn brokkr_protocol::hands::ServerProgram::executable(&self) -> &std::path::Path
+pub fn brokkr_protocol::hands::ServerProgram::resolve(&str, &std::path::Path) -> core::result::Result<brokkr_protocol::hands::ServerProgram, brokkr_protocol::broker::Refusal>
+pub fn brokkr_protocol::hands::ServerProgram::tree(&self) -> &brokkr_protocol::broker::Tree
 pub struct brokkr_protocol::hands::Session
 impl brokkr_protocol::hands::Session
 pub fn brokkr_protocol::hands::Session::create(&str) -> core::result::Result<brokkr_protocol::hands::Session, brokkr_protocol::hands::SessionError>
@@ -328,6 +343,7 @@ pub fn brokkr_protocol::hands::run_boxed(&brokkr_protocol::hands::HandsSpec, &st
 pub fn brokkr_protocol::hands::run_boxed_in(&std::path::Path, &brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::GitFacts, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::result::Result<i32, alloc::string::String>
 pub fn brokkr_protocol::hands::serve<R: alloc::io::buf_read::BufRead, W: core::io::write::Write>(R, W, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &brokkr_protocol::hands::Executor) -> core::io::error::Result<()>
 pub fn brokkr_protocol::hands::serve_args(&std::path::Path, &brokkr_protocol::hands::HandsSpec) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_protocol::hands::server_environment() -> impl core::iter::traits::iterator::Iterator<Item = &'static str>
 pub fn brokkr_protocol::hands::skip_boundary_proof(bool, &str)
 pub fn brokkr_protocol::hands::tool_definition() -> serde_json::value::Value
 pub fn brokkr_protocol::hands::unboxed_environment(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &[(alloc::string::String, alloc::string::String)], &std::path::Path, &std::path::Path) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
