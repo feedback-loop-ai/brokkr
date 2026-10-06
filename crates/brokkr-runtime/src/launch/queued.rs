@@ -16,10 +16,11 @@
 //! the entry is admitted, as `now` would be.
 
 use std::ffi::OsString;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical;
-use brokkr_core::realms::Realm;
+use brokkr_core::realms::{Realm, DEFAULT_MAP_FILE};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -161,10 +162,20 @@ impl MapSource {
     /// read from, as it is on disk; and for an entry queued under no map,
     /// the one `brokkr run` would find in its workspace now, or none (the
     /// operator's ruling of 2026-10-04: no map to a map is a change).
+    ///
+    /// Only a map path with nothing at it is no map. A path that holds
+    /// anything else, a link that loops or dangles or a directory, is a
+    /// map that cannot be read, never one that is absent, so the entry is
+    /// held rather than admitted (#430). [`World::discover`] reads those
+    /// as no map, which is `brokkr run`'s and not this edge's.
     fn now(&self, workspace: &Path) -> Result<RunMap, WorldError> {
         Ok(match self {
             MapSource::Unmapped => {
-                World::discover(workspace, None)?.map_or(RunMap::Unmapped, RunMap::Ambient)
+                let default = workspace.join(DEFAULT_MAP_FILE);
+                match std::fs::symlink_metadata(&default) {
+                    Err(absent) if absent.kind() == ErrorKind::NotFound => RunMap::Unmapped,
+                    _ => RunMap::Ambient(World::load(&default)?),
+                }
             }
             MapSource::Ambient(held) => RunMap::Ambient(held.on_disk(workspace)?),
             MapSource::Named(held) => RunMap::Named(held.on_disk(workspace)?),

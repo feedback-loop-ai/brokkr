@@ -308,6 +308,56 @@ fn a_map_that_cannot_be_read_now_holds_the_entry_queued_under_it_or_under_none()
     );
 }
 
+/// For an entry queued under no map, only nothing at the map's path is
+/// no map: a link that loops, a link that dangles and a directory there
+/// are a map that cannot be read, and hold it unlatched until the path
+/// is cleared, each beside that control (#430).
+#[test]
+fn a_map_path_that_cannot_be_resolved_holds_the_entry_queued_under_none() {
+    let ws = workspace();
+    let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
+    let entry = add(&mut store, &launch(ws.path(), false), &[]);
+    let path = ws.path().join("realms.json");
+    let held = vec![(
+        entry.0,
+        Standing::Held,
+        vec![Reason::MapUnreadable(format!(
+            "no realms map at {}",
+            path.display()
+        ))],
+    )];
+    let free = vec![(entry.0, Standing::Admissible, vec![])];
+    assert_eq!(verdicts(&store), free);
+    /// What is planted at the map's path, how, and how it is cleared.
+    type Plant = (&'static str, fn(&Path), fn(&Path));
+    let link = |path: &Path| std::fs::remove_file(path).unwrap();
+    let plants: [Plant; 3] = [
+        (
+            "a looping link",
+            |path| std::os::unix::fs::symlink(path, path).unwrap(),
+            link,
+        ),
+        (
+            "a dangling link",
+            |path| std::os::unix::fs::symlink(path.with_file_name("gone.json"), path).unwrap(),
+            link,
+        ),
+        (
+            "a directory",
+            |path| std::fs::create_dir(path).unwrap(),
+            |path| std::fs::remove_dir(path).unwrap(),
+        ),
+    ];
+    for (plant, at, clear) in plants {
+        at(&path);
+        judge(&mut store, BY).unwrap();
+        assert_eq!(verdicts(&store), held, "{plant}");
+        assert_eq!(store.queue_list().unwrap()[0].latch, None, "{plant}");
+        clear(&path);
+        assert_eq!(verdicts(&store), free, "{plant} cleared");
+    }
+}
+
 /// The operator's release of a drifted entry: once judged and latched,
 /// re-pinned to the map on disk, it is admitted, and it starts under that
 /// map.
