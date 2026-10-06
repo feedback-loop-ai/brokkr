@@ -5,7 +5,9 @@
 //! journaled with the engine's whole group under an attempt-owned call id,
 //! a local call stays ordinary, a known call no holding admits fails the
 //! attempt, and neither a primary's nor a sibling's holding attributes
-//! anything. Every journal exports and verifies offline.
+//! anything. Every journal exports and verifies offline. U4f: one harness
+//! call is observed once, and a resumed root's replayed history is no new
+//! use.
 
 use super::*;
 use brokkr_protocol::adapters::capability_calls::{Format, Observation, Tool, OBSERVATION_KEY};
@@ -62,11 +64,7 @@ const INSTANCE: &str = "1a220000000000000000000000000000000000000000000000000000
 /// A plan offering nothing, at the site whose engine stamps are `site`
 /// and `instance`.
 fn planned(site: &str, instance: &str) -> SitePlan {
-    let context = resume::SiteContext {
-        site_ref: site.into(),
-        instance_ref: instance.into(),
-        class: SeatClass::Work,
-    };
+    let context = resume::SiteContext::new(site.into(), instance.into(), SeatClass::Work);
     SitePlan {
         context,
         offer: None,
@@ -79,7 +77,12 @@ fn planned(site: &str, instance: &str) -> SitePlan {
 /// The native call id the design spells: `n-` and the SHA-256 of the
 /// canonical attempt, site, instance, provider and harness call id.
 fn native(site: &str, instance: &str, provider: &str, call: &str) -> String {
-    let tuple = json!({"attempt": "attempt", "site": site, "instance": instance,
+    native_in("attempt", (site, instance), provider, call)
+}
+
+/// `native`, for a call owned by `attempt`.
+fn native_in(attempt: &str, (site, instance): (&str, &str), provider: &str, call: &str) -> String {
+    let tuple = json!({"attempt": attempt, "site": site, "instance": instance,
                        "provider": provider, "call": call});
     format!("n-{}", brokkr_core::canonical::sha256_hex(&tuple))
 }
@@ -228,6 +231,54 @@ fn a_call_id_is_owned_by_its_site_and_bounded_whatever_the_harness_id() {
     assert_eq!(seen.len(), 4);
 }
 
+/// One harness call is one observed call (U4f; CC1): the start and the
+/// completion of `item_1` attribute it once, the second row ordinary, while
+/// `item_2` is a call of its own.
+#[test]
+fn a_calls_start_and_completion_count_once_and_new_calls_stay_distinct() {
+    let completed = observed("web_search", observation(Some("item_1"), "web_search"));
+    let other = observed("web_search", observation(Some("item_2"), "web_search"));
+    let rows = [search(), completed, other];
+    let (journaled, report) = served(searching("work"), ("codex", "astra"), &rows);
+    let first = attributed(&native(SITE, INSTANCE, "codex", "item_1"));
+    let second = attributed(&native(SITE, INSTANCE, "codex", "item_2"));
+    assert_eq!(journaled, [first, row("web_search"), second]);
+    assert_eq!(report.refused, None);
+}
+
+/// At a site offered a root, a Claude `toolu_*` id an earlier attempt of
+/// that root journaled is replayed history and no new use (U4f; CC1): its
+/// row stays ordinary. A new `toolu_*` id is attributed, and a Codex
+/// `item_N` the earlier attempt journaled is a fresh call, because Codex
+/// restarts its item ids on every invocation (U0).
+#[test]
+fn replayed_session_history_is_no_new_use_and_a_restarted_codex_item_is_fresh() {
+    let claude = |call: &str| {
+        let tool = Tool::Named {
+            name: "web_search".into(),
+        };
+        let observation = Observation {
+            format: Format::Claude,
+            call: Some(call.into()),
+            tool,
+        };
+        observed("web_search", serde_json::to_value(observation).unwrap())
+    };
+    let earlier = |call: &str| native_in("earlier", (SITE, INSTANCE), "codex", call);
+    let mut plan = planned(SITE, INSTANCE);
+    plan.context.history = resume::RootHistory {
+        attempts: ["earlier".to_string()].into(),
+        calls: [earlier("toolu_01"), earlier("item_1")].into(),
+    };
+    let rows = [claude("toolu_01"), claude("toolu_02"), search()];
+    let at = ("codex", "astra");
+    let (journaled, report) = served_at(searching("work"), at, &rows, Some(&plan));
+    let new = attributed(&native(SITE, INSTANCE, "codex", "toolu_02"));
+    let fresh = attributed(&native(SITE, INSTANCE, "codex", "item_1"));
+    assert_eq!(journaled, [row("web_search"), new, fresh]);
+    assert_eq!(report.refused, None);
+}
+
 /// The DSH fallback serves the attempt: the search its primary holds is no
 /// holding of its own, and its inventory knows nothing, so the same call
 /// is ordinary.
@@ -308,7 +359,7 @@ fn an_mcp_holding_or_an_mcp_call_attributes_nothing() {
     let (spawn, _) = marked(&engine, &link, json!({}));
     let plan = planned(SITE, INSTANCE);
     let facts = engine.bundle.sites.get("work");
-    let calls =
+    let mut calls =
         super::super::capability_calls::Calls::of(facts, &spawn, "attempt", Some(&plan.context));
     let mcp = serde_json::to_value(Observation {
         format: Format::Codex,

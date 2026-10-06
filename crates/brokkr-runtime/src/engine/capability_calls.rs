@@ -18,16 +18,22 @@
 //! legacy row and passes unchanged: shipped drivers emit no observation
 //! until every consumer is installed (design D9, U4f2).
 //!
+//! One harness call is one observed call (U4f; CC1): the second
+//! observation of a call id an attempt already attributed, its start and
+//! completion, stays an ordinary row. At a site offered a root, a
+//! session-scoped id that root's earlier attempts journaled is history
+//! the resumed harness replays, never a new use.
+//!
 //! [`Checkpoints::offer`]: super::Checkpoints::offer
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use brokkr_protocol::adapters::capability_calls::{Observation, Tool, OBSERVATION_KEY};
+use brokkr_protocol::adapters::capability_calls::{Format, Observation, Tool, OBSERVATION_KEY};
 use brokkr_protocol::native_controls::managed;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use super::resume::SiteContext;
+use super::resume::{RootHistory, SiteContext};
 use super::SiteSpawn;
 use crate::bundle::SiteFacts;
 use crate::capabilities::{Implementation, NativePlan, Outcome};
@@ -61,16 +67,20 @@ pub(super) struct Calls {
     held: BTreeMap<String, Holder>,
     known: BTreeSet<String>,
     owner: Option<Owner>,
+    /// The call ids this attempt has attributed so far.
+    seen: BTreeSet<String>,
 }
 
 /// The engine-owned part of a native call's identity: the attempt, the
-/// site's structural stamps and the selected candidate's provider.
+/// site's structural stamps and the selected candidate's provider, and
+/// the offered root's history at the site.
 #[derive(Debug)]
 struct Owner {
     attempt: String,
     site: String,
     instance: String,
     provider: String,
+    history: RootHistory,
 }
 
 /// The canonical tuple a native call id is the digest of: the owner and
@@ -88,8 +98,13 @@ impl Owner {
     /// `n-` and the SHA-256 of the canonical tuple: 66 characters, so
     /// any harness id fits seat-record v6's call id.
     fn call_id(&self, call: &str) -> String {
+        self.call_id_in(&self.attempt, call)
+    }
+
+    /// The id `call` took, or would have taken, under `attempt`.
+    fn call_id_in(&self, attempt: &str, call: &str) -> String {
         let tuple = NativeCall {
-            attempt: &self.attempt,
+            attempt,
             site: &self.site,
             instance: &self.instance,
             provider: &self.provider,
@@ -97,6 +112,24 @@ impl Owner {
         };
         let tuple = serde_json::to_value(tuple).expect("a tuple of strings serializes");
         format!("n-{}", brokkr_core::canonical::sha256_hex(&tuple))
+    }
+
+    /// Whether `call` is one the offered root's earlier attempts
+    /// journaled at this site. Only a session-scoped id can be: Claude's
+    /// `toolu_*` ids name a call for the session's life, and a resumed
+    /// session emitted only new ones (U0, C08). Codex's `item_N` restart
+    /// at `item_0` on every invocation, resume included (U0, X04/X05), so
+    /// a repeated one is a fresh call; dsh's resume is unmeasured, and
+    /// its ids are judged fresh with nothing measured to call them
+    /// replayed.
+    fn replays(&self, format: Format, call: &str) -> bool {
+        match format {
+            Format::Claude => self.history.attempts.iter().any(|attempt| {
+                let earlier = self.call_id_in(attempt, call);
+                self.history.calls.contains(&earlier)
+            }),
+            Format::Codex | Format::Dsh => false,
+        }
     }
 }
 
@@ -153,6 +186,7 @@ impl Calls {
             site: site.site_ref.clone(),
             instance: site.instance_ref.clone(),
             provider: outcome.provider.clone(),
+            history: site.history.clone(),
         });
         Calls {
             owner,
@@ -191,13 +225,14 @@ impl Calls {
         Calls {
             held,
             known,
-            owner: None,
+            ..Calls::default()
         }
     }
 
     /// Take the observation off `checkpoint`, whatever it says, and judge
-    /// the call it describes.
-    pub(super) fn consume(&self, checkpoint: &mut Value) -> Result<Option<Stamp>, Refusal> {
+    /// the call it describes. A held call is attributed once: replayed
+    /// history and a call this attempt already attributed stay ordinary.
+    pub(super) fn consume(&mut self, checkpoint: &mut Value) -> Result<Option<Stamp>, Refusal> {
         let Some(observed) = checkpoint
             .as_object_mut()
             .and_then(|object| object.remove(OBSERVATION_KEY))
@@ -220,13 +255,18 @@ impl Calls {
             };
         };
         let call = observation.call.filter(|call| !call.is_empty());
-        let call_id = call.zip(self.owner.as_ref());
-        let call_id = call_id.map(|(call, owner)| owner.call_id(&call));
+        let (call, owner) = call
+            .zip(self.owner.as_ref())
+            .ok_or(Refusal::Unattributable)?;
+        let call_id = owner.call_id(&call);
+        if owner.replays(observation.format, &call) || !self.seen.insert(call_id.clone()) {
+            return Ok(None);
+        }
         Ok(Some(Stamp {
             tool,
             capability: holder.capability.clone(),
             dialect: holder.dialect.clone(),
-            call_id: call_id.ok_or(Refusal::Unattributable)?,
+            call_id,
         }))
     }
 }

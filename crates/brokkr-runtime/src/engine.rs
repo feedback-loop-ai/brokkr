@@ -1689,9 +1689,9 @@ impl Engine {
                 None => site_name.to_string(),
                 Some(tag) => format!("{site_name}:{tag}"),
             };
-            let context = resume::SiteContext {
-                site_ref: entry.key.digest(),
-                instance_ref: resume::InstanceKey::new(
+            let context = resume::SiteContext::new(
+                entry.key.digest(),
+                resume::InstanceKey::new(
                     selection.get(&entry.site),
                     chains.get(&entry.site).copied(),
                     argv_for(selection, &entry.site, &entry.command),
@@ -1702,8 +1702,8 @@ impl Engine {
                     self.site_boundary(&label),
                 )
                 .digest(),
-                class: entry.class,
-            };
+                entry.class,
+            );
             let offer = offer_for_site(
                 events,
                 &entry.key,
@@ -1746,7 +1746,7 @@ impl Engine {
             plans.insert(
                 entry.site,
                 SitePlan {
-                    context,
+                    context: context.offered(events, offer.as_ref()),
                     offer,
                     assessment,
                     originating,
@@ -2083,7 +2083,7 @@ impl Engine {
             attempt_id,
         };
         let facts = self.bundle.sites.get(driver_seat);
-        let calls = Calls::of(facts, spawn, attempt_id, stamp.as_ref());
+        let mut calls = Calls::of(facts, spawn, attempt_id, stamp.as_ref());
         let mut sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let mut report = process.run_attempt_resuming(
             ENGINE_VERSION,
@@ -2330,7 +2330,7 @@ impl Engine {
             attempt_id,
         };
         // Each member's own call authority, never a sibling's.
-        let calls: Vec<Calls> = runs
+        let mut calls: Vec<Calls> = runs
             .iter()
             .map(|run| {
                 let facts = bundle.sites.get(&run.driver_seat);
