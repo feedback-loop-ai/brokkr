@@ -261,8 +261,7 @@ fn definitions_load_from_the_operators_directory_and_a_missing_one_is_empty() {
 fn semantic_library_lint_resolves_every_agents_asks_against_the_operators_definitions() {
     let root = TempDir::new().unwrap();
     let agents = root.path().join("agents");
-    std::fs::create_dir_all(agents.join("charters")).unwrap();
-    std::fs::write(agents.join("charters/c.md"), "# charter\n").unwrap();
+    crate::agents::charter_data::write_declaring(&agents.join("charters/c.md"));
     let agent = |name: &str, capabilities: Value| {
         write(
             &agents,

@@ -28,6 +28,7 @@ use brokkr_runtime::{Bundle, Engine, World};
 use brokkr_store::{SeatRecordError, Store, StoreError};
 use serde_json::{json, Value};
 
+use super::charters::write_charter;
 use super::{workspace, write};
 
 /// Set only by a wrapper's own command line, never by this process: the
@@ -254,7 +255,7 @@ fn inline(root: &Path, tag: &str, extra: &[&str]) -> Value {
 fn bundle(root: &Path, world: &World) -> Bundle {
     adapters(root);
     std::fs::create_dir_all(root.join("agents/charters")).unwrap();
-    std::fs::write(root.join("agents/charters/office.md"), "# office\n").unwrap();
+    write_charter(&root.join("agents/charters/office.md"));
     for (agent, models) in [
         ("office", json!(["opus"])),
         ("chain", json!(["missing", "opus"])),
