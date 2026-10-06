@@ -69,13 +69,42 @@ fn claude_s_recorded_turns_are_read_whole_into_the_facts_they_show() {
         Some(&strings(&types))
     );
     let tools = facts.tools.value().unwrap();
+    // The controller's recording's whole native listing, in the event's
+    // order (the review rounds' carried G2, ruling 9): a middle name
+    // changed, dropped or moved must fail here, not only a count, a head
+    // or a membership.
     assert_eq!(
-        (
-            tools.len(),
-            &tools[..2],
-            tools.contains(&"WebSearch".to_string())
-        ),
-        (28, &strings(&["Task", "Bash"])[..], true)
+        tools,
+        &strings(&[
+            "Task",
+            "Bash",
+            "CronCreate",
+            "CronDelete",
+            "CronList",
+            "DesignSync",
+            "Edit",
+            "EnterWorktree",
+            "ExitWorktree",
+            "ListAgents",
+            "ListMcpResourcesTool",
+            "Monitor",
+            "NotebookEdit",
+            "PushNotification",
+            "Read",
+            "ReadMcpResourceDirTool",
+            "ReadMcpResourceTool",
+            "RemoteTrigger",
+            "ReportFindings",
+            "ScheduleWakeup",
+            "SendMessage",
+            "Skill",
+            "TaskStop",
+            "ToolSearch",
+            "WebFetch",
+            "WebSearch",
+            "Workflow",
+            "Write",
+        ])
     );
     assert_eq!(
         facts.user_mcp_unboxed,
