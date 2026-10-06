@@ -955,7 +955,6 @@ fn a_definition_only_an_unseated_agent_names_is_pinned_and_an_unconsulted_one_is
 // ------------------------------------------- typed local declarations (D5)
 
 use crate::agents::{Library, LocalTools, Sandbox};
-
 fn local(allow: Option<&[&str]>, sandbox: Option<Sandbox>) -> LocalTools {
     LocalTools {
         allow: allow.map(|names| names.iter().map(|name| name.to_string()).collect()),
@@ -6785,4 +6784,5 @@ fn a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified() {
     }
     each_row(rows);
 }
+mod charter_tests;
 mod gate_tests;

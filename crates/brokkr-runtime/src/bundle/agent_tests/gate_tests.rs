@@ -8,12 +8,14 @@ use super::*;
 use crate::capabilities::CapabilityContext;
 
 impl AgentFixture {
-    /// The fixture with `charters/data.md`, whose one paragraph declares
-    /// every capability an office here asks for (GP2, U3b). The parent
+    /// The fixture with `charters/data.md` and the inline role
+    /// `roles/data.md`, whose one paragraph declares every capability an
+    /// office or an inline site here asks for (GP2, U3b and U3c). The parent
     /// suite shares it, sitting over its own line ceiling.
     pub(super) fn declaring() -> AgentFixture {
         let fixture = AgentFixture::new();
         crate::agents::charter_data::write_declaring(&fixture.library().join("charters/data.md"));
+        crate::agents::charter_data::write_declaring(&fixture.bundle().join("roles/data.md"));
         fixture
     }
 }
@@ -211,7 +213,7 @@ fn every_fallback_candidate_drops_a_gates_unnamed_egress() {
 }
 
 /// An inline codex site of `class` requiring `web-search`, its adapter
-/// trusted to seat a gate.
+/// trusted to seat a gate and its role declaring the ask.
 fn inline_codex(fixture: &AgentFixture, class: &str) -> Value {
     let mut adapter = codex();
     adapter["trust_tier"] = json!("trusted");
@@ -226,7 +228,7 @@ fn inline_codex(fixture: &AgentFixture, class: &str) -> Value {
         "--effort",
         "high"
     ]);
-    json!({"results": ["complete"], "class": class, "role": "roles/work.md",
+    json!({"results": ["complete"], "class": class, "role": "roles/data.md",
            "driver": {"command": command}, "capabilities": {"web-search": "requires"}})
 }
 

@@ -1,8 +1,8 @@
-//! The charters this binary's offices are loaded with, and what a site is
-//! told of the charter it was compiled against (decision 0065 slice two,
-//! GP2, U3b). Every office asks for capabilities, so its charter declares
-//! each as DATA; the parent suite and the legacy journal matrix share these
-//! builders.
+//! The charters this binary's offices and inline sites are bound to, and
+//! what a site is told of the charter it was compiled against (decision
+//! 0065 slice two, GP2, U3b and U3c). Every office and inline role may ask
+//! for capabilities, so its charter declares each as DATA; the parent suite
+//! and the legacy journal matrix share these builders.
 
 use std::path::{Path, PathBuf};
 
@@ -23,17 +23,24 @@ pub(crate) fn write_charter(path: &Path) {
     std::fs::write(path, charter()).unwrap();
 }
 
-/// Office `office`'s charter in the site-shape matrices: its heading, then
-/// [`charter`], whether or not the matrix has it ask.
-pub(crate) fn office_charter(office: &str) -> String {
-    format!("# {office}\n{}", charter())
+/// The charter of office or inline site `title`: its heading, then
+/// [`charter`], whether or not the test has it ask.
+pub(crate) fn titled(title: &str) -> String {
+    format!("# {title}\n{}", charter())
 }
 
-/// Write [`office_charter`] for `office` under `root`, and return the
+/// Write [`titled`] `role` to `roles/role.md` of the recipe at `recipe`,
+/// the inline role this binary's sites are bound to.
+pub(crate) fn write_role(recipe: &Path) {
+    std::fs::create_dir_all(recipe.join("roles")).unwrap();
+    std::fs::write(recipe.join("roles/role.md"), titled("role")).unwrap();
+}
+
+/// Write [`titled`] for `office` under `root`, and return the
 /// efforts that hire each of its `models` at `high`.
 pub(crate) fn write_office(root: &Path, office: &str, models: &[&str]) -> Map<String, Value> {
     let path = root.join(format!("agents/charters/{office}.md"));
-    std::fs::write(path, office_charter(office)).unwrap();
+    std::fs::write(path, titled(office)).unwrap();
     models
         .iter()
         .map(|model| (model.to_string(), json!("high")))
@@ -69,19 +76,20 @@ pub(crate) fn pinned(bundle: &Bundle, label: &str) -> Told {
 pub(crate) fn told_pair(root: &Path, agent: &str) -> [Told; 2] {
     let library = root.join("agents");
     [
-        role_told(&root.join("bundle")),
+        layer_told(&root.join("bundle"), "role"),
         searcher_told(agent, &library),
     ]
 }
 
-/// An inline site of `recipe` told its `roles/role.md` (`# role\n`).
-fn role_told(recipe: &Path) -> Told {
-    let key = "roles/role.md".to_string();
+/// An inline site of the layer at `dir` told its `roles/<label>.md`, each
+/// `:` of `label` spelled `-`, [`titled`] by `label`.
+pub(crate) fn layer_told(dir: &Path, label: &str) -> Told {
+    let key = format!("roles/{}.md", label.replace(':', "-"));
     let owner = CharterOwner::Layer {
-        dir: recipe.to_path_buf(),
+        dir: dir.to_path_buf(),
         key: key.clone(),
     };
-    told(owner, recipe, key, "# role\n")
+    told(owner, dir, key, &titled(label))
 }
 
 /// Office `agent` told [`charter`] at `charters/searcher.md` of `library`.
@@ -90,13 +98,8 @@ pub(crate) fn searcher_told(agent: &str, library: &Path) -> Told {
     told(office(agent, library), library, reference, &charter())
 }
 
-/// Office `name` told its [`office_charter`] in `library`.
+/// Office `name` told its [`titled`] charter in `library`.
 pub(crate) fn office_told(name: &str, library: &Path) -> Told {
     let reference = format!("charters/{name}.md");
-    told(
-        office(name, library),
-        library,
-        reference,
-        &office_charter(name),
-    )
+    told(office(name, library), library, reference, &titled(name))
 }
