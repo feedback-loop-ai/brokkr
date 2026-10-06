@@ -183,7 +183,7 @@ impl Office {
                 "agent 'tester' ({})",
                 self.root.join("tester.json").display()
             ),
-            charter: "charters/c.md".into(),
+            charter: "'charters/c.md'".into(),
             cause: UndeclaredCapability {
                 capability: "library-docs".into(),
             },

@@ -28,7 +28,7 @@ use brokkr_runtime::{Bundle, Engine, World};
 use brokkr_store::{SeatRecordError, Store, StoreError};
 use serde_json::{json, Value};
 
-use super::charters::write_charter;
+use super::charters::{write_charter, write_role};
 use super::{workspace, write};
 
 /// Set only by a wrapper's own command line, never by this process: the
@@ -274,8 +274,7 @@ fn bundle(root: &Path, world: &World) -> Bundle {
                     "capabilities": {"web-search": "wants"}}),
         );
     }
-    std::fs::create_dir_all(root.join("bundle/roles")).unwrap();
-    std::fs::write(root.join("bundle/roles/role.md"), "# role\n").unwrap();
+    write_role(&root.join("bundle"));
     let mut step = inline(root, "first", &[]);
     step["name"] = json!("first");
     step["results"] = json!(["complete"]);

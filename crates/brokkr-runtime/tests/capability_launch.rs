@@ -96,8 +96,7 @@ impl Operator {
                 }),
             );
         }
-        std::fs::create_dir_all(root.join("bundle/roles")).unwrap();
-        std::fs::write(root.join("bundle/roles/role.md"), "# role\n").unwrap();
+        charters::write_role(&root.join("bundle"));
         write(
             root,
             "bundle/policy.json",
@@ -2972,7 +2971,7 @@ fn an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_with
     std::fs::create_dir_all(root.join("work")).unwrap();
     let input = json!({
         "feature": "serving", "phase": "work", "seat": "work",
-        "role_path": root.join("solo/roles/role.md"), "role_text": "# role\n",
+        "role_path": root.join("solo/roles/role.md"), "role_text": charters::titled("role"),
         "workdir": root.join("work"),
         "result_path": root.join("work/result.json"),
         "allowed_results": ["complete"], "context": {},
@@ -6289,8 +6288,7 @@ fn an_office_is_inherited_subset_and_emptied_the_same_way_in_every_body() {
             "capabilities": {"web-search": "requires", "web-fetch": "wants"},
         }),
     );
-    std::fs::create_dir_all(root.join("nested/roles")).unwrap();
-    std::fs::write(root.join("nested/roles/role.md"), "# role\n").unwrap();
+    charters::write_role(&root.join("nested"));
     write(
         root,
         "nested/policy.json",
@@ -6500,8 +6498,7 @@ fn one_inline_seat(operator: &Operator, command: &[&str]) {
                 {"id": "W", "from": "work", "result": "complete", "next": "review", "reason": "r"},
                 {"id": "R", "from": "review", "result": "clean", "next": "done", "reason": "r"}]}),
     );
-    std::fs::create_dir_all(operator.root().join("solo/roles")).unwrap();
-    std::fs::write(operator.root().join("solo/roles/role.md"), "# role\n").unwrap();
+    charters::write_role(&operator.root().join("solo"));
     write(
         operator.root(),
         "solo/bundle.json",
@@ -9024,7 +9021,7 @@ fn compile_every_shape_on(
             Some(at) if at < 4 => {
                 let role = format!("roles/{}.md", label.replace(':', "-"));
                 std::fs::create_dir_all(root.join(layer).join("roles")).unwrap();
-                std::fs::write(root.join(layer).join(&role), format!("# {label}\n")).unwrap();
+                std::fs::write(root.join(layer).join(&role), charters::titled(label)).unwrap();
                 let mut site = json!({"role": role, "driver": {"command": command(carrier)}});
                 if let Some(asks) = asks {
                     site["capabilities"] = asks.clone();
@@ -9304,19 +9301,8 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
     type Charter = (CharterOwner, String, PathBuf, String);
     // The charter each site is told: its owner, the reference as written,
     // the path and the digest of the text this test wrote.
-    let layer = |dir: &str, label: &str| -> Charter {
-        let dir = root.join(dir);
-        let reference = format!("roles/{}.md", label.replace(':', "-"));
-        (
-            CharterOwner::Layer {
-                dir: dir.clone(),
-                key: reference.clone(),
-            },
-            reference.clone(),
-            dir.join(&reference),
-            brokkr_core::canonical::sha256_bytes(format!("# {label}\n").as_bytes()),
-        )
-    };
+    let layer =
+        |dir: &str, label: &str| -> Charter { charters::layer_told(&root.join(dir), label) };
     let office = |agent: &str| -> Charter { charters::office_told(agent, &library) };
 
     // The whole commands, written out: the program, the driver's lead, the
@@ -9423,9 +9409,9 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
         let (charter, told) = match inline {
             true => (
                 layer(if *inherited { "base" } else { "matrix" }, label),
-                format!("# {label}\n"),
+                charters::titled(label),
             ),
-            false => (office(carrier), charters::office_charter(carrier)),
+            false => (office(carrier), charters::titled(carrier)),
         };
         let providers: &[&str] = match *carrier {
             "pair" => &["codex", "claude"],
@@ -9693,8 +9679,7 @@ fn an_authored_capability_option_refuses_every_site_shape_of_every_harness() {
         "inherited",
     ];
     for layer in ["authored", "authored-base"] {
-        std::fs::create_dir_all(root.join(layer).join("roles")).unwrap();
-        std::fs::write(root.join(layer).join("roles/role.md"), "# role\n").unwrap();
+        charters::write_role(&root.join(layer));
     }
     write(
         root,
@@ -10139,20 +10124,7 @@ fn a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_
             let bundle =
                 compiled.unwrap_or_else(|refusal| panic!("{case}, {form} refused: {refusal}"));
             let (office, template, model, charter) = match agent {
-                false => (
-                    "work",
-                    &[][..],
-                    None,
-                    (
-                        CharterOwner::Layer {
-                            dir: solo.clone(),
-                            key: "roles/role.md".into(),
-                        },
-                        "roles/role.md".to_string(),
-                        solo.join("roles/role.md"),
-                        brokkr_core::canonical::sha256_bytes(b"# role\n"),
-                    ),
-                ),
+                false => ("work", &[][..], None, charters::layer_told(&solo, "role")),
                 true => (
                     "reader",
                     &["--permission-mode", "acceptEdits"][..],
@@ -10282,7 +10254,6 @@ fn a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_inventory_apart() {
-    use brokkr_runtime::bundle::CharterOwner;
     let operator = Operator::new();
     let claude = claude_reporting(operator.root(), "2.1.266");
     let session = "019c4b7e-0000-7000-8000-000000000121";
@@ -10325,18 +10296,7 @@ fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_invent
     check(
         "the joined prompt value, its charter",
         format!("{:?}", charter_of(&bundle, "work")),
-        format!(
-            "{:?}",
-            (
-                CharterOwner::Layer {
-                    dir: solo.clone(),
-                    key: "roles/role.md".into(),
-                },
-                "roles/role.md".to_string(),
-                solo.join("roles/role.md"),
-                brokkr_core::canonical::sha256_bytes(b"# role\n"),
-            )
-        ),
+        format!("{:?}", charters::layer_told(&solo, "role")),
     );
     check(
         "the joined prompt value, cold",
@@ -10557,7 +10517,6 @@ fn hosts_grant(operator: &Operator, offices: &[String]) -> (Value, CapabilityCon
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_resume() {
-    use brokkr_runtime::bundle::CharterOwner;
     let operator = Operator::new();
     let shim = codex_reporting(operator.root(), "0.154.0");
     let (grant, restricted) = hosts_grant(&operator, &[]);
@@ -10676,15 +10635,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
     let recipe = operator.root().join("bundle");
     let library = operator.root().join("agents");
     let charter = |label: &str| match label {
-        "inline" => (
-            CharterOwner::Layer {
-                dir: recipe.clone(),
-                key: "roles/role.md".into(),
-            },
-            "roles/role.md".to_string(),
-            recipe.join("roles/role.md"),
-            brokkr_core::canonical::sha256_bytes(b"# role\n"),
-        ),
+        "inline" => charters::layer_told(&recipe, "role"),
         _ => charters::searcher_told("searcher", &library),
     };
     let held = json!({"web-search": {
@@ -10932,7 +10883,7 @@ fn one_shape(
                         "driver": {"command": ["driver"]}});
     for layer in ["shape", "shape-base"] {
         std::fs::create_dir_all(root.join(layer).join("roles")).unwrap();
-        std::fs::write(root.join(layer).join("roles/x.md"), "# x\n").unwrap();
+        std::fs::write(root.join(layer).join("roles/x.md"), charters::titled("x")).unwrap();
     }
     write(
         root,
@@ -10967,8 +10918,8 @@ fn one_shape(
 }
 
 /// The charter a site of rebuild unit 20's matrix is told, as it wrote it:
-/// an inline site's own file of `layer` (`# <label>\n`), or its office's
-/// ([`charters::office_charter`]). The owner, the reference as
+/// an inline site's own file of `layer`, or its office's, each
+/// [`charters::titled`] by it. The owner, the reference as
 /// written, the path and the digest.
 fn matrix_charter(
     root: &Path,
@@ -10979,21 +10930,8 @@ fn matrix_charter(
     PathBuf,
     String,
 ) {
-    use brokkr_runtime::bundle::CharterOwner;
     match seated {
-        Ok((layer, label)) => {
-            let dir = root.join(layer);
-            let reference = format!("roles/{}.md", label.replace(':', "-"));
-            (
-                CharterOwner::Layer {
-                    dir: dir.clone(),
-                    key: reference.clone(),
-                },
-                reference.clone(),
-                dir.join(&reference),
-                brokkr_core::canonical::sha256_bytes(format!("# {label}\n").as_bytes()),
-            )
-        }
+        Ok((layer, label)) => charters::layer_told(&root.join(layer), label),
         Err(agent) => charters::office_told(agent, &root.join("agents")),
     }
 }

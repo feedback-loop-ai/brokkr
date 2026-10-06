@@ -415,6 +415,7 @@ impl brokkr_runtime::bundle::CharterOwner
 pub fn brokkr_runtime::bundle::CharterOwner::root(&self) -> &std::path::PathBuf
 pub enum brokkr_runtime::bundle::CompileError
 pub brokkr_runtime::bundle::CompileError::Capability(alloc::string::String)
+pub brokkr_runtime::bundle::CompileError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::bundle::CompileError::Invalid(alloc::string::String)
 pub brokkr_runtime::bundle::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::bundle::CompileError::Json(serde_json::error::Error)
@@ -1223,6 +1224,7 @@ impl<'a> brokkr_runtime::CommandWord<'a>
 pub fn brokkr_runtime::CommandWord<'a>::parse(&'a str) -> brokkr_runtime::CommandWord<'a>
 pub enum brokkr_runtime::CompileError
 pub brokkr_runtime::CompileError::Capability(alloc::string::String)
+pub brokkr_runtime::CompileError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::CompileError::Invalid(alloc::string::String)
 pub brokkr_runtime::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::CompileError::Json(serde_json::error::Error)

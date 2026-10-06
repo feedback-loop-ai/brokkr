@@ -149,8 +149,8 @@ Dependencies: U3a. Files and scope: [design.md](design.md#slice-two-units).
 
 Dependencies: U3b. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 12.1 (U3c; [GP2](specs/gate-capability-policy/spec.md)) Reuse the same DATA checker for verified inline requesters and all executable site forms; do not duplicate the paragraph grammar or derive permission from the reminder. Verify: Inline declaration and later-reference positives, missing-clause negatives, verified pin drift and every nested site shape bind the same checker.
-- [ ] 12.2 (U3c; [GP2](specs/gate-capability-policy/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 12.1. Apply the shared verification duty above.
+- [x] 12.1 (U3c; [GP2](specs/gate-capability-policy/spec.md)) Reuse the same DATA checker for verified inline requesters and all executable site forms; do not duplicate the paragraph grammar or derive permission from the reminder. Verify: Inline declaration and later-reference positives, missing-clause negatives, verified pin drift and every nested site shape bind the same checker.
+- [x] 12.2 (U3c; [GP2](specs/gate-capability-policy/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 12.1. Apply the shared verification duty above.
 
 ## 13. U4a — Make room for additive record validation
 
