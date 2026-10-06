@@ -25,6 +25,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod capability_calls;
 mod dashboard;
 mod fleet;
 mod items;
@@ -81,7 +82,8 @@ use serde_json::Value;
 /// Bumped to 13 by #503: a run row gained its `hire`.
 /// Bumped to 14 by #503's second round: the run view gained its `dashboard`.
 /// Bumped to 15 by #503's landing: a run row gained its `quarantine`.
-pub const VIEW_VERSION: u32 = 15;
+/// Bumped to 16 by decision 0065: a checkpoint gained its capability call.
+pub const VIEW_VERSION: u32 = 16;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -270,6 +272,8 @@ pub struct CheckpointRow {
     pub usage: Cell,
     pub target: Cell,
     pub target_full: Option<String>,
+    /// The capability call this checkpoint records (decision 0065).
+    pub capability_call: capability_calls::CallEvidence,
     pub recorded_at: String,
 }
 
@@ -1603,6 +1607,7 @@ fn checkpoint_rows(part: &Build) -> Vec<CheckpointRow> {
                 Some("no target recorded — the journal carries file targets only"),
             ),
             target_full: full,
+            capability_call: capability_calls::call_evidence(checkpoint),
             recorded_at: recorded_at.clone(),
         });
     }
