@@ -20,12 +20,16 @@
 //! binary carries: the gate asks each crate's built binary for its list
 //! (`--list --format terse`), holds a filter to a module with a listed
 //! test of its own, and holds an `--exact` name to a listed name
-//! (#543). `run_commands` reads each command that may pass `--test it`
-//! word by word in a closed grammar, and refuses the first character
-//! outside it. The binary already reflects a `cfg`, a `cfg_attr` and an
-//! inner `#![cfg]`, so a test those gate away from the compiling host is
-//! in no list and refuses; the source is never read for tests. A binary
-//! that cannot be built or listed refuses, named, and is never skipped.
+//! (#543). The list is the binary of the command's own build
+//! configuration, default features in the dev profile; a command that
+//! names another feature set or profile is refused, named, and never held
+//! to the list of a build it does not run. `run_commands` reads each
+//! command that may pass `--test it` word by word in a closed grammar,
+//! and refuses the first character outside it. The binary already reflects
+//! a `cfg`, a `cfg_attr` and an inner `#![cfg]`, so a test those gate away
+//! from the compiling host is in no list and refuses; the source is never
+//! read for tests. A binary that cannot be built or listed refuses, named,
+//! and is never skipped.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -271,13 +275,14 @@ fn refused<T>(refusal: Refusal) -> T {
 }
 
 /// The tests each workspace crate's `it` binary carries, by package, read
-/// once: brokkr-cli's is the binary this gate runs in (`current_exe`);
+/// once: brokkr-cli's is the binary this gate runs in (`current_exe`),
+/// whose package declares no features so no feature flag can change it;
 /// each other crate's is built and located through cargo's own JSON
-/// messages, then listed. One that cannot be built or listed refuses,
-/// naming it; it is never skipped. The build is bounded by the crates
-/// with a `tests/it` target, and `--all-features` matches the canonical
-/// `cargo test --workspace --all-features` run, which builds the same
-/// feature set.
+/// messages, then listed. The build is the one the scanned commands make,
+/// default features in the dev profile; `run_commands` refuses a command
+/// that names any other feature set or profile, so no filter is held to
+/// the list of a build it does not run. One that cannot be built or listed
+/// refuses, naming it; it is never skipped.
 fn test_lists() -> &'static Lists {
     static LISTS: OnceLock<Lists> = OnceLock::new();
     LISTS.get_or_init(|| {
@@ -288,6 +293,12 @@ fn test_lists() -> &'static Lists {
                 continue;
             }
             let executable = if package.name == env!("CARGO_PKG_NAME") {
+                assert!(
+                    package.features.is_empty(),
+                    "{}: the gate lists its own `current_exe`, so the package must declare no \
+                     features for the list to be the command's own build",
+                    package.name
+                );
                 std::env::current_exe()
                     .map_err(|error| error.to_string())
                     .unwrap_or_else(|why| refused(unread_list(&package.name, &why)))
@@ -312,13 +323,14 @@ fn unread_list(package: &str, why: &str) -> Refusal {
 
 /// The executable of a package's `it` test binary, built and located
 /// through cargo's own JSON messages: the `compiler-artifact` whose
-/// target is the `it` test names it. Cargo's stderr carries progress, so
-/// only a failed run or a missing executable is an error.
+/// target is the `it` test names it. The build is the default feature set
+/// in the dev profile, the configuration the scanned commands make. Cargo's
+/// stderr carries progress, so only a failed run or a missing executable is
+/// an error.
 fn built_it(package: &Package) -> Result<PathBuf, String> {
     let output = Command::new(env!("CARGO"))
         .args([
             "test",
-            "--all-features",
             "--locked",
             "--offline",
             "--no-run",
@@ -597,10 +609,11 @@ fn a_filter_is_held_to_a_module_that_holds_tests_and_a_name_to_a_test() {
 /// #543: the binary's own list is the fact, on this host. The gate's own
 /// test is in it, so a list that silently read as empty could not pass
 /// here; the two names `hands.rs`'s raw string literal shows are in no
-/// list; the tests `hands.rs`'s own `#![cfg(target_os = "linux")]` and
-/// `doctor_dsh_selection`'s macOS `#[cfg]` gate are in this host's list
-/// exactly when the predicate holds, the binary having resolved them by
-/// construction; and no support module's name is in any list.
+/// list; the tests `hands.rs`'s own `#![cfg(target_os = "linux")]` and the
+/// two macOS `#[cfg]` gates `doctor_dsh_selection`'s and `init_doctor`'s
+/// are in this host's list exactly when the predicate holds, the binary
+/// having resolved them by construction; and no support module's name is
+/// in any list.
 #[test]
 fn the_binarys_own_list_is_what_the_gate_holds() {
     let lists = test_lists();
@@ -616,14 +629,16 @@ fn the_binarys_own_list_is_what_the_gate_holds() {
         cli.iter().any(|test| test.starts_with("hands::")) == cfg!(target_os = "linux"),
         "hands.rs is #![cfg(target_os = \"linux\")]"
     );
-    assert_eq!(
-        cli.contains(
-            &"doctor_dsh_selection::apple_default_search_excludes_confstr_only_directories"
-                .to_string()
-        ),
-        cfg!(target_os = "macos"),
-        "the macOS-gated test is the binary's exactly on macOS"
-    );
+    for name in [
+        "doctor_dsh_selection::apple_default_search_excludes_confstr_only_directories",
+        "init_doctor::a_macos_scaffold_declares_harness_and_asks_nothing_of_bubblewrap",
+    ] {
+        assert_eq!(
+            cli.contains(name),
+            cfg!(target_os = "macos"),
+            "the macOS-gated test {name} is the binary's exactly on macOS"
+        );
+    }
     for module in [
         "numbered",
         "rust_source",
