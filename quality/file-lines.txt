@@ -88,13 +88,13 @@
    202 crates/brokkr-runtime/src/capabilities/manifest.rs
    645 crates/brokkr-runtime/src/dialect.rs
   4859 crates/brokkr-runtime/src/engine.rs
-   232 crates/brokkr-runtime/src/engine/capability_calls.rs
+   272 crates/brokkr-runtime/src/engine/capability_calls.rs
    396 crates/brokkr-runtime/src/engine/checkpoints.rs
    185 crates/brokkr-runtime/src/engine/marks.rs
    739 crates/brokkr-runtime/src/engine/operator.rs
    155 crates/brokkr-runtime/src/engine/operator/supersede.rs
     58 crates/brokkr-runtime/src/engine/replay.rs
-  1062 crates/brokkr-runtime/src/engine/resume.rs
+   942 crates/brokkr-runtime/src/engine/resume.rs
    708 crates/brokkr-runtime/src/engine/sequence.rs
    278 crates/brokkr-runtime/src/keep_refs.rs
    465 crates/brokkr-runtime/src/launch.rs
@@ -248,7 +248,7 @@
    152 crates/brokkr-runtime/src/engine/artifact_gate_tests.rs
   4616 crates/brokkr-runtime/src/engine/boundary_tests.rs
   2231 crates/brokkr-runtime/src/engine/capability_tests.rs
-   392 crates/brokkr-runtime/src/engine/capability_tests/call_tests.rs
+   443 crates/brokkr-runtime/src/engine/capability_tests/call_tests.rs
     58 crates/brokkr-runtime/src/engine/capability_tests/resume_tests.rs
    128 crates/brokkr-runtime/src/engine/checkpoints/tests.rs
    225 crates/brokkr-runtime/src/engine/cleanup_tests.rs
@@ -257,7 +257,8 @@
   1962 crates/brokkr-runtime/src/engine/notice_tests.rs
     46 crates/brokkr-runtime/src/engine/operator_tests.rs
     85 crates/brokkr-runtime/src/engine/replay/tests.rs
-  4089 crates/brokkr-runtime/src/engine/resume_tests.rs
+   225 crates/brokkr-runtime/src/engine/resume/tests.rs
+  4085 crates/brokkr-runtime/src/engine/resume_tests.rs
    121 crates/brokkr-runtime/src/engine/secret_threading_tests.rs
   6681 crates/brokkr-runtime/src/engine/tests.rs
    427 crates/brokkr-runtime/src/keep_refs/tests.rs
@@ -267,7 +268,7 @@
     94 crates/brokkr-runtime/tests/anchor_test.rs
    384 crates/brokkr-runtime/tests/budgets.rs
  11883 crates/brokkr-runtime/tests/capability_launch.rs
-   719 crates/brokkr-runtime/tests/capability_launch/legacy_journal.rs
+   723 crates/brokkr-runtime/tests/capability_launch/legacy_journal.rs
    263 crates/brokkr-runtime/tests/crucible_review_sequence.rs
    214 crates/brokkr-runtime/tests/dispatch_seam.rs
    104 crates/brokkr-runtime/tests/fenced_commands.rs
