@@ -67,6 +67,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use super::{is_identifier, Refusal};
+use crate::workspace_root::GUARD;
 
 /// The tests each package's `it` binary carries, by package, as the
 /// binary itself lists them.
@@ -387,11 +388,6 @@ pub(super) fn filters_in(file: &str, text: &str, lists: &Lists) -> Result<Vec<Fi
     }
     Ok(filters)
 }
-
-/// The one checked entry point a workflow's or a script's `--test it`
-/// command runs through, so a filtered run that executes 0 tests fails
-/// loudly, whatever the line or the environment did.
-pub(super) const GUARD: &str = "scripts/run-it-tests.sh";
 
 /// Whether a file's `--test it` commands must run through [`GUARD`]: the
 /// workflows and scripts this repository runs, not a guide or a recipe an

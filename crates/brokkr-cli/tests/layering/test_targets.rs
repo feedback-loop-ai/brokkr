@@ -51,6 +51,7 @@ use std::sync::OnceLock;
 
 use super::{metadata, workspace, Package};
 use crate::tracked_files::tracked;
+use crate::workspace_root::GUARD;
 use run_commands::{filters_in, fixture_lists, Filter, Lists};
 use serde::Deserialize;
 
@@ -181,7 +182,7 @@ impl fmt::Display for Refusal {
                 f,
                 "{at}: a `--test it` command must run through {} so a filtered run that \
                  executes 0 tests fails: {command}",
-                run_commands::GUARD
+                GUARD
             ),
             Self::UnreadFilter { at, word, command } => write!(
                 f,
