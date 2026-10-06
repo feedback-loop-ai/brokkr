@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use brokkr_core::{fold::OperatorCommand::Retry, realms::Boundary};
+use brokkr_protocol::adapters::capability_calls::{Observation, OBSERVATION_KEY};
 use brokkr_runtime::agents::{Adapters, Availability, Library};
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::engine::{compose_site, BuiltBoundary};
@@ -1289,16 +1290,50 @@ fn all_adapters(shim: &Path) -> Vec<(&'static str, Vec<String>)> {
     ]
 }
 
-/// This engine writes seat-record v2, so conformance judges what it
-/// writes against v2 — the version its own runs declare (decision 0035
-/// ruling 7). A driver whose records only satisfied v1 would still pass
-/// v2; the assertions below are what make the new fields non-optional
-/// for a BUILT-IN, which is where ruling 3's completeness lives.
+/// The launch and the three turns claude and lanetally write alike for the
+/// obedient stream. The launch row rides directly behind the locator, one
+/// per executing model site (proposed decision 0056 ruling 7). No offer
+/// was made here, so the launch is cold, it names no refusal — a reason
+/// without an offer would be invented — and it carries no root, because
+/// this shape's assessment is not enabled and no version was observed to
+/// record one with. Issue #226's complaint was that this row did not
+/// exist. Each turn's call carries its observation (U4f2), with no call
+/// id, because the shim's blocks carry none.
+fn assert_claude_launch_and_turns(out: &[Value], label: &str) {
+    let seen = |tool: &str| json!({"call": null, "format": "claude", "tool": {"kind": "named", "name": tool}});
+    let rows = [
+        json!({"step": "harness-started", "harness": "claude",
+               "launch": "cold", "model": "not reported",
+               "effort": "not reported"}),
+        json!({"step": "seat-turn", "turn": 1, "tool": "Read", "observation": seen("Read"),
+               "target": "src/lib.rs", "model": "claude-fable-5-1",
+               "effort": "xhigh",
+               "input_tokens":13, "output_tokens":2,
+               "cache_read_tokens":3, "cache_write_tokens":4}),
+        json!({"step": "seat-turn", "turn": 2, "tool": "Edit", "observation": seen("Edit"),
+               "target": "src/main.rs", "model": "claude-fable-5-1",
+               "effort": "high",
+               "input_tokens":15, "output_tokens":3,
+               "cache_read_tokens":10}),
+        json!({"step": "seat-turn", "turn": 2, "tool": "Write", "observation": seen("Write"),
+               "target": "src/out.rs", "model": "claude-fable-5-1",
+               "effort": "high"}),
+    ];
+    for (at, row) in rows.iter().enumerate() {
+        assert_eq!(out[at + 3]["data"], *row, "{label}: {}", out[at + 3]);
+    }
+}
+
+/// Each record, as the engine journals it with a call's private observation
+/// off (U4f2), conforms to seat-record v2 (decision 0035 ruling 7); the
+/// asserts below make new fields non-optional for a BUILT-IN (ruling 3).
 fn assert_seat_records_conform(messages: &[Value], label: &str, case: &str) {
     for message in messages {
         if message["type"] == "checkpoint" {
-            let record = &message["data"];
-            validate_seat_record(record, 0, SeatRecordVersion::V2)
+            let mut record = message["data"].clone();
+            let seen = record.as_object_mut().unwrap().remove(OBSERVATION_KEY);
+            let _: Option<Observation> = seen.map(|seen| serde_json::from_value(seen).unwrap());
+            validate_seat_record(&record, 0, SeatRecordVersion::V2)
                 .unwrap_or_else(|error| panic!("{label}/{case}: {error}: {record}"));
             assert!(
                 record.get("model").and_then(Value::as_str).is_some(),
@@ -1316,10 +1351,7 @@ fn assert_seat_records_conform(messages: &[Value], label: &str, case: &str) {
                 .unwrap_or_else(|error| panic!("{label}/{case}: {error}: {record}"));
             assert!(record.get("model").and_then(Value::as_str).is_some());
             assert!(record.get("effort").and_then(Value::as_str).is_some());
-            assert!(record
-                .get("transcript")
-                .and_then(Value::as_object)
-                .is_some());
+            assert!(record["transcript"].is_object());
         }
     }
 }
@@ -1543,50 +1575,7 @@ fn conformance_across_all_builtin_adapters() {
                     "{label}: the locator is journaled at init: {}",
                     out[2]
                 );
-                // The launch row rides directly behind the locator, one
-                // per executing model site (proposed decision 0056
-                // ruling 7). No offer was made here, so the launch is
-                // cold, it names no refusal — a reason without an offer
-                // would be invented — and it carries no root, because
-                // this shape's assessment is not enabled and no version
-                // was observed to record one with. Issue #226's
-                // complaint was that this row did not exist.
-                assert_eq!(
-                    out[3]["data"],
-                    json!({"step": "harness-started", "harness": "claude",
-                           "launch": "cold", "model": "not reported",
-                           "effort": "not reported"}),
-                    "{label}: {}",
-                    out[3]
-                );
-                assert_eq!(
-                    out[4]["data"],
-                    json!({"step": "seat-turn", "turn": 1, "tool": "Read",
-                           "target": "src/lib.rs", "model": "claude-fable-5-1",
-                           "effort": "xhigh",
-                           "input_tokens":13, "output_tokens":2,
-                           "cache_read_tokens":3, "cache_write_tokens":4}),
-                    "{label}: {}",
-                    out[4]
-                );
-                assert_eq!(
-                    out[5]["data"],
-                    json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
-                           "target": "src/main.rs", "model": "claude-fable-5-1",
-                           "effort": "high",
-                           "input_tokens":15, "output_tokens":3,
-                           "cache_read_tokens":10}),
-                    "{label}: {}",
-                    out[5]
-                );
-                assert_eq!(
-                    out[6]["data"],
-                    json!({"step": "seat-turn", "turn": 2, "tool": "Write",
-                           "target": "src/out.rs", "model": "claude-fable-5-1",
-                           "effort": "high"}),
-                    "{label}: {}",
-                    out[6]
-                );
+                assert_claude_launch_and_turns(&out, label);
                 let finished = &out[7]["data"];
                 assert_eq!(finished["step"], "claude-code-session-finished", "{label}");
                 assert_eq!(finished["transcript"], *transcript, "{label}");
@@ -1618,50 +1607,7 @@ fn conformance_across_all_builtin_adapters() {
                 // plus the constant ledger-capture marker and the
                 // list-price cost flowing through unchanged.
                 assert_eq!(out[2]["data"]["step"], "transcript", "{label}: {}", out[2]);
-                // The launch row rides directly behind the locator, one
-                // per executing model site (proposed decision 0056
-                // ruling 7). No offer was made here, so the launch is
-                // cold, it names no refusal — a reason without an offer
-                // would be invented — and it carries no root, because
-                // this shape's assessment is not enabled and no version
-                // was observed to record one with. Issue #226's
-                // complaint was that this row did not exist.
-                assert_eq!(
-                    out[3]["data"],
-                    json!({"step": "harness-started", "harness": "claude",
-                           "launch": "cold", "model": "not reported",
-                           "effort": "not reported"}),
-                    "{label}: {}",
-                    out[3]
-                );
-                assert_eq!(
-                    out[4]["data"],
-                    json!({"step": "seat-turn", "turn": 1, "tool": "Read",
-                           "target": "src/lib.rs", "model": "claude-fable-5-1",
-                           "effort": "xhigh",
-                           "input_tokens":13, "output_tokens":2,
-                           "cache_read_tokens":3, "cache_write_tokens":4}),
-                    "{label}: {}",
-                    out[4]
-                );
-                assert_eq!(
-                    out[5]["data"],
-                    json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
-                           "target": "src/main.rs", "model": "claude-fable-5-1",
-                           "effort": "high",
-                           "input_tokens":15, "output_tokens":3,
-                           "cache_read_tokens":10}),
-                    "{label}: {}",
-                    out[5]
-                );
-                assert_eq!(
-                    out[6]["data"],
-                    json!({"step": "seat-turn", "turn": 2, "tool": "Write",
-                           "target": "src/out.rs", "model": "claude-fable-5-1",
-                           "effort": "high"}),
-                    "{label}: {}",
-                    out[6]
-                );
+                assert_claude_launch_and_turns(&out, label);
                 let finished = &out[7]["data"];
                 assert_eq!(
                     finished["step"], "claude-lanetally-session-finished",

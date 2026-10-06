@@ -28,6 +28,7 @@ mod bootstrap_bench;
 mod boundary_readouts;
 mod boundary_verbs;
 mod budget_frame;
+mod capability_artifacts;
 mod capability_broker;
 mod capability_verbs;
 mod contributing;
