@@ -31,7 +31,8 @@ use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use brokkr_store::{SeatRecordError, Store, StoreError};
 use serde_json::{json, Value};
 
-use super::{refused_outcome, EngineError};
+use super::capability_calls::{self, Stamp};
+use super::EngineError;
 
 /// The most serialized checkpoint bytes one attempt holds while a peer
 /// keeps the journal's write lock. A checkpoint that finds the hold empty
@@ -44,6 +45,31 @@ pub(super) const HELD_BYTES: usize = 16 * 1024 * 1024;
 /// still held when its seat stops — before a peer's lock is handed up.
 /// The wait #394 measured ran 42 s against one 30 s patience.
 pub(super) const SETTLING_PATIENCES: u32 = 3;
+
+/// The capability-call attribution group (CC1; SC4's five fields) that
+/// only the engine writes. `tool` is legacy telemetry and is not in it.
+const ATTRIBUTION: [&str; 5] = [
+    "capability",
+    "dialect",
+    "call_id",
+    "call_state",
+    "response_sha256",
+];
+
+/// `checkpoint` without any attribution field a driver supplied, so no
+/// driver's value, forged or not, reaches the journal whatever a
+/// seat-record version would admit. Everything else passes unchanged.
+fn without_driver_attribution(checkpoint: Value) -> Value {
+    match checkpoint {
+        Value::Object(mut object) => {
+            for field in ATTRIBUTION {
+                object.remove(field);
+            }
+            Value::Object(object)
+        }
+        other => other,
+    }
+}
 
 /// `append` tried again while a peer's lock outlasts each of `patiences`
 /// patiences; anything else it returns, it returns at once.
@@ -81,6 +107,40 @@ pub(super) struct HeldOutcome {
     pub(super) attempt_id: Option<String>,
 }
 
+/// Why a site's checkpoints stop being journaled: the seat-record fence
+/// refused one (decision 0034, ruling 6), or the engine refused the call
+/// one observed (CC1). Either fails the attempt in its own words.
+#[derive(Debug, thiserror::Error)]
+enum Refused {
+    #[error(transparent)]
+    Fence(SeatRecordError),
+    #[error(transparent)]
+    Call(capability_calls::Refusal),
+}
+
+/// The outcome of an attempt whose checkpoint the journal refused
+/// (decision 0034, ruling 6), or whose observed call the engine refused
+/// (CC1). A driver that went on to succeed did not: its account is
+/// nonconforming, and the attempt fails on the refusal. A driver that
+/// failed on its own keeps its own error beside the refusal. A driver
+/// that was lost stays lost — indeterminate always parks (decision
+/// 0006), and a refused checkpoint is no reason to retry a process whose
+/// end nobody saw.
+pub(super) fn refused_outcome(
+    outcome: AttemptOutcome,
+    refusal: &impl std::fmt::Display,
+) -> AttemptOutcome {
+    match outcome {
+        AttemptOutcome::Succeeded { .. } => AttemptOutcome::Failed {
+            error: refusal.to_string(),
+        },
+        AttemptOutcome::Failed { error } => AttemptOutcome::Failed {
+            error: format!("{refusal}; the driver then failed: {error}"),
+        },
+        AttemptOutcome::Indeterminate { reason } => AttemptOutcome::Indeterminate { reason },
+    }
+}
+
 /// The attempt a sink journals for.
 pub(super) struct Attempt<'a> {
     pub(super) run_id: &'a str,
@@ -115,8 +175,9 @@ pub(super) struct Checkpoints<'a, B: FnMut(&mut Store)> {
     /// Checkpoints still held when settlement ran out, by site.
     stranded: BTreeMap<String, usize>,
     /// A checkpoint the seat-record fence refused (decision 0034, ruling
-    /// 6), and the site it rode under. No later checkpoint is journaled.
-    refusal: Option<(String, SeatRecordError)>,
+    /// 6), or whose observed call the engine refused, and the site it rode
+    /// under. No later checkpoint is journaled.
+    refusal: Option<(String, Refused)>,
     /// A storage failure that is neither contention nor a refusal. No
     /// later checkpoint is journaled, and it ends the attempt as today.
     failure: Option<StoreError>,
@@ -124,7 +185,7 @@ pub(super) struct Checkpoints<'a, B: FnMut(&mut Store)> {
 
 /// What an attempt's checkpoints came to once its seat stopped.
 pub(super) struct Settled {
-    refusal: Option<(String, SeatRecordError)>,
+    refusal: Option<(String, Refused)>,
     lost: BTreeMap<String, usize>,
     stranded: BTreeMap<String, usize>,
     limit: usize,
@@ -169,11 +230,30 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
     /// Take one checkpoint from a working seat. What is already held goes
     /// first; when that still meets the lock, this one joins the hold, or
     /// is counted lost when the hold is full. Nothing here waits on the
-    /// lock and nothing here ever fails the seat.
-    pub(super) fn offer(&mut self, owner: &str, checkpoint: Value) {
+    /// lock and nothing here ever fails the seat. Both the single-site
+    /// and the panel sink hand every driver checkpoint here, so this is
+    /// where a driver's capability-call attribution is erased (CC1), and
+    /// where `call`, the engine's own reading of the observation it took
+    /// off the checkpoint, is written behind the erasure, or refuses it.
+    pub(super) fn offer(
+        &mut self,
+        owner: &str,
+        checkpoint: Value,
+        call: Result<Option<Stamp>, capability_calls::Refusal>,
+    ) {
+        let mut checkpoint = without_driver_attribution(checkpoint);
         let contended = self.flush(Store::append_next_without_waiting).is_some();
         if self.refusal.is_some() || self.failure.is_some() {
             return;
+        }
+        match call {
+            Ok(Some(stamp)) => stamp.apply(&mut checkpoint),
+            Ok(None) => {}
+            // What is held came before the refused call, and still lands.
+            Err(refusal) => {
+                self.refusal = Some((owner.to_string(), Refused::Call(refusal)));
+                return;
+            }
         }
         let bytes = checkpoint.to_string().len();
         if contended && self.held_bytes + bytes > self.limit {
@@ -244,7 +324,7 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
                 }
                 Err(contended) if contended.is_contention() => return Some(contended),
                 Err(StoreError::SeatRecord(error)) => {
-                    self.refusal = Some((next.owner.clone(), error));
+                    self.refusal = Some((next.owner.clone(), Refused::Fence(error)));
                     self.held.clear();
                 }
                 Err(failure) => {
@@ -311,3 +391,6 @@ impl Settled {
         lost.into_iter().chain(stranded).collect()
     }
 }
+
+#[cfg(test)]
+mod tests;

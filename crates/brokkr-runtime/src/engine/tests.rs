@@ -1993,7 +1993,7 @@ pub(super) fn member(name: &str, command: Vec<String>) -> PanelMember {
     }
 }
 
-fn panel_input(names: &[&str]) -> Value {
+pub(super) fn panel_input(names: &[&str]) -> Value {
     let members = names
         .iter()
         .map(|name| {
@@ -6014,13 +6014,13 @@ fn failed_error(driven: &Engine) -> String {
 
 #[test]
 fn a_refused_checkpoint_becomes_the_attempts_outcome_once_its_driver_ends() {
-    let refusal = SeatRecordError {
+    let refusal = brokkr_store::SeatRecordError {
         seq: 9,
         path: "/".into(),
         contract: "contracts/seat-record.v1.schema.json",
     };
     assert!(matches!(
-        refused_outcome(
+        checkpoints::refused_outcome(
             AttemptOutcome::Succeeded {
                 result: json!({"result":"complete"}),
             },
@@ -6029,7 +6029,7 @@ fn a_refused_checkpoint_becomes_the_attempts_outcome_once_its_driver_ends() {
         AttemptOutcome::Failed { error } if error == refusal.to_string()
     ));
     assert!(matches!(
-        refused_outcome(
+        checkpoints::refused_outcome(
             AttemptOutcome::Failed {
                 error: "exited 1".into(),
             },
@@ -6039,7 +6039,7 @@ fn a_refused_checkpoint_becomes_the_attempts_outcome_once_its_driver_ends() {
             if error == format!("{refusal}; the driver then failed: exited 1")
     ));
     assert!(matches!(
-        refused_outcome(
+        checkpoints::refused_outcome(
             AttemptOutcome::Indeterminate {
                 reason: "lost".into(),
             },

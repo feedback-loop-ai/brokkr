@@ -1,6 +1,25 @@
 # produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
 pub mod brokkr_protocol
 pub mod brokkr_protocol::adapters
+pub mod brokkr_protocol::adapters::capability_calls
+pub enum brokkr_protocol::adapters::capability_calls::Format
+pub brokkr_protocol::adapters::capability_calls::Format::Claude
+pub brokkr_protocol::adapters::capability_calls::Format::Codex
+pub brokkr_protocol::adapters::capability_calls::Format::Dsh
+pub enum brokkr_protocol::adapters::capability_calls::Tool
+pub brokkr_protocol::adapters::capability_calls::Tool::Mcp
+pub brokkr_protocol::adapters::capability_calls::Tool::Mcp::server: alloc::string::String
+pub brokkr_protocol::adapters::capability_calls::Tool::Mcp::tool: alloc::string::String
+pub brokkr_protocol::adapters::capability_calls::Tool::McpUnidentified
+pub brokkr_protocol::adapters::capability_calls::Tool::McpUnidentified::reported: alloc::string::String
+pub brokkr_protocol::adapters::capability_calls::Tool::Missing
+pub brokkr_protocol::adapters::capability_calls::Tool::Named
+pub brokkr_protocol::adapters::capability_calls::Tool::Named::name: alloc::string::String
+pub struct brokkr_protocol::adapters::capability_calls::Observation
+pub brokkr_protocol::adapters::capability_calls::Observation::call: core::option::Option<alloc::string::String>
+pub brokkr_protocol::adapters::capability_calls::Observation::format: brokkr_protocol::adapters::capability_calls::Format
+pub brokkr_protocol::adapters::capability_calls::Observation::tool: brokkr_protocol::adapters::capability_calls::Tool
+pub const brokkr_protocol::adapters::capability_calls::OBSERVATION_KEY: &str
 pub enum brokkr_protocol::adapters::AdapterKind
 pub brokkr_protocol::adapters::AdapterKind::Claude
 pub brokkr_protocol::adapters::AdapterKind::Codex

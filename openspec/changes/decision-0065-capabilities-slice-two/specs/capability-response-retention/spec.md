@@ -81,6 +81,14 @@ This does not claim protection from arbitrary operator host processes or
 older uncoordinated engines; migration requires quiescing those writers.
 Read/write verification belongs above pure core/view.
 
+The server box SHALL mount none of the private plan, ledger, staging or
+published artifact roots, and SHALL inherit no descriptor naming them. The
+broker remains the sole private ledger/staging writer outside the server box;
+only the engine publishes and journals. MB3's mount/reach/alias checks protect
+this separation before lookup. Private server tmpfs and temporary bootstrap
+scratch SHALL never replace the durable engine-owned roots needed for crash
+recovery. Namespace teardown removes scratch, not evidence.
+
 #### Scenario: The digest names the delivered masked data
 
 - **WHEN** a retained response contains a bound secret and nested structured result data
@@ -117,6 +125,12 @@ Read/write verification belongs above pure core/view.
 - **THEN** both writers received protection before launch and the legitimate artifact remains unchanged
 - **AND** an already-running unprotected managed writer makes admission refuse with the exact managed-writer cause; later zero-grant runs preserve historical evidence too
 
+#### Scenario: A boxed server cannot write its own evidence
+
+- **WHEN** an admitted fake server probes the plan, ledger, stage and artifact paths or inherited descriptors, then returns a legitimate retained response
+- **THEN** all control/evidence paths and descriptors are absent from its namespace, while the broker stages and the engine publishes the exact masked response outside it
+- **AND** cancelling the box removes private HOME/TMPDIR without deleting the durable ledger or stage; existing managed-writer protections still govern workspace writers
+
 #### Scenario: Canonicalization cannot silently change numbers
 
 - **WHEN** a response contains a large integer or precise decimal that the existing serializer would round
@@ -150,8 +164,9 @@ process settlement SHALL refuse "broker ledger lifecycle is invalid", as do
 illegal state transitions; owner mismatch retains its more specific cause.
 Verified begun calls without terminal become interrupted under CR4.
 Closed SHALL carry a closed typed disposition, Clean or Failed with a bounded
-broker cause. A fatal initialization/version/protocol, response-limit, timeout,
-unsafe-correlation or ledger-limit ending SHALL latch Failed, including when
+broker cause. A fatal box admission/establishment, confined secret-handoff, boxed-exec,
+initialization/version/protocol, response-limit, timeout, unsafe-correlation
+or ledger-limit ending SHALL latch Failed, including when
 there were no accepted calls. Keep the first observed fatal cause; later EOF
 or orderly cleanup cannot overwrite it. Causes use the owning MB3/MB4/CR3
 fixed text, never raw child output. Ordinary child tool errors and durable
@@ -228,6 +243,12 @@ Nonretaining responses remain bounded in-memory forwarding only.
 - **THEN** folding refuses respectively "broker ledger owner does not match this attempt", "broker ledger contains a conflicting duplicate" or "broker ledger claims an ungranted tool"
 - **AND** no successful result is admitted; hash equality cannot authenticate writable evidence
 
+#### Scenario: Box failure is a session failure without an invented call
+
+- **WHEN** an owner-bound broker has opened its ledger and box setup fails before lookup, or secret delivery/boxed exec fails after admission
+- **THEN** Closed latches Failed with the corresponding exact MB3/MB4 cause and zero call records, retaining the distinction between pre-lookup refusal and post-lookup failure
+- **AND** an unbound plan creates no fake ledger, a proven never-started broker remains failed start, and an unavailable Closed still uses the existing lifecycle/persistence refusal
+
 #### Scenario: Session failure survives orderly closure
 
 - **WHEN** the child's pinned version mismatches before any call, fatal protocol handling fails after a terminal call, or the ledger reaches exactly 4,096 accepted calls
@@ -278,6 +299,12 @@ verified calls; stop at the first invalid transition and preserve its cause.
 - **THEN** the real engine settlement barrier rejects that success with respectively "MCP server version does not match the dialect's pinned version", "MCP server protocol is invalid" or "broker ledger exceeds the attempt limit", retaining exactly 0, 1 or 4,096 call checkpoints
 - **AND** it invents no extra call; recovery makes the same judgment from the durable disposition without replay, while healthy zero-call and recoverable-tool-error controls can complete
 - **AND** independently removing the engine disposition check makes these exact attempt-outcome assertions fail; a cleanup-only mutation proves a different property
+
+#### Scenario: Harness success cannot hide a failed server box
+
+- **WHEN** a deterministic harness reports success after an owner-bound broker closes Failed with "MCP server box could not be established", "MCP server secret environment could not be delivered" or "MCP server could not start inside its box"
+- **THEN** settlement rejects success with the exact recorded cause and zero capability-call checkpoints, after the supervised box has settled
+- **AND** restart reaches the same judgment from the durable ledger without retrying server execution or replacing its private tmpfs with evidence storage
 
 #### Scenario: Crash after append does not append twice
 
@@ -367,3 +394,8 @@ the same pre-delivery check, with no unsafe staged bytes or digest. Preserve
 numeric/text/unrelated-number controls and independent masking removal. Keep
 0/1/4,096-call session controls and engine-check removal separate from cleanup;
 never replay an uncertain action (0071 rulings 3, 5, 8, 9).
+
+A separate server box strengthens the filesystem boundary but does not make
+its output authoritative. Reject mounting control/evidence into it or folding
+before its supervisor and payload settle; the existing broker/engine ownership
+and first-fatal-cause rules apply to box failures too (0071 rulings 3, 5, 8, 9).

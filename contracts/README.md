@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v5.schema.json`, below) |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v6.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -768,3 +768,45 @@ v11 with a holding meets the existing resume refusal, which names
 capabilities, and is never rewritten. Every `mcp` grant still refuses
 the compile until slice two's enabling unit, so today only provider-native
 holdings are written.
+
+Decision 0065's slice two (CC3 and SC4, capability-call attribution) adds
+one more file and changes none of the bytes above — `seat-record.v5`'s
+included, which is now pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Seat record with a capability call's attribution | `seat-record.v6.schema.json` | brokkr-store append/export/verify (an embedded copy held byte-equal by test), every seat readout |
+
+`seat-record.v6` is `v5` plus five optional properties on the checkpoint,
+which travel as one group with the existing `tool`: `capability` and
+`dialect` in the realm-name grammar up to 128 bytes, `call_id` an ASCII
+identifier up to 128 bytes, `call_state` and `response_sha256`. Any one of
+them requires `capability`, `dialect`, `tool`, `call_id` and `call_state`
+together. `call_state` is exactly `observed`, for a native call the harness
+reported, which claims no completion, or one of a broker call's settled
+outcomes `succeeded`, `failed`, `refused` and `interrupted`; a broker's
+private `started` record is never a public checkpoint and is refused here.
+`response_sha256` is 64 lowercase hex characters and rides only beside
+`succeeded` or `failed`. The engine still has to establish effective
+retention and the published artifact before it writes one; this file judges
+the shape alone. A private observation, a partial group or any other key is
+refused by the closed checkpoint.
+
+Both widenings are scoped on the group, so every valid v5 record is a valid
+v6 record and none is back-filled. An attributed `tool` may reach 256 bytes
+in v5's vocabulary, never truncated to fit, while an unattributed one keeps
+v5's 80. v5's tool-to-turn dependency stands for every old-shaped and
+native `observed` row; only a settled broker checkpoint, owned by its
+attempt and call identity, may omit a turn no measured correlation
+supplied, and it keeps a real correlated turn when there is one. Nothing
+invents a turn or usage to satisfy the dependency.
+
+The store dispatches the 0.12 engine line and later to v6, and the 0.10 and
+0.11 lines to v5, at append, export, import verification and offline
+verification alike. 0.12 is the development line on main after the 0.12.0
+tag when v6 landed; `engine` carries no position within a line, and the
+tagged 0.12.0 engine wrote no attribution field, so every row it wrote reads
+under v6 exactly as it did under v5. A pre-release or build of a line is
+that line, and a malformed or missing engine reads as v1, as before. Until
+the engine's attribution consumers land, drivers keep writing legacy rows,
+and those append, export and verify unchanged.

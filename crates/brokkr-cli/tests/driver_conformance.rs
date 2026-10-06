@@ -567,9 +567,9 @@ fn a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement() {
         DSH_PIN.into(),
     ];
     // Long enough that the probe, the composite read and the staging all
-    // complete first, so the kill lands on the stalled child and not on
-    // the planner.
-    let deadline = Duration::from_secs(4);
+    // complete first (4 s was not, on a loaded macOS runner), so the kill
+    // lands on the stalled child and not on the planner.
+    let deadline = Duration::from_secs(12);
     let started = Instant::now();
     let report = DriverProcess::spawn(
         &command,
