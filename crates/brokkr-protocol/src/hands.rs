@@ -31,8 +31,11 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
+mod namespace;
 mod overlay;
 mod session;
+pub use namespace::{namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
+use namespace::{namespace_path, Mount, Namespace, Profile};
 use overlay::overlay_argv;
 pub use overlay::{overlay_supported_with, OverlayWrites};
 pub use session::{reap_dead_sessions, Reaped, Session, SessionError};
@@ -354,29 +357,12 @@ fn parse_git_dirs(reported: &str) -> (Option<PathBuf>, Option<PathBuf>) {
     }
 }
 
-/// Render a host path as a path inside the box. Paths inside the namespace
-/// are POSIX paths, never host paths.
-fn namespace_path(path: &Path) -> String {
-    path.to_string_lossy()
-        .replace(std::path::MAIN_SEPARATOR, "/")
-}
-
-/// Append a host-relative path below a fixed path inside the box without
-/// letting the host choose the separator.
-pub fn namespace_join(root: &str, relative: &Path) -> String {
-    format!(
-        "{}/{}",
-        root.trim_end_matches('/'),
-        namespace_path(relative).trim_start_matches('/')
-    )
-}
-
-/// The host toolchain the box binds read-only, at the same path, where it
-/// exists. `box_argv` iterates exactly this item for its host-toolchain
-/// `--ro-bind-try` binds, and the Seatbelt startup-rule ledger reads the same
-/// item as its one fixed source set (decision 0046 slice II, design D3). It is
-/// a single list so the two cannot drift: a path added here is bound by
-/// bubblewrap and is in the ledger's host-toolchain set.
+/// The host toolchain every box binds read-only, at the same path, where it
+/// exists. The namespace builder iterates exactly this item for its
+/// `--ro-bind-try` system binds, a server box keeping of `/etc/ssl` only
+/// `/etc/ssl/certs` (U6c4), and the Seatbelt startup-rule ledger reads it
+/// as its one fixed source set (decision 0046 slice II, design D3): one
+/// list, so a path added here is bound by bubblewrap and is in the ledger.
 ///
 /// It lists toolchain paths only. A declared `ro`, `rw` or `overlay` bind a
 /// `HandsSpec` names, and the git common `config`, are bound by `box_argv` too
@@ -414,9 +400,10 @@ pub const HOST_TOOLCHAIN_BINDS: &[&str] = &[
 /// the environment, then `--` and the command. `scratch` holds this
 /// call's generated identity files and private home and tmp; `writes`
 /// says where the upper layers of overlay binds live: a session's are
-/// the seat's to remove when it ends.
+/// the seat's to remove when it ends. The namespace, its toolchain and
+/// its identity are `namespace::Namespace`'s; the workspace's own mounts and
+/// environment are ordered here.
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 pub fn box_argv(
     spec: &HandsSpec,
     workdir: &Path,
@@ -435,100 +422,21 @@ pub fn box_argv(
     // that, "Can't mkdir parents for /runtime/bundle". Symlinks stay as
     // the host spells them; only the relative prefix is resolved.
     let workdir = &std::path::absolute(workdir)?;
-    let etc = scratch.join("etc");
     let private_home = scratch.join("home");
     let private_tmp = scratch.join("tmp");
-    std::fs::create_dir_all(&etc)?;
+    let mut namespace = Namespace::open(Profile::Workspace, spec.network);
+    namespace.identity(&scratch.join("etc"))?;
     std::fs::create_dir_all(&private_home)?;
     std::fs::create_dir_all(&private_tmp)?;
-    // A deterministic identity and a files-only resolver: `localhost`
-    // resolves inside a no-network namespace without exposing the host's
-    // resolver or its network namespace.
-    let (uid, gid) = ids();
-    let passwd = format!("runner:x:{uid}:{gid}:brokkr hands:{SANDBOX_HOME}:/bin/sh\n");
-    let group = format!("runner:x:{gid}:\n");
-    let hosts = "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n";
-    for (name, text) in [
-        ("passwd", passwd.as_str()),
-        ("group", group.as_str()),
-        ("hosts", hosts),
-        ("nsswitch.conf", "hosts: files\n"),
-    ] {
-        std::fs::write(etc.join(name), text)?;
-    }
-
-    let s = |text: &str| text.to_string();
-    let host_path = |path: &Path| path.to_string_lossy().into_owned();
-    let mut argv = vec![
-        s("bwrap"),
-        s("--die-with-parent"),
-        s("--new-session"),
-        s("--unshare-pid"),
-        s("--unshare-ipc"),
-        s("--unshare-uts"),
-        s("--unshare-cgroup-try"),
-        s("--cap-drop"),
-        s("ALL"),
-    ];
-    if !spec.network {
-        argv.push(s("--unshare-net"));
-    }
-    argv.extend([
-        s("--clearenv"),
-        s("--setenv"),
-        s(HANDS_BOX_ENV),
-        s("1"),
-        s("--proc"),
-        s("/proc"),
-        s("--dev"),
-        s("/dev"),
-        s("--dir"),
-        s("/runtime"),
-        s("--dir"),
-        s("/etc"),
-        s("--dir"),
-        s("/home"),
-        s("--dir"),
-        s("/root"),
-        s("--dir"),
-        s("/run"),
-        s("--dir"),
-        s("/usr"),
-    ]);
-    // The host toolchain, read-only, where it exists (`-try`: an absent
-    // source is skipped, never an error — /lib64 is a Debian fact, not
-    // a law).
-    for host in HOST_TOOLCHAIN_BINDS {
-        argv.extend([s("--ro-bind-try"), s(host), s(host)]);
-    }
-    for (name, target) in [
-        ("passwd", "/etc/passwd"),
-        ("group", "/etc/group"),
-        ("hosts", "/etc/hosts"),
-        ("nsswitch.conf", "/etc/nsswitch.conf"),
-    ] {
-        argv.extend([s("--ro-bind"), host_path(&etc.join(name)), s(target)]);
-    }
     // The private home and tmp go in BEFORE the worktree, so a worktree
     // that itself lives under /tmp is mounted on top of the private /tmp
     // rather than hidden beneath it.
-    argv.extend([
-        s("--bind"),
-        host_path(&private_home),
-        s(SANDBOX_HOME),
-        s("--bind"),
-        host_path(&private_tmp),
-        s("/tmp"),
-        s("--bind"),
-        host_path(workdir),
-        namespace_path(workdir),
-    ]);
+    namespace.mount(Mount::Bind, &private_home, SANDBOX_HOME);
+    namespace.mount(Mount::Bind, &private_tmp, "/tmp");
+    namespace.mount_in_place(Mount::Bind, workdir);
     if let Some(bundle_root) = bundle_root {
-        argv.extend([
-            s("--ro-bind"),
-            host_path(bundle_root),
-            namespace_path(Path::new(SANDBOX_BUNDLE)),
-        ]);
+        let target = namespace_path(Path::new(SANDBOX_BUNDLE));
+        namespace.mount(Mount::RoBind, bundle_root, &target);
     }
     // Ruling 6: the git directory. A `git worktree`'s lives outside the
     // worktree and is bound so git works at all; either way its `hooks`
@@ -561,27 +469,17 @@ pub fn box_argv(
     // which record it rather than fixing it silently.
     if let Some(common) = &git.common_dir {
         if !common.starts_with(workdir) {
-            argv.extend([s("--bind"), host_path(common), namespace_path(common)]);
+            namespace.mount_in_place(Mount::Bind, common);
         }
-        argv.extend([
-            s("--tmpfs"),
-            namespace_join(&namespace_path(common), Path::new("hooks")),
-        ]);
-        let config = common.join("config");
-        argv.extend([
-            s("--ro-bind-try"),
-            host_path(&config),
-            namespace_path(&config),
-        ]);
+        namespace.tmpfs(&namespace_join(&namespace_path(common), Path::new("hooks")));
+        namespace.mount_in_place(Mount::RoBindTry, &common.join("config"));
     }
     for (index, bind) in spec.binds.iter().enumerate() {
         let host = expand_home(&bind.path, home);
         match bind.mode {
-            BindMode::Ro => {
-                argv.extend([s("--ro-bind-try"), host_path(&host), namespace_path(&host)])
-            }
-            BindMode::Rw => argv.extend([s("--bind-try"), host_path(&host), namespace_path(&host)]),
-            BindMode::Overlay => argv.extend(overlay_argv(&host, index, writes)?),
+            BindMode::Ro => namespace.mount_in_place(Mount::RoBindTry, &host),
+            BindMode::Rw => namespace.mount_in_place(Mount::BindTry, &host),
+            BindMode::Overlay => namespace.overlay(overlay_argv(&host, index, writes)?),
         }
         for name in &bind.mask {
             let masked = host.join(name);
@@ -589,10 +487,23 @@ pub fn box_argv(
             // create it on the host to mount over; only what exists is
             // hidden.
             if masked.exists() {
-                argv.extend([s("--ro-bind"), s("/dev/null"), namespace_path(&masked)]);
+                let target = namespace_path(&masked);
+                namespace.mount(Mount::RoBind, Path::new("/dev/null"), &target);
             }
         }
     }
+    for (key, value) in box_environment(spec, home) {
+        namespace.setenv(key, &value);
+    }
+    for (key, value) in &git.identity {
+        namespace.setenv(key, value);
+    }
+    Ok(namespace.enter(workdir, command))
+}
+
+/// The workspace box's environment, in the order it is set: the fixed
+/// switches, then each toolchain home its own bind declares.
+fn box_environment(spec: &HandsSpec, home: &Path) -> Vec<(&'static str, String)> {
     let cargo_home = home.join(".cargo");
     let rustup_home = home.join(".rustup");
     let npm_cache = home.join(".npm");
@@ -643,15 +554,7 @@ pub fn box_argv(
     {
         environment.push(("NPM_CONFIG_CACHE", namespace_path(&npm_cache)));
     }
-    for (key, value) in environment {
-        argv.extend([s("--setenv"), s(key), value]);
-    }
-    for (key, value) in &git.identity {
-        argv.extend([s("--setenv"), s(key), s(value)]);
-    }
-    argv.extend([s("--chdir"), namespace_path(workdir), s("--")]);
-    argv.extend(command.iter().cloned());
-    Ok(argv)
+    environment
 }
 
 /// The engine's own uid and gid: what the box maps to `runner`, and what

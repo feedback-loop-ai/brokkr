@@ -5,11 +5,11 @@
 //! This module is the one home of the observation type and its wire
 //! encoding (design D9). The adapters read calls into it here, and the
 //! engine's private wire edge decodes the same type, from the same
-//! encoding, under [`OBSERVATION_KEY`]. The legacy lowering is its
-//! production consumer today, and it writes exactly the `tool` field the
-//! rows have always carried: no call id, no server, no new key. Emitting
-//! the observation itself waits until every engine consumer is installed,
-//! so this module adds no outward fact.
+//! encoding, under [`OBSERVATION_KEY`]. Every engine consumer is installed
+//! (U4b, U4e and U4f), so each row a call lowers to carries its
+//! observation beside the `tool` the row has always shown (U4f2). The
+//! engine takes the observation off before any append and alone writes
+//! the call's public attribution; the store never sees it.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -114,31 +114,38 @@ impl Observation {
         }
     }
 
-    /// The `tool` a legacy row carries for this call, clamped for display;
-    /// `None` where Claude's row carries no tool and dsh writes no row.
-    /// Each format shows what it always showed: Codex its item category,
-    /// `unknown` when there is none, Claude and dsh the name as reported.
-    /// The call id is read and dropped here, because no legacy row has it.
-    pub(super) fn legacy_tool(self) -> Option<String> {
-        let Self {
-            format,
-            call: _unrecorded,
-            tool,
-        } = self;
-        let shown = match (format, tool) {
-            (Format::Codex, Tool::Named { name: kind }) => kind,
+    /// The `tool` a row shows for this call, clamped for display; `None`
+    /// where Claude's row shows no tool and dsh writes no row. Each format
+    /// shows what it always showed: Codex its item category, `unknown`
+    /// when there is none, Claude and dsh the name as reported. The call
+    /// id is not shown; it rides in the observation.
+    pub(super) fn shown_tool(&self) -> Option<String> {
+        let shown = match (self.format, &self.tool) {
+            (Format::Codex, Tool::Named { name: kind }) => kind.clone(),
             (Format::Codex, Tool::Mcp { .. }) => CODEX_MCP_ITEM.to_string(),
-            (Format::Codex, Tool::McpUnidentified { reported }) => reported,
+            (Format::Codex, Tool::McpUnidentified { reported }) => reported.clone(),
             (Format::Codex, Tool::Missing) => "unknown".to_string(),
             (Format::Claude | Format::Dsh, Tool::Named { name }) if name.is_empty() => return None,
             (Format::Claude | Format::Dsh, Tool::Missing) => return None,
-            (Format::Claude | Format::Dsh, Tool::Named { name }) => name,
-            (Format::Claude | Format::Dsh, Tool::McpUnidentified { reported }) => reported,
+            (Format::Claude | Format::Dsh, Tool::Named { name }) => name.clone(),
+            (Format::Claude | Format::Dsh, Tool::McpUnidentified { reported }) => reported.clone(),
             (Format::Claude | Format::Dsh, Tool::Mcp { server, tool }) => {
                 format!("{MCP_PREFIX}{server}{MCP_SEPARATOR}{tool}")
             }
         };
         Some(shown.chars().take(SHOWN_CHARS).collect())
+    }
+
+    /// `row`, the object this call's event lowers to, carrying the call:
+    /// the `tool` [`Self::shown_tool`] shows, where it shows one, and the
+    /// observation itself under [`OBSERVATION_KEY`], whole and unclamped,
+    /// for the engine to consume before any append (U4f2).
+    pub(super) fn onto(self, mut row: Value) -> Value {
+        if let Some(tool) = self.shown_tool() {
+            row["tool"] = Value::String(tool);
+        }
+        row[OBSERVATION_KEY] = serde_json::to_value(self).expect("an observation encodes");
+        row
     }
 }
 

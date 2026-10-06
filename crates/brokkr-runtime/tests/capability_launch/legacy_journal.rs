@@ -1,12 +1,13 @@
-//! D9's native legacy boundary matrix (decision 0065 slice two, U4a–U4f;
-//! CC1, CC3 and SC4): before any normalized emission, a legacy native
-//! record travels the whole production path — compile with a realm that
-//! grants `web-search` through `claude-native-search`, the shipped Claude
-//! driver in its own process, the engine, the store's append fence,
-//! export and offline verify — at every executable site shape, and
-//! arrives exactly as the shipped lowering wrote it plus the engine's own
-//! stamps, with no attribution group and no private observation. Each U4
-//! merge reruns it.
+//! D9's native boundary matrix (decision 0065 slice two, U4a–U4f2; CC1,
+//! CC3 and SC4): a native record travels the whole production path —
+//! compile with a realm that grants `web-search` through
+//! `claude-native-search`, the shipped Claude driver in its own process,
+//! the engine, the store's append fence, export and offline verify — at
+//! every executable site shape. Since U4f2 the shipped driver emits each
+//! call's observation and the engine alone writes the held search's group;
+//! a legacy record, its observation taken off in transit, still arrives
+//! exactly as it was written plus the engine's own stamps. Each U4 merge
+//! reruns it; [`codex`] is U4f2's Codex leg and its refusals.
 //!
 //! The driver is production's `adapters::serve` for the Claude kind, run
 //! as this test binary re-entered through [`claude_driver_child`]; the
@@ -19,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::fold::Status;
+use brokkr_core::fold::{RunState, Status};
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::adapters::capability_calls::{Format, Observation, Tool, OBSERVATION_KEY};
 use brokkr_protocol::adapters::AdapterKind;
@@ -30,6 +31,9 @@ use serde_json::{json, Value};
 
 use super::charters::{write_charter, write_role};
 use super::{workspace, write};
+
+#[path = "legacy_journal/codex.rs"]
+mod codex;
 
 /// Set only by a wrapper's own command line, never by this process: the
 /// arguments the engine handed `driver claude` after its `--`, one a line.
@@ -54,15 +58,21 @@ const V6: &str = "contracts/seat-record.v6.schema.json";
 const VERSION: &str = "2.1.266";
 
 /// Not a test of its own: production's Claude driver, served when a
-/// wrapper re-enters this binary with [`SERVE`] set. It exits at once so
-/// nothing of libtest's follows the protocol on stdout.
+/// wrapper re-enters this binary with [`SERVE`] set.
 #[test]
 fn claude_driver_child() {
-    let Ok(extra) = std::env::var(SERVE) else {
+    serve_child(SERVE, AdapterKind::Claude);
+}
+
+/// Production's driver of `kind`, served when `var` carries the
+/// arguments a wrapper's engine handed it. It exits at once so nothing
+/// of libtest's follows the protocol on stdout.
+fn serve_child(var: &str, kind: AdapterKind) {
+    let Ok(extra) = std::env::var(var) else {
         return;
     };
     let extra = extra.lines().map(str::to_string).collect();
-    let served = brokkr_protocol::adapters::serve(AdapterKind::Claude, extra);
+    let served = brokkr_protocol::adapters::serve(kind, extra);
     std::process::exit(if served.is_ok() { 0 } else { 70 });
 }
 
@@ -154,18 +164,18 @@ fn wrapper(root: &Path, tag: &str, retried: bool) -> String {
 /// written.
 const OBSERVING: &str = "observing.sed";
 
-/// What U4f2's serializer will add beside each of the fake harness's two
-/// calls, until then injected by the wrapper: the observation protocol
-/// encodes, and on the search a forged call id, state and response digest.
-const OBSERVATIONS: &str = concat!(
+/// What a driver from before U4f2 wrote: the shipped rows with each
+/// call's observation taken off in transit, so a legacy record still
+/// travels the whole path. Every Claude row with an observation has a
+/// `step` after it, so the comma behind it is always there to take.
+const LEGACY: &str = r#"s/"observation":{[^{}]*{[^{}]*}},//"#;
+
+/// A forged call id, state and response digest beside the search, which
+/// the driver has no authority to write; its observation is the shipped
+/// serializer's own.
+const FORGED: &str = concat!(
     r#"s/"tool":"WebSearch"/&,"call_id":"forged","call_state":"succeeded","#,
-    r#""response_sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","#,
-    r#""observation":"#,
-    r#"{"format":"claude","call":"toolu_01","tool":{"kind":"named","name":"WebSearch"}}/"#,
-    "\n",
-    r#"s/"tool":"Read"/&,"observation":"#,
-    r#"{"format":"claude","call":"toolu_02","tool":{"kind":"named","name":"Read"}}/"#,
-    "\n",
+    r#""response_sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"/"#,
 );
 
 /// The shipped Claude adapter served through the `agent` wrapper, with a
@@ -186,13 +196,14 @@ fn adapters(root: &Path) {
 }
 
 /// The world whose one realm, `private` over `work/`, grants `web-search`
-/// through Claude's native dialect, with the shipped definitions it
+/// through the shipped native `dialect`, with the shipped definitions it
 /// resolves against.
-fn world(root: &Path) -> World {
+fn world(root: &Path, dialect: &str) -> World {
+    let dialect_file = format!("dialects/tools/{dialect}.json");
     for shipped in [
         "capabilities/web-search.json",
         "capabilities/web-fetch.json",
-        "dialects/tools/claude-native-search.json",
+        &dialect_file,
     ] {
         let body = std::fs::read(workspace().join(shipped)).unwrap();
         write(root, shipped, &serde_json::from_slice(&body).unwrap());
@@ -202,9 +213,50 @@ fn world(root: &Path) -> World {
         "realms.json",
         &json!({"schema": "forge.realms/v6", "journal": "forge.db", "realms": [
             {"name": "private", "path": root.join("work"), "default_branch": "main",
-             "capabilities": {"web-search": {"dialect": "claude-native-search"}}}]}),
+             "capabilities": {"web-search": {"dialect": dialect}}}]}),
     );
     World::load(&root.join("realms.json")).unwrap()
+}
+
+/// The bundle under `root` compiled in `world`'s one realm, against the
+/// agents and adapters beside it.
+fn compiled(root: &Path, world: &World) -> Bundle {
+    let context = CapabilityContext {
+        realm: "private".into(),
+        grants: world.map.realms[0].grants.clone(),
+        root: root.to_path_buf(),
+    };
+    Bundle::compile_with_capabilities(
+        &root.join("bundle"),
+        &root.join("agents"),
+        &root.join("adapters"),
+        Some("private"),
+        None,
+        Boundary::Namespace,
+        &context,
+    )
+    .unwrap_or_else(|refusal| panic!("the matrix compiles: {refusal}"))
+}
+
+/// A canonicalised temporary root with the directories every wrapper and
+/// harness here writes under.
+fn rooted() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    for sub in ["bin", "state", "home", "work"] {
+        std::fs::create_dir_all(root.join(sub)).unwrap();
+    }
+    (dir, root)
+}
+
+/// `bundle`'s run of `feature` in `world`, journaled under `root`, driven
+/// until it completes or parks.
+fn drive(root: &Path, world: World, bundle: Bundle, feature: &str) -> (Engine, RunState) {
+    let store = Store::open(&root.join("forge.db")).unwrap();
+    let repo = Some(root.join("work"));
+    let mut engine = Engine::start_in_world(store, bundle, feature, repo, Some(world)).unwrap();
+    let end = engine.drive().unwrap();
+    (engine, end.state)
 }
 
 /// The seats, one per site shape, each stepping to the next: an
@@ -310,21 +362,7 @@ fn bundle(root: &Path, world: &World) -> Bundle {
         "bundle/bundle.json",
         &json!({"name": "legacy-journal", "policy": "policy.json", "seats": seats}),
     );
-    let context = CapabilityContext {
-        realm: "private".into(),
-        grants: world.map.realms[0].grants.clone(),
-        root: root.to_path_buf(),
-    };
-    Bundle::compile_with_capabilities(
-        &root.join("bundle"),
-        &root.join("agents"),
-        &root.join("adapters"),
-        Some("private"),
-        None,
-        Boundary::Namespace,
-        &context,
-    )
-    .unwrap_or_else(|refusal| panic!("the legacy matrix compiles: {refusal}"))
+    compiled(root, world)
 }
 
 /// What a site wrote, keyed by its seat and the member or step that
@@ -620,14 +658,15 @@ fn fences_the_attribution_group(store: &mut Store, run_id: &str) {
     assert_eq!(exported.lines().count() as u64, landed.seq);
 }
 
-/// D9's preparation proof at this merge: every site shape journals the
-/// rows the shipped Claude lowering wrote for a held native search and a
-/// local read exactly, the run exports and the export verifies offline,
-/// no record carries an attribution field or a private observation, and
-/// a direct append of either is refused.
+/// D9's preparation proof, kept at activation: every site shape journals
+/// the legacy rows a driver from before U4f2 wrote for a held native
+/// search and a local read exactly, the run exports and the export
+/// verifies offline, no record carries an attribution field or a private
+/// observation, and a direct append of either is refused. A row with no
+/// observation is never attributed.
 #[test]
 fn every_site_shape_journals_its_legacy_native_rows_through_export_and_verify() {
-    let (_dir, root, mut engine) = driven(None);
+    let (_dir, root, mut engine) = driven(Some(LEGACY));
     let run_id = engine.run_id.clone();
     let events = engine.store.load(&run_id).unwrap();
     assert_eq!(launches(&root), wanted_launches());
@@ -640,56 +679,46 @@ fn every_site_shape_journals_its_legacy_native_rows_through_export_and_verify() 
             }
         }
     }
-    exports_and_verifies(&engine.store, &run_id, events.len());
+    exports_and_verifies(&engine.store, &run_id, events.len(), Status::Completed);
     fences_the_attribution_group(&mut engine.store, &run_id);
 }
 
 /// The matrix compiled and driven to completion under a canonicalised
 /// temporary root, with `observing` written as the wrappers' filter.
 fn driven(observing: Option<&str>) -> (tempfile::TempDir, PathBuf, Engine) {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
-    for sub in ["bin", "state", "home", "work"] {
-        std::fs::create_dir_all(root.join(sub)).unwrap();
-    }
+    let (dir, root) = rooted();
     if let Some(program) = observing {
         std::fs::write(root.join(OBSERVING), program).unwrap();
     }
-    let store = Store::open(&root.join("forge.db")).unwrap();
-    let world = world(&root);
+    let world = world(&root, "claude-native-search");
     let bundle = bundle(&root, &world);
-    let repo = Some(root.join("work"));
-    let mut engine =
-        Engine::start_in_world(store, bundle, "Feature: legacy", repo, Some(world)).unwrap();
-    let end = engine.drive().unwrap();
-    let status = end.state.status;
-    assert_eq!(status, Status::Completed, "{:?}", end.state.park_reason);
+    let (engine, state) = drive(&root, world, bundle, "Feature: legacy");
+    assert_eq!(state.status, Status::Completed, "{:?}", state.park_reason);
     (dir, root, engine)
 }
 
 /// The run exports all `count` of its events and the export verifies
-/// offline to the completed run.
-fn exports_and_verifies(store: &Store, run_id: &str, count: usize) {
+/// offline to the run's `status`.
+fn exports_and_verifies(store: &Store, run_id: &str, count: usize, status: Status) {
     let exported = store.export_ndjson(run_id).unwrap();
     assert_eq!(exported.lines().count(), count);
     let verified = brokkr_store::verify_export(&exported).unwrap();
-    let journal = (Status::Completed, count as u64);
-    assert_eq!((verified.status, verified.seq), journal);
+    assert_eq!((verified.status, verified.seq), (status, count as u64));
 }
 
-/// U4e's consumer at every site shape (CC1, CC3, SC4): the shipped Claude
-/// driver's rows, each call carrying the observation U4f2 will emit and
-/// the search a forged call id and state, journal exactly the legacy rows
-/// with the engine's own whole group on the held search — its call id
-/// the digest of its attempt, site stamps, provider and harness id — and the
-/// local read ordinary. The resumed seat's rejoined root replays its
-/// `toolu_01`, which is history and stays ordinary (U4f); the replaced
-/// seat's root was never offered, so its second search is new. No
-/// observation or forged value reaches the store, and the run exports and
-/// verifies.
+/// U4f2's activation at every site shape (CC1, CC3, SC4): the shipped
+/// Claude driver's own rows, each call carrying the observation its
+/// serializer now emits and the search a forged call id and state,
+/// journal exactly the legacy rows with the engine's own whole group on
+/// the held search — its call id the digest of its attempt, site stamps,
+/// provider and harness id — and the local read ordinary. The resumed
+/// seat's rejoined root replays its `toolu_01`, which is history and
+/// stays ordinary (U4f); the replaced seat's root was never offered, so
+/// its second search is new. No observation or forged value reaches the
+/// store, and the run exports and verifies.
 #[test]
 fn every_site_shape_journals_the_engines_group_on_an_observed_held_call() {
-    let (_dir, root, engine) = driven(Some(OBSERVATIONS));
+    let (_dir, root, engine) = driven(Some(FORGED));
     let run_id = engine.run_id.clone();
     let events = engine.store.load(&run_id).unwrap();
     let mut wanted = wanted();
@@ -713,11 +742,18 @@ fn every_site_shape_journals_the_engines_group_on_an_observed_held_call() {
     // panel's and the sequence's second site, and the replaced seat's
     // second launch; the resumed one's replay is no new use.
     assert_eq!(attributed.len(), 11);
-    for event in &events {
-        let checkpoint = &event.payload["checkpoint"];
-        for field in ["response_sha256", OBSERVATION_KEY] {
-            assert_eq!(checkpoint.get(field), None, "{field} at seq {}", event.seq);
+    nothing_private(&events);
+    exports_and_verifies(&engine.store, &run_id, events.len(), Status::Completed);
+}
+
+/// No record of `events` carries a response digest or a private
+/// observation.
+fn nothing_private(events: &[EventEnvelope]) {
+    for event in events {
+        for record in [&event.payload["checkpoint"], &event.payload["result"]] {
+            for field in ["response_sha256", OBSERVATION_KEY] {
+                assert_eq!(record.get(field), None, "{field} at seq {}", event.seq);
+            }
         }
     }
-    exports_and_verifies(&engine.store, &run_id, events.len());
 }

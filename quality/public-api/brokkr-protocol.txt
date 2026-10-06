@@ -106,6 +106,118 @@ pub fn brokkr_protocol::adapters::dsh_composite_prepared(&brokkr_protocol::adapt
 pub fn brokkr_protocol::adapters::lanetally_command(&str, &[alloc::string::String], core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::adapters::render_prompt(&serde_json::value::Value, brokkr_protocol::adapters::AdapterKind) -> core::result::Result<alloc::string::String, brokkr_protocol::adapters::StartRefusal>
 pub fn brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind, alloc::vec::Vec<alloc::string::String>) -> core::io::error::Result<()>
+pub mod brokkr_protocol::broker
+pub enum brokkr_protocol::broker::Network
+pub brokkr_protocol::broker::Network::Isolated
+pub brokkr_protocol::broker::Network::Shared
+pub enum brokkr_protocol::broker::Privilege
+pub brokkr_protocol::broker::Privilege::Confined
+pub enum brokkr_protocol::broker::Refusal
+pub brokkr_protocol::broker::Refusal::BindOverlapsReach
+pub brokkr_protocol::broker::Refusal::Identity
+pub brokkr_protocol::broker::Refusal::LaunchInReach
+pub brokkr_protocol::broker::Refusal::Name(alloc::string::String)
+pub brokkr_protocol::broker::Refusal::ProgramTree
+pub brokkr_protocol::broker::Refusal::ServingIncomplete
+pub brokkr_protocol::broker::Refusal::StartupInputs
+pub brokkr_protocol::broker::Refusal::StoreInBox
+pub brokkr_protocol::broker::Refusal::StoreReachable
+pub brokkr_protocol::broker::Refusal::Unbound
+pub enum brokkr_protocol::broker::Tree
+pub brokkr_protocol::broker::Tree::Package
+pub brokkr_protocol::broker::Tree::Package::root: std::path::PathBuf
+pub brokkr_protocol::broker::Tree::System
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Tree
+pub fn brokkr_protocol::broker::Tree::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Bootstrap
+pub brokkr_protocol::broker::Bootstrap::digest: alloc::string::String
+pub brokkr_protocol::broker::Bootstrap::path: std::path::PathBuf
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Bootstrap
+pub fn brokkr_protocol::broker::Bootstrap::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::BoxIntent
+pub brokkr_protocol::broker::BoxIntent::bootstrap: brokkr_protocol::broker::Bootstrap
+pub brokkr_protocol::broker::BoxIntent::environment: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::broker::BoxIntent::excluded: brokkr_protocol::broker::Excluded
+pub brokkr_protocol::broker::BoxIntent::executable: std::path::PathBuf
+pub brokkr_protocol::broker::BoxIntent::network: brokkr_protocol::broker::Network
+pub brokkr_protocol::broker::BoxIntent::reach: brokkr_protocol::broker::Reach
+pub brokkr_protocol::broker::BoxIntent::sources: brokkr_protocol::broker::Sources
+pub brokkr_protocol::broker::BoxIntent::tree: brokkr_protocol::broker::Tree
+pub brokkr_protocol::broker::BoxIntent::writers: brokkr_protocol::broker::Writers
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::BoxIntent
+pub fn brokkr_protocol::broker::BoxIntent::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Clearance
+pub brokkr_protocol::broker::Clearance::dialect: alloc::string::String
+pub brokkr_protocol::broker::Clearance::policy: alloc::string::String
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Clearance
+pub fn brokkr_protocol::broker::Clearance::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Connection
+pub brokkr_protocol::broker::Connection::argv: alloc::vec::Vec<alloc::string::String>
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Connection
+pub fn brokkr_protocol::broker::Connection::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Dialect
+pub brokkr_protocol::broker::Dialect::definition: alloc::string::String
+pub brokkr_protocol::broker::Dialect::digest: alloc::string::String
+pub brokkr_protocol::broker::Dialect::name: alloc::string::String
+pub brokkr_protocol::broker::Dialect::version: alloc::string::String
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Dialect
+pub fn brokkr_protocol::broker::Dialect::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Excluded
+pub brokkr_protocol::broker::Excluded::control: alloc::vec::Vec<std::path::PathBuf>
+pub brokkr_protocol::broker::Excluded::store: std::path::PathBuf
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Excluded
+pub fn brokkr_protocol::broker::Excluded::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Inventory
+pub brokkr_protocol::broker::Inventory::plans: alloc::vec::Vec<brokkr_protocol::broker::Pin>
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Inventory
+pub fn brokkr_protocol::broker::Inventory::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Owner
+pub brokkr_protocol::broker::Owner::attempt: alloc::string::String
+pub brokkr_protocol::broker::Owner::effect: alloc::string::String
+pub brokkr_protocol::broker::Owner::instance: alloc::string::String
+pub brokkr_protocol::broker::Owner::repo: alloc::string::String
+pub brokkr_protocol::broker::Owner::run: alloc::string::String
+pub brokkr_protocol::broker::Owner::site: alloc::string::String
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Owner
+pub fn brokkr_protocol::broker::Owner::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Pin
+pub brokkr_protocol::broker::Pin::digest: alloc::string::String
+pub brokkr_protocol::broker::Pin::locator: std::path::PathBuf
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Pin
+pub fn brokkr_protocol::broker::Pin::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Plan
+pub brokkr_protocol::broker::Plan::capability: alloc::string::String
+pub brokkr_protocol::broker::Plan::clearance: brokkr_protocol::broker::Clearance
+pub brokkr_protocol::broker::Plan::connection: brokkr_protocol::broker::Connection
+pub brokkr_protocol::broker::Plan::dialect: brokkr_protocol::broker::Dialect
+pub brokkr_protocol::broker::Plan::intent: brokkr_protocol::broker::BoxIntent
+pub brokkr_protocol::broker::Plan::owner: brokkr_protocol::broker::Owner
+pub brokkr_protocol::broker::Plan::restrictions: brokkr_protocol::broker::Restrictions
+pub brokkr_protocol::broker::Plan::retained: bool
+pub brokkr_protocol::broker::Plan::secrets: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::broker::Plan::server: alloc::string::String
+pub brokkr_protocol::broker::Plan::tools: alloc::vec::Vec<alloc::string::String>
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Plan
+pub fn brokkr_protocol::broker::Plan::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Reach
+pub brokkr_protocol::broker::Reach::readable: alloc::vec::Vec<std::path::PathBuf>
+pub brokkr_protocol::broker::Reach::writable: alloc::vec::Vec<std::path::PathBuf>
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Reach
+pub fn brokkr_protocol::broker::Reach::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Restrictions
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Restrictions
+pub fn brokkr_protocol::broker::Restrictions::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Sources
+pub brokkr_protocol::broker::Sources::digest: alloc::string::String
+pub brokkr_protocol::broker::Sources::entries: u64
+pub brokkr_protocol::broker::Sources::mounts: u64
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Sources
+pub fn brokkr_protocol::broker::Sources::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct brokkr_protocol::broker::Writers
+pub brokkr_protocol::broker::Writers::privilege: brokkr_protocol::broker::Privilege
+pub brokkr_protocol::broker::Writers::uids: alloc::vec::Vec<u32>
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Writers
+pub fn brokkr_protocol::broker::Writers::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
 pub mod brokkr_protocol::dsh_sandbox
 pub struct brokkr_protocol::dsh_sandbox::GitScope
 pub brokkr_protocol::dsh_sandbox::GitScope::common_dir: std::path::PathBuf
@@ -176,6 +288,20 @@ impl brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::Reaped::lines_with(&self, fn(&str) -> alloc::string::String) -> alloc::string::String
 impl core::fmt::Display for brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::Reaped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_protocol::hands::ServerBox
+impl brokkr_protocol::hands::ServerBox
+pub fn brokkr_protocol::hands::ServerBox::paths(&self) -> impl core::iter::traits::iterator::Iterator<Item = &std::path::Path>
+pub fn brokkr_protocol::hands::ServerBox::prepare(&brokkr_protocol::hands::ServerProgram, &brokkr_protocol::hands::ServerProfile<'_>) -> core::result::Result<brokkr_protocol::hands::ServerBox, brokkr_protocol::broker::Refusal>
+pub struct brokkr_protocol::hands::ServerProfile<'a>
+pub brokkr_protocol::hands::ServerProfile::arguments: &'a [alloc::string::String]
+pub brokkr_protocol::hands::ServerProfile::bootstrap: &'a std::path::Path
+pub brokkr_protocol::hands::ServerProfile::network: &'a brokkr_protocol::broker::Network
+pub brokkr_protocol::hands::ServerProfile::reach: &'a brokkr_protocol::broker::Reach
+pub struct brokkr_protocol::hands::ServerProgram
+impl brokkr_protocol::hands::ServerProgram
+pub fn brokkr_protocol::hands::ServerProgram::executable(&self) -> &std::path::Path
+pub fn brokkr_protocol::hands::ServerProgram::resolve(&str, &std::path::Path) -> core::result::Result<brokkr_protocol::hands::ServerProgram, brokkr_protocol::broker::Refusal>
+pub fn brokkr_protocol::hands::ServerProgram::tree(&self) -> &brokkr_protocol::broker::Tree
 pub struct brokkr_protocol::hands::Session
 impl brokkr_protocol::hands::Session
 pub fn brokkr_protocol::hands::Session::create(&str) -> core::result::Result<brokkr_protocol::hands::Session, brokkr_protocol::hands::SessionError>
@@ -216,6 +342,7 @@ pub fn brokkr_protocol::hands::run_boxed(&brokkr_protocol::hands::HandsSpec, &st
 pub fn brokkr_protocol::hands::run_boxed_in(&std::path::Path, &brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::GitFacts, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::result::Result<i32, alloc::string::String>
 pub fn brokkr_protocol::hands::serve<R: alloc::io::buf_read::BufRead, W: core::io::write::Write>(R, W, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &brokkr_protocol::hands::Executor) -> core::io::error::Result<()>
 pub fn brokkr_protocol::hands::serve_args(&std::path::Path, &brokkr_protocol::hands::HandsSpec) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_protocol::hands::server_environment() -> impl core::iter::traits::iterator::Iterator<Item = &'static str>
 pub fn brokkr_protocol::hands::skip_boundary_proof(bool, &str)
 pub fn brokkr_protocol::hands::tool_definition() -> serde_json::value::Value
 pub fn brokkr_protocol::hands::unboxed_environment(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &[(alloc::string::String, alloc::string::String)], &std::path::Path, &std::path::Path) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
