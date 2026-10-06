@@ -12,7 +12,7 @@ pub(crate) mod env_guard;
 pub(crate) mod envelope_builder;
 use envelope_builder::EnvelopeBuilder;
 
-fn store() -> (tempfile::TempDir, Store) {
+pub(crate) fn store() -> (tempfile::TempDir, Store) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("forge.db");
     let store = Store::open(&path).unwrap();
@@ -425,10 +425,10 @@ fn export_verifies_offline() {
 /// Seal a row straight into the table, past the append fence: the shape
 /// of a journal written by an engine from before decision 0034's ruling
 /// 6, which export and offline verify must still refuse.
-fn plant_unfenced(store: &mut Store, run_id: &str, event_type: EventType, payload: Value) {
-    let (seq, previous_hash) = store.head_hash(run_id).unwrap();
+pub(crate) fn plant_unfenced(store: &mut Store, run: &str, event_type: EventType, payload: Value) {
+    let (seq, previous_hash) = store.head_hash(run).unwrap();
     let envelope = EnvelopeBuilder::new(event_type, payload)
-        .run(run_id)
+        .run(run)
         .seq(seq + 1)
         .event_id(format!("planted-{}", seq + 1))
         .at(now_rfc3339())

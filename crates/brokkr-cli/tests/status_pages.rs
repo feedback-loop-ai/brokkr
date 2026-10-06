@@ -77,6 +77,18 @@ struct Rendered {
     notes: Vec<String>,
 }
 
+/// The flag a legacy declaration names, not whether the seat reaches MCP:
+/// the operator's own configuration reaches it either way. Typed facts
+/// (decision 0065 slice two, U1b) name no flag.
+fn mcp_flag(mcp: &McpSupport) -> String {
+    match mcp {
+        McpSupport::Legacy { flag: Some(flag) } => format!("`{flag}`"),
+        McpSupport::Legacy { flag: None }
+        | McpSupport::Inapplicable { .. }
+        | McpSupport::Declared { .. } => "none".to_string(),
+    }
+}
+
 /// One adapter's matrix row, and the measured gaps it declares as list
 /// items for the section below the table.
 fn render(adapter: &Adapter, dialects: &[ToolDialect]) -> Rendered {
@@ -167,13 +179,7 @@ fn render(adapter: &Adapter, dialects: &[ToolDialect]) -> Rendered {
         }
         (None, None) => "no".to_string(),
     };
-    // The flag Brokkr can pass a seat's declared servers through, not
-    // whether the seat reaches MCP: the operator's own configuration
-    // reaches it either way. The server map is what an agent may name.
-    let mcp = match mcp {
-        Some(McpSupport { flag, servers: _ }) => format!("`{flag}`"),
-        None => "none".to_string(),
-    };
+    let mcp = mcp_flag(mcp);
     let boxed = match (hands, hands_gap) {
         (Some(_), _) => "yes".to_string(),
         (None, Some(gap)) => {

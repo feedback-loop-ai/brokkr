@@ -29,7 +29,7 @@ impl Tree {
         };
         std::fs::create_dir_all(tree.library_root().join("charters")).unwrap();
         std::fs::create_dir_all(tree.adapters_root()).unwrap();
-        std::fs::write(tree.library_root().join("charters/c.md"), "# charter\n").unwrap();
+        tree.raw("agents/charters/c.md", &charter_data::declaring());
         tree
     }
 
@@ -1544,7 +1544,7 @@ fn a_resolution_carries_its_charter_owner_reference_target_and_digest() {
             library: tree.library_root(),
             reference: "charters/linked.md".to_string(),
             target: target.clone(),
-            digest: brokkr_core::canonical::sha256_bytes(b"# charter\n"),
+            digest: brokkr_core::canonical::sha256_bytes(charter_data::declaring().as_bytes()),
         }
     );
     assert_eq!(resolution.charter, target);
@@ -2361,7 +2361,7 @@ fn a_provider_may_declare_every_capability_unsupported() {
     let exec = adapters.providers().next().unwrap();
     assert!(exec.model_flag.is_none());
     assert!(exec.tool_permissions.is_none());
-    assert!(exec.mcp.is_none());
+    assert_eq!(exec.mcp, McpSupport::Legacy { flag: None });
     assert!(adapters.serving("opus").is_none());
     assert_eq!(adapters.digest("nobody"), None);
     assert!(adapters.digest("exec").is_some());

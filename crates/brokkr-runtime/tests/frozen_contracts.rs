@@ -24,12 +24,19 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 25] = [
+const FROZEN: [(&str, &str); 26] = [
     // Decision 0065 slice two (SC3) lands `run-manifest.v12` beside v11,
     // which was the new file when slice one landed and is frozen from here.
     (
         "contracts/run-manifest.v11.schema.json",
         "6d03d801f02a5ca587b4111622d3ba7342160694728e2bba8baa5d48acaa33a7",
+    ),
+    // Decision 0065 slice two (CC3/SC4) lands seat-record v6 beside v5,
+    // which was the new file when proposed decision 0056 landed and is
+    // frozen from here.
+    (
+        "contracts/seat-record.v5.schema.json",
+        "d0083a17f56f2ba68cf07f028d642a6b900b68c49ccc4e5b1e462e1cce0ff9f1",
     ),
     // Decision 0065 slice two (SC2) lands `forge.realms/v8` beside v7,
     // which was the new file when #487 landed and is frozen from here.
@@ -589,6 +596,17 @@ fn the_capability_contracts_land_beside_their_frozen_predecessors() {
     ] {
         assert_eq!(digest(relative), pinned, "{relative} bytes moved");
     }
+}
+
+/// Decision 0065 slice two (CC3/SC4): the capability-call attribution
+/// group arrives as seat-record v6, a new file beside v5, whose bytes
+/// `FROZEN` pins and which did not move.
+#[test]
+fn the_v6_seat_record_lands_beside_its_frozen_predecessor() {
+    assert_eq!(
+        titled("contracts/seat-record.v6.schema.json"),
+        "Forge seat record v6"
+    );
 }
 
 /// `forge.realms/v6` is v5 plus one optional per-realm `capabilities` map

@@ -18,6 +18,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Map, Value};
 
+pub mod capability_calls;
 mod composite;
 mod dsh_stderr;
 mod route_overlay;
@@ -37,6 +38,7 @@ use crate::overrides::{Override, OverrideError};
 use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
 use crate::{Body, Message, ResultStatus};
+use capability_calls::Observation;
 use dsh_stderr::redact_dsh_reasoning;
 use start::start_prompt;
 
@@ -1607,12 +1609,8 @@ fn fold_stream_event(
                         checkpoint.remove(key);
                     }
                 }
-                let tool = tool_use.get("name").and_then(Value::as_str).unwrap_or("");
-                if !tool.is_empty() {
-                    checkpoint.insert(
-                        "tool".into(),
-                        Value::String(tool.chars().take(80).collect()),
-                    );
+                if let Some(tool) = Observation::claude(tool_use).legacy_tool() {
+                    checkpoint.insert("tool".into(), Value::String(tool));
                 }
                 // file_path ONLY: commands and URLs can embed inline secrets,
                 // and the journal is append-only — the verification review
@@ -1885,14 +1883,10 @@ fn fold_codex_event(
             emit(&json!({"step":"turn-started", "turn": *turn, "harness":"codex"}));
         }
         Some(kind @ ("item.started" | "item.completed")) => {
-            let item_type = event
-                .pointer("/item/type")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown");
             emit(&json!({
                 "step": if kind == "item.started" { "item-started" } else { "item-completed" },
                 "turn": *turn,
-                "tool": item_type.chars().take(80).collect::<String>(),
+                "tool": Observation::codex(event).legacy_tool(),
                 "harness":"codex",
             }));
         }
@@ -2190,11 +2184,7 @@ fn fold_dsh_event(
             emit(&Value::Object(checkpoint));
         }
         Some("tool/call") => {
-            let Some(tool) = event
-                .pointer("/data/name")
-                .and_then(Value::as_str)
-                .filter(|tool| !tool.is_empty())
-            else {
+            let Some(tool) = Observation::dsh(event).legacy_tool() else {
                 return;
             };
             if *turns == 0 {
@@ -2210,7 +2200,7 @@ fn fold_dsh_event(
                 "harness":"deepseek",
                 "model": model,
                 "effort": dsh_echoed_effort(session_meta),
-                "tool": tool.chars().take(80).collect::<String>(),
+                "tool": tool,
             }));
         }
         _ => {}

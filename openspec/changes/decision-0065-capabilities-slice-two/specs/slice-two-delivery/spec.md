@@ -21,9 +21,10 @@ verbatim. The completed plan requires operator ruling before implementation.
 Specification work SHALL claim no production change, harness measurement or
 implementation proof that has not occurred.
 
-Run chronology and review provenance SHALL have one durable evidence record
-in the change, referenced by file and section without requiring branch-local
-commits. Requirements and scenarios SHALL describe behavior independently of
+Each design visit's chronology and review provenance SHALL have one durable
+record at its commissioned evidence path in the change, referenced by file
+and section without requiring branch-local commits. A new visit SHALL NOT
+overwrite earlier evidence or reinterpret completed unit facts. Requirements and scenarios SHALL describe behavior independently of
 particular visits. Archive provenance SHALL point to the archived change;
 review chronology SHALL remain in its evidence record, not become living
 capability requirements.
@@ -60,7 +61,7 @@ that silently means several PRs is insufficient.
 
 U1–U4 SHALL be explicitly marked independent of one another, with U0 evidence
 dependencies stated where applicable. Listing them in a merge order does not
-invent a dependency. MCP preparation SHALL remain inert until U9; this does
+invent a dependency. MCP preparation SHALL remain inert until U9b; this does
 not delay independent native-only protections. No new unused public API or
 unmeasured bypass flag SHALL be added merely for staging (0071 ruling 6).
 
@@ -72,10 +73,10 @@ unmeasured bypass flag SHALL be added merely for staging (0071 ruling 6).
 | U3 gate and DATA rules | GP1–GP2 for native and MCP, independent of broker runtime. |
 | U4 native attribution first | CC1, CC3, SC4; store and all engine consumers before new emission, with legacy native compile-to-journal proofs at every merge. |
 | U5 dialect model and manifest | SC1–SC3: typed preserved fields, reserved veto, additive versions and compatibility; compile still refuses MCP. |
-| U6 unwired broker with fake child | MB3–MB5: tools, protocol, secret injector and cleanup; no compile admission. |
-| U7 multi-server wiring | MB1, MB2, SI2; adapter mcp consumer and selected-attempt discovery notice. |
-| U8 ledger, retention and inspect | CC2, CR1–CR5: idempotent engine folding, artifact integrity, reader behavior and recovery. |
-| U9 enablement and guides | MB2, SD3; doctor, real compile/launch fake-dialect end to end; all dependencies green. |
+| U6 unwired broker with boxed fake child | MB3–MB5: checked bind/reach identity, shared namespace builder, confined secret injection, tools, protocol and cleanup; no compile admission. |
+| U7 multi-server wiring | MB1–MB4, SI2; adapter mcp consumer, selected box/reach/egress intent and discovery notice. |
+| U8 ledger, retention and inspect | CC2, CR1–CR5: control/evidence roots excluded from server mounts, box-failure settlement, idempotent folding, artifact integrity and recovery. |
+| U9 enablement and guides | MB2–MB5, SD3; doctor, U5a2 clearance and real boxed compile/launch/fold evidence; U9b alone lifts the fence. |
 | U10 removal audits and final gates | SD4: proof inventory, unresolved measurement gaps, frozen-byte audit and final validation. |
 
 Design SHALL account for already oversized capabilities.rs, bundle.rs,
@@ -84,6 +85,22 @@ engine.rs, adapters.rs, native_controls.rs, doctor.rs, init.rs and engine/resume
 is an actual named production-file change, not a ceiling exemption. The
 Hot files note SHALL list every heavily touched path, unit ownership and
 other-thread conflicts, including contract/index/pin changes and #487's ownership of realms v7. Later moves on main require an updated inventory.
+
+The amended U6c SHALL restart from current main's U6a shared injector and
+U6b closed handler; held attempts supply reference evidence only. Re-plan
+U6c, U6d, U6e, U6f and every affected U7/U8/U9 row in one dependency order.
+Prefer a consumed extraction of hands' common box builder to another namespace
+implementation. Name which current box functions are reused, how hands keeps
+its current consumer, and where the distinct server profile removes workspace,
+Git, declared binds, host-backed HOME/TMPDIR and `--new-session`. Count source,
+new module, registration, and cross-crate injector access among each row's
+maximum three production files; split further if necessary. The current
+crate-private injector is not already a CLI API. A new public helper needs
+its same-unit consumer. Preserve completed U6a/U6b facts and stable IDs for
+unchanged work; add unchecked IDs for new boxing work, never tick by design.
+Update the merge-order count and Hot files together, preserving the tasks
+preamble's historical counts. The amended design SHALL explicitly reconcile
+all seven supplied holds against MB3's construction and remaining checks.
 
 #### Scenario: Wiring needs more than three production files
 
@@ -109,9 +126,21 @@ other-thread conflicts, including contract/index/pin changes and #487's ownershi
 - **THEN** drivers keep valid legacy emission until single, panel, sequence, fallback and resume consumers all exist; activation is a separately inventoried unit
 - **AND** native compile-to-journal tests prove every intermediate boundary, including append/export/verify, independently of the MCP compile fence
 
-### Requirement: SD3 U9 alone removes the unbuilt MCP admission fence
+#### Scenario: Reusing the builder needs an additional production split
 
-Until U9, every structurally valid selected-realm MCP grant SHALL retain
+- **WHEN** the box requires changing hands.rs, a new shared builder, its consuming broker module and secret.rs visibility or handoff
+- **THEN** the plan splits extraction, consumption and handoff into named ordered rows, each with at most three production files and a real consumer
+- **AND** hands behavior remains independently proved, the server profile excludes its workspace/session defaults, and no incomplete broker path becomes callable without its full admission checks
+
+#### Scenario: An amended session starts from the landed base
+
+- **WHEN** U6c resumes after a security-held implementation attempt
+- **THEN** the unit starts from current main and implements the amended boxed-server contract; it does not merge the held arbitrary-startup analyzer
+- **AND** later rows name box admission, readiness, secret injection, process ownership, ledger settlement and integrated U9b proofs in dependency order; unchanged task IDs retain their meaning
+
+### Requirement: SD3 U9b alone removes the unbuilt MCP admission fence
+
+Until U9b, every structurally valid selected-realm MCP grant SHALL retain
 slice one's exact realm-wide cause:
 "realm '<realm>' grants capability '<capability>' through dialect '<dialect>'
 of kind 'mcp', whose broker support is not implemented until decision 0065
@@ -125,14 +154,20 @@ SHALL refuse "broker retained-response support is incomplete" rather than
 silently discard its retention obligation. These temporary preparation causes
 are removed with their corresponding protections, not retained as user flags.
 
-U9 SHALL remove the fence only after strictness, safe typed resolution, gate
-rules, attribution, broker filtering/secrets/cleanup, final exact-server proof,
+U9b SHALL remove the fence only after strictness, safe typed resolution, gate
+rules, attribution, broker box admission/readiness/filtering/secrets/cleanup, final exact-server proof,
 ledger and retention all work together. Doctor SHALL use the same complete
 site plan as compile/launch, report grants as distinct from holdings, retain
 static versus measured scope, and display effective retention and every
 exact refusal without native-binding assumptions. It SHALL start no capability
-server for reporting. Guides SHALL state the actual namespace/stdio/empty-
-restriction limits and Codex discovery behavior.
+server for reporting. Guides SHALL state the actual Linux namespace/stdio/empty-restriction limits,
+conservative installed-entry package layout, pre-secret box refusals versus
+post-admission failures, separate hands/server network rules, retained U0
+read-isolation requirement, and Codex discovery behavior. Guidance SHALL
+name MB3's installation credential/history limits and MB4's host-loopback
+and Linux abstract Unix socket reach under shared network; it SHALL NOT
+claim credential discovery, historical byte authentication or a network
+allowlist from these checks.
 
 The engine SHALL render a fixed capability discovery notice, following
 0069's adapter-facts/engine-applicability pattern, listing the held capability
@@ -142,7 +177,7 @@ It SHALL not change the requested effect digest or qualify a resume shape.
 
 #### Scenario: A preparation merge cannot run an MCP capability
 
-- **WHEN** any U1–U8 intermediate head compiles a valid MCP realm grant, requested, wanted or unused
+- **WHEN** any head before U9b, including U9a, compiles a valid MCP realm grant, requested, wanted or unused
 - **THEN** it returns exactly the old unbuilt-kind cause and spawns no server
 - **AND** removing that fence prematurely fails its regression
 
@@ -154,10 +189,17 @@ It SHALL not change the requested effect digest or qualify a resume shape.
 
 #### Scenario: The enabling proof uses the real path
 
-- **WHEN** U9 compiles a temporary real realm, v1 fake MCP dialect and boxed model seat, then launches through the production engine and a deterministic harness fixture
-- **THEN** the harness starts brokkr hands plus cap-library-docs, the real broker launches the fake MCP child, only the granted tool succeeds, and engine-folded checkpoints/artifacts match exact expectations
-- **AND** denied tools, nonnamespace sites, bad strictness, secret leaks, forged ledger and vetoed retention have independent negative controls
+- **WHEN** U9b compiles a temporary real realm, v1 fake MCP dialect and boxed model seat, then launches through the production engine and a deterministic harness fixture
+- **THEN** the harness starts brokkr hands plus cap-library-docs, the real broker launches the fake MCP child inside its separate box, only the granted tool succeeds, and engine-folded checkpoints/artifacts match exact expectations
+- **AND** denied tools, nonnamespace sites, bad strictness, box reach/hard-link/alias/store/fixed-key refusals, secret leaks, forged ledger and vetoed retention have independent negative controls; all box admission refusals have zero lookups and zero dialect-server starts
 - **AND** the harness fixture is identified as deterministic integration evidence; real harness isolation is still supplied by U0, not claimed from the fixture
+
+#### Scenario: The enabling proof distinguishes confinement from startup success
+
+- **WHEN** U9b exercises the real broker with system and user-installed fake servers, a missing dependency, each egress class, and cancellation while the empty box waits
+- **THEN** real Linux evidence proves read-only approved mounts, absent seat/store/evidence reach, isolated private tmpfs, the confined environment handoff and MB5 settlement, with each exact cause and call count
+- **AND** the missing dependency fails inside the box without extra mounts; a success-reporting harness cannot hide its failed session; macOS keeps R2/namespace refusal
+- **AND** the host launcher has no secret/code-loading bindings, U0 read-isolation and machine_proof's one injector remain separate controls, and an independently compiling removal must fail each protection's assertion
 
 #### Scenario: Discovery follows the serving adapter
 
@@ -189,11 +231,44 @@ frozen contracts/fixtures/policy/reference bytes and measured witness/compose
 pins. It SHALL not substitute a historical pass, zero-test run or docs
 validation for behavioral evidence. Production remains Rust under crates/.
 
+Source-observer feasibility SHALL be measured with the actual U6c5 observer,
+not inferred from a metadata survey. U6c5 SHALL record repeatable Linux
+x86_64 and aarch64 profiles using the unpruned system source set specified by
+MB3, a protected package and a singleton system entry, including ordinary
+protected system hard links. Record kernel/filesystem, source and mount
+counts, mapped credentials, ACL/privilege assumptions, cold versus warm cache,
+FD high-water mark, peak metadata memory and elapsed time. Qualification
+budgets are at most 10 s for complete source observation and 20 s through
+readiness, handoff and initialization on those recorded profiles, leaving
+headroom within MB3's unchanged absolute 30 s runtime refusal bound.
+U6c5 measures observation; U6f and U9b SHALL repeat the complete path with
+readiness/handoff/startup timings. Include every mandatory observation in the
+real path, including engine preparation and broker reobservation: report each
+cost and the total startup cost, without hiding a second traversal outside
+the 20 s qualification budget. Each complete observation retains the 10 s
+budget. Deadline proofs SHALL cover blocking preparation and control I/O,
+not just clock checks between calls; cancellation must leave no detached
+worker doing admission work. These bounds are not general memory, CPU or
+server denial-of-service containment. Use at least one cold and five warm samples
+per profile and record every sample, not just an average. Missing host legs
+stay pending and block the corresponding positive claim and U9b enablement.
+Large source sets beyond MB3's limits fail closed; no source pruning, cached
+verdict, timeout increase or weaker proof may manufacture a passing budget.
+If ordinary installations cannot meet these budgets with the required
+observer, return to the owning specification before activation.
+
 A docs-only change SHALL run staged/unstaged git diff --check and
 openspec validate --all --strict without altering tests. Where the commission
 authorizes an unsigned document commit and external formatting/spelling/signing,
 those obligations SHALL be recorded as pending until their results exist.
 No publication or push SHALL be inferred from local validation.
+
+#### Scenario: Source admission has a measured Linux budget
+
+- **WHEN** U6c5, U6f and U9b report installed-server positive controls
+- **THEN** the recorded Linux profiles include ordinary protected system hard links, unpruned admitted sources, actual observer and full-startup timings within the qualification budgets above; macOS remains a refusal control
+- **AND** a metadata-only or boxed survey is labeled partial feasibility evidence, never namespace/identity or supported-host qualification
+- **AND** exceeding an entry/depth/metadata/mount/symlink bound or expiring during source observation still takes "MCP server box filesystem identity is not protected" before lookup; expiry during readiness takes "MCP server box could not be established"; later phases retain their own exact causes
 
 #### Scenario: Unavailable document checks remain an explicit handoff
 
@@ -229,3 +304,13 @@ Evidence stays separate from behavior: branch ancestry is not durable
 provenance for a squash, and review history is not a reusable scenario.
 Archive retains the evidence record and adds living-spec provenance pointers
 without folding historical routing into requirements (0071 ruling 5).
+
+The box ruling changes the preparation dependencies; it does not let a
+three-file budget disguise a fourth edit. Reuse the hands builder and shared
+injector with immediate consumers, retaining their independent tests and the
+U9b fence (0071 rulings 4–6, 9, 10). Source evidence and H1–H7 dispositions for
+this amendment live in the commissioned design-visit record, not evidence.md.
+Design D9 and Slice two units own the complete ordered inventory; tasks.md
+assigns stable IDs and new unchecked groups to each added cut. The plan
+counts visibility, bootstrap dispatch and consumed store extraction explicitly,
+rather than carrying the held attempt's fourth-file exception forward.

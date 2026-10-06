@@ -261,8 +261,7 @@ fn definitions_load_from_the_operators_directory_and_a_missing_one_is_empty() {
 fn semantic_library_lint_resolves_every_agents_asks_against_the_operators_definitions() {
     let root = TempDir::new().unwrap();
     let agents = root.path().join("agents");
-    std::fs::create_dir_all(agents.join("charters")).unwrap();
-    std::fs::write(agents.join("charters/c.md"), "# charter\n").unwrap();
+    crate::agents::charter_data::write_declaring(&agents.join("charters/c.md"));
     let agent = |name: &str, capabilities: Value| {
         write(
             &agents,
@@ -1055,57 +1054,6 @@ fn office_scope_and_an_empty_tool_list_only_narrow() {
         "seat 'research' (office 'researcher') in realm 'private': requires capability \
          'web-search' through dialect 'search-native', but the realm's grant admits no tool; \
          the capability cannot be held under this grant"
-    );
-}
-
-#[test]
-fn a_held_capability_is_switched_on_and_is_fully_attributable() {
-    let root = cq1_root();
-    let granted = authority(
-        root.path(),
-        json!({"web-search": {"dialect": "search-native", "offices": ["researcher"]}}),
-    );
-    let native = switchable();
-    let outcome = granted
-        .resolve(&asks(json!({"web-search": "requires"})), &serving(&native))
-        .unwrap();
-    let holding = &outcome.held["web-search"];
-    assert_eq!(holding.classes, ["reads", "egress"]);
-    assert_eq!(holding.dialect, "search-native");
-    assert_eq!(holding.tools, ["lookup", "search"]);
-    assert_eq!(
-        holding.dialect_sha256,
-        granted.dialects["web-search"].sha256
-    );
-    assert_eq!(
-        holding.definition_sha256,
-        granted.definitions.get("web-search").unwrap().sha256
-    );
-    // ON, and no OFF beside it.
-    assert_eq!(argv_of(&outcome), ["--search-on"]);
-    assert!(outcome.not_held.is_empty() && outcome.notices.is_empty());
-    let manifest = outcome.manifest();
-    assert_eq!(manifest["provider"], "test-native");
-    assert_eq!(manifest["model"], "tn-1");
-    assert_eq!(
-        manifest["native"],
-        json!({"inventory": "known", "declaration": "d1ge57",
-                                          "on": ["web-search"], "off": []})
-    );
-    assert_eq!(manifest["held"]["web-search"]["restrictions"], json!({}));
-    assert_eq!(
-        outcome.prompt(),
-        json!({"held": {"web-search": {"tools": ["lookup", "search"]}}, "not_held": {}})
-    );
-    // The grant is scoped: another office in the same realm holds nothing.
-    let implementer = SiteAsks::of("implement", None, None).unwrap();
-    let other = granted.resolve(&implementer, &serving(&native)).unwrap();
-    assert!(other.held.is_empty());
-    assert_eq!(argv_of(&other), ["--search-off"]);
-    assert_eq!(
-        other.not_held["web-search"],
-        "provider 'test-native' has it natively, the realm does not grant it to this seat, \
-         and it is switched off"
     );
 }
 
@@ -2097,6 +2045,7 @@ fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
         assert_eq!(harness_of(&command), harness, "{command:?}");
     }
 }
+mod attribution;
 mod binding;
 mod dialect_policy;
 mod gate_class;

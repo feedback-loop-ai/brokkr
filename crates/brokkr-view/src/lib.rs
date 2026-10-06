@@ -27,6 +27,7 @@
 
 mod dashboard;
 mod fleet;
+mod items;
 pub mod js;
 pub mod transcript;
 
@@ -962,6 +963,10 @@ struct Build {
     /// harnesses that echo one write it per turn.
     effort: Option<String>,
     turns: Option<u64>,
+    /// Completed items of the seat's work, folded from the
+    /// `item-completed` checkpoints a codex driver already journals
+    /// inside its one turn; `None` while none has arrived.
+    items: Option<u64>,
     last_turn: Option<Value>,
     session: Option<Value>,
     transcript: Option<Transcript>,
@@ -1003,6 +1008,7 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
         stamp: None,
         effort: None,
         turns: None,
+        items: None,
         last_turn: None,
         session: None,
         transcript: None,
@@ -1181,6 +1187,7 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                         });
                     }
                 }
+                items::count_item(&mut scan.parts[part].items, step);
                 if step == Some("seat-turn") {
                     scan.parts[part].last_turn = Some(checkpoint);
                 } else if step.is_some_and(|step| step.ends_with("-session-finished")) {
@@ -1957,7 +1964,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             turns,
             turns_aggregated,
             turns_cell: cell_of(
-                turns.map(|turns| format!("{turns_prefix}{turns}")),
+                items::turns_text(turns, part.items, turns_prefix),
                 Some("no turn telemetry recorded"),
             ),
             cost,

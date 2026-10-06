@@ -15,37 +15,39 @@
 //! shipped telemetry lowering is what writes every seat row, and no
 //! provider need be installed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::fold::Status;
 use brokkr_core::realms::Boundary;
+use brokkr_protocol::adapters::capability_calls::{Format, Observation, Tool, OBSERVATION_KEY};
 use brokkr_protocol::adapters::AdapterKind;
 use brokkr_runtime::capabilities::CapabilityContext;
 use brokkr_runtime::{Bundle, Engine, World};
 use brokkr_store::{SeatRecordError, Store, StoreError};
 use serde_json::{json, Value};
 
+use super::charters::{write_charter, write_role};
 use super::{workspace, write};
 
 /// Set only by a wrapper's own command line, never by this process: the
 /// arguments the engine handed `driver claude` after its `--`, one a line.
 const SERVE: &str = "BROKKR_LEGACY_JOURNAL_SERVE";
 
-/// The fields SC4 reserves for v6's attribution group, and the private
-/// observation key a driver could leak before its consumer exists. None
-/// may reach the journal at a preparation merge.
+/// The fields SC4 reserves for v6's attribution group, and protocol's
+/// private observation key, which a driver could leak before its consumer
+/// exists. None may reach the journal at a preparation merge.
 const UNRECORDED: [&str; 6] = [
     "capability",
     "dialect",
     "call_id",
     "call_state",
     "response_sha256",
-    "observation",
+    OBSERVATION_KEY,
 ];
 
-const V5: &str = "contracts/seat-record.v5.schema.json";
+const V6: &str = "contracts/seat-record.v6.schema.json";
 
 /// The version the fake harness reports, and the fixture assessment
 /// qualifies against.
@@ -123,7 +125,8 @@ fn fake_claude(root: &Path, tag: &str, retried: bool) -> PathBuf {
 /// The engine token of one `driver claude` command: a wrapper that
 /// drops `driver claude --`, hands the rest to [`claude_driver_child`]
 /// with `tag`'s harness, and passes on only protocol lines, because
-/// libtest owns the head of stdout.
+/// libtest owns the head of stdout. Where [`OBSERVING`] is written under
+/// the root, those lines then pass through it.
 fn wrapper(root: &Path, tag: &str, retried: bool) -> String {
     let claude = fake_claude(root, tag, retried);
     let path = root.join(format!("bin/driver-{tag}"));
@@ -133,15 +136,37 @@ fn wrapper(root: &Path, tag: &str, retried: bool) -> String {
             "#!/bin/sh\n\
              shift 3\n\
              extra=$(printf '%s\\n' \"$@\")\n\
-             BROKKR_CLAUDE_BIN='{claude}' HOME='{home}' {SERVE}=\"$extra\" exec '{exe}' \
-             --exact legacy_journal::claude_driver_child --nocapture | grep --line-buffered '^{{'\n",
+             serve() {{ BROKKR_CLAUDE_BIN='{claude}' HOME='{home}' {SERVE}=\"$extra\" exec '{exe}' \
+             --exact legacy_journal::claude_driver_child --nocapture | grep --line-buffered '^{{'; }}\n\
+             [ -e '{observing}' ] || {{ serve; exit; }}\n\
+             serve | while IFS= read -r line; do printf '%s\\n' \"$line\" | sed -f '{observing}'; done\n",
             claude = claude.display(),
             home = root.join("home").display(),
             exe = std::env::current_exe().unwrap().display(),
+            observing = root.join(OBSERVING).display(),
         ),
     );
     path.to_str().unwrap().to_string()
 }
+
+/// The sed script, under the root, that a wrapper passes each of the
+/// shipped driver's protocol lines through, one at a time, when it is
+/// written.
+const OBSERVING: &str = "observing.sed";
+
+/// What U4f2's serializer will add beside each of the fake harness's two
+/// calls, until then injected by the wrapper: the observation protocol
+/// encodes, and on the search a forged call id, state and response digest.
+const OBSERVATIONS: &str = concat!(
+    r#"s/"tool":"WebSearch"/&,"call_id":"forged","call_state":"succeeded","#,
+    r#""response_sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","#,
+    r#""observation":"#,
+    r#"{"format":"claude","call":"toolu_01","tool":{"kind":"named","name":"WebSearch"}}/"#,
+    "\n",
+    r#"s/"tool":"Read"/&,"observation":"#,
+    r#"{"format":"claude","call":"toolu_02","tool":{"kind":"named","name":"Read"}}/"#,
+    "\n",
+);
 
 /// The shipped Claude adapter served through the `agent` wrapper, with a
 /// model whose launch never starts, and a supported assessment for the
@@ -230,7 +255,7 @@ fn inline(root: &Path, tag: &str, extra: &[&str]) -> Value {
 fn bundle(root: &Path, world: &World) -> Bundle {
     adapters(root);
     std::fs::create_dir_all(root.join("agents/charters")).unwrap();
-    std::fs::write(root.join("agents/charters/office.md"), "# office\n").unwrap();
+    write_charter(&root.join("agents/charters/office.md"));
     for (agent, models) in [
         ("office", json!(["opus"])),
         ("chain", json!(["missing", "opus"])),
@@ -249,8 +274,7 @@ fn bundle(root: &Path, world: &World) -> Bundle {
                     "capabilities": {"web-search": "wants"}}),
         );
     }
-    std::fs::create_dir_all(root.join("bundle/roles")).unwrap();
-    std::fs::write(root.join("bundle/roles/role.md"), "# role\n").unwrap();
+    write_role(&root.join("bundle"));
     let mut step = inline(root, "first", &[]);
     step["name"] = json!("first");
     step["results"] = json!(["complete"]);
@@ -311,7 +335,8 @@ type Sites = BTreeMap<(String, String), Vec<Value>>;
 /// Every checkpoint the run journaled, by site, with the engine's two
 /// digest stamps (proposed decision 0056 ruling 1) proved lowercase hex
 /// and then named rather than spelled: one hashes this machine's command.
-/// The temporary root a transcript address names is spelled `<root>`.
+/// The temporary root a transcript address names is spelled `<root>`, and
+/// the attempt that owns an attributed call id `<attempt>`.
 fn journaled(events: &[EventEnvelope], root: &Path) -> Sites {
     let field =
         |event: &EventEnvelope, name: &str| event.payload[name].as_str().unwrap().to_string();
@@ -328,6 +353,17 @@ fn journaled(events: &[EventEnvelope], root: &Path) -> Sites {
         let text = event.payload["checkpoint"].to_string();
         let text = text.replace(root.to_str().unwrap(), "<root>");
         let mut checkpoint: Value = serde_json::from_str(&text).unwrap();
+        // The call id the design spells for the one search, owned by this
+        // row's attempt and own site stamps; any other value stays to fail.
+        if let Some(call_id) = checkpoint.get("call_id").and_then(Value::as_str) {
+            let tuple = json!({"attempt": field(event, "attempt_id"), "provider": "claude",
+                               "site": checkpoint["site_ref"], "call": "toolu_01",
+                               "instance": checkpoint["instance_ref"]});
+            let owned = format!("n-{}", brokkr_core::canonical::sha256_hex(&tuple));
+            if call_id == owned {
+                checkpoint["call_id"] = json!("<owned toolu_01>");
+            }
+        }
         for stamp in ["site_ref", "instance_ref"] {
             if let Some(digest) = checkpoint.get(stamp).and_then(Value::as_str) {
                 let hex = digest
@@ -492,11 +528,60 @@ fn wanted_launches() -> BTreeMap<String, Vec<String>> {
         .collect()
 }
 
-/// A direct append of a partial attribution group, a whole one, or a
-/// private observation, each beside a legacy native row, is refused with
-/// the exact v5 violation at the seq it would have taken, and the
-/// journal stands still.
-fn refuses_unrecorded_fields(store: &mut Store, run_id: &str) {
+/// The observation of the native search call the fake harness makes, as
+/// protocol types it.
+fn web_search() -> Observation {
+    Observation {
+        format: Format::Claude,
+        call: Some("toolu_01".into()),
+        tool: Tool::Named {
+            name: "WebSearch".into(),
+        },
+    }
+}
+
+/// D9's handoff, from the engine's crate: protocol's one encoding of an
+/// observation decodes here into protocol's one type, and an encoding
+/// that adds a field, or names a tool kind the type does not, is refused
+/// with serde's exact cause rather than read around.
+#[test]
+fn the_shared_observation_decodes_in_the_engine_crate_and_refuses_extras() {
+    let wire = json!({"format": "claude", "call": "toolu_01",
+                      "tool": {"kind": "named", "name": "WebSearch"}});
+    let decoded: Observation = serde_json::from_value(wire.clone()).unwrap();
+    assert_eq!(decoded, web_search());
+    let mut forged = wire.clone();
+    forged["capability"] = json!("web-search");
+    let mut stamped = wire.clone();
+    stamped["tool"]["dialect"] = json!("claude-native-search");
+    let mut unnamed = wire;
+    unnamed["tool"] = json!({"kind": "native", "name": "WebSearch"});
+    let refusals = [
+        (
+            forged,
+            "unknown field `capability`, expected one of `format`, `call`, `tool`",
+        ),
+        (stamped, "unknown field `dialect`, expected `name`"),
+        (
+            unnamed,
+            "unknown variant `native`, expected one of `named`, `mcp`, \
+             `mcp_unidentified`, `missing`",
+        ),
+    ];
+    for (wire, cause) in refusals {
+        let refused = serde_json::from_value::<Observation>(wire).unwrap_err();
+        assert_eq!(refused.to_string(), cause);
+    }
+}
+
+/// A direct append of a partial attribution group or a private
+/// observation, each beside a legacy native row, is refused with the
+/// exact v6 violation at the seq it would have taken, and the journal
+/// stands still. A whole engine-owned group is v6's to admit (SC4), and
+/// the export sweep passes the journal that takes it: append and export
+/// read one contract. (Verify also folds, and a completed run takes no
+/// further event, so store's own suite proves verify on a live run.)
+fn fences_the_attribution_group(store: &mut Store, run_id: &str) {
     let head = store.head_hash(run_id).unwrap();
     let base = json!({"step": "seat-turn", "turn": 3, "model": "claude-opus-5-5",
                       "tool": "WebSearch"});
@@ -508,8 +593,8 @@ fn refuses_unrecorded_fields(store: &mut Store, run_id: &str) {
     let mut partial = base.clone();
     partial["capability"] = json!("web-search");
     let mut private = base;
-    private["observation"] = json!({"call": "toolu_01", "name": "WebSearch"});
-    for checkpoint in [partial, whole, private] {
+    private[OBSERVATION_KEY] = serde_json::to_value(web_search()).unwrap();
+    for checkpoint in [partial, private] {
         let payload = json!({"effect_id": "fx", "checkpoint": checkpoint});
         let error = store
             .append_next(run_id, EventType::EffectCheckpointed, payload, None, None)
@@ -521,11 +606,18 @@ fn refuses_unrecorded_fields(store: &mut Store, run_id: &str) {
         let want = SeatRecordError {
             seq,
             path: "/".into(),
-            contract: V5,
+            contract: V6,
         };
         assert_eq!(refusal, want, "{checkpoint}");
         assert_eq!(store.head_hash(run_id).unwrap(), head);
     }
+    let payload = json!({"effect_id": "fx", "checkpoint": whole});
+    let landed = store
+        .append_next(run_id, EventType::EffectCheckpointed, payload, None, None)
+        .unwrap();
+    assert_eq!(landed.seq, head.0 + 1);
+    let exported = store.export_ndjson(run_id).unwrap();
+    assert_eq!(exported.lines().count() as u64, landed.seq);
 }
 
 /// D9's preparation proof at this merge: every site shape journals the
@@ -535,25 +627,7 @@ fn refuses_unrecorded_fields(store: &mut Store, run_id: &str) {
 /// a direct append of either is refused.
 #[test]
 fn every_site_shape_journals_its_legacy_native_rows_through_export_and_verify() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
-    for sub in ["bin", "state", "home", "work"] {
-        std::fs::create_dir_all(root.join(sub)).unwrap();
-    }
-    let store = Store::open(&root.join("forge.db")).unwrap();
-    let world = world(&root);
-    let bundle = bundle(&root, &world);
-    let repo = Some(root.join("work"));
-    let mut engine =
-        Engine::start_in_world(store, bundle, "Feature: legacy", repo, Some(world)).unwrap();
-    let end = engine.drive().unwrap();
-    assert_eq!(
-        end.state.status,
-        Status::Completed,
-        "{:?}",
-        end.state.park_reason
-    );
-
+    let (_dir, root, mut engine) = driven(None);
     let run_id = engine.run_id.clone();
     let events = engine.store.load(&run_id).unwrap();
     assert_eq!(launches(&root), wanted_launches());
@@ -566,11 +640,84 @@ fn every_site_shape_journals_its_legacy_native_rows_through_export_and_verify() 
             }
         }
     }
+    exports_and_verifies(&engine.store, &run_id, events.len());
+    fences_the_attribution_group(&mut engine.store, &run_id);
+}
 
-    let exported = engine.store.export_ndjson(&run_id).unwrap();
-    assert_eq!(exported.lines().count(), events.len());
+/// The matrix compiled and driven to completion under a canonicalised
+/// temporary root, with `observing` written as the wrappers' filter.
+fn driven(observing: Option<&str>) -> (tempfile::TempDir, PathBuf, Engine) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    for sub in ["bin", "state", "home", "work"] {
+        std::fs::create_dir_all(root.join(sub)).unwrap();
+    }
+    if let Some(program) = observing {
+        std::fs::write(root.join(OBSERVING), program).unwrap();
+    }
+    let store = Store::open(&root.join("forge.db")).unwrap();
+    let world = world(&root);
+    let bundle = bundle(&root, &world);
+    let repo = Some(root.join("work"));
+    let mut engine =
+        Engine::start_in_world(store, bundle, "Feature: legacy", repo, Some(world)).unwrap();
+    let end = engine.drive().unwrap();
+    let status = end.state.status;
+    assert_eq!(status, Status::Completed, "{:?}", end.state.park_reason);
+    (dir, root, engine)
+}
+
+/// The run exports all `count` of its events and the export verifies
+/// offline to the completed run.
+fn exports_and_verifies(store: &Store, run_id: &str, count: usize) {
+    let exported = store.export_ndjson(run_id).unwrap();
+    assert_eq!(exported.lines().count(), count);
     let verified = brokkr_store::verify_export(&exported).unwrap();
-    let journal = (Status::Completed, events.len() as u64);
+    let journal = (Status::Completed, count as u64);
     assert_eq!((verified.status, verified.seq), journal);
-    refuses_unrecorded_fields(&mut engine.store, &run_id);
+}
+
+/// U4e's consumer at every site shape (CC1, CC3, SC4): the shipped Claude
+/// driver's rows, each call carrying the observation U4f2 will emit and
+/// the search a forged call id and state, journal exactly the legacy rows
+/// with the engine's own whole group on the held search — its call id
+/// the digest of its attempt, site stamps, provider and harness id — and the
+/// local read ordinary. The resumed seat's rejoined root replays its
+/// `toolu_01`, which is history and stays ordinary (U4f); the replaced
+/// seat's root was never offered, so its second search is new. No
+/// observation or forged value reaches the store, and the run exports and
+/// verifies.
+#[test]
+fn every_site_shape_journals_the_engines_group_on_an_observed_held_call() {
+    let (_dir, root, engine) = driven(Some(OBSERVATIONS));
+    let run_id = engine.run_id.clone();
+    let events = engine.store.load(&run_id).unwrap();
+    let mut wanted = wanted();
+    for ((seat, _), rows) in wanted.iter_mut() {
+        let searches = rows.iter_mut().filter(|row| row["tool"] == "WebSearch");
+        for row in searches.take(if seat == "resumed" { 1 } else { 2 }) {
+            let group = json!({"capability": "web-search", "dialect": "claude-native-search",
+                               "call_id": "<owned toolu_01>", "call_state": "observed"});
+            row.as_object_mut()
+                .unwrap()
+                .extend(group.as_object().unwrap().clone());
+        }
+    }
+    assert_eq!(journaled(&events, &root), wanted);
+    let attributed: BTreeSet<&str> = events
+        .iter()
+        .filter_map(|event| event.payload["checkpoint"].get("call_id"))
+        .filter_map(Value::as_str)
+        .collect();
+    // One search per invocation, each its own call: eight seats, the
+    // panel's and the sequence's second site, and the replaced seat's
+    // second launch; the resumed one's replay is no new use.
+    assert_eq!(attributed.len(), 11);
+    for event in &events {
+        let checkpoint = &event.payload["checkpoint"];
+        for field in ["response_sha256", OBSERVATION_KEY] {
+            assert_eq!(checkpoint.get(field), None, "{field} at seq {}", event.seq);
+        }
+    }
+    exports_and_verifies(&engine.store, &run_id, events.len());
 }

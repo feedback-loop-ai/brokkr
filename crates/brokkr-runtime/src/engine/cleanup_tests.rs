@@ -92,14 +92,17 @@ fn a_dialect_step_not_proven_over_parks_with_its_evidence() {
 #[test]
 fn a_refused_checkpoint_keeps_the_received_result_beside_an_unresolved_cleanup() {
     let result = json!({"result": "complete"});
-    let refusal = SeatRecordError {
+    let refusal = brokkr_store::SeatRecordError {
         seq: 9,
         path: "/".into(),
         contract: "contracts/seat-record.v1.schema.json",
     };
     let received = succeeded(result.clone());
     let refused = AttemptReport {
-        refused: Some(refused_outcome(received.outcome.clone(), &refusal)),
+        refused: Some(checkpoints::refused_outcome(
+            received.outcome.clone(),
+            &refusal,
+        )),
         ..unresolved(result.clone(), Unsettled::Group { group: 7 })
     };
     let group = "its process group 7 still had members after the kill";

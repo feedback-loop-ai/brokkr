@@ -24,7 +24,7 @@ use brokkr_protocol::native_controls::{
 };
 use brokkr_protocol::process::{DriverProcess, SpawnEnv};
 use brokkr_protocol::AttemptOutcome;
-use brokkr_store::{SeatRecordError, Store, StoreError};
+use brokkr_store::{Store, StoreError};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
@@ -42,7 +42,9 @@ use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::{AttemptReport, Cleanup, CleanupEvidence};
 use serde::Serialize;
 
+mod capability_calls;
 mod checkpoints;
+use capability_calls::Calls;
 use checkpoints::Checkpoints;
 mod marks;
 #[doc(hidden)]
@@ -1687,9 +1689,9 @@ impl Engine {
                 None => site_name.to_string(),
                 Some(tag) => format!("{site_name}:{tag}"),
             };
-            let context = resume::SiteContext {
-                site_ref: entry.key.digest(),
-                instance_ref: resume::InstanceKey::new(
+            let context = resume::SiteContext::new(
+                entry.key.digest(),
+                resume::InstanceKey::new(
                     selection.get(&entry.site),
                     chains.get(&entry.site).copied(),
                     argv_for(selection, &entry.site, &entry.command),
@@ -1700,8 +1702,8 @@ impl Engine {
                     self.site_boundary(&label),
                 )
                 .digest(),
-                class: entry.class,
-            };
+                entry.class,
+            );
             let offer = offer_for_site(
                 events,
                 &entry.key,
@@ -1744,7 +1746,7 @@ impl Engine {
             plans.insert(
                 entry.site,
                 SitePlan {
-                    context,
+                    context: context.offered(events, offer.as_ref()),
                     offer,
                     assessment,
                     originating,
@@ -2080,6 +2082,8 @@ impl Engine {
             effect_id,
             attempt_id,
         };
+        let facts = self.bundle.sites.get(driver_seat);
+        let mut calls = Calls::of(facts, spawn, attempt_id, stamp.as_ref());
         let mut sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let mut report = process.run_attempt_resuming(
             ENGINE_VERSION,
@@ -2089,9 +2093,11 @@ impl Engine {
             input,
             session_ref,
             |data| {
+                let mut checkpoint = data.clone();
+                let call = calls.consume(&mut checkpoint);
                 let checkpoint = match member_tag {
-                    None => data.clone(),
-                    Some(tag) => tag_member(data.clone(), tag),
+                    None => checkpoint,
+                    Some(tag) => tag_member(checkpoint, tag),
                 };
                 let checkpoint = stamp_boundary(checkpoint, boundary);
                 // The engine's two structural stamps, on the same terms
@@ -2104,7 +2110,7 @@ impl Engine {
                     Some(context) => context.stamp(checkpoint),
                     None => resume::unstamped(checkpoint),
                 };
-                sink.offer("", checkpoint);
+                sink.offer("", checkpoint, call);
             },
         );
         sink.settle()?.carry("", &mut report);
@@ -2323,6 +2329,14 @@ impl Engine {
             effect_id,
             attempt_id,
         };
+        // Each member's own call authority, never a sibling's.
+        let mut calls: Vec<Calls> = runs
+            .iter()
+            .map(|run| {
+                let facts = bundle.sites.get(&run.driver_seat);
+                Calls::of(facts, &run.spawn, attempt_id, run.context.as_ref())
+            })
+            .collect();
         // The member whose checkpoint the fence refused, if one was
         // (decision 0034, ruling 6), is the tagged member name the
         // checkpoint rode under, so the refusal lands on that member's
@@ -2391,10 +2405,12 @@ impl Engine {
             // latches on an append error and the loop keeps draining — an
             // abandoned channel must not deadlock the members.
             drop(sender);
-            for (member, checkpoint) in receiver {
-                let owner = runs
+            for (member, mut checkpoint) in receiver {
+                let at = runs
                     .iter()
-                    .find(|run| format!("{tag_prefix}{}", run.name) == member);
+                    .position(|run| format!("{tag_prefix}{}", run.name) == member);
+                let owner = at.map(|at| &runs[at]);
+                let call = at.map_or(Ok(None), |at| calls[at].consume(&mut checkpoint));
                 let boundary = owner.and_then(|run| run.boundary);
                 let checkpoint = stamp_boundary(tag_member(checkpoint, &member), boundary);
                 // The member's own stamp, applied by the one journal
@@ -2403,7 +2419,7 @@ impl Engine {
                     Some(context) => context.stamp(checkpoint),
                     None => resume::unstamped(checkpoint),
                 };
-                sink.offer(&member, checkpoint);
+                sink.offer(&member, checkpoint, call);
             }
             handles
                 .into_iter()
@@ -2740,25 +2756,6 @@ pub const OPERATOR_STOP_RULE: &str = "OPERATOR-STOP";
 enum DriverRun {
     SpawnFailed(String),
     Ran(AttemptReport),
-}
-
-/// The outcome of an attempt whose checkpoint the journal refused
-/// (decision 0034, ruling 6). A driver that went on to succeed did not:
-/// its account is nonconforming, and the attempt fails on the refusal.
-/// A driver that failed on its own keeps its own error beside the
-/// refusal. A driver that was lost stays lost — indeterminate always
-/// parks (decision 0006), and a refused checkpoint is no reason to
-/// retry a process whose end nobody saw.
-fn refused_outcome(outcome: AttemptOutcome, refusal: &SeatRecordError) -> AttemptOutcome {
-    match outcome {
-        AttemptOutcome::Succeeded { .. } => AttemptOutcome::Failed {
-            error: refusal.to_string(),
-        },
-        AttemptOutcome::Failed { error } => AttemptOutcome::Failed {
-            error: format!("{refusal}; the driver then failed: {error}"),
-        },
-        AttemptOutcome::Indeterminate { reason } => AttemptOutcome::Indeterminate { reason },
-    }
 }
 
 /// The invocation-site tag an agent-resolved site is journaled under:

@@ -1021,11 +1021,7 @@ fn a_fresh_process_derives_the_same_offers_from_the_same_journal() {
 /// A work-class site context whose stamps are the ones the fixture rows
 /// below carry, so the query has something to match.
 fn context(site_ref: &str, instance_ref: &str, class: SeatClass) -> resume::SiteContext {
-    resume::SiteContext {
-        site_ref: site_ref.to_string(),
-        instance_ref: instance_ref.to_string(),
-        class,
-    }
+    resume::SiteContext::new(site_ref.to_string(), instance_ref.to_string(), class)
 }
 
 const SITE_A: &str = "aa11000000000000000000000000000000000000000000000000000000000011";
