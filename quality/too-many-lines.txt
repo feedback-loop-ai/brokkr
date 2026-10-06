@@ -142,11 +142,11 @@
  112 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:180 the_runner_adds_the_scoped_git_binds_and_nothing_wider
  138 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:472 every_known_bubblewrap_option_is_stepped_over_by_its_own_arity
  355 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:2581 a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds
- 199 crates/brokkr-protocol/src/hands/tests.rs:123 the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names
- 123 crates/brokkr-protocol/src/hands/tests.rs:667 the_box_hides_the_host_and_holds_the_worktree
- 140 crates/brokkr-protocol/src/hands/tests.rs:810 git_works_in_the_box_and_cannot_plant_a_hook
- 107 crates/brokkr-protocol/src/hands/tests.rs:1061 the_unboxed_environment_hands_nothing_of_the_engines_over
- 132 crates/brokkr-protocol/src/hands/tests.rs:1250 the_unboxed_environment_has_exact_keys_on_both_platforms
+ 199 crates/brokkr-protocol/src/hands/tests.rs:125 the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names
+ 123 crates/brokkr-protocol/src/hands/tests.rs:845 the_box_hides_the_host_and_holds_the_worktree
+ 140 crates/brokkr-protocol/src/hands/tests.rs:1049 git_works_in_the_box_and_cannot_plant_a_hook
+ 107 crates/brokkr-protocol/src/hands/tests.rs:1300 the_unboxed_environment_hands_nothing_of_the_engines_over
+ 132 crates/brokkr-protocol/src/hands/tests.rs:1489 the_unboxed_environment_has_exact_keys_on_both_platforms
  217 crates/brokkr-protocol/src/native_controls/tests.rs:77 a_plan_is_read_whole_and_a_malformed_one_refuses_naming_its_fault
  267 crates/brokkr-protocol/src/native_controls/tests.rs:916 an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
  134 crates/brokkr-protocol/src/native_controls/tests.rs:1225 an_authored_capability_option_is_refused_by_origin_whatever_its_value_or_form
