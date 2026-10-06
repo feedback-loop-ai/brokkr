@@ -67,10 +67,25 @@ fn resolved(launch: &Path, home: &Path) -> Result<(PathBuf, Option<PathBuf>), Re
     Ok((program.executable().to_path_buf(), root))
 }
 
-/// The host's shell: a system entry wherever `/bin/sh` resolves into a
-/// shared system bin, as it does on every supported Linux.
+/// The host's shell named by its path: a system entry wherever `/bin/sh`
+/// resolves into a shared system bin, as it does on every supported Linux.
 fn shell() -> PathBuf {
     std::fs::canonicalize("/bin/sh").unwrap()
+}
+
+/// What a bare `name` resolves to: the first executable the fixed search
+/// path holds, which need not be `/bin/sh`'s file where `/bin` and
+/// `/usr/bin` are separate directories.
+fn found(name: &str) -> PathBuf {
+    ["/usr/local/bin", "/usr/bin", "/bin"]
+        .iter()
+        .map(|dir| Path::new(dir).join(name))
+        .find(|path| {
+            path.metadata()
+                .is_ok_and(|held| held.is_file() & (held.permissions().mode() & 0o111 != 0))
+        })
+        .map(|path| std::fs::canonicalize(path).unwrap())
+        .unwrap()
 }
 
 /// An installed executable inside the system set that is no system entry:
@@ -108,10 +123,14 @@ fn a_system_entry_is_its_own_tree_and_a_package_its_installed_root() {
     // A bare name is found on the fixed search path; a path names itself;
     // a link into a shared bin resolves to a system entry.
     let link = host.link("links/sh", Path::new("/bin/sh"));
-    for launch in [Path::new("sh"), Path::new("/bin/sh"), link.as_path()] {
+    for (launch, executable) in [
+        (Path::new("sh"), found("sh")),
+        (Path::new("/bin/sh"), sh.clone()),
+        (link.as_path(), sh.clone()),
+    ] {
         assert_eq!(
             (launch, resolved(launch, &host.home)),
-            (launch, Ok((sh.clone(), None)))
+            (launch, Ok((executable, None)))
         );
     }
     // A package is the executable's parent, or that parent's parent when
@@ -181,10 +200,42 @@ fn a_launch_that_names_no_installed_file_or_widens_its_root_refuses() {
     assert_eq!(at_root, Err(Refusal::ProgramTree));
 }
 
+/// The server's system set: the shared table with `/etc/ssl` narrowed to
+/// `/etc/ssl/certs`, spelled here and not read from the builder.
+fn server_system() -> Vec<&'static str> {
+    HOST_TOOLCHAIN_BINDS
+        .iter()
+        .map(|host| match *host {
+            "/etc/ssl" => "/etc/ssl/certs",
+            other => other,
+        })
+        .collect()
+}
+
+#[test]
+fn a_system_source_linked_outside_the_set_is_bound_at_its_canonical_path_too() {
+    let sources = [
+        "/usr/bin",
+        "/usr/lib",
+        "/bin",
+        "/sbin",
+        "/lib64",
+        "/etc/ssl/certs",
+    ];
+    let resolve = |source: &Path| match source.to_str().unwrap() {
+        "/bin" => Some(PathBuf::from("/usr/bin")),
+        "/sbin" => Some(PathBuf::from("/usr/sbin")),
+        "/lib64" => None,
+        other => Some(PathBuf::from(other)),
+    };
+    let aliases = namespace::aliases_with(&sources, resolve);
+    assert_eq!(aliases, [("/sbin", PathBuf::from("/usr/sbin"))]);
+}
+
 /// The server box's whole argv for `etc`, `bootstrap` and the varying
 /// pieces: the network flag, the resolver bind, the tree bind and the
-/// command. The system set is the shared table with `/etc/ssl` narrowed
-/// to `/etc/ssl/certs`, spelled here and not read from the builder.
+/// command. Each system source linked outside the set is bound at its
+/// canonical path too, as this host resolves it.
 fn server_argv(etc: &Path, bootstrap: &Path, pieces: [&str; 4]) -> Vec<String> {
     let [net, dns, tree, run] = pieces;
     let mut argv: Vec<String> = format!(
@@ -196,19 +247,21 @@ fn server_argv(etc: &Path, bootstrap: &Path, pieces: [&str; 4]) -> Vec<String> {
     .split_whitespace()
     .map(String::from)
     .collect();
-    for host in HOST_TOOLCHAIN_BINDS {
-        let host = match *host {
-            "/etc/ssl" => "/etc/ssl/certs",
-            other => other,
-        };
+    let system = server_system();
+    for host in &system {
         argv.extend(["--ro-bind-try", host, host].map(String::from));
+    }
+    let canonical = |source: &Path| std::fs::canonicalize(source).ok();
+    for (host, alias) in namespace::aliases_with(&system, canonical) {
+        let alias = alias.display().to_string();
+        argv.extend(["--ro-bind-try".to_string(), host.to_string(), alias]);
     }
     let (e, b) = (etc.display(), bootstrap.display());
     argv.extend(
         format!(
-            "--ro-bind {e}/passwd /etc/passwd --ro-bind {e}/group /etc/group \
-             --ro-bind {e}/hosts /etc/hosts --ro-bind {e}/nsswitch.conf /etc/nsswitch.conf {dns} \
-             --tmpfs {SANDBOX_HOME} --tmpfs /tmp {tree} --ro-bind {b} {b} \
+            "--tmpfs {SANDBOX_HOME} --tmpfs /tmp {tree} --ro-bind {b} {b} {dns} \
+             --ro-bind {e}/passwd /etc/passwd --ro-bind {e}/group /etc/group \
+             --ro-bind {e}/hosts /etc/hosts --ro-bind {e}/nsswitch.conf /etc/nsswitch.conf \
              --setenv PATH /usr/local/bin:/usr/bin:/bin --setenv HOME {SANDBOX_HOME} \
              --setenv TMPDIR /tmp --setenv USER runner --setenv LOGNAME runner \
              --setenv LANG C.UTF-8 --setenv LC_ALL C.UTF-8 --chdir {SANDBOX_HOME} -- {run}"
@@ -291,7 +344,7 @@ fn the_server_box_holds_the_projected_system_set_and_its_own_private_paths() {
     let installed = ServerProgram::resolve(executable.to_str().unwrap(), &host.home).unwrap();
     let dns = "--ro-bind-try /etc/resolv.conf /etc/resolv.conf";
     let arguments = ["-c".to_string(), "true".to_string()];
-    for (program, run) in [(&sh, shell()), (&installed, executable)] {
+    for (program, run) in [(&sh, found("sh")), (&installed, executable)] {
         let server = prepared(program, &seat, &Network::Shared, &arguments).unwrap();
         let etc = identity_dir(server.argv());
         let run = format!("{} -c true", run.display());
@@ -383,6 +436,10 @@ fn the_server_box_stays_clear_of_every_reach_root_either_way() {
             OVERLAPPING,
         ),
         (vec![PathBuf::from("/etc")], vec![], OVERLAPPING),
+        // The resolver and the generated identity's places, checked
+        // before the identity is written.
+        (vec![], vec![PathBuf::from("/etc/resolv.conf")], OVERLAPPING),
+        (vec![PathBuf::from("/etc/group")], vec![], OVERLAPPING),
         // The bootstrap, either way.
         (vec![], vec![bootstrap.clone()], OVERLAPPING),
         (
@@ -406,6 +463,44 @@ fn the_server_box_stays_clear_of_every_reach_root_either_way() {
     assert_eq!(answer(&sh, reach(&[], &[tmp])), OVERLAPPING);
 }
 
+#[test]
+fn a_package_root_that_widens_or_shadows_the_box_refuses() {
+    // A root that is or holds a path the box set up: the system set or
+    // its alias, the generated identity's `/etc`, a private directory or
+    // the skeleton.
+    let mut refused: Vec<PathBuf> = ["/usr", "/etc", "/etc/ssl", "/tmp", "/runtime", "/run"]
+        .into_iter()
+        .chain(["/proc", "/dev"])
+        .map(PathBuf::from)
+        .collect();
+    // A root inside the source the projection narrowed away.
+    refused.extend(std::fs::canonicalize("/etc/ssl").map(|ssl| ssl.join("private")));
+    let closed = |namespace: Namespace| namespace.enter(Path::new("/"), &[]);
+    let unbound = closed(Namespace::server(false));
+    for root in refused {
+        let mut namespace = Namespace::server(false);
+        let answer = namespace.package(&Tree::Package { root: root.clone() });
+        assert_eq!((&root, answer), (&root, Err(Refusal::ProgramTree)));
+        assert_eq!(closed(namespace), unbound);
+    }
+    // A dedicated root, one on top of the private `/tmp`, and one the
+    // system set holds, which gains no mount.
+    for (root, bound) in [
+        ("/opt/docs", true),
+        ("/tmp/docs", true),
+        ("/usr/lib/docs", false),
+    ] {
+        let mut namespace = Namespace::server(true);
+        let tree = Tree::Package { root: root.into() };
+        assert_eq!((root, namespace.package(&tree)), (root, Ok(())));
+        let mut expected = closed(Namespace::server(true));
+        let at = expected.len() - 3;
+        let bind = ["--ro-bind", root, root].map(String::from);
+        expected.splice(at..at, bind.into_iter().filter(|_| bound));
+        assert_eq!((root, closed(namespace)), (root, expected));
+    }
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
@@ -423,6 +518,15 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
         true => "[ -d /etc/ssl/certs ] || exit 17;",
         false => "",
     };
+    // Each system source linked outside the set is there at its canonical
+    // path, where the layout finds its executables.
+    let aliases = namespace::aliases_with(&server_system(), |source| {
+        std::fs::canonicalize(source).ok()
+    });
+    let aliased: String = aliases
+        .iter()
+        .map(|(_, alias)| format!("[ -d '{}' ] || exit 19; ", alias.display()))
+        .collect();
     let script = format!(
         "[ \"$(pwd)\" = {SANDBOX_HOME} ] || exit 10; \
          [ -z \"$(ls -A {SANDBOX_HOME})\" ] && [ -z \"$(ls -A /tmp)\" ] || exit 11; \
@@ -432,7 +536,7 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
          [ ! -e /etc/resolv.conf ] || exit 15; \
          [ \"$(cat /etc/nsswitch.conf)\" = 'hosts: files' ] || exit 16; \
          [ \"$PATH:$TMPDIR:$USER:${HANDS_BOX_ENV}\" = /usr/local/bin:/usr/bin:/bin:/tmp:runner:1 ] \
-         || exit 18",
+         || exit 18; {aliased} true",
         w = work.display(),
         p = private.display(),
     );

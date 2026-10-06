@@ -89,10 +89,13 @@ const RESOLV_CONF: &str = "/etc/resolv.conf";
 /// One box's bubblewrap argv, built in mount order: a later mount shadows
 /// an earlier one, so the order the calls are made in is the boundary.
 /// Every host source and box destination a mount names is kept beside it,
-/// so what a profile checks is exactly what it mounts.
+/// so what a profile checks is exactly what it mounts, and every path the
+/// box sets up, mounted or made, so nothing later lands over one.
+#[derive(Debug)]
 pub(super) struct Namespace {
     argv: Vec<String>,
     paths: Vec<PathBuf>,
+    targets: Vec<PathBuf>,
 }
 
 impl Namespace {
@@ -125,27 +128,17 @@ impl Namespace {
         if !network {
             argv.push("--unshare-net".to_string());
         }
-        let skeleton = [
-            "--clearenv",
-            "--setenv",
-            HANDS_BOX_ENV,
-            "1",
-            "--proc",
-            "/proc",
-        ];
-        argv.extend(
-            skeleton
-                .into_iter()
-                .chain(["--dev", "/dev"])
-                .map(String::from),
-        );
-        for dir in ["/runtime", "/etc", "/home", "/root", "/run", "/usr"] {
-            argv.extend(["--dir", dir].map(String::from));
-        }
+        argv.extend(["--clearenv", "--setenv", HANDS_BOX_ENV, "1"].map(String::from));
         let mut namespace = Namespace {
             argv,
             paths: Vec::new(),
+            targets: Vec::new(),
         };
+        namespace.made("--proc", "/proc");
+        namespace.made("--dev", "/dev");
+        for dir in ["/runtime", "/etc", "/home", "/root", "/run", "/usr"] {
+            namespace.made("--dir", dir);
+        }
         for host in profile.system() {
             namespace.mount(Mount::RoBindTry, Path::new(host), host);
         }
@@ -159,26 +152,52 @@ impl Namespace {
     /// identity files is copied in.
     pub(super) fn identity(&mut self, etc: &Path) -> std::io::Result<()> {
         generate(etc, Resolver::Files)?;
-        self.identified(etc, Resolver::Files);
+        self.generated_in(etc, Resolver::Files);
         Ok(())
     }
 
-    /// Bind the generated identity in `etc`, and the host's resolver file
-    /// where `resolver` asks the host's DNS.
-    fn identified(&mut self, etc: &Path, resolver: Resolver) {
+    /// Bind the generated identity files in `etc` at their places.
+    fn generated_in(&mut self, etc: &Path, resolver: Resolver) {
         for (name, _) in generated(resolver) {
-            self.mount(Mount::RoBind, &etc.join(name), &format!("/etc/{name}"));
+            self.mount(Mount::RoBind, &etc.join(name), &identity_target(name));
         }
+    }
+
+    /// Bind the host's resolver file where `resolver` asks the host's DNS.
+    fn resolving(&mut self, resolver: Resolver) {
         match resolver {
             Resolver::Files => {}
             Resolver::Dns => self.mount_in_place(Mount::RoBindTry, Path::new(RESOLV_CONF)),
         }
     }
 
+    /// Bind each server system source whose canonical path the set does
+    /// not already name at that path too, from the same source: an
+    /// executable the layout admits where it resolves is there in the box,
+    /// and the alias adds no source (D5).
+    fn aliased(&mut self) {
+        let sources: Vec<&str> = Profile::Server.system().collect();
+        let resolve = |source: &Path| std::fs::canonicalize(source).ok();
+        for (source, canonical) in aliases_with(&sources, resolve) {
+            self.mount(
+                Mount::RoBindTry,
+                Path::new(source),
+                &namespace_path(&canonical),
+            );
+        }
+    }
+
+    /// `flag` making `target` inside the box: a skeleton or a tmpfs.
+    fn made(&mut self, flag: &str, target: &str) {
+        self.targets.push(PathBuf::from(target));
+        self.argv.extend([flag, target].map(String::from));
+    }
+
     /// Mount `host` at `target` inside the box.
     pub(super) fn mount(&mut self, mount: Mount, host: &Path, target: &str) {
         self.paths
             .extend([host.to_path_buf(), PathBuf::from(target)]);
+        self.targets.push(PathBuf::from(target));
         self.argv.extend([
             mount.flag().to_string(),
             host.to_string_lossy().into_owned(),
@@ -193,8 +212,7 @@ impl Namespace {
 
     /// An empty tmpfs over `target`, hiding what lies beneath it.
     pub(super) fn tmpfs(&mut self, target: &str) {
-        self.argv
-            .extend(["--tmpfs".to_string(), target.to_string()]);
+        self.made("--tmpfs", target);
     }
 
     /// An overlay mount, as `overlay_argv` serialized it for its writes.
@@ -210,14 +228,37 @@ impl Namespace {
     /// The finished argv: enter `workdir` inside the box, then run
     /// `command` there.
     pub(super) fn enter(mut self, workdir: &Path, command: &[String]) -> Vec<String> {
+        self.close(workdir, command);
+        self.argv
+    }
+
+    /// Close the argv in place: enter `workdir`, then run `command`.
+    fn close(&mut self, workdir: &Path, command: &[String]) {
         self.argv.extend([
             "--chdir".to_string(),
             namespace_path(workdir),
             "--".to_string(),
         ]);
         self.argv.extend(command.iter().cloned());
-        self.argv
     }
+}
+
+/// Each of `sources` paired with the canonical path `resolve` gives it,
+/// where that path is not itself one of `sources`: a source that is no
+/// link, or links to another source, needs no alias; an absent one has
+/// none.
+pub(super) fn aliases_with<'s>(
+    sources: &[&'s str],
+    resolve: impl Fn(&Path) -> Option<PathBuf>,
+) -> Vec<(&'s str, PathBuf)> {
+    sources
+        .iter()
+        .filter_map(|source| {
+            let canonical = resolve(Path::new(source))?;
+            let named = sources.iter().any(|other| Path::new(other) == canonical);
+            (!named).then_some((*source, canonical))
+        })
+        .collect()
 }
 
 /// The identity files every box generates, by name under `/etc`, with
@@ -241,6 +282,11 @@ fn generated(resolver: Resolver) -> [(&'static str, String); 4] {
         ),
         ("nsswitch.conf", hosts.to_string()),
     ]
+}
+
+/// Where the generated identity file `name` lies inside the box.
+fn identity_target(name: &str) -> String {
+    format!("/etc/{name}")
 }
 
 /// Write the generated identity into `etc`.
@@ -288,14 +334,6 @@ pub fn server_environment() -> impl Iterator<Item = &'static str> {
         .iter()
         .map(|(name, _)| *name)
         .chain([HANDS_BOX_ENV])
-}
-
-/// `holds`, or `refusal`.
-fn ensure(holds: bool, refusal: Refusal) -> Result<(), Refusal> {
-    match holds {
-        true => Ok(()),
-        false => Err(refusal),
-    }
 }
 
 /// `path` with every symlink resolved, or as spelled where it does not
@@ -385,18 +423,54 @@ pub(super) fn layout(executable: &Path, home: &Path) -> Result<Tree, Refusal> {
         false => parent,
     };
     // `home` is absolute, so `/` is among the roots it starts with.
-    ensure(!home.starts_with(root), Refusal::ProgramTree)?;
-    Ok(Tree::Package {
-        root: root.to_path_buf(),
-    })
+    (!home.starts_with(root))
+        .then_some(Tree::Package {
+            root: root.to_path_buf(),
+        })
+        .ok_or(Refusal::ProgramTree)
 }
 
-/// Whether the server's system set already binds `root`: a package inside
-/// it keeps its own identity and gains no mount, never a broader one.
-fn covered(root: &Path) -> bool {
-    Profile::Server
+/// Whether `profile`'s system set holds `root`: a package inside the
+/// server's keeps its own identity and gains no mount, never a broader one.
+fn covered(profile: Profile, root: &Path) -> bool {
+    profile
         .system()
         .any(|source| std::fs::canonicalize(source).is_ok_and(|source| root.starts_with(source)))
+}
+
+impl Namespace {
+    /// A server box up to its program: the projected system set and its
+    /// canonical aliases, then the private tmpfs HOME and `/tmp`. They go
+    /// in before the program and the bootstrap, so a source under `/tmp`
+    /// lies on top of the private `/tmp` rather than hidden beneath it.
+    pub(super) fn server(network: bool) -> Namespace {
+        let mut namespace = Namespace::open(Profile::Server, network);
+        namespace.aliased();
+        namespace.tmpfs(SANDBOX_HOME);
+        namespace.tmpfs("/tmp");
+        namespace
+    }
+
+    /// Bind a package root the server's system set does not hold,
+    /// read-only at its canonical path (MB3, MB4), or refuse one that is
+    /// or holds a path the box already set up, which would widen the
+    /// system set, replace the generated identity's `/etc` or shadow a
+    /// private directory, or that lies inside a source the server's
+    /// projection narrowed away (`/etc/ssl/private`).
+    pub(super) fn package(&mut self, tree: &Tree) -> Result<(), Refusal> {
+        match tree {
+            Tree::Package { root } if !covered(Profile::Server, root) => {
+                let shadows = self.targets.iter().any(|target| target.starts_with(root));
+                let narrowed = covered(Profile::Workspace, root);
+                (!(shadows | narrowed))
+                    .then_some(())
+                    .ok_or(Refusal::ProgramTree)?;
+                self.mount_in_place(Mount::RoBind, root);
+            }
+            Tree::Package { .. } | Tree::System {} => {}
+        }
+        Ok(())
+    }
 }
 
 /// What a server box is built from beside its program (U6c4): the seat's
@@ -412,26 +486,28 @@ pub struct ServerProfile<'a> {
 
 /// One MCP server's box, prepared and never started (U6c4; MB3, MB4): the
 /// isolation every box has but no session of its own, the projected
-/// system set, the generated identity and resolver, a fresh private tmpfs
-/// HOME and TMPDIR, the program tree where the system set does not already
-/// hold it, the bootstrap, MB4's fixed environment, and the executable
-/// entered from `/runtime/home`. No workspace, Git, bundle, overlay,
-/// declared hands bind or host HOME is mounted. Its generated identity
-/// lives in a private session tree this value holds and removes.
+/// system set and its canonical aliases, a fresh private tmpfs HOME and
+/// TMPDIR, the program tree where the system set does not already hold
+/// it, the bootstrap, the generated identity and resolver, MB4's fixed
+/// environment, and the executable entered from `/runtime/home`. No
+/// workspace, Git, bundle, overlay, declared hands bind or host HOME is
+/// mounted. Its generated identity lives in a private session tree this
+/// value holds and removes.
 #[derive(Debug)]
 pub struct ServerBox {
-    paths: Vec<PathBuf>,
-    argv: Vec<String>,
+    intent: Namespace,
     _scratch: Session,
 }
 
 impl ServerBox {
     /// The box `program` runs in under `profile`, or the first of MB3's
-    /// causes in order: the executable launched from writable reach, then
-    /// any source or destination overlapping any reach root, either way.
-    /// Nothing is written into the scratch before reach is cleared; a
-    /// scratch that cannot hold the generated identity leaves the box's
-    /// identity unprotected.
+    /// causes in order: a package root that would widen or shadow the box,
+    /// the executable launched from writable reach, then any source or
+    /// destination overlapping any reach root, either way, the temporary
+    /// directory the generated identity is written under included. Nothing
+    /// is created or written before reach is cleared; a scratch that
+    /// cannot then hold the generated identity leaves the box's identity
+    /// unprotected.
     pub fn prepare(
         program: &ServerProgram,
         profile: &ServerProfile<'_>,
@@ -440,25 +516,21 @@ impl ServerBox {
             Network::Isolated => (false, Resolver::Files),
             Network::Shared => (true, Resolver::Dns),
         };
+        let mut namespace = Namespace::server(network);
+        namespace.package(&program.tree)?;
+        namespace.mount_in_place(Mount::RoBind, profile.bootstrap);
+        namespace.resolving(resolver);
+        // The identity's places are checked now; its sources lie in a
+        // tree `Session::create` makes under `temporary` once reach clears.
+        let places = generated(resolver).map(|(name, _)| PathBuf::from(identity_target(name)));
+        let planned = [&namespace.paths[..], &places[..]].concat();
+        let temporary = std::env::temp_dir();
+        clear(program, &planned, &temporary, profile.reach)?;
         let scratch = Session::create("server").ok();
         let scratch = scratch.ok_or(Refusal::Identity)?;
         let etc = scratch.path().join("etc");
-        let mut namespace = Namespace::open(Profile::Server, network);
-        namespace.identified(&etc, resolver);
-        // The private directories go in before the program and the
-        // bootstrap, so a source under /tmp lies on top of the private
-        // /tmp rather than hidden beneath it.
-        namespace.tmpfs(SANDBOX_HOME);
-        namespace.tmpfs("/tmp");
-        match &program.tree {
-            Tree::Package { root } if !covered(root) => {
-                namespace.mount_in_place(Mount::RoBind, root)
-            }
-            Tree::Package { .. } | Tree::System {} => {}
-        }
-        namespace.mount_in_place(Mount::RoBind, profile.bootstrap);
-        clear(program, &namespace.paths, profile.reach)?;
         generate(&etc, resolver).ok().ok_or(Refusal::Identity)?;
+        namespace.generated_in(&etc, resolver);
         for (key, value) in SERVER_ENVIRONMENT {
             namespace.setenv(key, value);
         }
@@ -466,30 +538,38 @@ impl ServerBox {
             .into_iter()
             .chain(profile.arguments.iter().cloned())
             .collect();
-        let paths = namespace.paths.clone();
+        namespace.close(Path::new(SANDBOX_HOME), &command);
         Ok(ServerBox {
-            paths,
-            argv: namespace.enter(Path::new(SANDBOX_HOME), &command),
+            intent: namespace,
             _scratch: scratch,
         })
     }
 
     /// Every host source and box destination the box mounts.
     pub fn paths(&self) -> impl Iterator<Item = &Path> {
-        self.paths.iter().map(PathBuf::as_path)
+        self.intent.paths.iter().map(PathBuf::as_path)
     }
 
-    /// The bubblewrap argv that builds the box, for the launch to run.
-    pub fn argv(&self) -> &[String] {
-        &self.argv
+    /// The bubblewrap argv that builds the box. Read by tests until the
+    /// launch runs it.
+    #[cfg(test)]
+    pub(super) fn argv(&self) -> &[String] {
+        &self.intent.argv
     }
 }
 
 /// The seat's reach against the box (MB3), each path compared as spelled
 /// and as it resolves: neither the launch name's file nor the executable
 /// in a writable root, then no path the box mounts within any root or
-/// holding one.
-fn clear(program: &ServerProgram, paths: &[PathBuf], reach: &Reach) -> Result<(), Refusal> {
+/// holding one, and no root holding the `temporary` directory the box's
+/// session tree will be made in. That tree is made later under a fresh
+/// random name, so a root can lie inside it only by naming it first.
+fn clear(
+    program: &ServerProgram,
+    paths: &[PathBuf],
+    temporary: &Path,
+    reach: &Reach,
+) -> Result<(), Refusal> {
     let resolved = |roots: &[PathBuf]| -> Vec<PathBuf> {
         roots.iter().flat_map(|root| spellings(root)).collect()
     };
@@ -498,12 +578,17 @@ fn clear(program: &ServerProgram, paths: &[PathBuf], reach: &Reach) -> Result<()
         .into_iter()
         .flat_map(|path| spellings(path))
         .any(|path| writable.iter().any(|root| path.starts_with(root)));
-    ensure(!launched, Refusal::LaunchInReach)?;
+    (!launched).then_some(()).ok_or(Refusal::LaunchInReach)?;
     let roots = [writable, resolved(&reach.readable)].concat();
     let overlapping = paths.iter().flat_map(|path| spellings(path)).any(|path| {
         roots
             .iter()
             .any(|root| path.starts_with(root) | root.starts_with(&path))
     });
-    ensure(!overlapping, Refusal::BindOverlapsReach)
+    let held = spellings(temporary)
+        .iter()
+        .any(|dir| roots.iter().any(|root| dir.starts_with(root)));
+    (!(overlapping | held))
+        .then_some(())
+        .ok_or(Refusal::BindOverlapsReach)
 }

@@ -290,7 +290,6 @@ impl core::fmt::Display for brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::Reaped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_protocol::hands::ServerBox
 impl brokkr_protocol::hands::ServerBox
-pub fn brokkr_protocol::hands::ServerBox::argv(&self) -> &[alloc::string::String]
 pub fn brokkr_protocol::hands::ServerBox::paths(&self) -> impl core::iter::traits::iterator::Iterator<Item = &std::path::Path>
 pub fn brokkr_protocol::hands::ServerBox::prepare(&brokkr_protocol::hands::ServerProgram, &brokkr_protocol::hands::ServerProfile<'_>) -> core::result::Result<brokkr_protocol::hands::ServerBox, brokkr_protocol::broker::Refusal>
 pub struct brokkr_protocol::hands::ServerProfile<'a>

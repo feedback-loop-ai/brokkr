@@ -1038,11 +1038,19 @@ fn the_program_tree_is_mb3s_layout_of_the_executable() {
     let cargo = sealed.home.join(".cargo");
     let cargo_entry = plant(&cargo.join("bin/d"));
     let sh = std::fs::canonicalize("/bin/sh").unwrap();
+    // A bare name is the first executable on the fixed search path, which
+    // need not be `/bin/sh`'s file where `/bin` and `/usr/bin` are apart.
+    let bare = ["/usr/local/bin", "/usr/bin", "/bin"]
+        .iter()
+        .map(|dir| Path::new(dir).join("sh"))
+        .find(|path| path.is_file())
+        .map(|path| std::fs::canonicalize(path).unwrap())
+        .unwrap();
     // A system entry is its own tree, named bare on the fixed search path
     // or by a path; a package is its parent, or the parent of a `bin` or
     // `sbin`, whichever link the launch name took to it.
     for (argv0, executable, sealed_tree) in [
-        (json!("sh"), &sh, system()),
+        (json!("sh"), &bare, system()),
         (json!("/bin/sh"), &sh, system()),
         (json!(entry), &entry, package(&docs)),
         (json!(link), &entry, package(&docs)),
@@ -1063,7 +1071,7 @@ fn the_program_tree_is_mb3s_layout_of_the_executable() {
         // that is not MB3's layout of it.
         (json!(link), &link, package(&docs)),
         (json!(entry), &entry, system()),
-        (json!("sh"), &sh, package(sh.parent().unwrap())),
+        (json!("sh"), &bare, package(bare.parent().unwrap())),
         (json!(entry), &entry, package(&docs.join("bin"))),
         // No file, or a root that is the host HOME or holds it.
         (json!(missing), &missing, package(missing.parent().unwrap())),
@@ -1100,13 +1108,18 @@ fn the_box_neither_launches_from_nor_binds_over_the_seats_reach() {
     // broker's TMPDIR inside the seat's writable reach.
     let system = json!(["/usr/lib/u6c4-tool"]);
     assert_eq!(sealed.with("/box/reach/readable", system), overlapping);
+    // Reach is cleared before the scratch is made: a TMPDIR in reach that
+    // could hold no scratch still refuses as reach, not as identity.
     let tmp = sealed.path("work/tmp");
     std::fs::create_dir_all(&tmp).unwrap();
+    let unusable = sealed.root.write("work/not-a-directory", "");
     let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
-    let answer = sealed.serve_in(&sealed.locator, &digest, |command| {
-        command.env("HOME", &sealed.home).env("TMPDIR", &tmp);
-    });
-    assert_eq!(answer, overlapping);
+    for tmp in [tmp, unusable] {
+        let answer = sealed.serve_in(&sealed.locator, &digest, |command| {
+            command.env("HOME", &sealed.home).env("TMPDIR", &tmp);
+        });
+        assert_eq!((&tmp, answer), (&tmp, overlapping.clone()));
+    }
     // A reach root inside the package, either kind, or over the bootstrap.
     for (pointer, root) in [
         ("/box/reach/writable", sealed.path("opt/docs/data")),
