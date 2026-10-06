@@ -1799,5 +1799,1140 @@
         "usage": "XA1 11106 input (8960 cached), 34 output tokens; XA2 72226 input (58368 cached), 119 output tokens; billed to the operator's ChatGPT plan, no per-call price reported"
       }
     }
+  },
+  "u0c": {
+    "record": "decision 0065 slice two, unit U0c: keyed dsh routes through an engine-only home",
+    "change": "openspec/changes/decision-0065-capabilities-slice-two",
+    "narrative": "docs/evidence/adapters/slice-two-mcp-isolation.md#u0c-keyed-dsh-routes-through-an-engine-only-home-2026-10-06",
+    "ruled": "operator, 2026-10-06",
+    "measured": {
+      "from": "2026-10-06T20:29:57Z",
+      "to": "2026-10-06T20:48:27Z"
+    },
+    "host": {
+      "os": "Ubuntu 25.10",
+      "kernel": "6.17.0-41-generic",
+      "arch": "x86_64",
+      "macos": "not measured; nothing claimed"
+    },
+    "versions": {
+      "dsh": "launcher 0.1.5-rc.1; @deepseek-ai/dsh-mcp-client, dsh-llm-deepseek, dsh-llm-pi-ai, dsh-credentials-local, dsh-base, dsh-headless, dsh-app-boot 0.1.5-rc.2; @earendil-works/pi-ai 0.85.1",
+      "node": "v22.23.2",
+      "sentinel_sha256": "1bc7c6a1b837855e4634c340c8432ab54315294c110cd422d24152d55e9450e1",
+      "bubblewrap": "0.11.0 (operator configuration read only)"
+    },
+    "method": {
+      "sentinels": "as U0: one uniquely named tool per sentinel; ambient home-level ($DSH_HOME/cordis.patch.yml, amb_home) and profile-level (profiles/headless/cordis.patch.yml, amb_profile) insert rows planted in each disposable HOME default ~/.dsh; engine row inserted by the --patch overlay",
+      "environment": "bin/clean-exec.sh subshell: unset every exported variable and function except HOME, USER, LOGNAME, SHELL, TERM, LANG, PATH, TMPDIR, VOLTA_HOME, DSH_HOME, DISABLE_AUTOUPDATER; set those to fixed non-secret values; for K-a and PC only, set -a; . ~/.dsh/<file>.env; set +a; exec dsh. No key on any argv (the env file path only). Child exported names checked by name (compgen -e): the allowed names plus the file own names",
+      "homes": "per family: dsh/userhome-<family> (dsh-scaffolded default ~/.dsh, ambient sentinels plus the route provider entry in the profile layer) and dsh/home-engine-<family> (dsh-scaffolded engine-only DSH_HOME: shipped bundles @deepseek-ai/dsh-base and @deepseek-ai/dsh-headless plus only this route provider entry, verbatim from the operator headless profile; deepseek []). No env file, .env or .credentials.yaml staged",
+      "precheck": "before every cell: none of $DSH_HOME/.credentials.yaml, $DSH_HOME/.env, <cwd>/.env, $HOME/.env, $HOME/.dsh/.env, $HOME/.dsh/.credentials.yaml exists",
+      "order": "per family: K-b first on homes never given a key, then K-a, then the positive control",
+      "listing_source": "dsh transcript request/header (first request tool list); no capture proxy for keyed HTTPS upstreams. On U0 D03 the transcript header lists exactly the 26 names U0 capture proxy saw on the wire",
+      "task": "Call each available tool whose name contains u0_ exactly once, with no arguments. Then reply done.",
+      "timeout_s": 240,
+      "operator_config_read": "dsh --profile headless --dump-config over the operator ~/.dsh inside bwrap --overlay-src ~/.dsh --tmp-overlay ~/.dsh (writes discarded), scrubbed env with no key, output redacted for key shapes before writing (4 redactions, all long package names); ~/.dsh listing (paths, mtimes, sizes) identical before and after. Under a read-only bind --dump-config fails with EROFS: the launcher prepareProfile rewrites profiles/<name>/cordis.yml"
+    },
+    "routes": {
+      "deepseek": {
+        "provider": "deepseek-official",
+        "model": "deepseek-flash",
+        "composed_by": "@deepseek-ai/dsh-base llm-deepseek row (no config); no operator row",
+        "apiKeyEnv": "DEEPSEEK_API_KEY (dsh-llm-deepseek DEFAULT_API_KEY_ENV)",
+        "base_url": "https://api.deepseek.com (adapter default; DEEPSEEK_BASE_URL from a trusted layer would override; unset)",
+        "engine_home_row": "none",
+        "env_file": "~/.dsh/deepseek.env (names: DEEPSEEK_API_KEY)",
+        "adapter_credentials_entry": false
+      },
+      "dashscope": {
+        "provider": "dashscope",
+        "model": "qwen3.8-flash",
+        "composed_by": "operator headless profile llm-pi-ai provider entry",
+        "apiKeyEnv": "DASHSCOPE_API_KEY",
+        "base_url": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1 (literal in the row; equals recipes/research-dsh/drivers/research-web.yml)",
+        "engine_home_row": "the dashscope provider entry",
+        "env_file": "~/.dsh/dashscope.env (names: DASHSCOPE_API_KEY, DASHSCOPE_BASE_URL; DASHSCOPE_BASE_URL is read by no installed dsh package)",
+        "adapter_credentials_entry": false
+      },
+      "meta": {
+        "provider": "meta",
+        "model": "meta/muse-spark-1.3",
+        "composed_by": "operator headless profile llm-pi-ai provider entry (reasoning: xhigh)",
+        "apiKeyEnv": "OPENROUTER_API_KEY",
+        "base_url": "https://openrouter.ai/api/v1",
+        "engine_home_row": "the meta provider entry",
+        "env_file": "~/.dsh/openrouter.env (names: OPENROUTER_API_KEY); ~/.dsh/meta.env (MODEL_API_KEY) is read by no route and was not sourced",
+        "adapter_credentials_entry": true
+      },
+      "meta-contributor": {
+        "provider": "meta-contributor",
+        "model": "meta/muse-spark-1.3-contributor",
+        "composed_by": "operator headless profile llm-pi-ai provider entry (reasoning: xhigh)",
+        "apiKeyEnv": "OPENROUTER_API_KEY",
+        "base_url": "https://openrouter.ai/api/v1",
+        "engine_home_row": "the meta-contributor provider entry",
+        "env_file": "~/.dsh/openrouter.env (names: OPENROUTER_API_KEY)",
+        "adapter_credentials_entry": true
+      }
+    },
+    "credential_layers": {
+      "order": [
+        "inherited process environment",
+        "$DSH_HOME/.credentials.yaml",
+        "<cwd>/.env",
+        "$DSH_HOME/.env"
+      ],
+      "source": "dsh-credentials-local 0.1.5-rc.2 lib/index.js:13-20; dsh-app-boot loadLayeredEnv; both LLM adapters resolve apiKeyEnv through it per request",
+      "operator_home": "the operator ~/.dsh holds a managed .credentials.yaml whose refs name SPARK_API_KEY, DEEPSEEK_API_KEY, OPENROUTER_API_KEY, DASHSCOPE_API_KEY and QWEN_TOKEN_PLAN_API_KEY (names read, values not); under the operator home a key absent from the environment resolves from that file; an engine-only home has none, so the environment is its only source (K01, K04, K07, K10)",
+      "operator_ambient_mcp": "none configured: no dsh-mcp-client row in the composed headless config and no home-level ~/.dsh/cordis.patch.yml",
+      "engine_only_home_leaves_open": "<cwd>/.env (the seat worktree); asserted absent in every cell"
+    },
+    "verdicts": {
+      "dsh_keyed": {
+        "deepseek": {
+          "status": "qualified",
+          "statement": "the key is honoured from the environment and ambient MCP stays excluded",
+          "cells": {
+            "ka": "K02",
+            "kb": "K01",
+            "pc": "K03"
+          },
+          "other_staged_file": "none"
+        },
+        "dashscope": {
+          "status": "qualified",
+          "statement": "the key is honoured from the environment and ambient MCP stays excluded",
+          "cells": {
+            "ka": "K05",
+            "kb": "K04",
+            "pc": "K06"
+          },
+          "other_staged_file": "none"
+        },
+        "meta": {
+          "status": "qualified",
+          "statement": "the key is honoured from the environment and ambient MCP stays excluded",
+          "cells": {
+            "ka": "K08",
+            "kb": "K07",
+            "pc": "K09"
+          },
+          "other_staged_file": "none"
+        },
+        "meta-contributor": {
+          "status": "qualified",
+          "statement": "the key is honoured from the environment and ambient MCP stays excluded",
+          "cells": {
+            "ka": "K11t",
+            "kb": "K10",
+            "pc": "K12r"
+          },
+          "other_staged_file": "none",
+          "note": "the upstream (Meta via OpenRouter) was overloaded from 20:32Z to 20:46Z: K11, K11r, K11s and K12 ended after the dsh retry policy (503 service_overloaded / 504) with ambient MCP excluded and the engine listed; K11t completed after 4 failed attempts and K12r completed cleanly"
+        }
+      }
+    },
+    "cells": [
+      {
+        "id": "K01-dsh-deepseek-kb-no-key",
+        "harness": "dsh",
+        "candidate": "engine-only DSH_HOME + engine --patch overlay, no key anywhere (key control)",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 1,
+        "provider_request": "none: refused at the dsh credential seam (MISSING_CREDENTIAL) before any provider request",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "listed",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 26,
+          "web_search_tool_present": false
+        },
+        "note": "refusal (stderr, exit 1): dsh: MISSING_CREDENTIAL: llm-deepseek: no API key for provider route \"deepseek-official\"; store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it), or export DEEPSEEK_API_KEY in the launching environment",
+        "u0c": {
+          "family": "deepseek",
+          "kind": "kb",
+          "measured": {
+            "started": "2026-10-06T20:29:57Z",
+            "ended": "2026-10-06T20:29:58Z"
+          },
+          "route": {
+            "provider": "deepseek-official",
+            "model": "deepseek-flash",
+            "reasoningEffort": "high"
+          },
+          "key_in_environment": false,
+          "env_file_sourced": null,
+          "model_call": "refused: MISSING_CREDENTIAL: llm-deepseek: no API key for provider route \"deepseek-official\"; store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it), or export DEEPSEEK_API_KEY in the launching environment",
+          "upstream_failures": null,
+          "agent_requests_completed": 0,
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K02-dsh-deepseek-ka-engine-only",
+        "harness": "dsh",
+        "candidate": "engine-only DSH_HOME + engine --patch overlay, key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 0,
+        "provider_request": "keyed upstream (api.deepseek.com), key from the process environment; completed",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "answered",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 26,
+          "web_search_tool_present": false
+        },
+        "note": null,
+        "u0c": {
+          "family": "deepseek",
+          "kind": "ka",
+          "measured": {
+            "started": "2026-10-06T20:30:06Z",
+            "ended": "2026-10-06T20:30:09Z"
+          },
+          "route": {
+            "provider": "deepseek-official",
+            "model": "deepseek-flash",
+            "reasoningEffort": "high"
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/deepseek.env",
+          "model_call": "succeeded",
+          "upstream_failures": null,
+          "agent_requests_completed": 2,
+          "usage": {
+            "inputTokens": 6627,
+            "outputTokens": 104,
+            "cacheReadTokens": 7936
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback",
+            "provider"
+          ]
+        }
+      },
+      {
+        "id": "K03-dsh-deepseek-pc-default-home",
+        "harness": "dsh",
+        "candidate": "positive-control (disposable default ~/.dsh), key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 0,
+        "provider_request": "keyed upstream (api.deepseek.com), key from the process environment; completed",
+        "ambient_sentinels": {
+          "home": "answered",
+          "profile": "answered"
+        },
+        "engine_sentinel": "not_configured",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__amb_home__u0_home_probe",
+            "mcp__amb_profile__u0_profile_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 27,
+          "web_search_tool_present": false
+        },
+        "note": null,
+        "u0c": {
+          "family": "deepseek",
+          "kind": "pc",
+          "measured": {
+            "started": "2026-10-06T20:30:16Z",
+            "ended": "2026-10-06T20:30:19Z"
+          },
+          "route": {
+            "provider": "deepseek-official",
+            "model": "deepseek-flash",
+            "reasoningEffort": "high"
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/deepseek.env",
+          "model_call": "succeeded",
+          "upstream_failures": null,
+          "agent_requests_completed": 2,
+          "usage": {
+            "inputTokens": 3867,
+            "outputTokens": 134,
+            "cacheReadTokens": 10880
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback",
+            "provider"
+          ]
+        }
+      },
+      {
+        "id": "K04-dsh-dashscope-kb-no-key",
+        "harness": "dsh",
+        "candidate": "engine-only DSH_HOME + engine --patch overlay, no key anywhere (key control)",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 1,
+        "provider_request": "none: refused at the dsh credential seam (MISSING_CREDENTIAL) before any provider request",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "listed",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 26,
+          "web_search_tool_present": false
+        },
+        "note": "refusal (stderr, exit 1): dsh: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route \"dashscope\"; its profile resolves DASHSCOPE_API_KEY, which is not set — store DASHSCOPE_API_KEY through the credentials service (the web Models page writes it) or export it, and remove apiKeyEnv only if this provider should authenticate from pi-ai's own environment discovery",
+        "u0c": {
+          "family": "dashscope",
+          "kind": "kb",
+          "measured": {
+            "started": "2026-10-06T20:30:34Z",
+            "ended": "2026-10-06T20:30:35Z"
+          },
+          "route": {
+            "provider": "dashscope",
+            "model": "qwen3.8-flash",
+            "reasoningEffort": null
+          },
+          "key_in_environment": false,
+          "env_file_sourced": null,
+          "model_call": "refused: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route \"dashscope\"; its profile resolves DASHSCOPE_API_KEY, which is not set — store DASHSCOPE_API_KEY through the credentials service (the web Models page writes it) or export it, and remove apiKeyEnv only if this provider should authenticate from pi-ai's own environment discovery",
+          "upstream_failures": null,
+          "agent_requests_completed": 0,
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K05-dsh-dashscope-ka-engine-only",
+        "harness": "dsh",
+        "candidate": "engine-only DSH_HOME + engine --patch overlay, key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 0,
+        "provider_request": "keyed upstream (token-plan.ap-southeast-1.maas.aliyuncs.com), key from the process environment; completed",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "answered",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 26,
+          "web_search_tool_present": false
+        },
+        "note": null,
+        "u0c": {
+          "family": "dashscope",
+          "kind": "ka",
+          "measured": {
+            "started": "2026-10-06T20:30:41Z",
+            "ended": "2026-10-06T20:30:56Z"
+          },
+          "route": {
+            "provider": "dashscope",
+            "model": "qwen3.8-flash",
+            "reasoningEffort": null
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/dashscope.env",
+          "model_call": "succeeded",
+          "upstream_failures": null,
+          "agent_requests_completed": 2,
+          "usage": {
+            "inputTokens": 7829,
+            "outputTokens": 365,
+            "cacheReadTokens": 7168
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K06-dsh-dashscope-pc-default-home",
+        "harness": "dsh",
+        "candidate": "positive-control (disposable default ~/.dsh), key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 0,
+        "provider_request": "keyed upstream (token-plan.ap-southeast-1.maas.aliyuncs.com), key from the process environment; completed",
+        "ambient_sentinels": {
+          "home": "answered",
+          "profile": "answered"
+        },
+        "engine_sentinel": "not_configured",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__amb_home__u0_home_probe",
+            "mcp__amb_profile__u0_profile_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 27,
+          "web_search_tool_present": false
+        },
+        "note": null,
+        "u0c": {
+          "family": "dashscope",
+          "kind": "pc",
+          "measured": {
+            "started": "2026-10-06T20:31:05Z",
+            "ended": "2026-10-06T20:31:13Z"
+          },
+          "route": {
+            "provider": "dashscope",
+            "model": "qwen3.8-flash",
+            "reasoningEffort": null
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/dashscope.env",
+          "model_call": "succeeded",
+          "upstream_failures": null,
+          "agent_requests_completed": 2,
+          "usage": {
+            "inputTokens": 5794,
+            "outputTokens": 205,
+            "cacheReadTokens": 9216
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K07-dsh-meta-kb-no-key",
+        "harness": "dsh",
+        "candidate": "engine-only DSH_HOME + engine --patch overlay, no key anywhere (key control)",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 1,
+        "provider_request": "none: refused at the dsh credential seam (MISSING_CREDENTIAL) before any provider request",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "listed",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 26,
+          "web_search_tool_present": false
+        },
+        "note": "refusal (stderr, exit 1): dsh: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route \"meta\"; its profile resolves OPENROUTER_API_KEY, which is not set — store OPENROUTER_API_KEY through the credentials service (the web Models page writes it) or export it, and remove apiKeyEnv only if this provider should authenticate from pi-ai's own environment discovery",
+        "u0c": {
+          "family": "meta",
+          "kind": "kb",
+          "measured": {
+            "started": "2026-10-06T20:31:32Z",
+            "ended": "2026-10-06T20:31:33Z"
+          },
+          "route": {
+            "provider": "meta",
+            "model": "meta/muse-spark-1.3",
+            "reasoningEffort": "xhigh"
+          },
+          "key_in_environment": false,
+          "env_file_sourced": null,
+          "model_call": "refused: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route \"meta\"; its profile resolves OPENROUTER_API_KEY, which is not set — store OPENROUTER_API_KEY through the credentials service (the web Models page writes it) or export it, and remove apiKeyEnv only if this provider should authenticate from pi-ai's own environment discovery",
+          "upstream_failures": null,
+          "agent_requests_completed": 0,
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K08-dsh-meta-ka-engine-only",
+        "harness": "dsh",
+        "candidate": "engine-only DSH_HOME + engine --patch overlay, key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 0,
+        "provider_request": "keyed upstream (openrouter.ai), key from the process environment; completed",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "answered",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 26,
+          "web_search_tool_present": false
+        },
+        "note": null,
+        "u0c": {
+          "family": "meta",
+          "kind": "ka",
+          "measured": {
+            "started": "2026-10-06T20:31:40Z",
+            "ended": "2026-10-06T20:31:49Z"
+          },
+          "route": {
+            "provider": "meta",
+            "model": "meta/muse-spark-1.3",
+            "reasoningEffort": "xhigh"
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/openrouter.env",
+          "model_call": "succeeded",
+          "upstream_failures": null,
+          "agent_requests_completed": 2,
+          "usage": {
+            "inputTokens": 7643,
+            "outputTokens": 345,
+            "cacheReadTokens": 7522
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K09-dsh-meta-pc-default-home",
+        "harness": "dsh",
+        "candidate": "positive-control (disposable default ~/.dsh), key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 0,
+        "provider_request": "keyed upstream (openrouter.ai), key from the process environment; completed",
+        "ambient_sentinels": {
+          "home": "answered",
+          "profile": "answered"
+        },
+        "engine_sentinel": "not_configured",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__amb_home__u0_home_probe",
+            "mcp__amb_profile__u0_profile_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 27,
+          "web_search_tool_present": false
+        },
+        "note": null,
+        "u0c": {
+          "family": "meta",
+          "kind": "pc",
+          "measured": {
+            "started": "2026-10-06T20:32:06Z",
+            "ended": "2026-10-06T20:32:12Z"
+          },
+          "route": {
+            "provider": "meta",
+            "model": "meta/muse-spark-1.3",
+            "reasoningEffort": "xhigh"
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/openrouter.env",
+          "model_call": "succeeded",
+          "upstream_failures": null,
+          "agent_requests_completed": 2,
+          "usage": {
+            "inputTokens": 12541,
+            "outputTokens": 308,
+            "cacheReadTokens": 2786
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K10-dsh-metac-kb-no-key",
+        "harness": "dsh",
+        "candidate": "engine-only DSH_HOME + engine --patch overlay, no key anywhere (key control)",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 1,
+        "provider_request": "none: refused at the dsh credential seam (MISSING_CREDENTIAL) before any provider request",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "listed",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 26,
+          "web_search_tool_present": false
+        },
+        "note": "refusal (stderr, exit 1): dsh: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route \"meta-contributor\"; its profile resolves OPENROUTER_API_KEY, which is not set — store OPENROUTER_API_KEY through the credentials service (the web Models page writes it) or export it, and remove apiKeyEnv only if this provider should authenticate from pi-ai's own environment discovery",
+        "u0c": {
+          "family": "meta-contributor",
+          "kind": "kb",
+          "measured": {
+            "started": "2026-10-06T20:32:14Z",
+            "ended": "2026-10-06T20:32:15Z"
+          },
+          "route": {
+            "provider": "meta-contributor",
+            "model": "meta/muse-spark-1.3-contributor",
+            "reasoningEffort": "xhigh"
+          },
+          "key_in_environment": false,
+          "env_file_sourced": null,
+          "model_call": "refused: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route \"meta-contributor\"; its profile resolves OPENROUTER_API_KEY, which is not set — store OPENROUTER_API_KEY through the credentials service (the web Models page writes it) or export it, and remove apiKeyEnv only if this provider should authenticate from pi-ai's own environment discovery",
+          "upstream_failures": null,
+          "agent_requests_completed": 0,
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K11-dsh-metac-ka-engine-only",
+        "harness": "dsh",
+        "candidate": "engine-only DSH_HOME + engine --patch overlay, key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 1,
+        "provider_request": "keyed upstream (openrouter.ai), key from the process environment; OpenRouter forwarded to provider Meta, which returned 503 service_overloaded, 503 service_overloaded, 503 service_overloaded, 503 service_overloaded, 504, 504; no completed response",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "listed",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 26,
+          "web_search_tool_present": false
+        },
+        "note": "upstream overloaded (Meta via OpenRouter, Retry-After 60); MCP startup observed, no model turn; an auth failure would have been an OpenRouter 401, not a provider 503",
+        "u0c": {
+          "family": "meta-contributor",
+          "kind": "ka",
+          "measured": {
+            "started": "2026-10-06T20:32:22Z",
+            "ended": "2026-10-06T20:34:45Z"
+          },
+          "route": {
+            "provider": "meta-contributor",
+            "model": "meta/muse-spark-1.3-contributor",
+            "reasoningEffort": "xhigh"
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/openrouter.env",
+          "model_call": "failed upstream after 6 attempts (dsh retry policy, 5 retries): 503 service_overloaded, 503 service_overloaded, 503 service_overloaded, 503 service_overloaded, 504, 504",
+          "upstream_failures": [
+            "503 service_overloaded",
+            "503 service_overloaded",
+            "503 service_overloaded",
+            "503 service_overloaded",
+            "504",
+            "504"
+          ],
+          "agent_requests_completed": 0,
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K11r-dsh-metac-ka-engine-only-rerun",
+        "harness": "dsh",
+        "candidate": "engine-only DSH_HOME + engine --patch overlay, key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 1,
+        "provider_request": "keyed upstream (openrouter.ai), key from the process environment; OpenRouter forwarded to provider Meta, which returned 503 service_overloaded, 503 service_overloaded, 503 service_overloaded, 504, 503 service_overloaded, 503 service_overloaded; no completed response",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "listed",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 26,
+          "web_search_tool_present": false
+        },
+        "note": "upstream overloaded (Meta via OpenRouter, Retry-After 60); MCP startup observed, no model turn; an auth failure would have been an OpenRouter 401, not a provider 503",
+        "u0c": {
+          "family": "meta-contributor",
+          "kind": "ka",
+          "measured": {
+            "started": "2026-10-06T20:37:32Z",
+            "ended": "2026-10-06T20:38:54Z"
+          },
+          "route": {
+            "provider": "meta-contributor",
+            "model": "meta/muse-spark-1.3-contributor",
+            "reasoningEffort": "xhigh"
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/openrouter.env",
+          "model_call": "failed upstream after 6 attempts (dsh retry policy, 5 retries): 503 service_overloaded, 503 service_overloaded, 503 service_overloaded, 504, 503 service_overloaded, 503 service_overloaded",
+          "upstream_failures": [
+            "503 service_overloaded",
+            "503 service_overloaded",
+            "503 service_overloaded",
+            "504",
+            "503 service_overloaded",
+            "503 service_overloaded"
+          ],
+          "agent_requests_completed": 0,
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K11s-dsh-metac-ka-engine-only-rerun2",
+        "harness": "dsh",
+        "candidate": "engine-only DSH_HOME + engine --patch overlay, key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 1,
+        "provider_request": "keyed upstream (openrouter.ai), key from the process environment; OpenRouter forwarded to provider Meta, which returned 503 service_overloaded, 504, 504, 503 service_overloaded, 504, 503 service_overloaded; no completed response",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "listed",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 26,
+          "web_search_tool_present": false
+        },
+        "note": "upstream overloaded (Meta via OpenRouter, Retry-After 60); MCP startup observed, no model turn; an auth failure would have been an OpenRouter 401, not a provider 503",
+        "u0c": {
+          "family": "meta-contributor",
+          "kind": "ka",
+          "measured": {
+            "started": "2026-10-06T20:40:25Z",
+            "ended": "2026-10-06T20:43:48Z"
+          },
+          "route": {
+            "provider": "meta-contributor",
+            "model": "meta/muse-spark-1.3-contributor",
+            "reasoningEffort": "xhigh"
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/openrouter.env",
+          "model_call": "failed upstream after 6 attempts (dsh retry policy, 5 retries): 503 service_overloaded, 504, 504, 503 service_overloaded, 504, 503 service_overloaded",
+          "upstream_failures": [
+            "503 service_overloaded",
+            "504",
+            "504",
+            "503 service_overloaded",
+            "504",
+            "503 service_overloaded"
+          ],
+          "agent_requests_completed": 0,
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K11t-dsh-metac-ka-engine-only-rerun3",
+        "harness": "dsh",
+        "candidate": "engine-only DSH_HOME + engine --patch overlay, key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 0,
+        "provider_request": "keyed upstream (openrouter.ai), key from the process environment; completed after 4 failed attempts inside the dsh retry policy (503 service_overloaded, 504, 503 service_overloaded, 503 service_overloaded)",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "answered",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 26,
+          "web_search_tool_present": false
+        },
+        "note": null,
+        "u0c": {
+          "family": "meta-contributor",
+          "kind": "ka",
+          "measured": {
+            "started": "2026-10-06T20:46:20Z",
+            "ended": "2026-10-06T20:48:09Z"
+          },
+          "route": {
+            "provider": "meta-contributor",
+            "model": "meta/muse-spark-1.3-contributor",
+            "reasoningEffort": "xhigh"
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/openrouter.env",
+          "model_call": "succeeded",
+          "upstream_failures": [
+            "503 service_overloaded",
+            "504",
+            "503 service_overloaded",
+            "503 service_overloaded"
+          ],
+          "agent_requests_completed": 2,
+          "usage": {
+            "inputTokens": 15063,
+            "outputTokens": 195,
+            "cacheReadTokens": 0
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K12-dsh-metac-pc-default-home",
+        "harness": "dsh",
+        "candidate": "positive-control (disposable default ~/.dsh), key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 1,
+        "provider_request": "keyed upstream (openrouter.ai), key from the process environment; OpenRouter forwarded to provider Meta, which returned 504, 503 service_overloaded, 503 service_overloaded, 503 service_overloaded, 504, 503 service_overloaded; no completed response",
+        "ambient_sentinels": {
+          "home": "listed",
+          "profile": "listed"
+        },
+        "engine_sentinel": "not_configured",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__amb_home__u0_home_probe",
+            "mcp__amb_profile__u0_profile_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 27,
+          "web_search_tool_present": false
+        },
+        "note": "upstream overloaded (Meta via OpenRouter, Retry-After 60); MCP startup observed, no model turn; an auth failure would have been an OpenRouter 401, not a provider 503",
+        "u0c": {
+          "family": "meta-contributor",
+          "kind": "pc",
+          "measured": {
+            "started": "2026-10-06T20:34:47Z",
+            "ended": "2026-10-06T20:37:10Z"
+          },
+          "route": {
+            "provider": "meta-contributor",
+            "model": "meta/muse-spark-1.3-contributor",
+            "reasoningEffort": "xhigh"
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/openrouter.env",
+          "model_call": "failed upstream after 6 attempts (dsh retry policy, 5 retries): 504, 503 service_overloaded, 503 service_overloaded, 503 service_overloaded, 504, 503 service_overloaded",
+          "upstream_failures": [
+            "504",
+            "503 service_overloaded",
+            "503 service_overloaded",
+            "503 service_overloaded",
+            "504",
+            "503 service_overloaded"
+          ],
+          "agent_requests_completed": 0,
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      },
+      {
+        "id": "K12r-dsh-metac-pc-default-home-rerun",
+        "harness": "dsh",
+        "candidate": "positive-control (disposable default ~/.dsh), key in the process environment",
+        "shape": "cold",
+        "hands": false,
+        "exit_code": 0,
+        "provider_request": "keyed upstream (openrouter.ai), key from the process environment; completed",
+        "ambient_sentinels": {
+          "home": "answered",
+          "profile": "answered"
+        },
+        "engine_sentinel": "not_configured",
+        "harness_listing": {
+          "listing_source": "dsh transcript request/header (first request); no capture proxy",
+          "request_status": null,
+          "mcp_tools": [
+            "mcp__amb_home__u0_home_probe",
+            "mcp__amb_profile__u0_profile_probe"
+          ],
+          "native_web_tools": [
+            "web_fetch",
+            "web_search"
+          ],
+          "tool_count": 27,
+          "web_search_tool_present": false
+        },
+        "note": null,
+        "u0c": {
+          "family": "meta-contributor",
+          "kind": "pc",
+          "measured": {
+            "started": "2026-10-06T20:48:23Z",
+            "ended": "2026-10-06T20:48:27Z"
+          },
+          "route": {
+            "provider": "meta-contributor",
+            "model": "meta/muse-spark-1.3-contributor",
+            "reasoningEffort": "xhigh"
+          },
+          "key_in_environment": true,
+          "env_file_sourced": "~/.dsh/openrouter.env",
+          "model_call": "succeeded",
+          "upstream_failures": null,
+          "agent_requests_completed": 2,
+          "usage": {
+            "inputTokens": 7875,
+            "outputTokens": 255,
+            "cacheReadTokens": 7409
+          },
+          "title_request_issued": true,
+          "title_sources": [
+            "fallback"
+          ]
+        }
+      }
+    ],
+    "model_calls": {
+      "keyless_refused_before_provider": [
+        "K01",
+        "K04",
+        "K07",
+        "K10"
+      ],
+      "keyed_invocations": 12,
+      "keyed_completed": [
+        "K02",
+        "K03",
+        "K05",
+        "K06",
+        "K08",
+        "K09",
+        "K11t",
+        "K12r"
+      ],
+      "keyed_failed_upstream": [
+        "K11",
+        "K11r",
+        "K11s",
+        "K12"
+      ],
+      "completed_agent_requests": 16,
+      "failed_upstream_attempts": 28,
+      "tokens_by_family": {
+        "dashscope": {
+          "requests": 4,
+          "inputTokens": 13623,
+          "outputTokens": 570,
+          "cacheReadTokens": 16384
+        },
+        "deepseek": {
+          "requests": 4,
+          "inputTokens": 10494,
+          "outputTokens": 238,
+          "cacheReadTokens": 18816
+        },
+        "meta": {
+          "requests": 4,
+          "inputTokens": 20184,
+          "outputTokens": 653,
+          "cacheReadTokens": 10308
+        },
+        "meta-contributor": {
+          "requests": 4,
+          "inputTokens": 22938,
+          "outputTokens": 450,
+          "cacheReadTokens": 7409
+        }
+      },
+      "session_title_requests": "dsh issues one session-title request per invocation on the same route; a provider-sourced title was recorded only on deepseek (K02, K03); pi-ai routes recorded the fallback title only",
+      "cost": "dsh reports cost null; no price is estimated"
+    },
+    "credentials": {
+      "sourcing": "keys reached dsh only by sourcing the operator existing env file into the dsh child environment inside the clean-exec.sh subshell (deepseek.env, dashscope.env, openrouter.env); meta.env and spark.env never sourced",
+      "copies": "none: no env file or key value copied into any file, home, overlay, log or note; no key on any argv",
+      "inspection": "env files by variable name only (sed -n s/=.*//p); operator .credentials.yaml by key name only; profile files screened for key shapes by line number before reading; no key value printed",
+      "operator_configs": "not modified (~/.dsh read inside a discarded overlay; ~/.claude*, ~/.codex untouched)",
+      "scan": {
+        "when": "2026-10-06, after the last cell and after both deliverables were written",
+        "tool": "bin/scan.sh: grep -rlE over all of /var/tmp/s2-u0c, symlinks not followed; every match classified by shape and never printed",
+        "pattern": "sk-[A-Za-z0-9_-]{16,}|[A-Za-z0-9_-]{32,}",
+        "files_scanned": 333,
+        "files_with_a_key_shaped_string": 101,
+        "sk_prefixed": 0,
+        "uuid": 164,
+        "pure_hex": {
+          "count": 7,
+          "where": "5 git object ids in the copied project .git; the sentinel sha256 in bin/build-json.sh and in this file"
+        },
+        "mixed_case_no_separator": {
+          "count": 16,
+          "where": "the tool-call id and responseId fields of the four completed meta transcripts (K08, K09, K11t, K12r): provider-issued ids"
+        },
+        "identifier": 283,
+        "binary": "1: the dsh node-addon-require-builtin prebuilt addon cached into TMPDIR, byte-identical to the shipped file",
+        "verdict": "no key-shaped string is a credential; no key value is present"
+      }
+    }
   }
 }
