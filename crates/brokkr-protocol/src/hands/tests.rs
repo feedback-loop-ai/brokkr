@@ -337,6 +337,137 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     .is_err());
 }
 
+/// The whole argv, flag by flag and mount by mount, for the workspace
+/// box `execute_in` builds and the exec box `run_boxed_in` builds: the
+/// namespace builder's prefix, toolchain and identity, then the
+/// workspace's own mounts, environment and command. Order is part of
+/// the boundary, because a later mount shadows an earlier one (U6c3).
+#[cfg(unix)]
+#[test]
+fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join("home");
+    let cargo = home.join(".cargo");
+    std::fs::create_dir_all(&cargo).unwrap();
+    std::fs::write(cargo.join("credentials.toml"), "secret").unwrap();
+    let (work, bundle) = (root.join("work"), root.join("bundle"));
+    let (scratch, session) = (root.join("scratch"), root.join("session"));
+    let common = root.join("main/.git");
+    let git = GitFacts {
+        git_dir: Some(common.join("worktrees/wt")),
+        common_dir: Some(common.clone()),
+        identity: vec![("GIT_AUTHOR_NAME".into(), "Seat".into())],
+    };
+    let spec = spec_of(json!({"kind": "workspace", "binds": [
+        {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml"]},
+        {"path": "/opt/tools", "mode": "ro"},
+        {"path": "/opt/pad", "mode": "rw"}
+    ]}));
+    let built = |spec: &HandsSpec, writes| {
+        box_argv(
+            spec,
+            &work,
+            &home,
+            &scratch,
+            writes,
+            &git,
+            Some(&bundle),
+            &one("true"),
+        )
+        .unwrap()
+    };
+    let expected = |unshare_net: &str, overlay: String, exec: &str| -> Vec<String> {
+        let mut argv: Vec<String> = format!(
+            "bwrap --die-with-parent --new-session --unshare-pid --unshare-ipc --unshare-uts \
+             --unshare-cgroup-try --cap-drop ALL {unshare_net} --clearenv \
+             --setenv {HANDS_BOX_ENV} 1 --proc /proc --dev /dev --dir /runtime --dir /etc \
+             --dir /home --dir /root --dir /run --dir /usr"
+        )
+        .split_whitespace()
+        .map(String::from)
+        .collect();
+        for host in HOST_TOOLCHAIN_BINDS {
+            argv.extend(["--ro-bind-try", host, host].map(String::from));
+        }
+        let (s, w, c, b, k) = (
+            scratch.display(),
+            work.display(),
+            common.display(),
+            bundle.display(),
+            cargo.display(),
+        );
+        argv.extend(
+            format!(
+                "--ro-bind {s}/etc/passwd /etc/passwd --ro-bind {s}/etc/group /etc/group \
+                 --ro-bind {s}/etc/hosts /etc/hosts \
+                 --ro-bind {s}/etc/nsswitch.conf /etc/nsswitch.conf \
+                 --bind {s}/home {SANDBOX_HOME} --bind {s}/tmp /tmp --bind {w} {w} \
+                 --ro-bind {b} {SANDBOX_BUNDLE} --bind {c} {c} --tmpfs {c}/hooks \
+                 --ro-bind-try {c}/config {c}/config {overlay} \
+                 --ro-bind /dev/null {k}/credentials.toml --ro-bind-try /opt/tools /opt/tools \
+                 --bind-try /opt/pad /opt/pad {exec} --setenv HOME {SANDBOX_HOME} \
+                 --setenv USER runner --setenv LOGNAME runner --setenv TMPDIR /tmp \
+                 --setenv PATH /runtime:{k}/bin:/usr/local/bin:/usr/bin:/bin \
+                 --setenv LANG C.UTF-8 --setenv LC_ALL C.UTF-8 --setenv CI true \
+                 --setenv DISABLE_AUTOUPDATER 1 --setenv DISABLE_TELEMETRY 1 \
+                 --setenv GIT_CONFIG_COUNT 1 --setenv GIT_CONFIG_KEY_0 commit.gpgsign \
+                 --setenv GIT_CONFIG_VALUE_0 false --setenv CARGO_HOME {k} \
+                 --setenv GIT_AUTHOR_NAME Seat --chdir {w} -- true"
+            )
+            .split_whitespace()
+            .map(String::from),
+        );
+        argv
+    };
+    let k = cargo.display();
+    let layer = session.join("overlay/0");
+    let workspace = format!(
+        "--overlay-src {k} --overlay {u} {v} {k}",
+        u = layer.join("upper").display(),
+        v = layer.join("work").display()
+    );
+    let workspace_argv = built(&spec, OverlayWrites::Session(&session));
+    assert_eq!(workspace_argv, expected("--unshare-net", workspace, ""));
+
+    // The exec box: networked here, its overlays in RAM, and this binary
+    // bound read-only after the declared binds, as `run_boxed_in` adds it.
+    let mut exec_spec = spec_of(json!({"kind": "workspace", "network": true}));
+    exec_spec.binds = spec.binds.clone();
+    exec_spec.binds.push(Bind {
+        path: "/opt/brokkr".to_string(),
+        mode: BindMode::Ro,
+        mask: Vec::new(),
+    });
+    let exec_argv = built(&exec_spec, OverlayWrites::Ram);
+    let ram = format!("--overlay-src {k} --tmp-overlay {k}");
+    let exec = "--ro-bind-try /opt/brokkr /opt/brokkr";
+    assert_eq!(exec_argv, expected("", ram, exec));
+}
+
+/// The identity the namespace builder generates for every box: the
+/// engine's own ids under `runner`, a files-only resolver, and nothing
+/// copied from the host's /etc (U6c3).
+#[test]
+fn the_generated_identity_is_the_engines_own_and_resolves_from_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let etc_dir = dir.path().canonicalize().unwrap().join("etc");
+    let mut namespace = Namespace::open(false);
+    namespace.identity(&etc_dir).unwrap();
+    let (uid, gid) = ids();
+    let etc = |name: &str| std::fs::read_to_string(etc_dir.join(name)).unwrap();
+    assert_eq!(
+        etc("passwd"),
+        format!("runner:x:{uid}:{gid}:brokkr hands:{SANDBOX_HOME}:/bin/sh\n")
+    );
+    assert_eq!(etc("group"), format!("runner:x:{gid}:\n"));
+    assert_eq!(
+        etc("hosts"),
+        "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n"
+    );
+    assert_eq!(etc("nsswitch.conf"), "hosts: files\n");
+}
+
 #[test]
 fn overlays_need_a_bubblewrap_that_has_them() {
     assert_eq!(parse_version("bubblewrap 0.11.0"), Some((0, 11, 0)));
