@@ -16,26 +16,29 @@
 //! One binary runs a file's tests by a filter, `--test it <file>::`, and a
 //! filter that matches nothing runs 0 tests and passes, where the old
 //! `--test <file>` failed. So every `--test it` filter a workflow, script,
-//! recipe, bundle or guide runs must name a module of its crate's root
-//! that carries a `#[test]` of its own, and an `--exact` name one of
-//! those tests. `run_commands` reads each command that may pass `--test
-//! it` word by word in a closed grammar, and refuses the first character
-//! outside it; a module's `#[test]`s are found by parsing its source as
-//! Rust (`crate::rust_source::tests`), so a pair a string literal, a
-//! comment or a nested item shows is no test of the binary, a name behind
-//! a `cfg` or `cfg_attr` predicate the binary of the compiling host may
-//! not carry is refused, and a module whose own `#![cfg]` does not hold
-//! carries no test at all.
+//! recipe, bundle or guide runs must name a test the package's own `it`
+//! binary carries: the gate asks each crate's built binary for its list
+//! (`--list --format terse`), holds a filter to a module with a listed
+//! test of its own, and holds an `--exact` name to a listed name
+//! (#543). `run_commands` reads each command that may pass `--test it`
+//! word by word in a closed grammar, and refuses the first character
+//! outside it. The binary already reflects a `cfg`, a `cfg_attr` and an
+//! inner `#![cfg]`, so a test those gate away from the compiling host is
+//! in no list and refuses; the source is never read for tests. A binary
+//! that cannot be built or listed refuses, named, and is never skipped.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs::Metadata;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::OnceLock;
 
 use super::{metadata, workspace, Package};
 use crate::tracked_files::tracked;
-use run_commands::{filters_in, Filter};
+use run_commands::{filters_in, fixture_lists, Filter, Lists};
+use serde::Deserialize;
 
 #[path = "test_targets/run_commands.rs"]
 mod run_commands;
@@ -65,26 +68,19 @@ enum Refusal {
     PathDeclaresNothing { root: PathBuf, path: String },
     /// A probe of the tree that failed other than by absence.
     Unreadable { path: PathBuf, kind: io::ErrorKind },
-    /// A `--test it` filter whose first segment the root does not declare.
-    UnknownModule {
-        at: String,
-        package: String,
-        module: String,
-    },
-    /// A `--test it` filter whose module holds no `#[test]` of its own.
+    /// A `--test it` filter whose module no listed test of the package's
+    /// binary begins with: the module holds no test, or is no module.
     TestlessModule {
         at: String,
         package: String,
         module: String,
     },
-    /// An `--exact` name no `#[test]` of its module carries.
+    /// An `--exact` name the package's binary does not list.
     UnknownTest {
         at: String,
         package: String,
         name: String,
     },
-    /// A module's source the `#[test]` reader cannot read.
-    UnreadSource { path: PathBuf, why: String },
     /// A `--test it` command with a filter and no `-p`.
     NoPackage { at: String, command: String },
     /// A `--test it` command with a word, flag or form the reader does not
@@ -94,6 +90,13 @@ enum Refusal {
         at: String,
         word: String,
         command: String,
+    },
+    /// A package's `it` binary no list was read of: the workspace has no
+    /// `tests/it` for it, or its build or its list failed, by `why`.
+    UnreadList {
+        at: String,
+        package: String,
+        why: String,
     },
 }
 
@@ -119,33 +122,19 @@ impl fmt::Display for Refusal {
                 "{}: {kind}, so what Cargo would compile there cannot be read",
                 path.display()
             ),
-            Self::UnknownModule {
-                at,
-                package,
-                module,
-            } => write!(
-                f,
-                "{at}: `--test it {module}::` names no module of {package}'s tests/it.rs, \
-                 so it would run 0 tests and pass"
-            ),
             Self::TestlessModule {
                 at,
                 package,
                 module,
             } => write!(
                 f,
-                "{at}: `--test it {module}::` names no #[test] in {package}'s {module} module, \
+                "{at}: `--test it {module}::` names no test of {package}'s it binary, \
                  so it would run 0 tests and pass"
             ),
             Self::UnknownTest { at, package, name } => write!(
                 f,
-                "{at}: `--exact {name}` names no #[test] function of {package}'s tests/it.rs, \
+                "{at}: `--exact {name}` names no test of {package}'s it binary, \
                  so it would run 0 tests and pass"
-            ),
-            Self::UnreadSource { path, why } => write!(
-                f,
-                "{}: {why}, so the #[test]s there cannot be read",
-                path.display()
             ),
             Self::NoPackage { at, command } => write!(
                 f,
@@ -156,6 +145,11 @@ impl fmt::Display for Refusal {
                 f,
                 "{at}: a `--test it` command the reader cannot hold to a module, at `{word}`: \
                  {command}"
+            ),
+            Self::UnreadList { at, package, why } => write!(
+                f,
+                "{at}: {package}'s it binary was not listed ({why}), \
+                 so a filter cannot be held to it"
             ),
         }
     }
@@ -276,6 +270,154 @@ fn refused<T>(refusal: Refusal) -> T {
     panic!("{refusal}")
 }
 
+/// The tests each workspace crate's `it` binary carries, by package, read
+/// once: brokkr-cli's is the binary this gate runs in (`current_exe`);
+/// each other crate's is built and located through cargo's own JSON
+/// messages, then listed. One that cannot be built or listed refuses,
+/// naming it; it is never skipped. The build is bounded by the crates
+/// with a `tests/it` target, and `--all-features` matches the canonical
+/// `cargo test --workspace --all-features` run, which builds the same
+/// feature set.
+fn test_lists() -> &'static Lists {
+    static LISTS: OnceLock<Lists> = OnceLock::new();
+    LISTS.get_or_init(|| {
+        let mut lists = Lists::new();
+        for package in members() {
+            let it = package.manifest_path.with_file_name("tests").join("it.rs");
+            if !test_roots(package).contains(it.as_path()) {
+                continue;
+            }
+            let executable = if package.name == env!("CARGO_PKG_NAME") {
+                std::env::current_exe()
+                    .map_err(|error| error.to_string())
+                    .unwrap_or_else(|why| refused(unread_list(&package.name, &why)))
+            } else {
+                built_it(package).unwrap_or_else(|why| refused(unread_list(&package.name, &why)))
+            };
+            let carried =
+                listed(&executable).unwrap_or_else(|why| refused(unread_list(&package.name, &why)));
+            lists.insert(package.name.clone(), carried);
+        }
+        lists
+    })
+}
+
+fn unread_list(package: &str, why: &str) -> Refusal {
+    Refusal::UnreadList {
+        at: "the gate".into(),
+        package: package.to_string(),
+        why: why.to_string(),
+    }
+}
+
+/// The executable of a package's `it` test binary, built and located
+/// through cargo's own JSON messages: the `compiler-artifact` whose
+/// target is the `it` test names it. Cargo's stderr carries progress, so
+/// only a failed run or a missing executable is an error.
+fn built_it(package: &Package) -> Result<PathBuf, String> {
+    let output = Command::new(env!("CARGO"))
+        .args([
+            "test",
+            "--all-features",
+            "--locked",
+            "--offline",
+            "--no-run",
+            "--message-format=json",
+            "-p",
+            &package.name,
+            "--test",
+            "it",
+        ])
+        .current_dir(workspace())
+        .output()
+        .map_err(|error| format!("cargo could not run: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "cargo test --no-run failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let lines = String::from_utf8_lossy(&output.stdout);
+    (lines.lines())
+        .find_map(|line| {
+            let artifact: Artifact = serde_json::from_str(line).ok()?;
+            let is_it = artifact.target.name == "it"
+                && artifact.target.kind.iter().any(|kind| kind == "test");
+            is_it.then_some(artifact.executable).flatten()
+        })
+        .ok_or_else(|| "cargo named no it test binary".to_string())
+}
+
+/// The part of cargo's JSON messages the gate reads: the artifact of a
+/// test target and the executable it built. Cargo adds fields to its
+/// messages over time, so unknown fields are ignored; a message without
+/// a target is no artifact of a test.
+#[derive(Deserialize)]
+struct Artifact {
+    target: ArtifactTarget,
+    executable: Option<PathBuf>,
+}
+
+#[derive(Deserialize)]
+struct ArtifactTarget {
+    name: String,
+    kind: Vec<String>,
+}
+
+/// The tests the binary at `executable` carries, as its own terse list
+/// reports them: a line `name: test`. A bench is listed but is no test
+/// `cargo test` would run; a line of any other kind is an error, never
+/// an absence.
+fn listed(executable: &Path) -> Result<BTreeSet<String>, String> {
+    let output = Command::new(executable)
+        .args(["--list", "--format", "terse"])
+        .output()
+        .map_err(|error| format!("{} could not run: {error}", executable.display()))?;
+    if !output.status.success() {
+        return Err(format!(
+            "{} --list failed: {}",
+            executable.display(),
+            output.status
+        ));
+    }
+    let mut tests = BTreeSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Some((name, kind)) = line.rsplit_once(": ") else {
+            return Err(format!(
+                "{} lists a line it does not read: {line}",
+                executable.display()
+            ));
+        };
+        match kind {
+            "test" => {
+                tests.insert(name.to_string());
+            }
+            "bench" => {}
+            _ => {
+                return Err(format!(
+                    "{} lists a line it does not read: {line}",
+                    executable.display()
+                ))
+            }
+        }
+    }
+    Ok(tests)
+}
+
+/// A list the gate cannot read is an error naming it, never an absence:
+/// a binary that exits badly, and one whose lines are not a list.
+#[test]
+fn a_list_the_gate_cannot_read_is_refused() {
+    assert_eq!(
+        listed(Path::new("/bin/false")),
+        Err("/bin/false --list failed: exit status: 1".to_string())
+    );
+    assert_eq!(
+        listed(Path::new("/bin/echo")),
+        Err("/bin/echo lists a line it does not read: --list --format terse".to_string())
+    );
+}
+
 /// Every discoverable file of every workspace crate, by its path from the
 /// workspace root, and how Cargo reaches it.
 fn declarations() -> BTreeMap<String, Declared> {
@@ -350,24 +492,16 @@ fn every_integration_test_file_is_a_module_of_the_root_or_its_own_target() {
 /// #423: no command runs 0 tests by a stale filter. The walk must also
 /// show it read the tree, by file, package and module: a workflow's plain
 /// and `--exact` filters, a recipe's, a script's, a guide's and a
-/// comment's, in each crate that has a root.
+/// comment's, in each crate that has a binary.
 #[test]
-fn every_test_it_filter_names_a_module_of_its_crates_root() {
-    let roots: BTreeMap<String, BTreeMap<String, PathBuf>> = members()
-        .map(|package| (package.name.clone(), root_modules(package)))
-        .collect();
+fn every_test_it_filter_names_a_test_of_its_crates_binary() {
+    let lists = test_lists();
     let root = workspace();
-    let module_file = |path: &Path| std::fs::read_to_string(path);
     let (mut read, mut refused) = (BTreeSet::new(), Vec::new());
     for file in tracked(&root, &RUN_COMMANDS) {
         let bytes =
             std::fs::read(root.join(&file)).unwrap_or_else(|error| panic!("{file}: {error}"));
-        match filters_in(
-            &file,
-            &String::from_utf8_lossy(&bytes),
-            &roots,
-            &module_file,
-        ) {
+        match filters_in(&file, &String::from_utf8_lossy(&bytes), lists) {
             Ok(filters) => read.extend(filters.into_iter().map(|filter| {
                 let (at, _) = filter.at.rsplit_once(':').expect("file:line");
                 (at.to_string(), filter.package, filter.module)
@@ -397,17 +531,14 @@ fn every_test_it_filter_names_a_module_of_its_crates_root() {
     }
 }
 
-/// #543: a name is held to a test the binary carries and a filter to a
-/// module that holds tests. A pair a string literal of `hands.rs` shows
-/// at column 0 is no test of it, each support module of a root holds no
-/// test, and a filter into a directory module still reads: `layering`
-/// carries tests of its own.
+/// #543 A3 and A5: a name is held to a test the binary carries and a
+/// filter to a module whose tests the list records. A name that exists
+/// only as the text of `hands.rs`'s raw string literal is in no list,
+/// each support module of a root holds no listed test, and a filter into
+/// a directory module still reads: `layering` carries tests of its own.
 #[test]
 fn a_filter_is_held_to_a_module_that_holds_tests_and_a_name_to_a_test() {
-    let roots: BTreeMap<String, BTreeMap<String, PathBuf>> = members()
-        .map(|package| (package.name.clone(), root_modules(package)))
-        .collect();
-    let module_file = |path: &Path| std::fs::read_to_string(path);
+    let lists = fixture_lists();
     for (package, module) in [
         ("brokkr-cli", "numbered"),
         ("brokkr-cli", "rust_source"),
@@ -423,11 +554,7 @@ fn a_filter_is_held_to_a_module_that_holds_tests_and_a_name_to_a_test() {
             package: package.into(),
             module: module.into(),
         };
-        assert_eq!(
-            filters_in("f", &text, &roots, &module_file),
-            Err(refused),
-            "{text}"
-        );
+        assert_eq!(filters_in("f", &text, &lists), Err(refused), "{text}");
     }
     for name in ["hands::named_pass", "hands::named_fail_when_requested"] {
         let text = format!("cargo test --locked -p brokkr-cli --test it -- --exact {name}\n");
@@ -436,11 +563,7 @@ fn a_filter_is_held_to_a_module_that_holds_tests_and_a_name_to_a_test() {
             package: "brokkr-cli".into(),
             name: name.into(),
         };
-        assert_eq!(
-            filters_in("f", &text, &roots, &module_file),
-            Err(refused),
-            "{text}"
-        );
+        assert_eq!(filters_in("f", &text, &lists), Err(refused), "{text}");
     }
     let held = Ok(vec![Filter {
         at: "f:1".into(),
@@ -451,34 +574,87 @@ fn a_filter_is_held_to_a_module_that_holds_tests_and_a_name_to_a_test() {
         filters_in(
             "f",
             "cargo test --locked -p brokkr-cli --test it layering::test_targets\n",
-            &roots,
-            &module_file
+            &lists
         ),
         held
     );
-    // `hands.rs` is gated by its own `#![cfg(target_os = "linux")]`: its
-    // tests are the binary's where that holds and no test of its binary
-    // anywhere else.
-    let hands = "cargo test --locked -p brokkr-cli --test it hands::\n";
     let held = Ok(vec![Filter {
         at: "f:1".into(),
         package: "brokkr-cli".into(),
         module: "hands".into(),
     }]);
-    let refused = Refusal::TestlessModule {
-        at: "f:1".into(),
-        package: "brokkr-cli".into(),
-        module: "hands".into(),
-    };
     assert_eq!(
-        filters_in("f", hands, &roots, &module_file),
-        if cfg!(target_os = "linux") {
-            held
-        } else {
-            Err(refused)
-        },
-        "{hands}"
+        filters_in(
+            "f",
+            "cargo test --locked -p brokkr-cli --test it hands::\n",
+            &lists
+        ),
+        held,
+        "hands:: names a module the list carries tests of"
     );
+}
+
+/// #543: the binary's own list is the fact, on this host. The gate's own
+/// test is in it, so a list that silently read as empty could not pass
+/// here; the two names `hands.rs`'s raw string literal shows are in no
+/// list; the tests `hands.rs`'s own `#![cfg(target_os = "linux")]` and
+/// `doctor_dsh_selection`'s macOS `#[cfg]` gate are in this host's list
+/// exactly when the predicate holds, the binary having resolved them by
+/// construction; and no support module's name is in any list.
+#[test]
+fn the_binarys_own_list_is_what_the_gate_holds() {
+    let lists = test_lists();
+    let cli = &lists["brokkr-cli"];
+    assert!(
+        cli.contains("layering::test_targets::the_binarys_own_list_is_what_the_gate_holds"),
+        "the gate's own test is listed: {cli:?}"
+    );
+    for name in ["hands::named_pass", "hands::named_fail_when_requested"] {
+        assert!(!cli.contains(name), "{name} is the text of a literal");
+    }
+    assert!(
+        cli.iter().any(|test| test.starts_with("hands::")) == cfg!(target_os = "linux"),
+        "hands.rs is #![cfg(target_os = \"linux\")]"
+    );
+    assert_eq!(
+        cli.contains(
+            &"doctor_dsh_selection::apple_default_search_excludes_confstr_only_directories"
+                .to_string()
+        ),
+        cfg!(target_os = "macos"),
+        "the macOS-gated test is the binary's exactly on macOS"
+    );
+    for module in [
+        "numbered",
+        "rust_source",
+        "test_paths",
+        "tracked_files",
+        "workflow",
+        "workspace_root",
+    ] {
+        assert!(
+            !cli.iter()
+                .any(|test| test.starts_with(&format!("{module}::"))),
+            "{module} holds no test of the binary"
+        );
+    }
+    let runtime = &lists["brokkr-runtime"];
+    assert!(
+        !runtime.iter().any(|test| test.starts_with("witnesses::")),
+        "witnesses is a support module: {runtime:?}"
+    );
+    assert!(
+        runtime
+            .iter()
+            .any(|test| test.starts_with("witness_digests::")),
+        "witness_digests holds tests of the binary"
+    );
+    for package in ["brokkr-core", "brokkr-store"] {
+        assert!(
+            lists.get(package).is_some_and(|tests| !tests.is_empty()),
+            "{package}'s it binary was listed and carries tests"
+        );
+    }
 }
 
 /// A probe that fails for any reason but absence is refused, never read
@@ -583,21 +759,12 @@ fn each_refusal_reads_as_the_operator_sees_it() {
              cannot be read",
         ),
         (
-            Refusal::UnknownModule {
-                at: "ci.yml:9".into(),
-                package: "brokkr-cli".into(),
-                module: "gone".into(),
-            },
-            "ci.yml:9: `--test it gone::` names no module of brokkr-cli's tests/it.rs, \
-             so it would run 0 tests and pass",
-        ),
-        (
             Refusal::TestlessModule {
                 at: "ci.yml:9".into(),
                 package: "brokkr-cli".into(),
                 module: "gone".into(),
             },
-            "ci.yml:9: `--test it gone::` names no #[test] in brokkr-cli's gone module, \
+            "ci.yml:9: `--test it gone::` names no test of brokkr-cli's it binary, \
              so it would run 0 tests and pass",
         ),
         (
@@ -606,15 +773,8 @@ fn each_refusal_reads_as_the_operator_sees_it() {
                 package: "brokkr-cli".into(),
                 name: "gone::a".into(),
             },
-            "ci.yml:9: `--exact gone::a` names no #[test] function of brokkr-cli's \
-             tests/it.rs, so it would run 0 tests and pass",
-        ),
-        (
-            Refusal::UnreadSource {
-                path: "/w/tests/gone.rs".into(),
-                why: "an unterminated string".into(),
-            },
-            "/w/tests/gone.rs: an unterminated string, so the #[test]s there cannot be read",
+            "ci.yml:9: `--exact gone::a` names no test of brokkr-cli's it binary, \
+             so it would run 0 tests and pass",
         ),
         (
             Refusal::NoPackage {
@@ -623,6 +783,15 @@ fn each_refusal_reads_as_the_operator_sees_it() {
             },
             "ci.yml:9: a `--test it` command with a filter and no -p, so no crate's root \
              holds it: cargo test --test it x::",
+        ),
+        (
+            Refusal::UnreadList {
+                at: "ci.yml:9".into(),
+                package: "brokkr-core".into(),
+                why: "cargo test --no-run failed: the linker could not find -lobjc".into(),
+            },
+            "ci.yml:9: brokkr-core's it binary was not listed (cargo test --no-run failed: \
+             the linker could not find -lobjc), so a filter cannot be held to it",
         ),
         (
             Refusal::UnreadFilter {
