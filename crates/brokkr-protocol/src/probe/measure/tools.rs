@@ -55,8 +55,8 @@ fn tool_server(tool: &str) -> Option<&str> {
 /// The CLI's own tools: every listed tool that names no MCP server. A
 /// tool naming one is read by [`user_mcp`], never dropped unread: the
 /// plain, boxed and OFF turns are each read by it (#484). A tool the turn
-/// ran that its listing shows absent contradicts the listing, which is
-/// then unmeasured.
+/// ran that its listing shows absent, or one it ran unnamed, contradicts
+/// the listing, which is then unmeasured.
 pub(super) fn native_tools(streams: &Streams) -> Fact<Vec<String>> {
     let listed = Listing::read(&streams.all, TOOLS).fact();
     let listed = match listed
@@ -75,7 +75,8 @@ pub(super) fn native_tools(streams: &Streams) -> Fact<Vec<String>> {
 }
 
 /// Where a turn ran a tool its listing, `listed`, shows absent: a count
-/// naming a tool not listed, or a tool use where no tool is listed.
+/// naming a tool not listed, or a tool use naming none, whatever is
+/// listed.
 fn ran_unlisted(streams: &[Stream], listed: &[String]) -> Option<String> {
     let events = streams
         .iter()
@@ -102,11 +103,13 @@ fn ran_unlisted(streams: &[Stream], listed: &[String]) -> Option<String> {
 }
 
 /// What ran that `listed` shows absent: `tool` when it is not listed, or
-/// a tool unnamed when none is.
+/// a tool unnamed, whatever is listed, since a run the probe cannot name
+/// may be one the listing's egress or local reading would not admit
+/// (#484).
 fn absent(tool: Option<&'static str>, listed: &[String]) -> Option<&'static str> {
     match tool {
         Some(tool) => (!listed.iter().any(|name| name == tool)).then_some(tool),
-        None => listed.is_empty().then_some("a tool"),
+        None => Some("a tool"),
     }
 }
 

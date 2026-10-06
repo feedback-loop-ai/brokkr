@@ -553,7 +553,7 @@ fn a_tool_is_local_only_by_its_exact_name_and_egress_by_its_folded_one() {
         )
     );
     let plain = r#""Bash","WebSearch","WebFetch""#;
-    for unknown in ["ReadFile", "TODOWRITE", "b_a_s_h"] {
+    for unknown in ["ReadFile", "TODOWRITE", "Todo_Write", "b_a_s_h"] {
         let read = tool_names_read(plain, &format!("\"{unknown}\""));
         let left = format!("the declared OFF controls left {unknown}");
         let refused = json!({

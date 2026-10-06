@@ -1,7 +1,8 @@
 //! A decoded value that contradicts the verdict resting on its turn is
 //! never inert (#484): a turn is read only when it holds the reply and
 //! states no refusal and no failure, whatever its exit, and a tool it
-//! ran that its listing shows absent leaves the listing unmeasured. The
+//! ran that its listing shows absent, or ran unnamed, leaves the listing
+//! unmeasured. The
 //! chief's rows on 07db5279, each run through the probe against a
 //! Claude-like fake.
 
@@ -494,19 +495,23 @@ fn early_returns() -> Vec<Row> {
     ]
 }
 
+/// The turns of a row whose boxed turn runs `boxed`, then writes claude's
+/// recorded cost-state row, `from` replaced by `to`, as a transcript.
+fn cost_written(boxed: &str, from: &str, to: &str) -> (String, String) {
+    let recorded = CLAUDE_PLAIN_LOG.lines().nth(23).unwrap();
+    assert!(recorded.contains(from), "{recorded}");
+    let row = recorded.replace(from, to);
+    let written = format!(r#"printf '%s\n' '{row}' > "$dir/cost.jsonl""#);
+    in_box(format!("{boxed}; {written}"))
+}
+
 /// The chief's H3 on dcf4344f beside its controls: the boxed turn that
 /// lists no tool writes claude's recorded cost-state row as a transcript,
 /// and each total only a tool run makes positive, raised, is a tool run,
 /// as a web search the row counts is; the row as recorded keeps the turn
 /// boxed.
 fn worked_in_tools() -> Vec<Row> {
-    let recorded = CLAUDE_PLAIN_LOG.lines().nth(23).unwrap();
-    let cost = |from: &str, to: &str| {
-        assert!(recorded.contains(from), "{recorded}");
-        let row = recorded.replace(from, to);
-        let written = format!(r#"printf '%s\n' '{row}' > "$dir/cost.jsonl""#);
-        in_box(format!("{}; {written}", boxed_result("")))
-    };
+    let cost = |from: &str, to: &str| cost_written(&boxed_result(""), from, to);
     let ran = |what: &str, at: &str| {
         let ran = format!(
             "the turn's tools listed none, but the cost-state event on line 1 of \
@@ -543,6 +548,171 @@ fn worked_in_tools() -> Vec<Row> {
         raised("h3a: time spent in tools", "totalToolDuration"),
         raised("h3b: lines added", "totalLinesAdded"),
         raised("h3c: lines removed", "totalLinesRemoved"),
+    ]
+}
+
+/// A result event carrying `extra`.
+fn result_with(extra: &str) -> String {
+    format!(r#"{{"type":"result","subtype":"success"{extra}}}"#)
+}
+
+/// What a turn listing `listed` reads when the `event` event on its line
+/// 2 ran a tool unnamed at `at`.
+fn ran_unnamed(listed: &str, event: &str, at: &str) -> String {
+    format!(
+        "the turn's tools listed {listed}, but the {event} event on line 2 of stdout ran a tool \
+         at {at}"
+    )
+}
+
+/// The chief's H5 on 0fa0ed56 beside its controls: a tool run that names
+/// no tool on the OFF turn, which lists Bash, leaves that listing
+/// unmeasured, so neither off switch is measured and the harness, whose
+/// CLI refuses the hands argv, is refused where its control is held to
+/// unboxed offices.
+fn unnamed_runs_off() -> Vec<Row> {
+    let stop = |reason: &str| {
+        format!(r#"{{"type":"assistant","message":{{"content":[],"stop_reason":"{reason}"}}}}"#)
+    };
+    let refused = "the CLI refused the adapter's hands argv: exit 1: error: unknown option \
+                   '--strict-mcp-config'";
+    let control = unboxed(
+        measured(
+            json!(true),
+            "the declared OFF controls removed WebSearch, WebFetch",
+        ),
+        refused,
+        refused,
+    );
+    let unread = |event: &str, at: &str| {
+        let why = format!(
+            "the turn under the declared OFF controls was not read: {}",
+            ran_unnamed("Bash", event, at)
+        );
+        json!({
+            "fact": unmeasured(&why),
+            "eligibility": {
+                "verdict": "refused",
+                "reason": format!(
+                    "the evidence for a seat in a realm that grants its capabilities is not \
+                     complete: web-fetch's off switch is unmeasured: {why}; web-search's off \
+                     switch is unmeasured: {why}"
+                ),
+            },
+        })
+    };
+    let off_row = |shape, event: String, expected| {
+        let turns = (off(&[&event]), Boxed::Refuses.shell().to_string());
+        row(shape, turns, "egress_off", expected)
+    };
+    let spawned = |n: &str| result_with(&SPAWNED.replace("@N@", n));
+    let result = "result/success";
+    vec![
+        off_row(
+            "h5-off-num-turns-2",
+            result_with(r#","num_turns":2"#),
+            unread(result, "/num_turns"),
+        ),
+        off_row(
+            "h5-off-num-turns-1 control",
+            result_with(r#","num_turns":1"#),
+            control.clone(),
+        ),
+        off_row(
+            "h5-off-stop-tool-use",
+            stop("tool_use"),
+            unread("assistant", "/message/stop_reason"),
+        ),
+        off_row(
+            "h5-off-stop-end-turn control",
+            stop("end_turn"),
+            control.clone(),
+        ),
+        off_row(
+            "h5-off-spawned-1",
+            spawned("1"),
+            unread(result, "/subagent_stats/spawned"),
+        ),
+        off_row("h5-off-spawned-0 control", spawned("0"), control),
+    ]
+}
+
+/// The chief's H5 widened on 0fa0ed56, beside its controls: a tool run
+/// that names no tool on the boxed turn, which lists only the hands tool,
+/// or on the plain turn, which lists the network tools, or a transcript's
+/// total that only a tool run makes positive beside the hands tool, leaves
+/// that listing unmeasured, and the box or the evidence with it.
+fn unnamed_runs_listed() -> Vec<Row> {
+    let (two, one) = (
+        result_with(r#","num_turns":2"#),
+        result_with(r#","num_turns":1"#),
+    );
+    let servers = "the system/init event on line 1 of stdout listed mcp_servers: 1";
+    let in_the_box = ran_unnamed("mcp__brokkr__workspace", "result/success", "/num_turns");
+    let plain = ran_unnamed("Bash, WebSearch, WebFetch", "result/success", "/num_turns");
+    let boxed_control = || {
+        boxed_beside(measured(
+            json!([]),
+            "the system/init event on line 1 of stdout listed tools: 1",
+        ))
+    };
+    let totalled = "the turn's tools listed mcp__brokkr__workspace, but the cost-state event on \
+                    line 1 of ~/.claude/projects/{workdir}/cost.jsonl ran a tool at \
+                    /totalToolDuration";
+    let duration = r#""totalToolDuration":"#;
+    vec![
+        row(
+            "w-boxed-hands-num-turns-2",
+            in_box(boxed(&[&two])),
+            "boxed_tools",
+            unboxed(unmeasured(&in_the_box), &in_the_box, servers),
+        ),
+        row(
+            "w-boxed-hands control",
+            in_box(boxed(&[&one])),
+            "boxed_tools",
+            boxed_control(),
+        ),
+        row(
+            "w-plain-num-turns-2",
+            out_of_box(on_plain(&later(&[&two]))),
+            "tools",
+            json!({
+                "fact": unmeasured(&plain),
+                "eligibility": {
+                    "verdict": "refused",
+                    "reason": format!(
+                        "the evidence for boxed offices is not complete: tools is unmeasured: \
+                         {plain}"
+                    ),
+                },
+            }),
+        ),
+        row(
+            "w-plain control",
+            out_of_box(on_plain(&later(&[&one]))),
+            "tools",
+            boxed_beside(measured(
+                json!(["Bash", "WebSearch", "WebFetch"]),
+                "the system/init event on line 1 of stdout listed tools: 3",
+            )),
+        ),
+        row(
+            "h5-transcript-tool-duration beside the hands tool",
+            cost_written(
+                BOXED_CLEAN,
+                &format!("{duration}0,"),
+                &format!("{duration}3,"),
+            ),
+            "boxed_tools",
+            unboxed(unmeasured(totalled), totalled, servers),
+        ),
+        row(
+            "h5-transcript control: the recorded row beside the hands tool",
+            cost_written(BOXED_CLEAN, "", ""),
+            "boxed_tools",
+            boxed_control(),
+        ),
     ]
 }
 
@@ -704,6 +874,8 @@ fn a_decoded_failure_or_tool_run_never_rests_quietly_under_a_verdict() {
         reply_origins(),
         early_returns(),
         worked_in_tools(),
+        unnamed_runs_off(),
+        unnamed_runs_listed(),
     ]
     .into_iter()
     .flatten()
