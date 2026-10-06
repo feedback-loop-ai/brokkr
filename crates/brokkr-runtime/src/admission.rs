@@ -152,20 +152,19 @@ impl fmt::Display for Reason {
                 differences,
                 moved,
             } => {
+                let since = match moved {
+                    true => {
+                        "; the map on disk has changed since, and `brokkr queue judge` latches \
+                         what it finds now"
+                    }
+                    false => "",
+                };
                 write!(
                     f,
                     "realm {realm} changed since queued, latched until the operator re-pins, \
-                     re-queues or drops it: {}",
+                     re-queues or drops it: {}{since}",
                     found(differences)
-                )?;
-                match moved {
-                    true => write!(
-                        f,
-                        "; the map on disk has changed since, and `brokkr queue judge` latches \
-                         what it finds now"
-                    ),
-                    false => Ok(()),
-                }
+                )
             }
             Reason::MapUnreadable(detail) => write!(
                 f,
@@ -706,22 +705,32 @@ enum Sight {
 /// the side now resolves the repository's path on disk, so a path that
 /// resolves elsewhere since is a difference too (#430's H4).
 fn sight(worlds: &HeldAndNow) -> Sight {
-    let held = governing(worlds.held.as_ref().map(|held| (&held.world, held.realm())));
-    let now = worlds.now.as_ref().map(|now| {
-        let world = now.world.as_ref();
-        let facts = governing(world.map(|world| (world, world.realm_for(&worlds.repo))));
-        (facts, &now.digest)
-    });
-    match (held, now) {
-        (Ok(held), Ok((Ok(now), on_disk))) => Sight::Seen(Finding {
-            encoding: FindingEncoding::V1,
-            realm: held.realm.clone().or(now.realm.clone()).unwrap_or_default(),
-            differences: differences(&held, &now),
-            on_disk: on_disk.clone(),
-        }),
-        (Err(error), _) | (Ok(_), Ok((Err(error), _))) => Sight::Unreadable(error.to_string()),
-        (Ok(_), Err(error)) => Sight::Unreadable(error.to_string()),
+    match seen(worlds) {
+        Ok(finding) => Sight::Seen(finding),
+        Err(detail) => Sight::Unreadable(detail),
     }
+}
+
+/// What differs between an entry's two worlds, or why either cannot be
+/// read, every refusal on the one path an unreadable map on disk takes.
+/// Reading the governing facts refuses only a house or dialect its world
+/// could not read, which neither world here holds: the held world is
+/// replayed from its pin, which holds only texts it read, and the world
+/// now is held only after the same realm of it was pinned
+/// (`QueuedLaunch::held_and_now`). Both are refused all the same.
+fn seen(worlds: &HeldAndNow) -> Result<Finding, String> {
+    let held = governing(worlds.held.as_ref().map(|held| (&held.world, held.realm())));
+    let held = held.as_ref().map_err(ToString::to_string)?;
+    let disk = worlds.now.as_ref().map_err(ToString::to_string)?;
+    let world = disk.world.as_ref();
+    let now = governing(world.map(|world| (world, world.realm_for(&worlds.repo))));
+    let now = now.as_ref().map_err(ToString::to_string)?;
+    Ok(Finding {
+        encoding: FindingEncoding::V1,
+        realm: held.realm.clone().or(now.realm.clone()).unwrap_or_default(),
+        differences: differences(held, now),
+        on_disk: disk.digest.clone(),
+    })
 }
 
 /// The holds an entry's realm puts on it, from the latch that stands on
