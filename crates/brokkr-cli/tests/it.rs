@@ -55,6 +55,7 @@ mod recipes;
 mod rename_guard;
 mod research_registry;
 mod retired_overrides;
+mod run_it_tests;
 mod script_gates;
 mod seat_items;
 mod status_pages;

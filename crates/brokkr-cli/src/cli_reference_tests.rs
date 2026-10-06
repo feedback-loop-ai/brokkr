@@ -672,7 +672,8 @@ const NAMED_NOT_RUN: [&str; 13] = [
      brokkr-runtime brokkr-bridge brokkr-cli; do",
     "cargo install --path crates/brokkr-cli",
     "cargo install --path crates/brokkr-cli    # builds and installs the binary",
-    "BROKKR_SUPPRESSION_BASE=origin/main cargo test --locked -p brokkr-cli --test it \
+    "BROKKR_SUPPRESSION_BASE=origin/main scripts/run-it-tests.sh cargo test --locked -p \
+     brokkr-cli --test it \
      -- --ignored --exact suppressions::an_added_suppression_of_a_ratcheted_lint_names_a_ruling",
     "cargo build --release --locked -p brokkr-cli",
 ];

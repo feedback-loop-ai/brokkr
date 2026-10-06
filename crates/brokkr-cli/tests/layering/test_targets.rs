@@ -22,14 +22,24 @@
 //! test of its own, and holds an `--exact` name to a listed name
 //! (#543). The list is the binary of the command's own build
 //! configuration, default features in the dev profile; a command that
-//! names another feature set or profile is refused, named, and never held
-//! to the list of a build it does not run. `run_commands` reads each
-//! command that may pass `--test it` word by word in a closed grammar,
-//! and refuses the first character outside it. The binary already reflects
-//! a `cfg`, a `cfg_attr` and an inner `#![cfg]`, so a test those gate away
-//! from the compiling host is in no list and refuses; the source is never
-//! read for tests. A binary that cannot be built or listed refuses, named,
-//! and is never skipped.
+//! names any build-moving flag — another feature set, another profile,
+//! `--config`, `-Z`, a `+toolchain` — or an assignment before `cargo`
+//! whose name is `CARGO_*` or `RUST*`, is refused, named, and never held
+//! to the list of a build it does not run. A filter under more than one
+//! `-p` is refused too, because Cargo unifies the selected packages'
+//! features. `run_commands` reads each command that may pass `--test it`
+//! word by word in a closed grammar, and refuses the first character
+//! outside it. The binary already reflects a `cfg`, a `cfg_attr` and an
+//! inner `#![cfg]`, so a test those gate away from the compiling host is in
+//! no list and refuses; the source is never read for tests. A binary that
+//! cannot be built or listed refuses, named, and is never skipped.
+//!
+//! The text gate can refuse only the words it sees, so a workflow's or a
+//! script's command must also run through `scripts/run-it-tests.sh`, the
+//! checked entry point that fails a filtered run executing 0 tests
+//! whatever the line, the environment or the profile did to the build. A
+//! guide's command is read from its text alone: an operator copies it, and
+//! no job here runs it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -87,6 +97,18 @@ enum Refusal {
     },
     /// A `--test it` command with a filter and no `-p`.
     NoPackage { at: String, command: String },
+    /// A `--test it` command with a filter and more than one `-p`: Cargo
+    /// unifies the selected packages' features, so no single listed build
+    /// holds the filter.
+    ManyPackages {
+        at: String,
+        packages: Vec<String>,
+        command: String,
+    },
+    /// A `--test it` command in a workflow or script that bypasses the
+    /// checked entry point, `scripts/run-it-tests.sh`, which fails a run
+    /// that executes 0 tests.
+    Unguarded { at: String, command: String },
     /// A `--test it` command with a word, flag or form the reader does not
     /// know, by that word, or with a character outside its grammar, by
     /// that character.
@@ -144,6 +166,22 @@ impl fmt::Display for Refusal {
                 f,
                 "{at}: a `--test it` command with a filter and no -p, so no crate's root holds \
                  it: {command}"
+            ),
+            Self::ManyPackages {
+                at,
+                packages,
+                command,
+            } => write!(
+                f,
+                "{at}: a `--test it` filter under more than one -p ({}), whose features Cargo \
+                 unifies, so no listed build holds it: {command}",
+                packages.join(", ")
+            ),
+            Self::Unguarded { at, command } => write!(
+                f,
+                "{at}: a `--test it` command must run through {} so a filtered run that \
+                 executes 0 tests fails: {command}",
+                run_commands::GUARD
             ),
             Self::UnreadFilter { at, word, command } => write!(
                 f,
@@ -299,6 +337,9 @@ fn test_lists() -> &'static Lists {
                      features for the list to be the command's own build",
                     package.name
                 );
+                if let Some(why) = own_profile_refusal(cfg!(debug_assertions)) {
+                    return refused(unread_list(&package.name, why));
+                }
                 std::env::current_exe()
                     .map_err(|error| error.to_string())
                     .unwrap_or_else(|why| refused(unread_list(&package.name, &why)))
@@ -319,6 +360,18 @@ fn unread_list(package: &str, why: &str) -> Refusal {
         package: package.to_string(),
         why: why.to_string(),
     }
+}
+
+/// The reason the gate's own `current_exe` is not the build the scanned
+/// commands run, when it is not: those commands use `cargo test` in the
+/// dev profile, whose `debug_assertions` mark a release build lacks. The
+/// list is the command's own build, so a release gate refuses rather than
+/// hold filters to another build's names.
+fn own_profile_refusal(debug_assertions: bool) -> Option<&'static str> {
+    (!debug_assertions).then_some(
+        "the gate lists its own `current_exe`, which is not the dev-profile build the \
+         scanned commands run",
+    )
 }
 
 /// The executable of a package's `it` test binary, built and located
@@ -817,7 +870,42 @@ fn each_refusal_reads_as_the_operator_sees_it() {
             "ci.yml:9: a `--test it` command the reader cannot hold to a module, at \
              `--workspace`: cargo test --workspace --test it x::",
         ),
+        (
+            Refusal::ManyPackages {
+                at: "ci.yml:9".into(),
+                packages: vec!["brokkr-cli".into(), "brokkr-core".into()],
+                command: "cargo test -p brokkr-cli -p brokkr-core --test it x::".into(),
+            },
+            "ci.yml:9: a `--test it` filter under more than one -p (brokkr-cli, brokkr-core), \
+             whose features Cargo unifies, so no listed build holds it: cargo test -p \
+             brokkr-cli -p brokkr-core --test it x::",
+        ),
+        (
+            Refusal::Unguarded {
+                at: "ci.yml:9".into(),
+                command: "cargo test --test it x::".into(),
+            },
+            "ci.yml:9: a `--test it` command must run through scripts/run-it-tests.sh so a \
+             filtered run that executes 0 tests fails: cargo test --test it x::",
+        ),
     ] {
         assert_eq!(refusal.to_string(), text);
     }
+}
+
+/// #543: the gate's own list is the dev-profile binary the scanned
+/// commands run, and a release build is refused rather than held to
+/// another build's names. `debug_assertions` is the mark a release build
+/// lacks; the real gate reads it from its own build, and this pins both
+/// halves reachable.
+#[test]
+fn the_gates_own_list_is_bound_to_the_dev_profile() {
+    assert_eq!(own_profile_refusal(true), None);
+    assert_eq!(
+        own_profile_refusal(false),
+        Some(
+            "the gate lists its own `current_exe`, which is not the dev-profile build the \
+             scanned commands run"
+        )
+    );
 }

@@ -98,21 +98,18 @@ fn skip_trivia(s: &[char], at: usize) -> Result<usize, String> {
     }
 }
 
-/// The index just past the `[` that opens an attribute at `at`, and
-/// whether the attribute is inner — `#![..]`, one a module carries
-/// itself —: `#`, an optional `!`, and whitespace or comments between any
-/// of them, as rustc reads the three tokens. `None` when no attribute
-/// starts there.
-fn attribute_open(s: &[char], at: usize) -> Result<Option<(usize, bool)>, String> {
+/// The index just past the `[` that opens an attribute at `at`: `#`, an
+/// optional `!`, and whitespace or comments between any of them, as rustc
+/// reads the three tokens. `None` when no attribute starts there.
+fn attribute_open(s: &[char], at: usize) -> Result<Option<usize>, String> {
     if s[at] != '#' {
         return Ok(None);
     }
     let mut i = skip_trivia(s, at + 1)?;
-    let inner = s.get(i) == Some(&'!');
-    if inner {
+    if s.get(i) == Some(&'!') {
         i = skip_trivia(s, i + 1)?;
     }
-    Ok((s.get(i) == Some(&'[')).then_some((i + 1, inner)))
+    Ok((s.get(i) == Some(&'[')).then_some(i + 1))
 }
 
 /// The index just past the bracket that opens a `cfg!` invocation at `at`:
@@ -204,7 +201,7 @@ pub(crate) fn units(source: &str) -> Result<Vec<(RangeInclusive<usize>, String)>
         let next = skip_literal(&s, skip_comment(&s, i)?)?;
         if next != i {
             i = next;
-        } else if let Some((open, _)) = attribute_open(&s, i)? {
+        } else if let Some(open) = attribute_open(&s, i)? {
             let (text, end) = group(&s, open, "attribute")?;
             out.push((line_at(i)..=line_at(end - 1), text));
             i = end;

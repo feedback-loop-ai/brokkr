@@ -183,7 +183,7 @@ be a review finding.
 ### An added suppression names a ruling
 
 ```
-BROKKR_SUPPRESSION_BASE=origin/main cargo test --locked -p brokkr-cli --test it -- --ignored --exact suppressions::an_added_suppression_of_a_ratcheted_lint_names_a_ruling
+BROKKR_SUPPRESSION_BASE=origin/main scripts/run-it-tests.sh cargo test --locked -p brokkr-cli --test it -- --ignored --exact suppressions::an_added_suppression_of_a_ratcheted_lint_names_a_ruling
 ```
 
 The `quality` job runs this after Clippy, on pull requests only
