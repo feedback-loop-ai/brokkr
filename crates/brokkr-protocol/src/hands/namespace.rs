@@ -177,8 +177,7 @@ impl Namespace {
     /// and the alias adds no source (D5).
     fn aliased(&mut self) {
         let sources: Vec<&str> = Profile::Server.system().collect();
-        let resolve = |source: &Path| std::fs::canonicalize(source).ok();
-        for (source, canonical) in aliases_with(&sources, resolve) {
+        for (source, canonical) in aliases_with(&sources, on_host) {
             self.mount(
                 Mount::RoBindTry,
                 Path::new(source),
@@ -241,6 +240,12 @@ impl Namespace {
         ]);
         self.argv.extend(command.iter().cloned());
     }
+}
+
+/// `path` canonical on this host, or none where it does not resolve: the
+/// resolver the builder's system checks take, a test planting another.
+pub(super) fn on_host(path: &Path) -> Option<PathBuf> {
+    std::fs::canonicalize(path).ok()
 }
 
 /// Each of `sources` paired with the canonical path `resolve` gives it,
@@ -430,12 +435,13 @@ pub(super) fn layout(executable: &Path, home: &Path) -> Result<Tree, Refusal> {
         .ok_or(Refusal::ProgramTree)
 }
 
-/// Whether `profile`'s system set holds `root`: a package inside the
-/// server's keeps its own identity and gains no mount, never a broader one.
-fn covered(profile: Profile, root: &Path) -> bool {
+/// Whether `profile`'s system set, each source canonical as `resolve`
+/// gives it, holds `path`: a tree inside the server's keeps its own
+/// identity and gains no mount, never a broader one.
+fn covered(profile: Profile, path: &Path, resolve: &impl Fn(&Path) -> Option<PathBuf>) -> bool {
     profile
         .system()
-        .any(|source| std::fs::canonicalize(source).is_ok_and(|source| root.starts_with(source)))
+        .any(|source| resolve(Path::new(source)).is_some_and(|source| path.starts_with(source)))
 }
 
 impl Namespace {
@@ -451,21 +457,33 @@ impl Namespace {
         namespace
     }
 
-    /// Bind a package root the server's system set does not hold,
-    /// read-only at its canonical path (MB3, MB4), or refuse one that is
-    /// or holds a path the box already set up, which would widen the
-    /// system set, replace the generated identity's `/etc` or shadow a
-    /// private directory, or that lies inside a source the server's
-    /// projection narrowed away (`/etc/ssl/private`).
-    pub(super) fn package(&mut self, tree: &Tree) -> Result<(), Refusal> {
+    /// Bind `executable`'s program tree where the server's system set,
+    /// its sources canonical as `resolve` gives them, does not hold it,
+    /// read-only at its canonical path (MB3, MB4). A system entry is its
+    /// one file: on a host whose `/usr/sbin` is no source and no alias's
+    /// destination it is bound alone, never its directory. A package
+    /// root is refused where it is or holds a path the box already set
+    /// up, which would widen the system set, replace the generated
+    /// identity's `/etc` or shadow a private directory, or where it lies
+    /// inside a source the server's projection narrowed away
+    /// (`/etc/ssl/private`).
+    pub(super) fn program_with(
+        &mut self,
+        tree: &Tree,
+        executable: &Path,
+        resolve: impl Fn(&Path) -> Option<PathBuf>,
+    ) -> Result<(), Refusal> {
         match tree {
-            Tree::Package { root } if !covered(Profile::Server, root) => {
+            Tree::Package { root } if !covered(Profile::Server, root, &resolve) => {
                 let shadows = self.targets.iter().any(|target| target.starts_with(root));
-                let narrowed = covered(Profile::Workspace, root);
+                let narrowed = covered(Profile::Workspace, root, &resolve);
                 (!(shadows | narrowed))
                     .then_some(())
                     .ok_or(Refusal::ProgramTree)?;
                 self.mount_in_place(Mount::RoBind, root);
+            }
+            Tree::System {} if !covered(Profile::Server, executable, &resolve) => {
+                self.mount_in_place(Mount::RoBind, executable);
             }
             Tree::Package { .. } | Tree::System {} => {}
         }
@@ -517,7 +535,7 @@ impl ServerBox {
             Network::Shared => (true, Resolver::Dns),
         };
         let mut namespace = Namespace::server(network);
-        namespace.package(&program.tree)?;
+        namespace.program_with(&program.tree, &program.executable, on_host)?;
         namespace.mount_in_place(Mount::RoBind, profile.bootstrap);
         namespace.resolving(resolver);
         // The identity's places are checked now; its sources lie in a

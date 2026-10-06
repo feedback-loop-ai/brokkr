@@ -475,11 +475,11 @@ fn a_package_root_that_widens_or_shadows_the_box_refuses() {
         .collect();
     // A root inside the source the projection narrowed away.
     refused.extend(std::fs::canonicalize("/etc/ssl").map(|ssl| ssl.join("private")));
-    let closed = |namespace: Namespace| namespace.enter(Path::new("/"), &[]);
     let unbound = closed(Namespace::server(false));
     for root in refused {
         let mut namespace = Namespace::server(false);
-        let answer = namespace.package(&Tree::Package { root: root.clone() });
+        let tree = Tree::Package { root: root.clone() };
+        let answer = namespace.program_with(&tree, &root.join("bin/x"), namespace::on_host);
         assert_eq!((&root, answer), (&root, Err(Refusal::ProgramTree)));
         assert_eq!(closed(namespace), unbound);
     }
@@ -490,14 +490,66 @@ fn a_package_root_that_widens_or_shadows_the_box_refuses() {
         ("/tmp/docs", true),
         ("/usr/lib/docs", false),
     ] {
-        let mut namespace = Namespace::server(true);
         let tree = Tree::Package { root: root.into() };
-        assert_eq!((root, namespace.package(&tree)), (root, Ok(())));
-        let mut expected = closed(Namespace::server(true));
-        let at = expected.len() - 3;
-        let bind = ["--ro-bind", root, root].map(String::from);
-        expected.splice(at..at, bind.into_iter().filter(|_| bound));
-        assert_eq!((root, closed(namespace)), (root, expected));
+        let executable = Path::new(root).join("bin/x");
+        let answer = bound_tree(&tree, &executable, namespace::on_host);
+        assert_eq!((root, answer), (root, Ok(bound.then_some(root.into()))));
+    }
+}
+
+/// A server box's argv closed on `/` with no command.
+fn closed(namespace: Namespace) -> Vec<String> {
+    namespace.enter(Path::new("/"), &[])
+}
+
+/// What `tree` of `executable` adds to a networked server box, its system
+/// sources resolved by `resolve`: the one path it binds read-only in place,
+/// just before the closing `--chdir`, or none.
+fn bound_tree(
+    tree: &Tree,
+    executable: &Path,
+    resolve: fn(&Path) -> Option<PathBuf>,
+) -> Result<Option<PathBuf>, Refusal> {
+    let mut namespace = Namespace::server(true);
+    namespace.program_with(tree, executable, resolve)?;
+    let base = closed(Namespace::server(true));
+    let argv = closed(namespace);
+    let at = base.len() - 3;
+    assert_eq!(
+        (&argv[..at], &argv[argv.len() - 3..]),
+        (&base[..at], &base[at..])
+    );
+    match &argv[at..argv.len() - 3] {
+        [] => Ok(None),
+        [flag, host, target] if flag == "--ro-bind" && host == target => {
+            Ok(Some(PathBuf::from(host)))
+        }
+        added => panic!("unexpected mounts {added:?}"),
+    }
+}
+
+#[test]
+fn a_system_entry_the_bound_set_does_not_hold_is_bound_as_its_one_file() {
+    // Split `/usr`: every source is its own directory, so `/usr/sbin` is
+    // neither a source nor an alias's destination. Merged, `/sbin`'s alias
+    // is `/usr/sbin`.
+    let split: fn(&Path) -> Option<PathBuf> = |source| Some(source.to_path_buf());
+    let merged: fn(&Path) -> Option<PathBuf> = |source| match source.to_str().unwrap() {
+        "/bin" => Some(PathBuf::from("/usr/bin")),
+        "/sbin" => Some(PathBuf::from("/usr/sbin")),
+        other => Some(PathBuf::from(other)),
+    };
+    let system = Tree::System {};
+    for (executable, resolve, bound) in [
+        ("/usr/sbin/u6c4-entry", split, true),
+        ("/usr/sbin/u6c4-entry", merged, false),
+        ("/sbin/u6c4-entry", split, false),
+        ("/usr/bin/u6c4-entry", split, false),
+        ("/usr/local/sbin/u6c4-entry", split, false),
+    ] {
+        let answer = bound_tree(&system, Path::new(executable), resolve);
+        let expected = Ok(bound.then_some(PathBuf::from(executable)));
+        assert_eq!((executable, answer), (executable, expected));
     }
 }
 
@@ -551,10 +603,17 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
         arguments: &arguments,
     };
     let server = ServerBox::prepare(&sh, &profile).unwrap();
-    // The host's private TLS directory, unreadable here or absent, was
-    // neither read nor mounted.
-    let unreadable = private.exists() & std::fs::read_dir(private).is_err();
-    eprintln!("/etc/ssl/private unreadable on this host: {unreadable}");
+    // The scenario is a private TLS sibling that exists and cannot be
+    // read: prepared beside it, the box neither read nor mounted it. A
+    // host without one cannot show that, so the proof skips there, which
+    // fails wherever boundary evidence is required. (Planting one in an
+    // outer namespace needs a nested user namespace, which Ubuntu's
+    // unprivileged bwrap profile refuses.)
+    let unreadable = private.is_dir() & std::fs::read_dir(private).is_err();
+    if !unreadable {
+        skip_boundary_proof(required, "/etc/ssl/private is no unreadable directory here");
+        return;
+    }
     let status = Command::new(require_bwrap().unwrap())
         .args(&server.argv()[1..])
         .current_dir("/")

@@ -7,6 +7,7 @@
 //! before any lookup or start until the serving protections land. The
 //! compile fence still refuses every MCP grant.
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -1038,12 +1039,14 @@ fn the_program_tree_is_mb3s_layout_of_the_executable() {
     let cargo = sealed.home.join(".cargo");
     let cargo_entry = plant(&cargo.join("bin/d"));
     let sh = std::fs::canonicalize("/bin/sh").unwrap();
-    // A bare name is the first executable on the fixed search path, which
-    // need not be `/bin/sh`'s file where `/bin` and `/usr/bin` are apart.
-    let bare = ["/usr/local/bin", "/usr/bin", "/bin"]
-        .iter()
-        .map(|dir| Path::new(dir).join("sh"))
-        .find(|path| path.is_file())
+    // A bare name is the first executable regular file on the fixed search
+    // path, which need not be `/bin/sh`'s file where `/bin` and `/usr/bin`
+    // are apart.
+    let runnable =
+        |file: &std::fs::Metadata| file.is_file() && file.permissions().mode() & 0o111 != 0;
+    let bare = ["/usr/local/bin/sh", "/usr/bin/sh", "/bin/sh"]
+        .into_iter()
+        .find(|path| std::fs::metadata(path).is_ok_and(|file| runnable(&file)))
         .map(|path| std::fs::canonicalize(path).unwrap())
         .unwrap();
     // A system entry is its own tree, named bare on the fixed search path
