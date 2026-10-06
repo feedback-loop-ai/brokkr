@@ -1,7 +1,7 @@
 use serde_json::{json, Map, Value};
 
 use super::super::{fold_codex_event, fold_dsh_event, fold_stream_event, CodexThreadEcho};
-use super::{Format, Observation, Tool};
+use super::{Format, Observation, Tool, OBSERVATION_KEY};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 
 /// An MCP tool name that, under its `mcp__engine__` prefix, runs past the
@@ -224,33 +224,62 @@ fn dsh_rows(turns: u64, events: &[Value]) -> Vec<Value> {
     rows
 }
 
-/// The rows the three folds write are exactly the legacy rows: the tool a
-/// row always showed, clamped to 80 characters, Codex's item category
-/// for every item and both its start and completion, and no call id,
-/// server or any other key the normalized reading holds.
+/// `row` carrying `observation` under the private key, as the engine
+/// receives it.
+fn carrying(mut row: Value, observation: Observation) -> Value {
+    row[OBSERVATION_KEY] = serde_json::to_value(observation).unwrap();
+    row
+}
+
+/// U4f2: each row a call lowers to carries the tool it always showed,
+/// clamped to 80 characters (Codex's item category for every item, both
+/// its start and its completion), and beside it the call's observation,
+/// whole and unclamped, with its harness id or `null` where the event has
+/// none, never a guessed one. No other key is added, a Claude call that
+/// names nothing shows no tool, and dsh writes no row it never wrote.
 #[test]
-fn the_folds_still_write_exactly_the_legacy_rows() {
+fn the_folds_write_each_calls_shown_tool_and_its_observation() {
     let long = format!("mcp__engine__{LONG_TOOL}");
     let shown: String = long.chars().take(80).collect();
     let turn = json!({"step": "seat-turn", "turn": 1, "model": "claude-opus-5-5",
                       "effort": "not reported"});
+    let claude = |row: &Value, tool: Option<&str>, call: Option<&str>, seen_tool: Tool| {
+        let mut row = row.clone();
+        if let Some(tool) = tool {
+            row["tool"] = json!(tool);
+        }
+        carrying(row, seen(Format::Claude, call, seen_tool))
+    };
     let mut first = turn.clone();
     first["input_tokens"] = json!(13);
     first["output_tokens"] = json!(2);
-    first["tool"] = json!("WebSearch");
-    let mut second = turn.clone();
-    second["tool"] = json!(shown);
-    let mut third = turn.clone();
-    third["tool"] = json!("mcp__engine");
     let blocks = vec![
         claude_block("toolu_01", "WebSearch"),
         claude_block("toolu_02", &long),
         claude_block("toolu_03", "mcp__engine"),
         json!({"type": "tool_use", "id": "toolu_04", "name": ""}),
+        json!({"type": "tool_use", "name": "WebSearch"}),
     ];
+    let search = Some("WebSearch");
     assert_eq!(
         claude_rows(blocks),
-        vec![first, second, third, turn.clone()]
+        vec![
+            claude(&first, search, Some("toolu_01"), named("WebSearch")),
+            claude(
+                &turn,
+                Some(&shown),
+                Some("toolu_02"),
+                mcp("engine", LONG_TOOL)
+            ),
+            claude(
+                &turn,
+                Some("mcp__engine"),
+                Some("toolu_03"),
+                unidentified("mcp__engine")
+            ),
+            claude(&turn, None, Some("toolu_04"), named("")),
+            claude(&turn, search, None, named("WebSearch")),
+        ]
     );
 
     let mcp_item = json!({"id": "item_0", "type": "mcp_tool_call", "server": "engine",
@@ -263,17 +292,30 @@ fn the_folds_still_write_exactly_the_legacy_rows() {
         json!({"type": "item.completed", "item": {"id": "item_3", "type": ""}}),
         json!({"type": "item.completed", "item": {"id": "item_4"}}),
     ];
-    let item =
-        |step: &str, tool: &str| json!({"step": step, "turn": 1, "tool": tool, "harness": "codex"});
+    let item = |step: &str, tool: &str, call: &str, seen_tool: Tool| {
+        let row = json!({"step": step, "turn": 1, "tool": tool, "harness": "codex"});
+        carrying(row, seen(Format::Codex, Some(call), seen_tool))
+    };
+    let category = "mcp_tool_call";
     assert_eq!(
         codex_rows(&events),
         vec![
-            item("item-started", "mcp_tool_call"),
-            item("item-completed", "mcp_tool_call"),
-            item("item-completed", "mcp_tool_call"),
-            item("item-started", "command_execution"),
-            item("item-completed", ""),
-            item("item-completed", "unknown"),
+            item("item-started", category, "item_0", mcp("engine", LONG_TOOL)),
+            item(
+                "item-completed",
+                category,
+                "item_0",
+                mcp("engine", LONG_TOOL)
+            ),
+            item("item-completed", category, "item_1", unidentified(category)),
+            item(
+                "item-started",
+                "command_execution",
+                "item_2",
+                named("command_execution")
+            ),
+            item("item-completed", "", "item_3", named("")),
+            item("item-completed", "unknown", "item_4", Tool::Missing),
         ]
     );
 
@@ -283,10 +325,17 @@ fn the_folds_still_write_exactly_the_legacy_rows() {
         dsh_call("call_3", ""),
         json!({"type": "tool/call", "data": {"callId": "call_4"}}),
     ];
-    let row = |tool: &str| {
-        json!({"step": "seat-turn", "turn": 1, "harness": "deepseek", "model": "not reported",
-               "effort": "not reported", "tool": tool})
+    let row = |tool: &str, call: &str, seen_tool: Tool| {
+        let row = json!({"step": "seat-turn", "turn": 1, "harness": "deepseek",
+                         "model": "not reported", "effort": "not reported", "tool": tool});
+        carrying(row, seen(Format::Dsh, Some(call), seen_tool))
     };
-    assert_eq!(dsh_rows(1, &calls), vec![row("bash"), row(&shown)]);
+    assert_eq!(
+        dsh_rows(1, &calls),
+        vec![
+            row("bash", "call_1", named("bash")),
+            row(&shown, "call_2", mcp("engine", LONG_TOOL)),
+        ]
+    );
     assert_eq!(dsh_rows(0, &calls), Vec::<Value>::new());
 }
