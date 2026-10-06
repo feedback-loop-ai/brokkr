@@ -1755,3 +1755,37 @@ fn a_flooding_driver_meets_backpressure() {
         "the reader went on after the refusal"
     );
 }
+
+#[test]
+fn a_launch_left_a_zombie_while_the_tracker_reads_keeps_its_exit_code() {
+    let mut exits = Command::new("sh");
+    exits.args(["-c", "exit 7"]);
+    let launched = Launched::spawn(&mut exits).unwrap();
+    while !launched.exited() {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // The tracker reads every 100ms while an attempt is live, and reaps
+    // every zombie of the engine outside its group but a live leader.
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(launched.end(), Ok(Some(7)));
+}
+
+#[test]
+fn a_launch_refused_for_an_unread_table_says_so() {
+    let unread = Unsettled::Table {
+        error: "no rows".into(),
+    };
+    let refused = std::io::Error::from(Unspawned::Table(unread));
+    assert_eq!(
+        refused.to_string(),
+        "the process table could not be read: no rows"
+    );
+}
+
+#[test]
+#[should_panic(expected = "running 0 tests")]
+fn a_test_played_in_its_own_engine_that_did_not_pass_there_fails_its_caller() {
+    // No test has this path, so the child runs none, exits 0, and passes
+    // nothing: the parent must fail, never read that as the test passing.
+    in_its_own_engine("process::tests::no_test_has_this_path");
+}

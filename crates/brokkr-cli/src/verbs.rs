@@ -9,10 +9,12 @@
 //! - [`readouts`] reads journals and the world, and writes nothing;
 //! - [`exchange`] moves a run's evidence across a machine's edge: anchors,
 //!   exports, imports and the Looper bridge;
-//! - [`setup`] prepares the workspace, its libraries and its drivers.
+//! - [`setup`] prepares the workspace, its libraries and its drivers;
+//! - [`probe`] measures an agent CLI outside every run.
 
 pub(super) mod delivery;
 pub(super) mod exchange;
+pub(super) mod probe;
 pub(super) mod queue;
 pub(super) mod readouts;
 pub(super) mod setup;

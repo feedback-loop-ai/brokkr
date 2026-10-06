@@ -214,7 +214,7 @@ pub(super) fn kill_group(group: Pid) -> rustix::io::Result<()> {
 
 /// Has the leader exited? Observed with `WNOWAIT`, so it stays unreaped
 /// and the group id stays the attempt's.
-fn exited(group: Pid) -> bool {
+pub(super) fn exited(group: Pid) -> bool {
     let options = WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
     matches!(waitid(WaitId::Pid(group), options), Ok(Some(_)))
 }

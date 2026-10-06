@@ -16,7 +16,7 @@
   1908 crates/brokkr-cli/src/init.rs
     24 crates/brokkr-cli/src/init/effort.rs
    177 crates/brokkr-cli/src/ledger.rs
-  1929 crates/brokkr-cli/src/lib.rs
+  1935 crates/brokkr-cli/src/lib.rs
   1042 crates/brokkr-cli/src/muninn.rs
     67 crates/brokkr-cli/src/muninn/record.rs
    355 crates/brokkr-cli/src/realms.rs

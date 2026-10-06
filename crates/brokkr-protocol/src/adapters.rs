@@ -2529,7 +2529,7 @@ const fn claude_shape(wrapped: bool) -> &'static str {
 /// spelling — and this driver is where `--effort <level>` becomes the
 /// override codex actually reads. The pair is the analogue of the dsh
 /// arm's `--model` → overlay translation, for the same reason.
-fn codex_effort_config(effort: &str) -> String {
+pub(crate) fn codex_effort_config(effort: &str) -> String {
     format!("model_reasoning_effort=\"{effort}\"")
 }
 

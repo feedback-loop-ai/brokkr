@@ -1,7 +1,7 @@
 {
   "schema": "brokkr.crate-count/v1",
-  "note": "The [[package]] tables Cargo.lock holds, measured 2026-09-30 by scripts/measure-budgets.sh from crates/brokkr-runtime/tests/budgets.rs, which refuses any count above this one. bincode-next is held at 2.1.0 because 3.x needs rustc 1.90 and the MSRV job checks every target on 1.88. A dependency moves the count in the pull request that adds it.",
+  "note": "The [[package]] tables Cargo.lock holds, measured 2026-09-30 by scripts/measure-budgets.sh from crates/brokkr-runtime/tests/budgets.rs, which refuses any count above this one. bincode-next is held at 2.1.0 because 3.x needs rustc 1.90 and the MSRV job checks every target on 1.88. A dependency moves the count in the pull request that adds it: ruzstd 0.9.0, the probe's decoder of dsh's compressed session log (#484, the operator's ruling of 2026-10-04), moved it from 327 to 328, and twox-hash 2.1.2, which ruzstd's hash feature brings to verify each frame's content checksum (the operator's ruling of the same day), from 328 to 329.",
   "budgets": {
-    "packages": 327
+    "packages": 329
   }
 }
