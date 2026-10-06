@@ -1609,9 +1609,6 @@ fn fold_stream_event(
                         checkpoint.remove(key);
                     }
                 }
-                if let Some(tool) = Observation::claude(tool_use).legacy_tool() {
-                    checkpoint.insert("tool".into(), Value::String(tool));
-                }
                 // file_path ONLY: commands and URLs can embed inline secrets,
                 // and the journal is append-only — the verification review
                 // hard-stopped on exactly this (run verify-…-917996f5). Full
@@ -1623,7 +1620,7 @@ fn fold_stream_event(
                         Value::String(target.chars().take(80).collect()),
                     );
                 }
-                emit(&Value::Object(checkpoint));
+                emit(&Observation::claude(tool_use).onto(Value::Object(checkpoint)));
                 emitted = true;
             }
             if !emitted {
@@ -1883,12 +1880,11 @@ fn fold_codex_event(
             emit(&json!({"step":"turn-started", "turn": *turn, "harness":"codex"}));
         }
         Some(kind @ ("item.started" | "item.completed")) => {
-            emit(&json!({
+            emit(&Observation::codex(event).onto(json!({
                 "step": if kind == "item.started" { "item-started" } else { "item-completed" },
                 "turn": *turn,
-                "tool": Observation::codex(event).legacy_tool(),
                 "harness":"codex",
-            }));
+            })));
         }
         Some("turn.completed") => {
             let usage = event.get("usage").unwrap_or(&Value::Null);
@@ -2184,24 +2180,21 @@ fn fold_dsh_event(
             emit(&Value::Object(checkpoint));
         }
         Some("tool/call") => {
-            let Some(tool) = Observation::dsh(event).legacy_tool() else {
-                return;
-            };
-            if *turns == 0 {
+            let observation = Observation::dsh(event);
+            if observation.shown_tool().is_none() || *turns == 0 {
                 return;
             }
             let model = session_meta
                 .get("model")
                 .and_then(Value::as_str)
                 .unwrap_or(MODEL_NOT_REPORTED);
-            emit(&json!({
+            emit(&observation.onto(json!({
                 "step":"seat-turn",
                 "turn": *turns,
                 "harness":"deepseek",
                 "model": model,
                 "effort": dsh_echoed_effort(session_meta),
-                "tool": tool,
-            }));
+            })));
         }
         _ => {}
     }

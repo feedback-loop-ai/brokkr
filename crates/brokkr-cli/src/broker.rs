@@ -5,13 +5,20 @@
 //! a plan locator and its digest, never a server argv, a grant or a secret
 //! value.
 //!
-//! The plan itself, its binding and the serving protections are later
-//! units' (slice two U6c–U6f), and decision 0065's compile fence still
-//! refuses every MCP grant, so no plan is bound to any attempt yet and
-//! every invocation refuses before anything is read or started.
+//! The [`session`] binds the plan to the attempt and checks every plan
+//! field and the box intent in MB3's refusal order, before any secret is
+//! looked up or anything is started. The serving protections are later
+//! units' (slice two U6c3–U6f), so an admitted plan is still refused with
+//! SD3's incomplete-serving cause, and decision 0065's compile fence still
+//! refuses every MCP grant.
+
+mod session;
 
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
+
+use brokkr_core::canonical;
+use brokkr_protocol::broker::Refusal;
 
 use crate::cli_args::{BrokerCmd, BrokerServeArgs};
 
@@ -19,15 +26,14 @@ use crate::cli_args::{BrokerCmd, BrokerServeArgs};
 /// smaller of the two supported hosts' (decision 0063).
 const PLAN_LOCATOR_MAX: usize = 1024;
 
-/// Why the broker takes no plan: a locator or digest refused as the
-/// command line is parsed, or a well-formed one that is not bound.
+/// Why the broker takes no plan locator or digest, as the command line is
+/// parsed. A well-formed one the broker does not serve is a [`Refusal`].
 #[derive(Debug)]
 pub(crate) enum BrokerError {
     Relative,
     Parent,
     TooLong,
     Digest,
-    PlanUnbound,
 }
 
 impl std::fmt::Display for BrokerError {
@@ -43,9 +49,6 @@ impl std::fmt::Display for BrokerError {
             }
             BrokerError::Digest => {
                 formatter.write_str("a plan digest is 64 lowercase hex characters")
-            }
-            BrokerError::PlanUnbound => {
-                formatter.write_str("broker plan is not bound to this attempt")
             }
         }
     }
@@ -71,21 +74,19 @@ pub(crate) fn plan_locator(text: &str) -> Result<PathBuf, BrokerError> {
 
 /// `--plan-digest`: a sha256 in the one spelling every reader takes.
 pub(crate) fn plan_digest(text: &str) -> Result<String, BrokerError> {
-    match brokkr_core::canonical::is_sha256_hex(text) {
+    match canonical::is_sha256_hex(text) {
         true => Ok(text.to_string()),
         false => Err(BrokerError::Digest),
     }
 }
 
-/// Serve the plan `command` names, or refuse before reading it or
-/// starting anything.
+/// Serve the plan `command` names, or refuse before looking up a secret
+/// or starting anything.
 pub(crate) fn run(command: BrokerCmd) -> anyhow::Result<ExitCode> {
     match command {
-        // No engine plan inventory exists before U6c, so no locator and
-        // digest a caller supplies can be bound to an attempt.
-        BrokerCmd::Serve(BrokerServeArgs {
-            plan: _,
-            plan_digest: _,
-        }) => Err(BrokerError::PlanUnbound.into()),
+        BrokerCmd::Serve(BrokerServeArgs { plan, plan_digest }) => {
+            session::admit(&plan, &plan_digest)?;
+            Err(Refusal::ServingIncomplete.into())
+        }
     }
 }
