@@ -1,14 +1,18 @@
-//! `brokkr broker serve` (decision 0065 slice two U6b; MB3, MB4, SD3),
-//! driven through the real binary. The command takes a bounded plan
-//! locator and digest and nothing else: no server argv, grant or secret
-//! value is an option. No plan is bound to any attempt before the later
-//! units bind one, so a manual invocation refuses before anything starts,
-//! and the compile fence still refuses every MCP grant.
+//! `brokkr broker serve` (decision 0065 slice two U6b and U6c; MB3, MB4,
+//! SC1, SD3), driven through the real binary. The command takes a bounded
+//! plan locator and digest and nothing else: no server argv, grant or
+//! secret value is an option. A plan is bound only where the attempt's
+//! protected inventory pins it; a bound plan's every field and box intent
+//! is checked in MB3's order, and even an admitted plan still refuses
+//! before any lookup or start until the serving protections land. The
+//! compile fence still refuses every MCP grant.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Instant;
 
-use serde_json::json;
+use brokkr_protocol::broker::Refusal;
+use serde_json::{json, Value};
 
 const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -42,11 +46,17 @@ impl Root {
     }
 
     fn brokkr(&self, args: &[&str]) -> Ran {
-        let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-            .args(args)
-            .current_dir(&self.path)
-            .output()
-            .unwrap();
+        self.ran(self.command(args))
+    }
+
+    fn command(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+        command.args(args).current_dir(&self.path);
+        command
+    }
+
+    fn ran(&self, mut command: Command) -> Ran {
+        let out = command.output().unwrap();
         Ran {
             code: out.status.code(),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -259,4 +269,808 @@ fn the_compile_fence_still_refuses_an_unused_mcp_grant() {
          kind 'mcp', whose broker support is not implemented until decision 0065 slice two\n"
     );
     assert_eq!(ran.stdout, "");
+}
+
+/// Each refusal's text, pinned once: MB3 and MB4's exact causes and SD3's
+/// temporary serving cause.
+#[test]
+fn each_refusal_reads_in_mb3_and_mb4s_words() {
+    let texts = [
+        (Refusal::Unbound, "broker plan is not bound to this attempt"),
+        (
+            Refusal::Name("secret name 'x' is bad".into()),
+            "secret name 'x' is bad",
+        ),
+        (
+            Refusal::StartupInputs,
+            "MCP server startup inputs are not protected from seat writes",
+        ),
+        (
+            Refusal::ProgramTree,
+            "MCP server box program tree cannot be resolved",
+        ),
+        (
+            Refusal::LaunchInReach,
+            "MCP server launch resolves inside seat-writable reach",
+        ),
+        (
+            Refusal::BindOverlapsReach,
+            "MCP server box bind overlaps seat reach",
+        ),
+        (
+            Refusal::Identity,
+            "MCP server box filesystem identity is not protected",
+        ),
+        (
+            Refusal::StoreReachable,
+            "MCP secret store is reachable by workspace hands",
+        ),
+        (
+            Refusal::StoreInBox,
+            "MCP secret store would be mounted in the server box",
+        ),
+        (
+            Refusal::ServingIncomplete,
+            "broker serving protections are incomplete",
+        ),
+    ];
+    for (refusal, text) in texts {
+        assert_eq!(refusal.to_string(), text);
+    }
+}
+
+/// The exit and stderr of a refusal.
+fn refused(refusal: Refusal) -> (Option<i32>, String) {
+    (Some(1), format!("error: {refusal}\n"))
+}
+
+/// Set the plan field at `pointer` to `value`.
+fn set(plan: &mut Value, pointer: &str, value: Value) {
+    *plan.pointer_mut(pointer).unwrap() = value;
+}
+
+/// The canonical bootstrap: the binary under test.
+fn bootstrap() -> PathBuf {
+    std::fs::canonicalize(env!("CARGO_BIN_EXE_brokkr")).unwrap()
+}
+
+fn chmod(path: &Path, mode: u32) {
+    let mode = std::os::unix::fs::PermissionsExt::from_mode(mode);
+    std::fs::set_permissions(path, mode).unwrap();
+}
+
+/// The engine's identities: UUID strings for the effect and attempt.
+const EFFECT: &str = "3f6c2a0e-8d1b-4c5e-9a7f-1b2c3d4e5f60";
+const ATTEMPT: &str = "9b1e7c42-5d3a-4f8e-b6a1-0c2d4e6f8a9b";
+
+/// The attempt directory `name` of repository `repo` under `base`'s
+/// protected layout, owner-only from the layout's root down.
+fn attempt_under(base: &Path, repo: &str, name: &str) -> PathBuf {
+    let attempt = base.join(repo).join("run-1").join(name);
+    std::fs::create_dir_all(&attempt).unwrap();
+    for dir in attempt.ancestors().take(4) {
+        chmod(dir, 0o700);
+    }
+    attempt
+}
+
+/// An attempt the engine sealed: the owner-only protected tree under a host
+/// HOME, the attempt's inventory, and the plan it pins.
+struct Sealed {
+    root: Root,
+    home: PathBuf,
+    attempt: PathBuf,
+    locator: PathBuf,
+}
+
+impl Sealed {
+    fn new() -> Sealed {
+        Sealed::at(DIGEST, ATTEMPT)
+    }
+
+    /// An attempt sealed in the directory `name` of repository `repo`.
+    fn at(repo: &str, name: &str) -> Sealed {
+        let root = Root::new();
+        let home = root.path.join("home");
+        let capabilities = home.join(".local/state/brokkr/capabilities");
+        let attempt = attempt_under(&capabilities, repo, name);
+        // The host HOME's ancestry is writable by no one else, whatever
+        // the umask.
+        chmod(&root.path, 0o700);
+        for dir in attempt.ancestors().skip(4).take(4) {
+            chmod(dir, 0o755);
+        }
+        // The server leaves a marker if it is ever started.
+        let server = root.write(
+            "opt/docs/bin/docs-mcp",
+            &format!(
+                "#!/bin/sh\ntouch '{}'\n",
+                root.path.join("started").display()
+            ),
+        );
+        chmod(&server, 0o755);
+        Sealed {
+            locator: attempt.join("cap-library-docs.json"),
+            root,
+            home,
+            attempt,
+        }
+    }
+
+    fn path(&self, relative: &str) -> PathBuf {
+        self.root.path.join(relative)
+    }
+
+    /// The plan the engine would seal for this attempt.
+    fn plan(&self) -> Value {
+        let path = |relative: &str| json!(self.path(relative));
+        let digest = |byte: &str| json!(byte.repeat(64));
+        let named = |dir: &Path| dir.file_name().unwrap().to_str().unwrap().to_owned();
+        let attempt = named(&self.attempt);
+        let repo = named(self.attempt.ancestors().nth(2).unwrap());
+        json!({
+            "owner": {"repo": repo, "run": "run-1", "effect": EFFECT, "attempt": attempt,
+                      "site": "research", "instance": "research#0"},
+            "server": "cap-library-docs", "capability": "library-docs",
+            "dialect": {"name": "docs-mcp", "digest": digest("a"), "definition": digest("b"),
+                        "version": "1.4.2"},
+            "connection": {"argv": ["docs-mcp", "--stdio"]},
+            "tools": ["resolve", "read"], "restrictions": {}, "retained": true,
+            "secrets": ["DOCS_TOKEN"],
+            "clearance": {"dialect": digest("a"), "policy": digest("c")},
+            "box": {
+                "reach": {"writable": [path("work")], "readable": [path("cache")]},
+                "executable": path("opt/docs/bin/docs-mcp"),
+                "tree": {"kind": "package", "root": path("opt/docs")},
+                "sources": {"entries": 12, "mounts": 3, "digest": digest("d")},
+                "writers": {"uids": [1000], "privilege": "confined"},
+                "network": "shared",
+                "environment": ["PATH", "HOME", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL",
+                                "BROKKR_HANDS_BOX"],
+                "bootstrap": {"path": bootstrap(), "digest": digest("e")},
+                "excluded": {"store": path("store/secrets.env"), "control": [&self.attempt]}
+            }
+        })
+    }
+
+    /// Write `bytes` as the owner-only file `name` in the attempt.
+    fn write(&self, name: &str, bytes: &[u8]) {
+        let path = self.attempt.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        chmod(&path, 0o600);
+    }
+
+    /// Write `pins` as the attempt's inventory.
+    fn pin(&self, pins: &[(&Path, &str)]) {
+        let plans: Vec<Value> = pins
+            .iter()
+            .map(|(locator, digest)| json!({"locator": locator, "digest": digest}))
+            .collect();
+        let inventory = json!({"plans": plans}).to_string();
+        self.write("inventory.json", inventory.as_bytes());
+    }
+
+    /// Write `bytes` as the plan and pin them; their digest.
+    fn seal_bytes(&self, bytes: &[u8]) -> String {
+        let digest = brokkr_core::canonical::sha256_bytes(bytes);
+        self.write("cap-library-docs.json", bytes);
+        self.pin(&[(&self.locator, &digest)]);
+        digest
+    }
+
+    /// The broker's exit and stderr for the plan at `locator` and `digest`,
+    /// started by an engine whose HOME is `home`, or unset.
+    fn serve_as(&self, home: Option<&Path>, locator: &Path, digest: &str) -> (Option<i32>, String) {
+        let locator = locator.to_str().unwrap();
+        let args = [
+            "broker",
+            "serve",
+            "--plan",
+            locator,
+            "--plan-digest",
+            digest,
+        ];
+        let mut command = self.root.command(&args);
+        match home {
+            Some(home) => command.env("HOME", home),
+            None => command.env_remove("HOME"),
+        };
+        let ran = self.root.ran(command);
+        assert_eq!(ran.stdout, "");
+        (ran.code, ran.stderr)
+    }
+
+    /// The broker's answer for the plan at `locator`, under this HOME.
+    fn serve_at(&self, locator: &Path, digest: &str) -> (Option<i32>, String) {
+        self.serve_as(Some(&self.home), locator, digest)
+    }
+
+    fn serve(&self, digest: &str) -> (Option<i32>, String) {
+        self.serve_at(&self.locator, digest)
+    }
+
+    /// The broker's answer to `bytes`, sealed.
+    fn answer_bytes(&self, bytes: &[u8]) -> (Option<i32>, String) {
+        let digest = self.seal_bytes(bytes);
+        self.serve(&digest)
+    }
+
+    /// The broker's answer to this attempt's plan once `edit` has changed
+    /// it and the engine has sealed it.
+    fn answer(&self, edit: impl FnOnce(&mut Value)) -> (Option<i32>, String) {
+        let mut plan = self.plan();
+        edit(&mut plan);
+        self.answer_bytes(plan.to_string().as_bytes())
+    }
+
+    /// The broker's answer with the field at `pointer` sealed as `value`.
+    fn with(&self, pointer: &str, value: Value) -> (Option<i32>, String) {
+        self.answer(|plan| set(plan, pointer, value))
+    }
+}
+
+/// A store the broker could only look a value up in by opening it: a FIFO
+/// whose writer, a thread here, notes when a reader first opened it.
+struct Store {
+    path: PathBuf,
+    writer: std::thread::JoinHandle<Instant>,
+}
+
+impl Store {
+    fn new(path: PathBuf) -> Store {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // Owner-only, as the store's own mode check requires.
+        let made = Command::new("mkfifo")
+            .args(["-m", "600"])
+            .arg(&path)
+            .status()
+            .unwrap();
+        assert_eq!(made.code(), Some(0));
+        let fifo = path.clone();
+        let writer = std::thread::spawn(move || {
+            let mut opened = std::fs::OpenOptions::new().write(true).open(fifo).unwrap();
+            let at = Instant::now();
+            std::io::Write::write_all(&mut opened, b"DOCS_TOKEN=value\n").unwrap();
+            at
+        });
+        Store { path, writer }
+    }
+
+    /// How many lookups opened the store before `ended`. A reader the
+    /// broker opened released the writer then; otherwise only this
+    /// release, after `ended`, does.
+    fn lookups(self, ended: Instant) -> usize {
+        let flags = rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NONBLOCK;
+        let _release = rustix::fs::open(&self.path, flags, rustix::fs::Mode::empty()).unwrap();
+        usize::from(self.writer.join().unwrap() < ended)
+    }
+}
+
+#[test]
+fn a_sealed_plan_is_admitted_and_still_refused_before_any_lookup_or_start() {
+    let sealed = Sealed::new();
+    let store = Store::new(sealed.path("store/secrets.env"));
+    let answer = sealed.answer(|_| ());
+    let ended = Instant::now();
+    assert_eq!(answer, refused(Refusal::ServingIncomplete));
+    // Zero lookups and zero starts.
+    assert_eq!(store.lookups(ended), 0);
+    assert!(!sealed.path("started").exists());
+}
+
+#[test]
+fn only_the_protected_inventory_binds_a_plan() {
+    let sealed = Sealed::new();
+    let unbound = refused(Refusal::Unbound);
+    let bytes = sealed.plan().to_string();
+    let digest = brokkr_core::canonical::sha256_bytes(bytes.as_bytes());
+    sealed.write("cap-library-docs.json", bytes.as_bytes());
+    // An authored copy with its true digest, outside the protected root.
+    let authored = sealed.root.write("work/cap-library-docs.json", &bytes);
+    assert_eq!(sealed.serve_at(&authored, &digest), unbound);
+    // No inventory beside the plan.
+    assert_eq!(sealed.serve(&digest), unbound);
+    // An inventory that pins another plan, another digest, or this one twice.
+    let other = sealed.attempt.join("cap-other.json");
+    sealed.pin(&[(&other, &digest)]);
+    assert_eq!(sealed.serve(&digest), unbound);
+    sealed.pin(&[(&sealed.locator, DIGEST)]);
+    assert_eq!(sealed.serve(&digest), unbound);
+    sealed.pin(&[(&sealed.locator, &digest), (&sealed.locator, &digest)]);
+    assert_eq!(sealed.serve(&digest), unbound);
+    // An inventory that does not parse closed.
+    sealed.write("inventory.json", br#"{"plans": [], "ledgers": []}"#);
+    assert_eq!(sealed.serve(&digest), unbound);
+    // Pinned exactly, among others, it binds.
+    sealed.pin(&[(&other, DIGEST), (&sealed.locator, &digest)]);
+    assert_eq!(sealed.serve(&digest), refused(Refusal::ServingIncomplete));
+}
+
+#[test]
+fn only_the_engines_home_roots_a_plan() {
+    let sealed = Sealed::new();
+    let unbound = refused(Refusal::Unbound);
+    let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
+    let serve = |home: Option<&Path>| sealed.serve_as(home, &sealed.locator, &digest);
+    // The root is compared by identity, not spelling: HOME reached through
+    // a symlink is still the engine's.
+    let link = sealed.path("link");
+    std::os::unix::fs::symlink(&sealed.home, &link).unwrap();
+    assert_eq!(serve(Some(&link)), refused(Refusal::ServingIncomplete));
+    // An engine with no HOME, or a relative one, roots nothing.
+    assert_eq!(serve(None), unbound);
+    assert_eq!(serve(Some(Path::new("home"))), unbound);
+    // The same self-consistent, owner-only tree, pinned at its true
+    // digest, is a lookalike under any other engine HOME.
+    let host = sealed.path("host");
+    let capabilities = host.join(".local/state/brokkr/capabilities");
+    std::fs::create_dir_all(&capabilities).unwrap();
+    chmod(&capabilities, 0o700);
+    assert_eq!(serve(Some(&host)), unbound);
+}
+
+#[test]
+fn a_plan_under_an_unprotected_root_or_file_is_unbound() {
+    let sealed = Sealed::new();
+    let unbound = refused(Refusal::Unbound);
+    let admitted = refused(Refusal::ServingIncomplete);
+    let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
+    let refuses = |path: &Path, mode: u32, restore: u32| {
+        chmod(path, mode);
+        let answer = sealed.serve(&digest);
+        chmod(path, restore);
+        assert_eq!((path, answer), (path, unbound.clone()));
+        assert_eq!(sealed.serve(&digest), admitted);
+    };
+    // The protected root and everything below it are this user's alone.
+    refuses(
+        &sealed.home.join(".local/state/brokkr/capabilities"),
+        0o750,
+        0o700,
+    );
+    refuses(&sealed.attempt, 0o701, 0o700);
+    // An ancestor no one else may write.
+    refuses(&sealed.home, 0o777, 0o755);
+    // The plan and the inventory are owner-only files.
+    refuses(&sealed.locator, 0o640, 0o600);
+    refuses(&sealed.attempt.join("inventory.json"), 0o604, 0o600);
+    // A second link to the plan.
+    let alias = sealed.attempt.join("alias.json");
+    std::fs::hard_link(&sealed.locator, &alias).unwrap();
+    assert_eq!(sealed.serve(&digest), unbound);
+    std::fs::remove_file(&alias).unwrap();
+    // A symlinked plan, or a symlink on the way to it.
+    let real = sealed.attempt.join("real.json");
+    std::fs::rename(&sealed.locator, &real).unwrap();
+    std::os::unix::fs::symlink(&real, &sealed.locator).unwrap();
+    assert_eq!(sealed.serve(&digest), unbound);
+    std::fs::remove_file(&sealed.locator).unwrap();
+    std::fs::rename(&real, &sealed.locator).unwrap();
+    assert_eq!(sealed.serve(&digest), admitted);
+    let run = sealed.attempt.parent().unwrap();
+    std::fs::rename(run, run.with_file_name("run-0")).unwrap();
+    std::os::unix::fs::symlink(run.with_file_name("run-0"), run).unwrap();
+    assert_eq!(sealed.serve(&digest), unbound);
+}
+
+#[test]
+fn a_plan_answers_for_the_attempt_it_lies_in_and_its_size() {
+    let sealed = Sealed::new();
+    let unbound = refused(Refusal::Unbound);
+    for (pointer, value) in [
+        ("/owner/repo", json!("f".repeat(64))),
+        ("/owner/run", json!("run-2")),
+        (
+            "/owner/attempt",
+            json!("0d4c2b1a-6e5f-4a3b-8c7d-9e0f1a2b3c4d"),
+        ),
+        ("/owner/attempt", json!(ATTEMPT.to_uppercase())),
+    ] {
+        assert_eq!(
+            (pointer, sealed.with(pointer, value)),
+            (pointer, unbound.clone())
+        );
+    }
+    // An attempt that is no portable path component binds nothing, even
+    // where it names its own directory.
+    assert_eq!(Sealed::at(DIGEST, "attempt 1").answer(|_| ()), unbound);
+    // Nor does a repository that is no canonical sha256 (D6).
+    for repo in ["not-a-digest", &DIGEST.to_uppercase()] {
+        let answer = Sealed::at(repo, ATTEMPT).answer(|_| ());
+        assert_eq!((repo, answer), (repo, unbound.clone()));
+    }
+    // A locator outside the protected layout binds nothing, even pinned.
+    let other = sealed.home.join(".local/state/brokkr/other");
+    let stray = attempt_under(&other, DIGEST, ATTEMPT);
+    let mut plan = sealed.plan();
+    set(&mut plan, "/box/excluded/control", json!([&stray]));
+    let bytes = plan.to_string();
+    let digest = brokkr_core::canonical::sha256_bytes(bytes.as_bytes());
+    let locator = stray.join("cap-library-docs.json");
+    for (name, text) in [
+        ("cap-library-docs.json", bytes),
+        (
+            "inventory.json",
+            json!({"plans": [{"locator": &locator, "digest": &digest}]}).to_string(),
+        ),
+    ] {
+        std::fs::write(stray.join(name), text).unwrap();
+        chmod(&stray.join(name), 0o600);
+    }
+    assert_eq!(sealed.serve_at(&locator, &digest), unbound);
+    // MB3's request bound: one MiB of plan, and not a byte more.
+    let mut bytes = sealed.plan().to_string().into_bytes();
+    bytes.resize(1 << 20, b' ');
+    assert_eq!(
+        sealed.answer_bytes(&bytes),
+        refused(Refusal::ServingIncomplete)
+    );
+    bytes.push(b' ');
+    assert_eq!(sealed.answer_bytes(&bytes), unbound);
+}
+
+#[test]
+fn a_field_changed_after_sealing_acquires_no_authority() {
+    let sealed = Sealed::new();
+    let unbound = refused(Refusal::Unbound);
+    let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
+    let elsewhere = sealed.path("opt/other");
+    for (pointer, value) in [
+        ("/box/executable", json!(elsewhere.join("bin/docs-mcp"))),
+        ("/box/tree", json!({"kind": "system"})),
+        ("/box/tree/root", json!(elsewhere)),
+        ("/box/reach/writable", json!([])),
+        ("/box/sources/digest", json!("0".repeat(64))),
+        ("/box/writers/uids", json!([1001])),
+        ("/box/network", json!("isolated")),
+        ("/box/bootstrap/digest", json!("0".repeat(64))),
+        ("/clearance/policy", json!("0".repeat(64))),
+        ("/connection/argv", json!(["/bin/sh", "-c", "true"])),
+        ("/tools", json!(["resolve", "read", "admin"])),
+        ("/retained", json!(false)),
+    ] {
+        let mut plan = sealed.plan();
+        set(&mut plan, pointer, value);
+        let bytes = plan.to_string();
+        sealed.write("cap-library-docs.json", bytes.as_bytes());
+        let altered = brokkr_core::canonical::sha256_bytes(bytes.as_bytes());
+        // Neither the sealed digest nor the altered bytes' own is bound.
+        assert_eq!((pointer, sealed.serve(&digest)), (pointer, unbound.clone()));
+        assert_eq!(
+            (pointer, sealed.serve(&altered)),
+            (pointer, unbound.clone())
+        );
+    }
+}
+
+#[test]
+fn a_plan_parses_closed_and_defaults_nothing() {
+    let sealed = Sealed::new();
+    let unbound = refused(Refusal::Unbound);
+    let text = sealed.plan().to_string();
+    let duplicated = text.replacen(
+        "\"retained\":true",
+        "\"retained\":true,\"retained\":false",
+        1,
+    );
+    assert_ne!(duplicated, text);
+    for bytes in [b"{\"owner\":".to_vec(), duplicated.into_bytes()] {
+        assert_eq!(sealed.answer_bytes(&bytes), unbound);
+    }
+    for (pointer, value) in [
+        ("/retained", json!("yes")),
+        ("/restrictions", json!({"domains": ["docs.example"]})),
+        ("/box/tree", json!({"kind": "workspace"})),
+        ("/box/tree", json!({"kind": "system", "root": "/usr"})),
+        ("/box/writers/privilege", json!("root")),
+        // The network is a projection, never the egress word again.
+        ("/box/network", json!("local")),
+        ("/box/writers/uids", json!([-1])),
+        // The engine's identities are strings, never a number.
+        ("/owner/effect", json!(3)),
+        ("/owner/attempt", json!(1)),
+        ("/owner/instance", json!(0)),
+    ] {
+        assert_eq!(
+            (pointer, sealed.with(pointer, value)),
+            (pointer, unbound.clone())
+        );
+    }
+    let unknown = |plan: &mut Value, at: &str| {
+        plan.pointer_mut(at).unwrap()["mounts"] = json!(["/"]);
+    };
+    for at in ["", "/box", "/box/reach", "/box/excluded"] {
+        assert_eq!(
+            (at, sealed.answer(|plan| unknown(plan, at))),
+            (at, unbound.clone())
+        );
+    }
+    let missing = sealed.answer(|plan| {
+        plan.as_object_mut().unwrap().remove("retained");
+    });
+    assert_eq!(missing, unbound);
+}
+
+/// Rewrite the record at `pointer` as the array of its fields in `order`.
+fn positional(record: &mut Value, order: &[&str]) {
+    let fields = order.iter().map(|field| record[*field].clone()).collect();
+    *record = Value::Array(fields);
+}
+
+#[test]
+fn every_record_is_an_object_never_a_positional_array() {
+    let sealed = Sealed::new();
+    let unbound = refused(Refusal::Unbound);
+    // Each record in its declared field order, which a positional reading
+    // would take.
+    let plan = [
+        "owner",
+        "server",
+        "capability",
+        "dialect",
+        "connection",
+        "tools",
+        "restrictions",
+        "retained",
+        "secrets",
+        "clearance",
+        "box",
+    ];
+    let intent = [
+        "reach",
+        "executable",
+        "tree",
+        "sources",
+        "writers",
+        "network",
+        "environment",
+        "bootstrap",
+        "excluded",
+    ];
+    let owner = ["repo", "run", "effect", "attempt", "site", "instance"];
+    let records: [(&str, &[&str]); 13] = [
+        ("", &plan),
+        ("/owner", &owner),
+        ("/dialect", &["name", "digest", "definition", "version"]),
+        ("/connection", &["argv"]),
+        ("/restrictions", &[]),
+        ("/clearance", &["dialect", "policy"]),
+        ("/box", &intent),
+        ("/box/reach", &["writable", "readable"]),
+        ("/box/tree", &["kind", "root"]),
+        ("/box/sources", &["entries", "mounts", "digest"]),
+        ("/box/writers", &["uids", "privilege"]),
+        ("/box/bootstrap", &["path", "digest"]),
+        ("/box/excluded", &["store", "control"]),
+    ];
+    for (pointer, order) in records {
+        let answer = sealed.answer(|plan| positional(plan.pointer_mut(pointer).unwrap(), order));
+        assert_eq!((pointer, answer), (pointer, unbound.clone()));
+    }
+    // The inventory and each pin, likewise.
+    let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
+    let pin = json!({"locator": &sealed.locator, "digest": &digest});
+    let mut listed = pin.clone();
+    positional(&mut listed, &["locator", "digest"]);
+    for (name, inventory) in [
+        ("inventory", json!([[pin]])),
+        ("pin", json!({"plans": [listed]})),
+    ] {
+        sealed.write("inventory.json", inventory.to_string().as_bytes());
+        assert_eq!((name, sealed.serve(&digest)), (name, unbound.clone()));
+    }
+    // The same pin as an object binds.
+    sealed.write(
+        "inventory.json",
+        json!({"plans": [pin]}).to_string().as_bytes(),
+    );
+    assert_eq!(sealed.serve(&digest), refused(Refusal::ServingIncomplete));
+}
+
+#[test]
+fn a_sealed_plan_of_the_wrong_shape_is_unbound() {
+    let sealed = Sealed::new();
+    let unbound = refused(Refusal::Unbound);
+    let other = sealed.root.write("other-brokkr", "");
+    for (pointer, value) in [
+        ("/dialect/digest", json!("A".repeat(64))),
+        ("/clearance/policy", json!("A".repeat(64))),
+        ("/clearance/dialect", json!("c".repeat(64))),
+        ("/box/bootstrap/path", json!(other)),
+        (
+            "/box/excluded/control",
+            json!([sealed.attempt.parent().unwrap()]),
+        ),
+        ("/tools", json!([])),
+        ("/tools", json!(["read", "read"])),
+        ("/tools", json!([""])),
+        ("/secrets", json!(["DOCS_TOKEN", "DOCS_TOKEN"])),
+        ("/server", json!("")),
+        ("/server", json!("cap-unrelated")),
+        ("/owner/effect", json!("")),
+        ("/owner/site", json!("")),
+        ("/owner/instance", json!("")),
+        ("/dialect/name", json!("")),
+        ("/dialect/version", json!("")),
+        ("/box/environment", json!([])),
+        ("/box/environment", json!(["PATH", "PATH"])),
+        ("/box/environment", json!(["PATH", "lower"])),
+        ("/connection/argv", json!([])),
+        ("/connection/argv", json!([""])),
+        ("/connection/argv", json!(["docs-mcp", ""])),
+        ("/box/reach/readable", json!([sealed.path("cache/../opt")])),
+        ("/box/excluded/store", json!("store/secrets.env")),
+    ] {
+        let case = format!("{pointer} = {value}");
+        assert_eq!(
+            (&case, sealed.with(pointer, value)),
+            (&case, unbound.clone())
+        );
+    }
+    // An empty capability, its server named after it.
+    let unnamed = sealed.answer(|plan| {
+        set(plan, "/capability", json!(""));
+        set(plan, "/server", json!("cap-"));
+    });
+    assert_eq!(unnamed, unbound);
+    // A plan with no secrets still binds.
+    let admitted = refused(Refusal::ServingIncomplete);
+    assert_eq!(sealed.with("/secrets", json!([])), admitted);
+}
+
+#[test]
+fn binding_names_are_checked_then_fixed_keys_refuse_before_lookup() {
+    let sealed = Sealed::new();
+    let named = |name: &str| sealed.with("/secrets", json!(["DOCS_TOKEN", name]));
+    let cause = |name: &str| brokkr_protocol::secret::validate_name(name).unwrap_err();
+    assert_eq!(
+        cause("lower"),
+        "secret name 'lower' does not match [A-Z][A-Z0-9_]*"
+    );
+    assert_eq!(named("lower"), refused(Refusal::Name(cause("lower"))));
+    assert_eq!(
+        named("LD_PRELOAD"),
+        refused(Refusal::Name(cause("LD_PRELOAD")))
+    );
+    for fixed in ["HOME", "TMPDIR", "LANG"] {
+        assert_eq!(
+            (fixed, named(fixed)),
+            (fixed, refused(Refusal::StartupInputs))
+        );
+    }
+    // An invalid name outranks a fixed-key collision.
+    let both = sealed.with("/secrets", json!(["HOME", "lower"]));
+    assert_eq!(both, refused(Refusal::Name(cause("lower"))));
+    // The plan's name cannot write a line of its own.
+    let (code, stderr) = named("X\nerror: forged");
+    assert_eq!(
+        (code, stderr.as_str()),
+        (
+            Some(1),
+            "error: secret name 'X\\nerror: forged' does not match [A-Z][A-Z0-9_]*\n"
+        )
+    );
+}
+
+#[test]
+fn the_program_tree_is_mb3s_layout_of_the_executable() {
+    let sealed = Sealed::new();
+    let tree = |argv0: &str, executable: &Value, tree: Value| {
+        sealed.answer(|plan| {
+            set(plan, "/connection/argv/0", json!(argv0));
+            set(plan, "/box/executable", executable.clone());
+            set(plan, "/box/tree", tree);
+        })
+    };
+    let package = |root: &Path| json!({"kind": "package", "root": root});
+    let system = || json!({"kind": "system"});
+    let admitted = refused(Refusal::ServingIncomplete);
+    let docs = sealed.path("opt/docs");
+    let cargo = sealed.home.join(".cargo");
+    let lib = Path::new("/usr/lib/docs");
+    // A system entry is its own tree; a package is its parent, or the
+    // parent of a `bin` or `sbin`; a path names it or the fixed search does.
+    for (argv0, executable, sealed_tree) in [
+        ("/usr/bin/docs-mcp", json!("/usr/bin/docs-mcp"), system()),
+        ("docs-mcp", json!("/usr/local/sbin/docs-mcp"), system()),
+        ("docs-mcp", json!(lib.join("server")), package(lib)),
+        ("docs-mcp", json!(docs.join("sbin/d")), package(&docs)),
+        ("docs-mcp", json!(cargo.join("bin/d")), package(&cargo)),
+    ] {
+        let answer = tree(argv0, &executable, sealed_tree);
+        assert_eq!((&executable, answer), (&executable, admitted.clone()));
+    }
+    let entry = json!(docs.join("bin/docs-mcp"));
+    for (argv0, executable, sealed_tree) in [
+        ("bin/docs-mcp", entry.clone(), package(&docs)),
+        ("docs-mcp", json!("opt/docs/bin/docs-mcp"), package(&docs)),
+        ("docs-mcp", json!("/"), system()),
+        ("docs-mcp", entry.clone(), system()),
+        (
+            "docs-mcp",
+            json!("/usr/bin/docs-mcp"),
+            package(Path::new("/usr")),
+        ),
+        ("docs-mcp", entry.clone(), package(&docs.join("bin"))),
+        ("docs-mcp", json!("/docs-mcp"), package(Path::new("/"))),
+        (
+            "docs-mcp",
+            json!(sealed.home.join("d")),
+            package(&sealed.home),
+        ),
+        (
+            "docs-mcp",
+            json!(sealed.path("bin/d")),
+            package(&sealed.root.path),
+        ),
+    ] {
+        let answer = tree(argv0, &executable, sealed_tree);
+        let unresolved = refused(Refusal::ProgramTree);
+        assert_eq!((&executable, answer), (&executable, unresolved));
+    }
+}
+
+#[test]
+fn the_box_neither_launches_from_nor_binds_over_the_seats_reach() {
+    let sealed = Sealed::new();
+    let inside = |executable: PathBuf| {
+        sealed.answer(|plan| {
+            set(plan, "/box/tree/root", json!(executable.parent().unwrap()));
+            set(plan, "/box/executable", json!(executable));
+        })
+    };
+    let overlapping = refused(Refusal::BindOverlapsReach);
+    let launched = refused(Refusal::LaunchInReach);
+    assert_eq!(inside(sealed.path("work/tool/server")), launched);
+    assert_eq!(inside(sealed.path("cache/tool/server")), overlapping);
+    // A reach root inside the package, either kind, or over the bootstrap.
+    for (pointer, root) in [
+        ("/box/reach/writable", sealed.path("opt/docs/data")),
+        ("/box/reach/readable", sealed.path("opt")),
+        ("/box/reach/readable", bootstrap()),
+    ] {
+        let answer = sealed.with(pointer, json!([root]));
+        assert_eq!((pointer, answer), (pointer, overlapping.clone()));
+    }
+}
+
+#[test]
+fn unprovable_writers_unbounded_sources_and_exposed_control_roots_refuse() {
+    let sealed = Sealed::new();
+    let identity = refused(Refusal::Identity);
+    let admitted = refused(Refusal::ServingIncomplete);
+    for uids in [json!([]), json!([1000, 65534]), json!([4_294_967_295u32])] {
+        let answer = sealed.with("/box/writers/uids", uids.clone());
+        assert_eq!((&uids, answer), (&uids, identity.clone()));
+    }
+    // MB3's observation bounds, at and over.
+    assert_eq!(
+        sealed.with("/box/sources/entries", json!(1_000_000)),
+        admitted
+    );
+    assert_eq!(
+        sealed.with("/box/sources/entries", json!(1_000_001)),
+        identity
+    );
+    assert_eq!(sealed.with("/box/sources/mounts", json!(65_536)), admitted);
+    assert_eq!(sealed.with("/box/sources/mounts", json!(65_537)), identity);
+    // The control roots lie outside the seat's reach and the box.
+    assert_eq!(
+        sealed.with("/box/reach/writable", json!([&sealed.home])),
+        identity
+    );
+    let control = json!([&sealed.attempt, sealed.path("opt/docs/state")]);
+    assert_eq!(sealed.with("/box/excluded/control", control), identity);
+}
+
+#[test]
+fn the_store_is_neither_in_reach_nor_in_the_box() {
+    let sealed = Sealed::new();
+    let store = |path: PathBuf| sealed.with("/box/excluded/store", json!(path));
+    let reachable = refused(Refusal::StoreReachable);
+    assert_eq!(store(sealed.path("work/.forge/secrets.env")), reachable);
+    assert_eq!(store(sealed.path("cache/secrets.env")), reachable);
+    let mounted = refused(Refusal::StoreInBox);
+    assert_eq!(store(sealed.path("opt/docs/secrets.env")), mounted);
+    assert_eq!(store(bootstrap()), mounted);
 }
