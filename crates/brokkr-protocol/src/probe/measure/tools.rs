@@ -15,8 +15,9 @@ use crate::probe::{Native, NativePower};
 const EGRESS_WORDS: [&str; 4] = ["web", "fetch", "browse", "grounding"];
 
 /// The shipped harnesses' own tools that reach no network: Claude Code's,
-/// Codex's and dsh's. A name that is neither one of these nor egress by
-/// [`EGRESS_WORDS`] is not recognised, and egress is then unmeasured.
+/// Codex's and dsh's, matched exactly. A name that is neither one of these
+/// nor egress by [`EGRESS_WORDS`] is not recognised, and egress is then
+/// unmeasured.
 const LOCAL_TOOLS: [&str; 24] = [
     "Agent",
     "Bash",
@@ -124,11 +125,15 @@ fn folded(tool: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// A tool's class: egress when its folded name holds an [`EGRESS_WORDS`]
+/// word, which errs toward refusal; local only when its name is exactly a
+/// [`LOCAL_TOOLS`] entry, never a spelling the probe folded into one, so
+/// `ReadFile` or `b_a_s_h` is not recognised (#484).
 fn tool_class(tool: &str) -> ToolClass {
     let name = folded(tool);
     if EGRESS_WORDS.iter().any(|word| name.contains(word)) {
         ToolClass::Egress
-    } else if LOCAL_TOOLS.iter().any(|local| folded(local) == name) {
+    } else if LOCAL_TOOLS.contains(&tool) {
         ToolClass::Local
     } else {
         ToolClass::Unrecognised

@@ -507,6 +507,94 @@ fn a_declaration_the_probe_does_not_reproduce_is_named_as_a_difference() {
     );
 }
 
+/// The tool facts and verdict of a Claude-like CLI whose plain turn lists
+/// `plain_tools`, whose box keeps them beside the hands server, and whose
+/// turn under the declared OFF controls lists `off_tools`.
+fn tool_names_read(plain_tools: &str, off_tools: &str) -> Value {
+    let init = |tools: &str, servers: &str| {
+        let stdout = replied(&format!(
+            r#"{{"type":"system","subtype":"init","tools":[{tools}],"mcp_servers":[{servers}]}}"#
+        ));
+        observation(Some(0), &stdout, "")
+    };
+    let plan = plan::plan(AdapterKind::Claude, &claude_declared()).unwrap();
+    let observed = Observed {
+        boxed: Trial::Observed(init(
+            plain_tools,
+            r#"{"name":"brokkr","status":"connected"}"#,
+        )),
+        native_off: Trial::Observed(init(off_tools, "")),
+        ..observed(init(plain_tools, ""))
+    };
+    let reading = measure::reading(&plan, &observed, &[]);
+    let facts = &reading.facts;
+    json!({
+        "native_egress": facts.native_egress,
+        "capabilities": facts.capabilities,
+        "egress_off": facts.egress_off,
+        "eligibility": judge::eligibility(facts, &reading.unread),
+    })
+}
+
+/// The chief's H4 on 07db233d (#484): a tool is local only by its exact
+/// name in the probe's table, never by a spelling folded into one, so an
+/// OFF turn listing `ReadFile`, a case-only or a punctuation variant
+/// leaves egress on and refuses, and a plain turn listing one leaves the
+/// egress and the inventory unmeasured; `read_file` itself stays local,
+/// and a folded egress name stays egress.
+#[test]
+fn a_tool_is_local_only_by_its_exact_name_and_egress_by_its_folded_one() {
+    let folded = tool_names_read(r#""Bash","WEB_SEARCH""#, r#""Bash""#);
+    assert_eq!(
+        folded["native_egress"],
+        measured(
+            json!(["WEB_SEARCH"]),
+            "the system/init event on line 1 of stdout listed tools: 2"
+        )
+    );
+    let plain = r#""Bash","WebSearch","WebFetch""#;
+    for unknown in ["ReadFile", "TODOWRITE", "b_a_s_h"] {
+        let read = tool_names_read(plain, &format!("\"{unknown}\""));
+        let left = format!("the declared OFF controls left {unknown}");
+        let refused = json!({
+            "verdict": "refused",
+            "reason": format!(
+                "its native egress has no measured off switch ({left}), and no native capability \
+                 is named for a realm to grant: {ALL_TOOLS}"
+            ),
+        });
+        assert_eq!(
+            (unknown, &read["egress_off"], &read["eligibility"]),
+            (unknown, &measured(json!(false), &left), &refused)
+        );
+    }
+    let read = tool_names_read(r#""Bash","ReadFile""#, r#""Bash""#);
+    assert_eq!(
+        (&read["native_egress"], &read["capabilities"]),
+        (
+            &unmeasured(
+                "the plain turn listed ReadFile, which the probe knows neither as egress nor as \
+                 local"
+            ),
+            &unmeasured(
+                "the plain turn listed ReadFile, which no declared native capability maps, so no \
+                 realm can grant it"
+            ),
+        )
+    );
+    let exact = tool_names_read(plain, r#""read_file""#);
+    assert_eq!(
+        (&exact["egress_off"], &exact["eligibility"]["verdict"]),
+        (
+            &measured(
+                json!(true),
+                "the declared OFF controls removed WebSearch, WebFetch"
+            ),
+            &json!("unboxed-only")
+        )
+    );
+}
+
 #[test]
 fn a_model_refusal_that_does_not_name_the_model_is_not_a_configuration_refusal() {
     let plan = plan::plan(AdapterKind::Claude, &claude_declared()).unwrap();
