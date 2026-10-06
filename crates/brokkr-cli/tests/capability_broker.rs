@@ -952,6 +952,19 @@ fn binding_names_are_checked_then_fixed_keys_refuse_before_lookup() {
     );
 }
 
+/// The plan's name is escaped first, then the cause is cut to the shared
+/// 512-scalar line bound, counted in scalars and not bytes, ending in `…`;
+/// the CLI's prefix and newline lie outside it.
+#[test]
+fn a_long_binding_name_is_cut_to_one_bounded_line() {
+    let sealed = Sealed::new();
+    let name = format!("\n{}", "é".repeat(600));
+    let (code, stderr) = sealed.with("/secrets", json!([name]));
+    let cause = format!("secret name '\\n{}…", "é".repeat(496));
+    assert_eq!(cause.chars().count(), 512);
+    assert_eq!((code, stderr), (Some(1), format!("error: {cause}\n")));
+}
+
 #[test]
 fn the_program_tree_is_mb3s_layout_of_the_executable() {
     let sealed = Sealed::new();
