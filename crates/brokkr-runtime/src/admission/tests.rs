@@ -358,6 +358,36 @@ fn a_map_path_that_cannot_be_resolved_holds_the_entry_queued_under_none() {
     }
 }
 
+/// For an entry queued under no map, a map path that cannot even be
+/// looked up (its workspace is no longer a directory) is no absence
+/// either: only nothing at the path is no map, so the entry is held,
+/// beside its control (#430).
+#[test]
+fn a_map_path_that_cannot_be_looked_up_holds_the_entry_queued_under_none() {
+    let ws = workspace();
+    let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
+    let inner = ws.path().join("w");
+    std::fs::create_dir(&inner).unwrap();
+    let entry = add(&mut store, &launch(&inner, false), &[]);
+    assert_eq!(
+        verdicts(&store),
+        vec![(entry.0, Standing::Admissible, vec![])]
+    );
+    std::fs::remove_dir(&inner).unwrap();
+    std::fs::write(&inner, "").unwrap();
+    assert_eq!(
+        verdicts(&store),
+        vec![(
+            entry.0,
+            Standing::Held,
+            vec![Reason::MapUnreadable(format!(
+                "no realms map at {}",
+                inner.join("realms.json").display()
+            ))],
+        )]
+    );
+}
+
 /// The operator's release of a drifted entry: once judged and latched,
 /// re-pinned to the map on disk, it is admitted, and it starts under that
 /// map.
