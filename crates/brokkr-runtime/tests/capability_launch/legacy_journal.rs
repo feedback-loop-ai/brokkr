@@ -28,6 +28,7 @@ use brokkr_runtime::{Bundle, Engine, World};
 use brokkr_store::{SeatRecordError, Store, StoreError};
 use serde_json::{json, Value};
 
+use super::charters::{write_charter, write_role};
 use super::{workspace, write};
 
 /// Set only by a wrapper's own command line, never by this process: the
@@ -254,7 +255,7 @@ fn inline(root: &Path, tag: &str, extra: &[&str]) -> Value {
 fn bundle(root: &Path, world: &World) -> Bundle {
     adapters(root);
     std::fs::create_dir_all(root.join("agents/charters")).unwrap();
-    std::fs::write(root.join("agents/charters/office.md"), "# office\n").unwrap();
+    write_charter(&root.join("agents/charters/office.md"));
     for (agent, models) in [
         ("office", json!(["opus"])),
         ("chain", json!(["missing", "opus"])),
@@ -273,8 +274,7 @@ fn bundle(root: &Path, world: &World) -> Bundle {
                     "capabilities": {"web-search": "wants"}}),
         );
     }
-    std::fs::create_dir_all(root.join("bundle/roles")).unwrap();
-    std::fs::write(root.join("bundle/roles/role.md"), "# role\n").unwrap();
+    write_role(&root.join("bundle"));
     let mut step = inline(root, "first", &[]);
     step["name"] = json!("first");
     step["results"] = json!(["complete"]);
@@ -682,16 +682,20 @@ fn exports_and_verifies(store: &Store, run_id: &str, count: usize) {
 /// the search a forged call id and state, journal exactly the legacy rows
 /// with the engine's own whole group on the held search — its call id
 /// the digest of its attempt, site stamps, provider and harness id — and the
-/// local read ordinary. No observation or forged value reaches the store,
-/// and the run exports and verifies.
+/// local read ordinary. The resumed seat's rejoined root replays its
+/// `toolu_01`, which is history and stays ordinary (U4f); the replaced
+/// seat's root was never offered, so its second search is new. No
+/// observation or forged value reaches the store, and the run exports and
+/// verifies.
 #[test]
 fn every_site_shape_journals_the_engines_group_on_an_observed_held_call() {
     let (_dir, root, engine) = driven(Some(OBSERVATIONS));
     let run_id = engine.run_id.clone();
     let events = engine.store.load(&run_id).unwrap();
     let mut wanted = wanted();
-    for rows in wanted.values_mut() {
-        for row in rows.iter_mut().filter(|row| row["tool"] == "WebSearch") {
+    for ((seat, _), rows) in wanted.iter_mut() {
+        let searches = rows.iter_mut().filter(|row| row["tool"] == "WebSearch");
+        for row in searches.take(if seat == "resumed" { 1 } else { 2 }) {
             let group = json!({"capability": "web-search", "dialect": "claude-native-search",
                                "call_id": "<owned toolu_01>", "call_state": "observed"});
             row.as_object_mut()
@@ -706,9 +710,9 @@ fn every_site_shape_journals_the_engines_group_on_an_observed_held_call() {
         .filter_map(Value::as_str)
         .collect();
     // One search per invocation, each its own call: eight seats, the
-    // panel's and the sequence's second site, and the retried seats'
-    // second launches.
-    assert_eq!(attributed.len(), 12);
+    // panel's and the sequence's second site, and the replaced seat's
+    // second launch; the resumed one's replay is no new use.
+    assert_eq!(attributed.len(), 11);
     for event in &events {
         let checkpoint = &event.payload["checkpoint"];
         for field in ["response_sha256", OBSERVATION_KEY] {

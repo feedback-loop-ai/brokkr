@@ -7,6 +7,19 @@
 use super::*;
 use crate::capabilities::CapabilityContext;
 
+impl AgentFixture {
+    /// The fixture with `charters/data.md` and the inline role
+    /// `roles/data.md`, whose one paragraph declares every capability an
+    /// office or an inline site here asks for (GP2, U3b and U3c). The parent
+    /// suite shares it, sitting over its own line ceiling.
+    pub(super) fn declaring() -> AgentFixture {
+        let fixture = AgentFixture::new();
+        crate::agents::charter_data::write_declaring(&fixture.library().join("charters/data.md"));
+        crate::agents::charter_data::write_declaring(&fixture.bundle().join("roles/data.md"));
+        fixture
+    }
+}
+
 /// Office `judge` on codex, asking `web-search` at `strength`, served by
 /// the chain `models`.
 fn hire_judge(fixture: &AgentFixture, strength: &str, models: &[&str]) {
@@ -16,7 +29,7 @@ fn hire_judge(fixture: &AgentFixture, strength: &str, models: &[&str]) {
         .collect();
     fixture.write(
         "agents/judge.json",
-        json!({"description": "a judge", "charter": "charters/work.md", "models": models,
+        json!({"description": "a judge", "charter": "charters/data.md", "models": models,
                "efforts": efforts, "capabilities": {"web-search": strength}}),
     );
     let mut adapter = codex();
@@ -96,11 +109,11 @@ fn held(result: Result<Bundle, CompileError>, label: &str) -> String {
 /// execution label lend it nothing; its own office named explicitly admits.
 #[test]
 fn every_executable_form_is_judged_at_its_own_class_and_office() {
-    let fixture = AgentFixture::new();
+    let fixture = AgentFixture::declaring();
     hire_judge(&fixture, "requires", &["astra"]);
     fixture.write(
         "agents/neighbour.json",
-        json!({"description": "a neighbour", "charter": "charters/work.md",
+        json!({"description": "a neighbour", "charter": "charters/data.md",
                "models": ["astra"], "efforts": {"astra": "high"}}),
     );
     let sibling = json!({"role": "roles/work.md", "driver": {"command": ["driver"]}});
@@ -186,7 +199,7 @@ fn every_executable_form_is_judged_at_its_own_class_and_office() {
 /// recording the same notice in its own outcome.
 #[test]
 fn every_fallback_candidate_drops_a_gates_unnamed_egress() {
-    let fixture = AgentFixture::new();
+    let fixture = AgentFixture::declaring();
     hire_judge(&fixture, "wants", &["astra", "sol"]);
     let mut config = fixture.config();
     config["seats"]["work"] = json!({"results": ["complete"], "agent": "judge", "class": "gate"});
@@ -200,7 +213,7 @@ fn every_fallback_candidate_drops_a_gates_unnamed_egress() {
 }
 
 /// An inline codex site of `class` requiring `web-search`, its adapter
-/// trusted to seat a gate.
+/// trusted to seat a gate and its role declaring the ask.
 fn inline_codex(fixture: &AgentFixture, class: &str) -> Value {
     let mut adapter = codex();
     adapter["trust_tier"] = json!("trusted");
@@ -215,7 +228,7 @@ fn inline_codex(fixture: &AgentFixture, class: &str) -> Value {
         "--effort",
         "high"
     ]);
-    json!({"results": ["complete"], "class": class, "role": "roles/work.md",
+    json!({"results": ["complete"], "class": class, "role": "roles/data.md",
            "driver": {"command": command}, "capabilities": {"web-search": "requires"}})
 }
 
@@ -224,7 +237,7 @@ fn inline_codex(fixture: &AgentFixture, class: &str) -> Value {
 /// site at work holds it unnamed.
 #[test]
 fn an_inline_gate_is_judged_at_its_own_class_and_label() {
-    let fixture = AgentFixture::new();
+    let fixture = AgentFixture::declaring();
     let compile = |class: &str, named: Option<&[&str]>| {
         let mut config = fixture.config();
         config["seats"]["work"] = inline_codex(&fixture, class);
@@ -284,7 +297,7 @@ fn wrapped_verify(fixture: &AgentFixture) -> Result<Bundle, CompileError> {
 /// and its outcome travels with it to `verify:checks`.
 #[test]
 fn a_relocated_verify_keeps_its_class_and_stable_office() {
-    let fixture = AgentFixture::new();
+    let fixture = AgentFixture::declaring();
     hire_judge(&fixture, "wants", &["astra"]);
     let entry = ("web-search".to_string(), notice("verify"));
     assert_eq!(
@@ -301,7 +314,7 @@ fn a_relocated_verify_keeps_its_class_and_stable_office() {
 /// is — never a default: the step and its record read one fact.
 #[test]
 fn a_dialect_step_is_recorded_at_the_class_its_step_compiles_to() {
-    let fixture = AgentFixture::new();
+    let fixture = AgentFixture::declaring();
     hire_judge(&fixture, "wants", &["astra"]);
     let bundle = wrapped_verify(&fixture).unwrap();
     let SeatBody::Sequence { steps } = &bundle.seats["design"].body else {
@@ -352,10 +365,10 @@ const MCP_FENCE: &str = "bundle: realm 'private' grants capability 'library-docs
 
 /// The fixture with a second office, `reader`, requiring `library-docs`.
 fn with_reader() -> AgentFixture {
-    let fixture = AgentFixture::new();
+    let fixture = AgentFixture::declaring();
     fixture.write(
         "agents/reader.json",
-        json!({"description": "a reader", "charter": "charters/work.md", "models": ["opus"],
+        json!({"description": "a reader", "charter": "charters/data.md", "models": ["opus"],
                "efforts": {"opus": "high"}, "capabilities": {"library-docs": "requires"}}),
     );
     fixture
@@ -425,7 +438,7 @@ fn held_or(result: Result<(), CompileError>) -> String {
 /// `codex-search` is what it was under every binding minimum.
 #[test]
 fn a_native_holding_is_unchanged_at_every_serving_path_under_every_binding_minimum() {
-    let fixture = AgentFixture::new();
+    let fixture = AgentFixture::declaring();
     hire_judge(&fixture, "requires", &["astra"]);
     let inline = inline_codex(&fixture, "work");
     let mut rows: Vec<Row<String>> = Vec::new();
@@ -458,7 +471,7 @@ fn a_native_holding_is_unchanged_at_every_serving_path_under_every_binding_minim
 /// bundle declares it and not the authority's absent default.
 #[test]
 fn the_authority_holds_the_binding_minimum_the_bundle_declares() {
-    let fixture = AgentFixture::new();
+    let fixture = AgentFixture::declaring();
     let below = "bundle: seat 'work' declares secret bindings [\"TOKEN\"] but seats driver \
                  'claude' on its own declared destination, whose egress class is contracted; \
                  this bundle binds no secret below local (decision 0021 ruling 4 as enacted \

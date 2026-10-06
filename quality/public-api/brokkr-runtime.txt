@@ -11,6 +11,7 @@ pub const brokkr_runtime::agents::EgressClass::VOCABULARY: &'static str
 pub fn brokkr_runtime::agents::EgressClass::name(&self) -> &'static str
 pub fn brokkr_runtime::agents::EgressClass::parse(&str) -> core::option::Option<brokkr_runtime::agents::EgressClass>
 pub enum brokkr_runtime::agents::LibraryError
+pub brokkr_runtime::agents::LibraryError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::agents::LibraryError::Invalid(alloc::string::String)
 pub brokkr_runtime::agents::LibraryError::Io(core::io::error::Error)
 pub brokkr_runtime::agents::LibraryError::Mcp(brokkr_runtime::agents::McpRefusal)
@@ -414,6 +415,7 @@ impl brokkr_runtime::bundle::CharterOwner
 pub fn brokkr_runtime::bundle::CharterOwner::root(&self) -> &std::path::PathBuf
 pub enum brokkr_runtime::bundle::CompileError
 pub brokkr_runtime::bundle::CompileError::Capability(alloc::string::String)
+pub brokkr_runtime::bundle::CompileError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::bundle::CompileError::Invalid(alloc::string::String)
 pub brokkr_runtime::bundle::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::bundle::CompileError::Json(serde_json::error::Error)
@@ -1222,6 +1224,7 @@ impl<'a> brokkr_runtime::CommandWord<'a>
 pub fn brokkr_runtime::CommandWord<'a>::parse(&'a str) -> brokkr_runtime::CommandWord<'a>
 pub enum brokkr_runtime::CompileError
 pub brokkr_runtime::CompileError::Capability(alloc::string::String)
+pub brokkr_runtime::CompileError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::CompileError::Invalid(alloc::string::String)
 pub brokkr_runtime::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::CompileError::Json(serde_json::error::Error)
@@ -1283,6 +1286,7 @@ pub brokkr_runtime::KeepRefsError::Git::verb: &'static str
 pub brokkr_runtime::KeepRefsError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::KeepRefsError::UnusableRunId(alloc::string::String)
 pub enum brokkr_runtime::LibraryError
+pub brokkr_runtime::LibraryError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::LibraryError::Invalid(alloc::string::String)
 pub brokkr_runtime::LibraryError::Io(core::io::error::Error)
 pub brokkr_runtime::LibraryError::Mcp(brokkr_runtime::agents::McpRefusal)

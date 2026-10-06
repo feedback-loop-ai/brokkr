@@ -57,6 +57,7 @@ mod rename_guard;
 mod research_registry;
 mod retired_overrides;
 mod script_gates;
+mod seat_items;
 mod status_pages;
 mod suppressions;
 mod transcript_command;

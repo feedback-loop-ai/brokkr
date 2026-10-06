@@ -14,7 +14,7 @@
 //! never a policy input, never a new store, and never a model's claim
 //! about its own identity.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::{EventEnvelope, EventType};
 use serde_json::{json, Map, Value};
@@ -374,9 +374,67 @@ pub(super) struct SiteContext {
     /// Work sites may be offered a session; gate sites never are
     /// (decision 0042 ruling 2, bounding decision 0030's continuity).
     pub(super) class: SeatClass,
+    /// The offered root's history at this site; empty unless offered.
+    pub(super) history: RootHistory,
+}
+
+/// What the offered root's earlier attempts journaled at one site
+/// (decision 0065 slice two, U4f; CC1): each attempt whose stamped row
+/// there confirmed that root, and every native call id those attempts'
+/// rows there carry. A call id is owned by its attempt, so the consumer
+/// recomputes a replayed call's id under each of these attempts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct RootHistory {
+    pub(super) attempts: BTreeSet<String>,
+    pub(super) calls: BTreeSet<String>,
 }
 
 impl SiteContext {
+    /// A site's identity, before any offer is decided for it.
+    pub(super) fn new(site_ref: String, instance_ref: String, class: SeatClass) -> SiteContext {
+        SiteContext {
+            site_ref,
+            instance_ref,
+            class,
+            history: RootHistory::default(),
+        }
+    }
+
+    /// This context carrying the history of `offer`'s root at this site,
+    /// read from this run's journal alone. A site offered nothing, or a
+    /// root with no stamped row here (decision 0030's legacy evidence),
+    /// has none: its every call is new.
+    pub(super) fn offered(self, events: &[EventEnvelope], offer: Option<&ResumeTarget>) -> Self {
+        let Some(offer) = offer else {
+            return self;
+        };
+        let rows = || {
+            events
+                .iter()
+                .filter(|event| event.event_type == EventType::EffectCheckpointed)
+                .filter_map(|event| {
+                    let checkpoint = event.payload.get("checkpoint")?;
+                    let site = checkpoint.get("site_ref").and_then(Value::as_str)?;
+                    let attempt = event.attempt_id.as_deref()?;
+                    (site == self.site_ref).then_some((attempt, checkpoint))
+                })
+        };
+        let attempts: BTreeSet<String> = rows()
+            .filter(|(_, row)| {
+                row.pointer("/root_session/id").and_then(Value::as_str)
+                    == Some(offer.provider_id.as_str())
+            })
+            .map(|(attempt, _)| attempt.to_string())
+            .collect();
+        let calls = rows()
+            .filter(|(attempt, _)| attempts.contains(*attempt))
+            .filter_map(|(_, row)| row.get("call_id").and_then(Value::as_str))
+            .map(str::to_string)
+            .collect();
+        let history = RootHistory { attempts, calls };
+        SiteContext { history, ..self }
+    }
+
     /// The stamp (proposed decision 0056 ruling 1), the same shape
     /// `stamp_boundary` has: the engine's two structural facts replace
     /// whatever a driver wrote, on a record that names a model. Every
@@ -881,182 +939,4 @@ pub(super) fn start_context(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn site(site: Option<&str>, key: SiteKey) -> StructuralSite {
-        StructuralSite {
-            site: site.map(str::to_string),
-            key,
-            class: SeatClass::Work,
-            command: vec!["driver".into()],
-        }
-    }
-
-    /// The refusal names both sites, in each shape a site can take. The
-    /// engine's own compile-time check exercises the nested-member pair;
-    /// these are the other three, and a refusal that could not name a
-    /// step or a single body would send an operator hunting.
-    #[test]
-    fn a_collision_names_both_sites_whatever_shape_they_are() {
-        for (left, right, expected) in [
-            (
-                SiteKey::single("work", None),
-                SiteKey::panel_member("work", None, "alpha", 0),
-                "the single body of seat 'work' and panel member 'alpha' of seat 'work'",
-            ),
-            (
-                SiteKey::sequence_step("work", None, "author", 0),
-                SiteKey::sequence_panel_member("work", None, "review", 1, "alpha", 0),
-                "step 'author' of seat 'work' and member 'alpha' of step 'review' of seat 'work'",
-            ),
-        ] {
-            let (label, both) =
-                flat_address_collision(&[site(Some("a"), left), site(Some("a"), right)])
-                    .expect("two different sites under one label collide");
-            assert_eq!(label, "a");
-            assert_eq!(both, expected);
-        }
-
-        // The same site listed twice under one label is not a collision:
-        // one site cannot alias itself, and nothing selects wrongly.
-        assert!(flat_address_collision(&[
-            site(Some("a"), SiteKey::single("work", None)),
-            site(Some("a"), SiteKey::single("work", None)),
-        ])
-        .is_none());
-        // Nor are distinct labels, whatever the sites are.
-        assert!(flat_address_collision(&[
-            site(None, SiteKey::single("work", None)),
-            site(Some("a"), SiteKey::panel_member("work", None, "a", 0)),
-        ])
-        .is_none());
-    }
-
-    /// The stamps are for RECORDS, and a record is an object. Every fold
-    /// in this tree emits one, but the store's fence judges third-party
-    /// driver checkpoints too — so a non-object passes through untouched
-    /// rather than being wrapped into something that looks stamped.
-    #[test]
-    fn a_non_object_checkpoint_is_neither_stamped_nor_reshaped() {
-        let context = SiteContext {
-            site_ref: "a".repeat(64),
-            instance_ref: "b".repeat(64),
-            class: SeatClass::Work,
-        };
-        for record in [json!("prose"), json!(7), json!([1, 2]), Value::Null] {
-            assert_eq!(context.stamp(record.clone()), record);
-            assert_eq!(unstamped(record.clone()), record);
-        }
-        // And an object that names no model carries neither stamp, even
-        // when a driver wrote one itself.
-        let forged = json!({"step": "seat-turn", "site_ref": "c".repeat(64)});
-        assert_eq!(context.stamp(forged.clone()), json!({"step": "seat-turn"}));
-        assert_eq!(unstamped(forged), json!({"step": "seat-turn"}));
-    }
-
-    /// The private context carries the two things a two-coordinate
-    /// provider needs and nothing it does not: the harness facts of the
-    /// offered root (version and the optional wrapper digest) and the
-    /// owned target's provider ID, persistence locator and recorded home.
-    /// With no offer, no target and no originating digest travel — only
-    /// the assessment, exactly as before.
-    #[test]
-    fn the_private_context_carries_the_owned_target_and_originating_digest() {
-        let originating = OriginatingRoot {
-            harness_version: Some("0.1.5-rc.1".into()),
-            wrapper_digest: Some("a".repeat(64)),
-        };
-        let target = ResumeTarget {
-            provider_id: "session-1".into(),
-            persistence_locator: Some("sessions/brokkr/seat-1".into()),
-            persistence_home: Some("/home/operator/.dsh".into()),
-        };
-        let context = start_context(
-            json!({"headless-work": {"status": "supported"}}),
-            Some(&originating),
-            Some(&target),
-            None,
-        );
-        assert_eq!(context["originating_harness_version"], "0.1.5-rc.1");
-        assert_eq!(context["originating_wrapper_digest"], "a".repeat(64));
-        assert_eq!(context["owned_target"]["provider_id"], "session-1");
-        assert_eq!(
-            context["owned_target"]["persistence_locator"],
-            "sessions/brokkr/seat-1"
-        );
-        assert_eq!(
-            context["owned_target"]["persistence_home"],
-            "/home/operator/.dsh"
-        );
-        assert_eq!(
-            context["assessment"]["headless-work"]["status"],
-            "supported"
-        );
-
-        let cold = start_context(
-            json!({"headless-work": {"status": "unmeasured"}}),
-            None,
-            None,
-            None,
-        );
-        assert_eq!(cold["assessment"]["headless-work"]["status"], "unmeasured");
-        assert!(cold.get("owned_target").is_none());
-        assert!(cold.get("originating_harness_version").is_none());
-        assert!(cold.get("originating_wrapper_digest").is_none());
-        assert!(cold.get("route_overlay").is_none());
-
-        // An offered root whose harness version was not recorded still
-        // carries its wrapper digest: the absent version is not a reason to
-        // drop the digest (proposed decision 0056 ruling 5).
-        let versionless = OriginatingRoot {
-            harness_version: None,
-            wrapper_digest: Some("b".repeat(64)),
-        };
-        let context = start_context(
-            json!({"headless-work": {"status": "supported"}}),
-            Some(&versionless),
-            None,
-            None,
-        );
-        assert!(context.get("originating_harness_version").is_none());
-        assert_eq!(context["originating_wrapper_digest"], "b".repeat(64));
-    }
-
-    /// The route-overlay binding rides the private context as exactly the
-    /// argv value and the compiled digest the engine handed it, and is
-    /// absent when no binding was supplied. It never appears elsewhere in
-    /// the object, `owned_target` still travels beside it, and an
-    /// unmeasured assessment changes nothing about it (AS3; 8.10's engine
-    /// list (i)).
-    #[test]
-    fn the_private_context_carries_a_supplied_route_overlay_binding() {
-        let binding = RouteOverlay {
-            value: "recipes/research-dsh/drivers/research-web.yml".into(),
-            digest: "b".repeat(64),
-        };
-        let context = start_context(
-            json!({"headless-work": {"status": "unmeasured"}}),
-            None,
-            None,
-            Some(&binding),
-        );
-        assert_eq!(
-            context["route_overlay"]["value"],
-            "recipes/research-dsh/drivers/research-web.yml"
-        );
-        assert_eq!(context["route_overlay"]["digest"], "b".repeat(64));
-        assert_eq!(
-            context["assessment"]["headless-work"]["status"],
-            "unmeasured"
-        );
-
-        let none = start_context(
-            json!({"headless-work": {"status": "supported"}}),
-            None,
-            None,
-            None,
-        );
-        assert!(none.get("route_overlay").is_none());
-    }
-}
+mod tests;

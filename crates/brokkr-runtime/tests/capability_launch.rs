@@ -16,6 +16,8 @@ use brokkr_runtime::capabilities::CapabilityContext;
 use brokkr_runtime::SeatClass::{Gate, Work};
 use brokkr_runtime::{Bundle, SeatBody};
 use serde_json::{json, Value};
+#[path = "capability_launch/charters.rs"]
+mod charters;
 #[path = "capability_launch/legacy_journal.rs"]
 mod legacy_journal;
 
@@ -72,7 +74,7 @@ impl Operator {
         second["name"] = json!("codex-search-second");
         write(root, "dialects/tools/codex-search-second.json", &second);
         std::fs::create_dir_all(root.join("agents/charters")).unwrap();
-        std::fs::write(root.join("agents/charters/searcher.md"), "# searcher\n").unwrap();
+        charters::write_charter(&root.join("agents/charters/searcher.md"));
         for (name, models, efforts) in [
             ("searcher", json!(["astra"]), json!({"astra": "high"})),
             (
@@ -94,8 +96,7 @@ impl Operator {
                 }),
             );
         }
-        std::fs::create_dir_all(root.join("bundle/roles")).unwrap();
-        std::fs::write(root.join("bundle/roles/role.md"), "# role\n").unwrap();
+        charters::write_role(&root.join("bundle"));
         write(
             root,
             "bundle/policy.json",
@@ -1011,42 +1012,10 @@ fn a_boxed_inline_seats_hands_are_emitted_and_typed_as_an_agent_backed_seats_are
     // Rebuild unit 20: beside its hands, each boxed site is told the
     // charter the compile selected for it — the inline seat its layer's
     // role, the fallback its office's library charter.
-    use brokkr_runtime::bundle::CharterOwner;
-    let told = |label: &str| {
-        let pin = bundle.sites[label].charter.as_ref().unwrap();
-        (
-            pin.owner.clone(),
-            pin.reference.clone(),
-            pin.path.clone(),
-            pin.digest.clone(),
-        )
-    };
-    let (recipe, library) = (
-        operator.root().join("bundle"),
-        operator.root().join("agents"),
-    );
+    let told = |label: &str| charters::pinned(&bundle, label);
     assert_eq!(
         [told("boxed"), told("chain")],
-        [
-            (
-                CharterOwner::Layer {
-                    dir: recipe.clone(),
-                    key: "roles/role.md".into(),
-                },
-                "roles/role.md".to_string(),
-                recipe.join("roles/role.md"),
-                brokkr_core::canonical::sha256_bytes(b"# role\n"),
-            ),
-            (
-                CharterOwner::Library {
-                    agent: "fallback".into(),
-                    root: library.clone(),
-                },
-                "charters/searcher.md".to_string(),
-                library.join("charters/searcher.md"),
-                brokkr_core::canonical::sha256_bytes(b"# searcher\n"),
-            ),
-        ]
+        charters::told_pair(operator.root(), "fallback")
     );
 }
 
@@ -1126,42 +1095,10 @@ fn a_compiled_inline_codex_panel_member_with_hands_passes_the_final_check_as_an_
     // boxed member is told the charter the compile selected for it — the
     // inline member its layer's role, the agent member its office's
     // library charter.
-    use brokkr_runtime::bundle::CharterOwner;
-    let told = |label: &str| {
-        let pin = bundle.sites[label].charter.as_ref().unwrap();
-        (
-            pin.owner.clone(),
-            pin.reference.clone(),
-            pin.path.clone(),
-            pin.digest.clone(),
-        )
-    };
-    let (recipe, library) = (
-        operator.root().join("bundle"),
-        operator.root().join("agents"),
-    );
+    let told = |label: &str| charters::pinned(&bundle, label);
     assert_eq!(
         [told("judges:inline"), told("judges:agent")],
-        [
-            (
-                CharterOwner::Layer {
-                    dir: recipe.clone(),
-                    key: "roles/role.md".into(),
-                },
-                "roles/role.md".to_string(),
-                recipe.join("roles/role.md"),
-                brokkr_core::canonical::sha256_bytes(b"# role\n"),
-            ),
-            (
-                CharterOwner::Library {
-                    agent: "searcher".into(),
-                    root: library.clone(),
-                },
-                "charters/searcher.md".to_string(),
-                library.join("charters/searcher.md"),
-                brokkr_core::canonical::sha256_bytes(b"# searcher\n"),
-            ),
-        ]
+        charters::told_pair(operator.root(), "searcher")
     );
 }
 
@@ -3034,7 +2971,7 @@ fn an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_with
     std::fs::create_dir_all(root.join("work")).unwrap();
     let input = json!({
         "feature": "serving", "phase": "work", "seat": "work",
-        "role_path": root.join("solo/roles/role.md"), "role_text": "# role\n",
+        "role_path": root.join("solo/roles/role.md"), "role_text": charters::titled("role"),
         "workdir": root.join("work"),
         "result_path": root.join("work/result.json"),
         "allowed_results": ["complete"], "context": {},
@@ -4593,42 +4530,10 @@ fn an_eligible_rejoin_of_a_compiled_codex_seat_carries_the_control_either_way_ro
         // Rebuild unit 20: each rejoined site is told the charter the
         // compile selected for it — the inline seat its layer's role, the
         // agent-backed seat its library's charter.
-        use brokkr_runtime::bundle::CharterOwner;
-        let told = |label: &str| {
-            let pin = bundle.sites[label].charter.as_ref().unwrap();
-            (
-                pin.owner.clone(),
-                pin.reference.clone(),
-                pin.path.clone(),
-                pin.digest.clone(),
-            )
-        };
-        let (recipe, library) = (
-            operator.root().join("bundle"),
-            operator.root().join("agents"),
-        );
+        let told = |label: &str| charters::pinned(&bundle, label);
         assert_eq!(
             [told("inline"), told("agent")],
-            [
-                (
-                    CharterOwner::Layer {
-                        dir: recipe.clone(),
-                        key: "roles/role.md".into(),
-                    },
-                    "roles/role.md".to_string(),
-                    recipe.join("roles/role.md"),
-                    brokkr_core::canonical::sha256_bytes(b"# role\n"),
-                ),
-                (
-                    CharterOwner::Library {
-                        agent: "searcher".into(),
-                        root: library.clone(),
-                    },
-                    "charters/searcher.md".to_string(),
-                    library.join("charters/searcher.md"),
-                    brokkr_core::canonical::sha256_bytes(b"# searcher\n"),
-                ),
-            ],
+            charters::told_pair(operator.root(), "searcher"),
             "{case}"
         );
     }
@@ -6383,8 +6288,7 @@ fn an_office_is_inherited_subset_and_emptied_the_same_way_in_every_body() {
             "capabilities": {"web-search": "requires", "web-fetch": "wants"},
         }),
     );
-    std::fs::create_dir_all(root.join("nested/roles")).unwrap();
-    std::fs::write(root.join("nested/roles/role.md"), "# role\n").unwrap();
+    charters::write_role(&root.join("nested"));
     write(
         root,
         "nested/policy.json",
@@ -6594,8 +6498,7 @@ fn one_inline_seat(operator: &Operator, command: &[&str]) {
                 {"id": "W", "from": "work", "result": "complete", "next": "review", "reason": "r"},
                 {"id": "R", "from": "review", "result": "clean", "next": "done", "reason": "r"}]}),
     );
-    std::fs::create_dir_all(operator.root().join("solo/roles")).unwrap();
-    std::fs::write(operator.root().join("solo/roles/role.md"), "# role\n").unwrap();
+    charters::write_role(&operator.root().join("solo"));
     write(
         operator.root(),
         "solo/bundle.json",
@@ -9100,15 +9003,7 @@ fn compile_every_shape_on(
         ("pair-flash", &["flash", "opus-tallied"]),
         ("boxed", &["astra"]),
     ] {
-        std::fs::write(
-            root.join(format!("agents/charters/{office}.md")),
-            format!("# {office}\n"),
-        )
-        .unwrap();
-        let efforts: serde_json::Map<String, Value> = models
-            .iter()
-            .map(|model| (model.to_string(), json!("high")))
-            .collect();
+        let efforts = charters::write_office(root, office, models);
         let mut agent = json!({"description": "an office",
             "charter": format!("charters/{office}.md"), "models": models, "efforts": efforts});
         if office == "boxed" {
@@ -9126,7 +9021,7 @@ fn compile_every_shape_on(
             Some(at) if at < 4 => {
                 let role = format!("roles/{}.md", label.replace(':', "-"));
                 std::fs::create_dir_all(root.join(layer).join("roles")).unwrap();
-                std::fs::write(root.join(layer).join(&role), format!("# {label}\n")).unwrap();
+                std::fs::write(root.join(layer).join(&role), charters::titled(label)).unwrap();
                 let mut site = json!({"role": role, "driver": {"command": command(carrier)}});
                 if let Some(asks) = asks {
                     site["capabilities"] = asks.clone();
@@ -9297,11 +9192,11 @@ fn compile_every_shape_on(
 
 /// The whole prompt the DSH driver renders for a site of [`every_shape`]
 /// on the shipped adapter in a realm that grants nothing, written out: the
-/// charter the door read (`# <charter>\n`), then the task, the result
+/// charter text the door read (`charter`), then the task, the result
 /// contract and what the seat is told of its hands and capabilities. Only
 /// the fixture's variable values are substituted.
 fn dsh_prompt(charter: &str, phase: &str, workdir: &str) -> String {
-    format!("# {charter}\n\n\n---\n## Task\n\nFeature: serving\nPhase: {phase} (you are this phase's only seat)\nWorking directory: {workdir}\n\nRun context (journal-derived, read-only):\n```json\n{{}}\n```\n\n## Result contract — MANDATORY\n\nWhen your work is finished, write a JSON object to exactly this file:\n\n    {workdir}/result.json\n\nwith the shape:\n\n    {{\"result\": \"<one of: complete>\",\n      \"inputs\": {{ ...optional typed facts for the phase machine... }},\n      \"notes\": \"<short human summary of what you did and why>\"}}\n\nThe file is the ONLY channel the engine reads. Printing the JSON instead of writing the file counts as producing no result. The object carries exactly these top-level keys — result, inputs, notes — and nothing else: a typed fact goes INSIDE inputs, and a record with any other top-level key is refused where it is sealed (decision 0034), which loses the whole attempt. You never decide the next phase — the engine's policy table rules on your typed result.\n")
+    format!("{charter}\n\n---\n## Task\n\nFeature: serving\nPhase: {phase} (you are this phase's only seat)\nWorking directory: {workdir}\n\nRun context (journal-derived, read-only):\n```json\n{{}}\n```\n\n## Result contract — MANDATORY\n\nWhen your work is finished, write a JSON object to exactly this file:\n\n    {workdir}/result.json\n\nwith the shape:\n\n    {{\"result\": \"<one of: complete>\",\n      \"inputs\": {{ ...optional typed facts for the phase machine... }},\n      \"notes\": \"<short human summary of what you did and why>\"}}\n\nThe file is the ONLY channel the engine reads. Printing the JSON instead of writing the file counts as producing no result. The object carries exactly these top-level keys — result, inputs, notes — and nothing else: a typed fact goes INSIDE inputs, and a record with any other top-level key is refused where it is sealed (decision 0034), which loses the whole attempt. You never decide the next phase — the engine's policy table rules on your typed result.\n")
 }
 
 /// Rebuild unit 20 (tasks 20.1 and 21.3): EVERY COMPILED SITE SHAPE OF
@@ -9406,31 +9301,9 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
     type Charter = (CharterOwner, String, PathBuf, String);
     // The charter each site is told: its owner, the reference as written,
     // the path and the digest of the text this test wrote.
-    let layer = |dir: &str, label: &str| -> Charter {
-        let dir = root.join(dir);
-        let reference = format!("roles/{}.md", label.replace(':', "-"));
-        (
-            CharterOwner::Layer {
-                dir: dir.clone(),
-                key: reference.clone(),
-            },
-            reference.clone(),
-            dir.join(&reference),
-            brokkr_core::canonical::sha256_bytes(format!("# {label}\n").as_bytes()),
-        )
-    };
-    let office = |agent: &str| -> Charter {
-        let reference = format!("charters/{agent}.md");
-        (
-            CharterOwner::Library {
-                agent: agent.to_string(),
-                root: library.clone(),
-            },
-            reference.clone(),
-            library.join(&reference),
-            brokkr_core::canonical::sha256_bytes(format!("# {agent}\n").as_bytes()),
-        )
-    };
+    let layer =
+        |dir: &str, label: &str| -> Charter { charters::layer_told(&root.join(dir), label) };
+    let office = |agent: &str| -> Charter { charters::office_told(agent, &library) };
 
     // The whole commands, written out: the program, the driver's lead, the
     // pins the recipe or the adapter wrote, the engine's own segments, the
@@ -9536,9 +9409,9 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
         let (charter, told) = match inline {
             true => (
                 layer(if *inherited { "base" } else { "matrix" }, label),
-                label.as_str(),
+                charters::titled(label),
             ),
-            false => (office(carrier), *carrier),
+            false => (office(carrier), charters::titled(carrier)),
         };
         let providers: &[&str] = match *carrier {
             "pair" => &["codex", "claude"],
@@ -9549,7 +9422,7 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
             harness => &[harness],
         };
         for (candidate, provider) in providers.iter().enumerate() {
-            let cold_on = |program: &str| cold(carrier, label, provider, program, told);
+            let cold_on = |program: &str| cold(carrier, label, provider, program, &told);
             let served: Result<Vec<String>, String> = Ok(cold_on(match *provider {
                 "claude" => "claude",
                 _ => "codex",
@@ -9806,8 +9679,7 @@ fn an_authored_capability_option_refuses_every_site_shape_of_every_harness() {
         "inherited",
     ];
     for layer in ["authored", "authored-base"] {
-        std::fs::create_dir_all(root.join(layer).join("roles")).unwrap();
-        std::fs::write(root.join(layer).join("roles/role.md"), "# role\n").unwrap();
+        charters::write_role(&root.join(layer));
     }
     write(
         root,
@@ -10252,20 +10124,7 @@ fn a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_
             let bundle =
                 compiled.unwrap_or_else(|refusal| panic!("{case}, {form} refused: {refusal}"));
             let (office, template, model, charter) = match agent {
-                false => (
-                    "work",
-                    &[][..],
-                    None,
-                    (
-                        CharterOwner::Layer {
-                            dir: solo.clone(),
-                            key: "roles/role.md".into(),
-                        },
-                        "roles/role.md".to_string(),
-                        solo.join("roles/role.md"),
-                        brokkr_core::canonical::sha256_bytes(b"# role\n"),
-                    ),
-                ),
+                false => ("work", &[][..], None, charters::layer_told(&solo, "role")),
                 true => (
                     "reader",
                     &["--permission-mode", "acceptEdits"][..],
@@ -10395,7 +10254,6 @@ fn a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_inventory_apart() {
-    use brokkr_runtime::bundle::CharterOwner;
     let operator = Operator::new();
     let claude = claude_reporting(operator.root(), "2.1.266");
     let session = "019c4b7e-0000-7000-8000-000000000121";
@@ -10438,18 +10296,7 @@ fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_invent
     check(
         "the joined prompt value, its charter",
         format!("{:?}", charter_of(&bundle, "work")),
-        format!(
-            "{:?}",
-            (
-                CharterOwner::Layer {
-                    dir: solo.clone(),
-                    key: "roles/role.md".into(),
-                },
-                "roles/role.md".to_string(),
-                solo.join("roles/role.md"),
-                brokkr_core::canonical::sha256_bytes(b"# role\n"),
-            )
-        ),
+        format!("{:?}", charters::layer_told(&solo, "role")),
     );
     check(
         "the joined prompt value, cold",
@@ -10670,7 +10517,6 @@ fn hosts_grant(operator: &Operator, offices: &[String]) -> (Value, CapabilityCon
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_resume() {
-    use brokkr_runtime::bundle::CharterOwner;
     let operator = Operator::new();
     let shim = codex_reporting(operator.root(), "0.154.0");
     let (grant, restricted) = hosts_grant(&operator, &[]);
@@ -10789,24 +10635,8 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
     let recipe = operator.root().join("bundle");
     let library = operator.root().join("agents");
     let charter = |label: &str| match label {
-        "inline" => (
-            CharterOwner::Layer {
-                dir: recipe.clone(),
-                key: "roles/role.md".into(),
-            },
-            "roles/role.md".to_string(),
-            recipe.join("roles/role.md"),
-            brokkr_core::canonical::sha256_bytes(b"# role\n"),
-        ),
-        _ => (
-            CharterOwner::Library {
-                agent: "searcher".into(),
-                root: library.clone(),
-            },
-            "charters/searcher.md".to_string(),
-            library.join("charters/searcher.md"),
-            brokkr_core::canonical::sha256_bytes(b"# searcher\n"),
-        ),
+        "inline" => charters::layer_told(&recipe, "role"),
+        _ => charters::searcher_told("searcher", &library),
     };
     let held = json!({"web-search": {
         "classes": ["reads", "egress"],
@@ -11053,7 +10883,7 @@ fn one_shape(
                         "driver": {"command": ["driver"]}});
     for layer in ["shape", "shape-base"] {
         std::fs::create_dir_all(root.join(layer).join("roles")).unwrap();
-        std::fs::write(root.join(layer).join("roles/x.md"), "# x\n").unwrap();
+        std::fs::write(root.join(layer).join("roles/x.md"), charters::titled("x")).unwrap();
     }
     write(
         root,
@@ -11088,9 +10918,9 @@ fn one_shape(
 }
 
 /// The charter a site of rebuild unit 20's matrix is told, as it wrote it:
-/// an inline site's own file of `layer` (`# <label>\n`), or its office's
-/// (`# <office>\n`). The owner, the reference as written, the path and
-/// the digest.
+/// an inline site's own file of `layer`, or its office's, each
+/// [`charters::titled`] by it. The owner, the reference as
+/// written, the path and the digest.
 fn matrix_charter(
     root: &Path,
     seated: Result<(&str, &str), &str>,
@@ -11100,34 +10930,9 @@ fn matrix_charter(
     PathBuf,
     String,
 ) {
-    use brokkr_runtime::bundle::CharterOwner;
     match seated {
-        Ok((layer, label)) => {
-            let dir = root.join(layer);
-            let reference = format!("roles/{}.md", label.replace(':', "-"));
-            (
-                CharterOwner::Layer {
-                    dir: dir.clone(),
-                    key: reference.clone(),
-                },
-                reference.clone(),
-                dir.join(&reference),
-                brokkr_core::canonical::sha256_bytes(format!("# {label}\n").as_bytes()),
-            )
-        }
-        Err(agent) => {
-            let library = root.join("agents");
-            let reference = format!("charters/{agent}.md");
-            (
-                CharterOwner::Library {
-                    agent: agent.to_string(),
-                    root: library.clone(),
-                },
-                reference.clone(),
-                library.join(&reference),
-                brokkr_core::canonical::sha256_bytes(format!("# {agent}\n").as_bytes()),
-            )
-        }
+        Ok((layer, label)) => charters::layer_told(&root.join(layer), label),
+        Err(agent) => charters::office_told(agent, &root.join("agents")),
     }
 }
 
@@ -11187,15 +10992,7 @@ fn a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape() {
         ("boxed-claude", &["opus"][..]),
         ("boxed-pair", &["astra", "opus"]),
     ] {
-        std::fs::write(
-            root.join(format!("agents/charters/{office}.md")),
-            format!("# {office}\n"),
-        )
-        .unwrap();
-        let efforts: serde_json::Map<String, Value> = models
-            .iter()
-            .map(|model| (model.to_string(), json!("high")))
-            .collect();
+        let efforts = charters::write_office(root, office, models);
         write(
             root,
             &format!("agents/{office}.json"),
@@ -11655,15 +11452,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
     let hands = json!({"kind": "workspace", "network": false, "binds": []});
     // The office `office` with `models`, boxed, asking for `asks`.
     let office_asks = |office: &str, models: &[&str], asks: Option<&Value>| {
-        std::fs::write(
-            root.join(format!("agents/charters/{office}.md")),
-            format!("# {office}\n"),
-        )
-        .unwrap();
-        let efforts: serde_json::Map<String, Value> = models
-            .iter()
-            .map(|model| (model.to_string(), json!("high")))
-            .collect();
+        let efforts = charters::write_office(root, office, models);
         let mut agent = json!({"description": "an office",
             "charter": format!("charters/{office}.md"), "models": models, "efforts": efforts,
             "hands": hands});

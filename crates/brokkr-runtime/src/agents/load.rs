@@ -30,6 +30,8 @@ mod models;
 pub enum LibraryError {
     #[error("{0}")]
     Invalid(String),
+    #[error("{0}")]
+    Charter(super::charter_data::CharterRefusal),
     #[error("agent library io: {0}")]
     Io(#[from] std::io::Error),
     #[error("{0}")]
@@ -432,36 +434,35 @@ pub struct Library {
 }
 
 impl Library {
-    /// Load every definition, collecting per-file problems instead of
-    /// aborting — `brokkr agents list` warns and keeps listing, mirroring
-    /// `brokkr recipes list`.
+    /// Load every definition, collecting per-file problems instead of aborting —
+    /// `brokkr agents list` warns and keeps listing, mirroring `brokkr recipes list`.
     pub fn scan(root: &Path) -> Result<(Library, Vec<String>), LibraryError> {
+        let (library, problems) = Library::checked(root)?;
+        Ok((library, problems.iter().map(ToString::to_string).collect()))
+    }
+
+    /// [`Library::scan`], each problem as typed as the loader refused it.
+    fn checked(root: &Path) -> Result<(Library, Vec<LibraryError>), LibraryError> {
+        use LibraryError::{Charter, Invalid};
         let root = root
             .canonicalize()
-            .map_err(|e| LibraryError::Invalid(format!("agent library {}: {e}", root.display())))?;
-        let mut agents = BTreeMap::new();
-        let mut problems = Vec::new();
+            .map_err(|e| Invalid(format!("agent library {}: {e}", root.display())))?;
+        let (mut agents, mut problems) = (BTreeMap::new(), Vec::new());
         for (name, path) in definition_files(&root, "agent library")? {
             match parse_agent(&root, &name, &path) {
-                Ok(agent) => {
-                    agents.insert(name, agent);
-                }
-                Err(LibraryError::Invalid(problem)) => problems.push(problem),
+                Ok(agent) => _ = agents.insert(name, agent),
+                Err(problem @ (Invalid(_) | Charter(_))) => problems.push(problem),
                 Err(other) => return Err(other),
             }
         }
         Ok((Library { agents }, problems))
     }
 
-    /// The compiler's load: any problem in any definition is a compile
-    /// error, because a bundle pins the whole library it resolved
-    /// against.
+    /// The compiler's load: any problem in any definition is a compile error,
+    /// because a bundle pins the whole library it resolved against.
     pub fn load(root: &Path) -> Result<Library, LibraryError> {
-        let (library, problems) = Library::scan(root)?;
-        match problems.first() {
-            Some(problem) => invalid(problem.clone()),
-            None => Ok(library),
-        }
+        let (library, problems) = Library::checked(root)?;
+        problems.into_iter().next().map_or(Ok(library), Err)
     }
 
     pub fn agent(&self, name: &str) -> Option<&Agent> {
@@ -510,7 +511,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
     let description = string(map, "description", &what)?;
     let charter_rel = string(map, "charter", &what)?;
     let charter = contained(root, &charter_rel, &what)?;
-    let charter_digest = sha256_bytes(&std::fs::read(&charter)?);
+    let charter_bytes = std::fs::read(&charter)?;
     let models = string_array(map, "models", &what)?;
     if models.is_empty() {
         return invalid(format!(
@@ -525,10 +526,8 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
     // candidate NEEDS one is not knowable here — it depends on the
     // adapter that ends up serving it — so this only refuses an effort
     // named for a candidate that is not in the chain at all.
-    let efforts = match map.get("efforts") {
-        None => BTreeMap::new(),
-        Some(_) => name_map(map, "efforts", &what)?,
-    };
+    let efforts = map.get("efforts").map(|_| name_map(map, "efforts", &what));
+    let efforts = efforts.transpose()?.unwrap_or_default();
     for candidate in efforts.keys() {
         if !models.contains(candidate) {
             return invalid(format!(
@@ -553,11 +552,12 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         None => None,
         Some(_) => Some(string_array(map, "inputs", &what)?),
     };
+    super::charter_data::check_office(&charter_bytes, &capabilities, &what, &charter_rel)?;
     Ok(Agent {
         name: name.to_string(),
         description,
         charter,
-        charter_digest,
+        charter_digest: sha256_bytes(&charter_bytes),
         charter_reference: charter_rel,
         library: root.to_path_buf(),
         models,
