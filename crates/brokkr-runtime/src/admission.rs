@@ -572,7 +572,7 @@ fn weigh(
         .as_ref()
         .map(|latch| Finding::read(entry.id, &latch.finding))
         .transpose()?;
-    let (realm, finding) = realm(latched, sight(&worlds));
+    let (realm, finding) = realm(latched, sight(worlds));
     reasons.extend(realm);
     Ok((Verdict { reasons }, finding))
 }
@@ -704,10 +704,10 @@ enum Sight {
 /// The held side is the realm the entry's pin selected, as recorded; only
 /// the side now resolves the repository's path on disk, so a path that
 /// resolves elsewhere since is a difference too (#430's H4).
-fn sight(worlds: &HeldAndNow) -> Sight {
+fn sight(worlds: HeldAndNow) -> Sight {
     match seen(worlds) {
         Ok(finding) => Sight::Seen(finding),
-        Err(detail) => Sight::Unreadable(detail),
+        Err(detail) => Sight::Unreadable(detail.to_string()),
     }
 }
 
@@ -718,17 +718,15 @@ fn sight(worlds: &HeldAndNow) -> Sight {
 /// replayed from its pin, which holds only texts it read, and the world
 /// now is held only after the same realm of it was pinned
 /// (`QueuedLaunch::held_and_now`). Both are refused all the same.
-fn seen(worlds: &HeldAndNow) -> Result<Finding, String> {
-    let held = governing(worlds.held.as_ref().map(|held| (&held.world, held.realm())));
-    let held = held.as_ref().map_err(ToString::to_string)?;
-    let disk = worlds.now.as_ref().map_err(ToString::to_string)?;
+fn seen(worlds: HeldAndNow) -> Result<Finding, WorldError> {
+    let held = governing(worlds.held.as_ref().map(|held| (&held.world, held.realm())))?;
+    let disk = worlds.now?;
     let world = disk.world.as_ref();
-    let now = governing(world.map(|world| (world, world.realm_for(&worlds.repo))));
-    let now = now.as_ref().map_err(ToString::to_string)?;
+    let now = governing(world.map(|world| (world, world.realm_for(&worlds.repo))))?;
     Ok(Finding {
         encoding: FindingEncoding::V1,
         realm: held.realm.clone().or(now.realm.clone()).unwrap_or_default(),
-        differences: differences(held, now),
+        differences: differences(&held, &now),
         on_disk: disk.digest.clone(),
     })
 }

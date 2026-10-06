@@ -295,8 +295,9 @@ impl QueuedLaunch {
     /// ([`MapSource::now`]), pinned afresh as [`QueuedLaunch::of`] pins
     /// one: what the operator's `brokkr queue repin` writes. Everything
     /// else the entry holds is kept. A map that cannot be read now is
-    /// refused as `brokkr run` would refuse it.
-    pub fn repinned(mut self) -> Result<QueuedLaunch, LaunchError> {
+    /// refused as `brokkr run` would refuse it. The release is
+    /// [`crate::admission`]'s to write, so this stays inside the crate.
+    pub(crate) fn repinned(mut self) -> Result<QueuedLaunch, LaunchError> {
         let workspace = anchor(&self.workspace)?.to_path_buf();
         let map = self.map.now(&workspace)?;
         self.map = MapSource::of(&map, &self.operated(&workspace))?;
