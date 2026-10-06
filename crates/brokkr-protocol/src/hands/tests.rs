@@ -1,6 +1,8 @@
 use super::*;
 use std::io::Cursor;
 
+mod server;
+
 fn spec_of(raw: Value) -> HandsSpec {
     HandsSpec::parse(&raw).unwrap()
 }
@@ -337,11 +339,42 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     .is_err());
 }
 
-/// The whole argv, flag by flag and mount by mount, for the workspace
-/// box `execute_in` builds and the exec box `run_boxed_in` builds: the
-/// namespace builder's prefix, toolchain and identity, then the
-/// workspace's own mounts, environment and command. Order is part of
-/// the boundary, because a later mount shadows an earlier one (U6c3).
+/// A stand-in `bwrap` in `dir` that records the argv its caller hands it,
+/// each argument NUL-terminated, and exits 0: a real caller's argv,
+/// captured without opening a box. It is staged beside its path and
+/// renamed in, so no writer still holds it when it runs (ETXTBSY).
+#[cfg(unix)]
+fn recording_bwrap(dir: &Path) -> (PathBuf, PathBuf) {
+    let (bwrap, record) = (dir.join("bwrap"), dir.join("argv"));
+    let staged = dir.join("bwrap.staged");
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\000' \"$@\" > '{}'\n",
+        record.display()
+    );
+    std::fs::write(&staged, script).unwrap();
+    let mode = std::os::unix::fs::PermissionsExt::from_mode(0o755);
+    std::fs::set_permissions(&staged, mode).unwrap();
+    std::fs::rename(&staged, &bwrap).unwrap();
+    (bwrap, record)
+}
+
+/// The argv the recording `bwrap` was last run with, its own name first.
+#[cfg(unix)]
+fn recorded(record: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(record).unwrap();
+    let arguments = text.split_terminator('\0').map(String::from);
+    std::iter::once("bwrap".to_string())
+        .chain(arguments)
+        .collect()
+}
+
+/// The whole argv, flag by flag and mount by mount, that the workspace
+/// box's caller `execute_in` and the exec box's caller `run_boxed_in`
+/// each hand bubblewrap: the namespace builder's prefix, toolchain and
+/// identity, then the workspace's own mounts, environment and command.
+/// Order is part of the boundary, because a later mount shadows an
+/// earlier one (U6c3); both argv are captured from the callers, never
+/// rebuilt beside them (U6c4).
 #[cfg(unix)]
 #[test]
 fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
@@ -364,46 +397,34 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
         {"path": "/opt/tools", "mode": "ro"},
         {"path": "/opt/pad", "mode": "rw"}
     ]}));
-    let built = |spec: &HandsSpec, writes| {
-        box_argv(
-            spec,
-            &work,
-            &home,
-            &scratch,
-            writes,
-            &git,
-            Some(&bundle),
-            &one("true"),
-        )
-        .unwrap()
-    };
-    let expected = |unshare_net: &str, overlay: String, exec: &str| -> Vec<String> {
-        let mut argv: Vec<String> = format!(
-            "bwrap --die-with-parent --new-session --unshare-pid --unshare-ipc --unshare-uts \
-             --unshare-cgroup-try --cap-drop ALL {unshare_net} --clearenv \
+    let (bwrap, record) = recording_bwrap(&root);
+    let expected =
+        |scratch: &Path, net: &str, bundle: &str, overlay: String, exec: &str, run: &str| {
+            let mut argv: Vec<String> = format!(
+                "bwrap --die-with-parent --new-session --unshare-pid --unshare-ipc --unshare-uts \
+             --unshare-cgroup-try --cap-drop ALL {net} --clearenv \
              --setenv {HANDS_BOX_ENV} 1 --proc /proc --dev /dev --dir /runtime --dir /etc \
              --dir /home --dir /root --dir /run --dir /usr"
-        )
-        .split_whitespace()
-        .map(String::from)
-        .collect();
-        for host in HOST_TOOLCHAIN_BINDS {
-            argv.extend(["--ro-bind-try", host, host].map(String::from));
-        }
-        let (s, w, c, b, k) = (
-            scratch.display(),
-            work.display(),
-            common.display(),
-            bundle.display(),
-            cargo.display(),
-        );
-        argv.extend(
-            format!(
-                "--ro-bind {s}/etc/passwd /etc/passwd --ro-bind {s}/etc/group /etc/group \
+            )
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+            for host in HOST_TOOLCHAIN_BINDS {
+                argv.extend(["--ro-bind-try", host, host].map(String::from));
+            }
+            let (s, w, c, k) = (
+                scratch.display(),
+                work.display(),
+                common.display(),
+                cargo.display(),
+            );
+            argv.extend(
+                format!(
+                    "--ro-bind {s}/etc/passwd /etc/passwd --ro-bind {s}/etc/group /etc/group \
                  --ro-bind {s}/etc/hosts /etc/hosts \
                  --ro-bind {s}/etc/nsswitch.conf /etc/nsswitch.conf \
                  --bind {s}/home {SANDBOX_HOME} --bind {s}/tmp /tmp --bind {w} {w} \
-                 --ro-bind {b} {SANDBOX_BUNDLE} --bind {c} {c} --tmpfs {c}/hooks \
+                 {bundle} --bind {c} {c} --tmpfs {c}/hooks \
                  --ro-bind-try {c}/config {c}/config {overlay} \
                  --ro-bind /dev/null {k}/credentials.toml --ro-bind-try /opt/tools /opt/tools \
                  --bind-try /opt/pad /opt/pad {exec} --setenv HOME {SANDBOX_HOME} \
@@ -413,13 +434,13 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
                  --setenv DISABLE_AUTOUPDATER 1 --setenv DISABLE_TELEMETRY 1 \
                  --setenv GIT_CONFIG_COUNT 1 --setenv GIT_CONFIG_KEY_0 commit.gpgsign \
                  --setenv GIT_CONFIG_VALUE_0 false --setenv CARGO_HOME {k} \
-                 --setenv GIT_AUTHOR_NAME Seat --chdir {w} -- true"
-            )
-            .split_whitespace()
-            .map(String::from),
-        );
-        argv
-    };
+                 --setenv GIT_AUTHOR_NAME Seat --chdir {w} -- {run}"
+                )
+                .split_whitespace()
+                .map(String::from),
+            );
+            argv
+        };
     let k = cargo.display();
     let layer = session.join("overlay/0");
     let workspace = format!(
@@ -427,22 +448,38 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
         u = layer.join("upper").display(),
         v = layer.join("work").display()
     );
-    let workspace_argv = built(&spec, OverlayWrites::Session(&session));
-    assert_eq!(workspace_argv, expected("--unshare-net", workspace, ""));
+    // One call of the workspace tool: its session's overlays, no bundle.
+    let timeout = Duration::from_secs(30);
+    let called = execute_in(
+        &bwrap, &spec, &work, &home, &scratch, &session, &git, "true", timeout,
+    );
+    assert_eq!(called.unwrap().exit_code, 0);
+    let run = "/bin/bash -lc true";
+    let workspace_argv = expected(&scratch, "--unshare-net", "", workspace, "", run);
+    assert_eq!(recorded(&record), workspace_argv);
 
-    // The exec box: networked here, its overlays in RAM, and this binary
-    // bound read-only after the declared binds, as `run_boxed_in` adds it.
+    // The exec box: networked here, its overlays in RAM, the bundle, and
+    // this binary bound read-only after the declared binds by the caller.
     let mut exec_spec = spec_of(json!({"kind": "workspace", "network": true}));
     exec_spec.binds = spec.binds.clone();
-    exec_spec.binds.push(Bind {
-        path: "/opt/brokkr".to_string(),
-        mode: BindMode::Ro,
-        mask: Vec::new(),
-    });
-    let exec_argv = built(&exec_spec, OverlayWrites::Ram);
+    let bundle_root = Some(bundle.as_path());
+    let boxed = run_boxed_in(
+        &bwrap,
+        &exec_spec,
+        &work,
+        &home,
+        &session,
+        &git,
+        bundle_root,
+        &one("true"),
+    );
+    assert_eq!(boxed, Ok(0));
     let ram = format!("--overlay-src {k} --tmp-overlay {k}");
-    let exec = "--ro-bind-try /opt/brokkr /opt/brokkr";
-    assert_eq!(exec_argv, expected("", ram, exec));
+    let bundled = format!("--ro-bind {} {SANDBOX_BUNDLE}", bundle.display());
+    let exe = std::env::current_exe().unwrap();
+    let exec = format!("--ro-bind-try {e} {e}", e = exe.display());
+    let exec_argv = expected(&session.join("call"), "", &bundled, ram, &exec, "true");
+    assert_eq!(recorded(&record), exec_argv);
 }
 
 /// The identity the namespace builder generates for every box: the
@@ -452,7 +489,7 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
 fn the_generated_identity_is_the_engines_own_and_resolves_from_files() {
     let dir = tempfile::tempdir().unwrap();
     let etc_dir = dir.path().canonicalize().unwrap().join("etc");
-    let mut namespace = Namespace::open(false);
+    let mut namespace = Namespace::open(Profile::Workspace, false);
     namespace.identity(&etc_dir).unwrap();
     let (uid, gid) = ids();
     let etc = |name: &str| std::fs::read_to_string(etc_dir.join(name)).unwrap();
