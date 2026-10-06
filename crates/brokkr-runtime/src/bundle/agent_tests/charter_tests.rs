@@ -50,6 +50,18 @@ fn gp2(result: Result<Bundle, CompileError>) -> Option<CharterRefusal> {
     }
 }
 
+/// A composed compile's refusal: composition wraps every error but a
+/// capability's in [`CompileError::Invalid`] naming the chain, GP2's
+/// included, so that variant is matched and its text returned; `None`
+/// where it compiled.
+fn composed(result: Result<Bundle, CompileError>) -> Option<String> {
+    match result {
+        Ok(_) => None,
+        Err(CompileError::Invalid(text)) => Some(text),
+        Err(other) => panic!("expected composition's wrapped refusal or a compile, got {other}"),
+    }
+}
+
 /// GP2's refusal at `site` of the layer at `layer`, bound to `role`.
 fn refused(layer: &Path, site: &str, role: &str, capability: &str) -> CharterRefusal {
     let office = format!("{}: seat '{site}'", layer.join("bundle.json").display());
@@ -217,6 +229,74 @@ fn every_nested_inline_site_is_checked_against_its_own_charter() {
     each_row(rows);
 }
 
+/// A role-less exec site is bound to no charter, so nothing declares what
+/// it asks for: it names a role whose charter does, or asks nothing. As a
+/// panel member it is refused at its own label.
+#[test]
+fn a_role_less_exec_site_that_asks_names_a_declaring_role() {
+    let fixture = AgentFixture::declaring();
+    let exec = |role: Option<&str>, asks: &[&str]| {
+        let mut site = inline(role.unwrap_or_default(), asks);
+        site["driver"]["command"] = json!(["{brokkr}", "driver", "exec", "--", "bash", "x.sh"]);
+        if role.is_none() {
+            site.as_object_mut().unwrap().remove("role");
+        }
+        site
+    };
+    let none = |site: &str| {
+        let office = format!(
+            "{}: seat '{site}'",
+            fixture.bundle().join("bundle.json").display()
+        );
+        Some(refusal(
+            office,
+            "(none: an exec site that names no role)",
+            "web-search",
+        ))
+    };
+    let member = |member: Value| {
+        json!({"aggregate": "unanimous-pass",
+               "panel": {"a": member, "b": inline("roles/data.md", &[])}})
+    };
+    let mut rows: Vec<Row<Option<CharterRefusal>>> = Vec::new();
+    for (case, mut seat, expected) in [
+        ("asks, no role", exec(None, &["web-search"]), none("work")),
+        ("asks nothing, no role", exec(None, &[]), None),
+        (
+            "asks, declaring role",
+            exec(Some("roles/data.md"), &["web-search"]),
+            None,
+        ),
+        (
+            "asks, bare role",
+            exec(Some("roles/work.md"), &["web-search"]),
+            Some(refused(
+                &fixture.bundle(),
+                "work",
+                "roles/work.md",
+                "web-search",
+            )),
+        ),
+        (
+            "member asks, no role",
+            member(exec(None, &["web-search"])),
+            none("work:a"),
+        ),
+        (
+            "member asks nothing, no role",
+            member(exec(None, &[])),
+            None,
+        ),
+    ] {
+        seat["results"] = json!(["pass", "fail"]);
+        let mut config = fixture.config();
+        config["seats"]["work"] = seat;
+        fixture.stage(&config, &panel_policy());
+        rows.push((case.to_string(), gp2(compiled(&fixture)), expected));
+    }
+    each_row(rows);
+}
+
 /// A composed bundle's inline site is checked against the charter of the
 /// layer that wrote it, which the refusal names: an inherited seat against
 /// its base's, a case the leaf overrides against the leaf's, each beside a
@@ -248,10 +328,7 @@ fn a_composed_site_is_checked_against_its_declaring_layers_charter() {
             .unwrap()
             .chain_note()
             .unwrap();
-        (
-            compiled(&fixture).map(|_| ()).map_err(|e| e.to_string()),
-            note,
-        )
+        (composed(compiled(&fixture)), note)
     };
     let extends = json!({"name": "fixture", "extends": "base"});
     let overrides = json!({"name": "fixture", "extends": "base",
@@ -260,7 +337,7 @@ fn a_composed_site_is_checked_against_its_declaring_layers_charter() {
             "feature": inline("roles/r.md", &["web-search"])}}}}});
     let inherited = review(json!({"feature": inline("roles/r.md", &["web-search"])}));
     let quiet = review(json!({"feature": inline("roles/r.md", &[])}));
-    let mut rows: Vec<Row<Result<(), String>>> = Vec::new();
+    let mut rows: Vec<Row<Option<String>>> = Vec::new();
     for (case, seat, document, declared_in_base, refusing) in [
         (
             "inherited, base bare",
@@ -280,14 +357,10 @@ fn a_composed_site_is_checked_against_its_declaring_layers_charter() {
         ("overridden, leaf declares", &quiet, &overrides, false, None),
     ] {
         let (result, note) = stage(seat.clone(), document.clone(), declared_in_base);
-        let expected = match refusing {
-            None => Ok(()),
-            Some(layer) => {
-                let refusal = refused(layer, "review:feature", "roles/r.md", "web-search");
-                let charter = CompileError::Charter(refusal);
-                Err(CompileError::Invalid(format!("{charter} ({note})")).to_string())
-            }
-        };
+        let expected = refusing.map(|layer| {
+            let refusal = refused(layer, "review:feature", "roles/r.md", "web-search");
+            format!("{} ({note})", CompileError::Charter(refusal))
+        });
         rows.push((case.to_string(), result, expected));
     }
     each_row(rows);
@@ -328,9 +401,7 @@ fn the_checked_bytes_are_pinned_and_a_drifted_charter_refuses() {
             }
         }));
     });
-    let late = compiled(&fixture)
-        .map(|_| ())
-        .map_err(|error| error.to_string());
+    let late = compiled(&fixture);
     READ_HOOK.with(|hook| *hook.borrow_mut() = None);
-    assert_eq!(late, Err(CompileError::Charter(refusal).to_string()));
+    assert_eq!(gp2(late), Some(refusal));
 }

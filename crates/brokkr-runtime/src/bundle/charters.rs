@@ -4,7 +4,8 @@
 //!
 //! Every inline executable site — a seat, a panel member, a sequence step,
 //! a select case or default, and each of them nested in another — is bound
-//! here, by the layer that wrote it. The check is the loaded office's
+//! here, by the layer that wrote it; a role-less exec site is bound to no
+//! charter, so whatever it asks for is undeclared. The check is the loaded office's
 //! ([`crate::agents::charter_data::check_bound`]); nothing here reads the
 //! paragraph grammar, and the engine's later DATA reminder declares nothing.
 
@@ -25,26 +26,19 @@ pub(super) fn parse_role(
     charters: &Charters,
     sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<PathBuf, CompileError> {
+    let source = dir.join("bundle.json");
+    let site = bounded_site(what);
+    let office = format!("{}: seat {site}", source.display());
     let Some(role_rel) = raw.get("role").and_then(Value::as_str) else {
-        if raw
-            .pointer("/driver/command")
-            .and_then(Value::as_array)
-            .map(|parts| {
-                parts
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-            })
-            .as_deref()
-            .and_then(dispatch_driver)
-            .as_deref()
-            == Some("exec")
-        {
+        if exec_site(raw) {
             // A deterministic exec site is the script it names. It has no
             // model to instruct and therefore no charter to load into a
             // prompt; the prompt remains the typed run context and result
-            // contract the script reads.
+            // contract the script reads. GP2 still binds what it asks: no
+            // charter declares anything, so an exec site asking for a
+            // capability names a role that does, and one asking nothing
+            // compiles as before.
+            check_asks(what, raw, b"", office, NO_CHARTER)?;
             return Ok(PathBuf::new());
         }
         return Err(CompileError::Invalid(format!(
@@ -66,11 +60,9 @@ pub(super) fn parse_role(
     // Rebuild unit 18-fix-b (council F1, F2): read from the layer's directory
     // as its owner, so the pin carries that read's binding and who the owner
     // was when it was read, and the seal compares both.
-    let source = dir.join("bundle.json");
-    let (site, reference) = (bounded_site(what), bounded_reference(role_rel));
+    let reference = bounded_reference(role_rel);
     match owned_input(dir, role_rel) {
         Ok(bound) => {
-            let office = format!("{}: seat {site}", source.display());
             check_asks(what, raw, &bound.bytes, office, &reference)?;
             let role = dir.join(role_rel);
             let owner = CharterOwner::Layer {
@@ -100,9 +92,30 @@ pub(super) fn parse_role(
     }
 }
 
+/// The charter a role-less exec site's GP2 refusal names: it has none.
+const NO_CHARTER: &str = "(none: an exec site that names no role)";
+
+/// Whether a site dispatches through the exec driver.
+fn exec_site(raw: &Value) -> bool {
+    raw.pointer("/driver/command")
+        .and_then(Value::as_array)
+        .map(|parts| {
+            parts
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .as_deref()
+        .and_then(dispatch_driver)
+        .as_deref()
+        == Some("exec")
+}
+
 /// GP2 at one inline site: every capability its own map asks for, of either
 /// strength and whether or not the realm grants or a candidate holds it, is
-/// declared by the charter `bytes` the site is bound to. An inline site's
+/// declared by the charter `bytes` the site is bound to, which for a
+/// role-less exec site are none. An inline site's
 /// map is its office's asks, read as the capability pass reads it, so a map
 /// that pass would refuse is refused here in its words.
 fn check_asks(

@@ -80,7 +80,7 @@
    285 crates/brokkr-runtime/src/anchor.rs
    168 crates/brokkr-runtime/src/boundary.rs
   7734 crates/brokkr-runtime/src/bundle.rs
-   123 crates/brokkr-runtime/src/bundle/charters.rs
+   136 crates/brokkr-runtime/src/bundle/charters.rs
   1258 crates/brokkr-runtime/src/bundle/compose.rs
   1995 crates/brokkr-runtime/src/capabilities.rs
    132 crates/brokkr-runtime/src/capabilities/attribution.rs
@@ -235,7 +235,7 @@
   5838 crates/brokkr-runtime/src/agents/tests.rs
    399 crates/brokkr-runtime/src/anchor/tests.rs
   6788 crates/brokkr-runtime/src/bundle/agent_tests.rs
-   336 crates/brokkr-runtime/src/bundle/agent_tests/charter_tests.rs
+   407 crates/brokkr-runtime/src/bundle/agent_tests/charter_tests.rs
    562 crates/brokkr-runtime/src/bundle/agent_tests/gate_tests.rs
   4136 crates/brokkr-runtime/src/bundle/compose_tests.rs
   4645 crates/brokkr-runtime/src/bundle/model_policy_tests.rs

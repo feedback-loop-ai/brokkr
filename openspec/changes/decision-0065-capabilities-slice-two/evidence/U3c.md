@@ -39,13 +39,15 @@ Readings the framing left open, taken as stated:
    now refused here first, word for word as that pass words it. The
    reader is the same function, and the text is unchanged.
 2. **Inline site with no `role`.** Only an `exec` site may omit `role`. It
-   is bound to no charter, so there are no bytes to check. A site that
-   names a role is checked, whatever its driver.
+   is bound to no charter, so nothing declares what it asks for, and GP2
+   refuses every ask it writes (see the review return below). A role-less
+   exec site that asks nothing compiles as before. A site that names a role
+   is checked against that role, whatever its driver.
 3. **Composed bundles.** On a composed bundle, the existing wrap in
    `compile_with_realm` turns every non-capability error, `Charter`
    included, into `Invalid("{error} ({chain})")`. So the typed variant is
-   observable on single-layer bundles. The composed test compares the
-   exact wrapped text.
+   observable on single-layer bundles. The composed test matches that
+   outer `Invalid` variant and compares its exact text.
 
 ## Tests (task 12.1)
 
@@ -162,3 +164,75 @@ dropped by 13 bytes. This unit stages nothing under `agents/`, `recipes/`,
 
 Still pending: `scripts/coverage-exact.sh` on a capable external host, and
 remote CI on the final head for Linux and macOS.
+
+## Review return (second visit)
+
+The review of `6de1bc47` returned two medium findings and one low. This
+visit answers both medium findings. The low one is out of the row's scope
+and is recorded as a follow-up.
+
+**Role-less exec requesters (medium).** In the first visit, a role-less exec
+site skipped GP2 and kept its asks. Now `parse_role` hands such a site to
+the same `check_asks`, with empty charter bytes. No paragraph declares
+anything, so each ask is refused with GP2's own cause. The refusal names the
+declaring `bundle.json` and the site, and the charter as
+`(none: an exec site that names no role)`. An exec site that asks nothing
+still compiles with no charter. The exec test moved into a helper,
+`exec_site`, so `parse_role` stays short. The grammar was not duplicated and
+the reminder was not touched. `charters.rs` grew from 123 to 136 lines.
+
+**Erased variants (medium).** The composed test now reads its result through
+`composed`, which matches `CompileError::Invalid` (composition's single
+wrap) and returns that variant's text. Any other variant panics with what it
+got. The drift test's race half now asserts `gp2(late) == Some(refusal)`,
+the typed refusal, and no longer compares rendered strings. The one `Display`
+pin stays in `the_refusal_names…`.
+
+**Parse-once (low, not fixed).** `check_asks` reads the site's map with
+`parse_requests`, and the capability pass reads it again through
+`SiteAsks::at` (`capabilities.rs`). Handing the typed `Requests` across would
+change the signature of `SiteAsks::at`, and `capabilities.rs` is outside this
+row's three production files. Both reads share one parser, so the grammar
+cannot drift.
+
+The new test is `a_role_less_exec_site_that_asks_names_a_declaring_role`
+in `charter_tests.rs`, which grew from 336 to 407 lines. It has six rows,
+each comparing the typed `gp2` outcome:
+
+| Row | Expected |
+| --- | --- |
+| asks, no role | refused at `work`, charter `(none: …)` |
+| asks nothing, no role | compiles |
+| asks, declaring role | compiles |
+| asks, bare role | refused at `work`, charter `'roles/work.md'` |
+| panel member asks, no role | refused at `work:a`, charter `(none: …)` |
+| panel member asks nothing, no role | compiles |
+
+Mutations in this visit were run the same way as above: the file was saved
+under `.forge/u3c/r2/`, edited, tested with
+`cargo test -p brokkr-runtime --lib -- charter` (55 tests), copied back, and
+confirmed byte-equal with `cmp`. Line numbers refer to the final
+`charter_tests.rs`. The line numbers for X1–X10 above refer to the
+first-visit file.
+
+| # | Mutation | Failed |
+| --- | --- | --- |
+| X11 | The role-less exec branch drops `check_asks` | `a_role_less_exec…` (:297), rows "asks, no role" and "member asks, no role" |
+| X12 | The role-less exec branch checks a fixed `web-search` ask, not the site's map | `a_role_less_exec…` (:297), rows "asks nothing, no role" and "member asks nothing, no role" |
+| X13 | The role-bearing `check_asks` call is removed | Five tests. `the_checked_bytes…` fails at :394 (`left: None`). `a_composed…` fails at :366, rows "inherited, base bare" and "overridden, leaf bare", each `left: None`. `a_role_less_exec…` fails at :297, row "asks, bare role". `every_nested…` fails at :229, 8 rows. `an_inline_seats…` also fails. |
+| X14 | The role-bearing check reads `std::fs::read(dir.join(role_rel))`, a reopen | `the_checked_bytes…`: the race assertion at :406 panics in `gp2` (:49) with "expected GP2's refusal or a compile, got … does not hold as it was read …" |
+| X15 | `compile_with_realm` (`bundle.rs`) leaves a composed `Charter` refusal unwrapped | `a_composed…`: `composed` (:61) panics with "expected composition's wrapped refusal or a compile, got bundle: …/base/bundle.json: seat 'review:feature' charter 'roles/r.md': …" |
+
+After the last restore, all 55 tests passed. `git status` showed only the
+two intended files modified. `bundle.rs` is back byte-equal, so this visit
+changed one production file, `charters.rs`.
+
+The gates were run again on this tree. The runtime crate passed: lib 831,
+`capability_launch` 72, `it` 120 (`witness_digests::` unblessed, so no
+witness or compose input moved), `operated_repo` 1 and `queued_launch` 3.
+The CLI crate passed: lib 627, `it` 461, `driver_conformance` 27,
+`transcript_surfaces` 13 and each heap binary 1. Format and clippy with
+`-D warnings` were clean. The `self` and `verify` bundles compiled.
+`quality/ratchet.sh files` and `clones` hold, and `quality/file-lines.txt`
+records the two new counts. No function crossed a too-many-lines or
+suppression baseline.
