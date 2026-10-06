@@ -1,5 +1,23 @@
 # produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
 pub mod brokkr_view
+pub mod brokkr_view::capability_calls
+pub enum brokkr_view::capability_calls::CallState
+pub brokkr_view::capability_calls::CallState::Failed
+pub brokkr_view::capability_calls::CallState::Interrupted
+pub brokkr_view::capability_calls::CallState::Observed
+pub brokkr_view::capability_calls::CallState::Refused
+pub brokkr_view::capability_calls::CallState::Succeeded
+pub struct brokkr_view::capability_calls::CallEvidence
+pub brokkr_view::capability_calls::CallEvidence::call: core::option::Option<brokkr_view::capability_calls::CapabilityCall>
+pub brokkr_view::capability_calls::CallEvidence::cell: brokkr_view::Cell
+pub struct brokkr_view::capability_calls::CapabilityCall
+pub brokkr_view::capability_calls::CapabilityCall::call_id: alloc::string::String
+pub brokkr_view::capability_calls::CapabilityCall::capability: alloc::string::String
+pub brokkr_view::capability_calls::CapabilityCall::dialect: alloc::string::String
+pub brokkr_view::capability_calls::CapabilityCall::response_sha256: core::option::Option<alloc::string::String>
+pub brokkr_view::capability_calls::CapabilityCall::state: brokkr_view::capability_calls::CallState
+pub brokkr_view::capability_calls::CapabilityCall::tool: alloc::string::String
+pub const brokkr_view::capability_calls::UNRECORDED: &str
 pub mod brokkr_view::js
 pub fn brokkr_view::js::len(&str) -> usize
 pub fn brokkr_view::js::parse_millis(&str) -> core::option::Option<i64>
@@ -187,6 +205,7 @@ pub brokkr_view::Cell::absent: bool
 pub brokkr_view::Cell::note: core::option::Option<alloc::string::String>
 pub brokkr_view::Cell::text: alloc::string::String
 pub struct brokkr_view::CheckpointRow
+pub brokkr_view::CheckpointRow::capability_call: brokkr_view::capability_calls::CallEvidence
 pub brokkr_view::CheckpointRow::effort: brokkr_view::Cell
 pub brokkr_view::CheckpointRow::recorded_at: alloc::string::String
 pub brokkr_view::CheckpointRow::served: brokkr_view::ModelAtBoundary
