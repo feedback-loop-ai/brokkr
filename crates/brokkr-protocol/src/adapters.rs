@@ -21,6 +21,7 @@ use serde_json::{json, Map, Value};
 pub mod capability_calls;
 mod composite;
 mod dsh_stderr;
+mod mcp;
 mod route_overlay;
 mod start;
 // Design D6 (b) seals the producer: the seams, the structured
@@ -40,6 +41,7 @@ use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Trans
 use crate::{Body, Message, ResultStatus};
 use capability_calls::Observation;
 use dsh_stderr::redact_dsh_reasoning;
+use mcp::served;
 use start::start_prompt;
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -2923,6 +2925,11 @@ fn codex_launch_and_cold(
     // `web_search` config assignment, even the OFF pair itself — because
     // ordering two controls against each other is not a ruling.
     let composed = composed_launch("codex", extra, input)?;
+    // No measured mechanism excludes Codex's ambient MCP (U0), so the
+    // engine's isolation intent refuses here, before any provider work.
+    let edge = mcp::Edge::new(input);
+    mcp::isolated("codex", &edge, &composed.extra, session.is_some())
+        .map_err(|refusal| refusal.at_launch())?;
     let cold = codex_cold(bin, &composed.extra, workdir, &composed.managed);
     let mut plan = codex_plan(
         bin,
@@ -2952,10 +2959,10 @@ fn codex_launch_and_cold(
         "codex",
         plan.command,
         extra,
-        input,
+        &edge,
         chosen(session.as_deref()),
     )?;
-    let cold = served("codex", cold, extra, input, chosen(None))?;
+    let cold = served("codex", cold, extra, &edge, chosen(None))?;
     Ok((plan, cold))
 }
 
@@ -3181,111 +3188,6 @@ fn codex_rejoin(
     // only when the prompt positional is `-` (verified against 0.148.0).
     command.push("-".into());
     Ok((command, class))
-}
-
-/// The whole refusal of a launch that carries sealed inputs without the
-/// ones they are sealed beside (rebuild unit 14).
-const UNPAIRED: &str =
-    "refusing to invoke the agent CLI: the input carries a sealed launch record or sealed serving \
-     inputs without the capability plan and the record they are sealed beside, so its final \
-     command cannot be checked; a sealed launch is never served unchecked (rebuild unit 14; \
-     design D6)";
-
-/// The whole refusal of a launch that carries the engine's plan with neither
-/// sealed input (rebuild unit 15-fix-b; SC15-R2-1): dispatch seals both
-/// wherever it writes a plan, so a plan alone is a governed launch stripped
-/// of what it is checked by.
-const UNSEALED: &str =
-    "refusing to invoke the agent CLI: the input carries the engine's capability plan without the \
-     sealed launch record and sealed serving inputs it is served beside, so its final command \
-     cannot be checked; a launch the engine governs is never served as an unsealed one (rebuild \
-     unit 15; design D6)";
-
-/// Rebuild units 14 and 15 (operator ruling 2 of 2026-09-23; design D6):
-/// the command a launch spawns, cold, rejoining or a rejected rejoin's cold
-/// replacement, once [`check_final`] has proved that it expresses exactly
-/// its sealed plan. Where the engine sealed the launch, the record and the
-/// typed serving inputs sealed beside it (rebuild unit 14a2) are decoded,
-/// the record's whole ordered segments must reassemble `handed`, the
-/// arguments the driver was handed, and the check is handed them with the
-/// engine's serving choices:
-/// `chosen`'s executable, workdir, the session it rejoins (`None` cold)
-/// and, for DSH, overlay, stream reading and prompt; the recipe's words by
-/// their recorded origin; the result path where the door is the capture;
-/// and the box's hands bound to this executable and workdir. Nothing is
-/// read back from the argv. The spawn is handed [`Checked::into_argv`] and
-/// nothing else.
-///
-/// A launch with no plan, no record and no serving inputs was not sealed: a
-/// driver run by hand, which this check gives no guarantee, is served as
-/// composed, as the inline judgment serves it (rebuild unit 5d-fix-c2). A
-/// plan with neither sealed input refuses (rebuild unit 15-fix-b), and so
-/// does one half of the sealed pair without the other, or without its plan.
-///
-/// [`check_final`]: crate::native_controls::check_final
-/// [`Checked::into_argv`]: crate::native_controls::Checked::into_argv
-fn served(
-    harness: &str,
-    command: Vec<String>,
-    handed: &[String],
-    input: &Value,
-    chosen: crate::native_controls::Serving<'_>,
-) -> Result<Vec<String>, String> {
-    use crate::native_controls::{
-        check_final, managed, reassemble, Dialect, LaunchRecord, Origin, SealedServing, Serving,
-        Transport, SERVING_INPUTS,
-    };
-    let record = match (input.get("launch_record"), input.get(SERVING_INPUTS)) {
-        (None, None) if input.get("native_controls").is_none() => return Ok(command),
-        (None, None) => return Err(UNSEALED.to_string()),
-        (Some(record), Some(_)) => record,
-        _ => return Err(UNPAIRED.to_string()),
-    };
-    let Some(controls) = managed(input)? else {
-        return Err(UNPAIRED.to_string());
-    };
-    let record = LaunchRecord::decode(Some(record))?;
-    let sealed = SealedServing::decode(input.get(SERVING_INPUTS))?;
-    // The whole ordered record, not only its authored segments, must
-    // reassemble the arguments this driver was handed: a record emptied,
-    // reordered or grown around them has no origin to read the recipe's
-    // words by, and is refused (NCC; tasks 15.1 and 15.2).
-    reassemble(&record.segments, handed)?;
-    let authored: Vec<String> = record
-        .segments
-        .iter()
-        .filter(|segment| segment.origin == Origin::Authored)
-        .flat_map(|segment| segment.argv.iter().cloned())
-        .collect();
-    let brokkr = std::env::current_exe().unwrap_or_default();
-    let dialect = &sealed.dialect;
-    check_final(
-        harness,
-        command,
-        &controls,
-        &record.expected,
-        Dialect {
-            permissions: dialect.permissions.as_ref(),
-            sandbox: &dialect.sandbox,
-            hands: &dialect.hands,
-            boundary: &dialect.boundary,
-            stands: dialect.stands,
-        },
-        Serving {
-            authored: &authored,
-            pins: &sealed.pins,
-            output: last_message_door(input)
-                .then(|| input["result_path"].as_str().unwrap_or_default()),
-            hands: sealed.spec.as_ref().map(|spec| Transport {
-                brokkr: &brokkr,
-                workdir: Path::new(chosen.workdir),
-                spec,
-            }),
-            ..chosen
-        },
-    )
-    .map(crate::native_controls::Checked::into_argv)
-    .map_err(|refusal| refusal.at_launch(input))
 }
 
 /// The complete serving command one built-in driver spawns for a composed
@@ -3697,7 +3599,12 @@ fn claude_launch(
     }
     let composed = composed_launch(provider, extra, input)?;
     let handed = extra;
-    let extra = composed.extra.as_slice();
+    // The engine's isolated configuration, cold, replacing and on every
+    // rejoin alike.
+    let edge = mcp::Edge::new(input);
+    let isolated = mcp::isolated(provider, &edge, &composed.extra, session.is_some())
+        .map_err(|refusal| refusal.at_launch())?;
+    let extra = isolated.argv.as_slice();
     // `--no-session-persistence` is admitted — it is a legitimate thing
     // for a seat to want — and it makes the shape nonresumable, which is
     // a fact the launch row reports rather than a setting to strip.
@@ -3733,7 +3640,7 @@ fn claude_launch(
             session: launch.rejoining.as_deref(),
             ..Default::default()
         };
-        launch.command = served(provider, launch.command, handed, input, chosen)?;
+        launch.command = served(provider, launch.command, handed, &edge, chosen)?;
         Ok(launch)
     };
     let Some(session) = session else {
@@ -3745,6 +3652,9 @@ fn claude_launch(
     // like.
     if let ResumeGate::Disabled(reason) = &gate {
         return served_plan(plan(None, Some(reason), None));
+    }
+    if !isolated.resumes(provider, shape) {
+        return served_plan(plan(None, Some("restrictions-unavailable"), None));
     }
     if !plain_claude_session(session) {
         return served_plan(plan(None, Some("invalid-session-id"), None));
@@ -4430,7 +4340,7 @@ struct DshArgv {
 /// The seat's argv as every DSH launch judges it, before any route is
 /// claimed, version probed or overlay staged ([`dsh_launch_with`]), and as
 /// doctor's reading of a DSH command judges it ([`dsh_cold_command`]).
-fn dsh_argv(extra: &[String], input: &Value) -> Result<DshArgv, String> {
+fn dsh_argv(extra: &[String], input: &Value, offered: bool) -> Result<DshArgv, String> {
     // Decision 0065 ruling 4, as on the codex and claude paths and FIRST
     // here: a site the engine computed no authority for is refused before
     // the seat's argv is read, a route claimed, a version probed or an
@@ -4450,6 +4360,10 @@ fn dsh_argv(extra: &[String], input: &Value) -> Result<DshArgv, String> {
     // authority refusal wins, and the boundary check below inspects the
     // COMPOSED argv, the command that will actually launch (ruling 2).
     let composed = composed_launch("dsh", extra, input)?;
+    // The engine-only DSH home U0 measured is not built, so the engine's
+    // isolation intent refuses here, before any provider work.
+    mcp::isolated("dsh", &mcp::Edge::new(input), &composed.extra, offered)
+        .map_err(|refusal| refusal.at_launch())?;
     let extra = composed.extra.as_slice();
     // Original adjacency next: the three extractions below are
     // sequential, so a control standing in another control's value slot
@@ -4510,7 +4424,7 @@ fn dsh_launch_with(
         model,
         effort,
         route: route_arg,
-    } = dsh_argv(extra, input)?;
+    } = dsh_argv(extra, input, session.is_some())?;
     let route = route_overlay::claim(input, workdir, model.as_deref(), route_arg.as_deref())?;
     let transcript = Transcript::resolve(TranscriptKind::DshSession)?;
     let home = transcript.home().to_path_buf();
@@ -4803,7 +4717,7 @@ impl DshServing<'_> {
             prompt: Some(prompt),
             ..Default::default()
         };
-        served("dsh", command, handed, input, chosen)
+        served("dsh", command, handed, &mcp::Edge::new(input), chosen)
     }
 }
 
@@ -4825,7 +4739,7 @@ pub fn dsh_cold_command(
     prompt: &str,
     input: &Value,
 ) -> Result<Vec<String>, String> {
-    dsh_argv(extra, input)?;
+    dsh_argv(extra, input, false)?;
     DshServing {
         command: dsh_command(bin, overlay, false, None),
         overlay,

@@ -62,6 +62,13 @@ Dependencies: none; independent objective. Files and scope: [design.md](design.m
 - [x] 1.2 (U0; [MB2](specs/mcp-capability-broker/spec.md), [SI1](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Review the listed documents/evidence against the named requirements and retain explicit unmeasured/pending outcomes. Apply the shared verification duty above.
   Evidence: the record states binary/version, host, shape, config sources, candidate, argv and environment names, planted sentinels, positive controls, lifecycle logs, listings, outcomes and limitations for every cell (SI1). SD2: no production file, test, pin or witness changed. SD4 docs-only gates on the U0 head: `openspec validate --all --strict` 20 passed, 0 failed; `typos --hidden` and `git diff --check` clean. Unmeasured and pending outcomes stay explicit in the record.
 
+## 1a. U0c — Measure keyed dsh routes through an engine-only home
+
+Dependencies: U0. Files and scope: [design.md](design.md#u0c--measure-keyed-dsh-routes-through-an-engine-only-home).
+
+- [ ] 1.3 (U0c; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md)) Repeat U0's dsh ambient-sentinel and engine-overlay cells through an engine-only `DSH_HOME` on each keyed route the operator's roster uses, the provider key reaching dsh only from its existing env file through the process environment. Record adapter evidence only; no code changes. Verify: Per-route positive controls; each route's key honouring and ambient exclusion recorded as measured or as its exact failure.
+- [ ] 1.4 (U0c; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) Review the listed documents/evidence against the named requirements and retain explicit unmeasured outcomes. No key value is recorded. Apply the shared verification duty above.
+
 ## 2. U1a — Extract existing MCP transport checks
 
 Dependencies: U0. Files and scope: [design.md](design.md#slice-two-units).
@@ -82,8 +89,17 @@ Dependencies: U1a. Files and scope: [design.md](design.md#slice-two-units).
 
 Dependencies: U1b. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 4.1 (U1c; [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md)) Factor existing config assembly into adapters/mcp.rs and implement only U0-qualified isolation shapes. Typed engine input crosses the private serving edge; the current no-broker plan is empty or hands-only. Verify: Exact cold/resume/replacement configuration, auth/session controls and missing evidence refusals; the module is used by existing launch builders.
-- [ ] 4.2 (U1c; [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 4.1. Apply the shared verification duty above.
+- [x] 4.1 (U1c; [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md)) Factor existing config assembly into adapters/mcp.rs and implement only U0-qualified isolation shapes for Claude, Codex and LaneTally; a dsh intent refuses as missing evidence until U1c2. Typed engine input crosses the private serving edge; the current no-broker plan is empty or hands-only. Verify: Exact cold/resume/replacement configuration, auth/session controls and missing evidence refusals; the module is used by existing launch builders.
+  Evidence ([evidence/U1c.md](evidence/U1c.md)): `served`, its two sealed-pair refusals and the hands transport binding moved into the private `adapters/mcp.rs`. The closed `mcp_isolation` intent (empty or hands; cold, replacement and resume assessments) is judged by the Claude/LaneTally, Codex and dsh launch builders right after composition, before any provider work, and the sealed serving inputs are decoded once per launch. Claude and LaneTally are served U0's strict flag with an engine document, cold, as the replacement and on a measured resume, and the grammar proves it placed. Codex refuses with its measured reason or as missing evidence, since no U0 candidate qualified. Every dsh intent refuses as missing evidence under the 2026-10-06 ruling, whatever assessment it records (review R1); its engine-only home is U1c2's.
+- [x] 4.2 (U1c; [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 4.1. Apply the shared verification duty above.
+  Evidence ([evidence/U1c.md](evidence/U1c.md)): seven tests in the child `adapters/mcp/tests.rs` bind what is built, including dsh's missing-evidence refusal on measured, unmeasured and unsupported assessments, cold and through `dsh_launch_with` before its composite is read, and the owning `adapters/tests.rs` is under its baseline at 19,089 lines. M1–M28 and M3b each removed one behavior and failed an exact assertion, and each was restored. Exact coverage, remote CI and macOS are pending.
+
+## 4a. U1c2 — Build dsh's engine-only home
+
+Dependencies: U1c, U0c. Files and scope: [design.md](design.md#u1c2--build-dshs-engine-only-home).
+
+- [ ] 4.3 (U1c2; [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md)) Stage dsh's engine-only `DSH_HOME` and spawn with it; make transcript.rs's home resolution, the persistence check and the composite identity's declared-home seam read that one home; admit dsh's serving shape only on U0- or U0c-qualified routes. Verify: Exact cold/resume/replacement dsh configuration per qualified route; transcript and persistence reads follow the staged home; unmeasured-route and missing-evidence refusals.
+- [ ] 4.4 (U1c2; [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 4.3. Apply the shared verification duty above.
 
 ## 5. U1d — Record Claude, Codex and LaneTally declarations
 
@@ -94,7 +110,7 @@ Dependencies: U1c. Files and scope: [design.md](design.md#slice-two-units).
 
 ## 6. U1e — Record dsh and exec declarations
 
-Dependencies: U1d. Files and scope: [design.md](design.md#slice-two-units).
+Dependencies: U1d, U1c2. Files and scope: [design.md](design.md#slice-two-units).
 
 - [ ] 6.1 (U1e; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md)) Record dsh's separate exclusion/carriage verdict and exec's inapplicable model surface. No plugin or harness is added. Verify: No inheritance from Claude, no fabricated dsh hands support, and exec remains a script path.
 - [ ] 6.2 (U1e; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 6.1. Apply the shared verification duty above.

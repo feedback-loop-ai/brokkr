@@ -2491,7 +2491,7 @@ const RESUMED_PROMPT: &str = "carry this whole sentence across the rejoin, unalt
 /// before the argv recorder, so the probe is never counted as an
 /// attempt: what a test asserts about spawns stays what it was.
 #[cfg(unix)]
-fn version_preamble(banner: &str) -> String {
+pub(super) fn version_preamble(banner: &str) -> String {
     format!("case \"$1\" in --version|-V|-v) printf '{banner}\\n'; exit 0 ;; esac\n")
 }
 
@@ -2527,7 +2527,7 @@ fn codex_shim(dir: &std::path::Path, name: &str, argv: &std::path::Path) -> std:
 /// version the shim reports. Without one of these every offer is
 /// declined `unsupported-resume`, which is the fail-closed default and
 /// what an unmeasured provider gets.
-fn enabled_input(shape: &str, version: &str, workdir: &std::path::Path) -> Value {
+pub(super) fn enabled_input(shape: &str, version: &str, workdir: &std::path::Path) -> Value {
     let mut input = enabled_assessment(shape, version, "namespace", "boxed");
     input["workdir"] = json!(workdir);
     input["role_path"] = json!("/dev/null");
@@ -14669,7 +14669,7 @@ fn engine_input(mut input: Value, plan: Value, extra: &[String], managed: usize)
 /// typed local declaration and permission template; and the adapter's
 /// dialect and typed hands the serving inputs carry.
 #[derive(Clone)]
-struct Seal {
+pub(super) struct Seal {
     runs: Vec<(crate::native_controls::Origin, usize)>,
     local: crate::native_controls::LocalExpectation,
     template: crate::native_controls::TemplateExpectation,
@@ -14681,7 +14681,7 @@ struct Seal {
 impl Seal {
     /// Every handed argument the recipe's, with no local declaration, no
     /// template, no pins, no hands and no dialect.
-    fn authored(count: usize) -> Seal {
+    pub(super) fn authored(count: usize) -> Seal {
         use crate::native_controls::{AllowIntent, Application, LocalExpectation, SandboxIntent};
         Seal {
             runs: vec![(crate::native_controls::Origin::Authored, count)],
@@ -14756,7 +14756,7 @@ impl Seal {
     /// declared workspace `fragment` bound to this executable, the workdir
     /// `/w` and the default typed hands, as dispatch binds them. The
     /// expanded arguments are returned for the fixture to hand the driver.
-    fn hands(&mut self, fragment: &[&str]) -> Vec<String> {
+    pub(super) fn hands(&mut self, fragment: &[&str]) -> Vec<String> {
         let fragment: Vec<String> = fragment.iter().map(|part| part.to_string()).collect();
         let brokkr = std::env::current_exe().unwrap();
         let spec = crate::hands::HandsSpec::default();
@@ -14793,7 +14793,7 @@ const CODEX_SERVER: [&str; 6] = [
 /// admits exactly what the plan does, for the plan's provider and harness;
 /// and the serving inputs sealed beside it. The plan answers for what each
 /// held power admits, as the engine writes every plan.
-fn sealed_pair(mut input: Value, extra: &[String], seal: Seal) -> Value {
+pub(super) fn sealed_pair(mut input: Value, extra: &[String], seal: Seal) -> Value {
     use crate::native_controls::{
         Expected, HandsIntent, HeldPower, Identity, Inventory, LaunchRecord, NativeExpectation,
         SealedServing, Segment, SERVING_INPUTS,
@@ -15286,8 +15286,9 @@ fn a_rejected_rejoins_replacement_is_served_only_as_its_own_check_returns_it() {
         session: Some(THREAD),
         ..Default::default()
     };
+    let edge = mcp::Edge::new(&input);
     assert_eq!(
-        served("codex", rejoin.clone(), &extra, &input, chosen),
+        served("codex", rejoin.clone(), &extra, &edge, chosen),
         Ok(rejoin)
     );
 }
@@ -15367,19 +15368,14 @@ fn the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam() {
         session,
         ..Default::default()
     };
+    let edge = mcp::Edge::new(&unsealed);
     assert_eq!(
-        served(
-            "codex",
-            rejoin.command,
-            &extra,
-            &unsealed,
-            chosen(Some(THREAD))
-        ),
+        served("codex", rejoin.command, &extra, &edge, chosen(Some(THREAD))),
         Err(UNSEALED_REFUSAL.to_string()),
         "the eligible rejoin"
     );
     assert_eq!(
-        served("codex", cold, &extra, &unsealed, chosen(None)),
+        served("codex", cold, &extra, &edge, chosen(None)),
         Err(UNSEALED_REFUSAL.to_string()),
         "its cold replacement"
     );
@@ -16152,7 +16148,7 @@ fn every_model_launch_path_refuses_a_site_with_no_computed_authority() {
     }
 }
 
-fn claude_plan(include: &[&str], allow: &[&str], deny: &[&str]) -> Value {
+pub(super) fn claude_plan(include: &[&str], allow: &[&str], deny: &[&str]) -> Value {
     // The plan answers for both of Claude's known powers: OFF where its
     // tool is denied by name, ON otherwise.
     let powers = [("web-search", "WebSearch"), ("web-fetch", "WebFetch")];
@@ -18072,13 +18068,13 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
             ),
         ))
     };
+    let edge = mcp::Edge::new(&input);
     assert_eq!(
-        served("codex", rejoined.clone(), &extra, &input, chosen(None)),
-        departs(2)
-    );
-    assert_eq!(
-        served("codex", cold.clone(), &extra, &input, chosen(Some(THREAD))),
-        departs(2)
+        (
+            served("codex", rejoined.clone(), &extra, &edge, chosen(None)),
+            served("codex", cold.clone(), &extra, &edge, chosen(Some(THREAD))),
+        ),
+        (departs(2), departs(2))
     );
 
     // Each is checked against the whole ordered record, not only its
@@ -18110,19 +18106,19 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
         ),
     ];
     for (record, refusal) in &records {
+        let record = &mcp::Edge::new(record);
         assert_eq!(
-            &served(
-                "codex",
-                rejoined.clone(),
-                &extra,
-                record,
-                chosen(Some(THREAD))
+            (
+                &served(
+                    "codex",
+                    rejoined.clone(),
+                    &extra,
+                    record,
+                    chosen(Some(THREAD))
+                ),
+                &served("codex", cold.clone(), &extra, record, chosen(None)),
             ),
-            refusal
-        );
-        assert_eq!(
-            &served("codex", cold.clone(), &extra, record, chosen(None)),
-            refusal
+            (refusal, refusal)
         );
     }
 
@@ -18154,7 +18150,7 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
     unpaired.as_object_mut().unwrap().remove(SERVING_INPUTS);
     assert_eq!(
         rejoin(&unpaired).map(|plan| plan.command),
-        Err(UNPAIRED.to_string())
+        Err(mcp::UNPAIRED.to_string())
     );
 
     // Eligibility is still the driver's: a root opened under another
