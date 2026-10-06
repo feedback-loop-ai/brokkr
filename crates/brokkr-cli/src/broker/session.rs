@@ -8,9 +8,10 @@
 //! parse as a closed [`Plan`] written for that repository, run and attempt.
 //! HOME is the engine's, which this process inherited, and never anything
 //! the locator says: the locator's root must be that very directory.
-//! Then every plan field and the box intent are checked in MB3's refusal
-//! order, before any secret is looked up or anything is started. The plan
-//! and where it lies stay here; only the shared protocol types leave.
+//! Then every plan field is checked in MB3's refusal order, and the box
+//! intent against the server box the hands' server profile prepares from
+//! it (U6c4), before any secret is looked up or anything is started. The
+//! plan and where it lies stay here; only the shared protocol types leave.
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -20,6 +21,7 @@ use std::path::{Component, Path, PathBuf};
 
 use brokkr_core::canonical;
 use brokkr_protocol::broker::{BoxIntent, Inventory, Owner, Plan, Refusal, Tree};
+use brokkr_protocol::hands::{ServerBox, ServerProfile, ServerProgram};
 use brokkr_protocol::native_controls::bounded_line;
 use brokkr_protocol::{hands, secret};
 use rustix::fs::{fstat, openat, FileType, Mode, OFlags, Stat, CWD};
@@ -32,17 +34,6 @@ const INVENTORY: &str = "inventory.json";
 
 /// The most bytes an inventory or a plan may hold: MB3's request bound.
 const PLAN_BYTES_MAX: u64 = 1 << 20;
-
-/// MB3's shared system bin directories: an executable directly in one is
-/// a system entry, its own program tree.
-const SYSTEM_BINS: [&str; 6] = [
-    "/usr/bin",
-    "/usr/sbin",
-    "/usr/local/bin",
-    "/usr/local/sbin",
-    "/bin",
-    "/sbin",
-];
 
 /// MB3's bounds on one source observation: entries and mount records.
 const SOURCE_ENTRIES_MAX: u64 = 1_000_000;
@@ -233,31 +224,53 @@ fn owns(layout: &Layout<'_>, owner: &Owner) -> bool {
 
 /// Check every field of a bound plan in MB3's refusal order: its own
 /// shape, the binding names, the program tree, the seat's reach, the
-/// identity facts and the store's exclusion. Nothing is looked up or
-/// started. An invalid binding name refuses with decision 0012's cause
-/// through the one bounded sink: the plan wrote the name, so a control
-/// character in it is escaped rather than ending the line, and a long
-/// one is cut.
+/// identity facts and the store's exclusion. The program and the box are
+/// the hands' server profile's to prepare, and the plan must have sealed
+/// what it prepares. Nothing is looked up or started. An invalid binding
+/// name refuses with decision 0012's cause through the one bounded sink:
+/// the plan wrote the name, so a control character in it is escaped
+/// rather than ending the line, NUL as `\u{0}`, and a long one is cut.
 fn checked(layout: &Layout<'_>, plan: &Plan) -> Result<(), Refusal> {
     let intent = &plan.intent;
     ensure(well_formed(layout, plan), Refusal::Unbound)?;
     plan.secrets
         .iter()
         .try_for_each(|name| secret::validate_name(name))
-        .map_err(|cause| Refusal::Name(bounded_line(&cause)))?;
+        .map_err(|cause| Refusal::Name(bounded_line(&cause.replace('\0', NUL))))?;
     let reserved = plan
         .secrets
         .iter()
-        .any(|name| intent.environment.contains(name));
+        .any(|name| hands::server_environment().any(|fixed| fixed == name));
     ensure(!reserved, Refusal::StartupInputs)?;
-    let source = tree(&plan.connection.argv[0], intent, &layout.home)?;
-    reach(intent, source)?;
-    identity(intent, source)?;
+    let program = ServerProgram::resolve(&plan.connection.argv[0], &layout.home)?;
+    ensure(sealed(intent, &program), Refusal::ProgramTree)?;
+    let profile = ServerProfile {
+        reach: &intent.reach,
+        network: &intent.network,
+        bootstrap: &intent.bootstrap.path,
+        arguments: &plan.connection.argv[1..],
+    };
+    let server = ServerBox::prepare(&program, &profile)?;
+    identity(intent, &server)?;
     let store = intent.excluded.store.as_path();
     let reachable = roots(intent).any(|root| overlaps(store, root));
     ensure(!reachable, Refusal::StoreReachable)?;
-    let mounted = binds(intent, source).any(|bind| overlaps(store, bind));
+    let mounted = server.paths().any(|path| overlaps(store, path));
     ensure(!mounted, Refusal::StoreInBox)
+}
+
+/// NUL as a binding name's cause spells it: `\u{0}`, never `\0`.
+const NUL: &str = concat!("\\", "u{0}");
+
+/// Whether the plan sealed the program the profile resolved: its very
+/// canonical executable, and the same one of MB3's trees.
+fn sealed(intent: &BoxIntent, program: &ServerProgram) -> bool {
+    let tree = match (&intent.tree, program.tree()) {
+        (Tree::System {}, Tree::System {}) => true,
+        (Tree::Package { root }, Tree::Package { root: resolved }) => root == resolved,
+        (Tree::System {}, Tree::Package { .. }) | (Tree::Package { .. }, Tree::System {}) => false,
+    };
+    tree & (intent.executable == program.executable())
 }
 
 /// Every root of the seat's reach, writable and readable.
@@ -270,17 +283,11 @@ fn roots(intent: &BoxIntent) -> impl Iterator<Item = &Path> {
         .map(PathBuf::as_path)
 }
 
-/// What the box binds beside the system set: the program tree `source`
-/// and the bootstrap.
-fn binds<'a>(intent: &'a BoxIntent, source: &'a Path) -> impl Iterator<Item = &'a Path> {
-    [source, intent.bootstrap.path.as_path()].into_iter()
-}
-
 /// Whether the plan is the closed shape the engine seals: every digest,
 /// the owning repository's included, a sha256, every name non-empty, the
-/// server `cap-<capability>` (D5), the tools and fixed environment names
-/// non-empty sets and the binding names
-/// a set, possibly empty, every tool and argv member non-empty
+/// server `cap-<capability>` (D5), the tools a non-empty set, the fixed
+/// environment names the server box's own, in its order, and the binding
+/// names a set, possibly empty, every tool and argv member non-empty
 /// (tool-dialect v1), the clearance receipt for this dialect, the
 /// bootstrap this binary, the attempt among the control roots, and every
 /// sealed path absolute and normal.
@@ -314,11 +321,11 @@ fn well_formed(layout: &Layout<'_>, plan: &Plan) -> bool {
         & set(&plan.tools)
         & plan.tools.iter().all(|tool| !tool.is_empty())
         & (plan.secrets.is_empty() | set(&plan.secrets))
-        & set(&intent.environment)
         & intent
             .environment
             .iter()
-            .all(|name| secret::valid_name(name))
+            .map(String::as_str)
+            .eq(hands::server_environment())
         & !argv.is_empty()
         & argv.iter().all(|arg| !arg.is_empty())
         & (plan.clearance.dialect == plan.dialect.digest)
@@ -355,60 +362,16 @@ fn overlaps(one: &Path, other: &Path) -> bool {
     one.starts_with(other) | other.starts_with(one)
 }
 
-/// The box source the program tree binds, where the sealed tree is MB3's
-/// layout of the sealed executable: a system entry is the executable
-/// itself, directly in a shared system bin directory; a package is the
-/// executable's parent, or its grandparent when that parent is a `bin` or
-/// `sbin`, and never `/`, the host HOME or an ancestor of it. A launch
-/// path relative to the cwd resolves nothing.
-fn tree<'a>(launch: &str, intent: &'a BoxIntent, home: &Path) -> Result<&'a Path, Refusal> {
-    let executable = &intent.executable;
-    let searched = !launch.contains('/') | launch.starts_with('/');
-    ensure(searched & normal(executable), Refusal::ProgramTree)?;
-    let parent = executable.parent().ok_or(Refusal::ProgramTree)?;
-    let system = SYSTEM_BINS.map(Path::new).contains(&parent);
-    match (&intent.tree, system) {
-        (Tree::System {}, true) => Ok(executable),
-        (Tree::Package { root }, false) => {
-            let named = |dir: &str| parent.file_name() == Some(OsStr::new(dir));
-            // A directory named `bin` is never `/`, so it has a parent.
-            let derived = match named("bin") | named("sbin") {
-                true => parent.parent().unwrap_or(parent),
-                false => parent,
-            };
-            // The trusted HOME is absolute, so `/` is among its ancestors.
-            let widened = home.starts_with(derived);
-            ensure((root == derived) & !widened, Refusal::ProgramTree)?;
-            Ok(root)
-        }
-        (Tree::System {}, false) | (Tree::Package { .. }, true) => Err(Refusal::ProgramTree),
-    }
-}
-
-/// The seat's reach against the box: the executable in no writable root,
-/// then neither the program tree nor the bootstrap overlapping any root in
-/// either direction.
-fn reach(intent: &BoxIntent, source: &Path) -> Result<(), Refusal> {
-    let writable = &intent.reach.writable;
-    let launched = writable
-        .iter()
-        .any(|root| intent.executable.starts_with(root));
-    ensure(!launched, Refusal::LaunchInReach)?;
-    let overlapping =
-        binds(intent, source).any(|bind| roots(intent).any(|root| overlaps(bind, root)));
-    ensure(!overlapping, Refusal::BindOverlapsReach)
-}
-
 /// The identity facts the plan seals: at least one managed writer, each
 /// with a mapped uid; a source observation within MB3's bounds; and the
-/// control roots outside the seat's reach and the box.
-fn identity(intent: &BoxIntent, source: &Path) -> Result<(), Refusal> {
+/// control roots outside the seat's reach and every path the box mounts.
+fn identity(intent: &BoxIntent, server: &ServerBox) -> Result<(), Refusal> {
     let uids = &intent.writers.uids;
     let mapped = !uids.is_empty() & !uids.iter().any(|uid| UNMAPPED_UIDS.contains(uid));
     let sources = &intent.sources;
     let bounded = (sources.entries <= SOURCE_ENTRIES_MAX) & (sources.mounts <= MOUNT_RECORDS_MAX);
     let control = &intent.excluded.control;
-    let mut exposed = roots(intent).chain(binds(intent, source));
+    let mut exposed = roots(intent).chain(server.paths());
     let shared = exposed.any(|path| control.iter().any(|root| overlaps(root, path)));
     ensure(mapped & bounded & !shared, Refusal::Identity)
 }

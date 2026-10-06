@@ -34,8 +34,8 @@ use serde_json::{json, Map, Value};
 mod namespace;
 mod overlay;
 mod session;
-pub use namespace::namespace_join;
-use namespace::{namespace_path, Mount, Namespace};
+pub use namespace::{namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
+use namespace::{namespace_path, Mount, Namespace, Profile};
 use overlay::overlay_argv;
 pub use overlay::{overlay_supported_with, OverlayWrites};
 pub use session::{reap_dead_sessions, Reaped, Session, SessionError};
@@ -357,12 +357,12 @@ fn parse_git_dirs(reported: &str) -> (Option<PathBuf>, Option<PathBuf>) {
     }
 }
 
-/// The host toolchain the box binds read-only, at the same path, where it
-/// exists. The namespace builder `box_argv` opens with iterates exactly
-/// this item for its host-toolchain `--ro-bind-try` binds, and the Seatbelt startup-rule ledger reads the same
-/// item as its one fixed source set (decision 0046 slice II, design D3). It is
-/// a single list so the two cannot drift: a path added here is bound by
-/// bubblewrap and is in the ledger's host-toolchain set.
+/// The host toolchain every box binds read-only, at the same path, where it
+/// exists. The namespace builder iterates exactly this item for its
+/// `--ro-bind-try` system binds, a server box keeping of `/etc/ssl` only
+/// `/etc/ssl/certs` (U6c4), and the Seatbelt startup-rule ledger reads it
+/// as its one fixed source set (decision 0046 slice II, design D3): one
+/// list, so a path added here is bound by bubblewrap and is in the ledger.
 ///
 /// It lists toolchain paths only. A declared `ro`, `rw` or `overlay` bind a
 /// `HandsSpec` names, and the git common `config`, are bound by `box_argv` too
@@ -424,7 +424,7 @@ pub fn box_argv(
     let workdir = &std::path::absolute(workdir)?;
     let private_home = scratch.join("home");
     let private_tmp = scratch.join("tmp");
-    let mut namespace = Namespace::open(spec.network);
+    let mut namespace = Namespace::open(Profile::Workspace, spec.network);
     namespace.identity(&scratch.join("etc"))?;
     std::fs::create_dir_all(&private_home)?;
     std::fs::create_dir_all(&private_tmp)?;
