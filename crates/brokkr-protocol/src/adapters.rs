@@ -18,7 +18,9 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Map, Value};
 
+pub mod capability_calls;
 mod composite;
+mod dsh_stderr;
 mod route_overlay;
 mod start;
 // Design D6 (b) seals the producer: the seams, the structured
@@ -36,6 +38,8 @@ use crate::overrides::{Override, OverrideError};
 use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
 use crate::{Body, Message, ResultStatus};
+use capability_calls::Observation;
+use dsh_stderr::redact_dsh_reasoning;
 use start::start_prompt;
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -1605,12 +1609,8 @@ fn fold_stream_event(
                         checkpoint.remove(key);
                     }
                 }
-                let tool = tool_use.get("name").and_then(Value::as_str).unwrap_or("");
-                if !tool.is_empty() {
-                    checkpoint.insert(
-                        "tool".into(),
-                        Value::String(tool.chars().take(80).collect()),
-                    );
+                if let Some(tool) = Observation::claude(tool_use).legacy_tool() {
+                    checkpoint.insert("tool".into(), Value::String(tool));
                 }
                 // file_path ONLY: commands and URLs can embed inline secrets,
                 // and the journal is append-only — the verification review
@@ -1883,14 +1883,10 @@ fn fold_codex_event(
             emit(&json!({"step":"turn-started", "turn": *turn, "harness":"codex"}));
         }
         Some(kind @ ("item.started" | "item.completed")) => {
-            let item_type = event
-                .pointer("/item/type")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown");
             emit(&json!({
                 "step": if kind == "item.started" { "item-started" } else { "item-completed" },
                 "turn": *turn,
-                "tool": item_type.chars().take(80).collect::<String>(),
+                "tool": Observation::codex(event).legacy_tool(),
                 "harness":"codex",
             }));
         }
@@ -2188,11 +2184,7 @@ fn fold_dsh_event(
             emit(&Value::Object(checkpoint));
         }
         Some("tool/call") => {
-            let Some(tool) = event
-                .pointer("/data/name")
-                .and_then(Value::as_str)
-                .filter(|tool| !tool.is_empty())
-            else {
+            let Some(tool) = Observation::dsh(event).legacy_tool() else {
                 return;
             };
             if *turns == 0 {
@@ -2208,7 +2200,7 @@ fn fold_dsh_event(
                 "harness":"deepseek",
                 "model": model,
                 "effort": dsh_echoed_effort(session_meta),
-                "tool": tool.chars().take(80).collect::<String>(),
+                "tool": tool,
             }));
         }
         _ => {}
@@ -3907,6 +3899,7 @@ fn invoke_dsh(
             .map(|status| status.map(|status| status.code().unwrap_or(-1)))
     };
     invoke_dsh_launch_observed(launch, command, workdir, bindings, emit, wait, &mut |_| {})
+        .map(|invocation| dsh_stderr::name_the_pin(invocation, pinned.extra))
 }
 
 /// The DSH plugin's own value-taking selectors and the launcher's control
@@ -5628,39 +5621,6 @@ fn dsh_failure_before_promotion(
         Some((_, _, staged)) => dsh_sandbox::keep_store(staged, problem),
         None => problem,
     }
-}
-
-/// The one dsh stderr stream the journal may not quote.
-///
-/// dsh 0.1.2-rc.1's headless profile streams the model's reasoning to
-/// stderr under a `dsh: reasoning:` line (measured 2026-09-04: one
-/// header, then the raw thinking text, until the harness's next `dsh: `
-/// line or the end of the stream). The driver's stderr tail is what a
-/// parked seat quotes into the journal, and a journal admits no
-/// reasoning text (decisions 0032 and 0034). So a reasoning block is
-/// replaced by one line that says it was there, and every harness line
-/// survives, because those are what a park needs to be read.
-fn redact_dsh_reasoning(stderr: &str) -> String {
-    const HEADER: &str = "dsh: reasoning:";
-    const REDACTED: &str = "dsh: reasoning: [not journaled — decision 0034]";
-    let mut kept = Vec::new();
-    let mut inside = false;
-    for line in stderr.lines() {
-        if line.trim_end() == HEADER {
-            inside = true;
-            kept.push(REDACTED);
-        } else if line.starts_with("dsh: ") {
-            inside = false;
-            kept.push(line);
-        } else if !inside {
-            kept.push(line);
-        }
-    }
-    let mut text = kept.join("\n");
-    if stderr.ends_with('\n') {
-        text.push('\n');
-    }
-    text
 }
 
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]

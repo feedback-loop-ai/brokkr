@@ -34,8 +34,7 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-#[path = "support/witnesses.rs"]
-mod witnesses;
+use crate::witnesses;
 
 use witnesses::Witnesses;
 
@@ -353,7 +352,10 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
         .unwrap();
     assert!(exec.model_flag.is_none());
     assert!(exec.tool_permissions.is_none());
-    assert!(exec.mcp.is_none());
+    assert_eq!(
+        exec.mcp,
+        brokkr_runtime::agents::McpSupport::Legacy { flag: None }
+    );
     assert!(exec.models.is_empty());
     // `codex` maps models, and its map is proved where its evidence is
     // (`the_shipped_codex_adapter_maps_the_models_its_own_cli_names`);

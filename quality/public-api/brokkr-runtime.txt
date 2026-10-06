@@ -85,12 +85,68 @@ pub const brokkr_runtime::agents::EgressClass::VOCABULARY: &'static str
 pub fn brokkr_runtime::agents::EgressClass::name(&self) -> &'static str
 pub fn brokkr_runtime::agents::EgressClass::parse(&str) -> core::option::Option<brokkr_runtime::agents::EgressClass>
 pub enum brokkr_runtime::agents::LibraryError
+pub brokkr_runtime::agents::LibraryError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::agents::LibraryError::Invalid(alloc::string::String)
 pub brokkr_runtime::agents::LibraryError::Io(core::io::error::Error)
+pub brokkr_runtime::agents::LibraryError::Mcp(brokkr_runtime::agents::McpRefusal)
 pub enum brokkr_runtime::agents::Lowering
 pub brokkr_runtime::agents::Lowering::Composed(brokkr_runtime::agents::Composition)
 pub brokkr_runtime::agents::Lowering::Refused(brokkr_runtime::agents::Intent)
 pub brokkr_runtime::agents::Lowering::Unavailable
+pub enum brokkr_runtime::agents::McpAxis
+pub brokkr_runtime::agents::McpAxis::Inapplicable
+pub brokkr_runtime::agents::McpAxis::Inapplicable::reason: alloc::string::String
+pub brokkr_runtime::agents::McpAxis::Measured
+pub brokkr_runtime::agents::McpAxis::Measured::evidence: alloc::string::String
+pub brokkr_runtime::agents::McpAxis::Unmeasured(brokkr_runtime::agents::McpUnmeasured)
+pub brokkr_runtime::agents::McpAxis::Unsupported
+pub brokkr_runtime::agents::McpAxis::Unsupported::reason: alloc::string::String
+pub enum brokkr_runtime::agents::McpError
+pub brokkr_runtime::agents::McpError::BorrowedBinary
+pub brokkr_runtime::agents::McpError::BorrowedBinary::binary: alloc::string::String
+pub brokkr_runtime::agents::McpError::BorrowedBinary::measured: alloc::string::String
+pub brokkr_runtime::agents::McpError::BorrowedBinary::shape: brokkr_runtime::agents::McpShape
+pub brokkr_runtime::agents::McpError::BorrowedHarness
+pub brokkr_runtime::agents::McpError::BorrowedHarness::harness: alloc::string::String
+pub brokkr_runtime::agents::McpError::BorrowedHarness::measured: alloc::string::String
+pub brokkr_runtime::agents::McpError::BorrowedHarness::shape: brokkr_runtime::agents::McpShape
+pub brokkr_runtime::agents::McpError::Decode(alloc::string::String)
+pub brokkr_runtime::agents::McpError::DuplicateShape(brokkr_runtime::agents::McpShape)
+pub brokkr_runtime::agents::McpError::LegacyFlag
+pub brokkr_runtime::agents::McpError::LegacyServer(alloc::string::String)
+pub brokkr_runtime::agents::McpError::LegacyServerPath(alloc::string::String)
+pub brokkr_runtime::agents::McpError::LegacyServers
+pub brokkr_runtime::agents::McpError::MixedForms
+pub brokkr_runtime::agents::McpError::ModelHarness(alloc::string::String)
+pub brokkr_runtime::agents::McpError::ResumeHands
+pub brokkr_runtime::agents::McpError::ResumeHands::declared: alloc::string::String
+pub brokkr_runtime::agents::McpError::ResumeHands::shape: brokkr_runtime::agents::McpShape
+pub brokkr_runtime::agents::McpError::UndeclaredHands(brokkr_runtime::agents::McpShape)
+pub brokkr_runtime::agents::McpError::UndeclaredResume(brokkr_runtime::agents::McpShape)
+pub brokkr_runtime::agents::McpError::UnknownKey(alloc::string::String)
+pub enum brokkr_runtime::agents::McpHands
+pub brokkr_runtime::agents::McpHands::Boxed
+pub brokkr_runtime::agents::McpHands::Harness
+pub brokkr_runtime::agents::McpHands::NoHands
+pub enum brokkr_runtime::agents::McpHost
+pub brokkr_runtime::agents::McpHost::Linux
+pub brokkr_runtime::agents::McpHost::Macos
+pub enum brokkr_runtime::agents::McpInvocation
+pub brokkr_runtime::agents::McpInvocation::Cold
+pub brokkr_runtime::agents::McpInvocation::Replacement
+pub brokkr_runtime::agents::McpInvocation::Resume(alloc::string::String)
+pub enum brokkr_runtime::agents::McpSupport
+pub brokkr_runtime::agents::McpSupport::Declared
+pub brokkr_runtime::agents::McpSupport::Declared::carriage: brokkr_runtime::agents::McpAxis
+pub brokkr_runtime::agents::McpSupport::Declared::shapes: alloc::collections::btree::map::BTreeMap<brokkr_runtime::agents::McpShape, brokkr_runtime::agents::McpMeasurement>
+pub brokkr_runtime::agents::McpSupport::Inapplicable
+pub brokkr_runtime::agents::McpSupport::Inapplicable::reason: alloc::string::String
+pub brokkr_runtime::agents::McpSupport::Legacy
+pub brokkr_runtime::agents::McpSupport::Legacy::flag: core::option::Option<alloc::string::String>
+pub enum brokkr_runtime::agents::McpUnmeasured
+pub brokkr_runtime::agents::McpUnmeasured::Absent
+pub brokkr_runtime::agents::McpUnmeasured::Declared(alloc::string::String)
+pub brokkr_runtime::agents::McpUnmeasured::Legacy
 pub enum brokkr_runtime::agents::Presence
 pub brokkr_runtime::agents::Presence::Available
 pub brokkr_runtime::agents::Presence::Unavailable
@@ -163,7 +219,7 @@ pub brokkr_runtime::agents::Adapter::hands_notice: core::option::Option<brokkr_p
 pub brokkr_runtime::agents::Adapter::harness: brokkr_runtime::agents::HarnessHands
 pub brokkr_runtime::agents::Adapter::hint: core::option::Option<alloc::string::String>
 pub brokkr_runtime::agents::Adapter::judges: alloc::vec::Vec<alloc::string::String>
-pub brokkr_runtime::agents::Adapter::mcp: core::option::Option<brokkr_runtime::agents::McpSupport>
+pub brokkr_runtime::agents::Adapter::mcp: brokkr_runtime::agents::McpSupport
 pub brokkr_runtime::agents::Adapter::model_flag: core::option::Option<alloc::string::String>
 pub brokkr_runtime::agents::Adapter::models: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
 pub brokkr_runtime::agents::Adapter::native: brokkr_runtime::capabilities::NativeInventory
@@ -282,9 +338,23 @@ impl brokkr_runtime::agents::LocalTools
 pub fn brokkr_runtime::agents::LocalTools::is_unspecified(&self) -> bool
 pub fn brokkr_runtime::agents::LocalTools::narrow(&self, &brokkr_runtime::agents::LocalTools) -> core::result::Result<brokkr_runtime::agents::LocalTools, (alloc::string::String, alloc::string::String)>
 pub fn brokkr_runtime::agents::LocalTools::unspecified() -> brokkr_runtime::agents::LocalTools
-pub struct brokkr_runtime::agents::McpSupport
-pub brokkr_runtime::agents::McpSupport::flag: alloc::string::String
-pub brokkr_runtime::agents::McpSupport::servers: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub struct brokkr_runtime::agents::McpIsolation
+pub brokkr_runtime::agents::McpIsolation::ambient: brokkr_runtime::agents::McpAxis
+pub brokkr_runtime::agents::McpIsolation::native_write: brokkr_runtime::agents::McpAxis
+pub brokkr_runtime::agents::McpIsolation::process_read: brokkr_runtime::agents::McpAxis
+pub brokkr_runtime::agents::McpIsolation::store_read: brokkr_runtime::agents::McpAxis
+pub struct brokkr_runtime::agents::McpMeasurement
+pub brokkr_runtime::agents::McpMeasurement::isolation: brokkr_runtime::agents::McpIsolation
+pub brokkr_runtime::agents::McpMeasurement::version: alloc::string::String
+pub struct brokkr_runtime::agents::McpRefusal
+pub brokkr_runtime::agents::McpRefusal::problem: brokkr_runtime::agents::McpError
+pub brokkr_runtime::agents::McpRefusal::what: alloc::string::String
+pub struct brokkr_runtime::agents::McpShape
+pub brokkr_runtime::agents::McpShape::hands: brokkr_runtime::agents::McpHands
+pub brokkr_runtime::agents::McpShape::host: brokkr_runtime::agents::McpHost
+pub brokkr_runtime::agents::McpShape::invocation: brokkr_runtime::agents::McpInvocation
+impl core::fmt::Display for brokkr_runtime::agents::McpShape
+pub fn brokkr_runtime::agents::McpShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_runtime::agents::Notice
 pub brokkr_runtime::agents::Notice::agent: alloc::string::String
 pub brokkr_runtime::agents::Notice::capability: alloc::string::String
@@ -419,6 +489,7 @@ impl brokkr_runtime::bundle::CharterOwner
 pub fn brokkr_runtime::bundle::CharterOwner::root(&self) -> &std::path::PathBuf
 pub enum brokkr_runtime::bundle::CompileError
 pub brokkr_runtime::bundle::CompileError::Capability(alloc::string::String)
+pub brokkr_runtime::bundle::CompileError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::bundle::CompileError::Invalid(alloc::string::String)
 pub brokkr_runtime::bundle::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::bundle::CompileError::Json(serde_json::error::Error)
@@ -596,13 +667,16 @@ pub fn brokkr_runtime::bundle::site_charter_text(&brokkr_runtime::bundle::Bundle
 pub type brokkr_runtime::bundle::CharterPins = alloc::collections::btree::map::BTreeMap<std::path::PathBuf, alloc::collections::btree::set::BTreeSet<brokkr_runtime::bundle::CharterPin>>
 pub type brokkr_runtime::bundle::DriverDigests = serde_json::map::Map<alloc::string::String, serde_json::value::Value>
 pub mod brokkr_runtime::capabilities
+pub enum brokkr_runtime::capabilities::Connection
+pub brokkr_runtime::capabilities::Connection::Stdio(alloc::vec::Vec<alloc::string::String>)
+pub brokkr_runtime::capabilities::Connection::Url(alloc::string::String)
 pub enum brokkr_runtime::capabilities::Denial<'a>
 pub brokkr_runtime::capabilities::Denial::Delivered
 pub brokkr_runtime::capabilities::Denial::Impossible(&'a str)
 pub brokkr_runtime::capabilities::Denial::Unmeasured(&'a str)
 pub enum brokkr_runtime::capabilities::DialectKind
 pub brokkr_runtime::capabilities::DialectKind::Hands
-pub brokkr_runtime::capabilities::DialectKind::Mcp
+pub brokkr_runtime::capabilities::DialectKind::Mcp(brokkr_runtime::capabilities::McpServer)
 pub brokkr_runtime::capabilities::DialectKind::Native
 pub brokkr_runtime::capabilities::DialectKind::Native::adapter_key: alloc::string::String
 pub brokkr_runtime::capabilities::DialectKind::Native::provider: alloc::string::String
@@ -673,13 +747,14 @@ pub brokkr_runtime::capabilities::Authority::dialects: alloc::collections::btree
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::assess(&self, &brokkr_runtime::agents::Adapter, &str, brokkr_runtime::capabilities::Requests) -> core::result::Result<brokkr_runtime::capabilities::Outcome, alloc::string::String>
 pub fn brokkr_runtime::capabilities::Authority::load(brokkr_runtime::capabilities::CapabilityContext) -> core::result::Result<brokkr_runtime::capabilities::Authority, alloc::string::String>
-pub fn brokkr_runtime::capabilities::Authority::manifest(&self, &[alloc::string::String]) -> serde_json::value::Value
 pub fn brokkr_runtime::capabilities::Authority::nothing(&str, &std::path::Path) -> brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::resolve(&self, &brokkr_runtime::capabilities::SiteAsks, &brokkr_runtime::capabilities::Serving<'_>) -> core::result::Result<brokkr_runtime::capabilities::Outcome, alloc::string::String>
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::binding(&self, &str) -> core::result::Result<brokkr_runtime::capabilities::Native<'_>, brokkr_runtime::capabilities::Unbound>
+impl brokkr_runtime::capabilities::Authority
+pub fn brokkr_runtime::capabilities::Authority::manifest(&self, &[alloc::string::String]) -> serde_json::value::Value
 pub struct brokkr_runtime::capabilities::CapabilityContext
-pub brokkr_runtime::capabilities::CapabilityContext::grants: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::realms::CapabilityGrant>
+pub brokkr_runtime::capabilities::CapabilityContext::grants: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::realms::grants::CapabilityGrant>
 pub brokkr_runtime::capabilities::CapabilityContext::realm: alloc::string::String
 pub brokkr_runtime::capabilities::CapabilityContext::root: std::path::PathBuf
 impl brokkr_runtime::capabilities::CapabilityContext
@@ -707,10 +782,16 @@ pub brokkr_runtime::capabilities::Holding::definition_sha256: alloc::string::Str
 pub brokkr_runtime::capabilities::Holding::dialect: alloc::string::String
 pub brokkr_runtime::capabilities::Holding::dialect_sha256: alloc::string::String
 pub brokkr_runtime::capabilities::Holding::restrictions: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub brokkr_runtime::capabilities::Holding::retention: brokkr_runtime::capabilities::Retention
 pub brokkr_runtime::capabilities::Holding::tools: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_runtime::capabilities::ListFlag
 pub brokkr_runtime::capabilities::ListFlag::flag: alloc::string::String
 pub brokkr_runtime::capabilities::ListFlag::separator: alloc::string::String
+pub struct brokkr_runtime::capabilities::McpServer
+pub brokkr_runtime::capabilities::McpServer::connection: brokkr_runtime::capabilities::Connection
+pub brokkr_runtime::capabilities::McpServer::retained: bool
+pub brokkr_runtime::capabilities::McpServer::secrets: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::capabilities::McpServer::version: alloc::string::String
 pub struct brokkr_runtime::capabilities::Native<'a>
 pub brokkr_runtime::capabilities::Native::adapter_key: &'a str
 pub brokkr_runtime::capabilities::Native::dialect: &'a brokkr_runtime::capabilities::ToolDialect
@@ -743,12 +824,19 @@ pub brokkr_runtime::capabilities::Outcome::provider: alloc::string::String
 impl brokkr_runtime::capabilities::Outcome
 pub fn brokkr_runtime::capabilities::Outcome::controls(&self) -> serde_json::value::Value
 pub fn brokkr_runtime::capabilities::Outcome::identity(&self) -> brokkr_protocol::native_controls::Identity
-pub fn brokkr_runtime::capabilities::Outcome::manifest(&self) -> serde_json::value::Value
 pub fn brokkr_runtime::capabilities::Outcome::prompt(&self) -> serde_json::value::Value
+impl brokkr_runtime::capabilities::Outcome
+pub fn brokkr_runtime::capabilities::Outcome::manifest(&self) -> serde_json::value::Value
+pub struct brokkr_runtime::capabilities::Retention
+pub brokkr_runtime::capabilities::Retention::declared: bool
+pub brokkr_runtime::capabilities::Retention::realm: brokkr_core::realms::grants::GrantRetention
 pub struct brokkr_runtime::capabilities::SelectionFlags
 pub brokkr_runtime::capabilities::SelectionFlags::allow: brokkr_runtime::capabilities::ListFlag
 pub brokkr_runtime::capabilities::SelectionFlags::deny: brokkr_runtime::capabilities::ListFlag
 pub brokkr_runtime::capabilities::SelectionFlags::include: brokkr_runtime::capabilities::ListFlag
+pub struct brokkr_runtime::capabilities::Sends
+pub brokkr_runtime::capabilities::Sends::description: alloc::string::String
+pub brokkr_runtime::capabilities::Sends::seat_composed: bool
 pub struct brokkr_runtime::capabilities::Serving<'a>
 pub brokkr_runtime::capabilities::Serving::authored: &'a [alloc::string::String]
 pub brokkr_runtime::capabilities::Serving::fragment: &'a [alloc::string::String]
@@ -771,14 +859,15 @@ pub brokkr_runtime::capabilities::SiteCapabilities::asks: brokkr_runtime::capabi
 pub brokkr_runtime::capabilities::SiteCapabilities::outcomes: alloc::vec::Vec<brokkr_runtime::capabilities::Outcome>
 impl brokkr_runtime::capabilities::SiteCapabilities
 pub fn brokkr_runtime::capabilities::SiteCapabilities::manifest(&self) -> serde_json::value::Value
+impl brokkr_runtime::capabilities::SiteCapabilities
 pub fn brokkr_runtime::capabilities::SiteCapabilities::serving(&self, core::option::Option<(&str, &str)>) -> core::option::Option<&brokkr_runtime::capabilities::Outcome>
 pub struct brokkr_runtime::capabilities::ToolDialect
 pub brokkr_runtime::capabilities::ToolDialect::classes: core::option::Option<alloc::vec::Vec<alloc::string::String>>
-pub brokkr_runtime::capabilities::ToolDialect::egress: alloc::string::String
+pub brokkr_runtime::capabilities::ToolDialect::egress: brokkr_runtime::agents::EgressClass
 pub brokkr_runtime::capabilities::ToolDialect::kind: brokkr_runtime::capabilities::DialectKind
 pub brokkr_runtime::capabilities::ToolDialect::name: alloc::string::String
 pub brokkr_runtime::capabilities::ToolDialect::restrictions: serde_json::value::Value
-pub brokkr_runtime::capabilities::ToolDialect::seat_composed: bool
+pub brokkr_runtime::capabilities::ToolDialect::sends: brokkr_runtime::capabilities::Sends
 pub brokkr_runtime::capabilities::ToolDialect::serves: alloc::string::String
 pub brokkr_runtime::capabilities::ToolDialect::sha256: alloc::string::String
 pub brokkr_runtime::capabilities::ToolDialect::source: alloc::string::String
@@ -1210,6 +1299,7 @@ impl<'a> brokkr_runtime::CommandWord<'a>
 pub fn brokkr_runtime::CommandWord<'a>::parse(&'a str) -> brokkr_runtime::CommandWord<'a>
 pub enum brokkr_runtime::CompileError
 pub brokkr_runtime::CompileError::Capability(alloc::string::String)
+pub brokkr_runtime::CompileError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::CompileError::Invalid(alloc::string::String)
 pub brokkr_runtime::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::CompileError::Json(serde_json::error::Error)
@@ -1271,8 +1361,10 @@ pub brokkr_runtime::KeepRefsError::Git::verb: &'static str
 pub brokkr_runtime::KeepRefsError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::KeepRefsError::UnusableRunId(alloc::string::String)
 pub enum brokkr_runtime::LibraryError
+pub brokkr_runtime::LibraryError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::LibraryError::Invalid(alloc::string::String)
 pub brokkr_runtime::LibraryError::Io(core::io::error::Error)
+pub brokkr_runtime::LibraryError::Mcp(brokkr_runtime::agents::McpRefusal)
 pub enum brokkr_runtime::Presence
 pub brokkr_runtime::Presence::Available
 pub brokkr_runtime::Presence::Unavailable

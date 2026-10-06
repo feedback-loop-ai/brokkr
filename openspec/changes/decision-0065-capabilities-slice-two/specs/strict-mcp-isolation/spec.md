@@ -29,8 +29,10 @@ from replayed session history. U0 SHALL separately measure native-write
 confinement and secret-read isolation for hands and native tools, using positive
 canary controls at the operator-store and child-process surfaces. Ambient MCP
 exclusion or read-only workspace settings SHALL NOT qualify either read surface.
-Secret-bearing eligibility follows MB2; no new box or permission exemption is
-introduced to force a passing measurement.
+Secret-bearing eligibility follows MB2; no whole-harness box or permission
+exemption is introduced to force a passing measurement. MB3's separate server
+box does not prove that native tools cannot read the host store or a secret-
+bearing child process; both measurements remain required.
 
 #### Scenario: A sentinel distinguishes replacement from merging
 

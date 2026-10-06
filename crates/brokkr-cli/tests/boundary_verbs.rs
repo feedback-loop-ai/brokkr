@@ -451,7 +451,7 @@ fn a_plain_run_failure_does_not_print_the_parent_token() {
     let output = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "a_plain_compile_has_no_boundary_map_and_resume_keeps_its_pinned_namespace",
+            "boundary_verbs::a_plain_compile_has_no_boundary_map_and_resume_keeps_its_pinned_namespace",
             "--nocapture",
         ])
         .env("GH_TOKEN", parent_token)

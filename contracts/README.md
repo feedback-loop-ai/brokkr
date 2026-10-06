@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v5.schema.json`, below) |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v6.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -713,3 +713,100 @@ not name the list reads exactly as a v6 map, grants included, and keeps
 v6's refusal of a key written twice. The list rides into a run manifest
 inside the map's own pin, so a resume judges against the list the run
 started under.
+
+Decision 0065's slice two (SC2 and CR1, the retention veto) adds one more
+file and changes none of the bytes above — `realms.v7`'s included, which
+is now pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with the realm's retention veto | `realms.v8.schema.json` | brokkr-core (shape and refusals, `realms/grants.rs`) |
+
+`forge.realms/v8` is `v7` plus exactly one reserved key on a GRANT:
+`retain`, whose only legal value is `false`. A dialect declares whether
+its responses are retained; the realm may veto that, never require it, so
+`true`, `null`, a string, a number or an object is refused by this file and
+by the loader alike, the loader naming the realm and the capability.
+Leaving `retain` out inherits the dialect's declaration. Under v8 the
+engine owns four keys of a grant — `dialect`, `tools`, `offices` and
+`retain` — and a veto never reaches the dialect as a restriction, while the
+grant as written, and so the manifest's pin of it, keeps `retain: false`.
+Under v6 and v7 the engine still owns three keys, and a written `retain`
+of any value stays the dialect's restriction, exactly as before: an older
+map never acquires the veto by spelling alone, and moving to v8 is an
+explicit edit that changes the pinned grant. A v8 map that writes no
+`retain` reads exactly as the same map under v7, `provisional_offices`
+and v6's refusal of a key written twice included. Reading the veto into a
+run's held capability, and a dialect restriction schema that claims
+`retain` under a v8 grant, are the runtime's later work in this slice.
+
+Decision 0065's slice two (SC3 and CR1, U5f) adds one more file and changes
+none of the bytes above — `run-manifest.v11`'s included, which is now
+pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Run manifest with what implements and retains each holding | `run-manifest.v12.schema.json` | brokkr-runtime (`capabilities/manifest.rs`), brokkr-store export/resume |
+
+`run-manifest.v12` is `v11` with each candidate's held record closed over
+two more REQUIRED records, and no other clause moved. `implementation`
+names what carries the capability: `provider-native` with its `provider`
+and `adapter_key`, or `mcp` with the `server` it is carried under
+(`cap-<capability>`), its one `connection` form as the dialect wrote it,
+its pinned `version` and the decision-0012 binding NAMES in `secrets`.
+`retention` pins the dialect's `declared` retention, the realm's
+disposition (`veto` where a v8 grant writes `retain: false`, `inherit`
+otherwise, a v6 or v7 grant included, since it cannot veto) and the
+`effective` result, true exactly where the dialect retains and the realm
+does not veto. A provider-native holding declares false and is
+effectively false. No resolved secret value, ledger path, process id or
+call id is recorded, so none is identity. The key stays BUNDLE identity,
+so a changed declaration moves the digest even under a veto that keeps
+the effect false. A manifest whose candidates hold nothing reads the same
+under v11 and v12, and a v11 holding is not a v12 one: a run pinned under
+v11 with a holding meets the existing resume refusal, which names
+capabilities, and is never rewritten. Every `mcp` grant still refuses
+the compile until slice two's enabling unit, so today only provider-native
+holdings are written.
+
+Decision 0065's slice two (CC3 and SC4, capability-call attribution) adds
+one more file and changes none of the bytes above — `seat-record.v5`'s
+included, which is now pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Seat record with a capability call's attribution | `seat-record.v6.schema.json` | brokkr-store append/export/verify (an embedded copy held byte-equal by test), every seat readout |
+
+`seat-record.v6` is `v5` plus five optional properties on the checkpoint,
+which travel as one group with the existing `tool`: `capability` and
+`dialect` in the realm-name grammar up to 128 bytes, `call_id` an ASCII
+identifier up to 128 bytes, `call_state` and `response_sha256`. Any one of
+them requires `capability`, `dialect`, `tool`, `call_id` and `call_state`
+together. `call_state` is exactly `observed`, for a native call the harness
+reported, which claims no completion, or one of a broker call's settled
+outcomes `succeeded`, `failed`, `refused` and `interrupted`; a broker's
+private `started` record is never a public checkpoint and is refused here.
+`response_sha256` is 64 lowercase hex characters and rides only beside
+`succeeded` or `failed`. The engine still has to establish effective
+retention and the published artifact before it writes one; this file judges
+the shape alone. A private observation, a partial group or any other key is
+refused by the closed checkpoint.
+
+Both widenings are scoped on the group, so every valid v5 record is a valid
+v6 record and none is back-filled. An attributed `tool` may reach 256 bytes
+in v5's vocabulary, never truncated to fit, while an unattributed one keeps
+v5's 80. v5's tool-to-turn dependency stands for every old-shaped and
+native `observed` row; only a settled broker checkpoint, owned by its
+attempt and call identity, may omit a turn no measured correlation
+supplied, and it keeps a real correlated turn when there is one. Nothing
+invents a turn or usage to satisfy the dependency.
+
+The store dispatches the 0.12 engine line and later to v6, and the 0.10 and
+0.11 lines to v5, at append, export, import verification and offline
+verification alike. 0.12 is the development line on main after the 0.12.0
+tag when v6 landed; `engine` carries no position within a line, and the
+tagged 0.12.0 engine wrote no attribution field, so every row it wrote reads
+under v6 exactly as it did under v5. A pre-release or build of a line is
+that line, and a malformed or missing engine reads as v1, as before. Until
+the engine's attribution consumers land, drivers keep writing legacy rows,
+and those append, export and verify unchanged.

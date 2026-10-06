@@ -30,8 +30,7 @@ fn compile(relative: &str) -> Bundle {
     .unwrap_or_else(|e| panic!("{relative} must compile: {e}"))
 }
 
-#[path = "support/witnesses.rs"]
-mod witnesses;
+use crate::witnesses;
 
 use witnesses::Witnesses;
 

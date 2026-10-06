@@ -827,7 +827,7 @@ fn a_refusal_inside_a_panel_member_propagates_out_of_its_step() {
 /// An agent no seat names, asking for `asks`.
 fn unseated(asks: Value) -> Value {
     json!({"description": "an office no seat of this bundle names",
-           "charter": "charters/work.md", "models": ["opus"],
+           "charter": "charters/data.md", "models": ["opus"],
            "efforts": {"opus": "high"}, "capabilities": asks})
 }
 
@@ -850,7 +850,7 @@ fn define(fixture: &AgentFixture, name: &str, classes: Value) {
 #[test]
 fn an_unseated_loaded_agent_with_an_undefined_request_refuses_the_compile() {
     for strength in ["requires", "wants"] {
-        let fixture = AgentFixture::new();
+        let fixture = AgentFixture::declaring();
         define(&fixture, "web-search", json!(["reads", "egress"]));
         // The control: the same library compiles while every loaded
         // agent's request is defined — the unseated one's included.
@@ -901,7 +901,7 @@ fn an_unseated_loaded_agent_with_an_undefined_request_refuses_the_compile() {
     }
     // A bundle that names no agent never opens the library, so a broken
     // agent in it is not this compile's to refuse.
-    let fixture = AgentFixture::new();
+    let fixture = AgentFixture::declaring();
     fixture.write(
         "agents/researcher.json",
         unseated(json!({"library-docs": "requires"})),
@@ -918,7 +918,7 @@ fn an_unseated_loaded_agent_with_an_undefined_request_refuses_the_compile() {
 /// loaded agent and no grant names stays outside it.
 #[test]
 fn a_definition_only_an_unseated_agent_names_is_pinned_and_an_unconsulted_one_is_not() {
-    let fixture = AgentFixture::new();
+    let fixture = AgentFixture::declaring();
     define(&fixture, "web-search", json!(["reads", "egress"]));
     define(&fixture, "unasked", json!(["reads"]));
     fixture.write(
@@ -955,7 +955,6 @@ fn a_definition_only_an_unseated_agent_names_is_pinned_and_an_unconsulted_one_is
 // ------------------------------------------- typed local declarations (D5)
 
 use crate::agents::{Library, LocalTools, Sandbox};
-
 fn local(allow: Option<&[&str]>, sandbox: Option<Sandbox>) -> LocalTools {
     LocalTools {
         allow: allow.map(|names| names.iter().map(|name| name.to_string()).collect()),
@@ -5789,12 +5788,12 @@ fn grant_web_search(
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
-    let fixture = AgentFixture::new();
+    let fixture = AgentFixture::declaring();
     fixture.write(
         "agents/boxed.json",
         json!({
             "description": "a boxed agent",
-            "charter": "charters/work.md",
+            "charter": "charters/data.md",
             "models": ["astra"],
             "efforts": {"astra": "high"},
             "hands": "workspace",
@@ -6785,4 +6784,5 @@ fn a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified() {
     }
     each_row(rows);
 }
+mod charter_tests;
 mod gate_tests;

@@ -12,6 +12,7 @@
 
 mod agents;
 mod boundary;
+mod broker;
 mod budget_frame;
 mod cli_args;
 mod compare;
@@ -139,35 +140,8 @@ enum Cmd {
     /// Compare two runs' aligned outcomes: decision trails, first
     /// divergence, phases visited, per-seat costs. Read-only.
     Compare(CompareArgs),
-    /// The recipe library: bundle directories as named, swappable
-    /// delivery strategies.
-    Recipes {
-        #[command(subcommand)]
-        command: RecipesCmd,
-    },
-    /// The agent library (decision 0016): one definition per agent —
-    /// description, charter, an ordered chain of abstract model names,
-    /// abstract tool/MCP configuration — that seats reference by name.
-    Agents {
-        #[command(subcommand)]
-        command: AgentsCmd,
-    },
-    /// The standing overseer (decision 0020): read the fleet, propose to
-    /// the operator, execute nothing. It opens the journal read-only,
-    /// issues no operator command, starts no run, and records every
-    /// proposal — with the run ids and sequence numbers it was derived
-    /// from — in its own append-only file beside the journal.
-    Muninn {
-        #[command(subcommand)]
-        command: MuninnCmd,
-    },
-    /// Manage the operator-side secrets store (decision 0012): bundles
-    /// and journals carry NAMES only; values live in this env-format
-    /// file outside version control. There is no value-printing verb.
-    Secrets {
-        #[command(subcommand)]
-        command: SecretsCmd,
-    },
+    #[command(flatten)]
+    Library(LibraryCmd),
     /// Close a stopped or parked run from its journal alone — no bundle,
     /// no recipe, no effect. `resume` compiles the exact pinned recipe
     /// and refuses on any drift, which is right for the branches that
@@ -240,6 +214,13 @@ enum Cmd {
     Hands {
         #[command(subcommand)]
         command: HandsCommand,
+    },
+    /// (internal) The MCP capability broker the harness starts beside
+    /// `hands` from the engine's configuration (decision 0077).
+    #[command(hide = true)]
+    Broker {
+        #[command(subcommand)]
+        command: BrokerCmd,
     },
     /// (internal) Scripted forge-driver/v1 driver for machine proof.
     #[command(hide = true)]
@@ -500,6 +481,8 @@ fn summarize(state: &RunState) -> Value {
 
 /// Drive a started run to its ending. The start first reaps the scratch
 /// trees of hands servers whose owners died and says each on stderr,
+/// through the same safe renderer as every other operator-facing line —
+/// a hostile tree name must not reach the terminal as written (#468) —
 /// journaling nothing (#415). Then the conclusion's anchor and keep-ref
 /// gaps on stderr, and the summary `finish` prints. `drive` drives it:
 /// alone, or beside the run view (#508).
@@ -507,7 +490,11 @@ fn drive_to_end(
     engine: &mut brokkr_runtime::Engine,
     drive: impl FnOnce(&mut brokkr_runtime::Engine) -> Result<DriveEnd, EngineError>,
 ) -> Result<ExitCode> {
-    eprint!("{}", brokkr_protocol::hands::reap_dead_sessions());
+    let reaped = brokkr_protocol::hands::reap_dead_sessions();
+    eprint!(
+        "{}",
+        reaped.lines_with(|tree| render::Safe::new(tree).as_str().to_owned())
+    );
     let end = drive(engine)?;
     for gap in &end.gaps {
         eprintln!("{gap}");
@@ -1917,13 +1904,22 @@ fn run_with(
         Cmd::Realms(args) => readouts::realms(workspace, args),
         Cmd::Runs(args) => readouts::runs(workspace, args),
         Cmd::Hands { command } => hands::run(command),
+        Cmd::Broker { command } => broker::run(command),
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
-        Cmd::Recipes { command } => setup::recipes(workspace, command),
-        Cmd::Agents { command } => setup::agents(workspace, command),
-        Cmd::Muninn { command } => setup::muninn(workspace, command),
-        Cmd::Secrets { command } => setup::secrets(command),
+        Cmd::Library(command) => library(workspace, command),
         Cmd::FakeDriver(args) => setup::fake_driver(args),
+    }
+}
+
+/// The library verbs `Cmd::Library` groups, each to its handler.
+fn library(workspace: &std::path::Path, command: LibraryCmd) -> Result<ExitCode> {
+    use verbs::setup;
+    match command {
+        LibraryCmd::Recipes { command } => setup::recipes(workspace, command),
+        LibraryCmd::Agents { command } => setup::agents(workspace, command),
+        LibraryCmd::Muninn { command } => setup::muninn(workspace, command),
+        LibraryCmd::Secrets { command } => setup::secrets(command),
     }
 }
 

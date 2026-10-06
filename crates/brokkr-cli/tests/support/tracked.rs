@@ -1,5 +1,5 @@
-//! The files git tracks, for the test binaries that read the repository's
-//! own tree. Each includes this through `#[path]`, so the listing has one
+//! The files git tracks, for the test files that read the repository's
+//! own tree. `tests/it.rs` declares this once, so the listing has one
 //! home.
 
 use std::path::Path;

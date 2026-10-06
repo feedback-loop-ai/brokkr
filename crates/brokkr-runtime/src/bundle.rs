@@ -16,9 +16,11 @@ use brokkr_core::realms::Boundary;
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 
+mod charters;
 pub mod compose;
 mod tier;
 
+use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
 pub use tier::{ProvisionalRefusal, RealmLaw};
 
@@ -56,6 +58,10 @@ pub enum CompileError {
     Policy(#[from] brokkr_core::PolicyError),
     #[error("bundle: {0}")]
     Provisional(ProvisionalRefusal),
+    /// GP2 (decision 0065 slice two, U3c): an inline site's verified
+    /// charter names an ask it writes in no DATA paragraph.
+    #[error("bundle: {0}")]
+    Charter(crate::agents::charter_data::CharterRefusal),
 }
 
 /// How [`CompileError::Capability`] renders.
@@ -1557,8 +1563,8 @@ impl Bundle {
             }
         }
 
-        let egress_minimum = parse_egress_minimum(config)?;
-
+        let authority = authority.with_minimum(parse_egress_minimum(config)?);
+        let egress_minimum = authority.minimum();
         let protected_phase = config
             .get("protected_phase")
             .and_then(Value::as_str)
@@ -2994,7 +3000,7 @@ fn parse_class(what: &str, raw: &Value) -> Result<SeatClass, CompileError> {
 /// speak is a refusal wherever it is written, never a silent default.
 fn parse_egress_minimum(config: &Value) -> Result<EgressClass, CompileError> {
     let Some(declared) = config.get("egress_minimum") else {
-        return Ok(EgressClass::Contracted);
+        return Ok(crate::capabilities::ABSENT_EGRESS_MINIMUM);
     };
     declared
         .as_str()
@@ -6984,86 +6990,6 @@ fn parse_sequence(
 /// The charters a compile bound, each kept with the layer that declared it
 /// until that layer's identity is sealed from its buffer (design D7).
 type Charters = std::cell::RefCell<Vec<compose::CharterRead>>;
-
-fn parse_role(
-    dir: &Path,
-    what: &str,
-    raw: &Value,
-    charters: &Charters,
-    sites: &mut BTreeMap<String, SiteFacts>,
-) -> Result<PathBuf, CompileError> {
-    let Some(role_rel) = raw.get("role").and_then(Value::as_str) else {
-        if raw
-            .pointer("/driver/command")
-            .and_then(Value::as_array)
-            .map(|parts| {
-                parts
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-            })
-            .as_deref()
-            .and_then(dispatch_driver)
-            .as_deref()
-            == Some("exec")
-        {
-            // A deterministic exec site is the script it names. It has no
-            // model to instruct and therefore no charter to load into a
-            // prompt; the prompt remains the typed run context and result
-            // contract the script reads.
-            return Ok(PathBuf::new());
-        }
-        return Err(CompileError::Invalid(format!(
-            "seat '{what}' missing 'role'"
-        )));
-    };
-    // Decision 0066 ruling 5: `dir` is the layer that WROTE this seat, so
-    // an inherited, selected or nested body is judged against its own
-    // declaring layer and the refusal names that layer's file. The charter
-    // is read through a handle bound to its contained, regular target
-    // (operator ruling 3; design D7), so a link out of the layer, a FIFO
-    // or a replacement mid-read refuses here rather than at the seat. Every
-    // refusal names the declaring file, the seat and the reference, bounded.
-    // The verified buffer's digest is what the declaring layer's walk takes
-    // for the charter's keys (rebuild unit 16-fix-b, F3), so it is kept.
-    // Rebuild unit 17: the site is bound here to that layer, the key its
-    // map pins the reference under, the target the read resolved and the
-    // buffer's digest, so no later reader has to guess its owner.
-    // Rebuild unit 18-fix-b (council F1, F2): read from the layer's directory
-    // as its owner, so the pin carries that read's binding and who the owner
-    // was when it was read, and the seal compares both.
-    let source = dir.join("bundle.json");
-    let (site, reference) = (bounded_site(what), bounded_reference(role_rel));
-    match owned_input(dir, role_rel) {
-        Ok(bound) => {
-            let role = dir.join(role_rel);
-            let owner = CharterOwner::Layer {
-                dir: dir.to_path_buf(),
-                key: bound.held.binding.key.clone(),
-            };
-            let pin = CharterPin::of(owner, role_rel, role.clone(), &bound);
-            site_facts(sites, what).charter = Some(pin);
-            let read = compose::CharterRead::of(dir, site, reference, bound);
-            charters.borrow_mut().push(read);
-            Ok(role)
-        }
-        Err(InputFault::Missing(error)) => Err(CompileError::Invalid(format!(
-            "{}: seat {site} names role {reference}, {}",
-            source.display(),
-            missing_clause(&error)
-        ))),
-        Err(InputFault::Place(place)) => Err(CompileError::Invalid(format!(
-            "{}: seat {site} names role {reference}, {place}. {}",
-            source.display(),
-            place.remedy().unwrap_or(
-                "A charter there could change what the seat is told without moving the bundle's \
-                 identity, so it is refused; move it to a path the bundle pins, such as 'roles/' \
-                 (decision 0066 ruling 5)"
-            )
-        ))),
-    }
-}
 
 /// Parse a seat's declared secret bindings (decision 0012): NAMES only,
 /// grammar plus denylist validated — exactly parallel to the 0007

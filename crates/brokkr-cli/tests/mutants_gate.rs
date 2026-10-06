@@ -8,8 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-#[path = "support/workflow.rs"]
-mod workflow;
+use crate::workflow;
 
 /// A committed miss, and the same file and mutation at another line.
 const KNOWN: &str = "crates/brokkr-core/src/fold.rs:384:41: replace == with != in apply";

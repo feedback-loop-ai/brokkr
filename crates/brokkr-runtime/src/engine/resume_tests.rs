@@ -1021,11 +1021,7 @@ fn a_fresh_process_derives_the_same_offers_from_the_same_journal() {
 /// A work-class site context whose stamps are the ones the fixture rows
 /// below carry, so the query has something to match.
 fn context(site_ref: &str, instance_ref: &str, class: SeatClass) -> resume::SiteContext {
-    resume::SiteContext {
-        site_ref: site_ref.to_string(),
-        instance_ref: instance_ref.to_string(),
-        class,
-    }
+    resume::SiteContext::new(site_ref.to_string(), instance_ref.to_string(), class)
 }
 
 const SITE_A: &str = "aa11000000000000000000000000000000000000000000000000000000000011";
@@ -2513,6 +2509,9 @@ fn a_valid_route_overlay_binds_on_an_offered_panel_member_start_too() {
 /// name is found by one search.
 const ROUTE_MARKER: &str = "route4amarker";
 
+const DSH_PIN_LINE: &str =
+    "dsh driver: dsh exited 3 with the pinned model deepseek/deepseek-v4-flash on route deepseek\n";
+
 /// A valid DSH route document (the reader's grammar for a
 /// `deepseek/deepseek-v4-flash` pin; `adapters/tests.rs` validates the
 /// same bytes) whose display name, key variable and endpoint all carry
@@ -3125,12 +3124,12 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
     );
 
     // And each is exactly what the adapter and the engine own: the stderr
-    // tail is the child's own line, nothing added, and the launch row is
-    // the shipped route's vocabulary plus the engine's three stamps, whose
-    // two references are hashes.
+    // tail is the child's own line plus the driver's line naming the pinned
+    // route (#532), and the launch row is the shipped route's vocabulary
+    // plus the engine's three stamps, whose two references are hashes.
     assert_eq!(
         failed[0].payload["error"],
-        "agent CLI exited 3; stderr tail: dsh child 1 wrote this\n"
+        format!("agent CLI exited 3; stderr tail: dsh child 1 wrote this\n{DSH_PIN_LINE}")
     );
     for attempt in &attempts {
         let rows = launch_rows(attempt);
@@ -3588,14 +3587,11 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
     assert_eq!(failed.len(), 3, "{failed:?}");
     for (n, event) in failed.iter().enumerate() {
         assert_eq!(event.attempt_id.as_deref(), Some(attempts[n]));
+        let n = n + 1;
         assert_eq!(
             event.payload["error"],
-            format!(
-                "agent CLI exited 3; stderr tail: dsh child {} wrote this\n",
-                n + 1
-            ),
-            "attempt {}",
-            n + 1
+            format!("agent CLI exited 3; stderr tail: dsh child {n} wrote this\n{DSH_PIN_LINE}"),
+            "attempt {n}"
         );
     }
     assert!(

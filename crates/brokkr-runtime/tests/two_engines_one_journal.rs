@@ -81,7 +81,7 @@ fn driver_argv() -> Vec<String> {
         "sh".into(),
         "-c".into(),
         format!(
-            "exec '{exe}' --exact two_engines_driver_child --nocapture | grep --line-buffered '^{{'"
+            "exec '{exe}' --exact two_engines_one_journal::two_engines_driver_child --nocapture | grep --line-buffered '^{{'"
         ),
     ]
 }
@@ -274,7 +274,11 @@ fn two_real_engines_share_one_journal_and_neither_exits_on_busy() {
 
     let spawn = |role: &str| {
         Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "two_engines_engine_child", "--nocapture"])
+            .args([
+                "--exact",
+                "two_engines_one_journal::two_engines_engine_child",
+                "--nocapture",
+            ])
             // The child starts without a repository, so it operates the
             // directory it stands in: the scratch one, never this tree.
             .current_dir(dir.path())

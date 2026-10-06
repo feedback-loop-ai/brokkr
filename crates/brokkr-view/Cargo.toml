@@ -6,9 +6,17 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+autotests = false
 
 [lints]
 workspace = true
+
+# The integration tests link as one binary (#423): `tests/it.rs` holds every
+# file under tests/ as a module, so a test runs as `<file>::<name>`. Cargo
+# builds no test it is not told of here, and brokkr-cli's `test_targets`
+# refuses a file under tests/ that is not a module of the root.
+[[test]]
+name = "it"
 
 [dependencies]
 brokkr-core = { workspace = true }

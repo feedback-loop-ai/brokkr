@@ -1,9 +1,17 @@
-# wager-harness-dsh — the deepseek arm
+# wager-harness-dsh — the GLM-flash arm
 
-[`wager-harness`](../wager-harness/README.md)'s pattern, copied as it
-asks to be: `fast` with the implement seat's driver swapped, and
-nothing else. The one line of experiment here is
-`{brokkr} driver dsh -- --model deepseek/deepseek-flash`. The charter is a
+`fast` with one seat changed, as
+[`wager-harness`](../wager-harness/README.md) asks a wager to be built:
+the implement seat's driver is swapped and nothing else is. The
+experiment is one line,
+`{brokkr} driver dsh -- --model spark-glm/GLM-5.3-Flash-EXL3`, the dsh
+adapter's `glm-flash` alias on the `spark-glm` route (the operator's
+ruling of 2026-10-04,
+[#532](https://github.com/feedback-loop-ai/brokkr/issues/532)). The
+route is effortless: dsh 0.1.5-rc.1 refuses a reasoning effort on it
+(measured 2026-09-16), so the arm pins no `--effort`, and its record
+reads effort `not applicable`, as the adapter's `effortless_routes`
+entry for `spark-glm` says. The charter is a
 byte-identical copy of `recipes/fast/roles/implementer.md`; limits,
 results, class, the phase table, and every gate are `fast`'s, inherited.
 
@@ -19,22 +27,25 @@ results, class, the phase table, and every gate are `fast`'s, inherited.
   harness and the operator's settings. Not equal; not verified beyond
   that. The comparison must say so.
 - **Same model class?** No, and that is the point: the wager measures
-  a cheap untrusted lane against the incumbent's opus, on the same
+  a local untrusted lane against the incumbent's opus, on the same
   commission, judged by the same gates on the incumbent.
 - **Metering.** The dsh seat reports no usage to the driver, and this
-  arm reaches `api.deepseek.com` directly, so its spend is visible in
-  the DeepSeek console and nowhere in `brokkr costs` or LaneTally. The
-  incumbent's spend is journaled per seat as usual. An asymmetry of
-  evidence, recorded here before the run.
-- **Key.** `DEEPSEEK_API_KEY` is exported into the challenger engine's
-  launching environment only, never into argv, the recipe, or the
-  journal (decision 0012).
+  arm's model calls go to the host's own `spark-glm` server, a `local`
+  route, so no provider bills them and neither `brokkr costs` nor
+  LaneTally prices them. The incumbent's spend is journaled per seat as
+  usual. An asymmetry of evidence, recorded here before the run.
+- **Key.** The route names `SPARK_API_KEY`. Its server checks no key,
+  but the route requires one to be named. It is exported into the
+  challenger engine's launching environment only, never into argv, the
+  recipe, or the journal (decision 0012).
 
-**Unavailable until
-[#264](https://github.com/feedback-loop-ai/brokkr/issues/264) is fixed.**
-The dsh adapter maps no `deepseek/` route, and #264 records dsh refusing
-this arm's `deepseek/deepseek-flash` prefix with `NO_ADAPTER` at launch.
-Once it is fixed:
+**Host requirement: the `spark-glm` route.** This arm runs only where
+the host's dsh profile serves that route; no CI runner does. Anywhere
+else the implement attempt fails at launch, and its journaled failure
+names the route: the dsh driver ends a failed seat's stderr tail with
+`dsh driver: dsh exited <code> with the pinned model
+spark-glm/GLM-5.3-Flash-EXL3 on route spark-glm`. How dsh's own refusal
+is worded there has not been measured.
 
 Run as the harness README says: `brokkr run --recipe fast` for the
 incumbent, `brokkr rerun --run <id> --recipe wager-harness-dsh` for

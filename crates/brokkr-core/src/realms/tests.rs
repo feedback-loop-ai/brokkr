@@ -98,9 +98,9 @@ fn text_that_is_not_json_is_refused_naming_the_file() {
 
 #[test]
 fn a_map_that_calls_itself_another_version_is_refused_by_name() {
-    let refusal = with(|map| map["schema"] = json!("forge.realms/v8"));
+    let refusal = with(|map| map["schema"] = json!("forge.realms/v9"));
     assert!(
-        refusal.contains("it calls itself 'forge.realms/v8'"),
+        refusal.contains("it calls itself 'forge.realms/v9'"),
         "{refusal}"
     );
     for label in SCHEMAS {
@@ -921,6 +921,7 @@ fn a_v6_realm_declares_grants_and_keeps_absent_lists_apart_from_empty_ones() {
             dialect: "fetch-native".into(),
             tools: Some(vec!["fetch".into()]),
             offices: None,
+            retention: GrantRetention::Unreserved,
             restrictions: json!({"allow": {"hosts": ["sourceware.org", "yaml.org"]}})
                 .as_object()
                 .unwrap()
@@ -1120,7 +1121,7 @@ fn invalid(problem: &str) -> RealmsError {
 
 /// The list is refused under every label older than the one that
 /// introduced it, written empty or null as much as in full; and the
-/// unknown-label refusal spells out all seven labels this build reads.
+/// unknown-label refusal spells out all eight labels this build reads.
 #[test]
 fn provisional_offices_under_an_older_label_are_refused_by_version() {
     for label in &SCHEMAS[..6] {
@@ -1143,8 +1144,8 @@ fn provisional_offices_under_an_older_label_are_refused_by_version() {
         RealmMap::parse("realms.json", &map.to_string()).unwrap_err(),
         invalid(
             "it calls itself 'forge.realms/v0'; this build reads forge.realms/v1, \
-             forge.realms/v2, forge.realms/v3, forge.realms/v4, forge.realms/v5, forge.realms/v6 \
-             and forge.realms/v7"
+             forge.realms/v2, forge.realms/v3, forge.realms/v4, forge.realms/v5, forge.realms/v6, \
+             forge.realms/v7 and forge.realms/v8"
         )
     );
 }

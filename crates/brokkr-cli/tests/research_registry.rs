@@ -13,8 +13,7 @@
 
 use std::path::PathBuf;
 
-#[path = "support/numbered.rs"]
-mod numbered;
+use crate::numbered;
 
 use numbered::{linked_row, numbered_files};
 

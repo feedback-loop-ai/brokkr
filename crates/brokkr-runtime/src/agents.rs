@@ -47,10 +47,13 @@ use thiserror::Error;
 
 use crate::bundle::Limits;
 
+pub(crate) mod charter_data;
 mod load;
-
+mod mcp;
 pub use brokkr_protocol::adapters::HandsNotice;
 pub use load::{resolve_route, Adapters, Library, LibraryError};
+pub use mcp::{McpAxis, McpError, McpHands, McpHost, McpInvocation, McpIsolation, McpMeasurement};
+pub use mcp::{McpRefusal, McpShape, McpSupport, McpUnmeasured};
 
 /// The grammar every agent, model, provider and MCP server name obeys.
 /// Quoted verbatim in rejection messages so a reader can act on them.
@@ -327,13 +330,6 @@ pub struct ToolPermissions {
     pub names: BTreeMap<String, String>,
 }
 
-/// How a provider names MCP servers on its command line.
-#[derive(Debug, Clone)]
-pub struct McpSupport {
-    pub flag: String,
-    pub servers: BTreeMap<String, String>,
-}
-
 /// An operator-granted trust tier (decision 0021 ruling 2). A closed
 /// vocabulary rather than a boolean, because ruling 3 makes tiers
 /// earnable in BOTH directions and a third tier must not need a breaking
@@ -486,7 +482,9 @@ pub struct Adapter {
     /// provider's real restriction axis (codex's sandbox classes) rather
     /// than leaving a reader to wonder whether anyone ever looked.
     pub tool_permissions_gap: Option<String>,
-    pub mcp: Option<McpSupport>,
+    /// Decision 0065 slice two (U1b): MCP carriage and per-shape isolation,
+    /// typed at load. A legacy server map grants nothing.
+    pub mcp: McpSupport,
     /// Proposed decision 0056 ruling 5: what has actually been MEASURED
     /// about resuming this provider, per named execution shape. Absent
     /// reads as an empty assessment, under which every shape is

@@ -22,9 +22,7 @@ use std::process::Command;
 use sha2::{Digest, Sha256};
 
 /// This file lives at `crates/brokkr-cli/tests/`.
-#[path = "support/workspace.rs"]
-mod workspace_root;
-use workspace_root::{read, workspace};
+use crate::workspace_root::{read, workspace};
 
 fn tools_are_required() -> bool {
     std::env::var("BROKKR_PACKAGING_TOOLS").as_deref() == Ok("required")

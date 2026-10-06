@@ -102,7 +102,11 @@ fn parallel_processes_writing_different_runs_share_one_journal() {
     let children: Vec<_> = (0..WRITERS)
         .map(|writer| {
             Command::new(std::env::current_exe().unwrap())
-                .args(["--exact", "concurrent_writer_child", "--nocapture"])
+                .args([
+                    "--exact",
+                    "concurrent_processes::concurrent_writer_child",
+                    "--nocapture",
+                ])
                 .env(DB_VAR, &db)
                 .env(RUN_VAR, format!("run-{writer}"))
                 .spawn()

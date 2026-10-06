@@ -18,7 +18,7 @@ fn planted(tmp: &Path, label: &str, pid: &str) -> PathBuf {
 /// whose pid reads dead here looks: its lock still holds. The session is
 /// returned so the lock lives as long as the caller keeps it.
 fn held_under(tmp: &Path, pid: &str) -> (Session, PathBuf) {
-    let session = Session::create_in(tmp, "serve", flock).unwrap();
+    let session = Session::create_in(tmp, "serve", flock, create_lock).unwrap();
     let tree = tmp.join(format!("{PREFIX}serve-{pid}-{}", uuid::Uuid::new_v4()));
     std::fs::rename(session.path(), &tree).unwrap();
     (session, tree)
@@ -43,6 +43,14 @@ fn refused(_: BorrowedFd<'_>) -> Result<(), Errno> {
     Err(Errno::NOLCK)
 }
 
+/// A filesystem that refuses the lock file's creation, as a full RAM
+/// `/tmp` answers `ENOSPC`.
+fn no_space(_: &Path) -> std::io::Result<File> {
+    Err(std::io::Error::from_raw_os_error(
+        Errno::NOSPC.raw_os_error(),
+    ))
+}
+
 /// The reaping of `tmp`, or a panic when it has not finished in a second.
 fn reaped_within_a_second(tmp: &Path) -> Reaped {
     let (done, answer) = std::sync::mpsc::channel();
@@ -56,7 +64,7 @@ fn reaped_within_a_second(tmp: &Path) -> Reaped {
 #[test]
 fn a_session_is_locked_while_it_lives_and_removed_when_it_drops() {
     let tmp = tempfile::tempdir().unwrap();
-    let session = Session::create_in(tmp.path(), "serve", flock).unwrap();
+    let session = Session::create_in(tmp.path(), "serve", flock, create_lock).unwrap();
     let tree = session.path().to_path_buf();
     let name = tree.file_name().unwrap().to_str().unwrap();
     assert_eq!(
@@ -69,7 +77,7 @@ fn a_session_is_locked_while_it_lives_and_removed_when_it_drops() {
     drop(session);
     assert!(!tree.exists(), "dropping the session removes its tree");
     assert_eq!(
-        Session::create_in(&tmp.path().join("absent/\0"), "serve", flock)
+        Session::create_in(&tmp.path().join("absent/\0"), "serve", flock, create_lock)
             .unwrap_err()
             .to_string(),
         "hands session: file name contained an unexpected NUL byte"
@@ -81,7 +89,7 @@ fn a_session_is_locked_while_it_lives_and_removed_when_it_drops() {
 #[test]
 fn a_session_that_cannot_lock_refuses_and_leaves_no_tree() {
     let tmp = tempfile::tempdir().unwrap();
-    let error = Session::create_in(tmp.path(), "serve", refused).unwrap_err();
+    let error = Session::create_in(tmp.path(), "serve", refused, create_lock).unwrap_err();
     let SessionError::Lock { path, cause } = &error else {
         panic!("{error:?}");
     };
@@ -108,6 +116,166 @@ fn a_session_that_cannot_lock_refuses_and_leaves_no_tree() {
         )
     );
     assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+}
+
+/// A session whose lock file cannot be created — `ENOSPC` on a full RAM
+/// `/tmp`, `EMFILE`, a planted directory at `.owner.lock` — refuses with
+/// that error and leaves no staging directory behind (#468): the tree
+/// was made by this call, under a name `owner_pid` rejects, and would
+/// otherwise sit there for want of an owner to collect.
+#[test]
+fn a_lock_file_that_cannot_be_created_leaves_no_staging_directory() {
+    let tmp = tempfile::tempdir().unwrap();
+    let error = Session::create_in(tmp.path(), "serve", flock, no_space).unwrap_err();
+    let SessionError::Io(cause) = &error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(cause.raw_os_error(), Some(Errno::NOSPC.raw_os_error()));
+    assert_eq!(
+        error.to_string(),
+        format!("hands session: {}", said(Errno::NOSPC))
+    );
+    assert_eq!(
+        std::fs::read_dir(tmp.path()).unwrap().count(),
+        0,
+        "the staging directory the create made is removed"
+    );
+}
+
+/// A filesystem that plants a directory at the lock path first, as a
+/// writer racing the create would leave it, and then refuses the create
+/// the way the real one refuses a directory: `EISDIR`.
+fn a_directory_at_the_lock(path: &Path) -> std::io::Result<File> {
+    std::fs::create_dir(path)?;
+    File::create(path)
+}
+
+/// A planted directory at `.owner.lock` leaves the staging tree
+/// non-empty, so `remove_dir` refuses it: the removal falls back to the
+/// walk, which still leaves nothing behind (#468).
+#[test]
+fn a_planted_directory_at_the_lock_leaves_no_staging_directory() {
+    let tmp = tempfile::tempdir().unwrap();
+    let error =
+        Session::create_in(tmp.path(), "serve", flock, a_directory_at_the_lock).unwrap_err();
+    let SessionError::Io(cause) = &error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(cause.raw_os_error(), Some(Errno::ISDIR.raw_os_error()));
+    assert_eq!(
+        error.to_string(),
+        format!("hands session: {}", said(Errno::ISDIR))
+    );
+    assert_eq!(
+        std::fs::read_dir(tmp.path()).unwrap().count(),
+        0,
+        "the staging directory the create made is removed"
+    );
+}
+
+/// The env a parent test sets on this re-executed binary, as #403's
+/// `role` is played, to exhaust its descriptors and create a session.
+const EMFILE_ROLE: &str = "BROKKR_HANDS_TEST_EMFILE";
+
+/// Played in a child of the test binary, which keeps the descriptor
+/// exhaustion away from parallel tests: with every descriptor taken, the
+/// lock file's create fails `EMFILE` for real — the case an injected
+/// double that leaves descriptors free cannot plant. The child lowers its
+/// own ceiling first, so the exhaustion costs a few dozen descriptors and
+/// not the host's whole table beside parallel tests. What is left in the
+/// temporary directory the parent handed over, the parent reads.
+#[test]
+#[ignore = "played only when a parent test re-executes this binary"]
+fn emfile_role() {
+    if std::env::var_os(EMFILE_ROLE).is_none() {
+        return;
+    }
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    assert_eq!(
+        unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) },
+        0,
+        "{}",
+        std::io::Error::last_os_error()
+    );
+    limit.rlim_cur = limit.rlim_cur.min(64);
+    assert_eq!(
+        unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) },
+        0,
+        "{}",
+        std::io::Error::last_os_error()
+    );
+    let mut held = Vec::new();
+    loop {
+        match File::open("/dev/null") {
+            Ok(file) => held.push(file),
+            Err(error) => {
+                assert_eq!(error.raw_os_error(), Some(libc::EMFILE), "{error}");
+                break;
+            }
+        }
+    }
+    assert!(!held.is_empty(), "no descriptor was free to exhaust");
+    let error = Session::create("serve").unwrap_err();
+    let SessionError::Io(error) = &error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(error.raw_os_error(), Some(libc::EMFILE), "{error}");
+}
+
+/// The real `EMFILE` case, in a child of this test binary so the
+/// exhaustion does not reach parallel tests: a lock file that cannot be
+/// created for want of a descriptor must leave no staging directory,
+/// though the walk `remove_dir_all` needs would fail the same way —
+/// `remove_dir` needs none.
+#[test]
+fn a_lock_create_that_fails_for_want_of_a_descriptor_leaves_no_staging_directory() {
+    let tmp = tempfile::tempdir().unwrap();
+    let played = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "hands::session::tests::emfile_role", "--ignored"])
+        .env("TMPDIR", tmp.path())
+        .env(EMFILE_ROLE, "1")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        played.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&played.stdout),
+        String::from_utf8_lossy(&played.stderr)
+    );
+    assert_eq!(
+        std::fs::read_dir(tmp.path()).unwrap().count(),
+        0,
+        "the staging directory the create made is removed"
+    );
+}
+
+/// Each tree's path is through `safe` before the lines are joined, so a
+/// newline inside it cannot pose as one of the renderer's own (#468).
+#[test]
+fn a_hostile_name_is_sanitized_before_the_lines_are_joined() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tree = planted(tmp.path(), "x\r\nforged line", &dead_pid().to_string());
+    let reaped = reap_dead_sessions_in(tmp.path(), flock);
+    let said: String = tree
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    let safe = |name: &str| name.chars().filter(|c| !c.is_control()).collect::<String>();
+    assert_eq!(
+        reaped.lines_with(safe),
+        format!(
+            "hands: reaped {}: its owner is dead and holds no lock\n",
+            tmp.path().join(said).display()
+        )
+    );
 }
 
 /// A dead owner's tree whose lock cannot be read, opened or locked is
@@ -291,7 +459,7 @@ fn until_0_13_0_a_lockless_dead_tree_is_reaped_and_a_held_one_kept() {
 fn a_tree_mid_creation_is_never_reapable() {
     let tmp = tempfile::tempdir().unwrap();
     LISTING.set((tmp.path().to_path_buf(), Vec::new()));
-    let session = Session::create_in(tmp.path(), "serve", listing).unwrap();
+    let session = Session::create_in(tmp.path(), "serve", listing, create_lock).unwrap();
     let (_, seen) = LISTING.take();
     let name = session.path().file_name().unwrap().to_str().unwrap();
     assert_eq!(seen, [format!("{STAGING}{name}")]);
