@@ -146,8 +146,11 @@ const PURE: [(&str, &[&str]); 2] = [
 /// The `deny.toml` wrappers the tests alone take: each is a dev edge that
 /// points down or sideways, never above its crate's layer. cargo-deny
 /// admits a wrapper's edge of any kind, so this test refuses a normal or
-/// build edge between these pairs.
-const DEV_ONLY: [(&str, &str); 3] = [
+/// build edge between these pairs. The engine reads the view in its tests
+/// alone: it admits nothing by a display crate (decision 0071 ruling 7;
+/// #351).
+const DEV_ONLY: [(&str, &str); 4] = [
+    ("brokkr-runtime", "brokkr-view"),
     ("brokkr-runtime", "rusqlite"),
     ("brokkr-bridge", "rusqlite"),
     ("brokkr-cli", "rusqlite"),

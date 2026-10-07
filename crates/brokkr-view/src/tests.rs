@@ -3,7 +3,7 @@ use brokkr_core::fold::Cursor;
 use serde_json::json;
 
 #[path = "../../../tests/support/envelope.rs"]
-mod envelope_builder;
+pub(crate) mod envelope_builder;
 use envelope_builder::EnvelopeBuilder;
 mod capability_calls;
 
@@ -136,10 +136,10 @@ fn js_truthiness_and_the_fixed_tables_are_ported_whole() {
     assert!(truthy(Some(&json!("x"))));
     assert!(truthy(Some(&json!({"a": 1}))));
 
-    assert_eq!(status_str(&Status::Running), "running");
-    assert_eq!(status_str(&Status::AwaitingOperator), "awaiting_operator");
-    assert_eq!(status_str(&Status::Completed), "completed");
-    assert_eq!(status_str(&Status::Stopped), "stopped");
+    assert_eq!(Status::Running.as_str(), "running");
+    assert_eq!(Status::AwaitingOperator.as_str(), "awaiting_operator");
+    assert_eq!(Status::Completed.as_str(), "completed");
+    assert_eq!(Status::Stopped.as_str(), "stopped");
 
     for (event_type, name) in [
         (EventType::RunStarted, "run/started"),

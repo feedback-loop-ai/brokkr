@@ -11,8 +11,8 @@ use serde_json::Value;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    decided, fmt_dur, js, status_str, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView,
-    ABSENT, KNOWN_STATUS, VIEW_VERSION,
+    decided, fmt_dur, js, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView, ABSENT,
+    KNOWN_STATUS, VIEW_VERSION,
 };
 
 #[derive(Serialize)]
@@ -578,9 +578,7 @@ fn open_severity(residuals: &[ResidualFinding]) -> Option<Severity> {
 // ------------------------------------------------------------ run rows
 
 fn run_row(entry: &RunEntry) -> RunRow {
-    let status = entry
-        .state
-        .map(|state| status_str(&state.status).to_string());
+    let status = entry.state.map(|state| state.status.as_str().to_string());
     let status_known = match &status {
         Some(status) => KNOWN_STATUS.contains(&status.as_str()),
         None => false,

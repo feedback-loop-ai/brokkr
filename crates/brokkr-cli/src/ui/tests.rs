@@ -1,6 +1,6 @@
 use super::*;
 use crate::tests::env_guard::EnvGuard;
-use brokkr_core::envelope::EventType;
+use brokkr_core::{envelope::EventType, Status};
 use serde_json::json;
 use std::io::{Read, Write};
 
@@ -180,7 +180,7 @@ fn request_parser_store_errors_and_all_statuses_are_explicit() {
         (Status::Completed, "completed"),
         (Status::Stopped, "stopped"),
     ] {
-        assert_eq!(status_str(&status), text);
+        assert_eq!(status.as_str(), text);
     }
 
     let dir = tempfile::tempdir().unwrap();

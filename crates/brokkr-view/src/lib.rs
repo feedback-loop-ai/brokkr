@@ -26,12 +26,17 @@
 #![forbid(unsafe_code)]
 
 pub mod capability_calls;
+mod compare;
 mod dashboard;
 mod fleet;
 mod items;
 pub mod js;
+mod participant;
 pub mod transcript;
 
+pub use compare::{
+    first_divergence, resolution_divergence, seat_costs, FirstDivergence, SeatCost, Sides,
+};
 use dashboard::dashboard;
 pub use dashboard::{
     working_checkpoints, Concluded, Dashboard, Decision, Outcome, RuleSeverity, Ruled, Visit,
@@ -40,11 +45,13 @@ pub use fleet::{
     at_work, fleet_rows, need, run_rows, sections, title, title_within, wrap, HearthEntries, Hire,
     Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict, TITLE_COLUMNS, VERDICT_COLUMNS,
 };
+pub use participant::Subject;
 
 use std::collections::BTreeMap;
 
 use brokkr_core::fold::{acceptance_refusal, OperatorCommand, RunState, Status};
 use brokkr_core::realms::Boundary;
+use brokkr_core::residual::{residuals, Residual, SUPERSEDE};
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
 use serde_json::Value;
@@ -522,15 +529,6 @@ fn truthy(value: Option<&Value>) -> bool {
     }
 }
 
-pub fn status_str(status: &Status) -> &'static str {
-    match status {
-        Status::Running => "running",
-        Status::AwaitingOperator => "awaiting_operator",
-        Status::Completed => "completed",
-        Status::Stopped => "stopped",
-    }
-}
-
 fn type_str(event_type: EventType) -> &'static str {
     match event_type {
         EventType::RunStarted => "run/started",
@@ -682,15 +680,6 @@ pub fn clamp(text: &str, width: usize) -> String {
 
 // -------------------------------------- operator commands and residuals
 
-/// The phases whose rulings carry residual findings.
-pub const RESIDUAL_PHASES: [&str; 2] = ["verify", "review"];
-
-/// The command word of the operator annotation that closes a residual
-/// finding (decision 0047 ruling 1). Deliberately NOT an
-/// [`OperatorCommand`]: those are what a PARKED run admits, and a
-/// supersede is only ever written on a terminal one.
-pub const SUPERSEDE: &str = "supersede";
-
 /// The operator commands this run admits: none unless it is parked, the
 /// only state the bridge's door takes one in, and then each command
 /// `fold` would accept ([`acceptance_refusal`]), so a run parked before
@@ -816,37 +805,12 @@ pub struct ResidualFinding {
     pub superseded: Option<Superseded>,
 }
 
-/// The one severity input and the two boolean inputs that carry a
-/// residual claim, read through the evaluator's own closed vocabulary.
-/// A severity of `none`, a false flag, an unranked severity name and any
-/// key outside the vocabulary all carry no finding.
-fn residual_value(key: &str, value: &Value) -> Option<String> {
-    match key {
-        "max_residual_severity" => {
-            let name = value.as_str()?;
-            let rank = brokkr_core::policy::SEVERITY_ORDER
-                .iter()
-                .position(|known| *known == name)?;
-            match rank {
-                0 => None,
-                _ => Some(name.to_string()),
-            }
-        }
-        "has_security_residual" | "high_risk_uncovered" => match value.as_bool() {
-            Some(true) => Some("true".to_string()),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// Residual findings as the journal actually carries them: the
-/// STRUCTURED rule inputs of every `transition/decided` ruled from
-/// `verify` or `review`. Reviewer prose lives in free-text notes and is
-/// never re-read here as a typed finding — deriving structure from prose
-/// is repair (decision 0001). Each finding names the run and the
-/// sequence number it came from, which is decision 0007's provenance
-/// discipline applied to a readout instead of to a seat input.
+/// Residual findings as the journal actually carries them, read by the
+/// one derivation the engine admits a supersede by
+/// ([`brokkr_core::residual::residuals`]) and rendered here. Each finding
+/// names the run and the sequence number it came from, which is decision
+/// 0007's provenance discipline applied to a readout instead of to a
+/// seat input.
 ///
 /// A finding an operator has superseded (decision 0047) is still
 /// derived, still listed and still cited — it carries the annotation as
@@ -859,45 +823,34 @@ fn residual_value(key: &str, value: &Value) -> Option<String> {
 /// (ruling 2).
 pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<ResidualFinding> {
     let marks = supersedes(events);
-    let mut out = Vec::new();
-    for event in events {
-        if event.event_type != EventType::TransitionDecided {
-            continue;
-        }
-        let payload = &event.payload;
-        let Some(phase) = field(payload, "from").filter(|from| RESIDUAL_PHASES.contains(from))
-        else {
-            continue;
-        };
-        let Some(inputs) = payload.get("inputs").and_then(Value::as_object) else {
-            continue;
-        };
-        let rule_id = display_or_mark(payload.get("rule_id"));
-        for (input, raw) in inputs {
-            let Some(value) = residual_value(input, raw) else {
-                continue;
-            };
-            let superseded = marks.get(&event.seq).cloned();
+    residuals(events)
+        .into_iter()
+        .map(|claim| {
+            let Residual {
+                ruling,
+                phase,
+                input,
+                value,
+            } = claim;
+            let seq = ruling.seq;
+            let rule_id = display_or_mark(ruling.payload.get("rule_id"));
+            let superseded = marks.get(&seq).cloned();
             let mark = match &superseded {
                 Some(mark) => format!(" · superseded by {}", cited(&mark.by)),
                 None => String::new(),
             };
-            out.push(ResidualFinding {
+            ResidualFinding {
                 run_id: run_id.to_string(),
-                seq: event.seq,
+                seq,
                 phase: phase.to_string(),
-                rule_id: rule_id.clone(),
-                input: input.clone(),
-                value: value.clone(),
-                line: format!(
-                    "{run_id} seq {} · {phase} · {rule_id} · {input}: {value}{mark}",
-                    event.seq
-                ),
+                line: format!("{run_id} seq {seq} · {phase} · {rule_id} · {input}: {value}{mark}"),
+                rule_id,
+                input: input.to_string(),
+                value,
                 superseded,
-            });
-        }
-    }
-    out
+            }
+        })
+        .collect()
 }
 
 /// The finding a fleet read raises for a run whose journal does not
@@ -1503,7 +1456,7 @@ fn activity_for(
             bits.push(duration);
         }
     }
-    let live = if part.status == "working" {
+    let live = if part.status == WORKING.0 {
         part.last_turn.as_ref()
     } else {
         None
@@ -2671,7 +2624,10 @@ fn journal_rows(
 
 // ------------------------------------------------------ summary + ruling
 
-fn summary_of(state: &RunState) -> Summary {
+/// The run's folded state as every surface summarizes it: `brokkr
+/// inspect`'s `state`, the run view's `summary`, and the readouts that
+/// embed either.
+pub fn summary(state: &RunState) -> Summary {
     Summary {
         consecutive_failures: state.consecutive_failures.clone(),
         cursor: format!("{:?}", state.cursor),
@@ -2681,7 +2637,7 @@ fn summary_of(state: &RunState) -> Summary {
         phase: state.phase.clone(),
         run_id: state.run_id.clone(),
         seq: state.seq,
-        status: status_str(&state.status).to_string(),
+        status: state.status.as_str().to_string(),
         strategy: state.strategy.clone(),
     }
 }
@@ -2759,7 +2715,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         .cloned();
     RunView {
         view_version: VIEW_VERSION,
-        summary: state.map(summary_of),
+        summary: state.map(summary),
         ruling: ruling_of(
             state.and_then(|state| state.last_decision.as_ref()),
             last_ruled,

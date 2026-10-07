@@ -226,6 +226,8 @@ pub brokkr_core::fold::Status::AwaitingOperator
 pub brokkr_core::fold::Status::Completed
 pub brokkr_core::fold::Status::Running
 pub brokkr_core::fold::Status::Stopped
+impl brokkr_core::fold::Status
+pub const fn brokkr_core::fold::Status::as_str(self) -> &'static str
 pub struct brokkr_core::fold::RunState
 pub brokkr_core::fold::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_core::fold::RunState::cursor: brokkr_core::fold::Cursor
@@ -460,6 +462,14 @@ pub const brokkr_core::realms::SCHEMA_V7: &str
 pub const brokkr_core::realms::SCHEMA_V8: &str
 pub fn brokkr_core::realms::is_name(&str) -> bool
 pub fn brokkr_core::realms::recorded_head<'a>(&'a serde_json::value::Value, core::option::Option<&str>) -> core::option::Option<&'a str>
+pub mod brokkr_core::residual
+pub struct brokkr_core::residual::Residual<'a>
+pub brokkr_core::residual::Residual::input: &'a str
+pub brokkr_core::residual::Residual::phase: &'a str
+pub brokkr_core::residual::Residual::ruling: &'a brokkr_core::envelope::EventEnvelope
+pub brokkr_core::residual::Residual::value: alloc::string::String
+pub const brokkr_core::residual::SUPERSEDE: &str
+pub fn brokkr_core::residual::residuals(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::residual::Residual<'_>>
 pub enum brokkr_core::Cursor
 pub brokkr_core::Cursor::Decide
 pub brokkr_core::Cursor::Decide::effect_id: alloc::string::String
@@ -537,6 +547,8 @@ pub brokkr_core::Status::AwaitingOperator
 pub brokkr_core::Status::Completed
 pub brokkr_core::Status::Running
 pub brokkr_core::Status::Stopped
+impl brokkr_core::fold::Status
+pub const fn brokkr_core::fold::Status::as_str(self) -> &'static str
 pub struct brokkr_core::EventEnvelope
 pub brokkr_core::EventEnvelope::attempt_id: core::option::Option<alloc::string::String>
 pub brokkr_core::EventEnvelope::causation_id: core::option::Option<alloc::string::String>

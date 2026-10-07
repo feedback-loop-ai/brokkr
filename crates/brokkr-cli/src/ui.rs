@@ -18,7 +18,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
-use brokkr_core::fold::{fold, Status};
+use brokkr_core::fold::fold;
 use brokkr_protocol::overrides::{self, Override, OverrideError};
 use brokkr_store::Store;
 use brokkr_view::transcript::{
@@ -59,15 +59,6 @@ fn not_found(what: &str) -> Response {
         status: "404 Not Found",
         content_type: "application/json",
         body: json!({"error": format!("{what} not found")}).to_string(),
-    }
-}
-
-fn status_str(status: &Status) -> &'static str {
-    match status {
-        Status::Running => "running",
-        Status::AwaitingOperator => "awaiting_operator",
-        Status::Completed => "completed",
-        Status::Stopped => "stopped",
     }
 }
 
@@ -147,7 +138,7 @@ pub fn handle(db: &Path, path: &str) -> Response {
         let body = json!({
             "summary": state.map(|s| json!({
                 "run_id": s.run_id,
-                "status": status_str(&s.status),
+                "status": s.status.as_str(),
                 "phase": s.phase,
                 "seq": s.seq,
                 "park_reason": s.park_reason,
@@ -176,7 +167,7 @@ fn participant_transcript(db: &Path, store: &Store, rest: &str) -> Response {
     };
     let read = read_local(
         participant.transcript.as_ref(),
-        crate::participant_legacy_provenance(&participant),
+        participant.legacy_provenance(),
         participant.session_id.as_deref(),
     );
     let read = mask_secrets(read, &store_beside(db));
@@ -1082,7 +1073,7 @@ fn participant_presentation(store: &Store, rest: &str) -> Response {
 fn participant_selection(participant: &brokkr_view::Participant) -> Selection {
     brokkr_view::transcript::select_reference(
         participant.transcript.as_ref(),
-        crate::participant_legacy_provenance(participant),
+        participant.legacy_provenance(),
         participant.session_id.as_deref(),
         local_projects_home().as_deref(),
     )
