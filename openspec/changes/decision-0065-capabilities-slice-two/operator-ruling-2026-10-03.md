@@ -45,3 +45,7 @@ U6c5a built the observer, but sources.rs measured 977 lines against the 800-line
 ## Addendum, 2026-10-07: unreadable root-only system files, and counts as the observer's memory bound
 
 Five U6c5a review rounds showed two settled rules colliding with real hosts and with provability. Ordinary Linux hosts keep a few root-only files inside the server's system support sources (network and VPN configuration, login helpers), so "unreadable refuses" would refuse every real host; and a byte budget over all live observer allocations kept finding uncharged container storage. Ruled: an unreadable entry outside the program tree and bootstrap is admitted only when its owner, mode and access ACL, observed without read access to its contents, prove it root-owned, without group or other write, and writable by no managed writer, and refuses otherwise; program-tree and bootstrap files must be readable. The 256 MiB working-metadata budget is removed: the observer's memory bound is its entry, depth, symlink-hop and mount-record counts within the startup deadline.
+
+## Addendum, 2026-10-07: U1f2 takes init/claims.rs for one constant
+
+U1f2's generated agents/README.md interpolates init/claims.rs's `PRE_APPROVAL`, which still says an unboxed seat keeps "your own permission settings and MCP servers"; task 7.4 forbids any instruction promising ambient MCP inheritance. Ruled: U1f2's row gains `crates/brokkr-cli/src/init/claims.rs` for that one constant and the test pin that moves with it.
