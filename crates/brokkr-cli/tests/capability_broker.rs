@@ -24,15 +24,80 @@ struct Ran {
     stderr: String,
 }
 
-/// A canonicalised temporary root every fixture is built under.
+/// A canonicalised temporary root every fixture is built under. It lies
+/// under `/var/tmp`, whose ancestry no one else may write whatever the
+/// umask, and not under `/tmp`: a server box mounts no source below its
+/// private `/tmp` (MB4). A seat's hands box binds no `/var/tmp` and admits
+/// no plan, so there its refusal paths build in the build's own temporary
+/// directory, which the box binds and which is no server's private path.
 struct Root {
     _dir: tempfile::TempDir,
     path: PathBuf,
 }
 
+/// Where fixtures and the binary's copy are made: `/var/tmp`, or in a
+/// seat's hands box the build's own temporary directory.
+fn base() -> &'static str {
+    match boxed() {
+        true => env!("CARGO_TARGET_TMPDIR"),
+        false => "/var/tmp",
+    }
+}
+
+/// What each test process's own directory for its copy is named first.
+const COPIES: &str = "brokkr-capability-broker-";
+
+/// The binary under test, as a singly linked copy: cargo's `brokkr` is a
+/// second link to its build artifact, and a bootstrap with a second link
+/// refuses (MB3). Each process copies it once into an owner-only directory
+/// of its own, its path the process's alone, so no other process can
+/// replace it, nor run it while it is written. The process holds the
+/// directory's `lock` exclusively for as long as it runs: unlike a process
+/// id, a lock means the same in every PID namespace sharing the directory.
+fn brokkr() -> &'static Path {
+    static COPY: std::sync::OnceLock<(PathBuf, std::fs::File)> = std::sync::OnceLock::new();
+    let (copy, _live) = COPY.get_or_init(|| {
+        if !boxed() {
+            sweep();
+        }
+        let dir = tempfile::Builder::new().prefix(COPIES).tempdir_in(base());
+        let dir = dir.unwrap().keep();
+        // Locked before it takes the name a sweep looks for.
+        let live = std::fs::File::create(dir.join("lock.new")).unwrap();
+        assert!(lock(&live));
+        std::fs::rename(dir.join("lock.new"), dir.join("lock")).unwrap();
+        let copy = dir.join("brokkr");
+        std::fs::copy(env!("CARGO_BIN_EXE_brokkr"), &copy).unwrap();
+        (std::fs::canonicalize(copy).unwrap(), live)
+    });
+    copy
+}
+
+/// Whether `file`'s exclusive lock was taken here, without waiting.
+fn lock(file: &std::fs::File) -> bool {
+    rustix::fs::flock(file, rustix::fs::FlockOperation::NonBlockingLockExclusive).is_ok()
+}
+
+/// Remove each copy's directory whose process has ended: one whose lock
+/// this process can take. A directory still being made has no lock yet,
+/// and is left.
+fn sweep() {
+    let Ok(entries) = std::fs::read_dir(base()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let ours = name.to_str().is_some_and(|name| name.starts_with(COPIES));
+        let held = std::fs::File::open(entry.path().join("lock"));
+        if ours && held.is_ok_and(|held| lock(&held)) {
+            std::fs::remove_dir_all(entry.path()).ok();
+        }
+    }
+}
+
 impl Root {
     fn new() -> Root {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir_in(base()).unwrap();
         Root {
             path: dir.path().canonicalize().unwrap(),
             _dir: dir,
@@ -51,7 +116,7 @@ impl Root {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+        let mut command = confined();
         command.args(args).current_dir(&self.path);
         command
     }
@@ -63,6 +128,21 @@ impl Root {
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         }
+    }
+}
+
+/// The binary under test as a confined managed writer runs it: on Linux
+/// under `no_new_privs`, without which its observer refuses a host's
+/// multiply-linked system file (MB3). Setting it here would bind every
+/// later test in this process, so `setpriv` sets it for the child alone.
+fn confined() -> Command {
+    match cfg!(target_os = "linux") {
+        true => {
+            let mut command = Command::new("setpriv");
+            command.arg("--no-new-privs").arg(brokkr());
+            command
+        }
+        false => Command::new(brokkr()),
     }
 }
 
@@ -273,7 +353,8 @@ fn the_compile_fence_still_refuses_an_unused_mcp_grant() {
 }
 
 /// Each refusal's text, pinned once: MB3 and MB4's exact causes and SD3's
-/// temporary serving cause.
+/// temporary serving cause, listed in MB3's precedence, which is their
+/// order.
 #[test]
 fn each_refusal_reads_in_mb3_and_mb4s_words() {
     let texts = [
@@ -299,9 +380,14 @@ fn each_refusal_reads_in_mb3_and_mb4s_words() {
             "MCP server box bind overlaps seat reach",
         ),
         (
+            Refusal::Linked,
+            "MCP server box program tree contains a multiply-linked file",
+        ),
+        (
             Refusal::Identity,
             "MCP server box filesystem identity is not protected",
         ),
+        (Refusal::Unavailable, "MCP server box is unavailable"),
         (
             Refusal::StoreReachable,
             "MCP secret store is reachable by workspace hands",
@@ -315,6 +401,8 @@ fn each_refusal_reads_in_mb3_and_mb4s_words() {
             "broker serving protections are incomplete",
         ),
     ];
+    let precedence: Vec<&Refusal> = texts.iter().map(|(refusal, _)| refusal).collect();
+    assert!(precedence.is_sorted(), "{precedence:?}");
     for (refusal, text) in texts {
         assert_eq!(refusal.to_string(), text);
     }
@@ -325,6 +413,96 @@ fn refused(refusal: Refusal) -> (Option<i32>, String) {
     (Some(1), format!("error: {refusal}\n"))
 }
 
+/// The answer to a plan whose box the observer prepared: `refusal`, the
+/// cause after it, on Linux; elsewhere no launcher mounts a checked
+/// descriptor, so the box is unavailable (MB3).
+fn past_prepare(refusal: Refusal) -> (Option<i32>, String) {
+    match cfg!(target_os = "linux") {
+        true => refused(refusal),
+        false => refused(Refusal::Unavailable),
+    }
+}
+
+/// The answer to a plan the broker admits, still refused before serving.
+fn admitted() -> (Option<i32>, String) {
+    past_prepare(Refusal::ServingIncomplete)
+}
+
+/// Whether this run stands in a seat's hands box, where no box is prepared.
+fn boxed() -> bool {
+    // An unprivileged bubblewrap user namespace maps root-owned host files to the overflow uid, so MB3 rightly refuses their filesystem identity.
+    std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some()
+}
+
+/// Skip a proof this run cannot give, for `reason`: a run that declared
+/// boundary evidence fails instead of passing on it.
+fn skip(reason: &str) {
+    let required = brokkr_protocol::hands::boundary_evidence_required();
+    brokkr_protocol::hands::skip_boundary_proof(required, reason);
+}
+
+/// Why a boxed run skips: a seat's hands box prepares no server box.
+const BOXED: &str = "a seat's hands box prepares no server box";
+
+/// Why no live server box stands for this run, if none does: a seat's
+/// hands box prepares none. A host's root-only system files are no reason
+/// (operator ruling 2026-10-07): MB3 admits them, so a box stands beside
+/// them.
+fn unservable() -> Option<String> {
+    boxed().then(|| BOXED.to_string())
+}
+
+/// Check that `answer`, labelled `case`, is a sealed plan's that binds:
+/// admitted where a live box stands; where none can, refused past binding
+/// with the observer's own identity cause, and the rest declared skipped.
+/// Its caller has checked that the base is protected ([`bindable`]).
+fn binds(case: &str, answer: (Option<i32>, String)) {
+    match unservable() {
+        None => assert_eq!((case, answer), (case, admitted())),
+        Some(reason) => {
+            let observed = past_prepare(Refusal::Identity);
+            assert_eq!((case, answer), (case, observed));
+            skip(&reason);
+        }
+    }
+}
+
+/// Whether the broker's guard accepts every directory from `/` down to
+/// [`base`]: each this user's or root's, and written by no one else but
+/// where root's and sticky. Where it does not, as under a hands box's
+/// build directory on an umask-002 host, no plan built there binds.
+fn protected_base() -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let euid = rustix::process::geteuid().as_raw();
+    let base = std::fs::canonicalize(base()).unwrap();
+    base.ancestors().all(|dir| {
+        let held = std::fs::metadata(dir).unwrap();
+        let (uid, mode) = (held.uid(), held.mode());
+        let sticky = (uid, mode & 0o1000) == (0, 0o1000);
+        [euid, 0].contains(&uid) & ((mode & 0o022 == 0) | sticky)
+    })
+}
+
+/// Why a run with no protected base skips a plan that must bind.
+const UNPROTECTED: &str = "no directory whose ancestry the broker's guard accepts holds fixtures";
+
+/// Whether a plan can bind here: where no base is protected, the guard
+/// refuses every plan before it reads one, so no refusal after binding is
+/// told apart from that one, and the whole proof is declared skipped.
+fn bindable() -> bool {
+    let protected = protected_base();
+    if !protected {
+        skip(UNPROTECTED);
+    }
+    protected
+}
+
+/// A sealed fixture and the answer to a plan that does not bind, where a
+/// plan can bind here ([`bindable`]); none, declared skipped, where not.
+fn unbound_fixture() -> Option<(Sealed, (Option<i32>, String))> {
+    bindable().then(|| (Sealed::new(), refused(Refusal::Unbound)))
+}
+
 /// Set the plan field at `pointer` to `value`.
 fn set(plan: &mut Value, pointer: &str, value: Value) {
     *plan.pointer_mut(pointer).unwrap() = value;
@@ -332,7 +510,7 @@ fn set(plan: &mut Value, pointer: &str, value: Value) {
 
 /// The canonical bootstrap: the binary under test.
 fn bootstrap() -> PathBuf {
-    std::fs::canonicalize(env!("CARGO_BIN_EXE_brokkr")).unwrap()
+    brokkr().to_path_buf()
 }
 
 fn chmod(path: &Path, mode: u32) {
@@ -562,11 +740,14 @@ impl Store {
 
 #[test]
 fn a_sealed_plan_is_admitted_and_still_refused_before_any_lookup_or_start() {
+    if let Some(reason) = unservable() {
+        return skip(&reason);
+    }
     let sealed = Sealed::new();
     let store = Store::new(sealed.path("store/secrets.env"));
     let answer = sealed.answer(|_| ());
     let ended = Instant::now();
-    assert_eq!(answer, refused(Refusal::ServingIncomplete));
+    assert_eq!(answer, admitted());
     // Zero lookups and zero starts.
     assert_eq!(store.lookups(ended), 0);
     assert!(!sealed.path("started").exists());
@@ -574,8 +755,9 @@ fn a_sealed_plan_is_admitted_and_still_refused_before_any_lookup_or_start() {
 
 #[test]
 fn only_the_protected_inventory_binds_a_plan() {
-    let sealed = Sealed::new();
-    let unbound = refused(Refusal::Unbound);
+    let Some((sealed, unbound)) = unbound_fixture() else {
+        return;
+    };
     let bytes = sealed.plan().to_string();
     let digest = brokkr_core::canonical::sha256_bytes(bytes.as_bytes());
     sealed.write("cap-library-docs.json", bytes.as_bytes());
@@ -597,20 +779,21 @@ fn only_the_protected_inventory_binds_a_plan() {
     assert_eq!(sealed.serve(&digest), unbound);
     // Pinned exactly, among others, it binds.
     sealed.pin(&[(&other, DIGEST), (&sealed.locator, &digest)]);
-    assert_eq!(sealed.serve(&digest), refused(Refusal::ServingIncomplete));
+    binds("pinned", sealed.serve(&digest));
 }
 
 #[test]
 fn only_the_engines_home_roots_a_plan() {
-    let sealed = Sealed::new();
-    let unbound = refused(Refusal::Unbound);
+    let Some((sealed, unbound)) = unbound_fixture() else {
+        return;
+    };
     let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
     let serve = |home: Option<&Path>| sealed.serve_as(home, &sealed.locator, &digest);
     // The root is compared by identity, not spelling: HOME reached through
     // a symlink is still the engine's.
     let link = sealed.path("link");
     std::os::unix::fs::symlink(&sealed.home, &link).unwrap();
-    assert_eq!(serve(Some(&link)), refused(Refusal::ServingIncomplete));
+    binds("linked home", serve(Some(&link)));
     // An engine with no HOME, or a relative one, roots nothing.
     assert_eq!(serve(None), unbound);
     assert_eq!(serve(Some(Path::new("home"))), unbound);
@@ -625,16 +808,16 @@ fn only_the_engines_home_roots_a_plan() {
 
 #[test]
 fn a_plan_under_an_unprotected_root_or_file_is_unbound() {
-    let sealed = Sealed::new();
-    let unbound = refused(Refusal::Unbound);
-    let admitted = refused(Refusal::ServingIncomplete);
+    let Some((sealed, unbound)) = unbound_fixture() else {
+        return;
+    };
     let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
     let refuses = |path: &Path, mode: u32, restore: u32| {
         chmod(path, mode);
         let answer = sealed.serve(&digest);
         chmod(path, restore);
         assert_eq!((path, answer), (path, unbound.clone()));
-        assert_eq!(sealed.serve(&digest), admitted);
+        binds("restored", sealed.serve(&digest));
     };
     // The protected root and everything below it are this user's alone.
     refuses(
@@ -660,7 +843,7 @@ fn a_plan_under_an_unprotected_root_or_file_is_unbound() {
     assert_eq!(sealed.serve(&digest), unbound);
     std::fs::remove_file(&sealed.locator).unwrap();
     std::fs::rename(&real, &sealed.locator).unwrap();
-    assert_eq!(sealed.serve(&digest), admitted);
+    binds("unlinked", sealed.serve(&digest));
     let run = sealed.attempt.parent().unwrap();
     std::fs::rename(run, run.with_file_name("run-0")).unwrap();
     std::os::unix::fs::symlink(run.with_file_name("run-0"), run).unwrap();
@@ -669,8 +852,9 @@ fn a_plan_under_an_unprotected_root_or_file_is_unbound() {
 
 #[test]
 fn a_plan_answers_for_the_attempt_it_lies_in_and_its_size() {
-    let sealed = Sealed::new();
-    let unbound = refused(Refusal::Unbound);
+    let Some((sealed, unbound)) = unbound_fixture() else {
+        return;
+    };
     for (pointer, value) in [
         ("/owner/repo", json!("f".repeat(64))),
         ("/owner/run", json!("run-2")),
@@ -715,19 +899,18 @@ fn a_plan_answers_for_the_attempt_it_lies_in_and_its_size() {
     // MB3's request bound: one MiB of plan, and not a byte more.
     let mut bytes = sealed.plan().to_string().into_bytes();
     bytes.resize(1 << 20, b' ');
-    assert_eq!(
-        sealed.answer_bytes(&bytes),
-        refused(Refusal::ServingIncomplete)
-    );
+    binds("one MiB", sealed.answer_bytes(&bytes));
     bytes.push(b' ');
     assert_eq!(sealed.answer_bytes(&bytes), unbound);
 }
 
 #[test]
 fn a_field_changed_after_sealing_acquires_no_authority() {
-    let sealed = Sealed::new();
-    let unbound = refused(Refusal::Unbound);
+    let Some((sealed, unbound)) = unbound_fixture() else {
+        return;
+    };
     let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
+    binds("as sealed", sealed.serve(&digest));
     let elsewhere = sealed.path("opt/other");
     for (pointer, value) in [
         ("/box/executable", json!(elsewhere.join("bin/docs-mcp"))),
@@ -759,8 +942,10 @@ fn a_field_changed_after_sealing_acquires_no_authority() {
 
 #[test]
 fn a_plan_parses_closed_and_defaults_nothing() {
-    let sealed = Sealed::new();
-    let unbound = refused(Refusal::Unbound);
+    let Some((sealed, unbound)) = unbound_fixture() else {
+        return;
+    };
+    binds("as sealed", sealed.answer(|_| ()));
     let text = sealed.plan().to_string();
     let duplicated = text.replacen(
         "\"retained\":true",
@@ -813,8 +998,9 @@ fn positional(record: &mut Value, order: &[&str]) {
 
 #[test]
 fn every_record_is_an_object_never_a_positional_array() {
-    let sealed = Sealed::new();
-    let unbound = refused(Refusal::Unbound);
+    let Some((sealed, unbound)) = unbound_fixture() else {
+        return;
+    };
     // Each record in its declared field order, which a positional reading
     // would take.
     let plan = [
@@ -878,13 +1064,14 @@ fn every_record_is_an_object_never_a_positional_array() {
         "inventory.json",
         json!({"plans": [pin]}).to_string().as_bytes(),
     );
-    assert_eq!(sealed.serve(&digest), refused(Refusal::ServingIncomplete));
+    binds("object pin", sealed.serve(&digest));
 }
 
 #[test]
 fn a_sealed_plan_of_the_wrong_shape_is_unbound() {
-    let sealed = Sealed::new();
-    let unbound = refused(Refusal::Unbound);
+    let Some((sealed, unbound)) = unbound_fixture() else {
+        return;
+    };
     let other = sealed.root.write("other-brokkr", "");
     for (pointer, value) in [
         ("/dialect/digest", json!("A".repeat(64))),
@@ -946,12 +1133,14 @@ fn a_sealed_plan_of_the_wrong_shape_is_unbound() {
     });
     assert_eq!(unnamed, unbound);
     // A plan with no secrets still binds.
-    let admitted = refused(Refusal::ServingIncomplete);
-    assert_eq!(sealed.with("/secrets", json!([])), admitted);
+    binds("no secrets", sealed.with("/secrets", json!([])));
 }
 
 #[test]
 fn binding_names_are_checked_then_fixed_keys_refuse_before_lookup() {
+    if !bindable() {
+        return;
+    }
     let sealed = Sealed::new();
     let named = |name: &str| sealed.with("/secrets", json!(["DOCS_TOKEN", name]));
     let cause = |name: &str| brokkr_protocol::secret::validate_name(name).unwrap_err();
@@ -999,6 +1188,9 @@ fn binding_names_are_checked_then_fixed_keys_refuse_before_lookup() {
 /// the CLI's prefix and newline lie outside it.
 #[test]
 fn a_long_binding_name_is_cut_to_one_bounded_line() {
+    if !bindable() {
+        return;
+    }
     let sealed = Sealed::new();
     let name = format!("\n{}", "é".repeat(600));
     let (code, stderr) = sealed.with("/secrets", json!([name]));
@@ -1020,6 +1212,10 @@ fn plant(path: &Path) -> PathBuf {
 /// and MB3's tree of it that the server profile resolves (U6c4).
 #[test]
 fn the_program_tree_is_mb3s_layout_of_the_executable() {
+    // Its refusals come after binding, which needs a protected base.
+    if !bindable() {
+        return;
+    }
     let sealed = Sealed::new();
     let tree = |argv0: Value, executable: &Path, tree: Value| {
         sealed.answer(|plan| {
@@ -1030,7 +1226,6 @@ fn the_program_tree_is_mb3s_layout_of_the_executable() {
     };
     let package = |root: &Path| json!({"kind": "package", "root": root});
     let system = || json!({"kind": "system"});
-    let admitted = refused(Refusal::ServingIncomplete);
     let docs = sealed.path("opt/docs");
     let entry = docs.join("bin/docs-mcp");
     let link = sealed.path("docs-mcp");
@@ -1060,8 +1255,10 @@ fn the_program_tree_is_mb3s_layout_of_the_executable() {
         (json!(sbin), &sbin, package(&docs)),
         (json!(cargo_entry), &cargo_entry, package(&cargo)),
     ] {
-        let answer = tree(argv0, executable, sealed_tree);
-        assert_eq!((executable, answer), (executable, admitted.clone()));
+        binds(
+            &executable.display().to_string(),
+            tree(argv0, executable, sealed_tree),
+        );
     }
     let home_entry = plant(&sealed.home.join("d"));
     let root_entry = plant(&sealed.path("bin/d"));
@@ -1089,6 +1286,9 @@ fn the_program_tree_is_mb3s_layout_of_the_executable() {
 
 #[test]
 fn the_box_neither_launches_from_nor_binds_over_the_seats_reach() {
+    if !bindable() {
+        return;
+    }
     let sealed = Sealed::new();
     let inside = |executable: PathBuf| {
         plant(&executable);
@@ -1136,9 +1336,13 @@ fn the_box_neither_launches_from_nor_binds_over_the_seats_reach() {
 
 #[test]
 fn unprovable_writers_unbounded_sources_and_exposed_control_roots_refuse() {
+    if let Some(reason) = unservable() {
+        return skip(&reason);
+    }
     let sealed = Sealed::new();
-    let identity = refused(Refusal::Identity);
-    let admitted = refused(Refusal::ServingIncomplete);
+    // The plan's identity facts are checked once the box is prepared.
+    let identity = past_prepare(Refusal::Identity);
+    let admitted = admitted();
     for uids in [json!([]), json!([1000, 65534]), json!([4_294_967_295u32])] {
         let answer = sealed.with("/box/writers/uids", uids.clone());
         assert_eq!((&uids, answer), (&uids, identity.clone()));
@@ -1167,17 +1371,20 @@ fn unprovable_writers_unbounded_sources_and_exposed_control_roots_refuse() {
     let answer = sealed.serve_in(&sealed.locator, &digest, |command| {
         command.env("HOME", &sealed.home).env("TMPDIR", &file);
     });
-    assert_eq!(answer, identity);
+    assert_eq!(answer, refused(Refusal::Identity));
 }
 
 #[test]
 fn the_store_is_neither_in_reach_nor_in_the_box() {
+    if let Some(reason) = unservable() {
+        return skip(&reason);
+    }
     let sealed = Sealed::new();
     let store = |path: PathBuf| sealed.with("/box/excluded/store", json!(path));
-    let reachable = refused(Refusal::StoreReachable);
+    let reachable = past_prepare(Refusal::StoreReachable);
     assert_eq!(store(sealed.path("work/.forge/secrets.env")), reachable);
     assert_eq!(store(sealed.path("cache/secrets.env")), reachable);
-    let mounted = refused(Refusal::StoreInBox);
+    let mounted = past_prepare(Refusal::StoreInBox);
     assert_eq!(store(sealed.path("opt/docs/secrets.env")), mounted);
     assert_eq!(store(bootstrap()), mounted);
 }

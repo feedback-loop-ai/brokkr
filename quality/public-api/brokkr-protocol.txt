@@ -116,12 +116,14 @@ pub enum brokkr_protocol::broker::Refusal
 pub brokkr_protocol::broker::Refusal::BindOverlapsReach
 pub brokkr_protocol::broker::Refusal::Identity
 pub brokkr_protocol::broker::Refusal::LaunchInReach
+pub brokkr_protocol::broker::Refusal::Linked
 pub brokkr_protocol::broker::Refusal::Name(alloc::string::String)
 pub brokkr_protocol::broker::Refusal::ProgramTree
 pub brokkr_protocol::broker::Refusal::ServingIncomplete
 pub brokkr_protocol::broker::Refusal::StartupInputs
 pub brokkr_protocol::broker::Refusal::StoreInBox
 pub brokkr_protocol::broker::Refusal::StoreReachable
+pub brokkr_protocol::broker::Refusal::Unavailable
 pub brokkr_protocol::broker::Refusal::Unbound
 pub enum brokkr_protocol::broker::Tree
 pub brokkr_protocol::broker::Tree::Package

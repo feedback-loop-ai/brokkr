@@ -260,7 +260,8 @@ Exactly these system sources are read-only where present: `/usr/bin`,
 sources stay absent. No entire `/`, `/usr`, `/etc` or host home is a shortcut.
 Never bind `/etc/ssl/private` or other certificate-directory siblings; missing
 TLS configuration fails inside. An unreadable entry within an actual source
-still refuses, rather than being silently omitted.
+is never silently omitted: it refuses unless MB3 proves it a root-owned file
+outside the program tree and bootstrap that no managed writer can write.
 Use generated passwd/group/hosts/nsswitch, PID-scoped procfs and minimal dev.
 Only shared network adds the checked read-only resolver `/etc/resolv.conf`.
 Generated nonsecret identity bytes can use sealed memory FDs and
@@ -329,8 +330,11 @@ handle; its trusted host runtime gets only a cleared fixed environment.
 No server-loader qualification is reintroduced by checking trusted box inputs.
 
 MB3 fixes traversal at 1,000,000 entries, depth 64, 40 symlink hops per
-resolution, 65,536 mount records, 256 MiB metadata and the absolute startup
-deadline. There is no skipped unreadable entry or permissive truncation.
+resolution, 65,536 mount records and the absolute startup deadline; the counts
+are the memory bound, with no separate byte budget (operator ruling 2026-10-07).
+There is no skipped entry or permissive truncation: an unreadable entry outside
+the program tree and bootstrap is admitted only when owner, mode and access ACL
+prove it root-owned and unwritable by every managed writer, and refuses otherwise.
 Check the entire effective source set, not just the extra package bind.
 Program/bootstrap links keep their unconditional specific cause. For a
 multiply-linked system support/launcher file outside the program tree, apply
@@ -362,8 +366,9 @@ cannot supply the lifetime guarantee. Reuse the protected inventories for
 coordination, with no separate registry or daemon. Arbitrary operator host
 mutation remains outside the claim.
 No previous preparation's verdict may be cached or subtree skipped to meet
-limits. Source metadata is bounded independently of live handles; overflow
-or cancellation refuses through MB3's identity cause before lookup.
+limits. Source metadata is bounded by MB3's counts, independently of live
+handles; overflow or cancellation refuses through MB3's identity cause before
+lookup.
 
 C2 feasibility is measured under SD4: U6c5's actual observer must complete
 within 10 s on each recorded Linux qualification profile, and U6f/U9b must
@@ -655,7 +660,7 @@ complete writer reach/privileges and protected sources with every unsettled
 reservation, then durably seal its reservation before releasing the lock or
 spawning. Zero-grant runs also publish their writer facts in that inventory;
 there is no separate editable writer list or service. Inventory traversal and
-lock acquisition share D5's metadata/entry limits and absolute startup deadline;
+lock acquisition share D5's count limits and absolute startup deadline;
 exhaustion takes MB3's identity cause. Refuse incomplete, inaccessible or
 ambiguous participation; do not assume
 an absent answer means disjointness. This lock orders admissions only, so
@@ -1215,10 +1220,10 @@ At each PR recheck these paths and baseline counts against main.
 | `contracts/run-manifest.v12.schema.json` | U5f | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/capabilities/manifest.rs` | U5f | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-protocol/src/secret.rs` (706 at this visit) | U6a, U6c7, U6c8 | 0012 single-injector proof; no second plaintext accessor |
-| `crates/brokkr-cli/src/cli_args.rs` (699 at this visit) | U6b, U6c6, U8g | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-cli/src/cli_args.rs` (699 at this visit) | U6b, U6c5b, U6c6, U8g | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/lib.rs` (1918) | U6b | Recheck concurrent main edits and module registration before the row |
-| `crates/brokkr-cli/src/broker.rs` | U6b, U6c, U6c2, U6c6, U6e | New module; keep protocol types shared, no duplicate policy |
-| `crates/brokkr-cli/src/broker/session.rs` | U6c2, U6c4, U6c5, U6c8, U6d, U6e, U6f, U8b | New module; keep protocol types shared, no duplicate policy |
+| `crates/brokkr-cli/src/broker.rs` | U6b, U6c, U6c2, U6c5b, U6c6, U6e | New module; keep protocol types shared, no duplicate policy |
+| `crates/brokkr-cli/src/broker/session.rs` | U6c2, U6c4, U6c5b, U6c8, U6d, U6e, U6f, U8b | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-protocol/src/broker/ledger.rs` | U6d, U8b | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/broker/rpc.rs` | U6e, U6f | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-cli/src/broker/output.rs` | U6f, U8b | New module; keep protocol types shared, no duplicate policy |
@@ -1229,11 +1234,12 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-runtime/src/engine/artifacts.rs` | U8c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-cli/src/verbs/readouts.rs` | U8g | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/doctor/capabilities.rs` | U9a | 0065 follow-up refactors; identity and gate ordering must survive |
-| `crates/brokkr-protocol/src/hands/namespace.rs` | U6c3, U6c4, U6c5 | Count registration and same-unit consumers; recheck size and concurrent main edits |
-| `crates/brokkr-protocol/src/hands/namespace/sources.rs` | U6c5 | Includes system write-exclusion/credential observation and task 28.17 measurement; split before implementation if ceilings cannot hold |
+| `crates/brokkr-protocol/src/hands/namespace.rs` | U6c3, U6c4, U6c5a, U6c5b | Count registration and same-unit consumers; recheck size and concurrent main edits |
+| `crates/brokkr-protocol/src/hands/namespace/sources/host.rs` | U6c5a | The observer's host facts (mountinfo, writer credentials, ACL and write-exclusion proofs, the reopening of a file through its own handle) and each source's whole-chain resolution (`resolve`, `Walk`, `Hop`, `Resolved`); a consumed child of sources.rs, which keeps the bounds, directory walk, the one per-object observation with its link rules, digest and verdict |
+| `crates/brokkr-protocol/src/hands/namespace/sources.rs` | U6c5a, U6c5b | Includes system write-exclusion/credential observation and task 28.17 measurement; split before implementation if ceilings cannot hold |
 | `crates/brokkr-cli/src/broker/bootstrap.rs` | U6c6, U6c8 | Ready state, complete-frame EOF and close-on-exec status; count registration/consumers and recheck ceilings |
 | `crates/brokkr-protocol/src/secret/store.rs` | U6c7 | Count registration and same-unit consumers; recheck size and concurrent main edits |
-| `crates/brokkr-protocol/src/broker.rs` | U6c, U6d | Shared consumed protocol edge; registration counts in lib.rs |
+| `crates/brokkr-protocol/src/broker.rs` | U6c, U6c5a, U6d | Shared consumed protocol edge; registration counts in lib.rs |
 Also coordinate `crates/brokkr-cli/tests/init_doctor.rs` and
 `crates/brokkr-cli/tests/init_stacks.rs` (U1f2/U1g),
 `crates/brokkr-runtime/tests/witness_digests.rs`,
@@ -1327,8 +1333,9 @@ witness/compose pins accompany only rows that change their inputs.
 | U6c2 | U6c | Extract the consumed broker session; 28.3–28.4 | `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/session.rs` |
 | U6c3 | Independent | Extract the shared namespace builder; 28.5–28.6 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/namespace.rs` |
 | U6c4 | U6c2, U6c3 | Consume the server namespace profile; 28.7–28.8 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-cli/src/broker/session.rs` |
-| U6c5 | U6c4 | Bind and verify host source identity; 28.9–28.10, 28.17 | `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-protocol/src/hands/namespace/sources.rs`; `crates/brokkr-cli/src/broker/session.rs` |
-| U6c6 | U6c5 | Register the private waiting bootstrap; 28.11–28.12 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs` |
+| U6c5a | U6c4 | Register the source observer and its refusals; 28.9–28.10 | `crates/brokkr-protocol/src/broker.rs`; `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-protocol/src/hands/namespace/sources.rs`; `crates/brokkr-protocol/src/hands/namespace/sources/host.rs` |
+| U6c5b | U6c5a | Consume source identity at admission through a cancellable observer; 28.9–28.10, 28.17 | `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-protocol/src/hands/namespace/sources.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/broker.rs` |
+| U6c6 | U6c5b | Register the private waiting bootstrap; 28.11–28.12 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs` |
 | U6c7 | U6a | Extract the shared typed store reader; 28.13–28.14 | `crates/brokkr-protocol/src/secret.rs`; `crates/brokkr-protocol/src/secret/store.rs` |
 | U6c8 | U6c6, U6c7 | Wire the confined environment handoff; 28.15–28.16 | `crates/brokkr-protocol/src/secret.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs`; `crates/brokkr-cli/src/broker/session.rs` |
 | U6d | U6c8 | Establish durable ledger records before calls; 29.1–29.2 | `crates/brokkr-protocol/src/broker.rs`; `crates/brokkr-protocol/src/broker/ledger.rs`; `crates/brokkr-cli/src/broker/session.rs` |
@@ -1706,18 +1713,27 @@ Proof: Exact singleton system and dedicated package roots (including a system-co
 
 Owning tests: `crates/brokkr-protocol/src/hands/tests.rs`, `crates/brokkr-cli/tests/capability_broker.rs`.
 
-### U6c5 — Bind and verify host source identity
+### U6c5a — Register the source observer and its refusals
 
-Register the source observer under namespace.rs and consume it in the server profile and broker admission. Implement D5's bounded no-follow observation, mountinfo root/subpath alias comparison, complete source/link/ancestry checks, MB3's system-support kernel write-exclusion predicate and handle-backed --ro-bind-fd inputs. Bind mapped writer credentials and privilege confinement with the source facts; unknown mappings or unsupported ACL facts refuse, and program/bootstrap links have no exception. Secure launcher/bootstrap/control inputs and store identity, including secret-free empty-store handling, without reading values. Use existing protocol rustix/libc dependencies; no hidden Cargo file. Unknown facilities or identities refuse, and all public serving stays closed. The returned owned handles remain live until actual box readiness in the later launch path.
+Add MB3's two closed refusal causes the observer needs to protocol broker.rs's `Refusal`, with their consumers: "MCP server box program tree contains a multiply-linked file" and "MCP server box is unavailable" (missing descriptor-mount support, distinct from failed namespace readiness). Register the bounded source observer in namespace/sources.rs under namespace.rs and consume it in the server profile: D5's no-follow descriptor walk with root handles and an ancestor stack, strict mountinfo dev/ino/root/subpath alias mapping, whole-chain resolution within 40 hops, the unconditional program/bootstrap single-link rule, MB3's system-support kernel write-exclusion predicate (owner versus mapped writer uids, group/other write, POSIX ACL facts, privilege facts), the four traversal bounds, the source-set digest, and handle-backed --ro-bind-fd mounts in ServerBox::prepare with retained owned descriptors. Use existing protocol rustix/libc dependencies; no hidden Cargo file. Unknown facilities or identities refuse, and all public serving stays closed. Split from U6c5 by operator ruling (2026-10-06); the observer's host-fact reading and each source's whole-chain resolution (`resolve`, `Walk`, `Hop`, `Resolved`) live in the child module sources/host.rs, a fourth production file by operator ruling (2026-10-07), because the observer cannot fit the 800-line ceiling in one file.
 
-Closes tasks 28.9, 28.10 and 28.17; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SC1](specs/slice-two-contracts/spec.md).
-Proof: Each MB3/MB4 filesystem cause and precedence with zero lookup/start: both overlap directions/modes, resolution chain replacement, unconditional program/bootstrap hard-link refusals, protected system-link positives and independent owner/mode/ACL/mapping/privilege negatives, nlink-one bind alias, nested mount, special/unreadable/cyclic/over-limit data, absent/aliased store, mount-source replacement and native alias creation. Exact-bound positive controls and descriptor-source identity checks each have independent removals. Task 28.17 records SD4's actual observer cost and Linux profiles; a boxed metadata survey cannot close it. Ordinary system entries and protected packages must pass with installed system hard links left intact.
+Closes the observer and box-side parts of tasks 28.9 and 28.10 with U6c5b; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SC1](specs/slice-two-contracts/spec.md).
+Proof: Each box-side MB3/MB4 filesystem cause with zero lookup/start: both overlap directions/modes, resolution chain replacement, unconditional program/bootstrap hard-link refusals, protected system-link positives and independent owner/mode/ACL/mapping/privilege negatives, nlink-one bind alias, nested mount, special/unreadable/cyclic/over-limit data, mount-source replacement and descriptor-mount support. Exact-bound positive controls and descriptor-source identity checks each have independent removals. Ordinary system entries and protected packages pass with installed system hard links left intact.
+
+Owning tests: `crates/brokkr-protocol/src/hands/tests.rs` and its child modules.
+
+### U6c5b — Consume source identity at admission through a cancellable observer
+
+Re-observe source facts during broker admission and compare them with the sealed Sources/Writers, keeping SC1's "not bound" distinct from filesystem identity. Secure launcher/bootstrap/control inputs and store identity, including secret-free empty-store handling, without reading values or passing a store descriptor into the box. Run the observer in a private helper process behind a private `BrokerCmd` verb registered in cli_args.rs and dispatched in broker.rs, so cancellation or deadline expiry during a blocked source operation ends the helper and leaves no admission worker running. The returned owned handles remain live until actual box readiness in the later launch path. Five production files by operator ruling (2026-10-06): the helper lands here, ahead of U6c6's bootstrap variant on the same private seam.
+
+Closes tasks 28.9, 28.10 and 28.17 with U6c5a; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SC1](specs/slice-two-contracts/spec.md).
+Proof: Admission-side causes and precedence with zero lookup/start, absent/aliased store and native alias creation; cancellation and deadline expiry during a blocked source operation with MB3's identity cause, zero lookups/starts and no helper or worker left running; the four count bounds independent of the deadline proof. Task 28.17 records SD4's actual observer cost and Linux profiles; a boxed metadata survey cannot close it, and a missing aarch64 profile stays pending and blocks U9b as 28.17 says.
 
 Owning tests: `crates/brokkr-protocol/src/hands/tests.rs`, `crates/brokkr-cli/tests/capability_broker.rs`, `crates/brokkr-runtime/src/engine/boundary_tests.rs`.
 
 ### U6c6 — Register the private waiting bootstrap
 
-Add a private BrokerCmd variant and exhaustive handler in the existing binary, with registration in broker.rs. The bootstrap consumes sealed nonsecret intent from inherited control descriptors, verifies the actual namespace/mount/tmpfs/network state and emits the bounded ready message. It accepts no store/grant locator as authority and no arbitrary unconfined exec. Absent or invalid private control context takes the box-establishment cause. Its complete waiting/verification handler is a production consumer; actual binding receipt is wired in U6c8, and incomplete serving still cannot start a dialect server.
+Add a private BrokerCmd variant and exhaustive handler in the existing binary, with registration in broker.rs. U6c5b introduces the private BrokerCmd seam for its observer helper; this row adds the bootstrap variant beside it. The bootstrap consumes sealed nonsecret intent from inherited control descriptors, verifies the actual namespace/mount/tmpfs/network state and emits the bounded ready message. It accepts no store/grant locator as authority and no arbitrary unconfined exec. Absent or invalid private control context takes the box-establishment cause. Its complete waiting/verification handler is a production consumer; actual binding receipt is wired in U6c8, and incomplete serving still cannot start a dialect server.
 
 Keep readiness distinct from the subsequent private binding and exec-status channels specified in D5. This row grants neither a public bootstrap API nor early exec; U6c8 supplies those channels with their consumers.
 

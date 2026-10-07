@@ -3,21 +3,66 @@
 //! name alone, prepared against the seat's reach and never started here.
 
 use std::ffi::OsStr;
-use std::os::unix::fs::PermissionsExt;
+#[cfg(target_os = "linux")]
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 use super::super::*;
 use crate::broker::{Network, Reach, Refusal, Tree};
 
-/// A canonicalised temporary root with a host HOME inside it.
-struct Host {
+/// What a box whose reach and tree admit it answers: prepared on Linux;
+/// elsewhere no Linux box launcher stands (MB3).
+pub(super) const ADMITTED: Result<(), Refusal> = match cfg!(target_os = "linux") {
+    true => Ok(()),
+    false => Err(Refusal::Unavailable),
+};
+
+/// Whether this run stands in a seat's hands box, where no box is prepared.
+pub(super) fn boxed() -> bool {
+    // An unprivileged bubblewrap user namespace maps root-owned host files to the overflow uid, so MB3 rightly refuses their filesystem identity.
+    std::env::var_os(HANDS_BOX_ENV).is_some()
+}
+
+/// Skip a proof only a prepared box gives: a run that declared boundary
+/// evidence fails instead of passing on it.
+pub(super) fn skip_in_box() {
+    let reason = "a seat's hands box prepares no server box";
+    skip_boundary_proof(boundary_evidence_required(), reason);
+}
+
+/// Skip a proof only a live box gives where none can stand: in a seat's
+/// hands box. A host's root-only system files are no reason (operator
+/// ruling 2026-10-07): MB3 admits them, so a live box stands beside them.
+/// A run that declared boundary evidence fails instead of passing on it.
+pub(super) fn unservable() -> bool {
+    let boxed = boxed();
+    if boxed {
+        skip_in_box();
+    }
+    boxed
+}
+
+/// A canonicalised temporary root with a host HOME inside it. It lies in
+/// the build's own directory rather than the temporary directory: a
+/// server box mounts no source below its private `/tmp` (MB4).
+pub(super) struct Host {
     _dir: tempfile::TempDir,
-    root: PathBuf,
-    home: PathBuf,
+    pub(super) root: PathBuf,
+    pub(super) home: PathBuf,
+}
+
+/// The build's own directory, the test binary's `deps` directory's parent.
+pub(super) fn build_dir() -> PathBuf {
+    let exe = std::env::current_exe().unwrap();
+    exe.parent().unwrap().parent().unwrap().to_path_buf()
 }
 
 impl Host {
-    fn new() -> Host {
-        let dir = tempfile::tempdir().unwrap();
+    pub(super) fn new() -> Host {
+        let dir = tempfile::Builder::new()
+            .prefix("brokkr-u6c5a-")
+            .tempdir_in(build_dir())
+            .unwrap();
         let root = dir.path().canonicalize().unwrap();
         let home = root.join("home");
         std::fs::create_dir_all(&home).unwrap();
@@ -28,12 +73,12 @@ impl Host {
         }
     }
 
-    fn path(&self, relative: &str) -> PathBuf {
+    pub(super) fn path(&self, relative: &str) -> PathBuf {
         self.root.join(relative)
     }
 
     /// A file at `relative` with `mode`.
-    fn file(&self, relative: &str, mode: u32) -> PathBuf {
+    pub(super) fn file(&self, relative: &str, mode: u32) -> PathBuf {
         let path = self.path(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "#!/bin/sh\n").unwrap();
@@ -43,12 +88,12 @@ impl Host {
     }
 
     /// An executable at `relative`.
-    fn plant(&self, relative: &str) -> PathBuf {
+    pub(super) fn plant(&self, relative: &str) -> PathBuf {
         self.file(relative, 0o755)
     }
 
     /// A symlink at `relative` to `target`.
-    fn link(&self, relative: &str, target: &Path) -> PathBuf {
+    pub(super) fn link(&self, relative: &str, target: &Path) -> PathBuf {
         let path = self.path(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink(target, &path).unwrap();
@@ -88,10 +133,30 @@ fn found(name: &str) -> PathBuf {
         .unwrap()
 }
 
+/// Whether some regular file under `root` has a second link, never
+/// following one; none for a tree of more than 4,096 entries.
+fn links(root: &Path) -> Option<bool> {
+    let mut pending = vec![root.to_path_buf()];
+    let (mut seen, mut linked) = (0, false);
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(dir).ok()? {
+            let path = entry.ok()?.path();
+            let held = path.symlink_metadata().ok()?;
+            seen += 1;
+            linked |= held.is_file() & (std::os::unix::fs::MetadataExt::nlink(&held) > 1);
+            if held.is_dir() {
+                pending.push(path);
+            }
+        }
+    }
+    (seen <= 4096).then_some(linked)
+}
+
 /// An installed executable inside the system set that is no system entry:
 /// `/usr/lib/<package>/…/<file>` outside any `bin`, a package the system
-/// set already holds (e.g. `/usr/lib/apt/methods/http`).
-fn installed() -> (PathBuf, PathBuf) {
+/// set already holds (e.g. `/usr/lib/apt/methods/http`), whose tree has
+/// no multiply-linked file.
+pub(super) fn installed() -> (PathBuf, PathBuf) {
     let mut packages: Vec<PathBuf> = std::fs::read_dir("/usr/lib")
         .unwrap()
         .filter_map(|entry| Some(entry.ok()?.path()))
@@ -109,8 +174,10 @@ fn installed() -> (PathBuf, PathBuf) {
                 .metadata()
                 .is_ok_and(|held| held.is_file() & (held.permissions().mode() & 0o111 != 0));
             runnable
-                & parent.starts_with("/usr/lib/")
-                & !["bin", "sbin"].map(OsStr::new).contains(&named)
+                && (parent != Path::new("/usr/lib"))
+                && parent.starts_with("/usr/lib/")
+                && !["bin", "sbin"].map(OsStr::new).contains(&named)
+                && links(parent) == Some(false)
         })
         .map(|path| (path.clone(), path.parent().unwrap().to_path_buf()))
         .expect("an executable installed under /usr/lib")
@@ -202,7 +269,7 @@ fn a_launch_that_names_no_installed_file_or_widens_its_root_refuses() {
 
 /// The server's system set: the shared table with `/etc/ssl` narrowed to
 /// `/etc/ssl/certs`, spelled here and not read from the builder.
-fn server_system() -> Vec<&'static str> {
+pub(super) fn server_system() -> Vec<&'static str> {
     HOST_TOOLCHAIN_BINDS
         .iter()
         .map(|host| match *host {
@@ -232,12 +299,36 @@ fn a_system_source_linked_outside_the_set_is_bound_at_its_canonical_path_too() {
     assert_eq!(aliases, [("/sbin", PathBuf::from("/usr/sbin"))]);
 }
 
-/// The server box's whole argv for `etc`, `bootstrap` and the varying
-/// pieces: the network flag, the resolver bind, the tree bind and the
-/// command. Each system source linked outside the set is bound at its
-/// canonical path too, as this host resolves it.
-fn server_argv(etc: &Path, bootstrap: &Path, pieces: [&str; 4]) -> Vec<String> {
-    let [net, dns, tree, run] = pieces;
+/// The descriptor number `server` mounts `host` from the `nth` time, if it
+/// holds one: bubblewrap closes each descriptor it mounts, so a source
+/// mounted again takes its own duplicate.
+#[cfg(target_os = "linux")]
+fn nth_fd(server: &ServerBox, host: &Path, nth: usize) -> Option<String> {
+    let mut held = server.handles().filter(|(path, _)| *path == host);
+    held.nth(nth).map(|(_, fd)| fd.as_raw_fd().to_string())
+}
+
+/// The descriptor number `server` first mounts `host` from.
+#[cfg(target_os = "linux")]
+fn fd_of(server: &ServerBox, host: &Path) -> Option<String> {
+    nth_fd(server, host, 0)
+}
+
+/// The server box's whole argv for `server`'s handles, its generated
+/// identity in `etc` and the varying pieces: the network flag, whether
+/// the host's resolver is bound, the tree bound and the command. Every
+/// source is mounted from the handle the box holds for it, and an absent
+/// optional one not at all; each system source linked outside the set is
+/// bound at its canonical path too, as this host resolves it; both private
+/// directories are owner-only.
+#[cfg(target_os = "linux")]
+fn server_argv(
+    server: &ServerBox,
+    net: &str,
+    dns: bool,
+    tree: Option<&Path>,
+    run: &str,
+) -> Vec<String> {
     let mut argv: Vec<String> = format!(
         "bwrap --die-with-parent --unshare-pid --unshare-ipc --unshare-uts \
          --unshare-cgroup-try --cap-drop ALL {net} --clearenv --setenv {HANDS_BOX_ENV} 1 \
@@ -247,22 +338,40 @@ fn server_argv(etc: &Path, bootstrap: &Path, pieces: [&str; 4]) -> Vec<String> {
     .split_whitespace()
     .map(String::from)
     .collect();
+    let mut mounted: Vec<PathBuf> = Vec::new();
+    let mut mount = |argv: &mut Vec<String>, host: &Path, target: &str| {
+        let nth = mounted.iter().filter(|done| *done == host).count();
+        mounted.push(host.to_path_buf());
+        if let Some(fd) = nth_fd(server, host, nth) {
+            argv.extend(["--ro-bind-fd".to_string(), fd, target.to_string()]);
+        }
+    };
     let system = server_system();
     for host in &system {
-        argv.extend(["--ro-bind-try", host, host].map(String::from));
+        mount(&mut argv, Path::new(host), host);
     }
     let canonical = |source: &Path| std::fs::canonicalize(source).ok();
     for (host, alias) in namespace::aliases_with(&system, canonical) {
-        let alias = alias.display().to_string();
-        argv.extend(["--ro-bind-try".to_string(), host.to_string(), alias]);
+        mount(&mut argv, Path::new(host), &alias.display().to_string());
     }
-    let (e, b) = (etc.display(), bootstrap.display());
+    let private = format!("--perms 0700 --tmpfs {SANDBOX_HOME} --perms 0700 --tmpfs /tmp");
+    argv.extend(private.split_whitespace().map(String::from));
+    let bootstrap = std::env::current_exe().unwrap();
+    let resolver = dns.then_some(Path::new("/etc/resolv.conf"));
+    for host in tree
+        .into_iter()
+        .chain([bootstrap.as_path()])
+        .chain(resolver)
+    {
+        mount(&mut argv, host, &host.display().to_string());
+    }
+    let etc = identity_dir(server);
+    for name in ["passwd", "group", "hosts", "nsswitch.conf"] {
+        mount(&mut argv, &etc.join(name), &format!("/etc/{name}"));
+    }
     argv.extend(
         format!(
-            "--tmpfs {SANDBOX_HOME} --tmpfs /tmp {tree} --ro-bind {b} {b} {dns} \
-             --ro-bind {e}/passwd /etc/passwd --ro-bind {e}/group /etc/group \
-             --ro-bind {e}/hosts /etc/hosts --ro-bind {e}/nsswitch.conf /etc/nsswitch.conf \
-             --setenv PATH /usr/local/bin:/usr/bin:/bin --setenv HOME {SANDBOX_HOME} \
+            "--setenv PATH /usr/local/bin:/usr/bin:/bin --setenv HOME {SANDBOX_HOME} \
              --setenv TMPDIR /tmp --setenv USER runner --setenv LOGNAME runner \
              --setenv LANG C.UTF-8 --setenv LC_ALL C.UTF-8 --chdir {SANDBOX_HOME} -- {run}"
         )
@@ -272,18 +381,55 @@ fn server_argv(etc: &Path, bootstrap: &Path, pieces: [&str; 4]) -> Vec<String> {
     argv
 }
 
-/// Where the box's generated identity lies: the source its passwd bind
-/// names.
-fn identity_dir(argv: &[String]) -> PathBuf {
-    let bind = argv
-        .windows(3)
-        .find(|bind| bind[2] == "/etc/passwd")
+/// Where the box's generated identity lies: the directory of the passwd
+/// file it holds a handle on.
+#[cfg(target_os = "linux")]
+fn identity_dir(server: &ServerBox) -> PathBuf {
+    let scratch = std::env::temp_dir().canonicalize().unwrap();
+    let (passwd, _) = server
+        .handles()
+        .find(|(path, _)| path.starts_with(&scratch) & path.ends_with("etc/passwd"))
         .unwrap();
-    Path::new(&bind[1]).parent().unwrap().to_path_buf()
+    passwd.parent().unwrap().to_path_buf()
+}
+
+/// Every handle `server` holds is on the object its path names now, every
+/// required source has one, and an optional system source has one exactly
+/// where it is present on this host.
+#[cfg(target_os = "linux")]
+fn held_where_present(server: &ServerBox, required: &[&Path]) {
+    let identity = |held: &std::fs::Metadata| (held.dev(), held.ino());
+    for (path, fd) in server.handles() {
+        let opened = std::fs::File::from(fd.try_clone().unwrap())
+            .metadata()
+            .unwrap();
+        let named = std::fs::metadata(path).unwrap();
+        assert_eq!((path, identity(&opened)), (path, identity(&named)));
+    }
+    for path in required {
+        assert!(fd_of(server, path).is_some(), "{}", path.display());
+    }
+    for host in server_system() {
+        let present = Path::new(host).exists();
+        assert_eq!(
+            (host, fd_of(server, Path::new(host)).is_some()),
+            (host, present)
+        );
+    }
+    // bubblewrap closes each descriptor it mounts: none is named twice.
+    let argv = server.argv();
+    let numbers: Vec<&String> = argv
+        .windows(2)
+        .filter(|pair| pair[0] == "--ro-bind-fd")
+        .map(|pair| &pair[1])
+        .collect();
+    let unique: std::collections::BTreeSet<&&String> = numbers.iter().collect();
+    assert_eq!(unique.len(), numbers.len(), "{numbers:?}");
 }
 
 /// The box `program` is prepared in under `reach` and `network`, the test
-/// binary its bootstrap, `arguments` its own.
+/// binary its bootstrap, `arguments` its own; on Linux, its writers
+/// confined.
 fn prepared(
     program: &ServerProgram,
     reach: &Reach,
@@ -297,6 +443,9 @@ fn prepared(
         bootstrap: &bootstrap,
         arguments,
     };
+    #[cfg(target_os = "linux")]
+    return ServerBox::prepare_with(program, &profile, &super::sources::confined());
+    #[cfg(not(target_os = "linux"))]
     ServerBox::prepare(program, &profile)
 }
 
@@ -307,8 +456,12 @@ fn reach(writable: &[PathBuf], readable: &[PathBuf]) -> Reach {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn the_server_box_holds_the_projected_system_set_and_its_own_private_paths() {
+    if unservable() {
+        return;
+    }
     let host = Host::new();
     let bootstrap = std::env::current_exe().unwrap();
     let seat = reach(&[host.path("work")], &[host.path("cache")]);
@@ -317,12 +470,19 @@ fn the_server_box_holds_the_projected_system_set_and_its_own_private_paths() {
     let docs = ServerProgram::resolve(entry.to_str().unwrap(), &host.home).unwrap();
     let stdio = ["--stdio".to_string()];
     let server = prepared(&docs, &seat, &Network::Isolated, &stdio).unwrap();
-    let etc = identity_dir(server.argv());
-    let tree = format!("--ro-bind {r} {r}", r = host.path("opt/docs").display());
+    let etc = identity_dir(&server);
+    let tree = host.path("opt/docs");
     let run = format!("{} --stdio", entry.display());
-    let isolated = ["--unshare-net", "", &tree, &run];
     let isolated_argv = server.argv().to_vec();
-    assert_eq!(isolated_argv, server_argv(&etc, &bootstrap, isolated));
+    let expected = server_argv(&server, "--unshare-net", false, Some(&tree), &run);
+    assert_eq!(isolated_argv, expected);
+    let required = [
+        tree.as_path(),
+        &bootstrap,
+        &etc.join("passwd"),
+        &etc.join("hosts"),
+    ];
+    held_where_present(&server, &required);
     let (uid, gid) = ids();
     let generated = |name: &str| std::fs::read_to_string(etc.join(name)).unwrap();
     assert_eq!(
@@ -342,14 +502,13 @@ fn the_server_box_holds_the_projected_system_set_and_its_own_private_paths() {
     let sh = ServerProgram::resolve("sh", &host.home).unwrap();
     let (executable, _) = installed();
     let installed = ServerProgram::resolve(executable.to_str().unwrap(), &host.home).unwrap();
-    let dns = "--ro-bind-try /etc/resolv.conf /etc/resolv.conf";
     let arguments = ["-c".to_string(), "true".to_string()];
     for (program, run) in [(&sh, found("sh")), (&installed, executable)] {
         let server = prepared(program, &seat, &Network::Shared, &arguments).unwrap();
-        let etc = identity_dir(server.argv());
+        let etc = identity_dir(&server);
         let run = format!("{} -c true", run.display());
-        let shared = ["", dns, "", &run];
-        assert_eq!(server.argv(), server_argv(&etc, &bootstrap, shared));
+        assert_eq!(server.argv(), server_argv(&server, "", true, None, &run));
+        held_where_present(&server, &[&bootstrap]);
         let resolver = std::fs::read_to_string(etc.join("nsswitch.conf")).unwrap();
         assert_eq!(resolver, "hosts: files dns\n");
     }
@@ -366,6 +525,7 @@ fn the_server_box_holds_the_projected_system_set_and_its_own_private_paths() {
     assert_eq!(isolated_argv.iter().find(|part| found(part)), None);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn the_fixed_environment_is_mb4s_eight_entries_and_its_names_are_the_reserved_set() {
     let names: Vec<&str> = server_environment().collect();
@@ -382,6 +542,9 @@ fn the_fixed_environment_is_mb4s_eight_entries_and_its_names_are_the_reserved_se
             HANDS_BOX_ENV
         ]
     );
+    if unservable() {
+        return;
+    }
     let host = Host::new();
     let sh = ServerProgram::resolve("sh", &host.home).unwrap();
     let server = prepared(&sh, &reach(&[], &[]), &Network::Isolated, &[]).unwrap();
@@ -448,8 +611,11 @@ fn the_server_box_stays_clear_of_every_reach_root_either_way() {
             OVERLAPPING,
         ),
         // Disjoint reach admits the box.
-        (vec![host.path("work")], vec![host.path("cache")], Ok(())),
+        (vec![host.path("work")], vec![host.path("cache")], ADMITTED),
     ] {
+        if expected == ADMITTED && unservable() {
+            continue;
+        }
         let case = format!("{writable:?} {readable:?}");
         let got = answer(&docs, reach(&writable, &readable));
         assert_eq!((&case, got), (&case, expected));
@@ -467,10 +633,11 @@ fn the_server_box_stays_clear_of_every_reach_root_either_way() {
 fn a_package_root_that_widens_or_shadows_the_box_refuses() {
     // A root that is or holds a path the box set up: the system set or
     // its alias, the generated identity's `/etc`, a private directory or
-    // the skeleton.
+    // the skeleton; or one inside a private directory, which would make
+    // the private TMPDIR or HOME start populated (MB4).
     let mut refused: Vec<PathBuf> = ["/usr", "/etc", "/etc/ssl", "/tmp", "/runtime", "/run"]
         .into_iter()
-        .chain(["/proc", "/dev"])
+        .chain(["/proc", "/dev", "/tmp/docs", "/runtime/home/docs"])
         .map(PathBuf::from)
         .collect();
     // A root inside the source the projection narrowed away.
@@ -483,13 +650,9 @@ fn a_package_root_that_widens_or_shadows_the_box_refuses() {
         assert_eq!((&root, answer), (&root, Err(Refusal::ProgramTree)));
         assert_eq!(closed(namespace), unbound);
     }
-    // A dedicated root, one on top of the private `/tmp`, and one the
-    // system set holds, which gains no mount.
-    for (root, bound) in [
-        ("/opt/docs", true),
-        ("/tmp/docs", true),
-        ("/usr/lib/docs", false),
-    ] {
+    // A dedicated root, and one the system set holds, which gains no
+    // mount.
+    for (root, bound) in [("/opt/docs", true), ("/usr/lib/docs", false)] {
         let tree = Tree::Package { root: root.into() };
         let executable = Path::new(root).join("bin/x");
         let answer = bound_tree(&tree, &executable, namespace::on_host);
@@ -500,6 +663,20 @@ fn a_package_root_that_widens_or_shadows_the_box_refuses() {
 /// A server box's argv closed on `/` with no command.
 fn closed(namespace: Namespace) -> Vec<String> {
     namespace.enter(Path::new("/"), &[])
+}
+
+#[test]
+fn a_source_with_no_observed_handle_is_not_mounted() {
+    // An optional source the observer found absent holds no handle: the
+    // box mounts nothing in its place, never its path.
+    let mut namespace = Namespace::server(false);
+    assert_eq!(namespace.backed(&[]).unwrap().len(), 0);
+    let argv = closed(namespace);
+    let mounted = argv.iter().filter(|part| part.starts_with("--ro-bind"));
+    assert_eq!(mounted.collect::<Vec<_>>(), Vec::<&String>::new());
+    // The rest of the box stands: both private directories are still made.
+    let made = argv.iter().filter(|part| *part == "--tmpfs").count();
+    assert_eq!(made, 2);
 }
 
 /// What `tree` of `executable` adds to a networked server box, its system
@@ -561,6 +738,9 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
         skip_boundary_proof(required, "no namespace can be built here");
         return;
     }
+    if unservable() {
+        return;
+    }
     let host = Host::new();
     let work = host.path("work");
     std::fs::create_dir_all(&work).unwrap();
@@ -582,6 +762,7 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
     let script = format!(
         "[ \"$(pwd)\" = {SANDBOX_HOME} ] || exit 10; \
          [ -z \"$(ls -A {SANDBOX_HOME})\" ] && [ -z \"$(ls -A /tmp)\" ] || exit 11; \
+         [ \"$(stat -c %a {SANDBOX_HOME}):$(stat -c %a /tmp)\" = 700:700 ] || exit 20; \
          touch {SANDBOX_HOME}/a /tmp/b && [ ! -e /tmp/a ] || exit 12; \
          [ ! -e '{w}' ] && [ ! -e '{home}' ] || exit 13; \
          [ ! -e {p} ] || exit 14; {certs} \
@@ -602,7 +783,7 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
         bootstrap: &bootstrap,
         arguments: &arguments,
     };
-    let server = ServerBox::prepare(&sh, &profile).unwrap();
+    let server = ServerBox::prepare_with(&sh, &profile, &super::sources::confined()).unwrap();
     // The scenario is a private TLS sibling that exists and cannot be
     // read: prepared beside it, the box neither read nor mounted it. A
     // host without one cannot show that, so the proof skips there, which
@@ -614,12 +795,28 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
         skip_boundary_proof(required, "/etc/ssl/private is no unreadable directory here");
         return;
     }
-    let status = Command::new(require_bwrap().unwrap())
+    let mut command = Command::new(require_bwrap().unwrap());
+    command
         .args(&server.argv()[1..])
         .current_dir("/")
         .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .status()
-        .unwrap();
+        .env("PATH", "/usr/bin:/bin");
+    // bubblewrap mounts the box's sources from the descriptors it holds,
+    // so only the child keeps them across exec.
+    let fds: Vec<i32> = server.handles().map(|(_, fd)| fd.as_raw_fd()).collect();
+    let inherit = move || {
+        for fd in &fds {
+            // SAFETY: fcntl is async-signal-safe, and each descriptor is
+            // one the parent holds open for the child's whole start.
+            if unsafe { libc::fcntl(*fd, libc::F_SETFD, 0) } == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    };
+    // SAFETY: the hook only clears close-on-exec flags; it allocates
+    // nothing and takes no lock.
+    unsafe { std::os::unix::process::CommandExt::pre_exec(&mut command, inherit) };
+    let status = command.status().unwrap();
     assert_eq!(status.code(), Some(0));
 }

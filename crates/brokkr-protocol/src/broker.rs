@@ -253,8 +253,10 @@ pub struct Excluded {
 }
 
 /// Why the broker serves no plan, in MB3 and MB4's exact words. A text
-/// names no path, binding value or child output.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+/// names no path, binding value or child output. The box causes are
+/// declared in MB3's precedence, which their order is: where the source
+/// observer meets several, the least wins.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, thiserror::Error)]
 pub enum Refusal {
     #[error("broker plan is not bound to this attempt")]
     Unbound,
@@ -270,8 +272,16 @@ pub enum Refusal {
     LaunchInReach,
     #[error("MCP server box bind overlaps seat reach")]
     BindOverlapsReach,
+    /// A regular file of the program tree or the bootstrap has a second
+    /// link, whoever owns it: checked after reach, before identity.
+    #[error("MCP server box program tree contains a multiply-linked file")]
+    Linked,
     #[error("MCP server box filesystem identity is not protected")]
     Identity,
+    /// No Linux box launcher that mounts a checked descriptor stands here;
+    /// a namespace that fails to stand is a later, distinct cause.
+    #[error("MCP server box is unavailable")]
+    Unavailable,
     #[error("MCP secret store is reachable by workspace hands")]
     StoreReachable,
     #[error("MCP secret store would be mounted in the server box")]

@@ -3,6 +3,8 @@ use std::io::Cursor;
 use std::os::unix::fs::PermissionsExt;
 
 mod server;
+#[cfg(target_os = "linux")]
+mod sources;
 
 fn spec_of(raw: Value) -> HandsSpec {
     HandsSpec::parse(&raw).unwrap()
