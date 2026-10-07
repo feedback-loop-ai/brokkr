@@ -577,3 +577,303 @@ fn each_refusal_reads_as_the_operator_sees_it() {
     ];
     assert_eq!(observed, expected);
 }
+
+// ------------------------------------- U1d: the shipped declarations
+
+/// The three adapters U1d declares (decision 0065 slice two, tasks 5.1–5.2).
+const DECLARED: [&str; 3] = ["claude", "codex", "lanetally"];
+
+/// Which of three identities moved, by position.
+fn differs<T: PartialEq>(old: &[T; 3], new: &[T; 3]) -> Vec<bool> {
+    old.iter().zip(new).map(|(old, new)| old != new).collect()
+}
+
+fn shipped() -> std::path::PathBuf {
+    let crate_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    crate_root
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("adapters")
+}
+
+/// An axis's variant, by the word its wire form writes; the evidence an
+/// absent or legacy reading carries is none.
+fn kind(axis: &McpAxis) -> &'static str {
+    match axis {
+        McpAxis::Measured { .. } => "measured",
+        McpAxis::Unsupported { .. } => "unsupported",
+        McpAxis::Unmeasured(McpUnmeasured::Declared(_)) => "unmeasured",
+        McpAxis::Unmeasured(McpUnmeasured::Absent) => "absent",
+        McpAxis::Unmeasured(McpUnmeasured::Legacy) => "legacy",
+        McpAxis::Inapplicable { .. } => "inapplicable",
+    }
+}
+
+/// A shipped declaration: its carriage's variant, then each shape with the
+/// version it was measured on and its four axes' variants, in key order.
+type Declaration = (&'static str, Vec<(McpShape, String, [&'static str; 4])>);
+
+fn declaration(support: &McpSupport) -> Declaration {
+    let McpSupport::Declared { carriage, shapes } = support else {
+        panic!("a typed declaration, not {support:?}");
+    };
+    let shapes = shapes.iter().map(|(shape, measurement)| {
+        let McpIsolation {
+            ambient,
+            native_write,
+            store_read,
+            process_read,
+        } = &measurement.isolation;
+        let axes = [ambient, native_write, store_read, process_read].map(kind);
+        (shape.clone(), measurement.version.clone(), axes)
+    });
+    (kind(carriage), shapes.collect())
+}
+
+/// Every evidence or reason line a declaration writes.
+fn lines(support: &McpSupport) -> Vec<&str> {
+    let McpSupport::Declared { carriage, shapes } = support else {
+        return Vec::new();
+    };
+    let isolation = shapes.values().map(|measurement| &measurement.isolation);
+    let axes =
+        isolation.flat_map(|i| [&i.ambient, &i.native_write, &i.store_read, &i.process_read]);
+    std::iter::once(carriage)
+        .chain(axes)
+        .filter_map(|axis| match axis {
+            McpAxis::Measured { evidence: text }
+            | McpAxis::Unsupported { reason: text }
+            | McpAxis::Unmeasured(McpUnmeasured::Declared(text)) => Some(text.as_str()),
+            McpAxis::Unmeasured(McpUnmeasured::Absent | McpUnmeasured::Legacy)
+            | McpAxis::Inapplicable { .. } => None,
+        })
+        .collect()
+}
+
+/// The three shipped declarations, through the real loader.
+fn shipped_support() -> [McpSupport; 3] {
+    let adapters = Adapters::load(&shipped()).expect("the shipped adapters load");
+    DECLARED.map(|provider| adapters.adapter(provider).unwrap().mcp.clone())
+}
+
+fn resume(name: &str) -> McpInvocation {
+    McpInvocation::Resume(name.to_string())
+}
+
+/// U1d (SI1, SI2): the shipped Claude, Codex and LaneTally declarations
+/// load through the real loader with exactly the shapes, versions and
+/// results U0 observed, each line citing its U0 cell, and Codex's ambient
+/// causes are the measured SI2 reasons.
+#[test]
+fn the_shipped_declarations_pin_only_what_u0_observed() {
+    let [claude, codex, lanetally] = shipped_support();
+    let wrapper = "unpublished: launcher sha256 \
+        b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb running \
+        session-wrapper.sh 4614bb7 sha256 \
+        ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7 over claude 2.1.287";
+    let (m, u, d) = ("measured", "unsupported", "unmeasured");
+    assert_eq!(
+        [&claude, &codex, &lanetally].map(declaration),
+        [
+            (
+                m,
+                vec![
+                    (
+                        shape(McpInvocation::Cold, McpHands::Boxed),
+                        "2.1.287".into(),
+                        [m, m, m, m]
+                    ),
+                    (
+                        shape(McpInvocation::Cold, McpHands::NoHands),
+                        "2.1.287".into(),
+                        [m, u, u, d]
+                    ),
+                ]
+            ),
+            (
+                m,
+                vec![
+                    (
+                        shape(McpInvocation::Cold, McpHands::Boxed),
+                        "0.160.0".into(),
+                        [u, m, u, m]
+                    ),
+                    (
+                        shape(McpInvocation::Cold, McpHands::Harness),
+                        "0.160.0".into(),
+                        [u, m, u, m]
+                    ),
+                    (
+                        shape(resume("work-site"), McpHands::NoHands),
+                        "0.160.0".into(),
+                        [u, d, d, d]
+                    ),
+                ]
+            ),
+            (
+                m,
+                vec![(
+                    shape(McpInvocation::Cold, McpHands::NoHands),
+                    wrapper.into(),
+                    [m, u, u, d]
+                )]
+            ),
+        ]
+    );
+    // The cause an SI2 refusal quotes, ahead of the cells it was read from.
+    let McpSupport::Declared { shapes, .. } = &codex else {
+        unreachable!("pinned above");
+    };
+    let causes: Vec<&str> = shapes
+        .values()
+        .map(|measurement| match &measurement.isolation.ambient {
+            McpAxis::Unsupported { reason } => reason.split_once("; U0 ").unwrap().0,
+            other => panic!("codex excludes no ambient source: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        causes,
+        [
+            "project, system and managed MCP configuration cannot be excluded",
+            "project, system and managed MCP configuration cannot be excluded",
+            "project MCP configuration cannot be excluded",
+        ]
+    );
+    for support in [&claude, &codex, &lanetally] {
+        let uncited: Vec<&str> = lines(support)
+            .into_iter()
+            .filter(|line| !line.contains("U0 "))
+            .collect();
+        assert_eq!(uncited, Vec::<&str>::new(), "every line cites its U0 cell");
+    }
+}
+
+/// U1d (SI1): every shape U0 did not measure — a replacement, a declared
+/// resume shape, macOS, the wrapper's boxed cells its adapter has no hands
+/// for — reads absent, and a shipped file cannot be made to claim the
+/// wrapper's boxed cells or a Claude resume from a no-hands telemetry cell.
+#[test]
+fn an_unmeasured_shape_stays_absent_and_cannot_be_claimed() {
+    let [claude, codex, lanetally] = shipped_support();
+    let absent = every(&McpAxis::Unmeasured(McpUnmeasured::Absent));
+    let macos = |invocation, hands| McpShape {
+        host: McpHost::Macos,
+        ..shape(invocation, hands)
+    };
+    let unmeasured = [
+        claude.isolation(&shape(McpInvocation::Replacement, McpHands::Boxed)),
+        claude.isolation(&shape(resume("boxed-workspace"), McpHands::Boxed)),
+        claude.isolation(&macos(McpInvocation::Cold, McpHands::Boxed)),
+        codex.isolation(&shape(McpInvocation::Cold, McpHands::NoHands)),
+        codex.isolation(&shape(McpInvocation::Replacement, McpHands::Harness)),
+        codex.isolation(&macos(McpInvocation::Cold, McpHands::Harness)),
+        lanetally.isolation(&shape(McpInvocation::Cold, McpHands::Boxed)),
+        lanetally.isolation(&shape(resume("wrapper-work-site"), McpHands::NoHands)),
+    ];
+    assert_eq!(unmeasured, [(); 8].map(|()| absent.clone()));
+
+    // LT10/LT12's boxed cells are the wrapper's, but its adapter declares
+    // no hands; C08 resumed without hands, but Claude's resume is boxed.
+    let read = |provider: &str| -> Value {
+        serde_json::from_slice(&std::fs::read(shipped().join(format!("{provider}.json"))).unwrap())
+            .unwrap()
+    };
+    let with = |provider: &str, invocation: Value, hands: &str| {
+        let mut body = read(provider);
+        let shapes = body["mcp"]["shapes"].as_array_mut().unwrap();
+        let mut added = shapes.last().unwrap().clone();
+        added["invocation"] = invocation;
+        added["hands"] = json!(hands);
+        shapes.push(added);
+        problem(&body)
+    };
+    assert_eq!(
+        [
+            with("lanetally", json!("cold"), "boxed"),
+            with("claude", json!({"resume": "boxed-workspace"}), "none"),
+        ],
+        [
+            McpError::UndeclaredHands(shape(McpInvocation::Cold, McpHands::Boxed)),
+            McpError::ResumeHands {
+                shape: shape(resume("boxed-workspace"), McpHands::NoHands),
+                declared: "boxed".to_string(),
+            },
+        ]
+    );
+}
+
+/// U1d (SI1): an adapter's identity is its whole file. One byte of one
+/// declaration's evidence moves that adapter's digest alone, the
+/// adapter digest of a resolution that consults it, and the identity of
+/// a shipped bundle that consults it; `bundles/self` consults no
+/// LaneTally office, so its identity does not move for that file.
+#[test]
+fn a_declaration_byte_moves_its_adapter_resolution_and_bundle_identity() {
+    let workspace = shipped().parent().unwrap().to_path_buf();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (adapters, library) = (root.join("adapters"), root.join("agents"));
+    std::fs::create_dir_all(library.join("charters")).unwrap();
+    std::fs::create_dir_all(&adapters).unwrap();
+    for entry in std::fs::read_dir(shipped()).unwrap() {
+        let path = entry.unwrap().path();
+        std::fs::copy(&path, adapters.join(path.file_name().unwrap())).unwrap();
+    }
+    std::fs::write(library.join("charters/office.md"), "# office\n").unwrap();
+    for (office, model) in [
+        ("on-claude", "opus"),
+        ("on-codex", "sol"),
+        ("on-lanetally", "opus-tallied"),
+    ] {
+        let agent = json!({"description": office, "charter": "charters/office.md",
+            "models": [model], "efforts": {model: "high"}});
+        std::fs::write(library.join(format!("{office}.json")), agent.to_string()).unwrap();
+    }
+    let identity = || {
+        let loaded = Adapters::load(&adapters).unwrap();
+        let library = crate::agents::Library::load(&library).unwrap();
+        let resolved = DECLARED.map(|provider| {
+            let office = format!("on-{provider}");
+            let availability = crate::agents::Availability::unspecified();
+            let resolution = crate::agents::resolve(&library, &loaded, &availability, &office);
+            resolution.unwrap().record["adapter_digest"].clone()
+        });
+        let own = workspace.join("agents");
+        let bundle = crate::Bundle::compile_with(&workspace.join("bundles/self"), &own, &adapters);
+        let digests = DECLARED.map(|provider| loaded.digest(provider).unwrap().to_string());
+        (digests, resolved, bundle.unwrap().manifest_digest())
+    };
+    let shipped_bytes = std::fs::read(shipped().join("claude.json")).unwrap();
+    let mut before = identity();
+    assert_eq!(
+        before.0[0],
+        brokkr_core::canonical::sha256_bytes(&shipped_bytes)
+    );
+    let mut moved = Vec::new();
+    for provider in DECLARED {
+        let path = adapters.join(format!("{provider}.json"));
+        let text = std::fs::read_to_string(&path).unwrap();
+        let edited = text.replacen("\"measured\": \"U0 ", "\"measured\": \"U0: ", 1);
+        assert_ne!(edited, text, "{provider} declares measured evidence");
+        std::fs::write(&path, edited).unwrap();
+        let after = identity();
+        moved.push((
+            provider,
+            differs(&before.0, &after.0),
+            differs(&before.1, &after.1),
+            before.2 != after.2,
+        ));
+        before = after;
+    }
+    let only = |index: usize| (0..3).map(|other| other == index).collect::<Vec<bool>>();
+    assert_eq!(
+        moved,
+        [
+            ("claude", only(0), only(0), true),
+            ("codex", only(1), only(1), true),
+            ("lanetally", only(2), only(2), false),
+        ]
+    );
+}

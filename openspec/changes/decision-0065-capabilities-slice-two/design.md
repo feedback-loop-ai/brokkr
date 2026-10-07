@@ -860,7 +860,8 @@ Within box preparation, U6c3's hands-only extraction is independent and
 U6c7 needs only landed U6a; the chosen order serializes them. U6c4 joins
 the session and builder, and U6c8 joins bootstrap and store reader.
 
-The merge order has **54 PRs**: the prior 47 rows plus U6c2–U6c8.
+The merge order has **56 PRs**: the prior 47 rows plus U6c2–U6c8, and U0c
+and U1c2 from the operator's 2026-10-06 ruling.
 The returned council's EOF/status and writer-lifetime criteria refine the
 existing U6c6/U6c8 and U8a2 responsibilities; they add no file, row or task ID.
 Their integration controls remain U6f/U8e/U9b's, with SD4 measuring all source
@@ -1173,8 +1174,10 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-runtime/src/agents.rs` (1671) | U1b, U1f, U3b, U7b | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/load.rs` (1334) | U1b, U3b | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/mcp.rs` | U1b, U7b | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U4c, U4f2, U6a, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1g, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U1c2, U4c, U4f2, U6a, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1c2, U1g, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-protocol/src/adapters/composite.rs` (4666) | U1c2 | #226 dsh composite identity; its declared-home seam must keep one owner |
+| `crates/brokkr-protocol/src/transcript.rs` | U1c2 | dsh home resolution; the transcript fold and the persistence check must read the same home |
 | `adapters/claude.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `adapters/codex.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `adapters/lanetally.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
@@ -1291,11 +1294,13 @@ witness/compose pins accompany only rows that change their inputs.
 | PR | Dependencies | Objective and task IDs | Production files (maximum three) |
 | --- | --- | --- | --- |
 | U0 | Independent | Measure isolation and telemetry; 1.1–1.2 | None |
+| U0c | U0 | Measure keyed dsh routes through an engine-only home; 1.3–1.4 | None |
 | U1a | U0 | Extract existing MCP transport checks; 2.1–2.2 | `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
 | U1b | U1a | Type adapter MCP facts; 3.1–3.2 | `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/agents/load.rs`; `crates/brokkr-runtime/src/agents/mcp.rs` |
-| U1c | U1b | Build isolated serving configurations; 4.1–4.2 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
+| U1c | U1b | Build Claude, Codex and LaneTally serving configurations; 4.1–4.2 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
+| U1c2 | U1c, U0c | Build dsh's engine-only home; 4.3–4.4 | `crates/brokkr-protocol/src/transcript.rs`; `crates/brokkr-protocol/src/adapters/composite.rs`; `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs` |
 | U1d | U1c | Record Claude, Codex and LaneTally declarations; 5.1–5.2 | `adapters/claude.json`; `adapters/codex.json`; `adapters/lanetally.json` |
-| U1e | U1d | Record dsh and exec declarations; 6.1–6.2 | `adapters/dsh.json`; `adapters/exec.json` |
+| U1e | U1d, U1c2 | Record dsh and exec declarations; 6.1–6.2 | `adapters/dsh.json`; `adapters/exec.json` |
 | U1f | U1e | Thread independent strict intent; 7.1–7.2 | `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/bundle.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U1f2 | U1f | Migrate generated declarations and instructions; 7.3–7.4 | `crates/brokkr-cli/src/init.rs`; `crates/brokkr-cli/src/init/adapters.rs`; `crates/brokkr-cli/src/verbs/setup.rs` |
 | U1g | U1f2 | Seal and enforce every launch; 8.1–8.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs` |
@@ -1356,6 +1361,15 @@ Evidence/documents only; do not add behavior-mirroring tests for this row.
 
 Documents/evidence: `docs/evidence/adapters/slice-two-mcp-isolation.md`, `docs/evidence/adapters/slice-two-mcp-observations.json`.
 
+### U0c — Measure keyed dsh routes through an engine-only home
+
+U0 qualified dsh's engine-only `DSH_HOME` only on the keyless local route. Repeat D2's ambient-sentinel and engine-overlay cells (U0's D01–D04 shape) on each keyed dsh route the operator's roster uses, with the provider key reaching dsh only from the operator's existing env file into the process environment: never copied into the engine-only home or elsewhere, never on argv, never printed. Record, per route, whether the key is honoured from the environment, whether ambient MCP stays excluded, and the exact refusal where either fails. Record adapter evidence only; no code changes.
+
+Closes tasks 1.3 and 1.4; requirements [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md).
+Proof: Positive controls per route; a keyed route U0c does not qualify stays unmeasured, and U1c2 refuses it.
+
+Like U0, this row adds evidence to U0's two documents and no behavior-mirroring test.
+
 ### U1a — Extract existing MCP transport checks
 
 Move the current single-server transport/parser checks into the named module, retaining production callers and exact behavior; create room under the existing file baseline.
@@ -1374,14 +1388,23 @@ Proof: Closed decoding, absent evidence and wrapper-specific results have exact 
 
 Owning tests: `crates/brokkr-runtime/src/agents/tests.rs`, `crates/brokkr-runtime/src/capabilities/tests.rs`, `crates/brokkr-runtime/src/bundle/agent_tests.rs`.
 
-### U1c — Build isolated serving configurations
+### U1c — Build Claude, Codex and LaneTally serving configurations
 
-Factor existing config assembly into adapters/mcp.rs and implement only U0-qualified isolation shapes. Typed engine input crosses the private serving edge; the current no-broker plan is empty or hands-only.
+Factor existing config assembly into adapters/mcp.rs and implement only U0-qualified isolation shapes for Claude, Codex and LaneTally. Typed engine input crosses the private serving edge; the current no-broker plan is empty or hands-only. A dsh intent refuses as missing evidence until U1c2 builds its engine-only home (operator ruling, 2026-10-06).
 
 Closes tasks 4.1 and 4.2; requirements [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md).
 Proof: Exact cold/resume/replacement configuration, auth/session controls and missing evidence refusals; the module is used by existing launch builders.
 
 Owning tests: `crates/brokkr-protocol/src/adapters/tests.rs`, `crates/brokkr-protocol/src/native_controls/tests.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`.
+
+### U1c2 — Build dsh's engine-only home
+
+Stage dsh's engine-only `DSH_HOME` (shipped bundles and route rows only, the engine's server row in the seat overlay) and spawn with it, as U0's D03/D04 measured. The dsh home resolution in transcript.rs, the persistence home an offered root is checked against, and the composite identity's declared-home seam in adapters/composite.rs all read that one home. Admit dsh's serving shape in adapters/mcp.rs only on routes U0 or U0c qualified; any other route refuses as unmeasured. Four production files by operator ruling (2026-10-06): the home and the admission that consumes it land together.
+
+Closes tasks 4.3 and 4.4; requirements [SI2](specs/strict-mcp-isolation/spec.md), [MB1](specs/mcp-capability-broker/spec.md).
+Proof: Exact cold/resume/replacement dsh configuration on each qualified route, the transcript and persistence reads following the staged home, the composite identity unchanged for the operator's own home, and unmeasured-route and missing-evidence refusals.
+
+Owning tests: `crates/brokkr-protocol/src/adapters/tests.rs`, `crates/brokkr-protocol/src/adapters/mcp/tests.rs`, `crates/brokkr-protocol/src/adapters/composite/tests.rs`, and transcript.rs's own test module.
 
 ### U1d — Record Claude, Codex and LaneTally declarations
 

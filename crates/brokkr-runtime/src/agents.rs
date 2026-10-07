@@ -655,7 +655,7 @@ impl ResumeShape {
 /// about it. An empty assessment is the honest reading of an adapter
 /// that declares nothing, and it enables nothing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ResumeAssessment(BTreeMap<String, ResumeShape>);
+pub struct ResumeAssessment(pub BTreeMap<String, ResumeShape>);
 
 impl ResumeAssessment {
     pub fn new(shapes: BTreeMap<String, ResumeShape>) -> ResumeAssessment {

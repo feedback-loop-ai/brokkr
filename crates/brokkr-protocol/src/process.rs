@@ -29,10 +29,16 @@ use thiserror::Error;
 use crate::{AttemptOutcome, AttemptReport, Body, Cleanup, Message, ResultStatus, PROTO};
 
 mod attempts;
+mod own_engine;
 mod table;
 mod tree;
 
 use attempts::{Attempt, Unspawned};
+// A test seam, hidden from documentation and outside the supported
+// surface: the probe's tests and the runtime engine's play a test whose
+// launches must see no other test's orphan through this one helper.
+#[doc(hidden)]
+pub use own_engine::in_its_own_engine;
 pub use tree::Unsettled;
 use tree::{Bounds, Host};
 
@@ -527,6 +533,50 @@ impl DriverProcess {
                     return self.finish(outcome, session_ref, checkpoints, accepted);
                 }
             }
+        }
+    }
+}
+
+/// A process run to its exit or a deadline outside the driver protocol:
+/// the harness probe's launch (#484). It is one of the engine's live
+/// attempts, so the tracker neither reaps it nor takes it for a stray
+/// (`attempts`), and its tree ends as a driver's does (`tree::end`).
+pub(crate) struct Launched {
+    pub(crate) child: Child,
+    attempt: Attempt,
+}
+
+impl Launched {
+    /// Spawn `builder`, leading a session of its own (`attempts`).
+    pub(crate) fn spawn(builder: &mut Command) -> std::io::Result<Self> {
+        let (child, attempt) = Attempt::spawn(builder, Host::REAL)?;
+        Ok(Launched { child, attempt })
+    }
+
+    /// Has the leader exited? Observed without reaping it, so the group
+    /// id stays the launch's.
+    pub(crate) fn exited(&self) -> bool {
+        tree::exited(rustix::process::Pid::from_child(&self.child))
+    }
+
+    /// End the tree now: the group and every descendant recorded under
+    /// it killed, the leader reaped, and the table read settled. The
+    /// leader's exit code, `None` for a signal.
+    pub(crate) fn end(mut self) -> Result<Option<i32>, Unsettled> {
+        let (now, bounds) = (Instant::now(), &Bounds::DEFAULT);
+        tree::end(&mut self.child, &self.attempt, now, bounds, Host::REAL)?;
+        let status = self.child.wait().ok();
+        Ok(status.as_ref().and_then(std::process::ExitStatus::code))
+    }
+}
+
+/// A launch that was not spawned, in its own words: the spawn's error,
+/// or the read before it, which refuses the launch as it does a driver.
+impl From<Unspawned> for std::io::Error {
+    fn from(unspawned: Unspawned) -> Self {
+        match unspawned {
+            Unspawned::Table(unwatched) => std::io::Error::other(unwatched),
+            Unspawned::Spawn(error) => error,
         }
     }
 }

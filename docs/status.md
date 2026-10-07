@@ -73,11 +73,11 @@ they are read in the adapter file, not here.
 <!-- adapter-matrix:start -->
 | Harness | Trust | Egress | Holds a model gate | Efforts | Tool allow-list | MCP flag Brokkr passes | Boxed hands | Own sandbox for | Resume shapes |
 |---|---|---|---|---|---|---|---|---|---|
-| `claude` | trusted | contracted | yes: `fable`, `opus` | low, medium, high, xhigh, max | `cargo`, `codex`, `dsh`, `gh-pr-view`, `gh-run-view`, `git`, `ls`, `mkdir`, `node`, `npm`, `npx`, `rg`, `specify`, `webfetch` (refused: native `web-fetch`), `websearch` (refused: native `web-search`) | `--mcp-config` | yes | — | `boxed-workspace`: unmeasured (2.1.266); classes `work`; boundaries `namespace`, `seatbelt`, `container`; hands `boxed`; evidence `interface` |
+| `claude` | trusted | contracted | yes: `fable`, `opus` | low, medium, high, xhigh, max | `cargo`, `codex`, `dsh`, `gh-pr-view`, `gh-run-view`, `git`, `ls`, `mkdir`, `node`, `npm`, `npx`, `rg`, `specify`, `webfetch` (refused: native `web-fetch`), `websearch` (refused: native `web-search`) | none | yes | — | `boxed-workspace`: unmeasured (2.1.266); classes `work`; boundaries `namespace`, `seatbelt`, `container`; hands `boxed`; evidence `interface` |
 | `codex` | trusted | uncontracted | yes: `astra`, `sol` | none, minimal, low, medium, high, xhigh, max | no (measured) | none | yes | gate, work | `work-site`: supported (0.154.0); classes `work`; boundaries `harness`, `not applicable`; hands `none`; evidence `interface`, `restrictions`, `root`, `accounting` |
 | `dsh` | untrusted | uncontracted; `spark`: local; `spark-glm`: local | no: untrusted | low, medium, high, xhigh; none on `spark`, `spark-glm` | no | none | no (measured) | — | `headless-work`: unmeasured (0.1.5-rc.1); classes `work`; boundaries `not applicable`; hands `none`; evidence `interface` |
 | `exec` | untrusted | contracted | no: untrusted | — | no | none | yes | — | — |
-| `lanetally` | untrusted | uncontracted | no: untrusted | low, medium, high, xhigh, max | no: refused while the native inventory is unmeasured | `--mcp-config` | no (measured) | — | `wrapper-work-site`: unmeasured (version unknown); classes `work`; boundaries `harness`, `open`, `not applicable`; hands `none`; evidence — |
+| `lanetally` | untrusted | uncontracted | no: untrusted | low, medium, high, xhigh, max | no: refused while the native inventory is unmeasured | none | no (measured) | — | `wrapper-work-site`: unmeasured (version unknown); classes `work`; boundaries `harness`, `open`, `not applicable`; hands `none`; evidence — |
 <!-- adapter-matrix:end -->
 
 ### Measured gaps

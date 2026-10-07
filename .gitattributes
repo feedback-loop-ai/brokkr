@@ -12,6 +12,7 @@
 *.ico binary
 *.gz binary
 *.zip binary
+*.zstd binary
 
 # Decision 0038 ruling 5: the decision index is derived (tests/decisions_index.rs
 # holds it equal to the decision files), so two branches appending rows merge

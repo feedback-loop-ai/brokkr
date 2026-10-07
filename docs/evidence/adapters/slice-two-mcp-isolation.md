@@ -537,3 +537,327 @@ log("exit", reason="stdin-eof")
 The published copy is condensed from the run's file: unparseable-line
 logging, the parent-argv capture and the unknown-tool error reply are elided. Claude sends
 `server/discover` before `initialize`, and it is logged as `other-request`.
+
+## U0c: keyed dsh routes through an engine-only home (2026-10-06)
+
+This is decision 0065 slice two, unit U0c, ruled by the operator on 2026-10-06. It is a
+measurement record. It changes no production default, adapter or test. U0
+qualified the dsh candidate on one route only: the keyless local
+`spark-glm` route (D01 to D04, a fake key). U0c measures the same D03
+shape on each keyed provider family that the operator's dsh roster uses
+(`adapters/dsh.json` `models` and `credentials`). The machine-readable
+record of every cell is the `u0c` block of
+[slice-two-mcp-observations.json](slice-two-mcp-observations.json).
+All experiment files live under `/var/tmp/s2-u0c`.
+
+It was measured on 2026-10-06 from 20:29Z to 20:48Z, on the same Linux host as U0.
+macOS was not measured, and nothing below is claimed for macOS.
+
+### Result
+
+| Family | Route (`provider` / `model`) | Key variable | Outcome | Cells |
+| --- | --- | --- | --- | --- |
+| deepseek | `deepseek-official` / `deepseek-flash` | `DEEPSEEK_API_KEY` | **Qualified.** The key is honoured from the environment and ambient MCP stays excluded | K01 to K03 |
+| dashscope | `dashscope` / `qwen3.8-flash` | `DASHSCOPE_API_KEY` | **Qualified.** The key is honoured from the environment and ambient MCP stays excluded | K04 to K06 |
+| meta | `meta` / `meta/muse-spark-1.3` | `OPENROUTER_API_KEY` | **Qualified.** The key is honoured from the environment and ambient MCP stays excluded | K07 to K09 |
+| meta-contributor | `meta-contributor` / `meta/muse-spark-1.3-contributor` | `OPENROUTER_API_KEY` | **Qualified.** The key is honoured from the environment and ambient MCP stays excluded. The upstream (Meta, through OpenRouter) was overloaded from 20:32Z to 20:46Z, so K11t and K12r are the passing cells | K10 to K12 (with K11r, K11s, K11t and K12r) |
+
+No route needs any other file in the engine-only home. The home holds
+dsh's own profile scaffold plus, for the three pi-ai routes, that route's
+provider entry. No env file, `.env` or `.credentials.yaml` was staged
+anywhere, and none of the routes failed for want of one.
+
+### Host and versions
+
+| Item | Value |
+| --- | --- |
+| Host | Ubuntu 25.10, kernel 6.17.0-41-generic, x86_64 (U0's host) |
+| dsh | launcher 0.1.5-rc.1. `@deepseek-ai/dsh-mcp-client`, `dsh-llm-deepseek`, `dsh-llm-pi-ai`, `dsh-credentials-local`, `dsh-base`, `dsh-headless` and `dsh-app-boot` are all 0.1.5-rc.2. `@earendil-works/pi-ai` is 0.85.1 |
+| Node | v22.23.2 (volta) |
+| Sentinel | `bin/sentinel.py`, the same file as U0 (sha256 1bc7c6a1…) |
+| Box tools | bubblewrap 0.11.0, used only to read the operator's configuration (see Method) |
+
+### How the operator's dsh wires each route
+
+These facts come from `dsh --profile headless --dump-config` over the operator's
+own `~/.dsh`, taken read-only (see Method), and from the installed
+packages' source.
+
+| Family | Composed by | `apiKeyEnv` | Base URL | Row the engine-only home needs |
+| --- | --- | --- | --- | --- |
+| deepseek | `dsh-base`'s `llm-deepseek` row, with no config. The operator adds nothing | `DEEPSEEK_API_KEY` (adapter default, `dsh-llm-deepseek` `DEFAULT_API_KEY_ENV`) | `https://api.deepseek.com` (adapter default). `DEEPSEEK_BASE_URL` would override it from a trusted layer, but it is unset in every layer here | none (the patch layer is `[]`) |
+| dashscope | the operator's headless profile, an `llm-pi-ai` provider entry | `DASHSCOPE_API_KEY` | `https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`, a literal in the row (identical to `recipes/research-dsh/drivers/research-web.yml`) | the `dashscope` provider entry |
+| meta | the same profile, an `llm-pi-ai` provider entry, `reasoning: xhigh` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | the `meta` provider entry |
+| meta-contributor | the same profile, an `llm-pi-ai` provider entry, `reasoning: xhigh` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | the `meta-contributor` provider entry |
+
+Other names in the operator's env files:
+
+- `DASHSCOPE_BASE_URL` (in `dashscope.env`) is read by no installed dsh
+  package, with zero references. The dashscope endpoint is the literal in the row.
+- `MODEL_API_KEY` (the only name in `meta.env`) is read by no route. It has
+  zero references in the operator's profiles and in the dsh packages. Both meta
+  routes read `OPENROUTER_API_KEY`, as `adapters/dsh.json` `credentials`
+  says. `meta.env` was not sourced in any cell.
+- `adapters/dsh.json` `credentials` names only `spark`, `spark-glm`,
+  `meta` and `meta-contributor`. The deepseek and dashscope routes read
+  `DEEPSEEK_API_KEY` and `DASHSCOPE_API_KEY`, which the map does not name.
+- The native `web_search` tool (row `web-search-deepseek`) reads
+  `DEEPSEEK_API_KEY` on every family. No cell exercised it.
+
+**Credential layers.** In dsh 0.1.5-rc.2, the order comes from
+`dsh-credentials-local/lib/index.js:13-20` and `dsh-app-boot`'s
+`loadLayeredEnv`, and both LLM adapters resolve `apiKeyEnv` through it
+on each request:
+
+1. the inherited process environment;
+2. `$DSH_HOME/.credentials.yaml`;
+3. `<cwd>/.env`;
+4. `$DSH_HOME/.env`.
+
+The operator's `~/.dsh` holds a managed `.credentials.yaml`. Its
+`refs` name `SPARK_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`,
+`DASHSCOPE_API_KEY` and `QWEN_TOKEN_PLAN_API_KEY`. Only the names were read, never the values. Under
+the operator's own home, a key absent from the environment is therefore
+resolved from that file. An engine-only home has no such file, so of
+the home's layers only the environment remains: K01, K04, K07 and K10
+show this. The engine-only home does not close layer 3: a `.env` in the
+working directory, the seat's own worktree, would still supply a key.
+The pre-check below asserted that none existed here. A key file in
+the engine-only home, whether `.credentials.yaml` or `.env`, would be a
+credential copy, and no route needs one.
+
+The operator's composed headless configuration holds no
+`dsh-mcp-client` row, and no home-level `~/.dsh/cordis.patch.yml`
+exists. No ambient MCP is configured there today. The ambient sources
+below were planted.
+
+### Method
+
+The method is the same as U0's: the same sentinel and four states, with ambient
+sentinels planted in the disposable HOME's default `~/.dsh`. The home-level
+row (`amb_home`) sits in `$DSH_HOME/cordis.patch.yml`, and the profile-level row (`amb_profile`)
+in `profiles/headless/cordis.patch.yml`. The differences follow.
+
+- **Environment, with no key on any argv.** U0's `env -i NAME=value`
+  would put a key on argv, so it was not used. `bin/clean-exec.sh` runs as a
+  subshell and works in four steps:
+  1. It unsets every exported variable and function except `HOME`, `USER`,
+     `LOGNAME`, `SHELL`, `TERM`, `LANG`, `PATH`, `TMPDIR`, `VOLTA_HOME`,
+     `DSH_HOME` and `DISABLE_AUTOUPDATER`.
+  2. It sets those names to fixed, non-secret values.
+  3. For K-a and the positive control only, it runs `set -a; .
+     ~/.dsh/<file>.env; set +a`.
+  4. It `exec`s dsh.
+
+  The child's exported names were checked by name only (`compgen -e`). They were the
+  allowed names plus the file's own: `DEEPSEEK_API_KEY`;
+  `DASHSCOPE_API_KEY` and `DASHSCOPE_BASE_URL`; `OPENROUTER_API_KEY`.
+  The launching shell itself exports five provider keys, and none reached
+  a cell except through its env file.
+- **Files sourced:** deepseek used `deepseek.env`, dashscope used `dashscope.env`, and both meta
+  routes used `openrouter.env`.
+- **Homes, per family:**
+  - a disposable HOME (`dsh/userhome-<family>`), whose default `~/.dsh` dsh
+    scaffolded itself. It carries the home-level sentinel row, and a profile patch
+    with the route's provider entry plus the profile-level sentinel row;
+  - an engine-only `DSH_HOME` (`dsh/home-engine-<family>`), also scaffolded by
+    dsh (a `package.json` naming `@deepseek-ai/dsh-base` and
+    `@deepseek-ai/dsh-headless`, an empty root `cordis.yml`). Its profile patch
+    carries only the route's provider entry, verbatim from the operator's
+    profile (deepseek: `[]`).
+
+  `--dump-config` confirmed the composition for every family before any
+  model call. The engine-only home plus the engine overlay composes
+  `serverName: engine` alone. The default home composes `amb_home` and
+  `amb_profile`.
+- **Pre-check, before every cell:** `bin/cell.sh` asserted that none of
+  `$DSH_HOME/.credentials.yaml`, `$DSH_HOME/.env`, `<cwd>/.env`,
+  `$HOME/.env`, `$HOME/.dsh/.env` and `$HOME/.dsh/.credentials.yaml` exists.
+  The workdir is a copy of U0's `dsh/proj`: a git repo with one empty commit and no `.env`.
+- **Order:** on each family, K-b ran first, on homes that had never been given a key. K-a ran
+  next, then the positive control.
+- **Listing:** no capture proxy was used (the upstreams are keyed HTTPS). Each request tool
+  list is dsh's own transcript record, `request/header`, for the first request.
+  On U0's D03 transcript, that record lists exactly the 26 names U0's proxy
+  captured on the wire.
+- **Task:** `Call each available tool whose name contains u0_ exactly
+  once, with no arguments. Then reply done.` Each cell ran under `timeout 240`.
+- **Reading the operator's configuration.** `dsh --dump-config` is not
+  read-only. The launcher's `prepareProfile` rewrites
+  `profiles/<name>/cordis.yml` before it composes the dump. Under a read-only bind it failed with `EROFS`.
+  The operator's dump therefore ran inside bubblewrap with `--overlay-src
+  ~/.dsh --tmp-overlay ~/.dsh`, so writes landed in a discarded tmpfs. It ran in a scrubbed
+  environment with no key, and its output passed a key-shape redactor before it was
+  written. There were four redactions, all long package names. The listing of `~/.dsh` (paths,
+  mtimes and sizes) was identical before and after.
+
+### Argv shape
+
+```
+clean-exec.sh <disposable HOME> <engine-only DSH_HOME | -> <~/.dsh/<file>.env | -> -- \
+  dsh --profile headless --patch <overlay> "<task>"
+```
+
+The only credential-related argument is the env file's path. No value is ever on
+argv. The overlay mirrors the driver's rows:
+
+- `agent-default-model`, restating `provider` and `model`;
+- `session-persistence-jsonl`, with `compression: none` and `packChunks: false`;
+- for K-a and K-b, the engine's `dsh-mcp-client` row as an `insert` patch (`serverName: engine`, tool
+  `u0_engine_probe`).
+
+### Cells
+
+The configurations are:
+
+- **K-b:** engine-only `DSH_HOME` plus the engine overlay, with no key anywhere;
+- **K-a:** the same, with the key in the process environment only;
+- **PC:** the disposable default `~/.dsh` (no `DSH_HOME`), with no engine row and the key in the environment.
+
+The request tool list holds the MCP names from the transcript's
+`request/header`. Every list also carries 25 native tools, among them
+`web_fetch` and `web_search`.
+
+| Cell | Family | Config | home-level | profile-level | engine | Model call | Request tool list (MCP) | Exit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| K01 | deepseek | K-b | not started | not started | listed | refused before any provider request: `MISSING_CREDENTIAL` | `mcp__engine__u0_engine_probe` (26 tools) | 1 |
+| K02 | deepseek | K-a | not started | not started | answered | succeeded (2 agent requests) | `mcp__engine__u0_engine_probe` (26) | 0 |
+| K03 | deepseek | PC | answered | answered | none | succeeded (2) | `mcp__amb_home__u0_home_probe`, `mcp__amb_profile__u0_profile_probe` (27) | 0 |
+| K04 | dashscope | K-b | not started | not started | listed | refused: `MISSING_CREDENTIAL` | engine only (26) | 1 |
+| K05 | dashscope | K-a | not started | not started | answered | succeeded (2) | engine only (26) | 0 |
+| K06 | dashscope | PC | answered | answered | none | succeeded (2) | both ambient (27) | 0 |
+| K07 | meta | K-b | not started | not started | listed | refused: `MISSING_CREDENTIAL` | engine only (26) | 1 |
+| K08 | meta | K-a | not started | not started | answered | succeeded (2) | engine only (26) | 0 |
+| K09 | meta | PC | answered | answered | none | succeeded (2) | both ambient (27) | 0 |
+| K10 | meta-contributor | K-b | not started | not started | listed | refused: `MISSING_CREDENTIAL` | engine only (26) | 1 |
+| K11 | meta-contributor | K-a | not started | not started | listed | failed upstream: 6 attempts, `503 service_overloaded` ×4, `504` ×2 | engine only (26) | 1 |
+| K11r | meta-contributor | K-a, rerun | not started | not started | listed | failed upstream: 6 attempts, 503 ×5, 504 ×1 | engine only (26) | 1 |
+| K11s | meta-contributor | K-a, second rerun | not started | not started | listed | failed upstream: 6 attempts, 503 ×3, 504 ×3 | engine only (26) | 1 |
+| K12 | meta-contributor | PC | listed | listed | none | failed upstream: 6 attempts, 503 ×4, 504 ×2 | both ambient (27) | 1 |
+| K11t | meta-contributor | K-a, third rerun | not started | not started | answered | succeeded (2) after 4 failed attempts inside dsh's retry policy (503 ×3, 504 ×1) | engine only (26) | 0 |
+| K12r | meta-contributor | PC, rerun | answered | answered | none | succeeded (2) | both ambient (27) | 0 |
+
+The K-b refusals, verbatim (stderr, exit 1):
+
+```
+dsh: MISSING_CREDENTIAL: llm-deepseek: no API key for provider route "deepseek-official"; store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it), or export DEEPSEEK_API_KEY in the launching environment
+dsh: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route "dashscope"; its profile resolves DASHSCOPE_API_KEY, which is not set — store DASHSCOPE_API_KEY through the credentials service (the web Models page writes it) or export it, and remove apiKeyEnv only if this provider should authenticate from pi-ai's own environment discovery
+dsh: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route "meta"; its profile resolves OPENROUTER_API_KEY, which is not set — […same wording…]
+dsh: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route "meta-contributor"; its profile resolves OPENROUTER_API_KEY, which is not set — […same wording…]
+```
+
+In each K-b transcript, MCP startup comes before the refusal: the engine is
+listed and the `request/header` is composed. The first `assistant/attempt`
+then finishes with code `MISSING_CREDENTIAL` and carries no usage chunk. The
+refusal comes from the credential seam before any provider request. The
+credentials service had no source: no environment value, no
+`.credentials.yaml`, no `.env` in either place. The key in each K-a cell
+therefore came from the process environment and not from an ambient file.
+
+**Request configuration** comes from `request/header.config`:
+
+- deepseek ran with the adapter's `reasoningEffort: high` (no effort pinned);
+- the meta routes ran with the row's `reasoningEffort: xhigh`;
+- dashscope ran with no effort.
+
+Muse Spark's reasoning arrives encrypted, so stderr is empty on the meta
+cells, as the operator's profile records.
+
+**Engine served.** In every completed K-a cell (K02, K05, K08, K11t), the engine
+sentinel logged `start`, `initialize`, `tools/list` and one
+`tools/call(u0_engine_probe)`. The model then replied `done`. No sentinel
+log for `home` or `profile` was written in any K-a or K-b cell.
+
+### Verdicts
+
+- **deepseek:** qualified. The key is honoured from the environment and ambient
+  MCP stays excluded (K02; K01 refuses without the key; the K03 positive control
+  answers both ambient sentinels).
+- **dashscope:** qualified. The key is honoured from the environment and ambient
+  MCP stays excluded (K05; K04; K06).
+- **meta:** qualified. The key is honoured from the environment and ambient MCP
+  stays excluded (K08; K07; K09).
+- **meta-contributor:** qualified. The key is honoured from the environment and ambient
+  MCP stays excluded (K11t; K10 refuses without the key; the K12r positive control answers both
+  ambient sentinels). Before that, the route's upstream was overloaded. K11, K11r, K11s and K12
+  each ran six attempts under dsh's retry policy and ended with exit 1, on
+  OpenRouter's `503 Provider returned error`, `provider_name: Meta`,
+  `provider_error_code: service_overloaded`, `Retry-After: 60`, and on `504`.
+  In those four cells no ambient sentinel started, and the engine (K11, K11r and K11s) or both
+  ambient sentinels (K12) were listed. The provider's 503 also indicates
+  that OpenRouter accepted the environment key and forwarded the request.
+  This is inferred from the error's shape: OpenRouter refuses an unauthenticated
+  request itself, and it never reaches a provider.
+
+### Credential handling
+
+- Keys reached dsh only by sourcing the operator's existing env file into the
+  dsh child's environment, inside the `clean-exec.sh` subshell:
+  `deepseek.env`, `dashscope.env` and `openrouter.env`. `meta.env` and
+  `spark.env` were never sourced.
+- No env file and no key value was copied anywhere: no file, home, overlay, log or
+  note. No key was ever on argv. Each cell's `argv.txt` holds only the
+  env file's path.
+- No key value was printed, echoed, cat'd or grepped. Env files were inspected
+  by variable name only (`sed -n 's/=.*//p'`). The operator's
+  `.credentials.yaml` was inspected by key name only. Profile files were
+  screened for key shapes by line number before being read.
+- The operator's `~/.dsh`, `~/.claude*` and `~/.codex` were not modified. The
+  operator's dsh configuration was read inside a discarded overlay.
+- **Key-shape scan.** This ran on 2026-10-06 after the last cell, and again after both
+  deliverables were written, using `bin/scan.sh`. It runs `grep -rlE
+  'sk-[A-Za-z0-9_-]{16,}|[A-Za-z0-9_-]{32,}'` over all of
+  `/var/tmp/s2-u0c`, with symlinks not followed. Each match is classified by shape and never printed. Of
+  333 files, 101 hold a key-shaped string, and none is a credential:
+  - **0** strings carry the `sk-` prefix that DeepSeek, Model Studio and OpenRouter
+    keys carry.
+  - **164** are UUIDs (session, retry and anonymous-user ids).
+  - **7** are pure hex: five git object ids in the copied project, and the
+    sentinel's sha256 in `bin/build-json.sh` and the observations' `u0c` block.
+  - **16** are mixed-case strings without separators, all at the `tool-call` `id`
+    and `responseId` fields of the four completed meta transcripts. These are
+    provider-issued ids.
+  - **283** are identifiers joined by `_` or `-`: tool names, row and package
+    ids, session directories and paths.
+  - **1** binary match is dsh's shipped `node-addon-require-builtin` prebuilt
+    addon, which dsh caches into `TMPDIR`. It is byte-identical to the shipped file.
+
+  No exact-value scan was run. Reading a key into any process other than the
+  dsh child is outside the credential rules.
+
+### Limitations
+
+- One Linux host, measured once. No macOS.
+- The request tool list is dsh's transcript record, not a wire capture.
+  It agreed with the wire on U0's D03.
+- Only cold `headless` cells were run. dsh has no resume shape, as in U0.
+- Each family ran one model: `deepseek-flash`, `qwen3.8-flash`,
+  `muse-spark-1.3` and `muse-spark-1.3-contributor`. Other models on the same
+  route share its provider entry, key and endpoint, but they were not run.
+- A plugin bundle layer was not planted, as in U0.
+- The route rows sat in the engine-only home's profile layer, as in U0's D03.
+  Production folds validated route rows into the seat's one `--patch`
+  overlay instead, and that placement was not run here. Both compose after
+  the shipped bundles and neither is ambient.
+
+### Model calls
+
+- **Keyless, K-b:** 4 invocations, each refused before any provider request.
+- **Completed:** 6 keyed invocations on the first three families (K02, K03, K05, K06, K08, K09), each with 2
+  completed agent requests. These totals are summed from the transcripts' `usage`:
+
+  | Family | Requests | Input tokens | Output tokens | Cache-read tokens |
+  | --- | --- | --- | --- | --- |
+  | deepseek | 4 | 10,494 | 238 | 18,816 |
+  | dashscope | 4 | 13,623 | 570 | 16,384 |
+  | meta | 4 | 20,184 | 653 | 10,308 |
+
+  No cost is reported by dsh (`cost: null`), and none is estimated here.
+- **Session titles:** dsh also issues one session-title request per invocation on the
+  same route. A provider-sourced title was recorded only on deepseek
+  (K02, K03). On the pi-ai routes only the fallback title was recorded.
+- **meta-contributor:** 4 requests completed (K11t and K12r), 22,938 input, 450
+  output and 7,409 cache-read tokens. A further 28 attempts failed upstream with no tokens
+  reported: 6 each in K11, K11r, K11s and K12, and 4 in K11t before it completed.
+  In total there were 12 keyed invocations: 8 completed (K02, K03, K05, K06, K08, K09,
+  K11t, K12r) and 4 failed upstream. They made 16 completed agent requests.

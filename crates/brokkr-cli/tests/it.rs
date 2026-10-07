@@ -38,6 +38,7 @@ mod diagrams;
 mod doctor_dsh_selection;
 mod dsh_sandbox_runner;
 mod hands;
+mod harness_probe;
 mod hosts;
 mod house_prose;
 mod init_doctor;

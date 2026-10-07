@@ -378,7 +378,7 @@ pub brokkr_runtime::agents::Resolution::inputs: core::option::Option<alloc::vec:
 pub brokkr_runtime::agents::Resolution::limits: core::option::Option<brokkr_runtime::bundle::Limits>
 pub brokkr_runtime::agents::Resolution::notices: alloc::vec::Vec<brokkr_runtime::agents::Notice>
 pub brokkr_runtime::agents::Resolution::record: serde_json::value::Value
-pub struct brokkr_runtime::agents::ResumeAssessment(_)
+pub struct brokkr_runtime::agents::ResumeAssessment(pub alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::agents::ResumeShape>)
 impl brokkr_runtime::agents::ResumeAssessment
 pub fn brokkr_runtime::agents::ResumeAssessment::is_empty(&self) -> bool
 pub fn brokkr_runtime::agents::ResumeAssessment::new(alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::agents::ResumeShape>) -> brokkr_runtime::agents::ResumeAssessment

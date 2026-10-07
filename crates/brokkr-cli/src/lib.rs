@@ -215,6 +215,11 @@ enum Cmd {
         #[command(subcommand)]
         command: HandsCommand,
     },
+    /// Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI.
+    Probe {
+        #[command(subcommand)]
+        command: ProbeCmd,
+    },
     /// (internal) The MCP capability broker the harness starts beside
     /// `hands` from the engine's configuration (decision 0077).
     #[command(hide = true)]
@@ -1863,7 +1868,7 @@ fn run_with(
     watch_iteration_limit: Option<usize>,
     run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<tui::Closed>,
 ) -> Result<ExitCode> {
-    use verbs::{delivery, exchange, queue, readouts, setup};
+    use verbs::{delivery, exchange, probe, queue, readouts, setup};
     match cli.command {
         Cmd::Init(args) => setup::init(workspace, args),
         Cmd::Costs(args) => readouts::costs(workspace, args),
@@ -1904,6 +1909,7 @@ fn run_with(
         Cmd::Realms(args) => readouts::realms(workspace, args),
         Cmd::Runs(args) => readouts::runs(workspace, args),
         Cmd::Hands { command } => hands::run(command),
+        Cmd::Probe { command } => probe::probe(command),
         Cmd::Broker { command } => broker::run(command),
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
