@@ -44,15 +44,21 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(stderr.contains("digest"), "stderr: {stderr}");
     // The scaffold says where to stand, once, on stderr, and says what
-    // decides an unboxed seat rather than that its tool list does.
+    // decides an unboxed seat rather than that its tool list does — and
+    // then that the operator's MCP servers are not a seat's (SI2).
     assert!(
         stderr.contains(&format!(
             "run brokkr from inside {} — its adapters/ and agents/ declare the trust tier \
              and the tools its seats are pre-approved for; an unboxed seat is still decided \
-             by the harness's permission model and your own settings and MCP servers\n",
+             by the harness's permission model and your own settings\n{AMBIENT_MCP}\n",
             bundle.display()
         )),
         "stderr: {stderr}"
+    );
+    let notes = std::fs::read_to_string(bundle.join("agents/README.md")).unwrap();
+    assert!(
+        notes.contains(&format!("\n\n{AMBIENT_MCP}\n\n## Specification dialect\n")),
+        "{notes}"
     );
 
     // The scaffold passes the same compile gate as any bundle.
@@ -124,6 +130,160 @@ fn init_with_only(present: &[&str]) -> (tempfile::TempDir, std::path::PathBuf, S
 
 fn json_at(path: &std::path::Path) -> serde_json::Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// What a scaffold tells its operator about MCP, on stderr and in its
+/// README, pinned here once (SI2): the ruling, and that it is not yet
+/// enforced.
+const AMBIENT_MCP: &str = "Decision 0065 rules that a seat never inherits your own MCP \
+     configuration, but this build does not enforce it yet: a seat may still start the MCP \
+     servers your harness configuration names.";
+
+/// The guides that transcribe a scaffold's output.
+const TRANSCRIPTS: [&str; 6] = [
+    "quickstart.md",
+    "starters/bun.md",
+    "starters/go.md",
+    "starters/node.md",
+    "starters/python.md",
+    "starters/rust.md",
+];
+
+/// Every guide that transcribes `init`'s output carries the sentence it
+/// prints now, and none still says an unboxed seat is decided by the
+/// operator's MCP servers.
+#[test]
+fn the_guides_transcribe_the_scaffolds_mcp_instruction() {
+    let guides = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/guides");
+    for guide in TRANSCRIPTS {
+        let text = std::fs::read_to_string(guides.join(guide)).unwrap();
+        assert!(text.contains(&format!("\n{AMBIENT_MCP}\n")), "{guide}");
+        assert!(!text.contains("own settings and MCP servers"), "{guide}");
+    }
+}
+
+/// The cold shapes each scaffolded model declaration can admit, by the
+/// hands it declares: the scaffold gives claude no hands, codex declares
+/// boxed and harness hands and no `resume`, and dsh holds none. So
+/// Claude's boxed shape and Codex's resumed one stay with the shipped
+/// adapters.
+const APPLICABLE: [(&str, &[&str]); 3] = [
+    ("claude", &["none"]),
+    ("codex", &["boxed", "harness"]),
+    ("dsh", &["none"]),
+];
+
+/// SI2's generated parity: a scaffolded model declaration carries its
+/// shipped adapter's carriage, its applicable shapes and its native
+/// assessment word for word; exec carries the shipped declaration that it
+/// has no model MCP surface, and no strictness of its own.
+pub(crate) fn assert_shipped_mcp_facts(bundle: &std::path::Path, provider: &str) {
+    let generated = json_at(&bundle.join(format!("adapters/{provider}.json")));
+    let shipped = json_at(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../adapters/{provider}.json")),
+    );
+    let Some((_, hands)) = APPLICABLE.iter().find(|(name, _)| *name == provider) else {
+        assert_eq!(provider, "exec");
+        assert_eq!(generated["mcp"], shipped["mcp"]);
+        assert!(shipped["mcp"]["inapplicable"].is_string(), "{shipped}");
+        return;
+    };
+    let shapes: Vec<&serde_json::Value> = shipped["mcp"]["shapes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|shape| {
+            shape["invocation"] == "cold" && hands.contains(&shape["hands"].as_str().unwrap())
+        })
+        .collect();
+    assert_eq!(shapes.len(), hands.len(), "{provider}: {shipped}");
+    assert_eq!(
+        generated["mcp"],
+        serde_json::json!({"carriage": shipped["mcp"]["carriage"], "shapes": shapes}),
+        "{provider}"
+    );
+    assert_eq!(
+        generated["native_capabilities"], shipped["native_capabilities"],
+        "{provider}"
+    );
+}
+
+/// SI2 before strict admission activates (U1f2): each roster writes the
+/// declarations it hires, each carrying its shipped MCP facts, and both
+/// init's own compile and the compile from inside the workspace pass on
+/// them with nothing granted and every native power still OFF — dsh's
+/// review gate on claude included. This certifies no strictness.
+#[test]
+fn each_rosters_declarations_carry_their_shipped_mcp_facts_and_still_compile() {
+    for (present, written, reviewer) in [
+        ("claude", &["claude", "exec"][..], "claude"),
+        ("codex", &["codex", "exec"][..], "codex"),
+        ("dsh", &["claude", "dsh", "exec"][..], "claude"),
+    ] {
+        let (_dir, bundle, _) = init_with_only(&[present]);
+        let mut declared: Vec<String> = std::fs::read_dir(bundle.join("adapters"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        declared.sort();
+        let mut expected: Vec<String> = written.iter().map(|name| format!("{name}.json")).collect();
+        expected.sort();
+        assert_eq!(declared, expected, "{present}");
+        for provider in written {
+            assert_shipped_mcp_facts(&bundle, provider);
+        }
+        let claude = bundle.join("adapters/claude.json");
+        if claude.exists() {
+            assert!(json_at(&claude).get("hands").is_none(), "{present}");
+        }
+        let codex = bundle.join("adapters/codex.json");
+        if codex.exists() {
+            assert!(json_at(&codex).get("resume").is_none(), "{present}");
+        }
+        let compiled = brokkr_runtime::Bundle::compile_with(
+            &bundle,
+            &bundle.join("agents"),
+            &bundle.join("adapters"),
+        )
+        .unwrap();
+        assert_eq!(
+            compiled.manifest["capabilities"]["grants"],
+            serde_json::json!({}),
+            "{present}"
+        );
+        assert_eq!(
+            compiled.manifest["agents"]["review"]["provider"], reviewer,
+            "{present}"
+        );
+        let mut served = std::collections::BTreeSet::new();
+        for (label, facts) in &compiled.sites {
+            let Some(site) = facts.capabilities.as_ref() else {
+                continue;
+            };
+            for outcome in &site.outcomes {
+                assert!(outcome.held.is_empty(), "{present}/{label}");
+                served.insert(outcome.provider.clone());
+                let off = match outcome.provider.as_str() {
+                    "claude" => &outcome.controls()["selection"]["deny"],
+                    "codex" => &outcome.controls()["argv"],
+                    "dsh" => &outcome.controls()["inventory"],
+                    _ => continue,
+                };
+                let expected = match outcome.provider.as_str() {
+                    "claude" => serde_json::json!(["WebFetch", "WebSearch"]),
+                    "codex" => serde_json::json!(["-c", "web_search=\"disabled\""]),
+                    _ => serde_json::json!("unmeasured"),
+                };
+                assert_eq!(off, &expected, "{present}/{label}");
+            }
+        }
+        assert_eq!(
+            served.into_iter().collect::<Vec<_>>(),
+            written,
+            "{present}: every declaration written serves a site"
+        );
+    }
 }
 
 /// A claude-less host with codex gets a codex scaffold that compiles: the

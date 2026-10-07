@@ -13,7 +13,8 @@
    109 crates/brokkr-cli/src/exit.rs
    139 crates/brokkr-cli/src/fleet.rs
     59 crates/brokkr-cli/src/hands.rs
-  1908 crates/brokkr-cli/src/init.rs
+  1606 crates/brokkr-cli/src/init.rs
+   417 crates/brokkr-cli/src/init/adapters.rs
     24 crates/brokkr-cli/src/init/effort.rs
    177 crates/brokkr-cli/src/ledger.rs
   1935 crates/brokkr-cli/src/lib.rs
@@ -42,7 +43,7 @@
    198 crates/brokkr-cli/src/verbs/delivery.rs
    227 crates/brokkr-cli/src/verbs/exchange.rs
    337 crates/brokkr-cli/src/verbs/readouts.rs
-   244 crates/brokkr-cli/src/verbs/setup.rs
+   248 crates/brokkr-cli/src/verbs/setup.rs
    124 crates/brokkr-core/src/canonical.rs
    523 crates/brokkr-core/src/dispatch.rs
    157 crates/brokkr-core/src/envelope.rs
@@ -177,8 +178,8 @@
     10 crates/brokkr-cli/tests/heap_dsh.rs
    470 crates/brokkr-cli/tests/hosts.rs
    514 crates/brokkr-cli/tests/house_prose.rs
-   842 crates/brokkr-cli/tests/init_doctor.rs
-  1260 crates/brokkr-cli/tests/init_stacks.rs
+  1137 crates/brokkr-cli/tests/init_doctor.rs
+  1269 crates/brokkr-cli/tests/init_stacks.rs
   1127 crates/brokkr-cli/tests/layering/main.rs
   1440 crates/brokkr-cli/tests/layering/scan.rs
   3479 crates/brokkr-cli/tests/machine_proof.rs
