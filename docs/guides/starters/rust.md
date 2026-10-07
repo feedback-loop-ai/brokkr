@@ -37,7 +37,8 @@ $ brokkr init my-bundle
 
 ```text
 initialized reviewable bundle at my-bundle (digest d4b6f758d2014a3726a6e9e798fdd3c8aae682d0ada499da536806b38b2f9c52)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
 ```
 
 The digest is a function of the bytes that were written, and the
@@ -165,8 +166,12 @@ building is its charter — "prove it, fix nothing" — and the scaffold
 README says so rather than promising a boundary the glob cannot draw.
 Nor is the list a boundary on an unboxed seat: `--allowedTools`
 pre-approves these commands and removes no other tool, so the
-operator's own Claude Code permission settings and MCP servers reach
-the seat too ([security model](../../security-model.md)).
+operator's own Claude Code permission settings reach the seat too.
+Decision 0065 makes its MCP servers the engine's to compose, never the
+operator's, but that is not enforced yet: until strict MCP isolation
+lands, a seat may still start the servers in the operator's own
+harness configuration, and each adapter's `mcp` records what its
+harness was measured to exclude ([security model](../../security-model.md)).
 An allowance is ONE grant with the adapter's map: a name the map cannot
 express refuses the scaffold's own compile (decision 0016), so when you
 edit one side, edit both.

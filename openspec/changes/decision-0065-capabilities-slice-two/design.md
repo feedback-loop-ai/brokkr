@@ -1308,7 +1308,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U1d | U1c | Record Claude, Codex and LaneTally declarations; 5.1–5.2 | `adapters/claude.json`; `adapters/codex.json`; `adapters/lanetally.json` |
 | U1e | U1d, U1c2 | Record dsh and exec declarations; 6.1–6.2 | `adapters/dsh.json`; `adapters/exec.json` |
 | U1f | U1e | Thread independent strict intent; 7.1–7.2 | `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/bundle.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
-| U1f2 | U1f | Migrate generated declarations and instructions; 7.3–7.4 | `crates/brokkr-cli/src/init.rs`; `crates/brokkr-cli/src/init/adapters.rs`; `crates/brokkr-cli/src/verbs/setup.rs` |
+| U1f2 | U1f | Migrate generated declarations and instructions; 7.3–7.4 | `crates/brokkr-cli/src/init.rs`; `crates/brokkr-cli/src/init/adapters.rs`; `crates/brokkr-cli/src/verbs/setup.rs`; `crates/brokkr-cli/src/init/claims.rs` |
 | U1g | U1f2 | Seal and enforce every launch; 8.1–8.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs` |
 | U2 | Independent | Remove both native-binding panics; 9.1–9.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-cli/src/doctor.rs` |
 | U3a | Independent | Apply gate classes; 10.1–10.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/gates.rs`; `crates/brokkr-runtime/src/bundle.rs` |

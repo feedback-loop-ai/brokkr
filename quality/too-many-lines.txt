@@ -3,7 +3,7 @@
  111 crates/brokkr-bridge/src/lib.rs:613 sync_once
  228 crates/brokkr-cli/src/compare.rs:23 seat_costs
  184 crates/brokkr-cli/src/doctor.rs:875 report_capabilities
- 118 crates/brokkr-cli/src/init.rs:1753 init
+ 113 crates/brokkr-cli/src/init.rs:1455 init
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
  140 crates/brokkr-core/src/dispatch.rs:241 verify
  266 crates/brokkr-core/src/fold.rs:344 apply

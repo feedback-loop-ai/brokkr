@@ -338,8 +338,8 @@ fn the_readme_says_the_work_grant_pre_approves_and_removes_no_tool() {
         work,
         "Work-class seats (intake, implement) are pre-approved for the whole set:\n\
          cargo, git, ls, rg, mkdir. Pre-approval removes no tool: an unboxed seat keeps the\n\
-         harness's other defaults, your own permission settings and MCP\n\
-         servers. Only `WebSearch` and `WebFetch` are denied, by name, because\n\
+         harness's other defaults and your own permission settings. Only\n\
+         `WebSearch` and `WebFetch` are denied, by name, because\n\
          `realms.json` grants neither."
     );
 }

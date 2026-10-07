@@ -195,7 +195,8 @@ $ brokkr init .
 
 ```text
 initialized reviewable bundle at . (digest 4a0f568f35fd6efec2fc66574651c3d786fbfcf54fcdc2bb34a247f0fcf426c9)
-run brokkr from inside . — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
+run brokkr from inside . — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
 ```
 
 `init` takes the directory as a **positional argument**, not a flag. It
@@ -273,7 +274,11 @@ repository `init` does not recognize gets an EMPTY map and a README
 that says so, rather than a guessed permission. The grant is claude's
 `--allowedTools`, which pre-approves and removes no other tool: an
 unboxed seat also runs under the operator's own Claude Code permission
-settings and MCP servers ([security model](../security-model.md)).
+settings. Decision 0065 makes its MCP servers the engine's to compose,
+never the operator's, but that is not enforced yet: until strict MCP
+isolation lands, a seat may still start the servers in the operator's
+own harness configuration, and each adapter's `mcp` records what its
+harness was measured to exclude ([security model](../security-model.md)).
 
 **`init` looks before it scaffolds.** The repository you ran it from is
 read for the manifests and lockfiles at its root, and the implementer
