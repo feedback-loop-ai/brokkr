@@ -545,36 +545,51 @@ fn a_burst_past_a_full_hold_makes_the_attempt_indeterminate_and_says_how_many() 
 /// A quiet seat's held checkpoint does not wait for the seat's next one
 /// or its stop: the sink tries the hold again whenever the seat is quiet
 /// for the interval given, here none (#464). The retry still never waits
-/// on the lock: a retry that meets it costs no patience.
+/// on the lock: the store's patience here outlasts the peer, who lets go
+/// only when the sink's third append tells it to, so a retry that waited
+/// would land only once the peer's bound ran out, and on the second append.
 #[test]
 fn a_quiet_seats_held_checkpoint_lands_on_the_retry_timer_without_waiting() {
     let dir = tempfile::tempdir().unwrap();
-    let (mut engine, patience) = patient_in_flight(dir.path());
-    let mut holder = Some(write_lock_on(&dir.path().join("realm.db")));
+    let mut engine = in_flight(dir.path());
+    engine
+        .store
+        .set_patience(std::time::Duration::from_secs(3600))
+        .unwrap();
+    // Only ends a test whose sink waited on the lock: never a measure.
+    let bound = std::time::Duration::from_secs(30);
+    let holder = write_lock_on(&dir.path().join("realm.db"));
+    let (release, told) = std::sync::mpsc::channel::<()>();
+    let (let_go, released) = std::sync::mpsc::channel::<()>();
+    let peer = std::thread::spawn(move || {
+        let outlasted = told.recv_timeout(bound).is_err();
+        drop(holder);
+        let_go.send(()).unwrap();
+        outlasted
+    });
     let (sender, arrivals) = std::sync::mpsc::channel();
     let (retried, quiet) = std::sync::mpsc::channel::<()>();
     // The seat sends one checkpoint, then is quiet until the sink has
-    // retried it; the bound only ends a sink that never does.
+    // retried it.
     let seat = std::thread::spawn(move || {
         sender.send(step("a")).unwrap();
-        let _ = quiet.recv_timeout(std::time::Duration::from_secs(30));
+        let _ = quiet.recv_timeout(bound);
     });
     let calls = std::cell::Cell::new(0);
     let between = |_: &mut Store| {
         calls.set(calls.get() + 1);
         // The offer, then one retry the lock refuses, then the one it lets in.
         if calls.get() == 3 {
-            holder.take();
-            retried.send(()).unwrap();
+            let _ = release.send(());
+            released.recv().unwrap();
+            let _ = retried.send(());
         }
     };
-    let started = std::time::Instant::now();
     let mut checkpoints =
         sink(&mut engine, checkpoints::HELD_BYTES, between).retrying(std::time::Duration::ZERO);
     checkpoints.take(&arrivals, |sink, checkpoint| {
         sink.offer("", checkpoint, Ok(None));
     });
-    let elapsed = started.elapsed();
     drop(checkpoints);
     seat.join().unwrap();
 
@@ -583,8 +598,8 @@ fn a_quiet_seats_held_checkpoint_lands_on_the_retry_timer_without_waiting() {
         3,
         "a offered, then retried twice while the seat was quiet"
     );
+    assert!(!peer.join().unwrap(), "a retry waited out the peer's lock");
     assert_eq!(landed(&engine), ["a"]);
-    assert!(elapsed < patience, "{elapsed:?}");
 }
 
 /// A driver that outruns its sink waits on the handoff: it hands over
