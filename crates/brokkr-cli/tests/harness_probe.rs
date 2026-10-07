@@ -228,8 +228,8 @@ fn without_out_the_report_is_printed_and_a_turn_with_no_credential_is_refused() 
 
 /// An adapters directory holding the shipped claude adapter with the fake
 /// as its binary and its resume identity unknown, and a custom adapter no
-/// built-in driver runs. The fake was never measured, so its MCP
-/// declaration is `unsupported` (decision 0065 slice two, U1d).
+/// built-in driver runs. Neither was measured and only exec may be
+/// inapplicable, so both MCP declarations are `unsupported` (U1d, U1e).
 fn custom_adapters(host: &Host) -> PathBuf {
     let dir = host.path("adapters");
     std::fs::create_dir(&dir).unwrap();
@@ -243,6 +243,7 @@ fn custom_adapters(host: &Host) -> PathBuf {
     let mut custom = read("exec.json");
     custom["provider"] = json!("custom");
     custom["driver"] = json!(["/usr/local/bin/custom-driver"]);
+    custom["mcp"] = json!("unsupported");
     for (name, adapter) in [("claude.json", claude), ("custom.json", custom)] {
         std::fs::write(dir.join(name), adapter.to_string()).unwrap();
     }

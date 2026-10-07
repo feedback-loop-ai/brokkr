@@ -1168,8 +1168,8 @@ fn the_shipped_realm_grants_nothing_and_names_every_native_power_it_denies() {
         "warn     capabilities brokkr native claude 'web-fetch': NOT granted here",
         "warn     capabilities brokkr native claude 'web-search': NOT granted here",
         "no live denial or enablement of WebSearch has been measured",
-        "warn     capabilities brokkr native dsh: native inventory unmeasured: dsh declares \
-         mcp and tool_permissions unsupported",
+        "warn     capabilities brokkr native dsh: native inventory unmeasured: dsh's \
+         tool_permissions and mcp declarations cover command-line narrowing",
         "warn     capabilities brokkr native lanetally: native inventory unmeasured: the \
          LaneTally wrapper forwards argv to claude",
     ] {
