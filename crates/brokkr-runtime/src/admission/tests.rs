@@ -733,6 +733,26 @@ fn an_entry_queued_under_no_map_is_held_when_a_map_names_its_repository() {
     );
 }
 
+/// An entry queued under no map, held and latched because a map came to
+/// name its repository, is not re-pinned once that map is gone again: the
+/// re-pin would take no map, which is not the map the latch found (#430).
+#[test]
+fn an_unmapped_entrys_repin_is_refused_when_the_map_that_held_it_is_gone() {
+    let ws = workspace();
+    let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
+    let entry = add(&mut store, &launch(ws.path(), false), &[]);
+    map(ws.path(), json!({"boundary": "open"}));
+    judge(&mut store, BY).unwrap();
+    std::fs::remove_file(ws.path().join("realms.json")).unwrap();
+    let moved = release(&mut store, entry, BY).unwrap_err();
+    assert!(matches!(moved, AdmissionError::MapMoved(at) if at == entry));
+    assert_eq!(
+        moved.to_string(),
+        "the realms map on disk is not the one queue entry 1's latched hold found; `brokkr \
+         queue judge` shows and latches what differs now"
+    );
+}
+
 /// The facts of a realm open with web-search.
 fn web() -> Value {
     json!({"boundary": "open", "capabilities": {"web-search": {"dialect": "web"}}})
