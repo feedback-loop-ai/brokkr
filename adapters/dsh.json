@@ -55,7 +55,7 @@
   "tool_permissions": "unsupported",
   "mcp": {
     "carriage": {
-      "measured": "U0 D03 (dsh 0.1.5-rc.1, Linux, 2026-10-03, local Spark route): the engine's dsh-mcp-client row, inserted by the --patch overlay over an engine-only DSH_HOME, started the engine sentinel and answered its call; U0c K02, K05, K08 and K11t (2026-10-06) answered it on deepseek-official, dashscope, meta and meta-contributor (docs/evidence/adapters/slice-two-mcp-isolation.md)"
+      "measured": "U0 D03 (dsh 0.1.5-rc.1, Linux, 2026-10-03, local spark-glm route): the engine's dsh-mcp-client row, inserted by the --patch overlay over an engine-only DSH_HOME, started the engine sentinel and answered its call; U0c K02, K05, K08 and K11t (2026-10-06) answered it on deepseek-official, dashscope, meta and meta-contributor (docs/evidence/adapters/slice-two-mcp-isolation.md)"
     },
     "shapes": [
       {
@@ -68,7 +68,7 @@
           "host": "linux"
         },
         "ambient": {
-          "measured": "U0 D03 and D04 (spark, spark-glm) and U0c K01 to K12r (deepseek-official, dashscope, meta, meta-contributor): under an engine-only DSH_HOME no planted home- or profile-level sentinel started while the engine row loaded, and D01 and U0c's positive controls answered both; dsh's existing home fails (D02); no plugin bundle layer was planted"
+          "measured": "U0 D03 and D04 (spark-glm) and U0c K01 to K12r (deepseek-official, dashscope, meta, meta-contributor): under an engine-only DSH_HOME no planted home- or profile-level sentinel started while the engine row loaded; D01 and U0c's positive controls answered both; D02's existing home fails; no plugin layer was planted; spark is not qualified (U0c S01 to S03: its model server was down)"
         },
         "native_write": {
           "unmeasured": "U0 D04: dsh's default workspace-write sandbox denied one native write outside the workspace, but dsh offered an approval-gated escalation (policy ask) that was not exercised, so confinement is not established"
