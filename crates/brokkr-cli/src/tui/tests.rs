@@ -1455,6 +1455,7 @@ fn the_shell_watches_a_transcript_only_while_its_seat_is_working() {
     let mut live = views_with("intake");
     for part in &mut live.run.as_mut().unwrap().participants {
         part.status = "working".to_string();
+        part.working = true;
     }
     assert!(subject_of(&tui, &live).unwrap().working);
 

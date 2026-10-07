@@ -302,9 +302,9 @@ pub brokkr_view::Participant::turns_cell: brokkr_view::Cell
 pub brokkr_view::Participant::usage: core::option::Option<brokkr_view::TokenUsage>
 pub brokkr_view::Participant::usage_aggregated: bool
 pub brokkr_view::Participant::usage_cell: brokkr_view::Cell
+pub brokkr_view::Participant::working: bool
 impl brokkr_view::Participant
 pub fn brokkr_view::Participant::legacy_provenance(&self) -> brokkr_view::transcript::LegacyProvenance
-pub fn brokkr_view::Participant::working(&self) -> bool
 pub struct brokkr_view::Phase
 pub brokkr_view::Phase::columns: alloc::vec::Vec<brokkr_view::Column>
 pub brokkr_view::Phase::current: bool

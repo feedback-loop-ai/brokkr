@@ -1,11 +1,12 @@
 //! What a participant's own record decides about reading its transcript:
-//! whether a legacy Claude id may stand in for an absent reference,
-//! whether it can still gain prose, and the subject a surface re-resolves.
+//! whether a legacy Claude id may stand in for an absent reference, and
+//! the subject a surface re-resolves (whether it can still gain prose is
+//! the served `working`, derived where the participant is built).
 //! Derived here once, so the terminal, the browser and `brokkr transcript`
 //! cannot read one participant two ways (decision 0013; #351).
 
 use crate::transcript::LegacyProvenance;
-use crate::{Participant, Transcript, WORKING};
+use crate::{Participant, Transcript};
 
 impl Participant {
     /// The legacy-synthesis rule this participant's provenance admits:
@@ -23,12 +24,6 @@ impl Participant {
             Some("lanetally") => LegacyProvenance::LaneTally,
             Some(_) => LegacyProvenance::Other,
         }
-    }
-
-    /// Whether the participant is still at work, and so can still gain
-    /// prose.
-    pub fn working(&self) -> bool {
-        self.status == WORKING.0
     }
 }
 
@@ -74,7 +69,10 @@ impl Subject {
             reference: part.transcript.clone(),
             provenance: part.legacy_provenance(),
             legacy_id: part.session_id.clone(),
-            working: part.working(),
+            working: part.working,
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

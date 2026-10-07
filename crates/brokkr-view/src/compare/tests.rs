@@ -2,7 +2,7 @@ use super::*;
 use serde_json::{json, Map};
 
 #[path = "../../../../tests/support/seat_journal.rs"]
-mod seat_journal;
+pub(crate) mod seat_journal;
 use seat_journal::{boxed_seat, event};
 
 /// The report as `brokkr costs` prints it: these tests pin the bytes.

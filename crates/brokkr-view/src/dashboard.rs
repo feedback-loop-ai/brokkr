@@ -370,7 +370,7 @@ fn panel_notes(map: &Map<String, Value>) -> String {
 pub fn working_checkpoints<'a>(view: &'a RunView, seat: &str) -> Vec<(&'a str, &'a CheckpointRow)> {
     let working = view.participants.iter().filter(|part| {
         let member = part.label.strip_prefix(seat);
-        part.working() && member.is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))
+        part.working && member.is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))
     });
     let mut rows: Vec<(&str, &CheckpointRow)> = working
         .flat_map(|part| {

@@ -705,7 +705,7 @@ fn source_growth_is_measured_through_the_retained_handle() {
 fn the_page_watches_one_working_sessions_prose_and_closes_what_it_opens() {
     for kept in [
         "participantPath('/sse/transcript/', subject)",
-        "part.status === 'working'",
+        "working: part.working === true",
         "source.close(); handlers.close()",
     ] {
         assert!(PAGE.contains(kept), "the page streams prose with {kept}");
@@ -840,7 +840,7 @@ fn the_console_serves_the_boundary_and_paints_the_pair() {
 
     let view = handle(&db, "/api/view/r1");
     let parsed: Value = serde_json::from_str(&view.body).unwrap();
-    assert_eq!(parsed["view_version"], 16);
+    assert_eq!(parsed["view_version"], 17);
     let seat = &parsed["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["text"], "harness");

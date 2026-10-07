@@ -382,4 +382,4 @@ pub fn first_divergence(a: &[String], b: &[String]) -> Option<FirstDivergence> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

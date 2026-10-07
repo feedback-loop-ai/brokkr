@@ -10,7 +10,7 @@ use crate::workspace_root::workspace;
 
 /// Each derivation the view took over, by a line a restatement of it
 /// cannot avoid, and the one home a surface calls instead.
-const RESTATED: [(&str, &str); 9] = [
+const RESTATED: [(&str, &str); 10] = [
     ("fn seat_costs", "brokkr_view::seat_costs"),
     ("fn first_divergence", "brokkr_view::first_divergence"),
     (
@@ -25,6 +25,7 @@ const RESTATED: [(&str, &str); 9] = [
         "Participant::legacy_provenance",
     ),
     ("status == \"working\"", "Participant::working"),
+    ("status === 'working'", "Participant::working"),
     ("legacy_id: part.session_id", "brokkr_view::Subject::of"),
 ];
 

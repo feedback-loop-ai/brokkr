@@ -90,7 +90,8 @@ use serde_json::Value;
 /// Bumped to 14 by #503's second round: the run view gained its `dashboard`.
 /// Bumped to 15 by #503's landing: a run row gained its `quarantine`.
 /// Bumped to 16 by decision 0065: a checkpoint gained its capability call.
-pub const VIEW_VERSION: u32 = 16;
+/// Bumped to 17 by #351: a participant gained its `working`.
+pub const VIEW_VERSION: u32 = 17;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -349,6 +350,10 @@ pub struct RunNotice {
 }
 
 #[derive(Serialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the served `working` beside the three aggregation flags, by the operator's 2026-10-07 ruling on #351"
+)]
 pub struct Participant {
     pub key: String,
     pub label: String,
@@ -357,6 +362,10 @@ pub struct Participant {
     pub phase: Option<String>,
     pub status: String,
     pub status_class: String,
+    /// Whether the participant is still at work, and so can still gain
+    /// prose: served so the browser paints it rather than testing the
+    /// status word itself (decision 0013; #351).
+    pub working: bool,
     pub attempts: u64,
     pub turns: Option<u64>,
     pub turns_aggregated: bool,
@@ -1918,6 +1927,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             phase: scan.effects[part.effect_index].phase.clone(),
             status: part.status.to_string(),
             status_class: part.status_class.to_string(),
+            working: part.status == WORKING.0,
             attempts,
             turns,
             turns_aggregated,
