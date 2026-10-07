@@ -36,12 +36,14 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr secrets remove`](#brokkr-secrets-remove): Remove NAME from the store
 - [`brokkr conclude`](#brokkr-conclude): Close a stopped or parked run from its journal alone — no bundle, no recipe, no effect. `resume` compiles the exact pinned recipe and refuses on any drift, which is right for the branches that spend money but leaves a run from a moved engine with no lawful ending. This appends the operator stop conclusion and nothing else, so it needs no pinned recipe to be honest about what it wrote. It cannot retry: that re-enters the policy loop, and the policy loop needs the bundle by construction. For a run believed dead: every write is fenced, so a journal that moves beneath the conclusion — something still driving the run — refuses instead of being closed over (decision 0029). Check `brokkr runs` first
 - [`brokkr operator`](#brokkr-operator): Record an operator command (retry \| stop \| supersede) as journal events
-- [`brokkr queue`](#brokkr-queue): The dispatcher's queue (decision 0068): runs waiting to start, in the journal's own database. Add, list, move, hold, release and drop entries; each change is journaled with its reason
+- [`brokkr queue`](#brokkr-queue): The dispatcher's queue (decision 0068): runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason
 - [`brokkr queue add`](#brokkr-queue-add): Queue a new run, taking `brokkr run`'s arguments, at the end of the queue. Nothing starts: the entry waits for the dispatcher
-- [`brokkr queue list`](#brokkr-queue-list): The queue in order: each waiting entry's place, state, priority, waits and launch, then the entries that started a run, with it. `--json` emits the view model for scripts
+- [`brokkr queue list`](#brokkr-queue-list): The queue in order: each waiting entry's place, state, priority, waits, launch and admission (admissible, or why it waits or is held), then the entries that started a run, with it. `--json` emits the view model for scripts
+- [`brokkr queue judge`](#brokkr-queue-judge): Judge the queue as `list` shows it, and first latch on each waiting entry the realm drift found: from then on it is held until the operator re-pins, re-queues or drops it, whatever the map comes to. Each latch is journaled with the reason
 - [`brokkr queue move`](#brokkr-queue-move): Put an entry at another place in the queue
 - [`brokkr queue hold`](#brokkr-queue-hold): Keep an entry in its place, not to be started until released
 - [`brokkr queue release`](#brokkr-queue-release): Let a held entry be started again
+- [`brokkr queue repin`](#brokkr-queue-repin): Re-pin a waiting entry to the realms map that would govern it now: how the operator releases an entry `judge` latched a realm-drift hold on, accepting the differences it found. Refused when the map on disk is not the one the latch found; judge the queue again
 - [`brokkr queue drop`](#brokkr-queue-drop): Take an entry out of the queue. One that started a run cannot be
 - [`brokkr inspect`](#brokkr-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model
 - [`brokkr transcript`](#brokkr-transcript): Read one participant's retained local transcript — Claude, Codex or DSH — through the same bounded local derivation the TUI uses. The verb never launches, retries or resumes a provider and writes nothing to the journal
@@ -504,7 +506,7 @@ Usage: brokkr operator [OPTIONS] --run <RUN> --reason <REASON> <COMMAND>
 
 ## brokkr queue
 
-The dispatcher's queue (decision 0068): runs waiting to start, in the journal's own database. Add, list, move, hold, release and drop entries; each change is journaled with its reason
+The dispatcher's queue (decision 0068): runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason
 
 ```text
 Usage: brokkr queue <COMMAND>
@@ -535,7 +537,7 @@ Usage: brokkr queue add [OPTIONS] --feature <FEATURE> --reason <REASON> <--bundl
 
 ## brokkr queue list
 
-The queue in order: each waiting entry's place, state, priority, waits and launch, then the entries that started a run, with it. `--json` emits the view model for scripts
+The queue in order: each waiting entry's place, state, priority, waits, launch and admission (admissible, or why it waits or is held), then the entries that started a run, with it. `--json` emits the view model for scripts
 
 ```text
 Usage: brokkr queue list [OPTIONS]
@@ -543,6 +545,21 @@ Usage: brokkr queue list [OPTIONS]
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
+| `--json` |  |  | Emit the view model verbatim — this is what scripts read |
+
+## brokkr queue judge
+
+Judge the queue as `list` shows it, and first latch on each waiting entry the realm drift found: from then on it is held until the operator re-pins, re-queues or drops it, whatever the map comes to. Each latch is journaled with the reason
+
+```text
+Usage: brokkr queue judge [OPTIONS] --reason <REASON>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--reason <REASON>` |  |  | Why, journaled with each latch |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
 | `--json` |  |  | Emit the view model verbatim — this is what scripts read |
@@ -584,6 +601,21 @@ Let a held entry be started again
 
 ```text
 Usage: brokkr queue release [OPTIONS] --reason <REASON> <ENTRY>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<ENTRY>` |  |  | The entry's id, as `brokkr queue list` prints it |
+| `--reason <REASON>` |  |  | Why, journaled with the command |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
+
+## brokkr queue repin
+
+Re-pin a waiting entry to the realms map that would govern it now: how the operator releases an entry `judge` latched a realm-drift hold on, accepting the differences it found. Refused when the map on disk is not the one the latch found; judge the queue again
+
+```text
+Usage: brokkr queue repin [OPTIONS] --reason <REASON> <ENTRY>
 ```
 
 | Argument | Default | Selector | Description |

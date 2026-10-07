@@ -1,19 +1,22 @@
 //! `brokkr queue` (decision 0068 ruling 1): the dispatcher's queue in the
 //! journal's own database. `add` queues the launch `brokkr run` would make
-//! with the same arguments; `move`, `hold`, `release` and `drop` change an
-//! entry, each journaled with its reason; `list` reads it. Nothing here
+//! with the same arguments; `move`, `hold`, `release`, `repin` and `drop`
+//! change an entry, each journaled with its reason; `list` reads it, with
+//! admission's verdict on each entry that waits, and `judge` shows the
+//! same once it has latched the realm drift admission finds. Nothing here
 //! starts a run.
 
 use std::path::Path;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+use brokkr_runtime::admission::{self, Judged, Verdict};
 use brokkr_runtime::launch::{BundleSource, QueuedLaunch};
-use brokkr_store::{Attribution, NewEntry, QueueCommand, QueueEntry, Wait};
+use brokkr_store::{Attribution, NewEntry, QueueCommand, Wait};
 use serde::Serialize;
 
 use super::delivery::{new_run, operator_name};
-use crate::cli_args::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueListArgs};
+use crate::cli_args::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs};
 use crate::render::Safe;
 use crate::{open_journal, Access, Exit};
 
@@ -22,9 +25,11 @@ pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
     match command {
         QueueCmd::Add(args) => add(workspace, args),
         QueueCmd::List(args) => list(workspace, args),
+        QueueCmd::Judge(args) => judge(workspace, args),
         QueueCmd::Move(args) => change(workspace, args.entry, QueueCommand::Move { to: args.to }),
         QueueCmd::Hold(args) => change(workspace, args, QueueCommand::Hold),
         QueueCmd::Release(args) => change(workspace, args, QueueCommand::Release),
+        QueueCmd::Repin(args) => repin(workspace, args),
         QueueCmd::Drop(args) => change(workspace, args, QueueCommand::Drop),
     }
 }
@@ -51,14 +56,18 @@ fn add(
         priority,
         waits: &after,
     };
-    let operator = operator_name();
-    let by = Attribution {
-        operator: &operator,
-        reason: &reason,
-    };
-    let id = store.queue_add(entry, by)?;
+    let id = attributed(&reason, |by| store.queue_add(entry, by))?;
     eprintln!("queued entry {id}");
     Ok(Exit::Completed.into())
+}
+
+/// Do `act` as the operator, for `reason`.
+fn attributed<T>(reason: &str, act: impl FnOnce(Attribution<'_>) -> T) -> T {
+    let operator = operator_name();
+    act(Attribution {
+        operator: &operator,
+        reason,
+    })
 }
 
 /// `brokkr queue move|hold|release|drop`.
@@ -72,12 +81,7 @@ fn change(
     command: QueueCommand,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let operator = operator_name();
-    let by = Attribution {
-        operator: &operator,
-        reason: &reason,
-    };
-    store.queue_command(entry, command, by)?;
+    attributed(&reason, |by| store.queue_command(entry, command, by))?;
     match command {
         QueueCommand::Move { to } => eprintln!("moved queue entry {entry} to place {to}"),
         QueueCommand::Hold => eprintln!("held queue entry {entry}"),
@@ -87,19 +91,57 @@ fn change(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr queue list`: a look, so the journal is opened read-only.
+/// `brokkr queue repin`: the operator's release of an entry's latched
+/// realm-drift hold ([`admission::release`]): its launch under the map
+/// that would govern it now, written beside the one it was queued with
+/// and journaled with its reason, saying the differences it accepted.
+/// Admission compares the entry against the map it stands for from then
+/// on.
+fn repin(
+    workspace: &Path,
+    QueueEntryArgs {
+        entry,
+        reason,
+        journal,
+    }: QueueEntryArgs,
+) -> Result<ExitCode> {
+    let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
+    let accepted = attributed(&reason, |by| {
+        admission::release(&mut store, entry, by).map_err(anyhow::Error::from)
+    })?;
+    eprintln!("re-pinned queue entry {entry} to the realms map on disk, accepting: {accepted}");
+    Ok(Exit::Completed.into())
+}
+
+/// `brokkr queue list`: a look, so the journal is opened read-only. Each
+/// waiting entry carries admission's verdict, judged as the journal and
+/// the maps stand now; a drift no latch records yet is shown, and not
+/// latched.
 fn list(workspace: &Path, QueueListArgs { journal, json }: QueueListArgs) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
-    let entries = store
-        .queue_list()?
-        .into_iter()
-        .map(|entry| {
-            let launch = QueuedLaunch::decode(&entry.payload)
-                .with_context(|| format!("queue entry {}", entry.id))?;
-            Ok((entry, launch))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let rows = rows(&entries);
+    show(&admission::pass(&store)?, json)
+}
+
+/// `brokkr queue judge`: admission's writing pass ([`admission::judge`]),
+/// which latches the realm drift it finds, journaled with the reason, and
+/// then the listing `list` shows.
+fn judge(
+    workspace: &Path,
+    QueueJudgeArgs {
+        reason,
+        list: QueueListArgs { journal, json },
+    }: QueueJudgeArgs,
+) -> Result<ExitCode> {
+    let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
+    let entries = attributed(&reason, |by| {
+        admission::judge(&mut store, by).map_err(anyhow::Error::from)
+    })?;
+    show(&entries, json)
+}
+
+/// Print the judged queue, as a table or as `--json`.
+fn show(entries: &[Judged], json: bool) -> Result<ExitCode> {
+    let rows = rows(entries);
     match json {
         true => println!("{}", serde_json::to_string_pretty(&rows)?),
         false => print!("{}", table(&rows)),
@@ -123,6 +165,52 @@ struct Row<'a> {
     added_at: &'a str,
     /// The launch as it is encoded.
     launch: &'a QueuedLaunch,
+    /// Admission's word while the entry waits; `None` once it started.
+    admission: Option<AdmissionRow>,
+}
+
+/// Admission's verdict as scripts read it: the entry's standing and each
+/// reason it may not start now, typed by its kind.
+#[derive(Serialize)]
+struct AdmissionRow {
+    standing: &'static str,
+    reasons: Vec<ReasonRow>,
+}
+
+#[derive(Serialize)]
+struct ReasonRow {
+    kind: &'static str,
+    says: String,
+}
+
+impl AdmissionRow {
+    fn of(verdict: &Verdict) -> AdmissionRow {
+        AdmissionRow {
+            standing: verdict.standing().word(),
+            reasons: verdict
+                .reasons
+                .iter()
+                .map(|reason| ReasonRow {
+                    kind: reason.kind(),
+                    says: reason.to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    /// The cell a table shows: the standing, and why when it is not
+    /// admissible.
+    fn cell(&self) -> String {
+        let says: Vec<&str> = self
+            .reasons
+            .iter()
+            .map(|reason| reason.says.as_str())
+            .collect();
+        match says.is_empty() {
+            true => self.standing.to_string(),
+            false => format!("{}: {}", self.standing, says.join(" | ")),
+        }
+    }
 }
 
 /// A wait as scripts read it.
@@ -139,19 +227,26 @@ fn each_wait<S: serde::Serializer>(waits: &&[Wait], to: S) -> Result<S::Ok, S::E
     }))
 }
 
-fn rows(entries: &[(QueueEntry, QueuedLaunch)]) -> Vec<Row<'_>> {
+fn rows(entries: &[Judged]) -> Vec<Row<'_>> {
     entries
         .iter()
-        .map(|(entry, launch)| Row {
-            place: entry.position,
-            entry: entry.id.0,
-            state: entry.state.word(),
-            run: entry.state.run(),
-            priority: entry.priority,
-            waits: &entry.waits,
-            added_at: &entry.added_at,
-            launch,
-        })
+        .map(
+            |Judged {
+                 entry,
+                 launch,
+                 verdict,
+             }| Row {
+                place: entry.position,
+                entry: entry.id.0,
+                state: entry.state.word(),
+                run: entry.state.run(),
+                priority: entry.priority,
+                waits: &entry.waits,
+                added_at: &entry.added_at,
+                launch,
+                admission: verdict.as_ref().map(AdmissionRow::of),
+            },
+        )
         .collect()
 }
 
@@ -161,7 +256,15 @@ fn table(rows: &[Row<'_>]) -> String {
         return "the queue is empty\n".to_string();
     }
     let header = [
-        "PLACE", "ENTRY", "STATE", "PRIORITY", "AFTER", "RUN", "BUNDLE", "FEATURE",
+        "PLACE",
+        "ENTRY",
+        "STATE",
+        "PRIORITY",
+        "AFTER",
+        "RUN",
+        "BUNDLE",
+        "FEATURE",
+        "ADMISSION",
     ];
     let mut lines = vec![header.map(Safe::new)];
     for row in rows {
@@ -182,6 +285,7 @@ fn table(rows: &[Row<'_>]) -> String {
             row.run.map_or_else(dash, str::to_string),
             bundle,
             row.launch.feature.clone(),
+            row.admission.as_ref().map_or_else(dash, AdmissionRow::cell),
         ];
         lines.push(cells.map(|cell| Safe::new(&cell)));
     }
