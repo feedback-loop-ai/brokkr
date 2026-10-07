@@ -15,6 +15,9 @@ use std::time::Instant;
 use brokkr_protocol::broker::Refusal;
 use serde_json::{json, Value};
 
+#[cfg(target_os = "linux")]
+mod observer;
+
 const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 /// What one invocation left: its exit code, stdout and stderr.
@@ -513,6 +516,12 @@ fn bootstrap() -> PathBuf {
     brokkr().to_path_buf()
 }
 
+/// This process's effective uid, every uid it holds: the one managed
+/// writer the observer finds while the broker stands for every writer.
+fn euid() -> u32 {
+    rustix::process::geteuid().as_raw()
+}
+
 fn chmod(path: &Path, mode: u32) {
     let mode = std::os::unix::fs::PermissionsExt::from_mode(mode);
     std::fs::set_permissions(path, mode).unwrap();
@@ -534,12 +543,14 @@ fn attempt_under(base: &Path, repo: &str, name: &str) -> PathBuf {
 }
 
 /// An attempt the engine sealed: the owner-only protected tree under a host
-/// HOME, the attempt's inventory, and the plan it pins.
+/// HOME, the attempt's inventory, the plan it pins, and the sources the
+/// observer found for that plan, once observed.
 struct Sealed {
     root: Root,
     home: PathBuf,
     attempt: PathBuf,
     locator: PathBuf,
+    sources: std::sync::OnceLock<Value>,
 }
 
 impl Sealed {
@@ -573,6 +584,7 @@ impl Sealed {
             root,
             home,
             attempt,
+            sources: std::sync::OnceLock::new(),
         }
     }
 
@@ -580,8 +592,72 @@ impl Sealed {
         self.root.path.join(relative)
     }
 
-    /// The plan the engine would seal for this attempt.
+    /// The plan the engine would seal for this attempt: its sources those
+    /// the observer finds for it, where it finds any.
     fn plan(&self) -> Value {
+        let mut plan = self.authored();
+        let sources = self.sources.get_or_init(|| self.observed(&plan));
+        set(&mut plan, "/box/sources", sources.clone());
+        plan
+    }
+
+    /// `plan` with the sources the observer finds for it sealed, where it
+    /// finds any; as it was where its observer refuses first.
+    fn observing(&self, mut plan: Value) -> Value {
+        let sources = self.observed(&plan);
+        set(&mut plan, "/box/sources", sources);
+        plan
+    }
+
+    /// The sources the observer finds for `plan`, sealed as it is, or the
+    /// plan's own where it refuses before a box stands, as off Linux it
+    /// always does.
+    fn observed(&self, plan: &Value) -> Value {
+        let digest = self.seal_bytes(plan.to_string().as_bytes());
+        let (record, _) = self.observation(&digest);
+        match record.get("observed") {
+            Some(observed) => {
+                let fact = |name: &str| observed[name].clone();
+                json!({"entries": fact("entries"), "mounts": fact("mounts"), "digest": fact("digest")})
+            }
+            None => plan["box"]["sources"].clone(),
+        }
+    }
+
+    /// The record `broker observe` hands back for the plan sealed at
+    /// `digest`, and the handles riding it: run as `serve` runs it, its
+    /// stdout one end of a sequenced-packet pair this process made.
+    #[cfg(target_os = "linux")]
+    fn observation(&self, digest: &str) -> (Value, Vec<std::os::fd::OwnedFd>) {
+        let (ours, theirs) = observer::pair();
+        let locator = self.locator.to_str().unwrap();
+        let args = [
+            "broker",
+            "observe",
+            "--plan",
+            locator,
+            "--plan-digest",
+            digest,
+        ];
+        let mut command = self.root.command(&args);
+        command
+            .env("HOME", &self.home)
+            .stdin(std::process::Stdio::null());
+        command.stdout(theirs).stderr(std::process::Stdio::null());
+        command.status().unwrap();
+        drop(command);
+        observer::received(&ours)
+    }
+
+    /// Off Linux no box stands, so no observer hands anything back.
+    #[cfg(not(target_os = "linux"))]
+    fn observation(&self, _: &str) -> (Value, Vec<std::os::fd::OwnedFd>) {
+        (Value::Null, Vec::new())
+    }
+
+    /// The plan the engine would seal for this attempt, its sources as
+    /// authored before any observation.
+    fn authored(&self) -> Value {
         let path = |relative: &str| json!(self.path(relative));
         let digest = |byte: &str| json!(byte.repeat(64));
         let named = |dir: &Path| dir.file_name().unwrap().to_str().unwrap().to_owned();
@@ -602,7 +678,7 @@ impl Sealed {
                 "executable": path("opt/docs/bin/docs-mcp"),
                 "tree": {"kind": "package", "root": path("opt/docs")},
                 "sources": {"entries": 12, "mounts": 3, "digest": digest("d")},
-                "writers": {"uids": [1000], "privilege": "confined"},
+                "writers": {"uids": [euid()], "privilege": "confined"},
                 "network": "shared",
                 "environment": ["PATH", "HOME", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL",
                                 "BROKKR_HANDS_BOX"],
@@ -679,6 +755,21 @@ impl Sealed {
 
     fn serve(&self, digest: &str) -> (Option<i32>, String) {
         self.serve_at(&self.locator, digest)
+    }
+
+    /// The broker's answer for the plan sealed at `digest` where no box
+    /// can stand: first on its `PATH`, a bubblewrap older than descriptor
+    /// mounts (MB3), as off Linux no launcher mounts one at all.
+    fn serve_unboxed(&self, digest: &str) -> (Option<i32>, String) {
+        let old = self
+            .root
+            .write("old/bwrap", "#!/bin/sh\necho bubblewrap 0.4.0\n");
+        chmod(&old, 0o755);
+        let path = std::env::var("PATH").unwrap();
+        let path = format!("{}:{path}", self.path("old").display());
+        self.serve_in(&self.locator, digest, |command| {
+            command.env("HOME", &self.home).env("PATH", path);
+        })
     }
 
     /// The broker's answer to `bytes`, sealed.
@@ -764,8 +855,12 @@ fn only_the_protected_inventory_binds_a_plan() {
     // An authored copy with its true digest, outside the protected root.
     let authored = sealed.root.write("work/cap-library-docs.json", &bytes);
     assert_eq!(sealed.serve_at(&authored, &digest), unbound);
-    // No inventory beside the plan.
+    // No inventory beside the plan: sealing it wrote one, so it goes. A
+    // missing inventory is unbound, even where no box can stand either
+    // (MB3: binding before the box).
+    std::fs::remove_file(sealed.attempt.join("inventory.json")).unwrap();
     assert_eq!(sealed.serve(&digest), unbound);
+    assert_eq!(sealed.serve_unboxed(&digest), unbound);
     // An inventory that pins another plan, another digest, or this one twice.
     let other = sealed.attempt.join("cap-other.json");
     sealed.pin(&[(&other, &digest)]);
@@ -780,6 +875,11 @@ fn only_the_protected_inventory_binds_a_plan() {
     // Pinned exactly, among others, it binds.
     sealed.pin(&[(&other, DIGEST), (&sealed.locator, &digest)]);
     binds("pinned", sealed.serve(&digest));
+    // Where it binds, the box that cannot stand is the cause.
+    if unservable().is_none() {
+        let unavailable = refused(Refusal::Unavailable);
+        assert_eq!(sealed.serve_unboxed(&digest), unavailable);
+    }
 }
 
 #[test]
@@ -918,7 +1018,9 @@ fn a_field_changed_after_sealing_acquires_no_authority() {
         ("/box/tree/root", json!(elsewhere)),
         ("/box/reach/writable", json!([])),
         ("/box/sources/digest", json!("0".repeat(64))),
-        ("/box/writers/uids", json!([1001])),
+        // Another uid than the observed one on every host, whichever uid
+        // the run has.
+        ("/box/writers/uids", json!([euid() ^ 1])),
         ("/box/network", json!("isolated")),
         ("/box/bootstrap/digest", json!("0".repeat(64))),
         ("/clearance/policy", json!("0".repeat(64))),
@@ -931,6 +1033,8 @@ fn a_field_changed_after_sealing_acquires_no_authority() {
         let bytes = plan.to_string();
         sealed.write("cap-library-docs.json", bytes.as_bytes());
         let altered = brokkr_core::canonical::sha256_bytes(bytes.as_bytes());
+        // Every change moves the sealed bytes.
+        assert_ne!((pointer, &altered), (pointer, &digest));
         // Neither the sealed digest nor the altered bytes' own is bound.
         assert_eq!((pointer, sealed.serve(&digest)), (pointer, unbound.clone()));
         assert_eq!(
@@ -1217,11 +1321,13 @@ fn the_program_tree_is_mb3s_layout_of_the_executable() {
         return;
     }
     let sealed = Sealed::new();
+    // Each program is sealed with the sources the observer finds for it.
     let tree = |argv0: Value, executable: &Path, tree: Value| {
         sealed.answer(|plan| {
             set(plan, "/connection/argv/0", argv0);
             set(plan, "/box/executable", json!(executable));
             set(plan, "/box/tree", tree);
+            *plan = sealed.observing(plan.take());
         })
     };
     let package = |root: &Path| json!({"kind": "package", "root": root});
@@ -1335,29 +1441,32 @@ fn the_box_neither_launches_from_nor_binds_over_the_seats_reach() {
 }
 
 #[test]
-fn unprovable_writers_unbounded_sources_and_exposed_control_roots_refuse() {
+fn unprovable_or_unobserved_writers_and_sources_and_exposed_control_roots_refuse() {
     if let Some(reason) = unservable() {
         return skip(&reason);
     }
     let sealed = Sealed::new();
     // The plan's identity facts are checked once the box is prepared.
     let identity = past_prepare(Refusal::Identity);
-    let admitted = admitted();
-    for uids in [json!([]), json!([1000, 65534]), json!([4_294_967_295u32])] {
+    assert_eq!(sealed.answer(|_| ()), admitted());
+    // Writers unmapped, none, or another beside the one observed.
+    let unmapped = [json!([]), json!([euid(), 65534]), json!([4_294_967_295u32])];
+    for uids in unmapped.into_iter().chain([json!([euid(), euid() + 1])]) {
         let answer = sealed.with("/box/writers/uids", uids.clone());
         assert_eq!((&uids, answer), (&uids, identity.clone()));
     }
-    // MB3's observation bounds, at and over.
-    assert_eq!(
-        sealed.with("/box/sources/entries", json!(1_000_000)),
-        admitted
-    );
-    assert_eq!(
-        sealed.with("/box/sources/entries", json!(1_000_001)),
-        identity
-    );
-    assert_eq!(sealed.with("/box/sources/mounts", json!(65_536)), admitted);
-    assert_eq!(sealed.with("/box/sources/mounts", json!(65_537)), identity);
+    // Each sealed source fact must be the observed one; the observer's own
+    // bounds hold what it observes (MB3).
+    let observed = sealed.plan()["box"]["sources"].clone();
+    let one_more = |fact: &str| json!(observed[fact].as_u64().unwrap() + 1);
+    for (pointer, value) in [
+        ("/box/sources/entries", one_more("entries")),
+        ("/box/sources/mounts", one_more("mounts")),
+        ("/box/sources/digest", json!("0".repeat(64))),
+    ] {
+        let answer = sealed.with(pointer, value);
+        assert_eq!((pointer, answer), (pointer, identity.clone()));
+    }
     // The control roots lie outside the seat's reach and the box.
     assert_eq!(
         sealed.with("/box/reach/writable", json!([&sealed.home])),

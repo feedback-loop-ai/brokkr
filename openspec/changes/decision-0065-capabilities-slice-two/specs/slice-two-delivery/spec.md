@@ -268,7 +268,7 @@ No publication or push SHALL be inferred from local validation.
 - **WHEN** U6c5, U6f and U9b report installed-server positive controls
 - **THEN** the recorded Linux profiles include ordinary protected system hard links, unpruned admitted sources, actual observer and full-startup timings within the qualification budgets above; macOS remains a refusal control
 - **AND** a metadata-only or boxed survey is labeled partial feasibility evidence, never namespace/identity or supported-host qualification
-- **AND** exceeding an entry/depth/metadata/mount/symlink bound or expiring during source observation still takes "MCP server box filesystem identity is not protected" before lookup; expiry during readiness takes "MCP server box could not be established"; later phases retain their own exact causes
+- **AND** exceeding an entry/depth/mount/symlink count bound, which is the observer's memory bound, or expiring during source observation still takes "MCP server box filesystem identity is not protected" before lookup; expiry during readiness takes "MCP server box could not be established"; later phases retain their own exact causes
 
 #### Scenario: Unavailable document checks remain an explicit handoff
 

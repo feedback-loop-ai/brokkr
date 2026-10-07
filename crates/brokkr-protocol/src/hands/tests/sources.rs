@@ -1005,11 +1005,17 @@ fn bounded<'h>(limits: Limits, mountinfo: Table<'h>) -> Host<'h> {
     }
 }
 
+/// A fixture whose package tree `pkg` holds one file.
+fn one_file_tree() -> (Fixture, PathBuf) {
+    let fixture = Fixture::new();
+    fixture.file("pkg/a", 0o644);
+    let tree = fixture.path("pkg");
+    (fixture, tree)
+}
+
 #[test]
 fn an_observation_with_no_room_or_no_mount_table_refuses() {
-    let fixture = Fixture::new();
-    let tree = fixture.path("pkg");
-    fixture.file("pkg/a", 0o644);
+    let (_fixture, tree) = one_file_tree();
     let seat = reach(&[], &[]);
     let one = [source(&tree, Role::Program)];
     let mountinfo = live;
@@ -1040,13 +1046,11 @@ fn each_bound_refuses_one_over_and_passes_at_its_limit() {
     let at = |limits: Limits, sources: &[Source<'_>]| {
         answer(sources, &seat, &bounded(limits, &mountinfo))
     };
-    // Entries: the root and its two files.
+    // Entries: the root and its two files, on the one mount it stood on;
+    // the bound is on every record the table holds.
     let observed = observe(&one, &seat, &host(strangers(), &mountinfo)).unwrap();
     let count = parse(&text, usize::MAX).unwrap().len();
-    assert_eq!(
-        (observed.sources.entries, observed.sources.mounts),
-        (3, count as u64)
-    );
+    assert_eq!((observed.sources.entries, observed.sources.mounts), (3, 1));
     assert_eq!(
         at(
             Limits {
@@ -1108,6 +1112,71 @@ fn each_bound_refuses_one_over_and_passes_at_its_limit() {
         at(Limits { hops: 2, ..LIMITS }, &linked),
         Err(Refusal::Identity)
     );
+}
+
+/// MB3's bounds are the one fixed set every live observation takes.
+#[test]
+fn the_observers_bounds_are_mb3s_fixed_counts() {
+    let Limits {
+        entries,
+        depth,
+        hops,
+        mounts,
+    } = LIMITS;
+    assert_eq!((entries, depth, hops, mounts), (1_000_000, 64, 40, 65_536));
+    let live = Host::live().limits;
+    let taken = (live.entries, live.depth, live.hops, live.mounts);
+    assert_eq!(taken, (entries, depth, hops, mounts));
+}
+
+#[test]
+fn only_the_mount_records_the_walk_stood_on_are_counted_or_digested() {
+    let (_fixture, tree) = one_file_tree();
+    let seat = reach(&[], &[]);
+    let one = [source(&tree, Role::Program)];
+    let observed = |text: Vec<u8>| {
+        let mountinfo = move || serving(&text);
+        let observing = host(strangers(), &mountinfo);
+        let sources = observe(&one, &seat, &observing).map(|observed| observed.sources);
+        sources.map(|sources| (sources.entries, sources.mounts, sources.digest))
+    };
+    let text = table();
+    let parsed = parse(&text, usize::MAX).unwrap();
+    let first = observed(text.clone()).unwrap();
+    assert_eq!((first.0, first.1), (2, 1));
+    // A mount made elsewhere on the host, or one taken away, moves no
+    // sealed fact.
+    let next = parsed.iter().map(|record| record.id).max().unwrap() + 1;
+    let elsewhere = format!("{next} 1 0:4242 / /u6c5b/elsewhere rw - tmpfs none rw\n");
+    let proc = parsed
+        .iter()
+        .find(|record| record.point == Path::new("/proc"));
+    let proc = proc.unwrap().id;
+    for churned in [
+        [text.clone(), elsewhere.into_bytes()].concat(),
+        edited(&text, proc, Vec::clear),
+    ] {
+        assert_eq!(observed(churned), Ok(first.clone()));
+    }
+    // A change to the mount the tree stands on still moves the digest.
+    let flags = rustix::fs::AtFlags::empty();
+    let mask = rustix::fs::StatxFlags::MNT_ID;
+    let own = rustix::fs::statx(rustix::fs::CWD, &tree, flags, mask);
+    let own = own.unwrap().stx_mnt_id;
+    let rooted = edited(&text, own, |fields| fields[3] = "/u6c5b".to_string());
+    let moved = observed(rooted).unwrap();
+    assert_eq!((moved.0, moved.1), (first.0, first.1));
+    assert_ne!(moved.2, first.2);
+}
+
+#[test]
+fn the_box_keeps_its_writers_uids_only_where_their_privilege_is_confined() {
+    assert_eq!(confined_writers(&strangers()), Some(vec![stranger()]));
+    let unproved = Credentials {
+        confinement: Confinement::Unproved,
+        ..strangers()
+    };
+    assert_eq!(confined_writers(&unproved), None);
 }
 
 #[test]
@@ -1506,11 +1575,11 @@ fn the_box_mounts_the_observed_object_and_carries_its_facts() {
     let module = fixture.file("opt/docs/lib/a.py", 0o644);
     let program = ServerProgram::resolve(entry.to_str().unwrap(), &fixture.home).unwrap();
     let bootstrap = std::env::current_exe().unwrap();
-    // The whole table's record count moves with any mount the host makes
-    // meanwhile, so it is no fact of the tree.
+    // Only the records the walk stood on are counted, so the count is a
+    // fact of the tree, whatever mounts the host makes meanwhile.
     let sealed = |server: &ServerBox| {
         let sources = server.sources();
-        (sources.entries, sources.digest.clone())
+        (sources.entries, sources.mounts, sources.digest.clone())
     };
     let facts = || sealed(&prepared_on(&program, &bootstrap, &confined()).unwrap());
     let server = prepared_on(&program, &bootstrap, &confined()).unwrap();
@@ -1520,14 +1589,16 @@ fn the_box_mounts_the_observed_object_and_carries_its_facts() {
     // another digest; a directory and a file added are two more entries.
     let first = sealed(&server);
     assert_eq!(facts(), first);
+    let writers = confined().credentials.uids;
+    assert_eq!(server.writers(), Some(&writers[..]));
     std::fs::write(&module, "rewritten in place\n").unwrap();
     let rewritten = facts();
     assert_eq!(rewritten.0, first.0);
-    assert_ne!(rewritten.1, first.1);
+    assert_ne!(rewritten.2, first.2);
     fixture.file("opt/docs/share/b.txt", 0o644);
     let grown = facts();
     assert_eq!(grown.0, first.0 + 2);
-    assert_ne!(grown.1, rewritten.1);
+    assert_ne!(grown.2, rewritten.2);
     let identity = |held: &std::fs::Metadata| (held.dev(), held.ino());
     let observed = identity(&std::fs::metadata(&docs).unwrap());
     std::fs::rename(&docs, fixture.path("opt/old")).unwrap();

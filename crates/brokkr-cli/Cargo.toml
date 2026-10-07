@@ -76,7 +76,7 @@ ratatui = { workspace = true }
 # and report a refusal as an io::Error; the engine's process module
 # already builds rustix with both.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", default-features = false, features = ["fs", "process", "std"] }
+rustix = { version = "1.1.4", default-features = false, features = ["fs", "net", "process", "std"] }
 
 [dev-dependencies]
 brokkr-store = { workspace = true, features = ["test-support"] }
