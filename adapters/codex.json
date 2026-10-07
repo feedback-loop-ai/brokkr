@@ -33,7 +33,81 @@
   "tool_permissions": {
     "unsupported": "codex-cli 0.148.0 restricts by sandbox CLASS, not by tool name: `codex exec -s|--sandbox` takes read-only|workspace-write|danger-full-access and there is no per-tool allow-list flag (no --allowedTools analogue) to map a seat's declared tools onto; --ask-for-approval exists on the interactive `codex` but not on `codex exec`"
   },
-  "mcp": "unsupported",
+  "mcp": {
+    "carriage": {
+      "measured": "U0 X02b and X04 (codex-cli 0.160.0, Linux, 2026-10-03): the engine sentinel in a private CODEX_HOME config.toml answered cold and on exec resume; XA2 (2026-10-04, gpt-6-luna): the engine and hands tools answered through the code-mode tool catalogue"
+    },
+    "shapes": [
+      {
+        "invocation": "cold",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "codex",
+          "binary": "codex",
+          "version": "0.160.0",
+          "host": "linux"
+        },
+        "ambient": {
+          "unsupported": "project, system and managed MCP configuration cannot be excluded; U0 X06 listed the project server beside the hands server, X12c the /etc system and managed servers, and X07's whole-table override loaded every planted source"
+        },
+        "native_write": {
+          "measured": "U0 X06: a hands write outside the worktree failed; X09: codex's own read-only sandbox, run without a model, denied native writes outside the workspace"
+        },
+        "store_read": {
+          "unsupported": "U0 X09: codex's native shell under the read-only sandbox this shape passes read the 0600 store canary; the hands tool excluded it in X06, where the model declined the native probe (X06n, X06n2)"
+        },
+        "process_read": {
+          "measured": "U0 X06: the hands tool excluded the process canary; X08 and X09: codex's native shell ran in a private pid namespace of 4 pids with no canary"
+        }
+      },
+      {
+        "invocation": "cold",
+        "hands": "harness",
+        "measured_on": {
+          "harness": "codex",
+          "binary": "codex",
+          "version": "0.160.0",
+          "host": "linux"
+        },
+        "ambient": {
+          "unsupported": "project, system and managed MCP configuration cannot be excluded; U0 X12 and X02b loaded the project server once codex wrote trust for the workdir into the engine-owned config, X02 the /etc system and managed servers, and X03's whole-table override every source"
+        },
+        "native_write": {
+          "measured": "U0 X08 and X09: codex's sandbox denied native writes outside the workspace under both read-only and workspace-write; the workspace is writable only under workspace-write"
+        },
+        "store_read": {
+          "unsupported": "U0 X08 and X09: codex's native shell read the 0600 store canary under both read-only and workspace-write"
+        },
+        "process_read": {
+          "measured": "U0 X08 and X09: codex's native shell ran in a private pid namespace of 4 pids with no process canary"
+        }
+      },
+      {
+        "invocation": {
+          "resume": "work-site"
+        },
+        "hands": "none",
+        "measured_on": {
+          "harness": "codex",
+          "binary": "codex",
+          "version": "0.160.0",
+          "host": "linux"
+        },
+        "ambient": {
+          "unsupported": "project MCP configuration cannot be excluded; U0 X04's exec resume under a private CODEX_HOME listed the project server, and X05's whole-table override listed the user, project and plugin servers; /etc sources were not planted on this shape"
+        },
+        "native_write": {
+          "unmeasured": "U0 probed codex's sandbox cold only (X08, X09); no write probe ran on exec resume"
+        },
+        "store_read": {
+          "unmeasured": "U0 probed codex's sandbox cold only (X08, X09); no store canary was read on exec resume"
+        },
+        "process_read": {
+          "unmeasured": "U0 probed codex's sandbox cold only (X08, X09); no process canary was probed on exec resume"
+        }
+      }
+    ]
+  },
   "hands": {
     "workspace": [
       "--sandbox",

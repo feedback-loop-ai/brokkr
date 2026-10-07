@@ -228,7 +228,8 @@ fn without_out_the_report_is_printed_and_a_turn_with_no_credential_is_refused() 
 
 /// An adapters directory holding the shipped claude adapter with the fake
 /// as its binary and its resume identity unknown, and a custom adapter no
-/// built-in driver runs.
+/// built-in driver runs. The fake was never measured, so its MCP
+/// declaration is `unsupported` (decision 0065 slice two, U1d).
 fn custom_adapters(host: &Host) -> PathBuf {
     let dir = host.path("adapters");
     std::fs::create_dir(&dir).unwrap();
@@ -237,6 +238,7 @@ fn custom_adapters(host: &Host) -> PathBuf {
     };
     let mut claude = read("claude.json");
     claude["binary"] = json!(host.cli);
+    claude["mcp"] = json!("unsupported");
     claude["resume"]["boxed-workspace"]["identity"] = json!({"unknown": "never measured"});
     let mut custom = read("exec.json");
     custom["provider"] = json!("custom");
@@ -348,6 +350,8 @@ fn a_driver_the_engine_reads_as_no_built_in_one_is_refused_by_name() {
             "--permission-mode",
             "acceptEdits"
         ]);
+        // A wrapped driver is not the harness U0 measured.
+        claude["mcp"] = json!("unsupported");
     });
     let output = host.launch(
         Some(&host.cli),
