@@ -24,10 +24,6 @@ use brokkr_runtime::{Bundle, SeatBody};
 
 use crate::compile_in;
 
-/// The two bundles shipped in-repo, always listed alongside `--dir`.
-/// Paths are as written, relative to the workspace.
-const BUILTINS: [&str; 2] = ["bundles/self", "bundles/verify"];
-
 /// The run/resume bundle from the exactly-one-of `--bundle` / `--recipe`
 /// pair (clap's arg group enforces the arity). The launch resolves it,
 /// where each verb always did ([`BundleSource::resolve`]).
@@ -136,15 +132,7 @@ pub(crate) fn list(workspace: &Path, dir: &Path) -> Result<()> {
                 candidates.push((name, sub));
             }
         }
-        Err(e) => println!(
-            "warning: recipes dir {}: {e}; listing built-ins only",
-            dir.display()
-        ),
-    }
-    for builtin in BUILTINS {
-        let path = workspace.join(builtin);
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        candidates.push((name, path));
+        Err(e) => println!("warning: recipes dir {}: {e}", dir.display()),
     }
     for (name, path) in candidates {
         match compile_in(workspace, &path, world.as_ref()) {

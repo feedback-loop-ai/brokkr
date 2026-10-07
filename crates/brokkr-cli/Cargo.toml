@@ -139,7 +139,7 @@ name = "heap_codex"
 name = "heap_dsh"
 
 # The CPU budgets (#342). Library benches measure the fold, the run view,
-# a compile of bundles/self and one TUI frame; binary benches measure the
+# a compile of recipes/self and one TUI frame; binary benches measure the
 # shipped binary's startup and `inspect`.
 [[bench]]
 name = "budgets_lib"

@@ -26,7 +26,7 @@ for this reason.
 - **THEN** compilation is refused with the same message, and `driver.confine` is no longer the one `driver` key legal beside `agent`
 
 #### Scenario: Shipped bundles carry none
-- **WHEN** every bundle under `recipes/` and `bundles/` is walked
+- **WHEN** every bundle under `recipes/` is walked
 - **THEN** no site declares `driver.confine`, and every shipped bundle still compiles
 
 ### Requirement: The docker wrapper is gone

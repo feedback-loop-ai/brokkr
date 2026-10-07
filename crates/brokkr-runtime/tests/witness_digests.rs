@@ -1,7 +1,7 @@
 //! The byte-identity witnesses (decision 0016, spec AC-4; #358): the
-//! manifest digest of every bundle under `recipes/` and `bundles/` and
-//! the bytes of every shipped charter, held once as data in
-//! `witnesses.json`.
+//! manifest digest of every bundle under `recipes/`, the
+//! policy table each resolves to, and the bytes of every shipped charter,
+//! held once as data in `witnesses.json`.
 //!
 //! A pinned manifest moves only when its recorded strategy or its
 //! dependencies move: a charter, a role, a table, an adapter declaration
@@ -22,11 +22,12 @@
 //! message that moves it; the reviewed diff of `witnesses.json` is the
 //! witness.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+use brokkr_runtime::bundle::compose::resolve;
 use brokkr_runtime::Bundle;
 
 use crate::witnesses;
@@ -76,20 +77,19 @@ fn mode(bless: Option<&OsStr>, ci: Option<&OsStr>) -> Mode {
 }
 
 /// Every bundle in the tree, relative to the workspace and sorted: each
-/// directory under `recipes/` and `bundles/` that holds a `bundle.json`.
-/// The witness set is this, never the table's own keys, so a row dropped
-/// from the table reads as a moved witness instead of an unchecked one.
+/// directory under `recipes/`, the one library (#359), that holds a
+/// `bundle.json`. The witness set is this, never the table's own keys, so
+/// a row dropped from the table reads as a moved witness instead of an
+/// unchecked one.
 fn bundles_in_tree(root: &Path) -> Vec<String> {
     let mut dirs = Vec::new();
-    for parent in ["recipes", "bundles"] {
-        for entry in std::fs::read_dir(root.join(parent))
-            .unwrap_or_else(|e| panic!("{parent} must be readable: {e}"))
-        {
-            let name = entry.expect("a bundle entry").file_name();
-            let relative = format!("{parent}/{}", name.to_string_lossy());
-            if root.join(&relative).join("bundle.json").is_file() {
-                dirs.push(relative);
-            }
+    for entry in std::fs::read_dir(root.join("recipes"))
+        .unwrap_or_else(|e| panic!("recipes must be readable: {e}"))
+    {
+        let name = entry.expect("a bundle entry").file_name();
+        let relative = format!("recipes/{}", name.to_string_lossy());
+        if root.join(&relative).join("bundle.json").is_file() {
+            dirs.push(relative);
         }
     }
     dirs.sort();
@@ -100,7 +100,17 @@ fn bundles_in_tree(root: &Path) -> Vec<String> {
 /// digest, and the bytes of every charter the library ships, so a bundle
 /// or charter added, removed or dropped from the table is a moved witness.
 fn measure(root: &Path) -> Witnesses {
-    let bundles = bundles_in_tree(root)
+    let dirs = bundles_in_tree(root);
+    let tables = dirs
+        .iter()
+        .map(|relative| {
+            let resolved = resolve(&root.join(relative))
+                .unwrap_or_else(|e| panic!("{relative} must resolve: {e}"));
+            let digest = brokkr_core::canonical::sha256_hex(&resolved.table);
+            (relative.clone(), digest)
+        })
+        .collect();
+    let bundles = dirs
         .into_iter()
         .map(|relative| {
             // Explicit roots: since decision 0021 a compile reads adapter
@@ -124,7 +134,11 @@ fn measure(root: &Path) -> Witnesses {
             (name, brokkr_core::canonical::sha256_bytes(&bytes))
         })
         .collect();
-    Witnesses { bundles, charters }
+    Witnesses {
+        bundles,
+        tables,
+        charters,
+    }
 }
 
 /// One moved witness: its section and name, then its old and new value;
@@ -136,6 +150,7 @@ fn moved<'a>(pinned: &'a Witnesses, measured: &'a Witnesses) -> Vec<Moved<'a>> {
     let mut out = Vec::new();
     for (section, old, new) in [
         ("bundles", &pinned.bundles, &measured.bundles),
+        ("tables", &pinned.tables, &measured.tables),
         ("charters", &pinned.charters, &measured.charters),
     ] {
         let names: BTreeSet<&String> = old.keys().chain(new.keys()).collect();
@@ -175,7 +190,7 @@ fn drift_report(moved: &[Moved]) -> String {
 /// adapter's resume assessment just as an inline gate consults its tier,
 /// and that declaration is pinned beside the gate's so an edit to it
 /// moves the identity that decides whether the seat rejoins.
-/// `bundles/verify` and `recipes/preflight` have no ship phase to gate —
+/// `recipes/verify` and `recipes/preflight` have no ship phase to gate —
 /// and no working seat at all, so in those two every seat appears here.
 ///
 /// Library-backed gates carry their adapter witnesses through the agent
@@ -270,6 +285,7 @@ fn a_drift_reports_every_moved_witness_in_one_table() {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect(),
+        tables: BTreeMap::new(),
         charters: charters
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -304,6 +320,14 @@ fn a_drift_reports_every_moved_witness_in_one_table() {
          | charters new.md | absent | n1 |\n"
     );
     assert!(moved(&pinned, &pinned).is_empty());
+    // A resolved table is its own witness, between bundles and charters.
+    let (mut was, mut is) = (table(&[], &[]), table(&[], &[]));
+    was.tables.insert("recipes/a".into(), "t0".into());
+    is.tables.insert("recipes/a".into(), "t1".into());
+    assert_eq!(
+        moved(&was, &is),
+        vec![("tables recipes/a".to_string(), Some("t0"), Some("t1"))]
+    );
 }
 
 /// Decision 0046 ruling 1: the contract a compiled manifest claims is

@@ -44,7 +44,7 @@ fn library_charters_name_no_repository_tokens() {
     let forbidden = [
         "cargo",
         "crates/",
-        "bundles/self",
+        "recipes/self",
         "decision 00",
         "policy/",
         "fixtures/",
@@ -135,13 +135,17 @@ fn shipped_model_sites_name_the_library_outside_the_ruled_exceptions() {
             // review-first forces its crew for the reason a wager does: the
             // firing names the models (Muse implements, Sol judges), and a
             // library chain would silently undo that at its first fallback
-            // (decision 0060, under decision 0041 ruling 7).
+            // (decision 0060, under decision 0041 ruling 7). `verify`'s
+            // reviewer, inline as preflight's is, stood outside this walk
+            // until #359 moved Brokkr's own bundles into the library; it
+            // is walked as it stands, not yet ruled onto the roster.
             let allowed = recipe.starts_with("wager-harness")
                 || recipe == "fast"
                 || recipe == "standby"
                 || recipe == "node"
                 || recipe == "preflight"
                 || recipe == "review-first"
+                || recipe == "verify"
                 || (recipe == "night-shift" && path.iter().any(|part| part == "implement"))
                 || (recipe == "research-dsh" && path.iter().any(|part| part == "research"));
             assert!(
@@ -273,7 +277,7 @@ fn the_engine_smith_hires_sol_then_fable_through_workspace_hands() {
 fn shipped_claude_implementer_can_commit() {
     let root = workspace();
     let bundle = Bundle::compile_with(
-        &root.join("bundles/self"),
+        &root.join("recipes/self"),
         &root.join("agents"),
         &root.join("adapters"),
     )
@@ -306,9 +310,6 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
             format!("recipes/{}", entry.file_name().to_string_lossy()),
             entry.path(),
         ));
-    }
-    for name in ["self", "verify"] {
-        shipped.push((format!("bundles/{name}"), root.join("bundles").join(name)));
     }
     for (name, path) in shipped {
         let source: Value = serde_json::from_slice(
@@ -723,10 +724,9 @@ fn the_dsh_implement_lanes_pin_glm_flash_with_no_effort() {
 /// outside a bundle by `brokkr muninn` (decision 0020).
 const UNSEATED_CATALOGUE: [&str; 1] = ["muninn"];
 
-/// Every recipe directory with a `bundle.json`, and the two system
-/// bundles.
+/// Every recipe directory with a `bundle.json`, Brokkr's own included.
 fn shipped_bundle_dirs(root: &Path) -> Vec<PathBuf> {
-    let mut dirs = vec![root.join("bundles/self"), root.join("bundles/verify")];
+    let mut dirs = Vec::new();
     for recipe in std::fs::read_dir(root.join("recipes")).unwrap().flatten() {
         if recipe.path().join("bundle.json").is_file() {
             dirs.push(recipe.path());
@@ -784,74 +784,66 @@ fn every_library_agent_is_seated_by_a_shipped_bundle_or_catalogued() {
 #[test]
 fn shipped_recipes_have_no_judges_fix_input_and_triage_would_bound_oversized() {
     let root = workspace();
-    for parent in ["recipes", "bundles"] {
-        for entry in std::fs::read_dir(root.join(parent)).unwrap().flatten() {
-            let bundle_path = entry.path().join("bundle.json");
-            if !bundle_path.is_file() {
-                continue;
-            }
-            let bundle = json(&bundle_path);
-            let compiled =
-                Bundle::compile_with(&entry.path(), &root.join("agents"), &root.join("adapters"))
-                    .unwrap_or_else(|error| panic!("{}: {error}", bundle_path.display()));
-            if let Some(implement) = compiled.seats.get("implement") {
-                assert!(
-                    implement.results.iter().any(|result| result == "oversized"),
-                    "{} does not give implementer the oversized verdict",
-                    bundle_path.display()
-                );
-            }
-            let policy_path = entry
-                .path()
-                .join(bundle["policy"].as_str().unwrap_or("policy.json"));
-            walk(&bundle, &mut Vec::new(), &mut |path, value| {
-                assert_ne!(
-                    value.as_str(),
-                    Some("fixes_applied"),
-                    "{} declares fixes_applied at {}",
-                    bundle_path.display(),
-                    path.join(".")
-                );
-            });
-            if !policy_path.is_file() {
-                continue;
-            }
-            let policy = json(&policy_path);
-            walk(&policy, &mut Vec::new(), &mut |path, value| {
-                assert_ne!(
-                    value.as_str(),
-                    Some("fixes_applied"),
-                    "{} reads fixes_applied at {}",
-                    policy_path.display(),
-                    path.join(".")
-                );
-            });
+    for dir in shipped_bundle_dirs(&root) {
+        let bundle_path = dir.join("bundle.json");
+        let bundle = json(&bundle_path);
+        let compiled = Bundle::compile_with(&dir, &root.join("agents"), &root.join("adapters"))
+            .unwrap_or_else(|error| panic!("{}: {error}", bundle_path.display()));
+        if let Some(implement) = compiled.seats.get("implement") {
+            assert!(
+                implement.results.iter().any(|result| result == "oversized"),
+                "{} does not give implementer the oversized verdict",
+                bundle_path.display()
+            );
+        }
+        let policy_path = dir.join(bundle["policy"].as_str().unwrap_or("policy.json"));
+        walk(&bundle, &mut Vec::new(), &mut |path, value| {
+            assert_ne!(
+                value.as_str(),
+                Some("fixes_applied"),
+                "{} declares fixes_applied at {}",
+                bundle_path.display(),
+                path.join(".")
+            );
+        });
+        if !policy_path.is_file() {
+            continue;
+        }
+        let policy = json(&policy_path);
+        walk(&policy, &mut Vec::new(), &mut |path, value| {
+            assert_ne!(
+                value.as_str(),
+                Some("fixes_applied"),
+                "{} reads fixes_applied at {}",
+                policy_path.display(),
+                path.join(".")
+            );
+        });
 
-            let has_triage = policy["phases"]
-                .as_array()
-                .is_some_and(|phases| phases.iter().any(|phase| phase == "triage"));
-            if has_triage {
-                let rules = policy["rules"].as_array().unwrap();
-                assert!(
-                    rules.iter().any(|rule| {
-                        rule["from"] == "implement"
-                            && rule["result"] == "oversized"
-                            && rule["next"] == "triage"
-                    }),
-                    "{} has triage but no oversized return edge",
-                    policy_path.display()
-                );
-                assert!(
-                    rules.iter().any(|rule| {
-                        rule["from"] == "implement"
-                            && rule["result"] == "oversized"
-                            && rule["when"]["visits_triage_gte"] == 2
-                            && rule["park"] == true
-                    }),
-                    "{} has triage but no exhausted oversized park",
-                    policy_path.display()
-                );
-            }
+        let has_triage = policy["phases"]
+            .as_array()
+            .is_some_and(|phases| phases.iter().any(|phase| phase == "triage"));
+        if has_triage {
+            let rules = policy["rules"].as_array().unwrap();
+            assert!(
+                rules.iter().any(|rule| {
+                    rule["from"] == "implement"
+                        && rule["result"] == "oversized"
+                        && rule["next"] == "triage"
+                }),
+                "{} has triage but no oversized return edge",
+                policy_path.display()
+            );
+            assert!(
+                rules.iter().any(|rule| {
+                    rule["from"] == "implement"
+                        && rule["result"] == "oversized"
+                        && rule["when"]["visits_triage_gte"] == 2
+                        && rule["park"] == true
+                }),
+                "{} has triage but no exhausted oversized park",
+                policy_path.display()
+            );
         }
     }
 }
@@ -911,39 +903,34 @@ fn the_fetch_grant_is_held_by_the_researcher_alone_and_never_by_a_gate() {
             );
         }
     }
-    for parent in ["recipes", "bundles"] {
-        for dir in std::fs::read_dir(root.join(parent)).unwrap().flatten() {
-            let bundle = dir.path().join("bundle.json");
-            if !bundle.is_file() {
-                continue;
+    for dir in shipped_bundle_dirs(&root) {
+        let bundle = dir.join("bundle.json");
+        let mut path = Vec::new();
+        walk(&json(&bundle), &mut path, &mut |site, value| {
+            let Some(object) = value.as_object() else {
+                return;
+            };
+            if object.get("class").and_then(Value::as_str) != Some("gate") {
+                return;
             }
-            let mut path = Vec::new();
-            walk(&json(&bundle), &mut path, &mut |site, value| {
-                let Some(object) = value.as_object() else {
-                    return;
-                };
-                if object.get("class").and_then(Value::as_str) != Some("gate") {
-                    return;
-                }
-                let site = format!("{}:{}", bundle.display(), site.join("/"));
-                assert_ne!(
-                    object.get("agent").and_then(Value::as_str),
-                    Some("researcher"),
-                    "{site}: a gate site seats the researcher, which holds the fetch grant"
-                );
-                let inline: Vec<&str> = value
-                    .pointer("/driver/command")
-                    .and_then(Value::as_array)
-                    .map(|c| c.iter().filter_map(Value::as_str).collect())
-                    .unwrap_or_default();
-                assert!(
-                    !inline
-                        .iter()
-                        .any(|arg| ["WebFetch", "WebSearch"].iter().any(|f| arg.contains(f))),
-                    "{site}: a gate site holds a fetch tool inline"
-                );
-            });
-        }
+            let site = format!("{}:{}", bundle.display(), site.join("/"));
+            assert_ne!(
+                object.get("agent").and_then(Value::as_str),
+                Some("researcher"),
+                "{site}: a gate site seats the researcher, which holds the fetch grant"
+            );
+            let inline: Vec<&str> = value
+                .pointer("/driver/command")
+                .and_then(Value::as_array)
+                .map(|c| c.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            assert!(
+                !inline
+                    .iter()
+                    .any(|arg| ["WebFetch", "WebSearch"].iter().any(|f| arg.contains(f))),
+                "{site}: a gate site holds a fetch tool inline"
+            );
+        });
     }
 }
 
@@ -956,29 +943,24 @@ fn the_fetch_grant_is_held_by_the_researcher_alone_and_never_by_a_gate() {
 #[test]
 fn the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter() {
     let root = workspace();
-    for parent in ["recipes", "bundles"] {
-        for dir in std::fs::read_dir(root.join(parent)).unwrap().flatten() {
-            let bundle = dir.path().join("bundle.json");
-            if !bundle.is_file() {
-                continue;
-            }
-            let name = dir.file_name().to_string_lossy().into_owned();
-            walk(&json(&bundle), &mut Vec::new(), &mut |site, value| {
-                let Some(command) = value
-                    .get("driver")
-                    .and_then(|d| d.get("command"))
-                    .and_then(Value::as_array)
-                else {
-                    return;
-                };
-                let patched = command.iter().any(|arg| arg.as_str() == Some("--patch"));
-                assert!(
-                    !patched || name == "research-dsh",
-                    "{name}:{} carries a dsh overlay; only research-dsh may (decision 0044 ruling 5)",
-                    site.join("/")
-                );
-            });
-        }
+    for dir in shipped_bundle_dirs(&root) {
+        let bundle = dir.join("bundle.json");
+        let name = dir.file_name().unwrap().to_string_lossy().into_owned();
+        walk(&json(&bundle), &mut Vec::new(), &mut |site, value| {
+            let Some(command) = value
+                .get("driver")
+                .and_then(|d| d.get("command"))
+                .and_then(Value::as_array)
+            else {
+                return;
+            };
+            let patched = command.iter().any(|arg| arg.as_str() == Some("--patch"));
+            assert!(
+                !patched || name == "research-dsh",
+                "{name}:{} carries a dsh overlay; only research-dsh may (decision 0044 ruling 5)",
+                site.join("/")
+            );
+        });
     }
     let charter = std::fs::read(root.join("agents/charters/researcher.md")).unwrap();
     let role = std::fs::read(root.join("recipes/research-dsh/roles/researcher.md")).unwrap();
@@ -1051,43 +1033,41 @@ fn recipe_roles_defer_to_the_house_and_carry_their_charters_principles() {
         "cargo test --workspace",
     ];
     let (mut implementers, mut reviewers) = (0, 0);
-    for library in ["recipes", "bundles"] {
-        for recipe in std::fs::read_dir(root.join(library)).unwrap().flatten() {
-            for name in ["implementer.md", "reviewer.md"] {
-                let path = recipe.path().join("roles").join(name);
-                let text = match std::fs::read_to_string(&path) {
-                    Ok(text) => text,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-                    Err(error) => panic!("{}: {error}", path.display()),
-                };
-                for phrase in restated {
-                    assert!(
-                        !text.contains(phrase),
-                        "{} restates the house: {phrase:?}",
-                        path.display()
-                    );
-                }
-                let flat = flatten(&text);
-                if name == "implementer.md" {
-                    implementers += 1;
-                    assert!(
-                        text.contains(design),
-                        "{} lost the implementer charter's design paragraph",
-                        path.display()
-                    );
-                    assert!(
-                        flat.contains(defer),
-                        "{} does not defer to the house",
-                        path.display()
-                    );
-                } else {
-                    reviewers += 1;
-                    assert!(
-                        flat.contains(&principles),
-                        "{} does not judge against the house's principles",
-                        path.display()
-                    );
-                }
+    for recipe in std::fs::read_dir(root.join("recipes")).unwrap().flatten() {
+        for name in ["implementer.md", "reviewer.md"] {
+            let path = recipe.path().join("roles").join(name);
+            let text = match std::fs::read_to_string(&path) {
+                Ok(text) => text,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => panic!("{}: {error}", path.display()),
+            };
+            for phrase in restated {
+                assert!(
+                    !text.contains(phrase),
+                    "{} restates the house: {phrase:?}",
+                    path.display()
+                );
+            }
+            let flat = flatten(&text);
+            if name == "implementer.md" {
+                implementers += 1;
+                assert!(
+                    text.contains(design),
+                    "{} lost the implementer charter's design paragraph",
+                    path.display()
+                );
+                assert!(
+                    flat.contains(defer),
+                    "{} does not defer to the house",
+                    path.display()
+                );
+            } else {
+                reviewers += 1;
+                assert!(
+                    flat.contains(&principles),
+                    "{} does not judge against the house's principles",
+                    path.display()
+                );
             }
         }
     }

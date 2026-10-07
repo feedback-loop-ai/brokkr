@@ -44,8 +44,8 @@ jobs:
       - run: cargo test --workspace --all-features --locked
       - name: producer and frozen-contract release verification
         run: |
-          cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
-          cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
+          cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
+          cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
           cargo test --locked -p brokkr-bridge
           cargo test --locked -p brokkr-cli --test driver_conformance
       # The same digest-pinned cargo-audit CI installs; without it

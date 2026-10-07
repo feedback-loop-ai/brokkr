@@ -41,7 +41,7 @@ and `container` are named by decision 0046 and refuse at start until
 slices (ii) and (iii) build them, and names the split as it stands
 rather than a promise: which shipped bundles run under `harness` today
 — the nine whose hands sites are their own `./` exec gates — and which
-refuse, by name and why — `bundles/self`, `recipes/panel-review`,
+refuse, by name and why — `recipes/self`, `recipes/panel-review`,
 `recipes/triage` and `recipes/night-shift` until the operator's claude
 measurement lands, and the last two until a decision admits the dialect
 step, the ground the compiler reaches first for them — pointing at the

@@ -20,9 +20,13 @@ pub(crate) const TABLE: &str = "crates/brokkr-runtime/tests/witnesses.json";
 #[serde(deny_unknown_fields)]
 pub(crate) struct Witnesses {
     /// Bundle directory, relative to the workspace → compiled manifest
-    /// digest. Every bundle directory under `recipes/` and `bundles/` is
-    /// a row.
+    /// digest. Every bundle directory under `recipes/` is a row.
     pub(crate) bundles: BTreeMap<String, String>,
+    /// Bundle directory → canonical SHA-256 of the policy table its
+    /// composition resolves to, the table the engine rules by. It moves
+    /// only when the rules a run is held to move, so recomposing a recipe
+    /// (#359) moves its bundle row and leaves this one standing.
+    pub(crate) tables: BTreeMap<String, String>,
     /// File under `agents/charters/` → SHA-256 of its bytes. Every
     /// charter the library ships is pinned.
     pub(crate) charters: BTreeMap<String, String>,

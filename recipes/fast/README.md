@@ -8,7 +8,7 @@ hands (#427):
 `--offline`, lychee `--offline` — the one list CI's `non-Rust lints` job
 runs too), `cargo clippy --workspace --all-targets --all-features
 --locked -- -D warnings`, `cargo test --workspace`, and the
-`bundles/self` compile. Its shipper renders the journal with `brokkr
+`recipes/self` compile. Its shipper renders the journal with `brokkr
 ledger`. Both are deterministic exec gates, and every recipe that
 extends `fast` without its own verifier, `landing` among them, runs this
 one. Brokkr boxes both, with no network, where the realm's boundary is

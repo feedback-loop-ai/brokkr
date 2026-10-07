@@ -116,8 +116,8 @@ not a promise: the twelve whose hands sites are their own `./` exec gates
 compile — `recipes/fast`, `recipes/landing`, `recipes/standby`, `recipes/node`, `recipes/preflight`,
 `recipes/review-first`, `recipes/research`, `recipes/research-dsh`, `recipes/wager-harness`,
 `recipes/wager-harness-dsh`, `recipes/wager-harness-muse` and
-`bundles/verify`. Six refuse, each naming the ground the compiler
-reaches first: `bundles/self` and `recipes/panel-review` because their
+`recipes/verify`. Six refuse, each naming the ground the compiler
+reaches first: `recipes/self` and `recipes/panel-review` because their
 reviewer's chain reaches claude and `adapters/claude.json` declares no
 `hands.harness.gate` until the operator's measurement lands (see
 [provider adapters](provider-adapters.md)); `recipes/triage` and

@@ -1,0 +1,21 @@
+{
+  "name": "self",
+  "description": "Brokkr delivering itself (decision 0005): panel-review's table and crew with one reviewer in place of the panel.",
+  "cost": "medium",
+  "extends": "panel-review",
+  "override": {
+    "bundle": ["description", "cost"],
+    "seats": ["review"]
+  },
+  "seats": {
+    "review": {
+      "results": [
+        "clean",
+        "residual",
+        "security-hold"
+      ],
+      "class": "gate",
+      "agent": "reviewer"
+    }
+  }
+}

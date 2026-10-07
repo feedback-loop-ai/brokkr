@@ -5377,7 +5377,7 @@ fn a_returning_implement_exposes_its_docs_delta_and_takes_review_directly() {
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let compiled = Bundle::compile_with(
-        &root.join("bundles/self"),
+        &root.join("recipes/self"),
         &root.join("agents"),
         &root.join("adapters"),
     )
@@ -5420,7 +5420,7 @@ fn a_verify_fail_return_with_a_docs_delta_still_goes_through_verify() {
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let compiled = Bundle::compile_with(
-        &root.join("bundles/self"),
+        &root.join("recipes/self"),
         &root.join("agents"),
         &root.join("adapters"),
     )
@@ -5465,7 +5465,7 @@ fn a_review_return_exposes_no_docs_fact_without_both_heads() {
     commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let compiled = Bundle::compile_with(
-        &root.join("bundles/self"),
+        &root.join("recipes/self"),
         &root.join("agents"),
         &root.join("adapters"),
     )

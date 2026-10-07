@@ -3,7 +3,7 @@ use crate::policy::tests::shipped_table;
 use crate::policy::{BOOLEAN_INPUTS, STRATEGIES, VISIT_PREFIX};
 use serde_json::json;
 
-/// The engine-owned inputs `bundles/self` reads, as the runtime names
+/// The engine-owned inputs `recipes/self` reads, as the runtime names
 /// them; presence exempts them.
 fn engine_owned(name: &str) -> bool {
     name.starts_with(VISIT_PREFIX)
@@ -25,8 +25,25 @@ fn audit(table: &Value) -> Audit {
         .unwrap()
 }
 
+/// The machine `recipes/self` is ruled by (#359): fast's constitution
+/// entered at the intake panel-review's overlay adds, which self inherits.
+/// The core composes no recipe, so the intake phase, entry and rule are
+/// read from the overlay onto fast's whole table; the overlay's other
+/// rules restate fast's but for their reasons, which the sweep never reads.
 fn self_table() -> Value {
-    shipped_table("../../bundles/self/policy.json")
+    let mut table = shipped_table("../../recipes/fast/policy.json");
+    let overlay = shipped_table("../../recipes/panel-review/policy.json");
+    let intake = overlay["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rule| rule["id"] == "INTAKE-OK")
+        .unwrap()
+        .clone();
+    table["phases"] = overlay["phases"].clone();
+    table["initial"] = overlay["initial"].clone();
+    table["rules"].as_array_mut().unwrap().insert(0, intake);
+    table
 }
 
 /// A v2 table over `work → review → done`, where review's

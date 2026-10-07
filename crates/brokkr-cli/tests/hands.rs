@@ -444,26 +444,46 @@ fn the_box_private_tmp_and_home_are_owner_only_under_umask_002() {
     );
 }
 
+/// The verifier runs CI's non-Rust lint list from the repository's own
+/// `scripts/` before clippy; a verifier workspace has no file those lints
+/// read, so its list is one that reports so.
+fn lint_list(work: &Path) {
+    std::fs::create_dir_all(work.join("scripts")).unwrap();
+    std::fs::write(
+        work.join("scripts/lint-non-rust.sh"),
+        "echo 'lint-non-rust: 0 of 0 lints ran clean'\n",
+    )
+    .unwrap();
+}
+
 fn verifier_workspace() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("src")).unwrap();
     std::fs::create_dir_all(dir.path().join("scripts")).unwrap();
-    std::fs::create_dir_all(dir.path().join("bundles/self")).unwrap();
+    std::fs::create_dir_all(dir.path().join("recipes/self")).unwrap();
     std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/verify-seat.sh"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../recipes/fast/scripts/verify-seat.sh"),
         dir.path().join("scripts/verify-seat.sh"),
     )
     .unwrap();
+    lint_list(dir.path());
     std::fs::write(
         dir.path().join("Cargo.toml"),
         "[package]\nname='brokkr-cli'\nversion='0.0.0'\nedition='2021'\n",
     )
     .unwrap();
     std::fs::write(
+        dir.path().join("Cargo.lock"),
+        "version = 4\n\n[[package]]\nname = \"brokkr-cli\"\nversion = \"0.0.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
         dir.path().join("src/main.rs"),
         r#"fn main() {}
 #[test]
-fn named_pass() { assert_eq!(2 + 2, 4); }
+fn named_pass() {
+    assert_eq!(2 + 2, 4);
+}
 #[test]
 fn named_fail_when_requested() {
     if std::path::Path::new("FAIL").exists() {
@@ -573,7 +593,7 @@ fn shipped_exec_site(tmp: &Path) -> std::process::Output {
         .args([
             "run",
             "--bundle",
-            root.join("bundles/verify").to_str().unwrap(),
+            root.join("recipes/verify").to_str().unwrap(),
             "--feature",
             "prove the shipped bundle script mount",
             "--db",
@@ -587,12 +607,13 @@ fn shipped_exec_site(tmp: &Path) -> std::process::Output {
         .unwrap()
 }
 
-#[test]
-fn ship_seat_exits_nonzero_when_ledger_generation_fails() {
+/// A scratch repository holding the shipped shipper, `fast`'s, which
+/// every recipe with an exec ship seat runs (#359).
+fn ship_seat_work() -> tempfile::TempDir {
     let work = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(work.path().join("scripts")).unwrap();
     std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ship-seat.sh"),
+        workspace().join("recipes/fast/scripts/ship-seat.sh"),
         work.path().join("scripts/ship-seat.sh"),
     )
     .unwrap();
@@ -602,6 +623,12 @@ fn ship_seat_exits_nonzero_when_ledger_generation_fails() {
         .status()
         .unwrap()
         .success());
+    work
+}
+
+#[test]
+fn ship_seat_exits_nonzero_when_ledger_generation_fails() {
+    let work = ship_seat_work();
     let result = work.path().join("result.json");
     std::fs::write(
         work.path().join("prompt.md"),
@@ -626,15 +653,8 @@ fn ship_seat_exits_nonzero_when_ledger_generation_fails() {
 }
 
 fn closeout_result(recorded: Option<&str>, dirty: bool) -> Value {
-    let work = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(work.path().join("scripts")).unwrap();
-    std::fs::copy(
-        workspace().join("scripts/ship-seat.sh"),
-        work.path().join("scripts/ship-seat.sh"),
-    )
-    .unwrap();
+    let work = ship_seat_work();
     for args in [
-        ["init", "-q"].as_slice(),
         ["config", "user.email", "proof@example.invalid"].as_slice(),
         ["config", "user.name", "Proof"].as_slice(),
     ] {
@@ -726,19 +746,7 @@ fn ship_closeout_states_every_discrepancy_plainly() {
 
 #[test]
 fn ship_first_entry_records_a_dirty_tree_after_writing_the_ledger() {
-    let work = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(work.path().join("scripts")).unwrap();
-    std::fs::copy(
-        workspace().join("scripts/ship-seat.sh"),
-        work.path().join("scripts/ship-seat.sh"),
-    )
-    .unwrap();
-    assert!(Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(work.path())
-        .status()
-        .unwrap()
-        .success());
+    let work = ship_seat_work();
     std::fs::write(work.path().join("dirty"), "yes\n").unwrap();
     let fake = work.path().join("ledger-command");
     std::fs::write(
@@ -797,6 +805,7 @@ fn machine_proof(tmp: &Path) -> (tempfile::TempDir, std::process::Output) {
     let journal = tempfile::tempdir().unwrap();
     let journal_db = journal.path().join("canonical.db");
     std::fs::remove_dir_all(work.path().join("scripts")).unwrap();
+    lint_list(work.path());
     std::fs::create_dir_all(work.path().join("adapters")).unwrap();
     std::fs::copy(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/exec.json"),
@@ -809,7 +818,7 @@ fn machine_proof(tmp: &Path) -> (tempfile::TempDir, std::process::Output) {
     std::fs::create_dir_all(bundle.join("scripts")).unwrap();
     for script in ["verify-seat.sh", "ship-seat.sh"] {
         std::fs::copy(
-            workspace().join("scripts").join(script),
+            workspace().join("recipes/fast/scripts").join(script),
             bundle.join("scripts").join(script),
         )
         .unwrap();

@@ -182,7 +182,7 @@ fn root_discovery_listing_and_existing_destination_cover_refusals() {
 #[test]
 fn a_gate_bearing_recipe_installs_against_the_workspaces_adapters() {
     let library = tempfile::tempdir().unwrap();
-    let source = workspace().join("bundles/verify");
+    let source = workspace().join("recipes/verify");
     add(
         &workspace(),
         source.to_str().unwrap(),

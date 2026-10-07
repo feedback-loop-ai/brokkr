@@ -181,10 +181,6 @@ Two `doctor` lines are worth knowing before you run the spine's check:
   adopts no agent from the shared library (decision 0016): its seats
   carry an inline `role` and `driver`, so there is no `agents/` tree for
   your repo to have. A warning is an optional capability, not a refusal.
-- **`brokkr recipes list` will warn** that `./bundles/self` and
-  `./bundles/verify` are missing. Those are *this* repository's own
-  bundles, looked for by default; your repo has no reason to carry them.
-
 `brokkr doctor --bundle recipes/node` compiles the recipe as part of the
 check, which is worth the extra flag here.
 

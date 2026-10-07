@@ -149,8 +149,8 @@ jobs:
           scripts/run-it-tests.sh cargo test --locked -p brokkr-cli --test it -- --ignored --exact suppressions::an_added_suppression_of_a_ratcheted_lint_names_a_ruling
       - name: frozen and additive contracts compile
         run: |
-          cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
-          cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
+          cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
+          cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
 
   engine:
     name: test (${{ matrix.os }})
@@ -221,8 +221,8 @@ jobs:
           if-no-files-found: warn
       - name: self and verify bundles compile under the constitutional lint
         run: |
-          cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
-          cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
+          cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
+          cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
 
   # Gate A is a hard gate in `test (macos-latest)`: it passes, so it
   # protects a solved property. Gate B reports while #269 is open. The
@@ -645,7 +645,7 @@ jobs:
           path: target/release/brokkr
 
   # The CPU budgets (#342): instruction counts under Callgrind for the fold,
-  # the run view, a compile of bundles/self, one TUI frame, startup and
+  # the run view, a compile of recipes/self, one TUI frame, startup and
   # `inspect`. Counts do not move with the runner's load the way wall clock
   # does, so the pull request's merge is measured against its base in this
   # one job, and a rise over 2% on any bench fails it (gungraun exits 3). It

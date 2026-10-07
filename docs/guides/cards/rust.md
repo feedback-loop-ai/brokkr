@@ -34,9 +34,9 @@ The full transcript, annotated:
 
 The scaffold from step 2 is the right starting point; there is no
 maintained `recipes/rust`. This repository's own
-[`bundles/self`](../../../bundles/self/) is the closest worked example
-of a Rust delivery strategy, and `brokkr recipes list` shows it beside
-the library.
+[`recipes/self`](../../../recipes/self/) is the closest worked example
+of a Rust delivery strategy, and `brokkr recipes list` shows it in the
+library.
 
 Raise an agent's `limits` in `agents/implementer.json` if a cold build is long — the
 scaffold's 5400s implement timeout assumes a warm target directory.

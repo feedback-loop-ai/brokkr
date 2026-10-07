@@ -1005,7 +1005,7 @@ fn deadlines_under(path: &std::path::Path, found: &mut Vec<u64>) {
 fn the_staleness_bound_is_the_longest_shipped_deadline_and_an_hour() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut found = Vec::new();
-    for library in ["recipes", "agents", "bundles"] {
+    for library in ["recipes", "agents"] {
         deadlines_under(&root.join(library), &mut found);
     }
     assert!(found.len() > 50, "the walk read the libraries: {found:?}");

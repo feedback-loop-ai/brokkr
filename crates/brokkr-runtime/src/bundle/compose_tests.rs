@@ -1048,12 +1048,8 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// nothing. A move here means composition changed a bundle it was never
 /// asked to touch — or the engine version did, which is the other thing
 /// a bundle's identity legitimately covers.
-const UNCOMPOSED: [&str; 4] = [
-    "recipes/fast",
-    "recipes/panel-review",
-    "bundles/self",
-    "bundles/verify",
-];
+/// `recipes/panel-review` and `recipes/self` compose since #359.
+const UNCOMPOSED: [&str; 2] = ["recipes/fast", "recipes/verify"];
 
 #[path = "../../tests/support/witnesses.rs"]
 mod witnesses;

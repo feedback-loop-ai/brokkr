@@ -993,12 +993,10 @@ fn driver_confine_is_refused_by_name_in_a_bundle_and_beside_an_agent() {
     // Every shipped bundle: no site declares the field, and all compile.
     let root = workspace_root();
     let mut dirs = Vec::new();
-    for parent in ["recipes", "bundles"] {
-        for entry in std::fs::read_dir(root.join(parent)).unwrap() {
-            let path = entry.unwrap().path();
-            if path.join("bundle.json").is_file() {
-                dirs.push(path);
-            }
+    for entry in std::fs::read_dir(root.join("recipes")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.join("bundle.json").is_file() {
+            dirs.push(path);
         }
     }
     assert!(dirs.len() >= 5);
@@ -1868,23 +1866,21 @@ fn a_wrapped_inline_codex_verify_carries_its_notice_and_witness_to_the_checks_st
 #[test]
 fn every_shipped_bundle_addresses_its_sites_unambiguously() {
     let root = workspace_root();
-    for directory in ["recipes", "bundles"] {
-        for entry in std::fs::read_dir(root.join(directory)).unwrap() {
-            let path = entry.unwrap().path();
-            if !path.join("bundle.json").is_file() {
-                continue;
-            }
-            let bundle = Bundle::compile_with(&path, &root.join("agents"), &root.join("adapters"));
-            // A recipe that needs a realm dialect refuses for that
-            // reason, not this one; what is asserted here is that NO
-            // bundle refuses for an ambiguous address.
-            if let Err(error) = bundle {
-                assert!(
-                    !error.to_string().contains("addresses two different sites"),
-                    "{}: {error}",
-                    path.display()
-                );
-            }
+    for entry in std::fs::read_dir(root.join("recipes")).unwrap() {
+        let path = entry.unwrap().path();
+        if !path.join("bundle.json").is_file() {
+            continue;
+        }
+        let bundle = Bundle::compile_with(&path, &root.join("agents"), &root.join("adapters"));
+        // A recipe that needs a realm dialect refuses for that
+        // reason, not this one; what is asserted here is that NO
+        // bundle refuses for an ambiguous address.
+        if let Err(error) = bundle {
+            assert!(
+                !error.to_string().contains("addresses two different sites"),
+                "{}: {error}",
+                path.display()
+            );
         }
     }
 }

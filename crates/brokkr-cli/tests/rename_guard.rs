@@ -93,7 +93,6 @@ fn living_surfaces(root: &Path) -> Vec<(PathBuf, Surface)> {
         "docs/guides",
         "openspec/specs",
         "recipes",
-        "bundles",
         "agents/charters",
     ] {
         visit(
@@ -103,14 +102,12 @@ fn living_surfaces(root: &Path) -> Vec<(PathBuf, Surface)> {
             &mut found,
         );
     }
-    for relative in ["recipes", "bundles"] {
-        visit(
-            &root.join(relative),
-            |path| file_name(path, "policy.json"),
-            Surface::JsonDescription,
-            &mut found,
-        );
-    }
+    visit(
+        &root.join("recipes"),
+        |path| file_name(path, "policy.json"),
+        Surface::JsonDescription,
+        &mut found,
+    );
     visit(
         &root.join("agents"),
         |path| extension(path, "json"),

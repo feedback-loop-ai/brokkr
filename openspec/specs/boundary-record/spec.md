@@ -150,7 +150,7 @@ decision 0043 as amended by the boxed-marker fix).
 - **THEN** the input carries `boundary: harness`, no `hands` marker and no `result_delivery`, and the paragraph names `harness`, does not name `mcp__brokkr__workspace`, and says that sandbox may let the seat write more than the result path
 
 #### Scenario: An exec site's prompt carries no hands paragraph
-- **WHEN** the shipped verify seat of `bundles/self` — an exec site with hands — has its input and prompt rendered under `namespace`, `harness` and `open` in turn
+- **WHEN** the shipped verify seat of `recipes/self` — an exec site with hands — has its input and prompt rendered under `namespace`, `harness` and `open` in turn
 - **THEN** the input carries `boundary` each time and `hands: boxed` only under `namespace`, and the rendered prompt names neither `mcp__brokkr__workspace` nor the boundary word in a hands paragraph under any of the three
 
 #### Scenario: harness with a last-message door changes the contract

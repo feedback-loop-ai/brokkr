@@ -2,9 +2,9 @@ use super::*;
 use brokkr_core::policy::audit::AuditError;
 
 fn self_machine() -> Machine {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bundles/self/policy.json");
-    let table = std::fs::read_to_string(path).unwrap();
-    Machine::from_table(&serde_json::from_str(&table).unwrap()).unwrap()
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../recipes/self");
+    let resolved = brokkr_runtime::bundle::compose::resolve(&path).unwrap();
+    Machine::from_table(&resolved.table).unwrap()
 }
 
 /// `brokkr compile` prints the core's audit, and a table over the budget

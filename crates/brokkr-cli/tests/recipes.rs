@@ -287,9 +287,16 @@ fn list_prints_valid_recipes_and_warns_on_broken_ones() {
         "warning names the error: {warning}"
     );
 
-    // Built-ins don't exist under the temp CWD: warnings, not errors.
-    assert!(stdout.contains("warning: self"), "stdout: {stdout}");
-    assert!(stdout.contains("warning: verify"), "stdout: {stdout}");
+    // Brokkr's own bundles are library recipes now (#359), listed only
+    // from the library they are in, never beside another one.
+    let names: Vec<&str> = stdout
+        .lines()
+        .filter_map(|line| {
+            line.split(['\t', ' '])
+                .nth(usize::from(line.starts_with("warning:")))
+        })
+        .collect();
+    assert_eq!(names, ["broken", "good"], "stdout: {stdout}");
 }
 
 #[test]
@@ -649,19 +656,23 @@ fn refused() -> std::collections::BTreeMap<(&'static str, &'static str), String>
             refused.insert((label, name), line);
         }
     }
-    let judged = |seat: &str| {
+    // Both compose since #359, so each refusal names its chain.
+    let judged = |seat: &str, chain: &str| {
         format!(
-            "error: bundle: seat '{seat}' gate link 2 resolves to provider 'claude', which \
-             declares no `hands.harness.gate` fragment; under the `harness` boundary a model \
-             may judge only under its harness's own read-only sandbox as the adapter addresses \
-             it (decision 0046 ruling 4)\n"
+            "error: bundle: bundle: seat '{seat}' gate link 2 resolves to provider 'claude', \
+             which declares no `hands.harness.gate` fragment; under the `harness` boundary a \
+             model may judge only under its harness's own read-only sandbox as the adapter \
+             addresses it (decision 0046 ruling 4) (composed: {chain})\n"
         )
     };
     refused.insert(
         ("harness here", "panel-review"),
-        judged("review:correctness"),
+        judged("review:correctness", "panel-review -> fast"),
     );
-    refused.insert(("harness here", "self"), judged("review"));
+    refused.insert(
+        ("harness here", "self"),
+        judged("review", "self -> panel-review -> fast"),
+    );
     let worked = "error: bundle: bundle: seat 'implement' link 1 resolves to provider 'claude', \
         which declares no `hands.harness.work` fragment: a capability gap — under the `harness` \
         boundary a work seat with hands writes the tree only under the harness's own writable \
@@ -672,7 +683,7 @@ fn refused() -> std::collections::BTreeMap<(&'static str, &'static str), String>
 }
 
 /// `recipes show` compiles on the path `compile` and a run compile on
-/// (#350): for every recipe and both shipped bundles, under no map, a
+/// (#350): for every recipe, Brokkr's own included, under no map, a
 /// realm with a dialect, the same realm under `harness`, and a map that
 /// names another tree, the two verbs print the same bytes. Every pair is
 /// one of two outcomes and nothing else: both print a view whose digest
@@ -707,11 +718,9 @@ fn show_and_compile_agree_for_every_recipe_under_every_realm_map() {
         ("harness elsewhere", Some(realm("elsewhere", "harness"))),
     ];
     let mut named = Vec::new();
-    for library in ["recipes", "bundles"] {
-        for entry in std::fs::read_dir(root.join(library)).unwrap() {
-            let name = entry.unwrap().file_name().into_string().unwrap();
-            named.push((root.join(library), name));
-        }
+    for entry in std::fs::read_dir(root.join("recipes")).unwrap() {
+        let name = entry.unwrap().file_name().into_string().unwrap();
+        named.push((root.join("recipes"), name));
     }
     let mut digests = std::collections::BTreeSet::new();
     let mut refused = std::collections::BTreeMap::new();

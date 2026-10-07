@@ -149,26 +149,24 @@ fn shipped() -> Vec<(String, Bundle)> {
         .expect("the openspec dialect loads")
         .0;
     let mut bundles = Vec::new();
-    for library in ["recipes", "bundles"] {
-        let mut dirs: Vec<PathBuf> = std::fs::read_dir(root.join(library))
-            .expect("the library directory reads")
-            .map(|entry| entry.expect("a library entry reads").path())
-            .filter(|dir| dir.join("bundle.json").is_file())
-            .collect();
-        dirs.sort();
-        for dir in dirs {
-            let name = format!("{library}/{}", dir.file_name().unwrap().to_string_lossy());
-            let bundle = Bundle::compile_with_realm(
-                &dir,
-                &root.join("agents"),
-                &root.join("adapters"),
-                Some("brokkr"),
-                Some(&dialect),
-                Boundary::Namespace,
-            )
-            .unwrap_or_else(|error| panic!("{name} compiles in the self realm: {error}"));
-            bundles.push((name, bundle));
-        }
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root.join("recipes"))
+        .expect("the library directory reads")
+        .map(|entry| entry.expect("a library entry reads").path())
+        .filter(|dir| dir.join("bundle.json").is_file())
+        .collect();
+    dirs.sort();
+    for dir in dirs {
+        let name = format!("recipes/{}", dir.file_name().unwrap().to_string_lossy());
+        let bundle = Bundle::compile_with_realm(
+            &dir,
+            &root.join("agents"),
+            &root.join("adapters"),
+            Some("brokkr"),
+            Some(&dialect),
+            Boundary::Namespace,
+        )
+        .unwrap_or_else(|error| panic!("{name} compiles in the self realm: {error}"));
+        bundles.push((name, bundle));
     }
     bundles
 }
