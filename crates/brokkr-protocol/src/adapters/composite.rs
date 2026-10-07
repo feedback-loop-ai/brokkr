@@ -1727,8 +1727,8 @@ fn canonical_composite(
 
 /// The two seams the DSH adapter resolves, exactly as it resolves them:
 /// the executable through `BROKKR_DSH_BIN` (refused when it cannot be
-/// read), then `dsh` on `PATH`, and the home through
-/// `$DSH_HOME` when set and non-empty, otherwise `$HOME/.dsh`.
+/// read), then `dsh` on `PATH`, and the home through `$DSH_HOME` when set
+/// and non-empty, otherwise `$HOME/.dsh`, or a launch's own served home.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DshSeams {
     pub executable: String,
@@ -1911,14 +1911,14 @@ impl DshSeams {
         DshSeams::resolved(DshSeams::located())
     }
 
-    /// `resolve` over the value a seat already read: `run_seat` reads
-    /// the override once and the launch resolves what it read, never the
-    /// environment a second time (#355).
-    pub(crate) fn resolve_declared(declared: &str) -> Result<DshSeams, CompositeError> {
+    /// `resolve` over the value a seat already read and the one home its
+    /// launch is served from (U1c2): `run_seat` reads the override once and
+    /// the launch resolves what it read, never the environment again (#355).
+    pub(crate) fn resolve_declared(declared: &str, home: &Path) -> Result<Self, CompositeError> {
         DshSeams::resolved(DshSeams::located_from(
             declared.to_string(),
             select,
-            crate::transcript::dsh_home(),
+            Some(home.to_path_buf()),
         ))
     }
 

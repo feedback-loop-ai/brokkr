@@ -1,6 +1,5 @@
 use super::*;
 use crate::env_guard::EnvGuard;
-use crate::transcript::{dsh_home, dsh_home_from};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
@@ -32,7 +31,7 @@ fn invoke(
     )
 }
 
-fn binding(name: &str, value: &str) -> secret::BoundSecret {
+pub(super) fn binding(name: &str, value: &str) -> secret::BoundSecret {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("secrets.env");
     secret::store_set(&store, name, value).unwrap();
@@ -4911,7 +4910,7 @@ fn a_dsh_offer_is_declined_and_its_retained_directory_is_not_a_handle() {
 /// qualifying and drifting planner case is a plain unit test. Every
 /// planner case that consumes it is Unix-only.
 #[cfg(unix)]
-fn synthetic_dsh_composite(digest: &str) -> DshComposite {
+pub(super) fn synthetic_dsh_composite(digest: &str) -> DshComposite {
     // The producer's own test-only constructor. This suite cannot
     // assemble an observation field by field: every member is private to
     // the producer's module, which is what keeps a precomputed digest
@@ -4920,7 +4919,7 @@ fn synthetic_dsh_composite(digest: &str) -> DshComposite {
 }
 
 #[cfg(unix)]
-fn dsh_version_shim(dir: &Path, name: &str, version: &str) -> std::path::PathBuf {
+pub(super) fn dsh_version_shim(dir: &Path, name: &str, version: &str) -> std::path::PathBuf {
     executable(
         dir,
         name,
@@ -4933,7 +4932,13 @@ fn dsh_version_shim(dir: &Path, name: &str, version: &str) -> std::path::PathBuf
 
 /// A retained seat root holding one depth-zero session file for `id`,
 /// with `last_seq` sequence rows behind it.
-fn plant_dsh_session(home: &Path, locator: &str, project: &str, id: &str, last_seq: u64) {
+pub(super) fn plant_dsh_session(
+    home: &Path,
+    locator: &str,
+    project: &str,
+    id: &str,
+    last_seq: u64,
+) {
     let session = home.join(locator).join(project).join(id);
     std::fs::create_dir_all(&session).unwrap();
     let mut text =
@@ -4946,10 +4951,24 @@ fn plant_dsh_session(home: &Path, locator: &str, project: &str, id: &str, last_s
     std::fs::write(session.join(DSH_TRANSCRIPT), text).unwrap();
 }
 
-fn dsh_enabled_input(version: &str, digest: &str, workdir: &Path) -> Value {
+pub(super) fn dsh_enabled_input(version: &str, digest: &str, workdir: &Path) -> Value {
     let mut input = enabled_input(DSH_SHAPE, version, workdir);
     input["resume_context"]["assessment"][DSH_SHAPE]["identity"]["wrapper_digest"] = json!(digest);
     input
+}
+
+/// `dsh_launch_with` for this suite's composite producers, none of which
+/// reads the home a launch hands it: the served home is proven by
+/// `mcp::tests::dsh_home` (U1c2).
+fn dsh_launch_with(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+    composite: impl FnOnce() -> Result<DshComposite, String>,
+) -> Result<DshLaunch, String> {
+    super::dsh_launch_with(bin, extra, workdir, session, input, |_| composite())
 }
 
 #[cfg(unix)]
@@ -5573,6 +5592,17 @@ fn dsh_stream_launch(
         locator: "seat".to_string(),
         root: root.to_path_buf(),
         overlay: dsh_seat_overlay_with(None, None, root, None, None).unwrap(),
+        home: crate::transcript::DshHome::operator().unwrap(),
+    }
+}
+
+/// [`dsh_stream_launch`] with no recorded digest and no `--effort` pin.
+#[cfg(unix)]
+fn dsh_effortless_launch(shim: &std::path::Path, root: &std::path::Path) -> DshLaunch {
+    DshLaunch {
+        wrapper_digest: None,
+        effortless: true,
+        ..dsh_stream_launch(shim, root, None, None)
     }
 }
 
@@ -7436,32 +7466,7 @@ fn a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms() {
          printf 'this line is not JSON\\n'\n\
          printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n",
     );
-    let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
-    let launch = DshLaunch {
-        command: vec![shim.to_string_lossy().into_owned()],
-        rejoining: None,
-        refusal: None,
-        observed: Some("0.1.5-rc.1".to_string()),
-        wrapper_digest: None,
-        stream_json: true,
-        effortless: true,
-        facts: crate::hands::GitFacts::default(),
-        staged: None,
-        first_seq: None,
-        locator: "seat".to_string(),
-        root: root.clone(),
-        overlay,
-    };
-    let mut emitted = Vec::new();
-    let invocation = invoke_dsh_launch(
-        launch,
-        "the prompt",
-        dir.path().to_str().unwrap(),
-        &[],
-        &mut |value| emitted.push(value.clone()),
-        |_| panic!("the qualified arm does not poll the child"),
-    )
-    .unwrap();
+    let (invocation, emitted) = run_dsh_stream(dsh_effortless_launch(&shim, &root), dir.path());
     // The malformed line was skipped rather than ending the stream, so the
     // init line behind it named the session.
     assert_eq!(invocation.session_meta["session_id"], "session-1");
@@ -7499,32 +7504,7 @@ fn a_qualified_stream_json_launch_finishes_its_held_row_without_a_confirmation()
          printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"\"}\\n'\n\
          printf '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}\\n'\n",
     );
-    let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
-    let launch = DshLaunch {
-        command: vec![shim.to_string_lossy().into_owned()],
-        rejoining: None,
-        refusal: None,
-        observed: Some("0.1.5-rc.1".to_string()),
-        wrapper_digest: None,
-        stream_json: true,
-        effortless: true,
-        facts: crate::hands::GitFacts::default(),
-        staged: None,
-        first_seq: None,
-        locator: "seat".to_string(),
-        root: root.clone(),
-        overlay,
-    };
-    let mut emitted = Vec::new();
-    let invocation = invoke_dsh_launch(
-        launch,
-        "the prompt",
-        dir.path().to_str().unwrap(),
-        &[],
-        &mut |value| emitted.push(value.clone()),
-        |_| panic!("the qualified arm does not poll the child"),
-    )
-    .unwrap();
+    let (invocation, emitted) = run_dsh_stream(dsh_effortless_launch(&shim, &root), dir.path());
     // The unnamed init lines set no session id at all: a missing or empty
     // one is not an identity, and no confirmation means the held row
     // flushes the launch as cold.
@@ -8300,35 +8280,6 @@ fn the_transcript_root_reports_a_directory_it_cannot_stage() {
     );
 }
 
-#[test]
-fn the_transcript_root_is_kept_under_the_harness_home_and_survives_the_seat() {
-    let home = tempfile::tempdir().unwrap();
-    let root = dsh_transcript_root_under(Some(home.path().to_path_buf())).unwrap();
-    assert!(
-        root.starts_with(home.path().join("sessions").join("brokkr")),
-        "{root:?}"
-    );
-    assert!(root
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .starts_with("seat-"));
-    // The creating handle is gone; the directory is not.
-    assert!(root.is_dir(), "{root:?}");
-    let other = dsh_transcript_root_under(Some(home.path().to_path_buf())).unwrap();
-    assert_ne!(root, other, "one root per seat");
-
-    let refused = dsh_transcript_root_under(None).unwrap_err();
-    assert!(
-        refused.to_string().contains("set DSH_HOME or HOME"),
-        "{refused}"
-    );
-    // A file where the base must be a directory is the staging failure.
-    let blocked = tempfile::tempdir().unwrap();
-    std::fs::write(blocked.path().join("sessions"), b"not a directory").unwrap();
-    assert!(dsh_transcript_root_under(Some(blocked.path().to_path_buf())).is_err());
-}
-
 /// Decision 0054: the driver resolves the two git directories through
 /// Git and only a workspace-write seat whose git metadata lies outside
 /// the writable root needs the scoped runner.
@@ -8858,28 +8809,6 @@ fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
             );
         }
     }
-}
-
-#[test]
-fn the_dsh_home_is_dsh_home_when_set_else_dot_dsh_under_home() {
-    use std::ffi::OsString;
-    assert_eq!(
-        dsh_home_from(
-            Some(OsString::from("/opt/dsh")),
-            Some(OsString::from("/home/x"))
-        ),
-        Some(std::path::PathBuf::from("/opt/dsh"))
-    );
-    assert_eq!(
-        dsh_home_from(Some(OsString::new()), Some(OsString::from("/home/x"))),
-        Some(std::path::PathBuf::from("/home/x/.dsh"))
-    );
-    assert_eq!(
-        dsh_home_from(None, Some(OsString::from("/home/x"))),
-        Some(std::path::PathBuf::from("/home/x/.dsh"))
-    );
-    assert_eq!(dsh_home_from(None, None), None);
-    assert!(dsh_home().is_some(), "a test process has a home");
 }
 
 #[test]
@@ -13783,7 +13712,7 @@ fn the_dsh_launch_reports_unreadable_seams_over_the_injected_resolver() {
             dir.path().to_str().unwrap(),
             None,
             &input,
-            move || {
+            move |_| {
                 ran.store(true, std::sync::atomic::Ordering::SeqCst);
                 Err(CompositeError::Config("the seam resolver failed".into()))
             },
@@ -18669,22 +18598,7 @@ fn a_dsh_seat_receives_its_bindings_and_masks_its_stderr() {
          [ \"$API_TOKEN\" = \"tok-3xample-value\" ] || exit 7\n\
          printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n",
     );
-    let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
-    let launch = DshLaunch {
-        command: vec![shim.to_string_lossy().into_owned()],
-        rejoining: None,
-        refusal: None,
-        observed: Some("0.1.5-rc.1".to_string()),
-        wrapper_digest: None,
-        stream_json: true,
-        effortless: true,
-        facts: crate::hands::GitFacts::default(),
-        staged: None,
-        first_seq: None,
-        locator: "seat".to_string(),
-        root: root.clone(),
-        overlay,
-    };
+    let launch = dsh_effortless_launch(&shim, &root);
     let invocation = invoke_dsh_launch(
         launch,
         "the prompt",

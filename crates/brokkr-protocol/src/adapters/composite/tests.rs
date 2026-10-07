@@ -2739,7 +2739,7 @@ fn a_dsh_override_that_cannot_be_read_selects_nothing() {
     // above is not met a second time: the lookup answers for `declared`.
     let declared = "/nonexistent/brokkr-355/dsh";
     assert_eq!(
-        DshSeams::resolve_declared(declared),
+        DshSeams::resolve_declared(declared, Path::new("/home")),
         Err(resolve_executable(declared).unwrap_err())
     );
 }
