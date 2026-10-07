@@ -6178,13 +6178,9 @@ fn a_panel_members_refused_checkpoint_fails_that_member_alone() {
             result: json!({"result":"pass"}),
         },
     );
-    // A checkpoint the clean member streamed after the refusal latched
-    // would be counted against it and settle it indeterminate (#464), so
-    // it streams none: its outcome does not turn on the members' order.
-    let clean = checkpointing_command(
+    let clean = super::contention_tests::quiet_command(
         "effect",
         "attempt",
-        &[],
         AttemptOutcome::Succeeded {
             result: json!({"result":"pass"}),
         },

@@ -21,6 +21,19 @@ use super::tests::{bundle, single_body};
 use super::*;
 use brokkr_store::StoreError;
 
+/// A driver that streams no checkpoint, then the outcome's terminal
+/// message. A checkpoint a panel member streamed after a peer's refusal
+/// latched would be counted against it and settle it indeterminate
+/// (#464), so a member whose outcome must not turn on the members' order
+/// streams none.
+pub(super) fn quiet_command(
+    effect_id: &str,
+    attempt_id: &str,
+    outcome: AttemptOutcome,
+) -> Vec<String> {
+    super::tests::checkpointing_command(effect_id, attempt_id, &[], outcome)
+}
+
 /// A store and an engine sharing one journal file, the engine started
 /// and its `run/started` landed — the state the production engine was in
 /// when it met the lock.
