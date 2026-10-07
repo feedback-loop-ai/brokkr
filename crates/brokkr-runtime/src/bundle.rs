@@ -18,10 +18,12 @@ use thiserror::Error;
 
 mod charters;
 pub mod compose;
+mod mcp;
 mod tier;
 
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
+pub(crate) use mcp::McpIntent;
 pub use tier::{ProvisionalRefusal, RealmLaw};
 
 use crate::agents::{
@@ -474,6 +476,12 @@ pub struct SiteFacts {
     /// reads this only when no candidate serves the site. The adapter it
     /// was read from is witnessed through `pin_drivers`.
     pub inline_hands_notice: Option<HandsNotice>,
+    /// Decision 0065 slice two, U1f (SI2, MB1): the MCP server set an INLINE
+    /// site's serving intends, from its resolved hands and dispatched driver,
+    /// never its bytes; a dialect step, served by exec, records NoModelSurface.
+    /// Agent-backed candidates carry theirs in their own composition; `None`
+    /// at those sites, at a panel, sequence or select, and an unsupported check.
+    pub(crate) inline_mcp: Option<McpIntent>,
 }
 
 /// One inline Codex seat's lowered sandbox (rebuild unit 5d): the class
@@ -1075,7 +1083,8 @@ fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Result<A
 }
 
 /// The adapters a capability pass resolves against, and why there are none
-/// where a load failed: what [`site_capabilities`] is handed.
+/// where a load failed: what [`mcp::candidate_capabilities`] and
+/// [`mcp::inline_capabilities`] are handed.
 #[derive(Clone, Copy)]
 struct CapabilityAdapters<'a> {
     adapters: Option<&'a Adapters>,
@@ -5908,131 +5917,6 @@ fn record_hands(
     Ok(())
 }
 
-/// One site's sealed capability facts (decision 0065 ruling 5): its asks
-/// resolved once per provider candidate — the agent's chain, or the one
-/// driver an inline site dispatches. A command that dispatches no built-in
-/// driver is an opaque custom one: no adapter answers for it, so its
-/// native inventory is unmeasured and it can hold nothing.
-#[expect(clippy::too_many_arguments, reason = "decision 0065, #288")]
-fn site_capabilities(
-    authority: &crate::capabilities::Authority,
-    adapters: CapabilityAdapters<'_>,
-    asks: crate::capabilities::SiteAsks,
-    chain: &[Candidate],
-    managed: &[Vec<String>],
-    inline_driver: Option<&str>,
-    inline_argv: &[String],
-    inline_local: &[String],
-    inline_hands: &[String],
-) -> Result<crate::capabilities::SiteCapabilities, CompileError> {
-    use brokkr_protocol::native_controls::{Application, Provenance};
-    let native = |provider: &str| {
-        adapters
-            .adapters
-            .and_then(|adapters| adapters.adapter(provider))
-            .map(|adapter| (&adapter.native, adapter.digest.as_str()))
-    };
-    let inline = inline_driver.unwrap_or(crate::capabilities::OPAQUE_HARNESS);
-    // Each serving's argv in its two parts, by who wrote them (decision
-    // 0066 ruling 4). An inline site's is wholly the author's. A
-    // candidate's is the agent's composed argv and then the adapter's hands
-    // fragment, which `agents::compose` appended LAST and recorded — so the
-    // parts are split at the length it recorded, a fact carried from where
-    // the fragment was appended, never recovered by matching its text.
-    //
-    // The HARNESS is the driver kind the command dispatches, read off the
-    // command itself: an inline site's provider already is that kind, and a
-    // candidate's argv opens with its adapter's `driver`, which may dispatch
-    // the codex or claude driver under whatever name the adapter carries.
-    let harnesses: Vec<String> = chain
-        .iter()
-        .map(|candidate| {
-            dispatch_driver(&candidate.argv)
-                .unwrap_or_else(|| crate::capabilities::OPAQUE_HARNESS.to_string())
-        })
-        .collect();
-    // A candidate's engine fragment: the box's hands `compose` recorded,
-    // then the managed boundary fragment the engine appends behind them.
-    let fragments: Vec<Vec<String>> = chain
-        .iter()
-        .enumerate()
-        .map(|(at, candidate)| {
-            let managed = managed.get(at).map(Vec::as_slice).unwrap_or_default();
-            [candidate.parts().1, managed].concat()
-        })
-        .collect();
-    // What admits a tool without a holding, by type (rebuild unit
-    // 12-fix-c): the box's hands `compose` recorded from the agent's typed
-    // hands, which open the fragment, and the limits its typed allow lowered
-    // to — never read back from the argv. An inline site's typed allow is
-    // lowered where its facts were recorded, and its hands fragment is the
-    // one the engine appends behind its command, served like an agent's
-    // (operator ruling (B) of 2026-09-27; rebuild unit 14a4a).
-    let provenances: Vec<Provenance> = chain
-        .iter()
-        .map(|candidate| Provenance {
-            hands: candidate.hands_fragment.len(),
-            local: match &candidate.lowering {
-                crate::agents::Lowering::Composed(crate::agents::Composition {
-                    application: Application::Direct(limits),
-                    ..
-                }) => limits.clone(),
-                _ => Vec::new(),
-            },
-        })
-        .collect();
-    let inline_provenance = Provenance {
-        hands: inline_hands.len(),
-        local: inline_local.to_vec(),
-    };
-    let servings: Vec<crate::capabilities::Serving<'_>> = match chain.is_empty() {
-        true => vec![crate::capabilities::Serving {
-            provider: inline,
-            harness: inline,
-            model: None,
-            native: native(inline),
-            unloaded: adapters.unloaded,
-            authored: inline_argv,
-            fragment: inline_hands,
-            provenance: &inline_provenance,
-            written: inline_argv,
-        }],
-        false => chain
-            .iter()
-            .zip(&harnesses)
-            .zip(&fragments)
-            .zip(&provenances)
-            .map(|(((candidate, harness), fragment), provenance)| {
-                let (authored, _) = candidate.parts();
-                crate::capabilities::Serving {
-                    provider: &candidate.provider,
-                    harness,
-                    model: Some(&candidate.model),
-                    native: native(&candidate.provider),
-                    unloaded: adapters.unloaded,
-                    authored,
-                    fragment,
-                    provenance,
-                    // An agent reference is total (AC-21): the seat writes
-                    // no argv, and its composition is the adapter's
-                    // template, the engine's local permissions and hands
-                    // (design D5.7), none of it the recipe's words.
-                    written: &[],
-                }
-            })
-            .collect(),
-    };
-    let mut outcomes = Vec::with_capacity(servings.len());
-    for serving in &servings {
-        outcomes.push(
-            authority
-                .resolve(&asks, serving)
-                .map_err(CompileError::Capability)?,
-        );
-    }
-    Ok(crate::capabilities::SiteCapabilities { asks, outcomes })
-}
-
 /// Walk one composed seat exactly as [`collect_unpinned`] does — same
 /// labels, so the facts land where the engine looks — and resolve every
 /// executable site's capabilities. An agent-backed site's asks are its
@@ -6064,37 +5948,13 @@ fn record_capabilities(
             .expect("the seat loop resolved this agent reference");
         let asks = site_asks(what, raw, Some((name, &agent.capabilities)))?;
         let chain = site_facts(sites, what).chain.clone();
-        // Under the harness boundary the engine appends each candidate's
-        // `hands.harness.*` fragment for the seat's class behind a hands
-        // site's argv; it is composed with here exactly as at the launch,
-        // so a limit it carries holds at compile, and a wanted holding it
-        // excludes drops rather than refusing its spawn (unit 12-fix-b, R2).
+        // Under the harness boundary a hands site's candidates are composed
+        // with the `hands.harness.*` fragment of the seat's class.
         let class = match (boundary, &agent.hands) {
             (Boundary::Harness, Some(_)) => Some(asks.class),
             _ => None,
         };
-        let managed: Vec<Vec<String>> = chain
-            .iter()
-            .map(|candidate| {
-                let fragment = match class {
-                    Some(SeatClass::Gate) => candidate.harness.gate.as_deref(),
-                    Some(SeatClass::Work) => candidate.harness.work.as_deref(),
-                    None => None,
-                };
-                fragment.unwrap_or_default().to_vec()
-            })
-            .collect();
-        let site = site_capabilities(
-            authority,
-            adapters,
-            asks,
-            &chain,
-            &managed,
-            None,
-            &[],
-            &[],
-            &[],
-        )?;
+        let site = mcp::candidate_capabilities(authority, adapters, asks, &chain, class)?;
         let facts = site_facts(sites, what);
         // The EFFECTIVE class, an inherited office class included, as the
         // local admission recorded it (design D5.6).
@@ -6148,28 +6008,10 @@ fn record_capabilities(
             // as an agent's `hands` segment is, and the plan types it.
             facts.inline_hands = Some(Segment::new(Origin::Hands, &expand_command(dir, fragment)));
         }
-        let hands = facts
-            .inline_hands
-            .as_ref()
-            .map(|segment| segment.argv.clone())
-            .unwrap_or_default();
-        let local = facts
-            .inline_local
-            .as_ref()
-            .map(|lowered| lowered.limits.clone())
-            .unwrap_or_default();
-        let site = site_capabilities(
-            authority,
-            adapters,
-            asks,
-            &[],
-            &[],
-            driver.as_deref(),
-            &parts,
-            &local,
-            &hands,
-        )?;
-        let facts = site_facts(sites, what);
+        // U1f: the MCP set this serving intends, never read from its bytes.
+        facts.inline_mcp = Some(McpIntent::inline(driver.as_deref(), facts.hands_spec()));
+        let serving = mcp::InlineServing::of(facts, driver.as_deref(), &parts);
+        let site = mcp::inline_capabilities(authority, adapters, asks, &serving)?;
         // Rebuild unit 5d-fix-b: an inline class the engine lowered is
         // judged with its whole launch, the resolved native plan included.
         admit_inline_launch(what, &parts, facts, &site)?;
@@ -6193,18 +6035,18 @@ fn record_capabilities(
         if sites.contains_key(what) {
             let asks = crate::capabilities::SiteAsks::at(step_class(raw), what, None, None)
                 .map_err(CompileError::Invalid)?;
-            let site = site_capabilities(
-                authority,
-                adapters,
-                asks,
-                &[],
-                &[],
-                Some("exec"),
-                &[],
-                &[],
-                &[],
-            )?;
-            site_facts(sites, what).capabilities = Some(site);
+            let facts = site_facts(sites, what);
+            facts.inline_mcp = Some(McpIntent::inline(Some("exec"), facts.hands_spec()));
+            let serving = mcp::InlineServing {
+                driver: Some("exec"),
+                argv: &[],
+                local: &[],
+                hands: &[],
+                intent: facts.inline_mcp,
+            };
+            facts.capabilities = Some(mcp::inline_capabilities(
+                authority, adapters, asks, &serving,
+            )?);
         }
         return Ok(());
     }

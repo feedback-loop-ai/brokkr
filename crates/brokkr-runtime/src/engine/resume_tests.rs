@@ -291,12 +291,7 @@ const DSH_CHARTER: &str = "roles/dsh.md";
 /// from; nothing is lowered and no hands are composed.
 #[cfg(unix)]
 fn dsh_link(script: &str, extras: &[&str], resume: crate::agents::ResumeAssessment) -> Candidate {
-    let words = |parts: &[&str]| {
-        parts
-            .iter()
-            .map(|part| part.to_string())
-            .collect::<Vec<_>>()
-    };
+    let words = |parts: &[&str]| parts.iter().map(ToString::to_string).collect::<Vec<_>>();
     let segments = vec![
         Segment::new(Origin::Template, &words(&["sh", "-c", script, "--"])),
         Segment::new(Origin::Authored, &words(extras)),
@@ -311,18 +306,11 @@ fn dsh_link(script: &str, extras: &[&str], resume: crate::agents::ResumeAssessme
         harness: HarnessHands::default(),
         resume,
         hands_notice: None,
-        lowering: Lowering::Composed(crate::agents::Composition {
-            template: crate::agents::declared_template(&segments[0].argv),
+        lowering: Lowering::Composed(super::tests::composition(
             segments,
-            effort: None,
-            intent: crate::agents::Intent {
-                allow: AllowIntent::Unspecified,
-                sandbox: SandboxIntent::Unspecified,
-                hands: HandsIntent::None,
-            },
-            application: Application::Unrestricted,
-            serving: Default::default(),
-        }),
+            super::tests::unlimited(HandsIntent::None),
+            Application::Unrestricted,
+        )),
     }
 }
 

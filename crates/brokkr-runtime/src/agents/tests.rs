@@ -1,4 +1,5 @@
 use super::*;
+use brokkr_core::realms::Boundary;
 use std::path::Path;
 
 /// A throwaway library + adapters tree. Every test writes exactly the
@@ -2586,7 +2587,6 @@ fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment(
         "the control retains the harness work fragment"
     );
 
-    use brokkr_core::realms::Boundary;
     let refusal = compose(
         agent,
         &adapter,
@@ -4401,13 +4401,15 @@ fn unit5c_fix2_a_composition_carries_its_adapters_declared_template() {
     each_row(rows);
 }
 
+/// One entry's lowering beside its refusal, as a unit 3 row expects it.
+type Lowered = (Lowering, Option<String>);
+
 /// SCM "Unit 3 lowering retains absence empty and sandbox intent": every
 /// allow state and every sandbox class stays distinct in the retained
 /// intent. Omitted allow lowers nothing and is unrestricted; a nonempty
 /// subset lowers its exact limits; each class is kept exactly where it was
-/// requested and nowhere else. An explicit empty list is not joined into
-/// an empty flag value: it keeps its full refusal, and its intent is kept
-/// beside the refusal rather than becoming a successful empty plan.
+/// requested. An explicit empty list is not joined into an empty flag
+/// value: it keeps its full refusal and its intent, never an empty plan.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -4434,7 +4436,6 @@ fn unit3_lowering_retains_absence_empty_and_sandbox_intent() {
         sandbox,
         hands: HandsIntent::None,
     };
-    type Lowered = (Lowering, Option<String>);
     let lowered = |requested: LocalTools| -> Lowered {
         let entry = report_narrowed(
             &tree.library(),
@@ -4467,6 +4468,7 @@ fn unit3_lowering_retains_absence_empty_and_sandbox_intent() {
             Lowering::Composed(Composition {
                 segments,
                 effort: Some("high".into()),
+                mcp: crate::bundle::McpIntent::Empty,
                 intent: intent(allow, sandbox),
                 application,
                 template: TemplateExpectation::None,
@@ -4592,18 +4594,18 @@ fn unit3_primitives_cannot_bypass_the_delivery_handoff() {
         .remove(0);
         (entry.lowering, entry.gap.map(|gap| gap.to_string()))
     };
-    // The serving inputs beside the segments (rebuild unit 14a1): the
-    // workspace fragment only where it was composed.
+    // Serving inputs (unit 14a1) and MCP set (U1f): fragment and server only where boxed.
     let spec = brokkr_protocol::hands::HandsSpec::parse(&boxed_agent()["hands"]).unwrap();
     let dormant = |allow: &[&str], sandbox: SandboxIntent, segments: &[Segment]| {
-        let workspace = match segments == boxed.as_slice() {
-            true => strings(&fragment),
-            false => Vec::new(),
+        let (workspace, mcp) = match segments == boxed.as_slice() {
+            true => (strings(&fragment), crate::bundle::McpIntent::Hands),
+            false => (Vec::new(), crate::bundle::McpIntent::Empty),
         };
         (
             Lowering::Composed(Composition {
                 segments: segments.to_vec(),
                 effort: Some("high".into()),
+                mcp,
                 intent: Intent {
                     allow: AllowIntent::Listed(strings(allow)),
                     sandbox,
@@ -4627,8 +4629,7 @@ fn unit3_primitives_cannot_bypass_the_delivery_handoff() {
             None,
         )
     };
-    use brokkr_core::realms::Boundary;
-    let rows: Vec<Row<(Lowering, Option<String>)>> = vec![
+    let rows: Vec<Row<Lowered>> = vec![
         (
             "mapped and unmapped names beside boxed hands".into(),
             lowered(json!(["cargo", "make"]), None, Boundary::Namespace),
@@ -4696,7 +4697,6 @@ fn unit3_primitives_cannot_bypass_the_delivery_handoff() {
 /// class fragment, and a fragment the boundary does not append is empty.
 #[test]
 fn a_composition_carries_each_serving_input_as_its_adapter_declares_it() {
-    use brokkr_core::realms::Boundary;
     let (workspace, gate, work) = (
         ["--strict-mcp-config", "--mcp-config", "{hands_mcp_json}"],
         ["--gate-fragment", "{brokkr}", "{result_path}"],
