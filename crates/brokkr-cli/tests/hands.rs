@@ -407,6 +407,43 @@ fn hands_exec_runs_the_command_whole_and_returns_its_code() {
     );
 }
 
+/// #570: the box's private `/tmp` and its home are owner-only whatever
+/// the caller's umask. Under 002, Ubuntu's default, a umask-made
+/// directory would be group-writable 775, and the capability broker's
+/// ancestry guard refuses every plan whose path walks one, so no plan
+/// would ever serve. The umask is process-wide, so it is set in the
+/// child that execs the binary, never in this test process, where it
+/// would race every parallel test.
+#[test]
+fn the_box_private_tmp_and_home_are_owner_only_under_umask_002() {
+    if !can_create_namespace() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("tree");
+    std::fs::create_dir(&work).unwrap();
+    let seen = Command::new("sh")
+        .args([
+            "-c",
+            "umask 002; exec \"$0\" hands exec --workdir \"$1\" -- \
+             stat -c '%a %n' /tmp /runtime/home",
+            brokkr_bin(),
+            work.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        seen.status.success(),
+        "{}",
+        String::from_utf8_lossy(&seen.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&seen.stdout),
+        "700 /tmp\n700 /runtime/home\n",
+        "the box's private dirs ignore the caller's umask"
+    );
+}
+
 fn verifier_workspace() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("src")).unwrap();

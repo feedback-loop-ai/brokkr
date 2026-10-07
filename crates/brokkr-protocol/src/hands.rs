@@ -426,8 +426,8 @@ pub fn box_argv(
     let private_tmp = scratch.join("tmp");
     let mut namespace = Namespace::open(Profile::Workspace, spec.network);
     namespace.identity(&scratch.join("etc"))?;
-    std::fs::create_dir_all(&private_home)?;
-    std::fs::create_dir_all(&private_tmp)?;
+    session::private_dir(&private_home)?;
+    session::private_dir(&private_tmp)?;
     // The private home and tmp go in BEFORE the worktree, so a worktree
     // that itself lives under /tmp is mounted on top of the private /tmp
     // rather than hidden beneath it.

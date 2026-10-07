@@ -1,5 +1,6 @@
 use super::*;
 use std::io::Cursor;
+use std::os::unix::fs::PermissionsExt;
 
 mod server;
 
@@ -9,6 +10,23 @@ fn spec_of(raw: Value) -> HandsSpec {
 
 fn one(text: &str) -> Vec<String> {
     vec![text.to_string()]
+}
+
+/// The argv of a workspace box over `dir`: its workdir at `work`, its
+/// private tree and its session under `dir` (`box_argv` makes them), no
+/// git facts and no bundle — the skeleton most argv pins start from.
+/// #570 moved it here out of its second copy.
+fn workspace_argv(spec: &HandsSpec, work: &Path, dir: &Path) -> std::io::Result<Vec<String>> {
+    box_argv(
+        spec,
+        work,
+        &dir.join("home"),
+        &dir.join("scratch"),
+        OverlayWrites::Session(&dir.join("session")),
+        &GitFacts::default(),
+        None,
+        &one("true"),
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -615,17 +633,7 @@ fn the_rendering_labels_every_section_and_output_is_bounded_while_draining() {
 fn a_toolchain_variable_is_set_by_its_own_bind_only() {
     let dir = tempfile::tempdir().unwrap();
     let toolchain = |raw: Value| -> Vec<String> {
-        let argv = box_argv(
-            &spec_of(raw),
-            dir.path(),
-            &dir.path().join("home"),
-            &dir.path().join("scratch"),
-            OverlayWrites::Session(&dir.path().join("session")),
-            &GitFacts::default(),
-            None,
-            &one("true"),
-        )
-        .unwrap();
+        let argv = workspace_argv(&spec_of(raw), dir.path(), dir.path()).unwrap();
         argv.windows(2)
             .filter(|pair| pair[0] == "--setenv")
             .map(|pair| pair[1].clone())
@@ -1628,5 +1636,92 @@ fn the_unboxed_environment_has_exact_keys_on_both_platforms() {
     assert_eq!(
         minimal.keys().map(String::as_str).collect::<BTreeSet<_>>(),
         expected
+    );
+}
+
+/// The part marker of the umask control: its presence plays the part,
+/// its value names the file the private dirs' modes are written to
+/// (#570).
+const UMASK_RECORD: &str = "BROKKR_HANDS_TEST_UMASK_RECORD";
+
+/// The part this test binary plays when the umask control re-executes it
+/// (#570): it drives `box_argv` over a scratch tree under whatever umask
+/// the exec'ing shell set and writes the two private dirs' modes down.
+/// Run on its own, it plays none.
+#[test]
+#[ignore = "played only when a test re-executes this binary"]
+fn umask_role() {
+    let Some(record) = std::env::var_os(UMASK_RECORD) else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let workdir = dir.path().join("work");
+    std::fs::create_dir(&workdir).unwrap();
+    workspace_argv(&HandsSpec::default(), &workdir, dir.path()).unwrap();
+    std::fs::write(record, private_modes(dir.path())).unwrap();
+}
+
+/// The modes of the private home and tmp `workspace_argv` made under
+/// `dir`, in octal, as one line (#570).
+fn private_modes(dir: &Path) -> String {
+    let mode = |name: &str| {
+        std::fs::metadata(dir.join("scratch").join(name))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o7777
+    };
+    format!("{:o} {:o}\n", mode("home"), mode("tmp"))
+}
+
+/// #570: a private home and tmp that already exist at a group-writable
+/// mode are narrowed to owner-only, not kept: mkdir(2)'s mode reaches
+/// only a directory it makes. The 775 is set outright, so no umask is
+/// needed to plant it.
+#[test]
+fn box_argv_narrows_private_dirs_that_already_exist() {
+    let dir = tempfile::tempdir().unwrap();
+    let workdir = dir.path().join("work");
+    std::fs::create_dir(&workdir).unwrap();
+    for name in ["home", "tmp"] {
+        let path = dir.path().join("scratch").join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o775)).unwrap();
+    }
+    workspace_argv(&HandsSpec::default(), &workdir, dir.path()).unwrap();
+    assert_eq!(private_modes(dir.path()), "700 700\n");
+}
+
+/// #570, the removal control that needs no namespace: it is `box_argv`
+/// itself, not the running box, that makes the private home and tmp
+/// owner-only, so the pin holds on every host. The caller's umask is 002
+/// only in the child shell that execs this binary — never in this test
+/// process, where it would race every parallel test — and the modes come
+/// back as exact bytes: 700 under the fix, 775 if `create_dir_all` ever
+/// returns.
+#[test]
+fn box_argv_makes_the_private_dirs_owner_only_under_umask_002() {
+    let dir = tempfile::tempdir().unwrap();
+    let record = dir.path().join("record");
+    let seen = Command::new("sh")
+        .args([
+            "-c",
+            "umask 002; exec \"$0\" --exact hands::tests::umask_role --ignored",
+            std::env::current_exe().unwrap().to_str().unwrap(),
+        ])
+        .env(UMASK_RECORD, &record)
+        .output()
+        .unwrap();
+    assert!(
+        seen.status.success(),
+        "{}",
+        String::from_utf8_lossy(&seen.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&record).unwrap(),
+        "700 700\n",
+        "the private home and tmp are owner-only whatever the caller's \
+         umask; the child said: {}",
+        String::from_utf8_lossy(&seen.stderr)
     );
 }
