@@ -7,6 +7,10 @@ use super::super::{
 use super::*;
 use serde_json::json;
 
+/// dsh's engine-only home and its routes (U1c2), in their own file.
+#[cfg(unix)]
+mod dsh_home;
+
 fn s(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| part.to_string()).collect()
 }
@@ -181,9 +185,9 @@ fn a_rejoin_keeps_the_isolation_only_where_its_resume_shape_is_measured() {
 /// Every launch builder reads the intent before any provider work: a
 /// measured limitation is its own cause with its reason, missing evidence
 /// names the shape, and a measured claim for a harness the engine builds no
-/// mechanism for — Codex, which no U0 candidate qualified, and dsh, whose
-/// engine-only home is not built — is missing evidence, never Claude's
-/// result and never ambient configuration.
+/// mechanism for — Codex, which no U0 candidate qualified — is missing
+/// evidence, never Claude's result and never ambient configuration. dsh's
+/// shapes are judged the same way, ahead of its route (U1c2).
 #[test]
 fn each_unqualified_shape_refuses_with_its_exact_cause() {
     let unsupported = |reason: &str| json!({"unsupported": reason});
@@ -223,10 +227,15 @@ fn each_unqualified_shape_refuses_with_its_exact_cause() {
             },
         ),
         ("codex", json!("measured"), unmeasured("codex")),
-        ("dsh", json!("measured"), unmeasured("dsh")),
         ("dsh", json!("unmeasured"), unmeasured("dsh")),
-        // dsh's recorded limitation is not its cause: its home is unbuilt.
-        ("dsh", unsupported(PROJECT_REASON), unmeasured("dsh")),
+        (
+            "dsh",
+            unsupported(PROJECT_REASON),
+            McpRefusal::Unsupported {
+                provider: "dsh",
+                reason: PROJECT_REASON.into(),
+            },
+        ),
     ] {
         assert_eq!(
             refused(provider, cold.clone()),
@@ -254,24 +263,31 @@ fn each_unqualified_shape_refuses_with_its_exact_cause() {
         .at_launch())
     );
     // Through the launch itself: the refusal precedes the composite, the
-    // route claim and any probe, whatever the replacement's assessment.
-    for replacement in [json!("measured"), unsupported(PROJECT_REASON)] {
+    // route claim, the home's staging and any probe.
+    for (replacement, refusal) in [
+        (
+            json!("unmeasured"),
+            McpRefusal::Unmeasured {
+                provider: "dsh",
+                shape: "replacement".into(),
+            },
+        ),
+        (
+            unsupported(PROJECT_REASON),
+            McpRefusal::Unsupported {
+                provider: "dsh",
+                reason: PROJECT_REASON.into(),
+            },
+        ),
+    ] {
         let dsh = by_hand(
             "empty",
             [json!("measured"), replacement.clone(), json!("measured")],
         );
-        let launch = dsh_launch_with("dsh", &extra, "/w", Some("019c"), &dsh, || {
+        let launch = dsh_launch_with("dsh", &extra, "/w", Some("019c"), &dsh, |_| {
             unreachable!("the composite is read after the refusal")
         });
-        assert_eq!(
-            launch.map(drop),
-            Err(McpRefusal::Unmeasured {
-                provider: "dsh",
-                shape: "replacement".into(),
-            }
-            .at_launch()),
-            "{replacement}"
-        );
+        assert_eq!(launch.map(drop), Err(refusal.at_launch()), "{replacement}");
     }
 }
 
@@ -493,6 +509,33 @@ fn each_refusal_reads_as_the_operator_sees_it() {
             "provider 'claude' arguments do not place the engine's MCP configuration as options \
              of their own: a terminator, a dangling value or an argument the grammar does not \
              model stands before it",
+        ),
+        (
+            McpRefusal::UnmeasuredRoute {
+                route: "openai".into(),
+            },
+            "provider 'dsh' has no measured strict MCP configuration on route 'openai'",
+        ),
+        (
+            McpRefusal::Unpinned,
+            "provider 'dsh' has no measured strict MCP configuration for a seat that pins no \
+             `--model`: the route it would run is the profile's unnamed default",
+        ),
+        (
+            McpRefusal::RouteEntry {
+                route: "deepseek-official".into(),
+                row: RouteRow::Shipped,
+            },
+            "provider 'dsh' route 'deepseek-official' was measured on dsh-base's shipped row \
+             alone, and the seat's overlay carries a provider entry for it",
+        ),
+        (
+            McpRefusal::RouteEntry {
+                route: "meta".into(),
+                row: RouteRow::Overlay,
+            },
+            "provider 'dsh' route 'meta' was measured with its validated provider entry, and the \
+             seat carries no route overlay",
         ),
     ] {
         assert_eq!(refusal.at_launch(), format!("{lead}{text}"));

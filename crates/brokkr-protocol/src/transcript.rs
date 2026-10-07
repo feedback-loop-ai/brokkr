@@ -4,7 +4,8 @@
 //! closed kind vocabulary, harness-home resolution, the 80-character
 //! locator clamp, the `session_meta.transcript` shape, and the checkpoint
 //! row that puts that shape in the journal. It never reads transcript
-//! content and never removes a transcript or its directory.
+//! content and never removes a transcript or its directory; an engine-only
+//! dsh home is removed only when no transcript row can have named it.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -55,6 +56,11 @@ impl Transcript {
                 Kind::None => Some(PathBuf::new()),
             },
         )
+    }
+
+    /// A dsh launch's transcript at the one home it is served from.
+    pub(crate) fn dsh(home: &DshHome) -> Self {
+        Transcript::at(Kind::DshSession, home.path().to_path_buf())
     }
 
     /// The resolved home is also where dsh stages its retained seat root.
@@ -175,12 +181,163 @@ pub(crate) fn dsh_transcript_root_under(home: Option<PathBuf>) -> std::io::Resul
     let home = home.ok_or_else(|| {
         std::io::Error::other("no dsh home to keep the transcript under: set DSH_HOME or HOME")
     })?;
-    let base = home.join("sessions").join("brokkr");
-    std::fs::create_dir_all(&base)?;
-    Ok(tempfile::Builder::new()
-        .prefix("seat-")
-        .tempdir_in(&base)?
-        .keep())
+    Ok(fresh_under(&home.join("sessions").join("brokkr"), "seat-")?.keep())
+}
+
+/// A fresh directory named `<prefix>…` in `base`, created with its parents,
+/// removed when its handle is dropped unless the caller keeps it.
+fn fresh_under(base: &Path, prefix: &str) -> std::io::Result<tempfile::TempDir> {
+    std::fs::create_dir_all(base)?;
+    tempfile::Builder::new().prefix(prefix).tempdir_in(base)
+}
+
+/// Where engine-only homes are staged, below the operator's `HOME`: beside
+/// the engine's protected capability root and outside the operator's dsh
+/// home, so no directory dsh's Node lookup walks above a staged profile is
+/// the operator's dsh tree, and none is a shared, world-writable one.
+const ENGINE_HOMES: [&str; 4] = [".local", "state", "brokkr", "dsh-homes"];
+
+/// The dsh home one launch is served from (decision 0065 slice two, U1c2;
+/// requirements SI2 and MB1). A launch without the engine's isolation
+/// intent is served from the operator's own home, resolved as the harness
+/// resolves it, exactly as before. One with an intent is served from an
+/// engine-only home staged for that seat, U0's D03/D04 shape: dsh is
+/// pointed at a directory nothing but dsh itself has written, so its
+/// profile is the shipped bundles' own scaffold, no home-level or
+/// profile-level row is ambient, and the validated route rows and the
+/// engine's server row ride the seat's one `--patch` overlay. The launch's
+/// transcript, its retained root, the persistence home an offered root is
+/// checked against and the composite's declared home all read this value.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum DshHome {
+    Operator(PathBuf),
+    Engine(EngineHome),
+}
+
+/// A staged engine-only home, held as text because the child's environment
+/// names it. It is removed with its launch unless [`DshHome::serve`] kept
+/// it, so a launch refused before it spawns leaves no home behind, while a
+/// home a transcript row may name stays for that transcript.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct EngineHome {
+    path: String,
+    retained: std::cell::Cell<bool>,
+}
+
+impl Drop for EngineHome {
+    fn drop(&mut self) {
+        if !self.retained.get() {
+            // Best effort: a home that cannot be removed holds no transcript.
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
+/// Why no dsh home is served. The text is the operator's.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DshHomeError {
+    #[error("no harness home for transcript kind dsh-session")]
+    Unresolved,
+    #[error("no HOME to stage the engine-only dsh home under")]
+    Homeless,
+    /// The secret injector sets a declared name over the launch's own
+    /// environment, so the child would run on another home or identity
+    /// than every read of the launch follows.
+    #[error(
+        "refusing to invoke the agent CLI: the seat declares a binding named '{0}', which the \
+         engine-only dsh home fixes in the child's environment"
+    )]
+    FixedBinding(String),
+    #[error("could not stage the engine-only dsh home: {0}")]
+    Unstaged(#[source] std::io::Error),
+    #[error("the engine-only dsh home's path is not UTF-8, so it cannot be named to dsh")]
+    NotUtf8,
+    /// dsh resolves a credential from `<cwd>/.env` after the process
+    /// environment and before either home file (dsh-credentials-local
+    /// 0.1.5-rc.2, U0c): the one layer an engine-only home does not close.
+    #[error(
+        "refusing to invoke the agent CLI: the seat's working directory holds a `.env`, or cannot \
+         be read for one: dsh reads it as a credential layer its engine-only home does not close, \
+         so a key could reach the provider from somewhere other than the engine's environment"
+    )]
+    WorkdirCredentials,
+}
+
+impl From<DshHomeError> for String {
+    fn from(error: DshHomeError) -> String {
+        error.to_string()
+    }
+}
+
+impl DshHome {
+    /// The operator's own home, as a launch with no intent always read it.
+    pub(crate) fn operator() -> Result<DshHome, DshHomeError> {
+        dsh_home()
+            .map(DshHome::Operator)
+            .ok_or(DshHomeError::Unresolved)
+    }
+
+    /// A fresh engine-only home under [`ENGINE_HOMES`], in the `HOME` the
+    /// child inherits. Refused first where `workdir`, the child's cwd, holds
+    /// a `.env` in any form, since the child would read it.
+    pub(crate) fn stage(workdir: &str) -> Result<DshHome, DshHomeError> {
+        DshHome::stage_under(std::env::var_os("HOME").map(PathBuf::from), workdir)
+    }
+
+    fn stage_under(user: Option<PathBuf>, workdir: &str) -> Result<DshHome, DshHomeError> {
+        // An empty workdir is the child's `.`, which a relative `.env` names.
+        match std::fs::symlink_metadata(Path::new(workdir).join(".env")) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            _ => return Err(DshHomeError::WorkdirCredentials),
+        }
+        let base = user.ok_or(DshHomeError::Homeless)?;
+        let base = base.join(ENGINE_HOMES.iter().collect::<PathBuf>());
+        let staged = fresh_under(&base, "engine-home-").map_err(DshHomeError::Unstaged)?;
+        // Dropped unkept on the refusal, so a home dsh cannot be named is gone.
+        let path = staged.path().to_str().ok_or(DshHomeError::NotUtf8)?.into();
+        let _ = staged.keep();
+        Ok(DshHome::Engine(EngineHome {
+            path,
+            retained: std::cell::Cell::new(false),
+        }))
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        match self {
+            DshHome::Operator(path) => path,
+            DshHome::Engine(home) => Path::new(&home.path),
+        }
+    }
+
+    /// The `DSH_HOME` the child is handed: the staged home, and none for
+    /// the operator's, whose resolution the child repeats from the
+    /// environment it inherits.
+    pub(crate) fn child_home(&self) -> Option<&str> {
+        match self {
+            DshHome::Operator(_) => None,
+            DshHome::Engine(home) => Some(&home.path),
+        }
+    }
+
+    /// Serve the child on this home with the seat's `declared` bindings over
+    /// the environment the launch `fixed`, before any transcript row names
+    /// the home. An engine-only home refuses a binding named for any fixed
+    /// key, its own `DSH_HOME` among them, whatever the binding's value, and
+    /// is otherwise retained past its launch from here on.
+    pub(crate) fn serve<'a>(
+        &self,
+        fixed: &[(&str, &str)],
+        mut declared: impl Iterator<Item = &'a str>,
+    ) -> Result<(), DshHomeError> {
+        let DshHome::Engine(home) = self else {
+            return Ok(());
+        };
+        if let Some(name) = declared.find(|name| fixed.iter().any(|(key, _)| key == name)) {
+            return Err(DshHomeError::FixedBinding(name.to_string()));
+        }
+        home.retained.set(true);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -249,6 +406,262 @@ mod tests {
             .locator_under_home(Path::new("/somewhere/else"))
             .unwrap_err()
             .contains("not under harness home"));
+    }
+
+    #[test]
+    fn the_transcript_root_is_kept_under_the_harness_home_and_survives_the_seat() {
+        let home = tempfile::tempdir().unwrap();
+        let root = dsh_transcript_root_under(Some(home.path().to_path_buf())).unwrap();
+        assert!(
+            root.starts_with(home.path().join("sessions").join("brokkr")),
+            "{root:?}"
+        );
+        assert!(root
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("seat-"));
+        // The creating handle is gone; the directory is not.
+        assert!(root.is_dir(), "{root:?}");
+        let other = dsh_transcript_root_under(Some(home.path().to_path_buf())).unwrap();
+        assert_ne!(root, other, "one root per seat");
+
+        let refused = dsh_transcript_root_under(None).unwrap_err();
+        assert!(
+            refused.to_string().contains("set DSH_HOME or HOME"),
+            "{refused}"
+        );
+        // A file where the base must be a directory is the staging failure.
+        let blocked = tempfile::tempdir().unwrap();
+        std::fs::write(blocked.path().join("sessions"), b"not a directory").unwrap();
+        assert!(dsh_transcript_root_under(Some(blocked.path().to_path_buf())).is_err());
+    }
+
+    #[test]
+    fn the_dsh_home_is_dsh_home_when_set_else_dot_dsh_under_home() {
+        assert_eq!(
+            dsh_home_from(
+                Some(OsString::from("/opt/dsh")),
+                Some(OsString::from("/home/x"))
+            ),
+            Some(PathBuf::from("/opt/dsh"))
+        );
+        assert_eq!(
+            dsh_home_from(Some(OsString::new()), Some(OsString::from("/home/x"))),
+            Some(PathBuf::from("/home/x/.dsh"))
+        );
+        assert_eq!(
+            dsh_home_from(None, Some(OsString::from("/home/x"))),
+            Some(PathBuf::from("/home/x/.dsh"))
+        );
+        assert_eq!(dsh_home_from(None, None), None);
+        assert_eq!(
+            dsh_home(),
+            dsh_home_from(std::env::var_os("DSH_HOME"), std::env::var_os("HOME"))
+        );
+    }
+
+    /// The names directly inside `dir`, sorted.
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// A canonical temporary root holding a user's `HOME`, not yet created,
+    /// and the seat's worktree, from which engine-only homes are staged.
+    struct Seat {
+        _dir: tempfile::TempDir,
+        user: PathBuf,
+        work: PathBuf,
+    }
+
+    impl Seat {
+        fn new() -> Seat {
+            let dir = tempfile::tempdir().unwrap();
+            let root = std::fs::canonicalize(dir.path()).unwrap();
+            let (user, work) = (root.join("user"), root.join("work"));
+            std::fs::create_dir_all(&work).unwrap();
+            Seat {
+                _dir: dir,
+                user,
+                work,
+            }
+        }
+
+        fn stage_for(&self, user: PathBuf) -> Result<DshHome, DshHomeError> {
+            DshHome::stage_under(Some(user), self.work.to_str().unwrap())
+        }
+
+        fn stage(&self) -> Result<DshHome, DshHomeError> {
+            self.stage_for(self.user.clone())
+        }
+    }
+
+    /// An engine-only home is a fresh, empty directory of its own under the
+    /// user's `.local/state/brokkr/dsh-homes`, one per seat, named to the
+    /// child, and the transcript reads it; the operator's home is named to
+    /// no child.
+    #[test]
+    fn an_engine_only_home_is_staged_fresh_and_empty_for_each_seat() {
+        let seat = Seat::new();
+        let (first, second) = (seat.stage().unwrap(), seat.stage().unwrap());
+        let base = seat.user.join(".local/state/brokkr/dsh-homes");
+        let mut staged = Vec::new();
+        for home in [&first, &second] {
+            let path = home.child_home().unwrap();
+            assert_eq!(home.path(), Path::new(path));
+            assert_eq!(Transcript::dsh(home).home(), Path::new(path));
+            assert_eq!(names(home.path()), Vec::<String>::new(), "nothing staged");
+            staged.push(home.path().strip_prefix(&base).unwrap().to_path_buf());
+        }
+        assert_ne!(staged[0], staged[1], "one home per seat");
+        assert!(staged
+            .iter()
+            .all(|name| name.to_string_lossy().starts_with("engine-home-")));
+        assert_eq!(names(&base).len(), 2);
+        let operator_home = DshHome::Operator(seat.user.clone());
+        assert_eq!(
+            (operator_home.child_home(), operator_home.path()),
+            (None, seat.user.as_path())
+        );
+    }
+
+    /// An engine-only home serves no declared binding named for a key the
+    /// launch fixes, whatever its value, and is removed with its launch; one
+    /// it serves is retained past it. The operator's home, as before, serves
+    /// every binding and is never removed.
+    #[test]
+    fn an_engine_only_home_refuses_a_binding_over_a_fixed_key() {
+        let seat = Seat::new();
+        let base = seat.user.join(".local/state/brokkr/dsh-homes");
+        for (declared, refused) in [
+            (&["API_TOKEN"][..], None),
+            (&["API_TOKEN", "DSH_HOME"][..], Some("DSH_HOME")),
+            (&["GIT_CONFIG_COUNT"][..], Some("GIT_CONFIG_COUNT")),
+        ] {
+            let home = seat.stage().unwrap();
+            let staged = home.path().to_path_buf();
+            let fixed = [("DSH_HOME", "/elsewhere"), ("GIT_CONFIG_COUNT", "1")];
+            // Any other variant fails with its own text, through no closure left unrun.
+            let refusal = match home.serve(&fixed, declared.iter().copied()) {
+                Err(DshHomeError::FixedBinding(name)) => Ok(Some(name)),
+                other => other.as_ref().map(|()| None).map_err(ToString::to_string),
+            };
+            assert_eq!(refusal, Ok(refused.map(String::from)), "{declared:?}");
+            drop(home);
+            assert_eq!(staged.is_dir(), refused.is_none(), "{declared:?}");
+            let operator = DshHome::Operator(base.clone());
+            assert!(matches!(
+                operator.serve(&fixed, declared.iter().copied()),
+                Ok(())
+            ));
+        }
+        assert_eq!(names(&base).len(), 1, "the served home alone stays");
+    }
+
+    /// A home that cannot be served refuses by cause, and a worktree `.env`
+    /// in any form refuses before anything is staged. Each cause's text is
+    /// pinned here, once.
+    #[test]
+    fn a_home_that_cannot_be_served_refuses_by_cause() {
+        let seat = Seat::new();
+        let workdir = seat.work.to_str().unwrap();
+        assert!(matches!(
+            DshHome::stage_under(None, workdir),
+            Err(DshHomeError::Homeless)
+        ));
+        let env = seat.work.join(".env");
+        std::fs::write(&env, b"").unwrap();
+        assert!(matches!(
+            seat.stage(),
+            Err(DshHomeError::WorkdirCredentials)
+        ));
+        std::fs::remove_file(&env).unwrap();
+        std::os::unix::fs::symlink(seat.work.join("absent"), &env).unwrap();
+        assert!(matches!(
+            seat.stage(),
+            Err(DshHomeError::WorkdirCredentials)
+        ));
+        assert!(!seat.user.exists(), "nothing is staged beside a refusal");
+        std::fs::remove_file(&env).unwrap();
+        std::fs::create_dir_all(&seat.user).unwrap();
+        std::fs::write(seat.user.join(".local"), b"not a directory").unwrap();
+        // `Unstaged` alone carries an I/O source.
+        let blocked = seat.stage();
+        let cause = (blocked.as_ref().err())
+            .and_then(std::error::Error::source)
+            .and_then(|source| source.downcast_ref::<std::io::Error>());
+        assert_eq!(
+            cause.map(std::io::Error::kind),
+            Some(std::io::ErrorKind::NotADirectory)
+        );
+        // A worktree that cannot be read for a `.env` refuses as one holding it.
+        let file = seat.work.join("file");
+        std::fs::write(&file, b"").unwrap();
+        assert!(matches!(
+            DshHome::stage_under(Some(seat.user.clone()), file.to_str().unwrap()),
+            Err(DshHomeError::WorkdirCredentials)
+        ));
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let raw = seat.work.join(std::ffi::OsStr::from_bytes(b"user\xff"));
+            assert!(matches!(
+                seat.stage_for(raw.clone()),
+                Err(DshHomeError::NotUtf8)
+            ));
+            let base = raw.join(".local/state/brokkr/dsh-homes");
+            assert_eq!(names(&base), Vec::<String>::new(), "removed on refusal");
+        }
+        for (error, text) in [
+            (
+                DshHomeError::Unresolved,
+                "no harness home for transcript kind dsh-session",
+            ),
+            (
+                DshHomeError::Homeless,
+                "no HOME to stage the engine-only dsh home under",
+            ),
+            (
+                DshHomeError::FixedBinding("DSH_HOME".into()),
+                "refusing to invoke the agent CLI: the seat declares a binding named 'DSH_HOME', \
+                 which the engine-only dsh home fixes in the child's environment",
+            ),
+            (
+                DshHomeError::NotUtf8,
+                "the engine-only dsh home's path is not UTF-8, so it cannot be named to dsh",
+            ),
+            (
+                DshHomeError::WorkdirCredentials,
+                "refusing to invoke the agent CLI: the seat's working directory holds a `.env`, or \
+                 cannot be read for one: dsh reads it as a credential layer its engine-only home \
+                 does not close, so a key could reach the provider from somewhere other than the \
+                 engine's environment",
+            ),
+        ] {
+            assert_eq!(String::from(error), text);
+        }
+        assert_eq!(
+            DshHomeError::Unstaged(std::io::Error::other("full")).to_string(),
+            "could not stage the engine-only dsh home: full"
+        );
+    }
+
+    #[test]
+    fn the_operators_home_is_read_from_the_environment_the_child_inherits() {
+        let mut env = crate::env_guard::EnvGuard::lock();
+        env.set("DSH_HOME", "/opt/operator-dsh");
+        assert_eq!(
+            DshHome::operator().unwrap(),
+            DshHome::Operator(PathBuf::from("/opt/operator-dsh"))
+        );
+        env.remove("DSH_HOME");
+        env.remove("HOME");
+        assert!(matches!(DshHome::operator(), Err(DshHomeError::Unresolved)));
     }
 
     #[test]

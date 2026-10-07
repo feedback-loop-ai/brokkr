@@ -56,7 +56,7 @@
    180 crates/brokkr-protocol/src/adapters/capability_calls.rs
   4666 crates/brokkr-protocol/src/adapters/composite.rs
    476 crates/brokkr-protocol/src/adapters/composite/image.rs
-   433 crates/brokkr-protocol/src/adapters/mcp.rs
+   556 crates/brokkr-protocol/src/adapters/mcp.rs
    607 crates/brokkr-protocol/src/adapters/route_overlay.rs
     27 crates/brokkr-protocol/src/adapters/start.rs
    283 crates/brokkr-protocol/src/broker.rs
@@ -76,7 +76,7 @@
    295 crates/brokkr-protocol/src/process/table.rs
    331 crates/brokkr-protocol/src/process/tree.rs
    706 crates/brokkr-protocol/src/secret.rs
-   269 crates/brokkr-protocol/src/transcript.rs
+   682 crates/brokkr-protocol/src/transcript.rs
   1671 crates/brokkr-runtime/src/agents.rs
    369 crates/brokkr-runtime/src/agents/charter_data.rs
   1335 crates/brokkr-runtime/src/agents/load.rs
@@ -218,10 +218,11 @@
    836 crates/brokkr-protocol/src/adapters/composite/image/tests.rs
  20009 crates/brokkr-protocol/src/adapters/composite/tests.rs
   2458 crates/brokkr-protocol/src/adapters/composite/tests/native_matrix.rs
-   500 crates/brokkr-protocol/src/adapters/mcp/tests.rs
+   543 crates/brokkr-protocol/src/adapters/mcp/tests.rs
+   724 crates/brokkr-protocol/src/adapters/mcp/tests/dsh_home.rs
    302 crates/brokkr-protocol/src/adapters/notice_tests.rs
    623 crates/brokkr-protocol/src/adapters/route_overlay/tests.rs
- 19089 crates/brokkr-protocol/src/adapters/tests.rs
+ 19003 crates/brokkr-protocol/src/adapters/tests.rs
   3127 crates/brokkr-protocol/src/dsh_sandbox/tests.rs
    153 crates/brokkr-protocol/src/fake/tests.rs
    303 crates/brokkr-protocol/src/hands/session/tests.rs
