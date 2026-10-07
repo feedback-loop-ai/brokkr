@@ -52,6 +52,11 @@ pub enum Encoding {
 pub struct HeldWorld(Value);
 
 impl HeldWorld {
+    /// The digest of the pin ([`MapSource::digest`]).
+    fn digest(&self) -> String {
+        canonical::sha256_hex(&self.0)
+    }
+
     /// The world the entry was queued with, its map file anchored to the
     /// entry's `workspace`.
     fn world(&self, workspace: &Path) -> Result<World, WorldError> {
@@ -111,9 +116,30 @@ pub(crate) struct Held {
 }
 
 impl Held {
-    /// The realm the entry was queued in, `None` for none.
-    pub(crate) fn realm(&self) -> Option<&Realm> {
+    /// `world` with the realm `select` resolves in it, resolved once and
+    /// kept by its place in the map.
+    fn selecting(
+        world: World,
+        select: impl for<'w> FnOnce(&'w World) -> Option<&'w Realm>,
+    ) -> Held {
+        let selected = select(&world).and_then(|chosen| {
+            world
+                .map
+                .realms
+                .iter()
+                .position(|realm| std::ptr::eq(realm, chosen))
+        });
+        Held { world, selected }
+    }
+
+    /// The realm selected, `None` for none.
+    fn realm(&self) -> Option<&Realm> {
         self.selected.map(|at| &self.world.map.realms[at])
+    }
+
+    /// The world and the realm selected in it, as admission compares them.
+    pub(crate) fn selection(&self) -> (&World, Option<&Realm>) {
+        (&self.world, self.realm())
     }
 }
 
@@ -143,9 +169,7 @@ impl MapSource {
     pub(crate) fn digest(&self) -> Option<String> {
         match self {
             MapSource::Unmapped => None,
-            MapSource::Ambient(held) | MapSource::Named(held) => {
-                Some(canonical::sha256_hex(&held.0))
-            }
+            MapSource::Ambient(held) | MapSource::Named(held) => Some(held.digest()),
         }
     }
 
@@ -188,15 +212,37 @@ impl MapSource {
 pub(crate) struct HeldAndNow {
     pub(crate) held: Option<Held>,
     pub(crate) now: Result<Now, WorldError>,
-    /// The repository the entry operates, whose realm each map names.
-    pub(crate) repo: PathBuf,
 }
 
-/// The map that would govern an entry now, if any, and the digest of the
-/// pin a re-pin to it would write ([`MapSource::digest`]).
+/// The map that would govern an entry now, if any, with the realm it
+/// selects for the entry's repository, and the digest of the pin a re-pin
+/// to it would write ([`MapSource::digest`]). Both are read off one
+/// selection, so a path retargeted between them cannot pair one realm's
+/// digest with another realm's facts (#430's H6).
 pub(crate) struct Now {
-    pub(crate) world: Option<World>,
+    pub(crate) world: Option<Held>,
     pub(crate) digest: Option<String>,
+}
+
+impl Now {
+    /// The map `now`, its realm resolved once by `select`.
+    fn of(
+        now: RunMap,
+        select: impl for<'w> FnOnce(&'w World) -> Option<&'w Realm>,
+    ) -> Result<Now, WorldError> {
+        let Some(world) = now.into_world() else {
+            return Ok(Now {
+                world: None,
+                digest: None,
+            });
+        };
+        let held = Held::selecting(world, select);
+        let digest = HeldWorld(held.world.pin_of(held.realm())?).digest();
+        Ok(Now {
+            world: Some(held),
+            digest: Some(digest),
+        })
+    }
 }
 
 /// Every fact a queued launch is rebuilt from.
@@ -281,24 +327,30 @@ impl QueuedLaunch {
 
     /// The world this entry was queued with and the realm its pin
     /// selected, beside the map that would
-    /// govern it now ([`MapSource::now`]), and the repository the entry
-    /// operates: what admission compares (#430's realm-drift ruling). The
+    /// govern it now ([`MapSource::now`]) and the realm it names the
+    /// repository the entry operates: what admission compares (#430's
+    /// realm-drift ruling). The
     /// map now is the one fault an operator can mend, so it comes back as
     /// its own result, refusals and all.
     pub(crate) fn held_and_now(&self) -> Result<HeldAndNow, LaunchError> {
+        self.held_and_now_with(World::realm_for)
+    }
+
+    /// [`QueuedLaunch::held_and_now`], the realm the map now names the
+    /// repository resolved by `select`, called once (#430's H6).
+    pub(crate) fn held_and_now_with(
+        &self,
+        select: impl for<'w> FnOnce(&'w World, &Path) -> Option<&'w Realm>,
+    ) -> Result<HeldAndNow, LaunchError> {
         let workspace = anchor(&self.workspace)?;
         let repo = self.operated(workspace);
-        let now = self.map.now(workspace).and_then(|map| {
-            let digest = MapSource::of(&map, &repo)?.digest();
-            Ok(Now {
-                world: map.into_world(),
-                digest,
-            })
-        });
+        let now = self
+            .map
+            .now(workspace)
+            .and_then(|map| Now::of(map, |world| select(world, &repo)));
         Ok(HeldAndNow {
             held: self.map.held(workspace)?,
             now,
-            repo,
         })
     }
 

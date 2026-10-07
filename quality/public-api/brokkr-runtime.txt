@@ -64,7 +64,7 @@ pub struct brokkr_runtime::admission::Judged
 pub brokkr_runtime::admission::Judged::entry: brokkr_store::queue::QueueEntry
 pub brokkr_runtime::admission::Judged::launch: brokkr_runtime::launch::QueuedLaunch
 pub brokkr_runtime::admission::Judged::verdict: core::option::Option<brokkr_runtime::admission::Verdict>
-pub struct brokkr_runtime::admission::Released(pub alloc::vec::Vec<brokkr_runtime::admission::Difference>)
+pub struct brokkr_runtime::admission::Released(_)
 impl core::fmt::Display for brokkr_runtime::admission::Released
 pub fn brokkr_runtime::admission::Released::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_runtime::admission::Verdict

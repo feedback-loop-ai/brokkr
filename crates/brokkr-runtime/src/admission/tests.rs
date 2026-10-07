@@ -897,6 +897,53 @@ fn a_realm_path_retargeted_to_the_repository_an_entry_operates_holds_it() {
     drifts(&mut store, entry, "live", found, said);
 }
 
+/// #430's H6: the realm the map on disk names an entry's repository is
+/// resolved once, and the digest a re-pin would write and the differences
+/// are both read off it. Queued in `ra` through `selected`, the alias
+/// retargeted to `b`, and put back to `a` the instant the resolution has
+/// read it: the finding is `rb`'s, digest and differences alike, never
+/// `rb`'s digest beside no difference; and the re-pin under the map as it
+/// stands then is refused.
+#[test]
+fn a_repository_retargeted_mid_judgement_is_judged_on_one_selection() {
+    let (ws, mut store, entry) = aliased();
+    alias(ws.path(), "selected", "b");
+    let queued = store.queue_entry(entry).unwrap();
+    let launch = QueuedLaunch::decode(&queued.payload).unwrap();
+    let in_b = launch.clone().repinned().unwrap().map.digest();
+    let worlds = launch
+        .held_and_now_with(|world, repo| {
+            let selected = world.realm_for(repo);
+            alias(ws.path(), "selected", "a");
+            selected
+        })
+        .unwrap();
+    let finding = seen(worlds).unwrap();
+    let expected = Finding {
+        encoding: FindingEncoding::V1,
+        realm: "ra".into(),
+        differences: vec![
+            Difference::Realm {
+                was: Some("ra".into()),
+                now: Some("rb".into()),
+            },
+            Difference::GrantAdded("web-search".into()),
+            Difference::Boundary {
+                was: Boundary::Harness,
+                now: Boundary::Open,
+            },
+        ],
+        on_disk: in_b,
+    };
+    assert_eq!(finding, expected);
+    let finding = json!(finding).to_string();
+    store
+        .queue_latch(entry, &finding, queued.seen(), BY)
+        .unwrap();
+    let refused = release(&mut store, entry, BY).unwrap_err();
+    assert!(matches!(refused, AdmissionError::MapMoved(at) if at == entry));
+}
+
 /// A held pin is read for the realm it selected, so one whose selection
 /// cannot be read, or names a realm its map does not hold, is refused.
 #[test]

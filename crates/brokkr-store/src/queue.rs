@@ -234,7 +234,7 @@ pub struct QueueEntry {
     pub payload: String,
     /// The `repin` command that wrote that launch, by its seq; `None`
     /// while it stands for the launch it was queued with.
-    pub pin: Option<i64>,
+    pub(crate) pin: Option<i64>,
     pub added_at: String,
     /// The realm-drift hold latched on it since it was last re-pinned,
     /// the latest one; `None` when none stands.
@@ -257,7 +257,7 @@ impl QueueEntry {
 /// encoded it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Latch {
-    pub seq: i64,
+    pub(crate) seq: i64,
     pub finding: String,
 }
 

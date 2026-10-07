@@ -268,7 +268,7 @@ impl Finding {
 
 /// The differences an operator's re-pin accepted, as it says them.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Released(pub Vec<Difference>);
+pub struct Released(pub(crate) Vec<Difference>);
 
 impl fmt::Display for Released {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -703,7 +703,8 @@ enum Sight {
 
 /// The held side is the realm the entry's pin selected, as recorded; only
 /// the side now resolves the repository's path on disk, so a path that
-/// resolves elsewhere since is a difference too (#430's H4).
+/// resolves elsewhere since is a difference too (#430's H4), and it is
+/// resolved once, for the digest and the differences alike (H6).
 fn sight(worlds: HeldAndNow) -> Sight {
     match seen(worlds) {
         Ok(finding) => Sight::Seen(finding),
@@ -719,10 +720,9 @@ fn sight(worlds: HeldAndNow) -> Sight {
 /// now is held only after the same realm of it was pinned
 /// (`QueuedLaunch::held_and_now`). Both are refused all the same.
 fn seen(worlds: HeldAndNow) -> Result<Finding, WorldError> {
-    let held = governing(worlds.held.as_ref().map(|held| (&held.world, held.realm())))?;
+    let held = governing(worlds.held.as_ref().map(|held| held.selection()))?;
     let disk = worlds.now?;
-    let world = disk.world.as_ref();
-    let now = governing(world.map(|world| (world, world.realm_for(&worlds.repo))))?;
+    let now = governing(disk.world.as_ref().map(|now| now.selection()))?;
     Ok(Finding {
         encoding: FindingEncoding::V1,
         realm: held.realm.clone().or(now.realm.clone()).unwrap_or_default(),

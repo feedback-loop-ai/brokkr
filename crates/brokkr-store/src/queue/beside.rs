@@ -17,8 +17,8 @@ use crate::StoreError;
 /// [`QueueEntry::seen`](super::QueueEntry::seen) reads it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Seen {
-    pub pin: Option<i64>,
-    pub latch: Option<i64>,
+    pub(crate) pin: Option<i64>,
+    pub(crate) latch: Option<i64>,
 }
 
 /// What a command writes beside a waiting entry, keyed by the command.
