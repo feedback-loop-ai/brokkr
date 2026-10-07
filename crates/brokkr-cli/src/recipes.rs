@@ -209,18 +209,60 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Copy into `dest`, removing the partial copy if anything fails —
-/// otherwise an aborted install would squat on the name and make every
-/// retry fail with "already exists".
-fn copy_into(from: &Path, dest: &Path) -> Result<()> {
-    copy_dir(from, dest).inspect_err(|_| {
-        let _ = std::fs::remove_dir_all(dest);
-    })
+/// The recipes one `add` copied into the library, by name, removed
+/// together when dropped unless kept — so an install refused at any step
+/// leaves no partial copy squatting on a name and making every retry fail
+/// with "already exists".
+struct Installing(Vec<(String, PathBuf)>);
+
+impl Installing {
+    fn copy(&mut self, from: &Path, name: &str, dest: PathBuf) -> Result<()> {
+        self.0.push((name.to_string(), dest.clone()));
+        copy_dir(from, &dest)
+    }
+
+    fn keep(mut self) -> Vec<(String, PathBuf)> {
+        std::mem::take(&mut self.0)
+    }
 }
 
-/// Install a recipe: clone or copy into `<dir>/<name>`, then
-/// compile-verify the copy. A copy that fails to compile is removed —
-/// the library only ever holds recipes the compiler accepted or nothing.
+impl Drop for Installing {
+    fn drop(&mut self) {
+        for (_, dest) in &self.0 {
+            let _ = std::fs::remove_dir_all(dest);
+        }
+    }
+}
+
+/// Copy the recipe at `root` into `<dir>/<name>`, and with it each base
+/// its `extends` chain reaches (decision 0017) that the library does not
+/// already hold, under the name it is extended by: a base resolves from
+/// the library the leaf sits in, so a derived recipe copied alone would
+/// never compile there. The walk stops at the first base the library
+/// holds, whose own chain is the library's. A chain that does not
+/// resolve where the source stands copies the leaf alone, and the compile
+/// that follows names why it does not compose.
+fn install(root: &Path, name: &str, dir: &Path) -> Result<Installing> {
+    let mut installing = Installing(Vec::new());
+    installing.copy(root, name, dir.join(name))?;
+    let Ok(resolved) = brokkr_runtime::bundle::compose::resolve(root) else {
+        return Ok(installing);
+    };
+    for ancestor in &resolved.chain {
+        let base = ancestor.reached_as.as_deref().unwrap_or(&ancestor.name);
+        let dest = dir.join(base);
+        if dest.exists() {
+            break;
+        }
+        installing.copy(&ancestor.dir, base, dest)?;
+    }
+    Ok(installing)
+}
+
+/// Install a recipe: clone or copy into `<dir>/<name>`, with the bases it
+/// extends that the library lacks, then compile-verify every copy. If any
+/// fails to compile all are removed — the library only ever holds recipes
+/// the compiler accepted or nothing.
 pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Result<()> {
     let world = World::discover(workspace, None)?;
     let dest = dir.join(name);
@@ -232,7 +274,7 @@ pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Res
     }
     std::fs::create_dir_all(dir)?;
 
-    if is_git_source(source) {
+    let installing = if is_git_source(source) {
         let tmp = tempfile::tempdir().context("creating temp dir for clone")?;
         let clone = tmp.path().join("clone");
         // `--` stops option injection; `protocol.ext.allow=never` stops
@@ -251,28 +293,24 @@ pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Res
                 String::from_utf8_lossy(&out.stderr).trim()
             );
         }
-        let root = bundle_root(&clone)?;
-        copy_into(&root, &dest)?;
+        install(&bundle_root(&clone)?, name, dir)?
     } else {
         let src = Path::new(source);
         anyhow::ensure!(src.is_dir(), "source {source} is not a directory");
-        copy_into(src, &dest)?;
-    }
+        install(src, name, dir)?
+    };
 
-    match compile_in(workspace, &dest, world.as_ref()) {
-        Ok(bundle) => {
-            eprintln!(
-                "added recipe '{name}' ({}) at {}",
-                &bundle.manifest_digest()[..12],
-                dest.display()
-            );
-            Ok(())
-        }
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&dest);
-            bail!("recipe '{name}' does not compile (removed): {e}");
+    let mut digests = Vec::new();
+    for (recipe, path) in &installing.0 {
+        match compile_in(workspace, path, world.as_ref()) {
+            Ok(bundle) => digests.push(bundle.manifest_digest()[..12].to_string()),
+            Err(e) => bail!("recipe '{recipe}' does not compile (removed): {e}"),
         }
     }
+    for ((recipe, path), digest) in installing.keep().iter().zip(digests) {
+        eprintln!("added recipe '{recipe}' ({digest}) at {}", path.display());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

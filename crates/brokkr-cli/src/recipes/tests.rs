@@ -199,6 +199,73 @@ fn a_gate_bearing_recipe_installs_against_the_workspaces_adapters() {
     list(&workspace(), library.path()).unwrap();
 }
 
+fn installed(library: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(library)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// A derived recipe resolves its bases from the library it is installed
+/// into, so `add` brings each base the library lacks beside it — the
+/// documented `brokkr recipes add <brokkr>/recipes/node` into a fresh
+/// library — and stops at the first base the library already holds.
+#[test]
+fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
+    let fresh = tempfile::tempdir().unwrap();
+    let node = workspace().join("recipes/node");
+    add(&workspace(), node.to_str().unwrap(), "node", fresh.path())
+        .expect("node installs into a library that holds nothing");
+    assert_eq!(installed(fresh.path()), ["fast", "node"]);
+
+    let holding = tempfile::tempdir().unwrap();
+    let fast = workspace().join("recipes/fast");
+    copy_dir(&fast, &holding.path().join("fast")).unwrap();
+    let charter = holding.path().join("fast/roles/implementer.md");
+    let ours = std::fs::read_to_string(&charter).unwrap() + "\nThe library's own.\n";
+    std::fs::write(&charter, &ours).unwrap();
+    let own = workspace().join("recipes/self");
+    add(&workspace(), own.to_str().unwrap(), "own", holding.path())
+        .expect("self installs over the library's own fast");
+    assert_eq!(installed(holding.path()), ["fast", "own", "panel-review"]);
+    assert_eq!(std::fs::read_to_string(&charter).unwrap(), ours);
+
+    // A leaf standing apart from its bases installs alone and composes
+    // with the library's.
+    let apart = tempfile::tempdir().unwrap();
+    copy_dir(&node, &apart.path().join("node")).unwrap();
+    let alone = apart.path().join("node");
+    add(
+        &workspace(),
+        alone.to_str().unwrap(),
+        "node",
+        holding.path(),
+    )
+    .expect("a lone leaf composes with the library's base");
+    assert_eq!(
+        installed(holding.path()),
+        ["fast", "node", "own", "panel-review"]
+    );
+}
+
+/// A refused compile removes the leaf AND every base copied with it.
+#[test]
+fn a_refused_derived_recipe_leaves_the_library_as_it_found_it() {
+    let bare = tempfile::tempdir().unwrap();
+    let library = tempfile::tempdir().unwrap();
+    let node = workspace().join("recipes/node");
+    let refusal = add(bare.path(), node.to_str().unwrap(), "node", library.path())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refusal.starts_with("recipe 'node' does not compile (removed): "),
+        "{refusal}"
+    );
+    assert_eq!(installed(library.path()), Vec::<String>::new());
+}
+
 #[test]
 fn copy_skips_nested_git_metadata() {
     let source = tempfile::tempdir().unwrap();

@@ -5,7 +5,7 @@ recipes; download and swap a recipe, re-run, compare the outcomes:
 that's the endgame")
 
 Built: built
-Amended by: 0017
+Amended by: 0017, 0078
 
 ## Ruling
 

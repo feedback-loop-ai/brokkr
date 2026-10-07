@@ -47,7 +47,8 @@ explicitly. That means it needs a committed `package-lock.json` and
 resolves outward to the registry, which is not what you want a gate seat
 doing.
 
-**`recipes add` brings no `adapters/` tree with it**, and `verify`,
+`recipes add` brings `fast`, the recipe `node` extends, into your
+library with it. **It brings no `adapters/` tree**, and `verify`,
 `review` and `ship` are gate-class. Copy `adapters/claude.json` into
 your repo *before* `recipes add`, or it refuses and leaves you nothing.
 This is [flow 3's](../quickstart.md#flow-3--adopt) first bullet.
