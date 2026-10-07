@@ -7,7 +7,7 @@
 //! private directories are [`ServerBox`]'s.
 
 use std::ffi::OsStr;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use super::{ids, Session, HANDS_BOX_ENV, HOST_TOOLCHAIN_BINDS, SANDBOX_HOME};
@@ -301,19 +301,6 @@ fn generate(etc: &Path, resolver: Resolver) -> std::io::Result<()> {
         std::fs::write(etc.join(name), text)?;
     }
     Ok(())
-}
-
-/// Make one of the box's private directories, owner-only whatever the
-/// caller's umask (#570). A `create_dir_all` directory takes the umask's
-/// mode: under 002, Ubuntu's default, the box's `/tmp` and its home would
-/// be group-writable 775, and the capability broker's ancestry guard
-/// refuses every plan whose path walks a group-writable directory. The
-/// mode goes to mkdir(2) itself, which no umask can widen.
-pub(super) fn private_dir(path: &Path) -> std::io::Result<()> {
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(path)
 }
 
 /// MB3's shared system bin directories: an executable directly in one is
