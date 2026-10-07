@@ -173,6 +173,8 @@ jobs:
       - name: bubblewrap for the hands tests
         if: runner.os == 'Linux'
         uses: ./.github/actions/setup-bubblewrap
+        with:
+          protect-system-tree: 'true'
       - run: cargo test --workspace --all-features --locked --no-fail-fast
         env:
           # Decision 0054 ruling 9: a boundary proof that cannot open a
@@ -317,6 +319,8 @@ jobs:
           key: brokkr-coverage-${{ runner.os }}-${{ hashFiles('rust-nightly-version.txt', 'cargo-llvm-cov-version.txt', 'Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
       - name: bubblewrap for the hands tests
         uses: ./.github/actions/setup-bubblewrap
+        with:
+          protect-system-tree: 'true'
       - name: prove literal nonzero 100% source-line/branch/function coverage
         run: bash scripts/coverage-exact.sh
         env:

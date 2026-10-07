@@ -1117,6 +1117,8 @@ const JOB_LINES: [(&str, &str); 11] = [
       - name: bubblewrap for the hands tests
         if: runner.os == 'Linux'
         uses: ./.github/actions/setup-bubblewrap
+        with:
+          protect-system-tree: 'true'
       - run:
         env:
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
@@ -1162,6 +1164,8 @@ const JOB_LINES: [(&str, &str); 11] = [
           key: brokkr-coverage-${{ runner.os }}-${{ hashFiles('rust-nightly-version.txt', 'cargo-llvm-cov-version.txt', 'Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
       - name: bubblewrap for the hands tests
         uses: ./.github/actions/setup-bubblewrap
+        with:
+          protect-system-tree: 'true'
       - name: prove literal nonzero 100% source-line/branch/function coverage
         run:
         env:

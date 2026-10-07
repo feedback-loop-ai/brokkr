@@ -13,6 +13,13 @@ description: >-
 # which leaves a new network namespace unable to raise its own loopback
 # ("loopback: Failed RTM_NEWADDR"). That is a runner setting, not a product
 # requirement: an operator's Linux box needs bubblewrap and nothing else.
+inputs:
+  protect-system-tree:
+    description: >-
+      'true' makes the runner's system set protected before the broker's
+      boundary proofs run (decision 0065 slice two, operator ruling
+      2026-10-07).
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -33,3 +40,26 @@ runs:
         bwrap --version
         sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
         sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+    # The broker admits an MCP server only where the system set its box
+    # binds (hands.rs HOST_TOOLCHAIN_BINDS and the system bin directories)
+    # is root-owned, has no group or other write and carries no access
+    # ACL. The hosted image ships /usr/share mode 777 with ACLs,
+    # /usr/lib/jvm and parts of /usr/local 777, and packer- and
+    # runner-owned files under /usr/local, so the broker rightly refuses
+    # it. This makes the disposable runner's set protected, as a properly
+    # run host is. Owners change only where they are not root, so no
+    # setuid bit on a root file is cleared, and group owners are left as
+    # they are.
+    - name: a protected system set for the broker's boundary proofs
+      if: inputs.protect-system-tree == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        for d in /usr/bin /usr/sbin /usr/lib /usr/lib64 /usr/include /usr/share /usr/local \
+                 /usr/libexec /bin /sbin /lib /lib64 /etc/ssl/certs /etc/ca-certificates /etc/alternatives \
+                 /etc/ld.so.cache /etc/ld.so.conf /etc/ld.so.conf.d; do
+          if [ ! -e "$d" ] || [ -L "$d" ]; then continue; fi
+          sudo setfacl -R -P -b "$d"
+          sudo find "$d" -xdev ! -user root -exec chown -h root {} +
+          sudo find "$d" -xdev ! -type l -perm /022 -exec chmod go-w {} +
+        done
