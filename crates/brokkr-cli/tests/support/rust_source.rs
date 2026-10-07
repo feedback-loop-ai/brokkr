@@ -1,13 +1,14 @@
 //! A reader of the attributes and `cfg!` invocations in Rust source, for
 //! the test files that judge them: `suppressions.rs` counts lint
 //! suppressions and `hosts.rs` refuses a Windows conditional.
-//! `tests/it.rs` declares this once, so the lexer has one home.
+//! `tests/it.rs` declares this once, so the lexer has one home. The
+//! `--test it` gate does not read source for a module's tests (#543): the
+//! binary's own list is the fact.
 //!
 //! The lexer skips comments and every string and char literal, so `#[`
 //! inside a string is not an attribute, and it reads each unit whole
-//! across lines, so a multi-line attribute, a `cfg_attr` and an inner
-//! `#![..]` are each one unit. Text it cannot read is refused rather than
-//! skipped.
+//! across lines, so a multi-line attribute is one unit. Text it cannot
+//! read is refused rather than skipped.
 
 use std::ops::RangeInclusive;
 
@@ -158,6 +159,34 @@ fn group(s: &[char], open: usize, what: &str) -> Result<(String, usize), String>
     }
     text.pop();
     Ok((text, j))
+}
+
+/// Splits `text` at commas outside brackets and strings.
+pub(crate) fn top_level(text: &str) -> Result<Vec<String>, String> {
+    let s: Vec<char> = text.chars().collect();
+    let (mut parts, mut depth, mut from, mut i) = (Vec::new(), 0i32, 0, 0);
+    while i < s.len() {
+        let next = skip_literal(&s, i)?;
+        if next != i {
+            i = next;
+            continue;
+        }
+        match s[i] {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(s[from..i].iter().collect::<String>().trim().to_string());
+                from = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let last: String = s[from..].iter().collect::<String>().trim().to_string();
+    if !last.is_empty() {
+        parts.push(last);
+    }
+    Ok(parts)
 }
 
 /// Every attribute's inner text (`expect(..)` of `#[expect(..)]`) and

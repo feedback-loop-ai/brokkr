@@ -96,9 +96,11 @@ fn is_assignment(word: &str) -> bool {
 /// line whose first word this does not list. A word stays listed when its
 /// leg stops running it, so a prose copy the change orphans still reads as
 /// a command and fails as one. `rustup` is listed too: a toolchain override
-/// runs cargo through it.
+/// runs cargo through it. `scripts/run-it-tests.sh` is listed too: the
+/// workflows run their one-binary test commands through the checked entry
+/// point that fails a run executing 0 tests (#543).
 const FIRST_WORDS: &str = "*,by-hand,*) bash cargo case docker echo esac exit fi git grep if npm \
-                           quality/ratchet.sh rustup set sw_vers test uname }";
+                           quality/ratchet.sh rustup scripts/run-it-tests.sh set sw_vers test uname }";
 
 /// Whether `FIRST_WORDS` lists `word`.
 fn first_word(word: &str) -> bool {

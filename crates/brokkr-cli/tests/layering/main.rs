@@ -56,6 +56,10 @@ struct Package {
     targets: Vec<Target>,
     /// The package's `Cargo.toml`, whose directory holds its `tests/`.
     manifest_path: PathBuf,
+    /// The package's `[features]` table, as Cargo reads it. A package
+    /// with no features is built the same whatever feature flags it is
+    /// given, which the gate's `current_exe` list relies on.
+    features: BTreeMap<String, Vec<String>>,
 }
 
 /// One compiled root: its kinds as Cargo names them (`lib`, `test`,
@@ -464,6 +468,7 @@ fn the_graph_refuses_every_edge_it_does_not_allow() {
             .collect(),
         targets: Vec::new(),
         manifest_path: PathBuf::new(),
+        features: BTreeMap::new(),
     };
     let packages = [
         package(
@@ -614,6 +619,7 @@ fn the_target_check_refuses_every_root_the_scan_does_not_read() {
         dependencies: Vec::new(),
         targets,
         manifest_path: dir.join("Cargo.toml"),
+        features: BTreeMap::new(),
     };
     let clean = package(vec![
         target("lib", "src/lib.rs"),
@@ -793,6 +799,7 @@ fn the_dependency_surface_table_matches_the_lockfile() {
             dependencies: Vec::new(),
             targets: Vec::new(),
             manifest_path: PathBuf::new(),
+            features: BTreeMap::new(),
         })
         .collect();
     assert_eq!(
