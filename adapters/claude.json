@@ -52,8 +52,55 @@
     }
   },
   "mcp": {
-    "flag": "--mcp-config",
-    "servers": {}
+    "carriage": {
+      "measured": "U0 C05 and C06 (claude 2.1.287, Linux, 2026-10-03): an engine-written --mcp-config under --strict-mcp-config started the engine sentinel, listed it in system/init and answered its tools/call, without and with the hands server (docs/evidence/adapters/slice-two-mcp-isolation.md)"
+    },
+    "shapes": [
+      {
+        "invocation": "cold",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "claude",
+          "binary": "claude",
+          "version": "2.1.287",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "U0 C04 and C06: under the hands fragment's --strict-mcp-config no planted user, project or plugin sentinel started and no claude.ai connector loaded while hands and the engine sentinel answered; C07: with /etc/claude-code/managed-mcp.json present claude refuses the flag before any model call"
+        },
+        "native_write": {
+          "measured": "U0 C10: the init tools were the two MCP tools only, so no native tool was present, and a hands write outside the worktree failed"
+        },
+        "store_read": {
+          "measured": "U0 C10: the 0600 store canary outside the worktree was absent in the hands box; a store inside the seat's bound worktree would be visible to hands"
+        },
+        "process_read": {
+          "measured": "U0 C10: the hands box held 4 pids and none carried the engine sentinel's process canary"
+        }
+      },
+      {
+        "invocation": "cold",
+        "hands": "none",
+        "measured_on": {
+          "harness": "claude",
+          "binary": "claude",
+          "version": "2.1.287",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "U0 C03 and C05: under --strict-mcp-config with an explicit empty or engine --mcp-config no planted user, project or plugin sentinel started and no claude.ai connector loaded while the engine sentinel answered; C07's managed-file refusal applies"
+        },
+        "native_write": {
+          "unsupported": "U0 C09b: native Write was allowed outside the cwd"
+        },
+        "store_read": {
+          "unsupported": "U0 C09b: native Read read the 0600 store canary"
+        },
+        "process_read": {
+          "unmeasured": "U0 C09b: no mechanism excludes it; Claude's permission check blocked the one Bash probe of /proc/<pid>/environ, and native Read on /proc was not probed"
+        }
+      }
+    ]
   },
   "hands": {
     "workspace": [

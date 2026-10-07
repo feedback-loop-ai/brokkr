@@ -107,8 +107,10 @@ Dependencies: U1c, U0c. Files and scope: [design.md](design.md#u1c2--build-dshs-
 
 Dependencies: U1c. Files and scope: [design.md](design.md#slice-two-units).
 
-- [ ] 5.1 (U1d; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md)) Populate declarations from U0 with exact evidence scope; unsupported/unmeasured is a valid outcome, never guessed support. Verify: Adapter-load and whole-file identity tests pin only observed facts.
-- [ ] 5.2 (U1d; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 5.1. Apply the shared verification duty above.
+- [x] 5.1 (U1d; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md)) Populate declarations from U0 with exact evidence scope; unsupported/unmeasured is a valid outcome, never guessed support. Verify: Adapter-load and whole-file identity tests pin only observed facts.
+  Evidence ([evidence/U1d.md](evidence/U1d.md)): the three adapters carry typed `carriage` and `shapes` from U0's cells, Linux only: Claude cold boxed and no-hands (2.1.287), Codex cold boxed, cold harness and the `work-site` resume (0.160.0, ambient unsupported with U0's cause), and LaneTally cold no-hands under its own wrapper identity. Every other shape, LaneTally's boxed cells included, stays absent. The loader admits each shape against its own binary, hands and resume; whole-file digests move resolution and bundle identity, and 17 witness pins were re-measured.
+- [x] 5.2 (U1d; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 5.1. Apply the shared verification duty above.
+  Evidence ([evidence/U1d.md](evidence/U1d.md)): three tests in the child `agents/mcp/tests.rs` pin the shipped table, the absent shapes and refused claims, and whole-file identity; the over-baseline owning suites did not grow. M1–M9 each failed an exact assertion and were restored. Exact coverage, remote CI and macOS are pending.
 
 ## 6. U1e — Record dsh and exec declarations
 
