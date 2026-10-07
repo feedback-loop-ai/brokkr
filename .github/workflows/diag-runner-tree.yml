@@ -1,0 +1,29 @@
+name: diag-runner-tree
+# TEMPORARY diagnostic for decision 0065 slice two U6c5a (PR #576): what in
+# the hosted runner's server system set the broker's observer cannot prove.
+# Not for merge; the PR is closed and this branch deleted after one run.
+on:
+  pull_request:
+    paths: [.github/workflows/diag-runner-tree.yml]
+jobs:
+  tree:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: survey
+        run: |
+          set +e
+          uname -a; id; umask; cat /etc/os-release | head -3
+          for d in /usr/bin /usr/lib /usr/lib64 /usr/include /usr/share /usr/local /usr/libexec /usr/sbin /bin /sbin /lib /lib64 /etc/ssl/certs; do
+            [ -e "$d" ] || { echo "== $d absent"; continue; }
+            n=$(sudo find "$d" -xdev 2>/dev/null | wc -l)
+            nr=$(sudo find "$d" -xdev ! -user root 2>/dev/null | wc -l)
+            gw=$(sudo find "$d" -xdev ! -type l -perm /022 2>/dev/null | wc -l)
+            ur=$(find "$d" -xdev ! -readable 2>/dev/null | wc -l)
+            echo "== $d entries=$n non-root-owned=$nr group/other-writable(non-link)=$gw unreadable-by-runner=$ur link=$(readlink $d)"
+            sudo find "$d" -xdev ! -user root -printf '%u:%g %m %p\n' 2>/dev/null | awk '{print $1, $3}' | sed -E 's#^([^ ]+) (/[^/]+/[^/]+/[^/]+/[^/]+).*#\1 \2#' | sort | uniq -c | sort -rn | head -8
+            sudo find "$d" -xdev ! -type l -perm /022 -printf '%u %m %p\n' 2>/dev/null | head -5
+          done
+          echo "== mounts under the set"; awk '{print $5}' /proc/self/mountinfo | grep -E '^/(usr|bin|sbin|lib|etc/ssl)' | head
+          echo "== total mount records: $(wc -l < /proc/self/mountinfo)"
+          echo "== ACL-bearing (getfacl -s, first 10)"; sudo getfacl -R -s -p /usr/local /usr/share 2>/dev/null | grep '^# file' | head -10
