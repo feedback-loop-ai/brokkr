@@ -1658,14 +1658,38 @@ fn umask_role() {
     let workdir = dir.path().join("work");
     std::fs::create_dir(&workdir).unwrap();
     workspace_argv(&HandsSpec::default(), &workdir, dir.path()).unwrap();
+    std::fs::write(record, private_modes(dir.path())).unwrap();
+}
+
+/// The modes of the private home and tmp `workspace_argv` made under
+/// `dir`, in octal, as one line (#570).
+fn private_modes(dir: &Path) -> String {
     let mode = |name: &str| {
-        std::fs::metadata(dir.path().join("scratch").join(name))
+        std::fs::metadata(dir.join("scratch").join(name))
             .unwrap()
             .permissions()
             .mode()
             & 0o7777
     };
-    std::fs::write(record, format!("{:o} {:o}\n", mode("home"), mode("tmp"))).unwrap();
+    format!("{:o} {:o}\n", mode("home"), mode("tmp"))
+}
+
+/// #570: a private home and tmp that already exist at a group-writable
+/// mode are narrowed to owner-only, not kept: mkdir(2)'s mode reaches
+/// only a directory it makes. The 775 is set outright, so no umask is
+/// needed to plant it.
+#[test]
+fn box_argv_narrows_private_dirs_that_already_exist() {
+    let dir = tempfile::tempdir().unwrap();
+    let workdir = dir.path().join("work");
+    std::fs::create_dir(&workdir).unwrap();
+    for name in ["home", "tmp"] {
+        let path = dir.path().join("scratch").join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o775)).unwrap();
+    }
+    workspace_argv(&HandsSpec::default(), &workdir, dir.path()).unwrap();
+    assert_eq!(private_modes(dir.path()), "700 700\n");
 }
 
 /// #570, the removal control that needs no namespace: it is `box_argv`

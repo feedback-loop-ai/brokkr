@@ -30,7 +30,7 @@
 use std::fmt;
 use std::fs::File;
 use std::os::fd::{AsFd, BorrowedFd};
-use std::os::unix::fs::DirBuilderExt;
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{FileType, FlockOperation, Mode, OFlags};
@@ -72,12 +72,14 @@ fn create_lock(path: &Path) -> std::io::Result<File> {
 /// default, the box's `/tmp` and its home would be group-writable 775,
 /// and the capability broker's ancestry guard refuses every plan whose
 /// path walks a group-writable directory. The mode goes to mkdir(2)
-/// itself, which no umask can widen.
+/// itself, which no umask can widen, and the leaf is then set to exactly
+/// 0700, so one that already existed at a wider mode is narrowed too.
 pub(super) fn private_dir(path: &Path) -> std::io::Result<()> {
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
-        .create(path)
+        .create(path)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
 }
 
 /// An errno in the kernel's words, as `std::io::Error` prints it.
