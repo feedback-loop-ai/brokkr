@@ -475,8 +475,8 @@ fn listed(executable: &Path) -> Result<BTreeSet<String>, String> {
 #[test]
 fn a_list_the_gate_cannot_read_is_refused() {
     assert_eq!(
-        listed(Path::new("/bin/false")),
-        Err("/bin/false --list failed: exit status: 1".to_string())
+        listed(Path::new("/usr/bin/false")),
+        Err("/usr/bin/false --list failed: exit status: 1".to_string())
     );
     assert_eq!(
         listed(Path::new("/bin/echo")),
