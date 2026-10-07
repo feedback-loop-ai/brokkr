@@ -29,7 +29,7 @@ report() {
 }
 
 {
-  report cargo test --locked -p brokkr-runtime --test it budgets::
+  report scripts/run-it-tests.sh cargo test --locked -p brokkr-runtime --test it budgets::
 } > "$scratch/runtime"
 {
   report cargo test --locked -p brokkr-cli --test heap_claude

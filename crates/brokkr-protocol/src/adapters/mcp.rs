@@ -6,16 +6,17 @@
 //! launch's server set — empty or hands-only, the only sets this
 //! no-broker plan has — and each invocation shape's measured assessment.
 //!
-//! Only the U0-qualified mechanism is built: Claude's grammar, which
+//! Only the U0-qualified mechanisms are built. Claude's grammar, which
 //! LaneTally's wrapper forwards, excludes ambient MCP under
 //! `--strict-mcp-config` with an engine-written `--mcp-config` (U0 cells C03
-//! to C06 and LT03 to LT10). Codex has no passing candidate and dsh's
-//! engine-only home is not built here (U1c2), so an intent for either
-//! refuses rather than borrowing Claude's result or falling back to ambient
-//! configuration. Exec has no model MCP surface (SI2), so its launch reads
-//! no intent. A launch whose input
-//! carries no intent is served as before: mandatory strict admission
-//! activates only at U1g.
+//! to C06 and LT03 to LT10). dsh excludes it from an engine-only `DSH_HOME`
+//! with the engine's server row in the seat's one `--patch` overlay (U0 D03
+//! and D04, U0c K01 to K12r; U1c2), and only on the routes those cells
+//! measured. Codex has no passing candidate, so an intent for it refuses
+//! rather than borrowing another harness's result or falling back to
+//! ambient configuration. Exec has no model MCP surface (SI2), so its launch
+//! reads no intent. A launch whose input carries no intent is served as
+//! before: mandatory strict admission activates only at U1g.
 //!
 //! [`Serving`]: crate::native_controls::Serving
 
@@ -25,8 +26,9 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{claude_restriction_control, last_message_door, placed, ServingShape};
+use super::{claude_restriction_control, last_message_door, placed, ResumeGate, ServingShape};
 use crate::native_controls::{SealedServing, Transport, SERVING_INPUTS};
+use crate::transcript::{DshHome, DshHomeError};
 
 /// The driver-input key the engine's isolation intent rides under.
 const MCP_ISOLATION: &str = "mcp_isolation";
@@ -257,7 +259,56 @@ pub(super) enum McpRefusal {
          stands before it"
     )]
     Unplaced { provider: &'static str },
+    #[error("provider 'dsh' has no measured strict MCP configuration on route '{route}'")]
+    UnmeasuredRoute { route: String },
+    #[error(
+        "provider 'dsh' has no measured strict MCP configuration for a seat that pins no \
+         `--model`: the route it would run is the profile's unnamed default"
+    )]
+    Unpinned,
+    #[error("provider 'dsh' route '{route}' {}", row.mismatch())]
+    RouteEntry { route: String, row: RouteRow },
 }
+
+/// How a qualified dsh route reached its engine-only home when U0 or U0c
+/// measured it: on `dsh-base`'s shipped row alone, or with its validated
+/// `llm-pi-ai` provider entry, which production carries as the seat's one
+/// bound route overlay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RouteRow {
+    Shipped,
+    Overlay,
+}
+
+impl RouteRow {
+    /// Why a seat's overlay is not the measured configuration of a route
+    /// whose row is `self`.
+    fn mismatch(self) -> &'static str {
+        match self {
+            RouteRow::Shipped => {
+                "was measured on dsh-base's shipped row alone, and the seat's overlay carries a \
+                 provider entry for it"
+            }
+            RouteRow::Overlay => {
+                "was measured with its validated provider entry, and the seat carries no route \
+                 overlay"
+            }
+        }
+    }
+}
+
+/// The routes, by the provider segment of the seat's model pin, on which
+/// an engine-only dsh home was measured to exclude ambient MCP and serve
+/// the engine's server: `spark` and `spark-glm` by U0 (D03 and D04), the
+/// four keyed families by U0c, and nothing else.
+const DSH_ROUTES: [(&str, RouteRow); 6] = [
+    ("spark", RouteRow::Overlay),
+    ("spark-glm", RouteRow::Overlay),
+    ("deepseek-official", RouteRow::Shipped),
+    ("dashscope", RouteRow::Overlay),
+    ("meta", RouteRow::Overlay),
+    ("meta-contributor", RouteRow::Overlay),
+];
 
 impl McpRefusal {
     /// The refusal as a driver states it, before any provider work.
@@ -315,9 +366,8 @@ impl Isolation {
     /// Whether `provider` may be served as `invocation`: its assessment
     /// must be measured, and the engine must build a qualified mechanism
     /// for its harness. A measured claim for a harness with none is missing
-    /// evidence, never a fallback. dsh's every assessment is missing
-    /// evidence until its engine-only home is built (U1c2; operator ruling
-    /// of 2026-10-06), whatever limitation the intent records for it.
+    /// evidence, never a fallback. dsh's route is judged separately
+    /// ([`Isolated::dsh`]), once its model pin is read.
     fn admit(&self, provider: &'static str, invocation: Invocation<'_>) -> Result<(), McpRefusal> {
         let (assessment, shape) = match invocation {
             Invocation::Cold => (&self.cold, "cold"),
@@ -328,9 +378,6 @@ impl Isolation {
             provider,
             shape: shape.to_string(),
         };
-        if ServingShape::of(provider) == Some(ServingShape::Dsh) {
-            return Err(unmeasured());
-        }
         match assessment {
             Assessment::Unsupported(reason) => {
                 return Err(McpRefusal::Unsupported {
@@ -342,8 +389,74 @@ impl Isolation {
             Assessment::Measured => {}
         }
         match ServingShape::of(provider) {
-            Some(ServingShape::Claude) => Ok(()),
-            Some(ServingShape::Codex | ServingShape::Dsh) | None => Err(unmeasured()),
+            Some(ServingShape::Claude | ServingShape::Dsh) => Ok(()),
+            Some(ServingShape::Codex) | None => Err(unmeasured()),
+        }
+    }
+}
+
+/// How one dsh launch is served: from the operator's home where the input
+/// carries no intent, as before, or from an engine-only home, rejoining an
+/// offered session only where the intent's resume shape is admitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DshIsolation {
+    Operator,
+    Engine { rejoins: bool },
+}
+
+impl Isolated {
+    /// dsh's serving under this launch's intent, once the seat's model pin
+    /// is read to the provider segment it names, its route, and whether
+    /// the seat carries a route overlay: a route U0 or U0c did not measure,
+    /// a seat that pins none and an overlay that is not the measured
+    /// route's each refuse before any route is claimed or home staged.
+    pub(super) fn dsh(
+        &self,
+        route: Option<&str>,
+        routed: bool,
+    ) -> Result<DshIsolation, McpRefusal> {
+        if self.isolation.is_none() {
+            return Ok(DshIsolation::Operator);
+        }
+        let route = route.ok_or(McpRefusal::Unpinned)?;
+        let Some((_, row)) = DSH_ROUTES.iter().find(|(name, _)| *name == route) else {
+            return Err(McpRefusal::UnmeasuredRoute {
+                route: route.to_string(),
+            });
+        };
+        if routed != (*row == RouteRow::Overlay) {
+            return Err(McpRefusal::RouteEntry {
+                route: route.to_string(),
+                row: *row,
+            });
+        }
+        Ok(DshIsolation::Engine {
+            rejoins: self.resumes("dsh", super::DSH_SHAPE),
+        })
+    }
+}
+
+impl DshIsolation {
+    /// The adapter's resume gate under this serving: a gate the adapter
+    /// closed keeps its own reason, and an open one closes as
+    /// `restrictions-unavailable` where the engine-only home may not
+    /// rejoin, so the offer is declined and the launch is its cold
+    /// replacement, never recorded as resume support.
+    pub(super) fn gate(self, gate: ResumeGate) -> ResumeGate {
+        match (self, gate) {
+            (DshIsolation::Engine { rejoins: false }, ResumeGate::Enabled { .. }) => {
+                ResumeGate::Disabled("restrictions-unavailable")
+            }
+            (DshIsolation::Engine { rejoins: true } | DshIsolation::Operator, gate)
+            | (DshIsolation::Engine { rejoins: false }, gate @ ResumeGate::Disabled(_)) => gate,
+        }
+    }
+
+    /// The home this serving reads, staged now for the engine.
+    pub(super) fn home(self, workdir: &str) -> Result<DshHome, DshHomeError> {
+        match self {
+            DshIsolation::Operator => DshHome::operator(),
+            DshIsolation::Engine { .. } => DshHome::stage(workdir),
         }
     }
 }
@@ -381,7 +494,10 @@ fn with_empty_set(
 /// one the sealed inputs declare: the hands set rides the adapter's measured
 /// workspace fragment, whose strict flag and document the final check
 /// proves, and the empty set gains the strict flag and the empty document
-/// here, beside no other MCP configuration. A launch offered no rejoin is
+/// here, beside no other MCP configuration. dsh's empty set is its
+/// engine-only home with no server row in its overlay, so its arguments are
+/// unchanged, and dsh holds no hands (its adapter's measured fact), so a
+/// hands set is never measured for it. A launch offered no rejoin is
 /// admitted cold; one `offered` a rejoin can always end as its cold
 /// replacement, so that shape is admitted for it, and the rejoin itself
 /// separately ([`Isolated::resumes`]).
@@ -409,9 +525,16 @@ pub(super) fn isolated(
     if sealed_hands(edge) != Some(hands) {
         return Err(not_sealed);
     }
-    let argv = match hands {
-        true => extra.to_vec(),
-        false => {
+    let dsh = ServingShape::of(provider) == Some(ServingShape::Dsh);
+    let argv = match (hands, dsh) {
+        (true, true) => {
+            return Err(McpRefusal::Unmeasured {
+                provider,
+                shape: "hands".into(),
+            })
+        }
+        (true, false) | (false, true) => extra.to_vec(),
+        (false, false) => {
             let configured = extra.iter().any(|part| {
                 claude_restriction_control(part).is_some_and(|(control, _)| {
                     matches!(control, "--strict-mcp-config" | "--mcp-config")

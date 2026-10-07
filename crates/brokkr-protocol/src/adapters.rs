@@ -4255,6 +4255,8 @@ struct DshLaunch {
     /// The private git store a linked-worktree seat commits into, held
     /// for the seat's whole life and handed to the promotion afterwards.
     staged: Option<(String, dsh_sandbox::GitScope, dsh_sandbox::SeatGitStore)>,
+    /// The one home the plan read and the child is served from (U1c2).
+    home: crate::transcript::DshHome,
 }
 
 impl DshLaunch {
@@ -4305,24 +4307,24 @@ fn dsh_launch(
     session: Option<&str>,
     input: &Value,
 ) -> Result<DshLaunch, String> {
-    dsh_launch_resolving(bin, extra, workdir, session, input, || {
-        DshSeams::resolve_declared(bin)
+    dsh_launch_resolving(bin, extra, workdir, session, input, |home| {
+        DshSeams::resolve_declared(bin, home)
     })
 }
 
-/// `dsh_launch` over an injected seam resolver, so the unreadable-seams
-/// refusal is a plain test without an environment that has no DSH home.
-/// The real resolver stays production's only path into a launch.
+/// `dsh_launch` over an injected seam resolver handed the launch's one home,
+/// so the unreadable-seams refusal is a plain test without a DSH home. The
+/// real resolver stays production's only path into a launch.
 fn dsh_launch_resolving(
     bin: &str,
     extra: &[String],
     workdir: &str,
     session: Option<&str>,
     input: &Value,
-    resolve: impl FnOnce() -> Result<DshSeams, CompositeError>,
+    resolve: impl FnOnce(&Path) -> Result<DshSeams, CompositeError>,
 ) -> Result<DshLaunch, String> {
-    dsh_launch_with(bin, extra, workdir, session, input, || {
-        let seams = resolve()
+    dsh_launch_with(bin, extra, workdir, session, input, |home| {
+        let seams = resolve(home)
             .map_err(|error| format!("dsh driver: the dsh seams are unreadable: {error}"))?;
         dsh_composite(&seams)
             .map_err(|error| format!("dsh driver: the composite identity is unreadable: {error}"))
@@ -4330,11 +4332,13 @@ fn dsh_launch_resolving(
 }
 
 /// What a DSH launch reads from the seat's argv once it is judged: the
-/// engine's own model, effort and single route overlay, and nothing else.
+/// engine's own model, effort and single route overlay, and the serving
+/// the engine's isolation intent admits (U1c2).
 struct DshArgv {
     model: Option<String>,
     effort: Option<String>,
     route: Option<String>,
+    isolation: mcp::DshIsolation,
 }
 
 /// The seat's argv as every DSH launch judges it, before any route is
@@ -4360,9 +4364,9 @@ fn dsh_argv(extra: &[String], input: &Value, offered: bool) -> Result<DshArgv, S
     // authority refusal wins, and the boundary check below inspects the
     // COMPOSED argv, the command that will actually launch (ruling 2).
     let composed = composed_launch("dsh", extra, input)?;
-    // The engine-only DSH home U0 measured is not built, so the engine's
-    // isolation intent refuses here, before any provider work.
-    mcp::isolated("dsh", &mcp::Edge::new(input), &composed.extra, offered)
+    // The engine's isolation intent, before any provider work: its shapes
+    // here, and its route below, once the model pin is read (U1c2).
+    let isolated = mcp::isolated("dsh", &mcp::Edge::new(input), &composed.extra, offered)
         .map_err(|refusal| refusal.at_launch())?;
     let extra = composed.extra.as_slice();
     // Original adjacency next: the three extractions below are
@@ -4387,9 +4391,7 @@ fn dsh_argv(extra: &[String], input: &Value, offered: bool) -> Result<DshArgv, S
     // Validate the extracted model and the effort/model relationship before
     // any provider observation, so a malformed pin refuses on the cold,
     // offered and disabled paths alike (task 8.8(d)).
-    if let Some(model) = model.as_deref() {
-        parse_dsh_model(model)?;
-    }
+    let pinned = model.as_deref().map(parse_dsh_model).transpose()?;
     if effort.is_some() && model.is_none() {
         return Err(
             "dsh driver: `--effort` needs a `--model` beside it: the level rides the seat's \
@@ -4398,10 +4400,13 @@ fn dsh_argv(extra: &[String], input: &Value, offered: bool) -> Result<DshArgv, S
                 .to_string(),
         );
     }
+    let served = isolated.dsh(pinned.map(|pinned| pinned.provider), route_arg.is_some());
+    let isolation = served.map_err(|refusal| refusal.at_launch())?;
     Ok(DshArgv {
         model,
         effort,
         route: route_arg,
+        isolation,
     })
 }
 
@@ -4418,17 +4423,15 @@ fn dsh_launch_with(
     workdir: &str,
     session: Option<&str>,
     input: &Value,
-    composite: impl FnOnce() -> Result<DshComposite, String>,
+    composite: impl FnOnce(&Path) -> Result<DshComposite, String>,
 ) -> Result<DshLaunch, String> {
-    let DshArgv {
-        model,
-        effort,
-        route: route_arg,
-    } = dsh_argv(extra, input, session.is_some())?;
-    let route = route_overlay::claim(input, workdir, model.as_deref(), route_arg.as_deref())?;
-    let transcript = Transcript::resolve(TranscriptKind::DshSession)?;
-    let home = transcript.home().to_path_buf();
-    let gate = resume_gate(input, DSH_SHAPE);
+    let argv = dsh_argv(extra, input, session.is_some())?;
+    let (model, effort) = (argv.model.as_deref(), argv.effort.as_deref());
+    let route = route_overlay::claim(input, workdir, model, argv.route.as_deref())?;
+    // The one home every read below follows, and the child is served from.
+    let served = argv.isolation.home(workdir)?;
+    let (transcript, home) = (Transcript::dsh(&served), served.path().to_path_buf());
+    let gate = argv.isolation.gate(resume_gate(input, DSH_SHAPE));
 
     let mut observed: Option<String> = None;
     let mut digest: Option<String> = None;
@@ -4453,7 +4456,7 @@ fn dsh_launch_with(
                 {
                     observed = Some(version.clone());
                     if &version == applies_to {
-                        if let Ok(value) = composite() {
+                        if let Ok(value) = composite(&home) {
                             if value.canonical() == declared {
                                 digest = Some(value.canonical().to_string());
                                 qualified = true;
@@ -4532,14 +4535,8 @@ fn dsh_launch_with(
     // which is the only way anything the seat committed reaches the
     // shared repository.
     let staged = dsh_sandbox_row_for(workdir, &facts, &mode)?;
-    let sandbox_row = staged.as_ref().map(|(row, _, _)| row.clone());
-    let overlay = dsh_seat_overlay_with(
-        model.as_deref(),
-        effort.as_deref(),
-        &root,
-        route.as_deref(),
-        sandbox_row.as_deref(),
-    )?;
+    let sandbox = staged.as_ref().map(|(row, _, _)| row.as_str());
+    let overlay = dsh_seat_overlay_with(model, effort, &root, route.as_deref(), sandbox)?;
     let command = dsh_command(
         bin,
         &overlay.path().to_string_lossy(),
@@ -4563,6 +4560,7 @@ fn dsh_launch_with(
         effortless: effort.is_none(),
         facts,
         staged,
+        home: served,
     })
 }
 
@@ -4789,7 +4787,10 @@ fn invoke_dsh_launch_observed(
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
-    let transcript = Transcript::resolve(TranscriptKind::DshSession)?;
+    // Before any row names the home, a binding over its fixed env refuses.
+    let declared = bindings.iter().map(secret::BoundSecret::name);
+    launch.home.serve(&dsh_child_env(&launch), declared)?;
+    let transcript = Transcript::dsh(&launch.home);
     let staged = launch.staged.take();
     let mut session_meta = Map::new();
     // Decision 0035 addendum 2026-09-11: a dsh seat with no `--effort`
@@ -4884,27 +4885,28 @@ fn spawn_dsh(
     command: &[String],
     workdir: &str,
     stdout: Stdio,
-    facts: &GitFacts,
+    launch: &DshLaunch,
     bindings: &[secret::BoundSecret],
 ) -> Result<(std::process::Child, std::thread::JoinHandle<Vec<u8>>), String> {
-    // Seat commits are unsigned (CONTRIBUTING): the host's own
-    // `commit.gpgsign` is outranked for every git call this seat makes,
-    // and the signing wrapper and its key stay outside the harness's
-    // sandbox.
+    let env = dsh_child_env(launch);
+    let mut child = spawn_harness(command, workdir, Stdio::null(), stdout, &env, bindings)?;
+    let stderr_thread = drain_stderr(&mut child);
+    Ok((child, stderr_thread))
+}
+
+/// Every dsh child's fixed environment: unsigned commits (CONTRIBUTING) under the
+/// host's identity (decision 0043 ruling 6), and an engine-only home (U1c2).
+fn dsh_child_env(launch: &DshLaunch) -> Vec<(&str, &str)> {
     let mut env = vec![
         ("GIT_CONFIG_COUNT", "1"),
         ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
         ("GIT_CONFIG_VALUE_0", "false"),
     ];
-    // The seat commits under the host's identity, resolved outside the
-    // sandbox the way the namespace box resolves it (decision 0043
-    // ruling 6).
-    for (key, value) in &facts.identity {
+    env.extend(launch.home.child_home().map(|home| ("DSH_HOME", home)));
+    for (key, value) in &launch.facts.identity {
         env.push((key, value));
     }
-    let mut child = spawn_harness(command, workdir, Stdio::null(), stdout, &env, bindings)?;
-    let stderr_thread = drain_stderr(&mut child);
-    Ok((child, stderr_thread))
+    env
 }
 
 /// The shipped cold route: stdout is `/dev/null` (the headless runner
@@ -4920,8 +4922,7 @@ fn invoke_dsh_shipped(
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
-    let (mut child, stderr_thread) =
-        spawn_dsh(command, workdir, Stdio::null(), &launch.facts, bindings)?;
+    let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::null(), launch, bindings)?;
     let mut turns = 0u64;
     let mut tail = DshTail::default();
     let exit_code = poll_until_exit(
@@ -4959,8 +4960,7 @@ fn invoke_dsh_stream_json(
     emit: &mut impl FnMut(&Value),
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
-    let (mut child, stderr_thread) =
-        spawn_dsh(command, workdir, Stdio::piped(), &launch.facts, bindings)?;
+    let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::piped(), launch, bindings)?;
     let stdout = child.stdout.take().expect("piped");
     let mut turns = 0u64;
     let mut tail = DshTail::default();

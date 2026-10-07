@@ -23,7 +23,7 @@ use std::process::Command;
 
 use crate::{rust_source, test_paths, workspace_root};
 
-use rust_source::{skip_literal, units};
+use rust_source::{top_level, units};
 use test_paths::is_gate_test_path as is_test_path;
 use workspace_root::{read, workspace};
 
@@ -63,34 +63,6 @@ struct Suppression {
     lints: Vec<String>,
     reason: Option<String>,
     predicate: Option<String>,
-}
-
-/// Splits `text` at commas outside brackets and strings.
-fn top_level(text: &str) -> Result<Vec<String>, String> {
-    let s: Vec<char> = text.chars().collect();
-    let (mut parts, mut depth, mut from, mut i) = (Vec::new(), 0i32, 0, 0);
-    while i < s.len() {
-        let next = skip_literal(&s, i)?;
-        if next != i {
-            i = next;
-            continue;
-        }
-        match s[i] {
-            '(' | '[' | '{' => depth += 1,
-            ')' | ']' | '}' => depth -= 1,
-            ',' if depth == 0 => {
-                parts.push(s[from..i].iter().collect::<String>().trim().to_string());
-                from = i + 1;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    let last: String = s[from..].iter().collect::<String>().trim().to_string();
-    if !last.is_empty() {
-        parts.push(last);
-    }
-    Ok(parts)
 }
 
 /// An `expect`, `allow` or `cfg_attr` attribute split into its name and

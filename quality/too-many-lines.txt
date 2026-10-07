@@ -11,7 +11,7 @@
  106 crates/brokkr-core/src/policy.rs:467 parse_condition
  218 crates/brokkr-core/src/realms.rs:514 of
  108 crates/brokkr-protocol/src/adapters.rs:1518 fold_stream_event
- 109 crates/brokkr-protocol/src/adapters.rs:4415 dsh_launch_with
+ 101 crates/brokkr-protocol/src/adapters.rs:4420 dsh_launch_with
  342 crates/brokkr-protocol/src/adapters.rs:6477 run_seat_with
  229 crates/brokkr-protocol/src/adapters/composite.rs:1346 pnpm_dependencies
  122 crates/brokkr-protocol/src/adapters/composite/image.rs:198 elf

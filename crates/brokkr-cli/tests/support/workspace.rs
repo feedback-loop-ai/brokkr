@@ -4,6 +4,10 @@
 
 use std::path::PathBuf;
 
+/// The one checked entry point a workflow's or a script's one-binary test
+/// command runs through, from the workspace root (#543).
+pub(crate) const GUARD: &str = "scripts/run-it-tests.sh";
+
 /// The workspace root: two levels above this crate's manifest.
 pub(crate) fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

@@ -34,13 +34,29 @@
 //! does not close or holds what no plain word does, and every other. No
 //! shell semantics is emulated, and none is needed.
 //!
-//! A read line is one command. Its words after `cargo` are an invocation,
-//! and one that passes `--test it` (as `--test it`, `--test=it`, or quoted)
-//! is read by closed tables of the flags Cargo and libtest take: every word
-//! they do not consume is a filter, before the flag, after it and after
-//! `--`. A word, flag or form outside the tables is refused, never skipped;
-//! so is a `--test it` outside such an invocation, a `--test` with no
-//! target, and a word that runs `--test` into other text.
+//! The reader of a command's words is the closed grammar's, and this round
+//! widens what it refuses without widening what it admits. A read
+//! invocation's filters are held to the tests the package's own `it`
+//! binary lists (`--list --format terse`): a filter's module must have a
+//! listed test of its own, and an `--exact` filter must be a listed name
+//! (#543). The binary's list is the fact, and it is the list of the
+//! command's own build configuration: default features in the dev profile.
+//! The flag tables are the one home of whether a flag can move the build,
+//! and a command that names any build-moving flag — a feature set, a
+//! profile, `--config`, `-Z`, a `+toolchain` — or an assignment before
+//! `cargo` whose name is `CARGO_*` or `RUST*`, is refused, named, because
+//! the gate holds no such list. A filter under more than one `-p` is
+//! refused too: Cargo unifies the selected packages' features, so no
+//! single listed build holds it. Every one of those refusals is the same
+//! axis: the list must be the command's own build. The source is never
+//! read for tests, so a name a string literal, a comment or a nested item
+//! shows, and one a `cfg`, a `cfg_attr` or the module's own `#![cfg]`
+//! gates away from the compiling host, is in no list and refuses. A
+//! package whose binary cannot be built or listed is refused, named,
+//! never skipped. In a workflow or a script the command must run through
+//! `scripts/run-it-tests.sh`, the checked entry point that fails a
+//! filtered run executing no test; a guide's command is read from its text
+//! alone, because an operator copies it and no job here runs it.
 //!
 //! The threat model is the operator's of 2026-09-26: realistic accidental
 //! misuse is caught and what cannot be read is refused. A `--test it` that
@@ -48,16 +64,14 @@
 //! its input, is a low residual.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use super::{is_identifier, unreadable, Refusal};
+use super::{is_identifier, Refusal};
+use crate::workspace_root::GUARD;
 
-/// The modules each package's `tests/it.rs` declares, by package and name.
-type Roots = BTreeMap<String, BTreeMap<String, PathBuf>>;
-
-/// How the reader reads a module's file, to find an `--exact` name in it.
-type Read<'r> = &'r dyn Fn(&Path) -> io::Result<String>;
+/// The tests each package's `it` binary carries, by package, as the
+/// binary itself lists them.
+pub(super) type Lists = BTreeMap<String, BTreeSet<String>>;
 
 /// One line as a command reads it: the number of the file line it starts
 /// on, and its text.
@@ -98,53 +112,58 @@ impl Flag {
     }
 }
 
-/// A closed table of flags, by the name each is written with.
-type Table = &'static [(&'static str, Flag)];
+/// A closed table of flags: each row is the name a flag is written with,
+/// what it takes, and whether it can move the build the gate lists.
+type Table = &'static [(&'static str, Flag, bool)];
 
-/// Cargo's own flags, which it takes before the subcommand as well.
+/// Cargo's own flags, which it takes before the subcommand as well. A
+/// `--config` sets another configuration and `-Z` another unstable
+/// feature set, so each can move the build.
 const CARGO: Table = &[
-    ("--locked", Flag::Switch),
-    ("--offline", Flag::Switch),
-    ("--frozen", Flag::Switch),
-    ("-q", Flag::Switch),
-    ("--quiet", Flag::Switch),
-    ("-v", Flag::Switch),
-    ("--verbose", Flag::Switch),
-    ("--color", Flag::Valued),
-    ("--config", Flag::Valued),
-    ("-Z", Flag::Valued),
+    ("--locked", Flag::Switch, false),
+    ("--offline", Flag::Switch, false),
+    ("--frozen", Flag::Switch, false),
+    ("-q", Flag::Switch, false),
+    ("--quiet", Flag::Switch, false),
+    ("-v", Flag::Switch, false),
+    ("--verbose", Flag::Switch, false),
+    ("--color", Flag::Valued, false),
+    ("--config", Flag::Valued, true),
+    ("-Z", Flag::Valued, true),
 ];
 
-/// `cargo test`'s flags, before `--`.
+/// `cargo test`'s flags, before `--`. A feature set, another profile or
+/// `--release` builds a binary other than the default-feature dev one the
+/// gate lists, so each can move the build.
 const CARGO_TEST: Table = &[
-    ("-p", Flag::Package),
-    ("--package", Flag::Package),
-    ("--test", Flag::Valued),
-    ("-F", Flag::Valued),
-    ("--features", Flag::Valued),
-    ("--all-features", Flag::Switch),
-    ("--no-default-features", Flag::Switch),
-    ("--release", Flag::Switch),
-    ("--no-fail-fast", Flag::Switch),
-    ("-j", Flag::Valued),
-    ("--jobs", Flag::Valued),
-    ("--target-dir", Flag::Valued),
+    ("-p", Flag::Package, false),
+    ("--package", Flag::Package, false),
+    ("--test", Flag::Valued, false),
+    ("-F", Flag::Valued, true),
+    ("--features", Flag::Valued, true),
+    ("--all-features", Flag::Switch, true),
+    ("--no-default-features", Flag::Switch, true),
+    ("--release", Flag::Switch, true),
+    ("--no-fail-fast", Flag::Switch, false),
+    ("-j", Flag::Valued, false),
+    ("--jobs", Flag::Valued, false),
+    ("--target-dir", Flag::Valued, false),
 ];
 
-/// libtest's flags, after `--`.
+/// libtest's flags, after `--`. None moves the build.
 const LIBTEST: Table = &[
-    ("--exact", Flag::Exact),
-    ("--skip", Flag::Valued),
-    ("--ignored", Flag::Switch),
-    ("--include-ignored", Flag::Switch),
-    ("--nocapture", Flag::Switch),
-    ("--no-capture", Flag::Switch),
-    ("--show-output", Flag::Switch),
-    ("--test-threads", Flag::Valued),
-    ("-q", Flag::Switch),
-    ("--quiet", Flag::Switch),
-    ("--color", Flag::Valued),
-    ("--format", Flag::Valued),
+    ("--exact", Flag::Exact, false),
+    ("--skip", Flag::Valued, false),
+    ("--ignored", Flag::Switch, false),
+    ("--include-ignored", Flag::Switch, false),
+    ("--nocapture", Flag::Switch, false),
+    ("--no-capture", Flag::Switch, false),
+    ("--show-output", Flag::Switch, false),
+    ("--test-threads", Flag::Valued, false),
+    ("-q", Flag::Switch, false),
+    ("--quiet", Flag::Switch, false),
+    ("--color", Flag::Valued, false),
+    ("--format", Flag::Valued, false),
 ];
 
 /// A `cargo test` invocation as the tables read it.
@@ -153,6 +172,10 @@ struct Invocation {
     packages: Vec<String>,
     filters: Vec<String>,
     exact: bool,
+    /// The build configuration the command asks for, by word, when it is
+    /// not the default the gate lists: a feature set or a profile, each
+    /// as the command writes its flag.
+    configuration: Vec<String>,
 }
 
 /// What a `--test` passes.
@@ -277,43 +300,58 @@ fn unread_filter(at: &str, word: &str, command: &str) -> Refusal {
     }
 }
 
-/// The flag `word` names in `tables`, with its argument: after `=`, or the
-/// next word when it takes one. A form outside the tables is refused by
-/// its word; a short flag is read only alone, so `-pname` is refused.
+/// The name of a flag word: the `--name` of `--name=value`, else the word.
+/// Only a long flag is read with `=`; a short flag stands alone.
+fn flag_name(word: &str) -> &str {
+    match word.split_once('=') {
+        Some((name, _)) if name.starts_with("--") => name,
+        _ => word,
+    }
+}
+
+/// The flag `word` names in `tables`, with its argument and whether its
+/// row says it can move the build: after `=`, or the next word when it
+/// takes one. A form outside the tables is refused by its word; a short
+/// flag is read only alone, so `-pname` is refused.
 fn flag<'w>(
     tables: &[Table],
     word: &'w str,
     rest: &mut impl Iterator<Item = &'w str>,
-) -> Result<(Flag, Option<&'w str>), &'w str> {
-    let (name, inline) = match word.split_once('=') {
-        Some((name, inline)) if name.starts_with("--") => (name, Some(inline)),
-        _ => (word, None),
-    };
+) -> Result<(Flag, bool, Option<&'w str>), &'w str> {
+    let name = flag_name(word);
+    let inline = (name != word).then(|| &word[name.len() + 1..]);
     let mut known = tables.iter().flat_map(|table| table.iter());
-    let (_, flag) = known.find(|(known, _)| *known == name).ok_or(word)?;
+    let (_, flag, moves_build) = known.find(|(known, _, _)| *known == name).ok_or(word)?;
     match (flag.takes_argument(), inline) {
-        (true, None) => Ok((*flag, Some(rest.next().ok_or(word)?))),
-        (true, Some(_)) | (false, None) => Ok((*flag, inline)),
+        (true, None) => Ok((*flag, *moves_build, Some(rest.next().ok_or(word)?))),
+        (true, Some(_)) | (false, None) => Ok((*flag, *moves_build, inline)),
         (false, Some(_)) => Err(word),
     }
 }
 
 /// `args`, the words after `cargo`, read as `[+toolchain] [flags] test
-/// [args]`. The word the tables cannot read is the error.
+/// [args]`. A flag whose row can move the build, and a `+toolchain`, are
+/// recorded on the invocation so `hold` can refuse them, named. The word
+/// the tables cannot read is the error.
 fn invocation(args: &[String]) -> Result<Invocation, &str> {
     let mut words = args.iter().map(String::as_str);
-    let mut first = true;
+    let (mut read, mut first) = (Invocation::default(), true);
     loop {
         match words.next().ok_or("cargo")? {
             "test" | "t" => break,
-            toolchain if first && toolchain.starts_with('+') => {}
+            toolchain if first && toolchain.starts_with('+') => {
+                read.configuration.push(toolchain.to_string());
+            }
             word => {
-                flag(&[CARGO], word, &mut words)?;
+                let (_, moves_build, _) = flag(&[CARGO], word, &mut words)?;
+                if moves_build {
+                    read.configuration.push(word.to_string());
+                }
             }
         }
         first = false;
     }
-    let (mut read, mut libtest) = (Invocation::default(), false);
+    let mut libtest = false;
     while let Some(word) = words.next() {
         if word == "--" && !libtest {
             libtest = true;
@@ -326,9 +364,10 @@ fn invocation(args: &[String]) -> Result<Invocation, &str> {
                 &[CARGO_TEST, CARGO]
             };
             match flag(tables, word, &mut words)? {
-                (Flag::Package, package) => read.packages.extend(package.map(str::to_string)),
-                (Flag::Exact, _) => read.exact = true,
-                (Flag::Switch | Flag::Valued, _) => {}
+                (Flag::Package, _, package) => read.packages.extend(package.map(str::to_string)),
+                (Flag::Exact, _, _) => read.exact = true,
+                (_, true, _) => read.configuration.push(word.to_string()),
+                (_, false, _) => {}
             }
         }
     }
@@ -336,44 +375,53 @@ fn invocation(args: &[String]) -> Result<Invocation, &str> {
 }
 
 /// Every `--test it` filter in `text`, the file at `file`, each held to
-/// the modules `roots` gives each package its command names, and an
-/// `--exact` name to a `#[test]` of its module, read through `read`. The
-/// first it cannot hold or read is refused.
-pub(super) fn filters_in(
-    file: &str,
-    text: &str,
-    roots: &Roots,
-    read: Read<'_>,
-) -> Result<Vec<Filter>, Refusal> {
+/// the tests `lists` records for the package its command names: the
+/// binary's own list is the fact. The first it cannot hold is refused.
+pub(super) fn filters_in(file: &str, text: &str, lists: &Lists) -> Result<Vec<Filter>, Refusal> {
+    let guard = guarded_root(file);
     let mut filters = Vec::new();
     for (number, line) in lines_of(file, text)? {
         let at = format!("{file}:{number}");
-        if let Some((command, invocation)) = read_line(&at, &line)? {
-            filters.extend(hold(&at, &command, &invocation, roots, read)?);
+        if let Some((command, invocation)) = read_line(&at, &line, guard)? {
+            filters.extend(hold(&at, &command, &invocation, lists)?);
         }
     }
     Ok(filters)
+}
+
+/// Whether a file's `--test it` commands must run through [`GUARD`]: the
+/// workflows and scripts this repository runs, not a guide or a recipe an
+/// operator copies by hand.
+fn guarded_root(file: &str) -> bool {
+    file.starts_with(".github/") || file.starts_with("scripts/")
 }
 
 /// The `--test it` invocation one line runs, with the command it was read
 /// from: none when the line may pass no `--test it`, and otherwise the
 /// line read in the closed grammar or refused by its first character
 /// outside it. A line that is wholly a comment is read as its text.
-fn read_line(at: &str, line: &str) -> Result<Option<(String, Invocation)>, Refusal> {
+fn read_line(at: &str, line: &str, guard: bool) -> Result<Option<(String, Invocation)>, Refusal> {
     let line = line.trim_matches(' ');
     let line = (line.strip_prefix('#')).map_or(line, |comment| comment.trim_start_matches(' '));
     if !may_pass_it(line) {
         return Ok(None);
     }
     let words = words_of(line).map_err(|outside| unread_filter(at, &outside.to_string(), line))?;
-    let invocation = read_command(at, line, &words)?;
+    let invocation = read_command(at, line, &words, guard)?;
     Ok(invocation.map(|invocation| (line.to_string(), invocation)))
 }
 
 /// One command's words: an invocation that passes `--test it` by the
 /// tables, and every other word loosely. A `cargo` whose `--test` names
-/// no target is refused by that word.
-fn read_command(at: &str, line: &str, words: &[String]) -> Result<Option<Invocation>, Refusal> {
+/// no target is refused by that word; in a workflow or script the command
+/// must run through the checked entry point; and an assignment before
+/// `cargo` that can move the build is recorded so `hold` refuses it.
+fn read_command(
+    at: &str,
+    line: &str,
+    words: &[String],
+    guard: bool,
+) -> Result<Option<Invocation>, Refusal> {
     let Some(cargo) = words.iter().position(|word| is_cargo(word)) else {
         return loose(at, line, words).map(|()| None);
     };
@@ -389,9 +437,34 @@ fn read_command(at: &str, line: &str, words: &[String]) -> Result<Option<Invocat
     if !passes_it {
         return loose(at, line, words).map(|()| None);
     }
-    let invocation = invocation(args).map_err(|word| unread_filter(at, word, line))?;
+    if guard && (cargo == 0 || words[cargo - 1] != GUARD) {
+        return Err(Refusal::Unguarded {
+            at: at.to_string(),
+            command: line.trim().to_string(),
+        });
+    }
+    let mut invocation = invocation(args).map_err(|word| unread_filter(at, word, line))?;
+    for word in &words[..cargo] {
+        if moves_build_assignment(word) {
+            invocation.configuration.push(word.clone());
+        }
+    }
     loose(at, line, &words[..cargo])?;
     Ok(Some(invocation))
+}
+
+/// Whether `word` is an environment assignment before `cargo` that can
+/// move the build: a `NAME=value` whose name starts `CARGO_` (Cargo's own
+/// configuration) or `RUST` (`RUSTFLAGS`, `RUSTC`, `RUSTUP_TOOLCHAIN`,
+/// and the rest). One of those set before `cargo` can build another
+/// binary than the gate lists, and no line shows it in the flags.
+fn moves_build_assignment(word: &str) -> bool {
+    let Some((name, _)) = word.split_once('=') else {
+        return false;
+    };
+    !name.is_empty()
+        && name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric())
+        && (name.starts_with("CARGO_") || name.starts_with("RUST"))
 }
 
 /// Words outside any `--test it` invocation: a `--test it` here is
@@ -409,14 +482,23 @@ fn loose(at: &str, line: &str, words: &[String]) -> Result<(), Refusal> {
     Ok(())
 }
 
-/// An invocation's filters, held to the module `roots` gives each package
-/// it names, and under `--exact` to a `#[test]` of that module.
+/// An invocation's filters, held to the tests `lists` records for each
+/// package it names: the binary's own list is the fact, so a filter's
+/// module must have a listed test of its own and, under `--exact`, the
+/// filter must be a listed name. A name a literal's text or a nested item
+/// shows is no test of the binary, and neither is one a `cfg`, a
+/// `cfg_attr` or the module's own `#![cfg]` gates away from the build the
+/// binary was made in; the list already reflects all of it. A command
+/// whose feature set or profile is not the one the list was built of is
+/// refused, named, never held to a list of another build. A filter under
+/// more than one `-p` is refused: Cargo unifies the selected packages'
+/// features, so no single listed build holds it. A package no list was
+/// read of is refused, never skipped.
 fn hold(
     at: &str,
     command: &str,
     invocation: &Invocation,
-    roots: &Roots,
-    read: Read<'_>,
+    lists: &Lists,
 ) -> Result<Vec<Filter>, Refusal> {
     if invocation.packages.is_empty() && !invocation.filters.is_empty() {
         return Err(Refusal::NoPackage {
@@ -424,28 +506,47 @@ fn hold(
             command: command.to_string(),
         });
     }
+    if invocation.packages.len() > 1 && !invocation.filters.is_empty() {
+        return Err(Refusal::ManyPackages {
+            at: at.to_string(),
+            packages: invocation.packages.clone(),
+            command: command.to_string(),
+        });
+    }
     let mut held = Vec::new();
     for filter in &invocation.filters {
-        let (module, name) =
+        let (module, _) =
             path_of(filter, invocation.exact).ok_or_else(|| unread_filter(at, filter, command))?;
         for package in &invocation.packages {
-            let file =
-                (roots.get(package).and_then(|modules| modules.get(module))).ok_or_else(|| {
-                    Refusal::UnknownModule {
-                        at: at.to_string(),
-                        package: package.clone(),
-                        module: module.to_string(),
-                    }
-                })?;
+            if !invocation.configuration.is_empty() {
+                return Err(Refusal::UnreadList {
+                    at: at.to_string(),
+                    package: package.clone(),
+                    why: format!(
+                        "the gate lists it with default features in the dev profile, not `{}`",
+                        invocation.configuration.join(" ")
+                    ),
+                });
+            }
+            let carried = (lists.get(package)).ok_or_else(|| Refusal::UnreadList {
+                at: at.to_string(),
+                package: package.clone(),
+                why: "the workspace has no tests/it binary for it".into(),
+            })?;
             if invocation.exact {
-                let text = read(file).map_err(|error| unreadable(file, &error))?;
-                if !tests_of(&text).contains(name) {
+                if !carried.contains(filter) {
                     return Err(Refusal::UnknownTest {
                         at: at.to_string(),
                         package: package.clone(),
                         name: filter.clone(),
                     });
                 }
+            } else if !carried.iter().any(|test| under_module(test, module)) {
+                return Err(Refusal::TestlessModule {
+                    at: at.to_string(),
+                    package: package.clone(),
+                    module: module.to_string(),
+                });
             }
             held.push(Filter {
                 at: at.to_string(),
@@ -455,6 +556,14 @@ fn hold(
         }
     }
     Ok(held)
+}
+
+/// Whether a listed test sits under `module`: its path begins with the
+/// module's name and the `::` that follows it, so `suppressions::a_b` is
+/// under `suppressions` and `suppressions_other::a_b` is not.
+fn under_module(test: &str, module: &str) -> bool {
+    test.strip_prefix(module)
+        .is_some_and(|rest| rest.starts_with("::"))
 }
 
 /// A filter's module and the rest of its path: `<module>::…`, each
@@ -468,24 +577,6 @@ fn path_of(filter: &str, exact: bool) -> Option<(&str, &str)> {
         && inner.iter().all(|segment| is_identifier(segment))
         && (is_identifier(last) || (last.is_empty() && !exact));
     (readable && (!exact || inner.is_empty())).then_some((module, rest))
-}
-
-/// The `#[test]` functions at the top level of a module's text: a `fn` at
-/// a line's start under a run of attributes and doc comments, also at
-/// their lines' start, that holds `#[test]`.
-fn tests_of(text: &str) -> BTreeSet<&str> {
-    let (mut tests, mut marked) = (BTreeSet::new(), false);
-    for line in text.lines() {
-        if marked {
-            let name = line
-                .strip_prefix("fn ")
-                .and_then(|rest| rest.split_once('('));
-            tests.extend(name.map(|(name, _)| name));
-        }
-        marked =
-            line == "#[test]" || (marked && (line.starts_with("#[") || line.starts_with("///")));
-    }
-    tests
 }
 
 /// A file's lines as its format makes them: a script's, a text's or an
@@ -763,12 +854,12 @@ fn cut_at_spans(text: &str, spans: &[Span], prose: &[&str]) -> bool {
 
 /// The filter reader reads each form of `--test it` Cargo takes, every
 /// filter around it, a comment's and each file format's lines, and holds
-/// each filter to its crate's root and an `--exact` name to a test of its
-/// module. A line that names no `--test`, or plainly passes another
-/// target, is not read, whatever else it holds.
+/// each filter to a module whose tests the package's binary lists and an
+/// `--exact` name to a listed test. A line that names no `--test`, or
+/// plainly passes another target, is not read, whatever else it holds.
 #[test]
 fn the_filter_reader_holds_each_filter_to_its_crates_root() {
-    let (roots, read) = fixture();
+    let lists = fixture_lists();
     let cli = |at: &str, module: &str| Filter {
         at: at.into(),
         package: "brokkr-cli".into(),
@@ -776,7 +867,7 @@ fn the_filter_reader_holds_each_filter_to_its_crates_root() {
     };
     for (file, text, held) in [
         ("f", "cargo test --locked -p brokkr-cli --test it packaging::\n", vec![cli("f:1", "packaging")]),
-        ("f", "cargo +nightly --locked test -p brokkr-cli --test=it -- --ignored --exact suppressions::a_b\n", vec![cli("f:1", "suppressions")]),
+        ("f", "cargo --locked test -p brokkr-cli --test=it -- --ignored --exact suppressions::a_b\n", vec![cli("f:1", "suppressions")]),
         ("f", "{\n  X=1 cargo test -p brokkr-cli --test it suppressions::a\n} > /dev/null 2>&1\n", vec![cli("f:2", "suppressions")]),
         ("f", "cargo test -p brokkr-cli --test it -- --skip gone:: --test-threads=1 --nocapture packaging::\n", vec![cli("f:1", "packaging")]),
         ("f", "\"cargo\" test -p 'brokkr-cli' --te\"st\" 'it' pack\"aging\"::\n", vec![cli("f:1", "packaging")]),
@@ -790,7 +881,7 @@ fn the_filter_reader_holds_each_filter_to_its_crates_root() {
         ("f.md", "Pass --test heap_x or `cargo test -p brokkr-cli --test it packaging::` here.\n", vec![cli("f.md:1", "packaging")]),
         ("f.md", "`cargo test -p brokkr-cli --test it packaging::`: or (``cargo test -p brokkr-cli --test it suppressions::``).\n", vec![cli("f.md:1", "packaging"), cli("f.md:1", "suppressions")]),
     ] {
-        assert_eq!(filters_in(file, text, &roots, &read), Ok(held), "{text}");
+        assert_eq!(filters_in(file, text, &lists), Ok(held), "{text}");
     }
 }
 
@@ -801,8 +892,8 @@ fn the_filter_reader_holds_each_filter_to_its_crates_root() {
 /// length, and a JSON string's escapes, decoded.
 #[test]
 fn the_filter_reader_refuses_a_stale_filter_in_every_form() {
-    let (roots, read) = fixture();
-    let refusal = |at: &str, package: &str, module: &str| Refusal::UnknownModule {
+    let lists = fixture_lists();
+    let refusal = |at: &str, package: &str, module: &str| Refusal::TestlessModule {
         at: at.into(),
         package: package.into(),
         module: module.into(),
@@ -820,6 +911,11 @@ fn the_filter_reader_refuses_a_stale_filter_in_every_form() {
         name: name.into(),
     };
     let no_package = "cargo test --test it packaging::";
+    let many = |command: &str| Refusal::ManyPackages {
+        at: "f:1".into(),
+        packages: vec!["brokkr-cli".into(), "brokkr-core".into()],
+        command: command.into(),
+    };
     let tilde = (
         "f.md",
         "~~~sh\ncargo test --locked -p brokkr-cli --test it no_such_file::\n~~~",
@@ -828,7 +924,15 @@ fn the_filter_reader_refuses_a_stale_filter_in_every_form() {
     let other = [
         (
             "cargo test -p brokkr-cli -p brokkr-core --test it packaging::",
-            refusal("f:1", "brokkr-core", "packaging"),
+            many("cargo test -p brokkr-cli -p brokkr-core --test it packaging::"),
+        ),
+        (
+            "cargo test -p brokkr-cli -p brokkr-core --test it no_such_file::",
+            many("cargo test -p brokkr-cli -p brokkr-core --test it no_such_file::"),
+        ),
+        (
+            "cargo test -p brokkr-cli --test it suppress::",
+            refusal("f:1", "brokkr-cli", "suppress"),
         ),
         (
             "cargo test -p brokkr-cli --test it -- --exact suppressions::helper",
@@ -839,10 +943,35 @@ fn the_filter_reader_refuses_a_stale_filter_in_every_form() {
             exact("suppressions::nested"),
         ),
         (
-            "cargo test -p brokkr-cli --test it -- --exact packaging::a",
-            Refusal::Unreadable {
-                path: "packaging.rs".into(),
-                kind: io::ErrorKind::NotFound,
+            "cargo test -p brokkr-cli --test it -- --exact gone::a",
+            exact("gone::a"),
+        ),
+        (
+            "cargo test -p brokkr-cli --test it gone::",
+            refusal("f:1", "brokkr-cli", "gone"),
+        ),
+        (
+            "cargo test -p brokkr-cli --test it empty::",
+            refusal("f:1", "brokkr-cli", "empty"),
+        ),
+        (
+            "cargo test -p brokkr-cli --test it -- --exact empty::helper",
+            exact("empty::helper"),
+        ),
+        (
+            "cargo test -p brokkr-cli --test it -- --exact broken::a",
+            exact("broken::a"),
+        ),
+        (
+            "cargo test -p brokkr-cli --test it broken::",
+            refusal("f:1", "brokkr-cli", "broken"),
+        ),
+        (
+            "cargo test -p brokkr-gone --test it x::",
+            Refusal::UnreadList {
+                at: "f:1".into(),
+                package: "brokkr-gone".into(),
+                why: "the workspace has no tests/it binary for it".into(),
             },
         ),
         (
@@ -855,17 +984,13 @@ fn the_filter_reader_refuses_a_stale_filter_in_every_form() {
     ];
     let other = (other.into_iter()).map(|(text, refused)| ("f", text, refused));
     for (file, text, refused) in stale.chain([tilde]).chain(other) {
-        assert_eq!(
-            filters_in(file, text, &roots, &read),
-            Err(refused),
-            "{text}"
-        );
+        assert_eq!(filters_in(file, text, &lists), Err(refused), "{text}");
     }
 }
 
 /// A stale filter in each spelling, by file; each names `no_such_file` on
 /// the file's first line.
-const STALE: [(&str, &str); 15] = [
+const STALE: [(&str, &str); 14] = [
     ("f", "cargo test -p brokkr-cli --test=it no_such_file::"),
     ("f", "cargo test -p brokkr-cli --test 'it' no_such_file::"),
     (
@@ -879,10 +1004,6 @@ const STALE: [(&str, &str); 15] = [
     (
         "f",
         "cargo test --locked -p brokkr-cli no_such_file:: --test it",
-    ),
-    (
-        "f",
-        "cargo test -p brokkr-cli -p brokkr-core --test it no_such_file::",
     ),
     ("f", "#cargo test -p brokkr-cli --test it no_such_file::"),
     (
@@ -930,12 +1051,12 @@ const STALE: [(&str, &str); 15] = [
 /// reader read exactly.
 #[test]
 fn the_filter_reader_refuses_a_word_or_form_it_cannot_read() {
-    let (roots, read) = fixture();
+    let lists = fixture_lists();
     let in_f = (UNREAD_WORDS.into_iter()).map(|(text, word)| ("f", text, 1, word, text));
     let one_line = (UNREAD_LINES.into_iter()).map(|(file, text)| (file, text, 1, "--test", text));
     for (file, text, line, word, command) in in_f.chain(one_line).chain(UNREAD_FORMS) {
         assert_eq!(
-            filters_in(file, text, &roots, &read),
+            filters_in(file, text, &lists),
             Err(unread_filter(&format!("{file}:{line}"), word, command)),
             "{text}"
         );
@@ -1059,7 +1180,7 @@ const UNREAD_FORMS: [(&str, &str, usize, &str, &str); 6] = [
 /// backticks the shell may run.
 #[test]
 fn the_filter_reader_refuses_a_line_by_its_first_character_outside_the_grammar() {
-    let (roots, read) = fixture();
+    let lists = fixture_lists();
     let (nbsp, acute) = (char::from(0xa0), char::from(0xe9));
     let foreign = [
         (format!("cargo test -p brokkr-cli --test{nbsp}it x::"), nbsp),
@@ -1077,7 +1198,7 @@ fn the_filter_reader_refuses_a_line_by_its_first_character_outside_the_grammar()
     });
     for (file, text, line, outside, command) in in_f.chain(forms) {
         assert_eq!(
-            filters_in(file, &text, &roots, &read),
+            filters_in(file, &text, &lists),
             Err(unread_filter(
                 &format!("{file}:{line}"),
                 &outside.to_string(),
@@ -1382,7 +1503,7 @@ const OUTSIDE_FORMS: [(&str, &str, usize, char, &str); 22] = [
 /// read as it was.
 #[test]
 fn a_character_outside_the_grammar_refuses_a_held_line_wherever_it_stands() {
-    let (roots, read) = fixture();
+    let lists = fixture_lists();
     let outside = [
         '#',
         '$',
@@ -1426,7 +1547,7 @@ fn a_character_outside_the_grammar_refuses_a_held_line_wherever_it_stands() {
                 module: module.into(),
             }])
         };
-        assert_eq!(filters_in("f", line, &roots, &read), held(), "{line}");
+        assert_eq!(filters_in("f", line, &lists), held(), "{line}");
         let spaces = line
             .match_indices(' ')
             .map(|(at, space)| (at, space.to_string()));
@@ -1437,33 +1558,287 @@ fn a_character_outside_the_grammar_refuses_a_held_line_wherever_it_stands() {
                 (0, "#") => held(),
                 _ => Err(unread_filter("f:1", &c, &variant)),
             };
-            assert_eq!(
-                filters_in("f", &variant, &roots, &read),
-                refused,
-                "{variant:?}"
-            );
+            assert_eq!(filters_in("f", &variant, &lists), refused, "{variant:?}");
         }
     }
 }
 
-/// Two packages' roots, and the one module file whose tests an `--exact`
-/// name is held to.
-fn fixture() -> (Roots, impl Fn(&Path) -> io::Result<String>) {
-    let roots = BTreeMap::from([
+/// A test a `cfg_attr` gates and a module its own `#![cfg]` gates are no
+/// test of the binary that was built without them: `attr_gated`'s
+/// `absent` is behind `#[cfg_attr(test, cfg(target_os = "macos"))]` and
+/// `inner_gated`'s every test behind its own `#![cfg]`, so the binary's
+/// list carries neither. The list is the fact; the binary has already
+/// resolved the gates, and the host's own list is pinned by
+/// `the_binarys_own_list_is_what_the_gate_holds`. A module whose other
+/// test the list carries is still held, and so is a listed name.
+#[test]
+fn a_test_or_module_gated_from_this_host_is_no_test_of_the_binary() {
+    let lists = fixture_lists();
+    let module_form = "cargo test -p brokkr-cli --test it inner_gated::\n";
+    assert_eq!(
+        filters_in("f", module_form, &lists),
+        Err(Refusal::TestlessModule {
+            at: "f:1".into(),
+            package: "brokkr-cli".into(),
+            module: "inner_gated".into(),
+        }),
+        "{module_form}"
+    );
+    let exact_form = "cargo test -p brokkr-cli --test it -- --exact attr_gated::absent\n";
+    assert_eq!(
+        filters_in("f", exact_form, &lists),
+        Err(Refusal::UnknownTest {
+            at: "f:1".into(),
+            package: "brokkr-cli".into(),
+            name: "attr_gated::absent".into(),
+        }),
+        "{exact_form}"
+    );
+    let held = Ok(vec![Filter {
+        at: "f:1".into(),
+        package: "brokkr-cli".into(),
+        module: "attr_gated".into(),
+    }]);
+    assert_eq!(
+        filters_in(
+            "f",
+            "cargo test -p brokkr-cli --test it attr_gated::\n",
+            &lists
+        ),
+        held,
+        "the module's listed test holds it"
+    );
+    assert_eq!(
+        filters_in(
+            "f",
+            "cargo test -p brokkr-cli --test it -- --exact attr_gated::kept\n",
+            &lists
+        ),
+        held,
+        "a listed name is held"
+    );
+}
+
+/// #543: the list is the binary of the command's own build configuration —
+/// default features in the dev profile — so a command that names a feature
+/// set, a profile, a `--config`, an unstable `-Z` or a `+toolchain` the
+/// gate does not list is refused, named, in both the module and the
+/// `--exact` form, and a command of the default configuration is still
+/// held. Each can build another binary, whose list is not the command's;
+/// the gate must refuse rather than vouch the filter against the wrong
+/// list.
+#[test]
+fn a_command_of_an_unlisted_configuration_is_refused() {
+    let lists = fixture_lists();
+    let refused = |configuration: &str| Refusal::UnreadList {
+        at: "f:1".into(),
+        package: "brokkr-cli".into(),
+        why: format!(
+            "the gate lists it with default features in the dev profile, not `{configuration}`"
+        ),
+    };
+    for (text, configuration) in [
+        (
+            "cargo test --locked -p brokkr-cli --all-features --test it packaging::\n",
+            "--all-features",
+        ),
+        (
+            "cargo test --locked -p brokkr-cli --no-default-features --test it packaging::\n",
+            "--no-default-features",
+        ),
+        (
+            "cargo test --locked -p brokkr-cli --release --test it packaging::\n",
+            "--release",
+        ),
+        (
+            "cargo test --locked -p brokkr-cli --features test-support --test it packaging::\n",
+            "--features",
+        ),
+        (
+            "cargo test --locked -p brokkr-cli --features=test-support --test it packaging::\n",
+            "--features=test-support",
+        ),
+        (
+            "cargo test --locked -p brokkr-cli -F test-support --test it packaging::\n",
+            "-F",
+        ),
+        (
+            "cargo test --locked -p brokkr-cli --config profile.test.debug-assertions=false \
+             --test it packaging::\n",
+            "--config",
+        ),
+        (
+            "cargo test -p brokkr-cli -Z unstable-options --test it packaging::\n",
+            "-Z",
+        ),
+        (
+            "cargo +nightly test -p brokkr-cli --test it packaging::\n",
+            "+nightly",
+        ),
+    ] {
+        assert_eq!(
+            filters_in("f", text, &lists),
+            Err(refused(configuration)),
+            "{text}"
+        );
+    }
+    for (text, configuration) in [
+        (
+            "cargo test --locked -p brokkr-cli --all-features --test it -- --exact \
+             suppressions::a_b\n",
+            "--all-features",
+        ),
+        (
+            "cargo test --locked -p brokkr-cli --config x --test it -- --exact suppressions::a_b\n",
+            "--config",
+        ),
+        (
+            "cargo test -p brokkr-cli -Z unstable-options --test it -- --exact suppressions::a_b\n",
+            "-Z",
+        ),
+        (
+            "cargo +nightly test -p brokkr-cli --test it -- --exact suppressions::a_b\n",
+            "+nightly",
+        ),
+    ] {
+        assert_eq!(
+            filters_in("f", text, &lists),
+            Err(refused(configuration)),
+            "{text}"
+        );
+    }
+    let held = Ok(vec![Filter {
+        at: "f:1".into(),
+        package: "brokkr-cli".into(),
+        module: "packaging".into(),
+    }]);
+    assert_eq!(
+        filters_in(
+            "f",
+            "cargo test --locked -p brokkr-cli --test it packaging::\n",
+            &lists
+        ),
+        held,
+        "a command of the default configuration is held"
+    );
+}
+
+/// #543: an assignment before `cargo` whose name is `CARGO_*` or `RUST*`
+/// sets Cargo's own configuration or rustc's flags, so it can build
+/// another binary than the gate lists. It is refused, named, in both the
+/// module and the `--exact` form; another assignment is held, as
+/// `the_filter_reader_holds_each_filter_to_its_crates_root`'s `X=1` and
+/// `BROKKR_X=1` rows show.
+#[test]
+fn an_assignment_that_can_move_the_build_is_refused() {
+    let lists = fixture_lists();
+    let refused = |assignment: &str| Refusal::UnreadList {
+        at: "f:1".into(),
+        package: "brokkr-cli".into(),
+        why: format!(
+            "the gate lists it with default features in the dev profile, not `{assignment}`"
+        ),
+    };
+    for (text, assignment) in [
+        (
+            "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS=false cargo test -p brokkr-cli --test it \
+             packaging::\n",
+            "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS=false",
+        ),
+        (
+            "RUSTFLAGS=--cfg=other cargo test --locked -p brokkr-cli --test it packaging::\n",
+            "RUSTFLAGS=--cfg=other",
+        ),
+        (
+            "RUSTUP_TOOLCHAIN=nightly cargo test -p brokkr-cli --test it -- --exact \
+             suppressions::a_b\n",
+            "RUSTUP_TOOLCHAIN=nightly",
+        ),
+    ] {
+        assert_eq!(
+            filters_in("f", text, &lists),
+            Err(refused(assignment)),
+            "{text}"
+        );
+    }
+}
+
+/// #543: a workflow's or a script's `--test it` command runs through the
+/// one checked entry point, which fails a filtered run that executes 0
+/// tests; a command that bypasses it is refused. A guide's command is read
+/// from its text alone, because an operator copies it and no job here runs
+/// it.
+#[test]
+fn a_workflow_or_script_command_must_run_through_the_checked_entry_point() {
+    let lists = fixture_lists();
+    let bare = "cargo test --locked -p brokkr-cli --test it packaging::";
+    for (file, text) in [
+        (".github/workflows/ci.yml", format!("run: {bare}\n")),
+        ("scripts/measure-budgets.sh", format!("{bare}\n")),
+    ] {
+        assert_eq!(
+            filters_in(file, &text, &lists),
+            Err(Refusal::Unguarded {
+                at: format!("{file}:1"),
+                command: bare.into(),
+            }),
+            "{file}"
+        );
+    }
+    let guarded = format!("scripts/run-it-tests.sh {bare}");
+    for (file, text) in [
+        (".github/workflows/ci.yml", format!("run: {guarded}\n")),
+        ("scripts/measure-budgets.sh", format!("{guarded}\n")),
+    ] {
+        assert_eq!(
+            filters_in(file, &text, &lists),
+            Ok(vec![Filter {
+                at: format!("{file}:1"),
+                package: "brokkr-cli".into(),
+                module: "packaging".into(),
+            }]),
+            "{file}"
+        );
+    }
+    assert_eq!(
+        filters_in("docs/guides/x.md", &format!("{bare}\n"), &lists),
+        Ok(vec![Filter {
+            at: "docs/guides/x.md:1".into(),
+            package: "brokkr-cli".into(),
+            module: "packaging".into(),
+        }]),
+        "a guide's command needs no entry point"
+    );
+}
+
+/// The lists the rows are held to, as a binary reports them — one home
+/// for both row tests' fixture, this module's and the parent's
+/// `a_filter_is_held_to_a_module_that_holds_tests_and_a_name_to_a_test`.
+/// brokkr-cli's carries `attr_gated`, `hands`, `layering`, `packaging`
+/// and `suppressions` tests; brokkr-core's and brokkr-runtime's carry
+/// their own; no support module's name is in any list. `suppressions::a_b`
+/// is a listed name and `suppressions::helper` is not, nor
+/// `suppressions::nested`: the test under `mod inner` is named
+/// `suppressions::inner::nested` and the reader reads no such path.
+pub(super) fn fixture_lists() -> Lists {
+    BTreeMap::from([
         (
             "brokkr-cli".to_string(),
-            BTreeMap::from([
-                ("packaging".to_string(), PathBuf::from("packaging.rs")),
-                ("suppressions".to_string(), PathBuf::from("suppressions.rs")),
+            BTreeSet::from([
+                "attr_gated::kept".to_string(),
+                "hands::a_test_the_binary_carries".to_string(),
+                "layering::test_targets::a_test_of_the_directory_module".to_string(),
+                "packaging::packaging_holds_a_test".to_string(),
+                "suppressions::a_b".to_string(),
             ]),
         ),
-        ("brokkr-core".to_string(), BTreeMap::new()),
-    ]);
-    let read = |path: &Path| {
-        match path.to_str() {
-        Some("suppressions.rs") => Ok("#[test]\n#[ignore = \"x\"]\n/// A test.\nfn a_b() {}\n\nfn helper() {}\nmod inner {\n    #[test]\n    fn nested() {}\n}\n".to_string()),
-        _ => Err(io::Error::from(io::ErrorKind::NotFound)),
-    }
-    };
-    (roots, read)
+        (
+            "brokkr-core".to_string(),
+            BTreeSet::from(["core::a_test_the_binary_carries".to_string()]),
+        ),
+        (
+            "brokkr-runtime".to_string(),
+            BTreeSet::from(["witness_digests::a_test_the_binary_carries".to_string()]),
+        ),
+    ])
 }
