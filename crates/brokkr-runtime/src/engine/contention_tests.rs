@@ -373,8 +373,9 @@ fn succeeded() -> AttemptOutcome {
 }
 
 /// The fenced-race seam: `between` runs at the instant before each
-/// append, and a peer takes the lock there again after the journal has
-/// taken only part of what was held. Nothing is lost, nothing reorders,
+/// append, and a peer takes the lock there again just after letting it
+/// go. What is held drains in one transaction, not one per row (#464), so
+/// the retaken lock keeps all of it. Nothing is lost, nothing reorders,
 /// and the terminal event's cause is the last checkpoint that landed.
 #[test]
 fn checkpoints_held_behind_a_peers_lock_land_in_order_once_it_lets_go() {
@@ -387,8 +388,8 @@ fn checkpoints_held_behind_a_peers_lock_land_in_order_once_it_lets_go() {
         let (peer, calls, db) = (peer.clone(), calls.clone(), db.clone());
         move |_: &mut Store| {
             calls.set(calls.get() + 1);
-            // The fifth append: `a` has just landed, `b` is next.
-            if calls.get() == 5 {
+            // The fourth append: `d` rides behind the three held.
+            if calls.get() == 4 {
                 *peer.borrow_mut() = Some(write_lock_on(&db));
             }
         }
@@ -404,7 +405,11 @@ fn checkpoints_held_behind_a_peers_lock_land_in_order_once_it_lets_go() {
     let_go();
     let settled = checkpoints.settle().expect("the lock was released");
 
-    assert_eq!(calls.get(), 8, "three held, then a and b, then b, c and d");
+    assert_eq!(
+        calls.get(),
+        5,
+        "three held, then four held, then all four at once"
+    );
     assert_eq!(landed(&engine), ["a", "b", "c", "d"]);
     let events = engine.store.load(&engine.run_id).unwrap();
     assert_eq!(
@@ -441,12 +446,15 @@ fn two_held_then_settled(
 }
 
 /// Once the seat stops, held checkpoints get the settlement's patiences:
-/// a lock that lets go within them lands every held row, in order, and
-/// the attempt keeps its driver's outcome.
+/// a lock that lets go within them lands every held row, in order, in one
+/// transaction, and the attempt keeps its driver's outcome.
 #[test]
 fn held_checkpoints_land_when_the_lock_lets_go_within_the_settlement() {
     let (_dir, engine, calls, settled) = two_held_then_settled(4);
-    assert_eq!(calls, 5, "a, then a again, then a patience, a and b");
+    assert_eq!(
+        calls, 4,
+        "a, then a and b, then a patience, then a and b at once"
+    );
     assert_eq!(landed(&engine), ["a", "b"]);
     assert!(matches!(
         settled.outcome("", succeeded()),
@@ -460,7 +468,7 @@ fn held_checkpoints_land_when_the_lock_lets_go_within_the_settlement() {
 #[test]
 fn held_checkpoints_the_lock_outlasts_through_the_settlement_are_counted_not_claimed() {
     let (_dir, engine, calls, settled) = two_held_then_settled(0);
-    assert_eq!(calls, 5, "a, then a again, then three patiences");
+    assert_eq!(calls, 5, "a, then a and b, then three patiences");
     assert!(landed(&engine).is_empty());
     let AttemptOutcome::Indeterminate { reason } = settled.outcome("", succeeded()) else {
         panic!("an attempt with stranded checkpoints was reported as its driver's");
@@ -472,15 +480,22 @@ fn held_checkpoints_the_lock_outlasts_through_the_settlement_are_counted_not_cla
     );
 }
 
+/// An engine in flight whose store waits a patience long enough that an
+/// append that waited on a peer's lock shows, and that patience.
+fn patient_in_flight(dir: &Path) -> (Engine, std::time::Duration) {
+    let mut engine = in_flight(dir);
+    let patience = std::time::Duration::from_millis(400);
+    engine.store.set_patience(patience).unwrap();
+    (engine, patience)
+}
+
 /// While the seat works, no append waits on a peer's lock, not even the
 /// one that finds the hold empty, so a burst behind the lock costs the
 /// reader nothing: the seat is not stalled on its pipe.
 #[test]
 fn a_burst_behind_a_held_lock_never_waits_on_the_reader() {
     let dir = tempfile::tempdir().unwrap();
-    let mut engine = in_flight(dir.path());
-    let patience = std::time::Duration::from_millis(400);
-    engine.store.set_patience(patience).unwrap();
+    let (mut engine, patience) = patient_in_flight(dir.path());
     let holder = write_lock_on(&dir.path().join("realm.db"));
     let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, |_| {});
     let burst = std::time::Instant::now();
@@ -527,11 +542,272 @@ fn a_burst_past_a_full_hold_makes_the_attempt_indeterminate_and_says_how_many() 
     ));
 }
 
+/// A quiet seat's held checkpoint does not wait for the seat's next one
+/// or its stop: the sink tries the hold again whenever the seat is quiet
+/// for the interval given, here none (#464). The retry still never waits
+/// on the lock: a retry that meets it costs no patience.
+#[test]
+fn a_quiet_seats_held_checkpoint_lands_on_the_retry_timer_without_waiting() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut engine, patience) = patient_in_flight(dir.path());
+    let mut holder = Some(write_lock_on(&dir.path().join("realm.db")));
+    let (sender, arrivals) = std::sync::mpsc::channel();
+    let (retried, quiet) = std::sync::mpsc::channel::<()>();
+    // The seat sends one checkpoint, then is quiet until the sink has
+    // retried it; the bound only ends a sink that never does.
+    let seat = std::thread::spawn(move || {
+        sender.send(step("a")).unwrap();
+        let _ = quiet.recv_timeout(std::time::Duration::from_secs(30));
+    });
+    let calls = std::cell::Cell::new(0);
+    let between = |_: &mut Store| {
+        calls.set(calls.get() + 1);
+        // The offer, then one retry the lock refuses, then the one it lets in.
+        if calls.get() == 3 {
+            holder.take();
+            retried.send(()).unwrap();
+        }
+    };
+    let started = std::time::Instant::now();
+    let mut checkpoints =
+        sink(&mut engine, checkpoints::HELD_BYTES, between).retrying(std::time::Duration::ZERO);
+    checkpoints.take(&arrivals, |sink, checkpoint| {
+        sink.offer("", checkpoint, Ok(None));
+    });
+    let elapsed = started.elapsed();
+    drop(checkpoints);
+    seat.join().unwrap();
+
+    assert_eq!(
+        calls.get(),
+        3,
+        "a offered, then retried twice while the seat was quiet"
+    );
+    assert_eq!(landed(&engine), ["a"]);
+    assert!(elapsed < patience, "{elapsed:?}");
+}
+
+/// A driver that outruns its sink waits on the handoff: it hands over
+/// [`checkpoints::ARRIVALS`] checkpoints beyond the one the sink is still
+/// taking, and no more, so what the sink has not taken backs the driver
+/// up instead of growing beside the bounded hold (#464). Every checkpoint
+/// still lands, in order.
+#[test]
+fn a_driver_that_outruns_its_sink_waits_on_the_handoff() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = in_flight(dir.path());
+    let names: Vec<String> = (0..checkpoints::ARRIVALS + 2)
+        .map(|at| at.to_string())
+        .collect();
+    let (handed, progress) = std::sync::mpsc::channel::<()>();
+    let mut ahead = None;
+    let driven = names.clone();
+    let report = sink(&mut engine, checkpoints::HELD_BYTES, |_| {})
+        .drive(
+            move |forward| {
+                for name in &driven {
+                    forward(&step(name));
+                    handed.send(()).unwrap();
+                }
+                super::tests::report(succeeded(), "")
+            },
+            |sink, checkpoint| {
+                if ahead.is_none() {
+                    // The first checkpoint, then a full handoff behind it.
+                    for _ in 0..=checkpoints::ARRIVALS {
+                        progress.recv().unwrap();
+                    }
+                    // A driver the handoff did not bound would be further on.
+                    let further = progress.recv_timeout(std::time::Duration::from_millis(200));
+                    ahead = Some(further);
+                }
+                sink.offer("", checkpoint, Ok(None));
+            },
+        )
+        .expect("nothing contends");
+
+    assert_eq!(ahead, Some(Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
+    assert_eq!(landed(&engine), names);
+    assert_eq!((report.outcome, report.refused), (succeeded(), None));
+}
+
+thread_local! {
+    static MEASURED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The hold's measure, counting every checkpoint it serializes.
+fn counted(checkpoint: &Value) -> usize {
+    MEASURED.with(|measured| measured.set(measured.get() + 1));
+    checkpoint.to_string().len()
+}
+
+/// Only a checkpoint that joins a hold is measured, with the first one it
+/// joins (#464): an uncontended checkpoint, and one that finds the hold
+/// empty, is never serialized to be counted against the bound.
+#[test]
+fn only_a_checkpoint_that_joins_a_hold_is_measured() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = in_flight(dir.path());
+    let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, |_| {}).measuring(counted);
+    for name in ["a", "b", "c"] {
+        checkpoints.offer("", step(name), Ok(None));
+    }
+    let uncontended = MEASURED.with(std::cell::Cell::get);
+    let holder = write_lock_on(&dir.path().join("realm.db"));
+    checkpoints.offer("", step("d"), Ok(None));
+    let alone = MEASURED.with(std::cell::Cell::get);
+    for name in ["e", "f"] {
+        checkpoints.offer("", step(name), Ok(None));
+    }
+    drop(holder);
+    checkpoints.settle().expect("the lock was released");
+
+    assert_eq!((uncontended, alone), (0, 0));
+    assert_eq!(MEASURED.with(std::cell::Cell::get), 3, "d and e, then f");
+    assert_eq!(landed(&engine), ["a", "b", "c", "d", "e", "f"]);
+}
+
+/// A checkpoint a member offers: the member, the record, and the engine's
+/// reading of the call observed on it.
+type Offer = (
+    &'static str,
+    Value,
+    Result<Option<super::capability_calls::Stamp>, super::capability_calls::Refusal>,
+);
+
+/// `(member, record)` offered with no call observed on it.
+fn uncalled((member, record): (&'static str, Value)) -> Offer {
+    (member, record, Ok(None))
+}
+
+/// A sink offered `held` behind a peer's lock, then `after` once the lock
+/// let go, and what `end` made of it.
+fn ended_around_a_lock<R>(
+    held: impl IntoIterator<Item = Offer>,
+    after: impl IntoIterator<Item = Offer>,
+    end: impl FnOnce(Checkpoints<'_, fn(&mut Store)>) -> R,
+) -> (tempfile::TempDir, Engine, R) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = in_flight(dir.path());
+    let holder = write_lock_on(&dir.path().join("realm.db"));
+    let quiet: fn(&mut Store) = |_| {};
+    let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, quiet);
+    for (member, record, call) in held {
+        checkpoints.offer(member, record, call);
+    }
+    drop(holder);
+    for (member, record, call) in after {
+        checkpoints.offer(member, record, call);
+    }
+    let ended = end(checkpoints);
+    (dir, engine, ended)
+}
+
+/// The settlement of a sink offered `held` behind a peer's lock, then
+/// `after` once the lock let go.
+fn offered_around_a_lock(
+    held: impl IntoIterator<Item = Offer>,
+    after: impl IntoIterator<Item = Offer>,
+) -> (tempfile::TempDir, Engine, checkpoints::Settled) {
+    ended_around_a_lock(held, after, |checkpoints| {
+        checkpoints.settle().expect("a refusal is an outcome")
+    })
+}
+
+/// A checkpoint the fence refuses for one member keeps every checkpoint
+/// held behind it out of the journal. Those of other members are counted,
+/// and those members settle indeterminate, never as their drivers'
+/// success; the refused member fails on the refusal itself (#464). One
+/// offered once the refusal has latched is not journaled either, and is
+/// counted the same way, so a member's outcome does not turn on whether
+/// its checkpoint met the lock before the refusal or came just after it.
+#[test]
+fn a_refusal_counts_what_was_held_behind_it_against_the_other_members() {
+    let refused_row = json!({"step": "seat-turn", "turn": "one"});
+    let held = [
+        ("one", step("a")),
+        ("two", refused_row),
+        ("three", step("c")),
+    ];
+    // `d` rides behind the hold the fence refuses; `e` comes after.
+    let after = [("one", step("d")), ("four", step("e"))];
+    let (_dir, engine, settled) = offered_around_a_lock(held.map(uncalled), after.map(uncalled));
+
+    assert_eq!(landed(&engine), ["a"]);
+    let came_after = AttemptOutcome::Indeterminate {
+        reason: "1 checkpoint(s) were not journaled: they came after the refused \
+                 checkpoint of 'two'"
+            .into(),
+    };
+    let refused = AttemptOutcome::Failed {
+        error: "seat record at journal seq 6 violates contracts/seat-record.v6.schema.json at /"
+            .into(),
+    };
+    let members = ["one", "two", "three", "four"];
+    assert_eq!(
+        members.map(|member| settled.outcome(member, succeeded())),
+        [came_after.clone(), refused, came_after.clone(), came_after]
+    );
+}
+
+/// A refused call latches with what was held before it still to land.
+/// Another member streaming on past the latch tries that hold again with
+/// each checkpoint it offers, so the rows land while the seats work, not
+/// only at settlement (#464).
+#[test]
+fn a_member_streaming_past_a_refused_call_lands_what_was_held_before_it() {
+    let unattributable = Err(super::capability_calls::Refusal::Unattributable);
+    let held = [
+        uncalled(("one", step("a"))),
+        ("two", step("b"), unattributable),
+    ];
+    // The seat is still working: nothing settles the hold.
+    let (_dir, engine, ()) =
+        ended_around_a_lock(held, [uncalled(("three", step("c")))], |sink| drop(sink));
+
+    assert_eq!(landed(&engine), ["a"]);
+}
+
+/// A refusal already latched keeps its site: a held checkpoint of another
+/// member that the fence then refuses is counted against that member as
+/// kept out, and the first refusal still fails its own site.
+#[test]
+fn a_fence_refusal_behind_a_refused_call_is_counted_not_latched_over() {
+    let refused_row = json!({"step": "seat-turn", "turn": "one"});
+    let unattributable = Err(super::capability_calls::Refusal::Unattributable);
+    let held = [
+        uncalled(("two", refused_row)),
+        ("one", step("a"), unattributable),
+    ];
+    let (_dir, engine, settled) = offered_around_a_lock(held, []);
+
+    assert!(landed(&engine).is_empty());
+    assert_eq!(
+        ["one", "two"].map(|member| settled.outcome(member, succeeded())),
+        [
+            AttemptOutcome::Failed {
+                error: "capability telemetry cannot be attributed".into()
+            },
+            AttemptOutcome::Indeterminate {
+                reason: "1 checkpoint(s) were not journaled: they came after the \
+                         refused checkpoint of 'one'"
+                    .into()
+            },
+        ]
+    );
+}
+
 /// The driver's line that checkpoints `{"step": name}`.
 fn checkpoint_line(name: &str) -> String {
+    data_line(name, &format!("{{\"step\":\"{name}\"}}"))
+}
+
+/// The driver's line that checkpoints `data`, a JSON object with neither
+/// `'` nor `%` in it, as the message `msg_id`.
+fn data_line(msg_id: &str, data: &str) -> String {
     let line = format!(
-        "{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"{name}\",\"type\":\"checkpoint\",\
-         \"effect_id\":\"%s\",\"attempt_id\":\"%s\",\"data\":{{\"step\":\"{name}\"}}}}"
+        "{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"{msg_id}\",\"type\":\"checkpoint\",\
+         \"effect_id\":\"%s\",\"attempt_id\":\"%s\",\"data\":{data}}}"
     );
     format!("printf '{line}\\n' \"$effect_id\" \"$attempt_id\"")
 }
@@ -574,6 +850,11 @@ fn drive_beside(engine: &mut Engine, peer: impl FnOnce() + Send) -> Result<Drive
 /// A driver that accepts its effect, runs `middle`, succeeds, and runs
 /// `after` once the engine is done with it.
 fn signalling_driver(middle: &[String], after: &[String]) -> SeatBody {
+    single_body(signalling_command(middle, after))
+}
+
+/// [`signalling_driver`]'s command.
+fn signalling_command(middle: &[String], after: &[String]) -> Vec<String> {
     let head = r#"read -r hello
 printf '%s\n' '{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"test","version":"1","supports":[]}'
 read -r start
@@ -588,7 +869,7 @@ read -r done"#;
         .chain(after.iter().cloned())
         .collect::<Vec<_>>()
         .join("\n");
-    single_body(vec!["sh".into(), "-c".into(), script])
+    vec!["sh".into(), "-c".into(), script]
 }
 
 /// A seat's deadline where the deadline is not what is under test.
@@ -759,6 +1040,70 @@ fn a_seat_writing_behind_a_peers_lock_is_never_held_past_its_deadline() {
         ]
     );
     assert_eq!(ended.state.status, Status::AwaitingOperator);
+}
+
+/// A panel member's refusal, end to end: the other member checkpoints
+/// only once the sink has taken the refused checkpoint, so its checkpoint
+/// is not journaled, and it settles indeterminate rather than as its
+/// driver's success (#464). The panel parks instead of failing retryable
+/// on the refused member alone, the consequence decision 0029's #464
+/// addendum asks the operator to rule on.
+#[test]
+fn a_member_checkpointing_after_a_peers_refusal_parks_the_panel() {
+    let (dir, mut engine) = super::tests::engine(single_body(vec!["unused".into()]));
+    let at = dir.path();
+    // Past more of its own checkpoints than the driver's reader and the
+    // handoff hold, and more bytes than its pipe holds, the refused member
+    // knows the sink has been handed its refused checkpoint.
+    let prose = r#"{"step":"seat-turn","turn":1,"content":"private prose"}"#;
+    let refused: Vec<String> = std::iter::once(data_line("prose", prose))
+        .chain((0..=2 * checkpoints::ARRIVALS).map(|n| checkpoint_line(&format!("own-{n}"))))
+        .chain([pipe_filling_line(), signal_line(at, "refused")])
+        .collect();
+    let clean = [wait_line(at, "refused"), checkpoint_line("after")];
+    let members = [
+        super::tests::member("refused", signalling_command(&refused, &[])),
+        super::tests::member("clean", signalling_command(&clean, &[])),
+    ];
+    let input = super::tests::panel_input(&["refused", "clean"]);
+    let deadline = std::time::Duration::from_secs(UNHURRIED_SECONDS);
+    engine
+        .execute_panel(
+            "effect",
+            "attempt",
+            "work",
+            &members,
+            Aggregate::UnanimousPass,
+            &input,
+            deadline,
+            &Selection::new(),
+            false,
+        )
+        .unwrap();
+
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let finished: Vec<(&Value, &Value)> = events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectCheckpointed)
+        .map(|event| {
+            let checkpoint = &event.payload["checkpoint"];
+            assert_eq!(checkpoint["step"], "panel-member-finished");
+            (&checkpoint["member"], &checkpoint["outcome"])
+        })
+        .collect();
+    assert_eq!(
+        finished,
+        [
+            (&json!("refused"), &json!("failed")),
+            (&json!("clean"), &json!("indeterminate")),
+        ]
+    );
+    let ending = events.last().unwrap();
+    assert_eq!(ending.event_type, EventType::EffectIndeterminate);
+    assert_eq!(
+        ending.payload["reason"],
+        r#"panel members ["clean"] could not establish completion"#
+    );
 }
 
 /// The settlement, end to end: the seat has done its work when a peer
