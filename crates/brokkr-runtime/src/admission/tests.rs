@@ -731,7 +731,7 @@ fn an_entry_queued_under_no_map_is_held_when_a_map_names_its_repository() {
 /// name its repository, is not re-pinned once that map is gone again: the
 /// re-pin would take no map, which is not the map the latch found (#430).
 #[test]
-fn an_unmapped_entrys_repin_is_refused_when_the_map_that_held_it_is_gone() {
+fn an_unmapped_entry_is_not_repinned_once_the_map_that_held_it_is_gone() {
     let ws = workspace();
     let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
     let entry = add(&mut store, &launch(ws.path(), false), &[]);
