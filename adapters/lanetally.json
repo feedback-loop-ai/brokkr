@@ -46,8 +46,33 @@
     }
   },
   "mcp": {
-    "flag": "--mcp-config",
-    "servers": {}
+    "carriage": {
+      "measured": "U0 LT09 and LT10 (the actual claude-lanetally wrapper over claude 2.1.287, Linux, 2026-10-04): an engine-written --mcp-config under --strict-mcp-config, forwarded through the wrapper, started the engine sentinel and answered its tools/call, without and with the hands server"
+    },
+    "shapes": [
+      {
+        "invocation": "cold",
+        "hands": "none",
+        "measured_on": {
+          "harness": "lanetally",
+          "binary": "claude-lanetally",
+          "version": "unpublished: launcher sha256 b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb running session-wrapper.sh 4614bb7 sha256 ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7 over claude 2.1.287",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "U0 LT09 (startup LT03, LT05): through the wrapper, under --strict-mcp-config with an explicit empty or engine --mcp-config, no planted user, project or plugin sentinel started while the engine answered, after LT08's control answered all three; LT07: a managed MCP file refuses the flag; the LaneTally proxy route was not exercised"
+        },
+        "native_write": {
+          "unsupported": "U0 LT11: native Write through the wrapper was allowed outside the cwd"
+        },
+        "store_read": {
+          "unsupported": "U0 LT11: native Read through the wrapper read the 0600 store canary"
+        },
+        "process_read": {
+          "unmeasured": "U0 LT11: no mechanism excludes it; the wrapped claude's permission check blocked the one Bash probe of /proc/<pid>/environ, and native Read on /proc was not probed"
+        }
+      }
+    ]
   },
   "native_capabilities": {
     "unmeasured": "the LaneTally wrapper forwards argv to claude, and forwarding is not confinement: whether Claude Code's native WebSearch and WebFetch controls hold through the wrapper, which owns its own per-session settings layer, has not been verified. Claude's declarations and evidence are not inherited; this wrapper's native inventory and controls are unmeasured on their own terms (decision 0065 slice one; owed to the controller)"

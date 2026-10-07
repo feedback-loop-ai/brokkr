@@ -1810,11 +1810,11 @@ fn the_declaration_not_the_provider_name_decides_and_nothing_else_is_echoed() {
     let root = adapters_with(&fixture.root, |codex| {
         codex["hands"].as_object_mut().unwrap().remove("notice");
     });
-    // A separately named provider declaring its own two identifiers, with
-    // sentinels planted in unrelated evidence and launch configuration.
+    // Its own two identifiers, no MCP evidence borrowed from codex, sentinels.
     let mut fixture_adapter: Value =
         serde_json::from_slice(&std::fs::read(shipped_adapters().join("codex.json")).unwrap())
             .unwrap();
+    fixture_adapter["mcp"] = json!("unsupported");
     fixture_adapter["provider"] = json!("fixture");
     fixture_adapter["binary"] = json!("fixture-cli");
     fixture_adapter["hint"] = json!("SENTINEL_HINT_5c1f");
