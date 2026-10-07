@@ -10,7 +10,9 @@
     "spark": "SPARK_API_KEY",
     "spark-glm": "SPARK_API_KEY",
     "meta": "OPENROUTER_API_KEY",
-    "meta-contributor": "OPENROUTER_API_KEY"
+    "meta-contributor": "OPENROUTER_API_KEY",
+    "deepseek-official": "DEEPSEEK_API_KEY",
+    "dashscope": "DASHSCOPE_API_KEY"
   },
   "binary": "dsh",
   "driver": [
@@ -51,9 +53,37 @@
     "spark-glm": "dsh 0.1.5-rc.1 refuses reasoningEffort on spark-glm/GLM-5.3-Flash-EXL3 (low — UNSUPPORTED_REASONING_EFFORT, measured 2026-09-16); the model entry states no reasoningEfforts so the lane materialises as non-reasoning, seats on this route pin no effort and record not applicable (decision 0035 addendum 2026-09-11)"
   },
   "tool_permissions": "unsupported",
-  "mcp": "unsupported",
+  "mcp": {
+    "carriage": {
+      "measured": "U0 D03 (dsh 0.1.5-rc.1, Linux, 2026-10-03, local Spark route): the engine's dsh-mcp-client row, inserted by the --patch overlay over an engine-only DSH_HOME, started the engine sentinel and answered its call; U0c K02, K05, K08 and K11t (2026-10-06) answered it on deepseek-official, dashscope, meta and meta-contributor (docs/evidence/adapters/slice-two-mcp-isolation.md)"
+    },
+    "shapes": [
+      {
+        "invocation": "cold",
+        "hands": "none",
+        "measured_on": {
+          "harness": "dsh",
+          "binary": "dsh",
+          "version": "0.1.5-rc.1",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "U0 D03 and D04 (spark, spark-glm) and U0c K01 to K12r (deepseek-official, dashscope, meta, meta-contributor): under an engine-only DSH_HOME no planted home- or profile-level sentinel started while the engine row loaded, and D01 and U0c's positive controls answered both; dsh's existing home fails (D02); no plugin bundle layer was planted"
+        },
+        "native_write": {
+          "unmeasured": "U0 D04: dsh's default workspace-write sandbox denied one native write outside the workspace, but dsh offered an approval-gated escalation (policy ask) that was not exercised, so confinement is not established"
+        },
+        "store_read": {
+          "unsupported": "U0 D04: dsh's native shell under its default workspace-write sandbox, in an engine-only DSH_HOME, read the 0600 store canary outside the workspace"
+        },
+        "process_read": {
+          "measured": "U0 D04: dsh's native shell ran in a private pid namespace of 4 pids and found no process canary in /proc"
+        }
+      }
+    ]
+  },
   "native_capabilities": {
-    "unmeasured": "dsh declares mcp and tool_permissions unsupported, which establishes only that Brokkr cannot narrow or extend its tool surface from the command line; it does not establish that dsh has no native egress of its own. On the contrary, recipes/research-dsh/README.md records that since dsh 0.1.2-rc.1 the headless profile ships web-fetch-http with page fetch on and a keyed search, so native egress is likely present and no OFF control for it has been declared or measured. Its native inventory, and any ON or OFF control for it, remain unmeasured: nothing is granted through dsh and no native denial is claimed (decision 0065 slice one; owed to the controller)"
+    "unmeasured": "dsh's tool_permissions and mcp declarations cover command-line narrowing, ambient MCP exclusion and engine-server carriage only, which does not establish that dsh has no native egress. U0 and U0c listed native web_fetch and web_search under an engine-only DSH_HOME, and the web_search row (web-search-deepseek) reads DEEPSEEK_API_KEY on every route family; no cell exercised either, and no OFF control has been declared or measured. Its native inventory, and any ON or OFF control for it, remain unmeasured: nothing is granted through dsh and no native denial is claimed (decision 0065 slice one; owed to the controller)"
   },
   "hands": {
     "unsupported": "dsh 0.1.0-rc.6 replaces its tool surface only through a profile plugin (presentAs/restrict/guard/register on the scoped tools service); no CLI flag disables its shell and file tools or adds an MCP server, so the one boxed tool cannot be expressed without a plugin. Re-measured on 0.1.2-rc.1 (2026-09-04): the launcher and headless flags are unchanged; the tools plugin reads a DSH_TOOLS_MODE environment value whose vocabulary the release does not document, so it is not relied on. Re-measured on 0.1.5-rc.1 (2026-09-12; launcher 0.1.5-rc.1, installed @deepseek-ai/dsh-tools and @deepseek-ai/dsh-headless 0.1.5-rc.2): the launcher flags (-V/--profile/--patch/--dump-config/--dump-default-config, web/plugin) and the headless flags (-h alone; reasoning streams to stderr) are unchanged, still no CLI flag swaps the tool surface or adds an MCP server. The tools row reads DSH_TOOLS_MODE into tools.mode (dsh-headless/cordis.patch.yml:16, same seam as dsh-web-app/cordis.patch.yml:34) with documented vocabulary native|ptc|both (@deepseek-ai/dsh-tools/README.md:64-74); those are presentation modes for the visible schemas, not a restriction of the underlying shell and file tools, so hands stays unsupported. The plugin is the next slice."

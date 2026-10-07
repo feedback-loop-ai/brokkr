@@ -230,10 +230,15 @@ Host operator replacement outside managed-seat reach is not a promised threat
 model; seat-mediated replacement is.
 
 The source observation SHALL be bounded to 1,000,000 entries, directory depth
-64, 40 symlink hops per resolution, 65,536 mount records and 256 MiB of working
-metadata per preparation, within the same absolute 30 s startup deadline.
-Unreadable, cyclic, over-limit or unsupported identity data SHALL take
-"MCP server box filesystem identity is not protected", never skip an entry.
+64, 40 symlink hops per resolution and 65,536 mount records per preparation,
+within the same absolute 30 s startup deadline; these counts are the memory
+bound, and no separate byte budget applies. Cyclic, over-limit or unsupported
+identity data SHALL take "MCP server box filesystem identity is not protected",
+never skip an entry. An entry the broker cannot read, outside the program tree
+and bootstrap, is admitted only when its owner, mode and access ACL, observed
+without read access to its contents, prove it root-owned, without group or
+other write, and writable by no managed writer; any other unreadable entry SHALL
+take that cause. Program-tree and bootstrap files must be readable.
 Mount identity SHALL include the filesystem device and inode, mount root and
 relative subpath from Linux mountinfo; mount ID or canonical spelling alone
 cannot exclude a bind alias. Unexplained overlay/remote-filesystem identity
@@ -483,7 +488,13 @@ alone SHALL remain a call outcome, not a fatal session failure.
 
 - **WHEN** the host has readable `/etc/ssl/certs` beside an unreadable `/etc/ssl/private`
 - **THEN** only the certificates subtree enters the server source set; private material is neither traversed nor mounted, and its presence cannot fail that source walk
-- **AND** an unreadable entry inside an actual admitted source still refuses "MCP server box filesystem identity is not protected" before lookup; no skipped entry becomes an admitted source
+- **AND** an unreadable entry inside an actual admitted source refuses "MCP server box filesystem identity is not protected" before lookup unless its owner, mode and access ACL prove it root-owned and writable by no managed writer; no skipped entry becomes an admitted source
+
+#### Scenario: A root-only system file is admitted only when provably untouchable
+
+- **WHEN** an admitted system support source holds a regular file the broker cannot read, such as a root-only configuration file or helper
+- **THEN** the walk records it without reading its contents and admits it only when its owner is root, its mode grants no group or other write, and its access ACL grants no managed writer write access
+- **AND** the same unreadable file with a non-root owner, a group or other write bit, or a writer ACL entry refuses "MCP server box filesystem identity is not protected" with zero lookups/starts, and an unreadable program-tree or bootstrap file always refuses
 
 #### Scenario: Installation reach is not credential discovery or historical authentication
 

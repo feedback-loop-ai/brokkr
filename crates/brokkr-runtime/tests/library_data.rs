@@ -352,10 +352,10 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
         .unwrap();
     assert!(exec.model_flag.is_none());
     assert!(exec.tool_permissions.is_none());
-    assert_eq!(
+    assert!(matches!(
         exec.mcp,
-        brokkr_runtime::agents::McpSupport::Legacy { flag: None }
-    );
+        brokkr_runtime::agents::McpSupport::Inapplicable { .. }
+    ));
     assert!(exec.models.is_empty());
     // `codex` maps models, and its map is proved where its evidence is
     // (`the_shipped_codex_adapter_maps_the_models_its_own_cli_names`);
@@ -397,12 +397,18 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
 }
 
 /// The first `/`-separated segment of every model id an adapter maps: the
-/// routes its data can reach.
+/// routes its data can reach. The dsh harness serves an unprefixed id on
+/// the official DeepSeek route (`parse_dsh_model`, brokkr-protocol), the
+/// route U0c keyed, so a dsh adapter mapping one reaches that route too.
 fn reached_routes(adapter: &Adapter) -> BTreeSet<&str> {
+    let dsh = brokkr_runtime::capabilities::harness_of(&adapter.driver) == "dsh";
     adapter
         .models
         .values()
-        .filter_map(|id| resolve_route(adapter, id).0)
+        .filter_map(|id| match resolve_route(adapter, id).0 {
+            None if dsh => Some("deepseek-official"),
+            route => route,
+        })
         .collect()
 }
 

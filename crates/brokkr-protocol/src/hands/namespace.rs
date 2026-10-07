@@ -4,14 +4,19 @@
 //! and the environment and command that close the argv. What a box mounts
 //! beyond that is its profile's: the workspace's workdir, git and declared
 //! binds stay with `box_argv`; one MCP server's program tree, bootstrap and
-//! private directories are [`ServerBox`]'s.
+//! private directories are [`ServerBox`]'s, every source mounted from the
+//! handle its observer checked (U6c5a).
 
 use std::ffi::OsStr;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use super::{ids, Session, HANDS_BOX_ENV, HOST_TOOLCHAIN_BINDS, SANDBOX_HOME};
-use crate::broker::{Network, Reach, Refusal, Tree};
+use crate::broker::{Network, Reach, Refusal, Sources, Tree};
+
+#[cfg(target_os = "linux")]
+pub(super) mod sources;
 
 /// Render a host path as a path inside the box. Paths inside the namespace
 /// are POSIX paths, never host paths.
@@ -90,12 +95,22 @@ const RESOLV_CONF: &str = "/etc/resolv.conf";
 /// an earlier one, so the order the calls are made in is the boundary.
 /// Every host source and box destination a mount names is kept beside it,
 /// so what a profile checks is exactly what it mounts, and every path the
-/// box sets up, mounted or made, so nothing later lands over one.
+/// box sets up, mounted or made, so nothing later lands over one. Each
+/// mount's place in the argv is kept too, so a server box can mount its
+/// sources from their checked handles instead.
 #[derive(Debug)]
 pub(super) struct Namespace {
     argv: Vec<String>,
     paths: Vec<PathBuf>,
     targets: Vec<PathBuf>,
+    binds: Vec<Bind>,
+}
+
+/// One host mount: where its flag lies in the argv, and its host source.
+#[derive(Debug)]
+struct Bind {
+    at: usize,
+    host: PathBuf,
 }
 
 impl Namespace {
@@ -133,6 +148,7 @@ impl Namespace {
             argv,
             paths: Vec::new(),
             targets: Vec::new(),
+            binds: Vec::new(),
         };
         namespace.made("--proc", "/proc");
         namespace.made("--dev", "/dev");
@@ -197,6 +213,11 @@ impl Namespace {
         self.paths
             .extend([host.to_path_buf(), PathBuf::from(target)]);
         self.targets.push(PathBuf::from(target));
+        let at = self.argv.len();
+        self.binds.push(Bind {
+            at,
+            host: host.to_path_buf(),
+        });
         self.argv.extend([
             mount.flag().to_string(),
             host.to_string_lossy().into_owned(),
@@ -212,6 +233,46 @@ impl Namespace {
     /// An empty tmpfs over `target`, hiding what lies beneath it.
     pub(super) fn tmpfs(&mut self, target: &str) {
         self.made("--tmpfs", target);
+    }
+
+    /// A private directory: an empty tmpfs only its owner may enter,
+    /// whatever umask the launcher runs under (#570).
+    fn private(&mut self, target: &str) {
+        self.argv.extend(["--perms", "0700"].map(String::from));
+        self.tmpfs(target);
+    }
+
+    /// Mount every host source from its observed handle (`--ro-bind-fd`),
+    /// not its name, dropping an optional source with none: the box holds
+    /// the object observed, whatever its path names later (MB3). bubblewrap
+    /// closes each descriptor it mounts, so a source mounted twice (a
+    /// system source and its alias) gets a duplicate, returned for the box
+    /// to hold; one that cannot be made leaves identity unprotected.
+    pub(super) fn backed(
+        &mut self,
+        handles: &[(PathBuf, OwnedFd)],
+    ) -> Result<Vec<(PathBuf, OwnedFd)>, Refusal> {
+        let mut argv = Vec::with_capacity(self.argv.len());
+        let (mut from, mut used, mut duplicates) = (0, Vec::new(), Vec::new());
+        for bind in std::mem::take(&mut self.binds) {
+            argv.extend_from_slice(&self.argv[from..bind.at]);
+            let held = handles.iter().find(|(host, _)| *host == bind.host);
+            if let Some((_, fd)) = held {
+                let mut number = fd.as_raw_fd();
+                if used.contains(&number) {
+                    let duplicate = fd.try_clone().map_err(|_| Refusal::Identity)?;
+                    number = duplicate.as_raw_fd();
+                    duplicates.push((bind.host.clone(), duplicate));
+                }
+                used.push(number);
+                let target = self.argv[bind.at + 2].clone();
+                argv.extend(["--ro-bind-fd".to_string(), number.to_string(), target]);
+            }
+            from = bind.at + 3;
+        }
+        argv.extend_from_slice(&self.argv[from..]);
+        self.argv = argv;
+        Ok(duplicates)
     }
 
     /// An overlay mount, as `overlay_argv` serialized it for its writes.
@@ -352,6 +413,11 @@ fn spellings(path: &Path) -> [PathBuf; 2] {
     [path.to_path_buf(), canonical(path)]
 }
 
+/// Whether `path` lies within `root`, or holds it.
+fn overlaps(path: &Path, root: &Path) -> bool {
+    path.starts_with(root) | root.starts_with(path)
+}
+
 /// A server's program as MB3 resolves it from its launch name alone,
 /// without running it or reading its arguments, shebang or loader
 /// (U6c4): the file the name names, the executable that file resolves
@@ -435,6 +501,14 @@ pub(super) fn layout(executable: &Path, home: &Path) -> Result<Tree, Refusal> {
         .ok_or(Refusal::ProgramTree)
 }
 
+/// A server box's private directories (MB4), in the order they are made.
+const PRIVATE: [&str; 2] = [SANDBOX_HOME, "/tmp"];
+
+/// Whether `path` lies in a server box's private directory.
+fn in_private(path: &Path) -> bool {
+    PRIVATE.iter().any(|dir| path.starts_with(dir))
+}
+
 /// Whether `profile`'s system set, each source canonical as `resolve`
 /// gives it, holds `path`: a tree inside the server's keeps its own
 /// identity and gains no mount, never a broader one.
@@ -446,14 +520,14 @@ fn covered(profile: Profile, path: &Path, resolve: &impl Fn(&Path) -> Option<Pat
 
 impl Namespace {
     /// A server box up to its program: the projected system set and its
-    /// canonical aliases, then the private tmpfs HOME and `/tmp`. They go
-    /// in before the program and the bootstrap, so a source under `/tmp`
-    /// lies on top of the private `/tmp` rather than hidden beneath it.
+    /// canonical aliases, then the private owner-only tmpfs HOME and
+    /// `/tmp`, which start empty: no source may be mounted below either.
     pub(super) fn server(network: bool) -> Namespace {
         let mut namespace = Namespace::open(Profile::Server, network);
         namespace.aliased();
-        namespace.tmpfs(SANDBOX_HOME);
-        namespace.tmpfs("/tmp");
+        for private in PRIVATE {
+            namespace.private(private);
+        }
         namespace
     }
 
@@ -464,8 +538,9 @@ impl Namespace {
     /// destination it is bound alone, never its directory. A package
     /// root is refused where it is or holds a path the box already set
     /// up, which would widen the system set, replace the generated
-    /// identity's `/etc` or shadow a private directory, or where it lies
-    /// inside a source the server's projection narrowed away
+    /// identity's `/etc` or shadow a private directory, where it lies
+    /// inside a private directory, which must start empty (MB4), or where
+    /// it lies inside a source the server's projection narrowed away
     /// (`/etc/ssl/private`).
     pub(super) fn program_with(
         &mut self,
@@ -477,7 +552,7 @@ impl Namespace {
             Tree::Package { root } if !covered(Profile::Server, root, &resolve) => {
                 let shadows = self.targets.iter().any(|target| target.starts_with(root));
                 let narrowed = covered(Profile::Workspace, root, &resolve);
-                (!(shadows | narrowed))
+                (!(shadows | narrowed | in_private(root)))
                     .then_some(())
                     .ok_or(Refusal::ProgramTree)?;
                 self.mount_in_place(Mount::RoBind, root);
@@ -510,12 +585,19 @@ pub struct ServerProfile<'a> {
 /// environment, and the executable entered from `/runtime/home`. No
 /// workspace, Git, bundle, overlay, declared hands bind or host HOME is
 /// mounted. Its generated identity lives in a private session tree this
-/// value holds and removes.
+/// value holds and removes. Every source is mounted from the handle its
+/// observer checked (U6c5a), which the box holds, never plan authority.
 #[derive(Debug)]
 pub struct ServerBox {
     intent: Namespace,
     _scratch: Session,
+    _handles: Vec<(PathBuf, OwnedFd)>,
+    _sources: Sources,
 }
+
+/// What the observer gives a prepared box: each observed source's handle
+/// by the host path that named it, and the facts a plan seals of the set.
+type Observed = (Vec<(PathBuf, OwnedFd)>, Sources);
 
 impl ServerBox {
     /// The box `program` runs in under `profile`, or the first of MB3's
@@ -523,12 +605,46 @@ impl ServerBox {
     /// the executable launched from writable reach, then any source or
     /// destination overlapping any reach root, either way, the temporary
     /// directory the generated identity is written under included. Nothing
-    /// is created or written before reach is cleared; a scratch that
-    /// cannot then hold the generated identity leaves the box's identity
-    /// unprotected.
+    /// is made before reach clears. Then the observer's causes over every
+    /// source, in MB3's order with identity setup's own: a bootstrap in a
+    /// private directory, or a scratch that cannot hold the identity,
+    /// leaves identity unprotected, after any linked program or bootstrap
+    /// file. Last, a launcher that cannot mount a descriptor, which off
+    /// Linux none can.
     pub fn prepare(
         program: &ServerProgram,
         profile: &ServerProfile<'_>,
+    ) -> Result<ServerBox, Refusal> {
+        #[cfg(target_os = "linux")]
+        let observe = |namespace: &Namespace, made: Option<&Path>| {
+            sources::served(namespace, made, program, profile, &sources::Host::live())
+        };
+        #[cfg(not(target_os = "linux"))]
+        let observe = |_: &Namespace, _: Option<&Path>| -> Result<Observed, Refusal> {
+            Err(Refusal::Unavailable)
+        };
+        ServerBox::prepared(program, profile, observe)
+    }
+
+    /// [`ServerBox::prepare`] with `host` standing for this host's facts.
+    #[cfg(all(test, target_os = "linux"))]
+    pub(super) fn prepare_with(
+        program: &ServerProgram,
+        profile: &ServerProfile<'_>,
+        host: &sources::Host<'_>,
+    ) -> Result<ServerBox, Refusal> {
+        let observe = |namespace: &Namespace, made: Option<&Path>| {
+            sources::served(namespace, made, program, profile, host)
+        };
+        ServerBox::prepared(program, profile, observe)
+    }
+
+    /// The box, `observe` reading the namespace and the directory its
+    /// identity was generated in, where it could be.
+    fn prepared(
+        program: &ServerProgram,
+        profile: &ServerProfile<'_>,
+        observe: impl FnOnce(&Namespace, Option<&Path>) -> Result<Observed, Refusal>,
     ) -> Result<ServerBox, Refusal> {
         let (network, resolver) = match profile.network {
             Network::Isolated => (false, Resolver::Files),
@@ -544,14 +660,24 @@ impl ServerBox {
         let planned = [&namespace.paths[..], &places[..]].concat();
         let temporary = std::env::temp_dir();
         clear(program, &planned, &temporary, profile.reach)?;
-        let scratch = Session::create("server").ok();
-        let scratch = scratch.ok_or(Refusal::Identity)?;
-        let etc = scratch.path().join("etc");
-        generate(&etc, resolver).ok().ok_or(Refusal::Identity)?;
-        namespace.generated_in(&etc, resolver);
+        let identity = identity(profile.bootstrap, resolver);
+        let made = identity.as_ref().ok().map(|(_, etc)| etc.clone());
+        if let Some(etc) = &made {
+            namespace.generated_in(etc, resolver);
+        }
         for (key, value) in SERVER_ENVIRONMENT {
             namespace.setenv(key, value);
         }
+        // The sources are observed whether or not the identity could be
+        // made: a cause MB3 puts before identity, a linked program or
+        // bootstrap file, still wins.
+        let observed = observe(&namespace, made.as_deref());
+        let ((scratch, _), (mut handles, sources)) = match (identity, observed) {
+            (Ok(identity), Ok(observed)) => (identity, observed),
+            (Err(made), Err(observed)) => return Err(made.min(observed)),
+            (Err(cause), Ok(_)) | (Ok(_), Err(cause)) => return Err(cause),
+        };
+        handles.extend(namespace.backed(&handles)?);
         let command: Vec<String> = [namespace_path(&program.executable)]
             .into_iter()
             .chain(profile.arguments.iter().cloned())
@@ -560,6 +686,8 @@ impl ServerBox {
         Ok(ServerBox {
             intent: namespace,
             _scratch: scratch,
+            _handles: handles,
+            _sources: sources,
         })
     }
 
@@ -568,12 +696,41 @@ impl ServerBox {
         self.intent.paths.iter().map(PathBuf::as_path)
     }
 
+    /// The observed source set: its entries, mount records and digest.
+    /// Read by tests until admission compares it with the plan's sealed
+    /// sources (U6c5b).
+    #[cfg(all(test, target_os = "linux"))]
+    pub(super) fn sources(&self) -> &Sources {
+        &self._sources
+    }
+
+    /// Each held handle and the host path that named it. Read by tests
+    /// until the launch passes them to bubblewrap.
+    #[cfg(all(test, target_os = "linux"))]
+    pub(super) fn handles(&self) -> impl Iterator<Item = (&Path, &OwnedFd)> {
+        self._handles.iter().map(|(path, fd)| (path.as_path(), fd))
+    }
+
     /// The bubblewrap argv that builds the box. Read by tests until the
     /// launch runs it.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn argv(&self) -> &[String] {
         &self.intent.argv
     }
+}
+
+/// The private session tree a server box's identity is generated in, and
+/// its `/etc`; identity unprotected where the bootstrap lies in a private
+/// directory, which must start empty (MB4), or where no scratch can hold
+/// the identity.
+fn identity(bootstrap: &Path, resolver: Resolver) -> Result<(Session, PathBuf), Refusal> {
+    (!in_private(bootstrap))
+        .then_some(())
+        .ok_or(Refusal::Identity)?;
+    let scratch = Session::create("server").map_err(|_| Refusal::Identity)?;
+    let etc = scratch.path().join("etc");
+    generate(&etc, resolver).ok().ok_or(Refusal::Identity)?;
+    Ok((scratch, etc))
 }
 
 /// The seat's reach against the box (MB3), each path compared as spelled
@@ -598,11 +755,10 @@ fn clear(
         .any(|path| writable.iter().any(|root| path.starts_with(root)));
     (!launched).then_some(()).ok_or(Refusal::LaunchInReach)?;
     let roots = [writable, resolved(&reach.readable)].concat();
-    let overlapping = paths.iter().flat_map(|path| spellings(path)).any(|path| {
-        roots
-            .iter()
-            .any(|root| path.starts_with(root) | root.starts_with(&path))
-    });
+    let overlapping = paths
+        .iter()
+        .flat_map(|path| spellings(path))
+        .any(|path| roots.iter().any(|root| overlaps(&path, root)));
     let held = spellings(temporary)
         .iter()
         .any(|dir| roots.iter().any(|root| dir.starts_with(root)));

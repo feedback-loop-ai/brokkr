@@ -75,7 +75,7 @@
  403 crates/brokkr-cli/tests/driver_conformance.rs:1374 conformance_across_all_builtin_adapters
  146 crates/brokkr-cli/tests/driver_conformance.rs:2291 the_shipped_codex_harness_work_seat_rejoins_its_retry
  113 crates/brokkr-cli/tests/driver_conformance.rs:2476 the_shipped_inline_codex_work_seat_rejoins_its_retry
- 117 crates/brokkr-cli/tests/hands.rs:216 hands_exec_runs_the_command_whole_and_returns_its_code
+ 117 crates/brokkr-cli/tests/hands.rs:287 hands_exec_runs_the_command_whole_and_returns_its_code
  111 crates/brokkr-cli/tests/machine_proof.rs:257 triage
  118 crates/brokkr-cli/tests/machine_proof.rs:1537 one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verbs
  110 crates/brokkr-cli/tests/machine_proof.rs:2335 compare_aligns_two_runs_and_finds_the_review_divergence
@@ -142,11 +142,11 @@
  112 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:180 the_runner_adds_the_scoped_git_binds_and_nothing_wider
  138 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:472 every_known_bubblewrap_option_is_stepped_over_by_its_own_arity
  355 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:2581 a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds
- 199 crates/brokkr-protocol/src/hands/tests.rs:125 the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names
- 123 crates/brokkr-protocol/src/hands/tests.rs:845 the_box_hides_the_host_and_holds_the_worktree
- 140 crates/brokkr-protocol/src/hands/tests.rs:1049 git_works_in_the_box_and_cannot_plant_a_hook
- 107 crates/brokkr-protocol/src/hands/tests.rs:1300 the_unboxed_environment_hands_nothing_of_the_engines_over
- 132 crates/brokkr-protocol/src/hands/tests.rs:1489 the_unboxed_environment_has_exact_keys_on_both_platforms
+ 199 crates/brokkr-protocol/src/hands/tests.rs:127 the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names
+ 123 crates/brokkr-protocol/src/hands/tests.rs:847 the_box_hides_the_host_and_holds_the_worktree
+ 140 crates/brokkr-protocol/src/hands/tests.rs:1051 git_works_in_the_box_and_cannot_plant_a_hook
+ 107 crates/brokkr-protocol/src/hands/tests.rs:1302 the_unboxed_environment_hands_nothing_of_the_engines_over
+ 132 crates/brokkr-protocol/src/hands/tests.rs:1491 the_unboxed_environment_has_exact_keys_on_both_platforms
  217 crates/brokkr-protocol/src/native_controls/tests.rs:77 a_plan_is_read_whole_and_a_malformed_one_refuses_naming_its_fault
  267 crates/brokkr-protocol/src/native_controls/tests.rs:916 an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
  134 crates/brokkr-protocol/src/native_controls/tests.rs:1225 an_authored_capability_option_is_refused_by_origin_whatever_its_value_or_form
@@ -212,9 +212,9 @@
  109 crates/brokkr-runtime/src/bundle/compose_tests.rs:1985 a_replacement_between_check_and_read_is_refused_never_read
  101 crates/brokkr-runtime/src/bundle/compose_tests.rs:3960 a_bundle_root_is_a_closed_vocabulary_at_every_layer
  119 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:1221 a_value_attached_to_a_short_flag_is_the_pin_that_flag_carries
- 106 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3167 the_gate_law_reads_the_boundary_for_sites_that_declare_hands
- 131 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3358 ruling_4s_own_binding_is_pinned_against_the_shipped_adapters
- 130 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3856 every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured
+ 106 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3166 the_gate_law_reads_the_boundary_for_sites_that_declare_hands
+ 131 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3357 ruling_4s_own_binding_is_pinned_against_the_shipped_adapters
+ 130 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3855 every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured
  176 crates/brokkr-runtime/src/bundle/tests.rs:702 panel_and_sequence_parsers_refuse_every_ambiguous_shape
  102 crates/brokkr-runtime/src/capabilities/tests.rs:1633 a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks
  101 crates/brokkr-runtime/src/dialect/tests.rs:108 every_checked_dialect_boundary_is_named
