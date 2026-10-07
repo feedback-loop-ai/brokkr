@@ -212,9 +212,9 @@
  109 crates/brokkr-runtime/src/bundle/compose_tests.rs:1985 a_replacement_between_check_and_read_is_refused_never_read
  101 crates/brokkr-runtime/src/bundle/compose_tests.rs:3960 a_bundle_root_is_a_closed_vocabulary_at_every_layer
  119 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:1221 a_value_attached_to_a_short_flag_is_the_pin_that_flag_carries
- 106 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3167 the_gate_law_reads_the_boundary_for_sites_that_declare_hands
- 131 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3358 ruling_4s_own_binding_is_pinned_against_the_shipped_adapters
- 130 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3856 every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured
+ 106 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3166 the_gate_law_reads_the_boundary_for_sites_that_declare_hands
+ 131 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3357 ruling_4s_own_binding_is_pinned_against_the_shipped_adapters
+ 130 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3855 every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured
  176 crates/brokkr-runtime/src/bundle/tests.rs:702 panel_and_sequence_parsers_refuse_every_ambiguous_shape
  102 crates/brokkr-runtime/src/capabilities/tests.rs:1633 a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks
  101 crates/brokkr-runtime/src/dialect/tests.rs:108 every_checked_dialect_boundary_is_named

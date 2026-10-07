@@ -584,7 +584,7 @@ fn each_refusal_reads_as_the_operator_sees_it() {
 const DECLARED: [&str; 3] = ["claude", "codex", "lanetally"];
 
 /// Which of three identities moved, by position.
-fn differs<T: PartialEq>(old: &[T; 3], new: &[T; 3]) -> Vec<bool> {
+fn differs<T: PartialEq>(old: &[T], new: &[T]) -> Vec<bool> {
     old.iter().zip(new).map(|(old, new)| old != new).collect()
 }
 
@@ -804,11 +804,22 @@ fn an_unmeasured_shape_stays_absent_and_cannot_be_claimed() {
     );
 }
 
-/// U1d (SI1): an adapter's identity is its whole file. One byte of one
-/// declaration's evidence moves that adapter's digest alone, the
+/// Every shipped adapter, and the start of its own `mcp` text, which the
+/// identity test edits by one byte.
+const EDITS: [(&str, &str); 5] = [
+    ("claude", "\"measured\": \"U0 "),
+    ("codex", "\"measured\": \"U0 "),
+    ("dsh", "\"measured\": \"U0 "),
+    ("exec", "\"inapplicable\": \"exec "),
+    ("lanetally", "\"measured\": \"U0 "),
+];
+
+/// U1d and U1e (SI1): an adapter's identity is its whole file. One byte of
+/// one declaration's evidence moves that adapter's digest alone, the
 /// adapter digest of a resolution that consults it, and the identity of
 /// a shipped bundle that consults it; `bundles/self` consults no
-/// LaneTally office, so its identity does not move for that file.
+/// LaneTally or dsh office, so its identity does not move for those
+/// files. Exec serves no model, so no office resolves to it.
 #[test]
 fn a_declaration_byte_moves_its_adapter_resolution_and_bundle_identity() {
     let workspace = shipped().parent().unwrap().to_path_buf();
@@ -822,11 +833,14 @@ fn a_declaration_byte_moves_its_adapter_resolution_and_bundle_identity() {
         std::fs::copy(&path, adapters.join(path.file_name().unwrap())).unwrap();
     }
     std::fs::write(library.join("charters/office.md"), "# office\n").unwrap();
-    for (office, model) in [
-        ("on-claude", "opus"),
-        ("on-codex", "sol"),
-        ("on-lanetally", "opus-tallied"),
-    ] {
+    let offices = [
+        ("claude", "opus"),
+        ("codex", "sol"),
+        ("dsh", "flash"),
+        ("lanetally", "opus-tallied"),
+    ];
+    for (provider, model) in offices {
+        let office = format!("on-{provider}");
         let agent = json!({"description": office, "charter": "charters/office.md",
             "models": [model], "efforts": {model: "high"}});
         std::fs::write(library.join(format!("{office}.json")), agent.to_string()).unwrap();
@@ -834,7 +848,7 @@ fn a_declaration_byte_moves_its_adapter_resolution_and_bundle_identity() {
     let identity = || {
         let loaded = Adapters::load(&adapters).unwrap();
         let library = crate::agents::Library::load(&library).unwrap();
-        let resolved = DECLARED.map(|provider| {
+        let resolved = offices.map(|(provider, _)| {
             let office = format!("on-{provider}");
             let availability = crate::agents::Availability::unspecified();
             let resolution = crate::agents::resolve(&library, &loaded, &availability, &office);
@@ -842,7 +856,7 @@ fn a_declaration_byte_moves_its_adapter_resolution_and_bundle_identity() {
         });
         let own = workspace.join("agents");
         let bundle = crate::Bundle::compile_with(&workspace.join("bundles/self"), &own, &adapters);
-        let digests = DECLARED.map(|provider| loaded.digest(provider).unwrap().to_string());
+        let digests = EDITS.map(|(provider, _)| loaded.digest(provider).unwrap().to_string());
         (digests, resolved, bundle.unwrap().manifest_digest())
     };
     let shipped_bytes = std::fs::read(shipped().join("claude.json")).unwrap();
@@ -852,11 +866,11 @@ fn a_declaration_byte_moves_its_adapter_resolution_and_bundle_identity() {
         brokkr_core::canonical::sha256_bytes(&shipped_bytes)
     );
     let mut moved = Vec::new();
-    for provider in DECLARED {
+    for (provider, text) in EDITS {
         let path = adapters.join(format!("{provider}.json"));
-        let text = std::fs::read_to_string(&path).unwrap();
-        let edited = text.replacen("\"measured\": \"U0 ", "\"measured\": \"U0: ", 1);
-        assert_ne!(edited, text, "{provider} declares measured evidence");
+        let file = std::fs::read_to_string(&path).unwrap();
+        let edited = file.replacen(text, &format!("{}: ", text.trim_end()), 1);
+        assert_ne!(edited, file, "{provider} declares its mcp text");
         std::fs::write(&path, edited).unwrap();
         let after = identity();
         moved.push((
@@ -867,13 +881,171 @@ fn a_declaration_byte_moves_its_adapter_resolution_and_bundle_identity() {
         ));
         before = after;
     }
-    let only = |index: usize| (0..3).map(|other| other == index).collect::<Vec<bool>>();
+    let only = |index: Option<usize>, of: usize| -> Vec<bool> {
+        (0..of).map(|other| Some(other) == index).collect()
+    };
     assert_eq!(
         moved,
         [
-            ("claude", only(0), only(0), true),
-            ("codex", only(1), only(1), true),
-            ("lanetally", only(2), only(2), false),
+            ("claude", only(Some(0), 5), only(Some(0), 4), true),
+            ("codex", only(Some(1), 5), only(Some(1), 4), true),
+            ("dsh", only(Some(2), 5), only(Some(2), 4), false),
+            ("exec", only(Some(3), 5), only(None, 4), true),
+            ("lanetally", only(Some(4), 5), only(Some(3), 4), false),
         ]
+    );
+}
+
+// ------------------------------------- U1e: the dsh and exec declarations
+
+/// A shipped adapter's file with `edit` applied, loaded alone: the refusal.
+fn shipped_with(provider: &str, edit: impl FnOnce(&mut Value)) -> McpError {
+    let path = shipped().join(format!("{provider}.json"));
+    let mut body: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    edit(&mut body);
+    problem(&body)
+}
+
+/// U1e (SI1): dsh declares its own cold, no-hands Linux shape exactly as
+/// U0 and U0c measured it, each line citing its cells and the ambient line
+/// naming every route qualified; no other shape, no Claude result and no
+/// hands follow from it.
+#[test]
+fn dsh_declares_only_its_own_cold_shape_and_inherits_nothing() {
+    let adapters = Adapters::load(&shipped()).expect("the shipped adapters load");
+    let dsh = adapters.adapter("dsh").unwrap();
+    let (m, u, d) = ("measured", "unsupported", "unmeasured");
+    let cold = shape(McpInvocation::Cold, McpHands::NoHands);
+    assert_eq!(
+        declaration(&dsh.mcp),
+        (m, vec![(cold.clone(), "0.1.5-rc.1".into(), [m, d, u, m])])
+    );
+    let uncited: Vec<&str> = lines(&dsh.mcp)
+        .into_iter()
+        .filter(|line| !line.starts_with("U0 "))
+        .collect();
+    assert_eq!(uncited, Vec::<&str>::new(), "every line cites its U0 cell");
+    let McpAxis::Measured { evidence } = dsh.mcp.isolation(&cold).ambient else {
+        unreachable!("pinned above");
+    };
+    let routes = [
+        "spark, spark-glm",
+        "deepseek-official, dashscope, meta, meta-contributor",
+    ];
+    let unnamed: Vec<&str> = routes
+        .into_iter()
+        .filter(|routes| !evidence.contains(&format!("({routes})")))
+        .collect();
+    assert_eq!(unnamed, Vec::<&str>::new(), "{evidence}");
+
+    let macos = McpShape {
+        host: McpHost::Macos,
+        ..cold.clone()
+    };
+    let absent = [
+        shape(McpInvocation::Cold, McpHands::Boxed),
+        shape(McpInvocation::Cold, McpHands::Harness),
+        shape(McpInvocation::Replacement, McpHands::NoHands),
+        shape(resume("headless-work"), McpHands::NoHands),
+        macos,
+    ]
+    .map(|shape| dsh.mcp.isolation(&shape));
+    let none = every(&McpAxis::Unmeasured(McpUnmeasured::Absent));
+    assert_eq!(absent, [(); 5].map(|()| none.clone()));
+    let headless = dsh.resume.shape("headless-work").unwrap();
+    assert_eq!(
+        (dsh.hands.as_ref(), headless.status),
+        (None, crate::agents::ResumeStatus::Unmeasured)
+    );
+
+    // Claude's cell, a hands mode dsh lacks, and exec's form all refuse.
+    let claude: Value =
+        serde_json::from_slice(&std::fs::read(shipped().join("claude.json")).unwrap()).unwrap();
+    let borrowed = claude["mcp"]["shapes"][1].clone();
+    let rehand = |hands: &'static str| {
+        move |body: &mut Value| body["mcp"]["shapes"][0]["hands"] = json!(hands)
+    };
+    assert_eq!(
+        [
+            shipped_with("dsh", |body| {
+                body["mcp"]["shapes"].as_array_mut().unwrap().push(borrowed);
+            }),
+            shipped_with("dsh", rehand("boxed")),
+            shipped_with("dsh", rehand("harness")),
+            shipped_with("dsh", |body| {
+                body["mcp"] = json!({"inapplicable": "no model MCP surface"});
+            }),
+        ],
+        [
+            McpError::BorrowedHarness {
+                shape: cold,
+                measured: "claude".to_string(),
+                harness: "dsh".to_string(),
+            },
+            McpError::UndeclaredHands(shape(McpInvocation::Cold, McpHands::Boxed)),
+            McpError::UndeclaredHands(shape(McpInvocation::Cold, McpHands::Harness)),
+            McpError::ModelHarness("dsh".to_string()),
+        ]
+    );
+}
+
+/// U1e (SI2): exec declares no model MCP surface, read as inapplicable on
+/// every shape and never as a measurement, and stays a script path;
+/// dsh's credentials name the keyed routes U0c measured, and its native
+/// inventory records the keyed web search U0c observed, still unmeasured.
+#[test]
+fn exec_has_no_model_surface_and_dsh_names_its_measured_keys() {
+    let adapters = Adapters::load(&shipped()).expect("the shipped adapters load");
+    let [dsh, exec] = ["dsh", "exec"].map(|provider| adapters.adapter(provider).unwrap());
+    let McpSupport::Inapplicable { reason } = &exec.mcp else {
+        panic!("exec declares no model MCP surface, not {:?}", exec.mcp);
+    };
+    let inapplicable = McpAxis::Inapplicable {
+        reason: reason.clone(),
+    };
+    let any = shape(McpInvocation::Cold, McpHands::Boxed);
+    assert_eq!(
+        (exec.mcp.carriage(), exec.mcp.isolation(&any)),
+        (inapplicable.clone(), every(&inapplicable))
+    );
+    assert!(
+        reason.starts_with("exec runs the script its bundle names and serves no model"),
+        "{reason}"
+    );
+    let harness = crate::capabilities::harness_of(&exec.driver);
+    assert_eq!(
+        (
+            AdapterKind::parse(harness),
+            exec.models.len(),
+            exec.model_flag.as_deref()
+        ),
+        (Some(AdapterKind::Exec), 0, None)
+    );
+
+    let keys: Vec<(&str, &str)> = dsh
+        .credentials
+        .iter()
+        .map(|(route, variable)| (route.as_str(), variable.as_str()))
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            ("dashscope", "DASHSCOPE_API_KEY"),
+            ("deepseek-official", "DEEPSEEK_API_KEY"),
+            ("meta", "OPENROUTER_API_KEY"),
+            ("meta-contributor", "OPENROUTER_API_KEY"),
+            ("spark", "SPARK_API_KEY"),
+            ("spark-glm", "SPARK_API_KEY"),
+        ]
+    );
+    let crate::capabilities::NativeInventory::Unmeasured(native) = &dsh.native else {
+        panic!("dsh's native inventory stays unmeasured");
+    };
+    assert!(
+        native.contains(
+            "the web_search row (web-search-deepseek) reads DEEPSEEK_API_KEY on every route \
+             family; no cell exercised either"
+        ),
+        "{native}"
     );
 }
