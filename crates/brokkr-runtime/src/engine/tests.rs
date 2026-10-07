@@ -32,19 +32,44 @@ fn machine() -> Machine {
 /// the fixture DECLARES for the argv it spells, not one recovered from a
 /// command. A fixture about origins spells its segments itself.
 pub(super) fn templated(mut candidate: Candidate) -> Candidate {
+    let segments = vec![Segment::new(Origin::Template, &candidate.argv)];
     candidate.lowering = Lowering::Composed(crate::agents::Composition {
-        segments: vec![Segment::new(Origin::Template, &candidate.argv)],
         effort: candidate.effort.clone(),
-        intent: crate::agents::Intent {
-            allow: AllowIntent::Unspecified,
-            sandbox: SandboxIntent::Unspecified,
-            hands: HandsIntent::None,
-        },
-        application: Application::Unrestricted,
-        template: crate::agents::declared_template(&candidate.argv),
-        serving: Default::default(),
+        ..composition(
+            segments,
+            unlimited(HandsIntent::None),
+            Application::Unrestricted,
+        )
     });
     candidate
+}
+
+/// The suite's one hand-built composition of `segments` (design D5.7): its
+/// template the first segment's, no effort pinned, default serving inputs,
+/// and the MCP set its typed hands give under a boxing boundary (U1f).
+pub(super) fn composition(
+    segments: Vec<Segment>,
+    intent: crate::agents::Intent,
+    application: Application,
+) -> crate::agents::Composition {
+    crate::agents::Composition {
+        template: crate::agents::declared_template(&segments[0].argv),
+        segments,
+        effort: None,
+        mcp: crate::bundle::McpIntent::composed(intent.hands, Boundary::Namespace),
+        intent,
+        application,
+        serving: Default::default(),
+    }
+}
+
+/// An intent with no local limits, only the typed `hands`.
+pub(super) fn unlimited(hands: HandsIntent) -> crate::agents::Intent {
+    crate::agents::Intent {
+        allow: AllowIntent::Unspecified,
+        sandbox: SandboxIntent::Unspecified,
+        hands,
+    }
 }
 
 pub(super) fn single_body(command: Vec<String>) -> SeatBody {

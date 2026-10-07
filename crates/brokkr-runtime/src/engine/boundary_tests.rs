@@ -4,10 +4,13 @@
 //! dispatch, and the record — `effect/started.boundary`, the stamp
 //! beside every model, the seat input's word and marker (ruling 3).
 
-use super::tests::{bundle, checkpointing_command, driver_command, member, single_body, state};
+use super::tests::{
+    bundle, checkpointing_command, composition, driver_command, member, single_body, state,
+    unlimited,
+};
 use super::*;
 use crate::agents::{Adapters, Availability, HarnessHands, Library, ResultDoor};
-use crate::bundle::{HandsState, SiteFacts};
+use crate::bundle::{HandsState, McpIntent, SiteFacts};
 use crate::realms::World;
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_protocol::hands::network_prefix;
@@ -18,8 +21,7 @@ fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -
         .map(|part| part.to_string())
         .collect();
     let hands_fragment: Vec<String> = hands_fragment.iter().map(|part| part.to_string()).collect();
-    // The segments the resolver would have carried: the adapter's template,
-    // then the workspace fragment it appended as hands.
+    // The resolver's segments: the adapter's template, then the hands it appended.
     let mut segments = vec![Segment::new(Origin::Template, &template)];
     if !hands_fragment.is_empty() {
         segments.push(Segment::new(Origin::Hands, &hands_fragment));
@@ -38,16 +40,8 @@ fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -
         harness,
         resume: Default::default(),
         lowering: Lowering::Composed(crate::agents::Composition {
-            template: crate::agents::declared_template(&template),
-            segments,
             effort: Some("high".into()),
-            intent: crate::agents::Intent {
-                allow: AllowIntent::Unspecified,
-                sandbox: SandboxIntent::Unspecified,
-                hands,
-            },
-            application: Application::Unrestricted,
-            serving: Default::default(),
+            ..composition(segments, unlimited(hands), Application::Unrestricted)
         }),
         hands_notice: None,
     }
@@ -635,9 +629,8 @@ fn the_driver_extras_begin_after_the_engines_prefix_and_the_verbs_own_escape() {
 }
 
 /// Unit 4 (design D5.7): the compile expands `{brokkr}` and `./` one
-/// segment at a time, so every expanded token keeps the origin of the
-/// segment that supplied it; a lowering that never composed stays exactly
-/// what it was, never an empty composition.
+/// segment at a time, so each expanded token keeps its segment's origin
+/// and the composition its MCP set; one never composed stays as it was.
 #[test]
 fn the_compiles_expansion_keeps_every_segments_origin() {
     let exe = std::env::current_exe()
@@ -659,6 +652,7 @@ fn the_compiles_expansion_keeps_every_segments_origin() {
         Lowering::Composed(crate::agents::Composition {
             segments,
             effort: Some("high".into()),
+            mcp: McpIntent::Hands,
             intent: intent.clone(),
             application: Application::Dormant,
             template: TemplateExpectation::None,

@@ -92,7 +92,7 @@ use brokkr_core::realms::{Boundary, SCHEMA_V3, SCHEMA_V4};
 use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::Bundle;
-use serde_json::{json, Map, Value};
+use serde_json::json;
 
 const OPENSPEC_DIALECT: &str = include_str!("../dialects/openspec.json");
 const SPECKIT_DIALECT: &str = include_str!("../dialects/speckit.json");
@@ -242,23 +242,6 @@ fn bundle_json(detected: Option<&Detected>) -> String {
     )
 }
 
-const EXEC_ADAPTER: &str = r#"{
-  "provider": "exec",
-  "trust_tier": "untrusted",
-  "egress": "contracted",
-  "binary": "sh",
-  "driver": ["{brokkr}", "driver", "exec", "--"],
-  "models": {},
-  "judges": [],
-  "model_flag": "unsupported",
-  "efforts": [],
-  "effort_flag": "unsupported",
-  "tool_permissions": "unsupported",
-  "mcp": "unsupported",
-  "hands": {"workspace": []}
-}
-"#;
-
 const SHIP_SCRIPT: &str = r#"#!/usr/bin/env bash
 set -u
 prompt_file="${1:-}"
@@ -370,6 +353,9 @@ impl AgentSpec {
     }
 }
 
+// The declarations written under `adapters/`, each model one's MCP facts
+// copied from its shipped adapter.
+mod adapters;
 // A link's effort is data beside its model, never derived from its name.
 mod claims;
 mod effort;
@@ -602,285 +588,6 @@ fn grants(detected: Option<&Detected>) -> Grants {
     Grants { work, gate }
 }
 
-/// The scaffold's claude adapter: decision 0021's trust declaration
-/// (ruling 2's trusted tier — the starter's gate seats compile against
-/// it — and an `uncontracted` egress) plus the tool map. `names`
-/// is the union of every allowance the scaffold wrote — the work set,
-/// which carries the gate set inside it — because a name any agent's
-/// `tools.allow` lists must be expressible here or the scaffold's own
-/// compile refuses. Where nothing was recognized the map stays EMPTY,
-/// and the README carries the sentence that says which of the two it is.
-/// Claude Code's native network tools, as `adapters/claude.json` declares
-/// them (decision 0065 ruling 4): each switched ON by admitting it to the
-/// seat's own tool lists and OFF by denying it by name. Adapter data and
-/// argv composition only — no live denial or enablement was measured, and
-/// the limitations say so. `init_stacks` holds this equal to the shipped
-/// declaration, so a scaffold cannot drift into a weaker one.
-fn claude_native_capabilities() -> Value {
-    let native = |capability: &str, tool: &str, restriction: &str, extra: &[&str]| {
-        let mut limitations = vec![
-            "that a boxed seat's empty --tools list under --strict-mcp-config leaves no native \
-             tool is adapter data, not a live measurement"
-                .to_string(),
-            format!(
-                "{tool} ON beside the hands tool, and {tool} OFF by --disallowedTools on an \
-                 unboxed seat, are both unmeasured live; the checks are owed to the controller"
-            ),
-        ];
-        limitations.extend(extra.iter().map(|gap| gap.to_string()));
-        json!({
-            "capability": capability,
-            "tools": [tool],
-            "on": {"selection": {"include": [tool], "allow": [tool], "deny": []}},
-            "off": {"selection": {"include": [], "allow": [], "deny": [tool]}},
-            "restrictions": {"unsupported": restriction},
-            "evidence": {
-                "source": "adapters/claude.json and the installed 2.1.266 help: --tools, \
-                           --allowedTools and --disallowedTools each take tool names",
-                "scope": format!(
-                    "adapter data and argv composition only; no live denial or enablement of \
-                     {tool} has been measured"
-                ),
-                "limitations": limitations,
-            },
-            "authored": {
-                "list_flags": ["--tools", "--allowedTools", "--allowed-tools"],
-                "value_flags": ["--model", "--effort", "--permission-mode", "--mcp-config"],
-            },
-        })
-    };
-    json!({
-        "known": {
-            "web-search": native(
-                "web-search",
-                "WebSearch",
-                "no native transport for a restriction on Claude Code's WebSearch has been \
-                 established",
-                &["this names the two native network tools that were known, not an exhaustive \
-                   inventory of what Claude Code can reach on its own"],
-            ),
-            "web-fetch": native(
-                "web-fetch",
-                "WebFetch",
-                "no native transport for a restriction on Claude Code's WebFetch has been \
-                 established; a WebFetch(domain:…) permission pattern was not measured as a \
-                 host allowlist",
-                &[],
-            ),
-        },
-        "selection": {
-            "include": {"flag": "--tools", "separator": ","},
-            "allow": {"flag": "--allowedTools", "separator": ","},
-            "deny": {"flag": "--disallowedTools", "separator": ","},
-        },
-    })
-}
-
-fn adapter_json(grants: &Grants) -> String {
-    let mut names = Map::new();
-    for tool in &grants.work {
-        names.insert(tool.name.to_string(), json!(tool.permission));
-    }
-    let adapter = json!({
-        "provider": "claude",
-        "trust_tier": "trusted",
-        "egress": "uncontracted",
-        "binary": "claude",
-        "driver": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"],
-        "models": {
-            "fable": "claude-fable-5-1",
-            "opus": "claude-opus-5-5",
-            "sonnet": "claude-sonnet-5-5",
-            "haiku": "claude-haiku-4-5-20251001"
-        },
-        "judges": ["fable", "opus"],
-        "model_flag": "--model",
-        // The levels the installed CLI names, measured rather than
-        // assumed — `claude --help` spells them out beside `--effort`.
-        "efforts": ["low", "medium", "high", "xhigh", "max"],
-        "effort_flag": "--effort",
-        "tool_permissions": {"flag": "--allowedTools", "separator": ",", "names": names},
-        "mcp": {"flag": "--mcp-config", "servers": {}},
-        // Decision 0065 ruling 4: what this harness can already reach on
-        // its own, and how each such power is switched on and off. A
-        // scaffold grants nothing, so a stranger's first seats are
-        // launched with both denied by name — the same assessment the
-        // shipped adapter carries, word for word, evidence limits included.
-        "native_capabilities": claude_native_capabilities(),
-        // What has been MEASURED about resuming this provider here, in
-        // this workspace, on this machine: nothing (proposed decision
-        // 0056 ruling 5). The scaffold could omit the key — absence
-        // reads as unmeasured and enables nothing — and writes it
-        // anyway, because a stranger's first adapter should show the
-        // shape a measurement would go into, and because "nobody has
-        // looked" is a different statement from "we looked and it
-        // cannot". Filling it in is the operator's own measurement, and
-        // only a `supported` entry naming a measured version and all
-        // four evidence references ever enables a rejoin.
-        "resume": {
-            "boxed-workspace": {
-                "status": "unmeasured",
-                "identity": {"unknown": "this workspace has measured no resumed invocation"},
-                "classes": ["work"],
-                "boundaries": ["namespace", "seatbelt", "container"],
-                "hands": "boxed",
-                "reason": "scaffolded, never measured: whether a resumed session enforces \
-                           this seat's permission mode, tool list and MCP config is exactly \
-                           what has to be observed before a retry may rejoin one"
-            }
-        }
-    });
-    format!(
-        "{}\n",
-        serde_json::to_string_pretty(&adapter).expect("the claude adapter serializes")
-    )
-}
-
-/// The scaffold's codex adapter, from the library's own: trusted, with
-/// the two judges the review gate is hired from. It restricts by sandbox
-/// CLASS, not by tool name, so no seat hired from it carries a tool
-/// allowance; its seats carry hands instead, and under the `harness`
-/// boundary the class fragments below are what hold them — read-only for
-/// the gate, workspace-write for the work seats.
-const CODEX_ADAPTER: &str = r#"{
-  "provider": "codex",
-  "trust_tier": "trusted",
-  "egress": "uncontracted",
-  "binary": "codex",
-  "driver": ["{brokkr}", "driver", "codex", "--"],
-  "models": {
-    "astra": "gpt-6-astra",
-    "sol": "gpt-6.1-sol",
-    "terra": "gpt-5.6-terra"
-  },
-  "judges": ["astra", "sol"],
-  "model_flag": "--model",
-  "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
-  "effort_flag": "--effort",
-  "tool_permissions": {
-    "unsupported": "codex exec restricts by sandbox class (read-only, workspace-write), not by tool name; there is no per-tool allow-list flag to map a seat's tools onto"
-  },
-  "mcp": "unsupported",
-  "native_capabilities": {
-    "known": {
-      "web-search": {
-        "capability": "web-search",
-        "tools": [
-          "web_search"
-        ],
-        "on": {
-          "default": "codex-cli 0.154.0 cold `codex exec` has server-side web search ON with no flag: the default run of the 2026-09-21 controller measurement issued a web_search item and answered with a cited version. No explicit ON value is declared because none was measured."
-        },
-        "off": {
-          "argv": [
-            "-c",
-            "web_search=\"disabled\""
-          ]
-        },
-        "restrictions": {
-          "unsupported": "no native transport for a restriction on codex's server-side search has been established; the measurement covers only the key's \"disabled\" value"
-        },
-        "evidence": {
-          "source": ".forge/tasks/controller-codex-web-search-switch-2026-09-21.json",
-          "scope": "codex-cli 0.154.0, cold `codex exec` only: with `-c web_search=\"disabled\"` the model answered NO SEARCH TOOL; without it the tool ran",
-          "limitations": [
-            "whether the OFF switch holds on a RESUMED codex session is unmeasured; the engine composes the pair on the `exec resume` argv too, and the live check is owed to the controller",
-            "whether a resumed session that holds web-search has it ON is unmeasured",
-            "values of web_search other than \"disabled\" were not measured, and the interactive CLI's --search flag was not exercised under `codex exec`",
-            "codex-cli versions other than 0.154.0 were not measured",
-            "this is one native capability that was measured, not an exhaustive inventory of what codex can reach on its own; profile and config.toml precedence over the -c override is unmeasured",
-            "the hands fragment adds mcp_servers.brokkr and does not establish that an ambient MCP server in the operator's codex configuration is excluded"
-          ]
-        },
-        "authored": {
-          "flags": [
-            "--search"
-          ],
-          "config_flags": [
-            "-c",
-            "--config"
-          ],
-          "config_keys": [
-            "web_search",
-            "web_search_mode",
-            "tools.web_search",
-            "features.web_search_request",
-            "features.web_search_cached"
-          ],
-          "feature_flags": [
-            "--enable",
-            "--disable"
-          ],
-          "features": [
-            "web_search_request",
-            "web_search_cached"
-          ],
-          "value_flags": [
-            "-m",
-            "--model",
-            "-i",
-            "--image",
-            "-o",
-            "--output-last-message",
-            "--output-schema",
-            "-s",
-            "--sandbox",
-            "--effort",
-            "-p",
-            "--profile",
-            "-C",
-            "--cd",
-            "--add-dir"
-          ]
-        }
-      }
-    }
-  },
-  "hands": {
-    "workspace": [
-      "--sandbox", "read-only",
-      "-c", "mcp_servers.brokkr.command=\"{brokkr}\"",
-      "-c", "mcp_servers.brokkr.args={hands_args_toml}",
-      "-c", "mcp_servers.brokkr.default_tools_approval_mode=\"approve\""
-    ],
-    "notice": {"workspace_tool": "mcp__brokkr__workspace", "discovery_tool": "tool_search"},
-    "harness": {
-      "gate": ["--sandbox", "read-only", "--output-last-message", "{result_path}"],
-      "work": ["--sandbox", "workspace-write"],
-      "result": "last-message"
-    }
-  }
-}
-"#;
-
-/// The scaffold's dsh adapter: untrusted and judging nothing, so it holds
-/// the work seats and never the review gate. It can restrict neither its
-/// tools nor its hands from the command line, and says so.
-const DSH_ADAPTER: &str = r#"{
-  "provider": "dsh",
-  "trust_tier": "untrusted",
-  "egress": "uncontracted",
-  "binary": "dsh",
-  "driver": ["{brokkr}", "driver", "dsh", "--"],
-  "models": {
-    "flash": "deepseek-flash",
-    "pro": "deepseek-v4-pro"
-  },
-  "judges": [],
-  "model_flag": "--model",
-  "efforts": ["low", "medium", "high", "xhigh"],
-  "effort_flag": "--effort",
-  "tool_permissions": "unsupported",
-  "mcp": "unsupported",
-  "native_capabilities": {
-    "unmeasured": "dsh declares mcp and tool_permissions unsupported, which establishes only that Brokkr cannot narrow or extend its tool surface from the command line; it does not establish that dsh has no native egress of its own. On the contrary, recipes/research-dsh/README.md records that since dsh 0.1.2-rc.1 the headless profile ships web-fetch-http with page fetch on and a keyed search, so native egress is likely present and no OFF control for it has been declared or measured. Its native inventory, and any ON or OFF control for it, remain unmeasured: nothing is granted through dsh and no native denial is claimed (decision 0065 slice one; owed to the controller)"
-  },
-  "hands": {
-    "unsupported": "dsh replaces its tool surface only through a profile plugin; no CLI flag disables its shell and file tools or adds an MCP server"
-  }
-}
-"#;
-
 /// The scaffold's hands for a codex-hired agent: the same workspace the
 /// verify gate stands in, so the seat's sandbox class comes from the
 /// adapter's fragment for the realm's boundary.
@@ -1072,6 +779,15 @@ fn stack_header(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> S
     }
 }
 
+/// What the scaffold tells its operator about MCP, on stderr and in its
+/// README alike (decision 0065 slice two, SI2): ruling 6 rules ambient
+/// configuration out, but until U1g enforces strict isolation the
+/// sentence says so rather than promising an exclusion the launch does
+/// not yet hold.
+pub(crate) const AMBIENT_MCP: &str = "Decision 0065 rules that a seat never inherits your own MCP \
+     configuration, but this build does not enforce it yet: a seat may still start the MCP \
+     servers your harness configuration names.";
+
 fn readme(
     detected: Option<&Detected>,
     dialect: &DialectDetection,
@@ -1079,7 +795,7 @@ fn readme(
     hired: &[Cli],
 ) -> String {
     format!(
-        "{}\n## Agent CLI and boundary\n\n{}\n\n## Specification dialect\n\n{}\n",
+        "{}\n## Agent CLI and boundary\n\n{}\n\n{AMBIENT_MCP}\n\n## Specification dialect\n\n{}\n",
         stack_readme(detected, hired, host.claims()),
         host.notes.join("\n\n"),
         dialect.note()
@@ -1776,19 +1492,14 @@ pub(crate) fn init(dir: &Path, repo: &Path, path: &std::ffi::OsStr, os: &str) ->
     let declarations: Vec<(PathBuf, String)> = hired
         .iter()
         .map(|&cli| {
-            let declared = match cli {
-                Cli::Claude => adapter_json(&grants),
-                Cli::Codex => CODEX_ADAPTER.to_string(),
-                Cli::Dsh => DSH_ADAPTER.to_string(),
-            };
             (
                 adapters_dir.join(format!("{}.json", cli.binary())),
-                declared,
+                adapters::declaration(cli, &grants),
             )
         })
         .chain(std::iter::once((
             adapters_dir.join("exec.json"),
-            EXEC_ADAPTER.to_string(),
+            adapters::EXEC.to_string(),
         )))
         .collect();
     for (declaration, _) in &declarations {

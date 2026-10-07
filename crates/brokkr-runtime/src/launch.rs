@@ -41,6 +41,7 @@ use crate::{Bundle, Engine, EngineError};
 
 mod queued;
 
+pub(crate) use queued::HeldAndNow;
 pub use queued::{Encoding, HeldWorld, MapSource, QueuedLaunch};
 
 /// What every launch is asked with.

@@ -42,14 +42,16 @@ pub(crate) fn init(workspace: &Path, InitArgs { dir }: InitArgs) -> Result<ExitC
     // tools its seats are pre-approved for are declared (decisions
     // 0021 and 0016). Every other verb reads those trees from the
     // workspace, which is the directory brokkr is run in — so say
-    // once, here, where to stand.
+    // once, here, where to stand. Then what SI2 rules on the operator's
+    // MCP servers, in the words the scaffold's README uses.
     eprintln!(
         "run brokkr from inside {} — its adapters/ and agents/ declare \
          the trust tier and the tools its seats are pre-approved for; an \
          unboxed seat is still decided by the harness's permission model \
-         and your own settings and MCP servers",
+         and your own settings",
         dir.display()
     );
+    eprintln!("{}", init::AMBIENT_MCP);
     // Decision 0046: the scaffolded seats run under the realm's
     // boundary, and `namespace` — the default — is the one that
     // needs bubblewrap; a realm may declare `harness` instead, and

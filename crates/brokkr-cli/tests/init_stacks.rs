@@ -1014,7 +1014,9 @@ fn an_unrecognized_stack_scaffolds_an_empty_map_and_a_readme_that_says_so() {
 /// 1's division: the three judging seats declare `gate`, the two working
 /// seats declare `work`. The manifest pins the three model offices under
 /// `agents`; verify and ship are pinned separately under `drivers` and
-/// `hands` as deterministic exec sites.
+/// `hands` as deterministic exec sites. Whatever tools a stack maps, its
+/// claude and exec declarations carry their shipped MCP facts (SI2), and
+/// the compile still passes on them before strict admission activates.
 #[test]
 fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
     let fixtures = RECOGNIZED
@@ -1030,6 +1032,9 @@ fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
         ]);
     for fixture in fixtures {
         let (_repo, bundle) = scaffold_from(fixture);
+        for provider in ["claude", "exec"] {
+            crate::init_doctor::assert_shipped_mcp_facts(&bundle, provider);
+        }
         let (code, stdout, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
         assert_eq!(code, Some(0), "{fixture}: {stderr}");
         assert!(stdout.contains("\"starter\""), "{fixture}: {stdout}");
@@ -1167,6 +1172,9 @@ fn init_at_a_projects_root_leaves_its_own_readme_untouched() {
         notes.contains("cargo"),
         "the scaffold's notes moved under agents/: {notes}"
     );
+    // Its pre-approval sentence no longer says an unboxed seat keeps the
+    // operator's MCP servers (SI2).
+    assert_eq!(notes.matches("MCP\nservers").count(), 0, "{notes}");
 }
 
 #[test]

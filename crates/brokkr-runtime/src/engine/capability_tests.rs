@@ -79,12 +79,6 @@ fn a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null() {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
     // A composed model spawn: the seat's own argv, then the two tokens the
     // engine appended for the boundary, each segment by who supplied it.
-    let strings = |parts: &[&str]| {
-        parts
-            .iter()
-            .map(|part| part.to_string())
-            .collect::<Vec<_>>()
-    };
     let composed = SiteSpawn::of(vec![
         Segment::new(
             Origin::Authored,
@@ -409,14 +403,7 @@ fn composed_link(
 ) -> Candidate {
     Candidate {
         argv: flatten(&segments),
-        lowering: Lowering::Composed(crate::agents::Composition {
-            template: crate::agents::declared_template(&segments[0].argv),
-            segments,
-            effort: None,
-            intent,
-            application,
-            serving: Default::default(),
-        }),
+        lowering: Lowering::Composed(super::tests::composition(segments, intent, application)),
         ..link(provider, model)
     }
 }

@@ -1,5 +1,79 @@
 # produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
 pub mod brokkr_runtime
+pub mod brokkr_runtime::admission
+pub enum brokkr_runtime::admission::AdmissionError
+pub brokkr_runtime::admission::AdmissionError::Entry
+pub brokkr_runtime::admission::AdmissionError::Entry::entry: brokkr_store::queue::EntryId
+pub brokkr_runtime::admission::AdmissionError::Entry::source: brokkr_runtime::launch::LaunchError
+pub brokkr_runtime::admission::AdmissionError::Fold
+pub brokkr_runtime::admission::AdmissionError::Fold::run: alloc::string::String
+pub brokkr_runtime::admission::AdmissionError::Fold::source: brokkr_core::fold::FoldError
+pub brokkr_runtime::admission::AdmissionError::Latch
+pub brokkr_runtime::admission::AdmissionError::Latch::entry: brokkr_store::queue::EntryId
+pub brokkr_runtime::admission::AdmissionError::Latch::source: serde_json::error::Error
+pub brokkr_runtime::admission::AdmissionError::LatchMoved
+pub brokkr_runtime::admission::AdmissionError::LatchMoved::differences: alloc::vec::Vec<brokkr_runtime::admission::Difference>
+pub brokkr_runtime::admission::AdmissionError::LatchMoved::entry: brokkr_store::queue::EntryId
+pub brokkr_runtime::admission::AdmissionError::MapMoved(brokkr_store::queue::EntryId)
+pub brokkr_runtime::admission::AdmissionError::NothingLatched(brokkr_store::queue::EntryId)
+pub brokkr_runtime::admission::AdmissionError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::admission::AdmissionError::Unmeasured(brokkr_store::queue::EntryId)
+pub enum brokkr_runtime::admission::Difference
+pub brokkr_runtime::admission::Difference::Boundary
+pub brokkr_runtime::admission::Difference::Boundary::now: brokkr_core::realms::Boundary
+pub brokkr_runtime::admission::Difference::Boundary::was: brokkr_core::realms::Boundary
+pub brokkr_runtime::admission::Difference::Dialect
+pub brokkr_runtime::admission::Difference::GrantAdded(alloc::string::String)
+pub brokkr_runtime::admission::Difference::GrantChanged(alloc::string::String)
+pub brokkr_runtime::admission::Difference::GrantRemoved(alloc::string::String)
+pub brokkr_runtime::admission::Difference::House
+pub brokkr_runtime::admission::Difference::Realm
+pub brokkr_runtime::admission::Difference::Realm::now: core::option::Option<alloc::string::String>
+pub brokkr_runtime::admission::Difference::Realm::was: core::option::Option<alloc::string::String>
+impl core::fmt::Display for brokkr_runtime::admission::Difference
+pub fn brokkr_runtime::admission::Difference::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_runtime::admission::Reason
+pub brokkr_runtime::admission::Reason::Dropped(brokkr_store::queue::Wait)
+pub brokkr_runtime::admission::Reason::MapUnreadable(alloc::string::String)
+pub brokkr_runtime::admission::Reason::NotStarted(brokkr_store::queue::Wait)
+pub brokkr_runtime::admission::Reason::OperatorHold
+pub brokkr_runtime::admission::Reason::RealmChanged
+pub brokkr_runtime::admission::Reason::RealmChanged::differences: alloc::vec::Vec<brokkr_runtime::admission::Difference>
+pub brokkr_runtime::admission::Reason::RealmChanged::realm: alloc::string::String
+pub brokkr_runtime::admission::Reason::RealmLatched
+pub brokkr_runtime::admission::Reason::RealmLatched::differences: alloc::vec::Vec<brokkr_runtime::admission::Difference>
+pub brokkr_runtime::admission::Reason::RealmLatched::moved: bool
+pub brokkr_runtime::admission::Reason::RealmLatched::realm: alloc::string::String
+pub brokkr_runtime::admission::Reason::Stopped
+pub brokkr_runtime::admission::Reason::Stopped::run: alloc::string::String
+pub brokkr_runtime::admission::Reason::Stopped::wait: brokkr_store::queue::Wait
+pub brokkr_runtime::admission::Reason::Unended
+pub brokkr_runtime::admission::Reason::Unended::run: alloc::string::String
+pub brokkr_runtime::admission::Reason::Unended::wait: brokkr_store::queue::Wait
+impl brokkr_runtime::admission::Reason
+pub fn brokkr_runtime::admission::Reason::kind(&self) -> &'static str
+impl core::fmt::Display for brokkr_runtime::admission::Reason
+pub fn brokkr_runtime::admission::Reason::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_runtime::admission::Standing
+pub brokkr_runtime::admission::Standing::Admissible
+pub brokkr_runtime::admission::Standing::Held
+pub brokkr_runtime::admission::Standing::Waiting
+impl brokkr_runtime::admission::Standing
+pub fn brokkr_runtime::admission::Standing::word(self) -> &'static str
+pub struct brokkr_runtime::admission::Judged
+pub brokkr_runtime::admission::Judged::entry: brokkr_store::queue::QueueEntry
+pub brokkr_runtime::admission::Judged::launch: brokkr_runtime::launch::QueuedLaunch
+pub brokkr_runtime::admission::Judged::verdict: core::option::Option<brokkr_runtime::admission::Verdict>
+pub struct brokkr_runtime::admission::Released(_)
+impl core::fmt::Display for brokkr_runtime::admission::Released
+pub fn brokkr_runtime::admission::Released::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_runtime::admission::Verdict
+pub brokkr_runtime::admission::Verdict::reasons: alloc::vec::Vec<brokkr_runtime::admission::Reason>
+impl brokkr_runtime::admission::Verdict
+pub fn brokkr_runtime::admission::Verdict::standing(&self) -> brokkr_runtime::admission::Standing
+pub fn brokkr_runtime::admission::judge(&mut brokkr_store::Store, brokkr_store::queue::Attribution<'_>) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::admission::Judged>, brokkr_runtime::admission::AdmissionError>
+pub fn brokkr_runtime::admission::pass(&brokkr_store::Store) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::admission::Judged>, brokkr_runtime::admission::AdmissionError>
+pub fn brokkr_runtime::admission::release(&mut brokkr_store::Store, brokkr_store::queue::EntryId, brokkr_store::queue::Attribution<'_>) -> core::result::Result<brokkr_runtime::admission::Released, brokkr_runtime::admission::AdmissionError>
 pub mod brokkr_runtime::agents
 pub use brokkr_runtime::agents::HandsNotice
 pub enum brokkr_runtime::agents::EgressClass

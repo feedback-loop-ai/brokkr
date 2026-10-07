@@ -33,8 +33,8 @@ pub(super) struct Claims {
 /// The scaffold's `realms.json` grants no capability, so each native
 /// power the claude adapter declares is denied by name (decision 0065).
 pub(super) const PRE_APPROVAL: &str = "Pre-approval removes no tool: an unboxed seat keeps the\n\
-     harness's other defaults, your own permission settings and MCP\n\
-     servers. Only `WebSearch` and `WebFetch` are denied, by name, because\n\
+     harness's other defaults and your own permission settings. Only\n\
+     `WebSearch` and `WebFetch` are denied, by name, because\n\
      `realms.json` grants neither.";
 
 /// The claude-hired review gate, on every host: unboxed, under the

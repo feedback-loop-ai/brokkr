@@ -10,11 +10,17 @@
 //! nothing in the append path reads a queue table, so the events table's
 //! append-only guard is untouched. What must not move is guarded as the
 //! events are, by trigger: an entry's payload, priority and waits, the
-//! run it started, and every operator command once written.
+//! run it started, and every operator command and re-pin once written.
 //!
 //! The payload is the launch an entry will make, as the runtime encodes
-//! it; the store keeps it verbatim and never reads it. Priority and waits
-//! are operator data, stored and listed here; admission weighs them.
+//! it; the store keeps it verbatim and never reads it. An operator's
+//! re-pin writes a new one beside it, which the entry stands for from
+//! then on. A latch is a realm-drift hold admission found on an entry,
+//! kept verbatim as the runtime encodes it too, and it stands until the
+//! entry is re-pinned after it: nothing else clears one, and a latch or a
+//! re-pin is written only over the pin and the latch its caller read
+//! ([`Seen`]). Priority and
+//! waits are operator data, stored and listed here; admission weighs them.
 
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -22,141 +28,13 @@ use thiserror::Error;
 
 use crate::{now_rfc3339, patiently, Store, StoreError};
 
-/// The queue storage a journal records under `meta.queue_schema`, apart
-/// from `database_schema`: the queue is additive, so an older binary still
-/// reads a journal that carries one, and only the queue verbs refuse a
-/// queue stored in a version this binary does not know.
-pub(crate) const QUEUE_SCHEMA: u32 = 1;
+mod beside;
+mod storage;
 
-/// The queue's tables and guards. `IF NOT EXISTS` throughout, so racing
-/// openers that both found it missing agree.
-pub(crate) const MIGRATION_QUEUE_V1: &str = r#"
-CREATE TABLE IF NOT EXISTS queue_entries (
-    entry_id INTEGER PRIMARY KEY,
-    payload TEXT NOT NULL,
-    priority INTEGER NOT NULL,
-    added_at TEXT NOT NULL,
-    state TEXT NOT NULL,
-    position INTEGER,
-    run_id TEXT UNIQUE REFERENCES runs(run_id)
-);
-CREATE TABLE IF NOT EXISTS queue_waits (
-    entry_id INTEGER NOT NULL REFERENCES queue_entries(entry_id),
-    awaits INTEGER NOT NULL REFERENCES queue_entries(entry_id),
-    condition TEXT NOT NULL,
-    PRIMARY KEY (entry_id, awaits)
-);
-CREATE TABLE IF NOT EXISTS queue_commands (
-    seq INTEGER PRIMARY KEY,
-    entry_id INTEGER NOT NULL REFERENCES queue_entries(entry_id),
-    command TEXT NOT NULL,
-    position INTEGER,
-    operator TEXT NOT NULL,
-    reason TEXT NOT NULL,
-    recorded_at TEXT NOT NULL
-);
-CREATE TRIGGER IF NOT EXISTS queue_entries_fixed
-    BEFORE UPDATE OF entry_id, payload, priority, added_at ON queue_entries
-    BEGIN SELECT RAISE(ABORT, 'a queue entry''s launch, priority and arrival are fixed'); END;
-CREATE TRIGGER IF NOT EXISTS queue_entries_run_once
-    BEFORE UPDATE OF run_id ON queue_entries
-    WHEN OLD.run_id IS NOT NULL
-    BEGIN SELECT RAISE(ABORT, 'a queue entry''s run is written once'); END;
-CREATE TRIGGER IF NOT EXISTS queue_entries_kept
-    BEFORE DELETE ON queue_entries
-    BEGIN SELECT RAISE(ABORT, 'queue entries are never deleted; drop one'); END;
-CREATE TRIGGER IF NOT EXISTS queue_waits_fixed
-    BEFORE UPDATE ON queue_waits
-    BEGIN SELECT RAISE(ABORT, 'queue waits are fixed'); END;
-CREATE TRIGGER IF NOT EXISTS queue_waits_kept
-    BEFORE DELETE ON queue_waits
-    BEGIN SELECT RAISE(ABORT, 'queue waits are fixed'); END;
-CREATE TRIGGER IF NOT EXISTS queue_commands_append_only_update
-    BEFORE UPDATE ON queue_commands
-    BEGIN SELECT RAISE(ABORT, 'queue commands are append-only'); END;
-CREATE TRIGGER IF NOT EXISTS queue_commands_append_only_delete
-    BEFORE DELETE ON queue_commands
-    BEGIN SELECT RAISE(ABORT, 'queue commands are append-only'); END;
-"#;
-
-/// The guards [`MIGRATION_QUEUE_V1`] installs, by name, so an open can
-/// ask whether a journal still carries every one.
-pub(crate) const QUEUE_TRIGGERS: [&str; 7] = [
-    "queue_entries_fixed",
-    "queue_entries_run_once",
-    "queue_entries_kept",
-    "queue_waits_fixed",
-    "queue_waits_kept",
-    "queue_commands_append_only_update",
-    "queue_commands_append_only_delete",
-];
-
-/// The queue's tables, in the order [`MIGRATION_QUEUE_V1`] creates them.
-const QUEUE_TABLES: [&str; 3] = ["queue_entries", "queue_waits", "queue_commands"];
-
-/// Is the queue whole: its storage version recorded and every guard in
-/// place? Pure reads, so the steady-state open takes no write lock. A
-/// journal that records no queue is from before it, and the queue is
-/// installed. One that records a queue whose table is gone has lost what
-/// the queue held (SQLite drops a table's guards with it), and is refused
-/// rather than recreated empty; so only a guard missing from a table that
-/// is still there is ever repaired.
-pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
-    if queue_schema(conn)?.is_none() {
-        return Ok(false);
-    }
-    let named = |kind: &str| -> Result<Vec<String>, StoreError> {
-        Ok(conn
-            .prepare("SELECT name FROM sqlite_master WHERE type = ?1")?
-            .query_map([kind], |row| row.get(0))?
-            .collect::<Result<_, _>>()?)
-    };
-    let tables = named("table")?;
-    if let Some(table) = QUEUE_TABLES
-        .into_iter()
-        .find(|table| !tables.iter().any(|name| name == table))
-    {
-        return Err(QueueRefusal::TableLost { table }.into());
-    }
-    let triggers = named("trigger")?;
-    Ok(QUEUE_TRIGGERS
-        .iter()
-        .all(|guard| triggers.iter().any(|name| name == guard)))
-}
-
-/// Create the queue's tables and guards and record its version, on a
-/// connection already holding the write lock.
-pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
-    conn.execute_batch(MIGRATION_QUEUE_V1)?;
-    conn.execute(
-        "INSERT OR IGNORE INTO meta (key, value) VALUES ('queue_schema', ?1)",
-        [&QUEUE_SCHEMA.to_string()],
-    )?;
-    Ok(())
-}
-
-/// The queue storage a journal records, or `None` for one that never held
-/// a queue: a journal opened read-only from before the queue existed.
-fn queue_schema(conn: &Connection) -> Result<Option<u32>, StoreError> {
-    let recorded: Option<String> = conn
-        .query_row(
-            "SELECT value FROM meta WHERE key = 'queue_schema'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(recorded.map(|value| value.parse().unwrap_or(0)))
-}
-
-/// Refuse a queue stored in a version this binary does not know; answer
-/// whether there is a queue at all.
-fn queue_present(conn: &Connection) -> Result<bool, StoreError> {
-    match queue_schema(conn)? {
-        None => Ok(false),
-        Some(QUEUE_SCHEMA) => Ok(true),
-        Some(found) => Err(QueueRefusal::SchemaMismatch { found }.into()),
-    }
-}
+pub use beside::Seen;
+use beside::{beside_once, Beside};
+use storage::{latch_row, queue_stored, PINNED_PAYLOAD, PINNED_SEQ, QUEUE_SCHEMA, STANDING_LATCH};
+pub(crate) use storage::{migrate_queue, queue_intact};
 
 /// A queue entry's id: assigned at `add`, never reused, since no entry is
 /// ever deleted.
@@ -351,9 +229,36 @@ pub struct QueueEntry {
     pub state: EntryState,
     pub priority: i64,
     pub waits: Vec<Wait>,
-    /// The launch, as the runtime encoded it.
+    /// The launch, as the runtime encoded it: the one the entry was last
+    /// re-pinned to, else the one it was queued with.
     pub payload: String,
+    /// The `repin` command that wrote that launch, by its seq; `None`
+    /// while it stands for the launch it was queued with.
+    pub(crate) pin: Option<i64>,
     pub added_at: String,
+    /// The realm-drift hold latched on it since it was last re-pinned,
+    /// the latest one; `None` when none stands.
+    pub latch: Option<Latch>,
+}
+
+impl QueueEntry {
+    /// The pin and the latch read here, which a latch or a re-pin of this
+    /// entry is written over.
+    pub fn seen(&self) -> Seen {
+        Seen {
+            pin: self.pin,
+            latch: self.latch.as_ref().map(|latch| latch.seq),
+        }
+    }
+}
+
+/// A realm-drift hold admission latched on an entry (#430): the `latch`
+/// command that recorded it, and what admission found, as the runtime
+/// encoded it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Latch {
+    pub(crate) seq: i64,
+    pub finding: String,
 }
 
 /// Who issued an operator command, and why (decision 0068 ruling 1: each
@@ -420,6 +325,25 @@ pub enum QueueRefusal {
     RunTaken { run: String, entry: EntryId },
     #[error("queue storage {found} unsupported (want {QUEUE_SCHEMA})")]
     SchemaMismatch { found: u32 },
+    /// A re-pin over a latch that no longer stands: a peer latched again,
+    /// or re-pinned, after the caller read it. `standing` is the latch
+    /// that stands now, read in the transaction that refused.
+    #[error("queue entry {entry}'s latched hold is not the one the re-pin was shown")]
+    LatchMoved {
+        entry: EntryId,
+        standing: Option<Latch>,
+    },
+    /// A re-pin over a pin that no longer stands: a peer re-pinned after
+    /// the caller read it.
+    #[error("queue entry {entry} was re-pinned after the re-pin was shown")]
+    PinMoved { entry: EntryId },
+    /// A latch measured against a pin or a latch that no longer stands: a
+    /// peer re-pinned or latched after the caller read the entry.
+    #[error(
+        "queue entry {entry} was re-pinned or latched after its finding was measured, and the \
+         finding was not latched"
+    )]
+    Unmeasured { entry: EntryId },
     /// A journal that records its queue, and has lost one of its tables.
     #[error(
         "the journal records a queue but its {table} table is gone; what the queue held cannot \
@@ -500,14 +424,15 @@ fn set_standing(
     Ok(())
 }
 
-/// Journal one operator command, in the transaction that carried it out.
+/// Journal one operator command, in the transaction that carried it out,
+/// and say its place in the journal of commands.
 fn record(
     tx: &Transaction<'_>,
     entry: EntryId,
     word: &str,
     position: Option<u32>,
     by: Attribution<'_>,
-) -> Result<(), StoreError> {
+) -> Result<i64, StoreError> {
     tx.execute(
         "INSERT INTO queue_commands (entry_id, command, position, operator, reason, recorded_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -520,7 +445,7 @@ fn record(
             now_rfc3339()
         ],
     )?;
-    Ok(())
+    Ok(tx.last_insert_rowid())
 }
 
 /// Refuse a command the entry's standing cannot take.
@@ -558,7 +483,7 @@ fn add_once(
     by: Attribution<'_>,
 ) -> Result<EntryId, StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    queue_present(&tx)?;
+    queue_stored(&tx)?;
     admit_waits(&tx, new.waits)?;
     let place = waiting(&tx)?.len() as u32 + 1;
     tx.execute(
@@ -591,7 +516,7 @@ fn command_once(
     by: Attribution<'_>,
 ) -> Result<(), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    queue_present(&tx)?;
+    queue_stored(&tx)?;
     admit(entry, standing(&tx, entry)?, command)?;
     let position = apply(&tx, entry, command)?;
     record(&tx, entry, command.word(), position, by)?;
@@ -634,7 +559,7 @@ fn move_entry(tx: &Transaction<'_>, entry: EntryId, to: u32) -> Result<u32, Stor
 
 fn claim_once(conn: &mut Connection, entry: EntryId, run: &str) -> Result<(), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    queue_present(&tx)?;
+    queue_stored(&tx)?;
     match standing(&tx, entry)? {
         EntryState::Queued => {}
         EntryState::Held => return Err(QueueRefusal::Held(entry).into()),
@@ -668,17 +593,26 @@ fn claim_once(conn: &mut Connection, entry: EntryId, run: &str) -> Result<(), St
     Ok(())
 }
 
-fn list_once(conn: &Connection) -> Result<Vec<QueueEntry>, StoreError> {
-    if !queue_present(conn)? {
-        return Ok(Vec::new());
-    }
-    let mut entries = conn.prepare(
-        "SELECT entry_id, position, state, run_id, priority, payload, added_at
-         FROM queue_entries WHERE state != ?1
-         ORDER BY position IS NULL, position, entry_id",
-    )?;
+/// The entries `filter` selects with `key`, in the queue's order, each
+/// with its waits, the launch it stands for and the latch that stands on
+/// it. A version 1 queue holds no pins and no latches.
+fn entries(
+    conn: &Connection,
+    stored: u32,
+    filter: &str,
+    key: &dyn rusqlite::ToSql,
+) -> Result<Vec<QueueEntry>, StoreError> {
+    let (payload, pin, latched) = match stored {
+        QUEUE_SCHEMA => (PINNED_PAYLOAD, PINNED_SEQ, true),
+        _ => ("payload", "NULL", false),
+    };
+    let mut entries = conn.prepare(&format!(
+        "SELECT entry_id, position, state, run_id, priority, {payload}, added_at, {pin}
+         FROM queue_entries WHERE {filter}
+         ORDER BY position IS NULL, position, entry_id"
+    ))?;
     let mut listed = entries
-        .query_map([Standing::Dropped.word()], |row| {
+        .query_map([key], |row| {
             Ok(QueueEntry {
                 id: EntryId(row.get(0)?),
                 position: row.get(1)?,
@@ -686,13 +620,19 @@ fn list_once(conn: &Connection) -> Result<Vec<QueueEntry>, StoreError> {
                 priority: row.get(4)?,
                 payload: row.get(5)?,
                 added_at: row.get(6)?,
+                pin: row.get(7)?,
                 waits: Vec::new(),
+                latch: None,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
     let mut waits = conn
         .prepare("SELECT awaits, condition FROM queue_waits WHERE entry_id = ?1 ORDER BY awaits")?;
+    let mut latches = latched.then(|| conn.prepare(STANDING_LATCH)).transpose()?;
     for entry in &mut listed {
+        if let Some(latches) = &mut latches {
+            entry.latch = latches.query_row([entry.id.0], latch_row).optional()?;
+        }
         entry.waits = waits
             .query_map([entry.id.0], |row| {
                 Ok(Wait {
@@ -703,6 +643,19 @@ fn list_once(conn: &Connection) -> Result<Vec<QueueEntry>, StoreError> {
             .collect::<Result<_, _>>()?;
     }
     Ok(listed)
+}
+
+fn list_once(conn: &Connection) -> Result<Vec<QueueEntry>, StoreError> {
+    match queue_stored(conn)? {
+        Some(stored) => entries(conn, stored, "state != ?1", &Standing::Dropped.word()),
+        None => Ok(Vec::new()),
+    }
+}
+
+fn entry_once(conn: &Connection, entry: EntryId) -> Result<QueueEntry, StoreError> {
+    let stored = queue_stored(conn)?.ok_or(QueueRefusal::UnknownEntry(entry))?;
+    let mut found = entries(conn, stored, "entry_id = ?1", &entry.0)?;
+    found.pop().ok_or(QueueRefusal::UnknownEntry(entry).into())
 }
 
 impl Store {
@@ -748,6 +701,55 @@ impl Store {
     /// has an empty one.
     pub fn queue_list(&self) -> Result<Vec<QueueEntry>, StoreError> {
         patiently("queue_list", self.patience, || list_once(&self.conn))
+    }
+
+    /// One entry, whatever its standing, dropped included.
+    pub fn queue_entry(&self, entry: EntryId) -> Result<QueueEntry, StoreError> {
+        patiently("queue_entry", self.patience, || {
+            entry_once(&self.conn, entry)
+        })
+    }
+
+    /// Re-pin a waiting entry to `payload`, journaling the `repin` with
+    /// its reason: from now on the entry stands for that launch, and the
+    /// one it was queued with stays beside it, and no latch from before
+    /// stands on it. This is how the operator releases an entry admission
+    /// latched a realm-drift hold on (#430): the caller pins the map now
+    /// on disk, and only when it is the map the latch found. `seen` is the
+    /// pin and the latch the caller read: the re-pin is refused unless
+    /// both stand in the transaction that writes it, so a peer's latch or
+    /// re-pin in between is never cleared unseen.
+    pub fn queue_repin(
+        &mut self,
+        entry: EntryId,
+        payload: &str,
+        seen: Seen,
+        by: Attribution<'_>,
+    ) -> Result<(), StoreError> {
+        let conn = &mut self.conn;
+        patiently("queue_repin", self.patience, || {
+            beside_once(conn, entry, Beside::Pin, seen, payload, by)
+        })
+    }
+
+    /// Latch a realm-drift hold on a waiting entry, journaling the
+    /// `latch` with its reason: `finding` stands on the entry until a
+    /// later re-pin, whatever admission sees after (#430). A later latch
+    /// stands in its place, and every one stays. `seen` is the pin and the
+    /// latch the finding was measured against: the latch is refused unless
+    /// both stand in the transaction that writes it, so a finding measured
+    /// against a pin since replaced never stands.
+    pub fn queue_latch(
+        &mut self,
+        entry: EntryId,
+        finding: &str,
+        seen: Seen,
+        by: Attribution<'_>,
+    ) -> Result<(), StoreError> {
+        let conn = &mut self.conn;
+        patiently("queue_latch", self.patience, || {
+            beside_once(conn, entry, Beside::Latch, seen, finding, by)
+        })
     }
 }
 
