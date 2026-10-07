@@ -498,13 +498,7 @@ fn a_judged_drift_stays_latched_when_the_map_returns_and_a_repin_takes_only_the_
         )
     );
     // The re-pin refuses a map it was not shown.
-    let moved = release(&mut store, entry, BY).unwrap_err();
-    assert!(matches!(moved, AdmissionError::MapMoved(at) if at == entry));
-    assert_eq!(
-        moved.to_string(),
-        "the realms map on disk is not the one queue entry 1's latched hold found; `brokkr \
-         queue judge` shows and latches what differs now"
-    );
+    map_moved(release(&mut store, entry, BY).unwrap_err(), entry);
     // A map that cannot be read beside the latch: both hold.
     std::fs::write(ws.path().join("realms.json"), "{").unwrap();
     let detail = World::load(&ws.path().join("realms.json"))
@@ -744,12 +738,20 @@ fn an_unmapped_entrys_repin_is_refused_when_the_map_that_held_it_is_gone() {
     map(ws.path(), json!({"boundary": "open"}));
     judge(&mut store, BY).unwrap();
     std::fs::remove_file(ws.path().join("realms.json")).unwrap();
-    let moved = release(&mut store, entry, BY).unwrap_err();
+    map_moved(release(&mut store, entry, BY).unwrap_err(), entry);
+}
+
+/// `moved` is the re-pin refused because the map on disk is not the one
+/// `entry`'s latch found, in the operator's words.
+fn map_moved(moved: AdmissionError, entry: EntryId) {
     assert!(matches!(moved, AdmissionError::MapMoved(at) if at == entry));
     assert_eq!(
         moved.to_string(),
-        "the realms map on disk is not the one queue entry 1's latched hold found; `brokkr \
-         queue judge` shows and latches what differs now"
+        format!(
+            "the realms map on disk is not the one queue entry {}'s latched hold found; `brokkr \
+             queue judge` shows and latches what differs now",
+            entry.0
+        )
     );
 }
 
