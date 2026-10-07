@@ -85,9 +85,10 @@
    549 crates/brokkr-runtime/src/agents/mcp.rs
    285 crates/brokkr-runtime/src/anchor.rs
    168 crates/brokkr-runtime/src/boundary.rs
-  7734 crates/brokkr-runtime/src/bundle.rs
+  7576 crates/brokkr-runtime/src/bundle.rs
    136 crates/brokkr-runtime/src/bundle/charters.rs
   1258 crates/brokkr-runtime/src/bundle/compose.rs
+   290 crates/brokkr-runtime/src/bundle/mcp.rs
   1995 crates/brokkr-runtime/src/capabilities.rs
    132 crates/brokkr-runtime/src/capabilities/attribution.rs
    321 crates/brokkr-runtime/src/capabilities/binding.rs
@@ -244,9 +245,10 @@
   1051 crates/brokkr-runtime/src/agents/mcp/tests.rs
   5838 crates/brokkr-runtime/src/agents/tests.rs
    399 crates/brokkr-runtime/src/anchor/tests.rs
-  6788 crates/brokkr-runtime/src/bundle/agent_tests.rs
+  6676 crates/brokkr-runtime/src/bundle/agent_tests.rs
    407 crates/brokkr-runtime/src/bundle/agent_tests/charter_tests.rs
    562 crates/brokkr-runtime/src/bundle/agent_tests/gate_tests.rs
+   474 crates/brokkr-runtime/src/bundle/agent_tests/mcp_tests.rs
   4136 crates/brokkr-runtime/src/bundle/compose_tests.rs
   4644 crates/brokkr-runtime/src/bundle/model_policy_tests.rs
    196 crates/brokkr-runtime/src/bundle/secret_binding_tests.rs
@@ -260,21 +262,21 @@
    481 crates/brokkr-runtime/src/dialect/tests.rs
    545 crates/brokkr-runtime/src/engine/agent_tests.rs
    152 crates/brokkr-runtime/src/engine/artifact_gate_tests.rs
-  4616 crates/brokkr-runtime/src/engine/boundary_tests.rs
-  2231 crates/brokkr-runtime/src/engine/capability_tests.rs
+  4610 crates/brokkr-runtime/src/engine/boundary_tests.rs
+  2218 crates/brokkr-runtime/src/engine/capability_tests.rs
    443 crates/brokkr-runtime/src/engine/capability_tests/call_tests.rs
     58 crates/brokkr-runtime/src/engine/capability_tests/resume_tests.rs
    128 crates/brokkr-runtime/src/engine/checkpoints/tests.rs
    225 crates/brokkr-runtime/src/engine/cleanup_tests.rs
    669 crates/brokkr-runtime/src/engine/conclude_tests.rs
   1306 crates/brokkr-runtime/src/engine/contention_tests.rs
-  1962 crates/brokkr-runtime/src/engine/notice_tests.rs
+  1997 crates/brokkr-runtime/src/engine/notice_tests.rs
     46 crates/brokkr-runtime/src/engine/operator_tests.rs
     85 crates/brokkr-runtime/src/engine/replay/tests.rs
    225 crates/brokkr-runtime/src/engine/resume/tests.rs
-  4085 crates/brokkr-runtime/src/engine/resume_tests.rs
+  4073 crates/brokkr-runtime/src/engine/resume_tests.rs
    121 crates/brokkr-runtime/src/engine/secret_threading_tests.rs
-  6681 crates/brokkr-runtime/src/engine/tests.rs
+  6676 crates/brokkr-runtime/src/engine/tests.rs
    427 crates/brokkr-runtime/src/keep_refs/tests.rs
    494 crates/brokkr-runtime/src/launch/tests.rs
   1371 crates/brokkr-runtime/src/realms/tests.rs

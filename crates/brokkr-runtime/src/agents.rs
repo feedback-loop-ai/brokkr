@@ -928,6 +928,8 @@ pub struct Composition {
     pub segments: Vec<Segment>,
     /// The effort pinned in it, `None` where none was emitted.
     pub effort: Option<String>,
+    /// The MCP server set it intends: hands only where its boundary boxes them.
+    pub(crate) mcp: crate::bundle::McpIntent,
     pub intent: Intent,
     /// How the local declaration applies: its exact ordered limits where
     /// lowered directly, dormant beside hands, or unrestricted.
@@ -1104,7 +1106,6 @@ fn compose(
     concrete: &str,
     boundary: brokkr_core::realms::Boundary,
 ) -> Result<Composition, ResolveError> {
-    let boxed = boundary.is_boxed();
     let intent = Intent::of(agent);
     let mut segments = vec![driver_template(adapter)];
     // The serving inputs are filled as each contribution is chosen
@@ -1206,7 +1207,7 @@ fn compose(
                 }
             }
         }
-        if boxed {
+        if boundary.is_boxed() {
             // Decision 0043 ruling 2: the tool list is not consulted; what
             // the provider must be able to say is how its harness is handed
             // the boxed tool (a Codex seat keeps its read-only native shell).
@@ -1247,12 +1248,11 @@ fn compose(
         Application::Unrestricted
     };
 
-    // An agent names no MCP server (decision 0065 ruling 3): a server is
-    // the realm's to grant through a tool dialect, never an office's to
-    // ask for by name, so there is nothing of the kind to compose here.
+    // An agent names no MCP server (decision 0065 ruling 3).
     Ok(Composition {
         segments,
         effort,
+        mcp: crate::bundle::McpIntent::composed(intent.hands, boundary),
         intent,
         application,
         template: declared_template(&adapter.driver),

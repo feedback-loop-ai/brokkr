@@ -884,6 +884,41 @@ fn each_panel_member_hears_only_its_own_providers_notice() {
     assert_contract(&bare, "codex", "pass, fail", "");
 }
 
+/// U1f's typed intent as dispatch reads it, outside the bundle module (SI2,
+/// MB1): each candidate's set from its own composition, primary and fallback
+/// alike, and each inline site's from its facts, by type alone.
+#[test]
+fn dispatch_reads_each_servings_intended_mcp_set_by_type() {
+    use crate::bundle::McpIntent::{self, Empty, Hands};
+    let fixture = Fixture::new();
+    let mut review = inline_codex(true);
+    review["results"] = json!(["clean"]);
+    let panel = json!({"results": ["pass", "fail"], "aggregate": "unanimous-pass", "panel": {
+        "boxed": {"agent": "codex-then-claude", "class": "work"},
+        "bare": {"agent": "codex-bare", "class": "work"},
+    }});
+    let seats = json!({"work": panel, "review": review});
+    let compiled = fixture.compile_seats(POLICY, seats, &shipped_adapters(), Boundary::Namespace);
+    let compiled = compiled.unwrap();
+    let sites = compiled.sites.iter();
+    let intents: Vec<_> = sites
+        .filter(|(_, facts)| facts.capabilities.is_some())
+        .map(|(label, facts)| {
+            let chain = facts.chain.iter().map(McpIntent::of_candidate);
+            (label.as_str(), facts.inline_mcp, chain.collect::<Vec<_>>())
+        })
+        .collect();
+    assert_eq!(
+        intents,
+        vec![
+            ("review", Some(Hands), vec![]),
+            ("triage", Some(Empty), vec![]),
+            ("work:bare", None, vec![Some(Empty)]),
+            ("work:boxed", None, vec![Some(Hands), Some(Hands)]),
+        ]
+    );
+}
+
 #[test]
 fn each_sequence_step_and_nested_member_hears_only_its_own_providers_notice() {
     // A sequence: a nested panel of both, a single boxed Codex step, and

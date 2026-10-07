@@ -22,7 +22,7 @@ impl AgentFixture {
 
 /// Office `judge` on codex, asking `web-search` at `strength`, served by
 /// the chain `models`.
-fn hire_judge(fixture: &AgentFixture, strength: &str, models: &[&str]) {
+pub(super) fn hire_judge(fixture: &AgentFixture, strength: &str, models: &[&str]) {
     let efforts: Map<String, Value> = models
         .iter()
         .map(|m| (m.to_string(), json!("high")))
@@ -263,7 +263,7 @@ fn an_inline_gate_is_judged_at_its_own_class_and_label() {
 /// The `openspec` dialect wrapping `verify`, seated with the judge as a
 /// gate: `design` is a dialect phase, a draft and then the dialect's own
 /// `validate` step, compiled in a realm whose grant names no office.
-fn wrapped_verify(fixture: &AgentFixture) -> Result<Bundle, CompileError> {
+pub(super) fn wrapped_verify(fixture: &AgentFixture) -> Result<Bundle, CompileError> {
     let dialect = openspec_with_exec(fixture);
     let table = json!({
         "phases": ["design", "verify", "review", "done"], "initial": "design",
