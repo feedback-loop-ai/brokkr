@@ -35,8 +35,8 @@ run "cargo fmt --all -- --check" cargo fmt --all -- --check
 run "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings" cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 run "cargo test --workspace --all-features --locked" cargo test --workspace --all-features --locked
 run "cargo +1.88.0 check --workspace --locked" cargo +1.88.0 check --workspace --locked
-run "compile bundles/self" cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
-run "compile bundles/verify" cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
+run "compile recipes/self" cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
+run "compile recipes/verify" cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
 run "bash scripts/coverage-exact.sh" bash scripts/coverage-exact.sh
 run "cargo deny check licenses" cargo deny check licenses
 run "cargo build --release --locked -p brokkr-cli" cargo build --release --locked -p brokkr-cli

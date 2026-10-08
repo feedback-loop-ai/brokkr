@@ -265,8 +265,8 @@ floor silently.
 ### The bundles compile
 
 ```
-cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
-cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
+cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
+cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
 ```
 
 Each prints the resolved manifest and its content digest, and exits 0.
@@ -505,7 +505,7 @@ vocabulary.
 | `review` → `residual` / `security-hold` → `stop` | Above medium, or any security finding. Not ready. |
 
 Read [`recipes/preflight/README.md`](../../recipes/preflight/README.md) for
-what each seat runs and how it differs from `bundles/verify` (which
+what each seat runs and how it differs from `recipes/verify` (which
 judges an already-merged change and is the operator's tool, not yours).
 
 This is a recommendation, not a gate: nobody's pull request is rejected
@@ -523,7 +523,7 @@ review seat, code goes through the verifier first — `cargo fmt --all
 -- --check`, `bash scripts/lint-non-rust.sh --seat`, `cargo clippy
 --workspace --all-targets --all-features --locked -- -D warnings`,
 `cargo test --workspace` and `cargo run -p brokkr-cli -- compile
---bundle bundles/self`, in that order
+--bundle recipes/self`, in that order
 (`recipes/fast/scripts/verify-seat.sh`, #427), in the box with no
 network because this repository's realm declares no boundary and so
 reads `namespace`; under `harness` the same script would run unboxed.
@@ -533,7 +533,7 @@ stay CI's to prove: the suite in CI's own form
 `--no-fail-fast`; inside the `namespace` box a boundary proof cannot
 open a namespace, and it skips), any non-Rust lint whose tool the seat
 cannot reach (the seat names it `not run`), the MSRV, the suppression check and the
-`bundles/verify` compile, the other OS, the exact coverage gate,
+`recipes/verify` compile, the other OS, the exact coverage gate,
 cargo-deny, the diagram render and Renovate's validator, the ratchets,
 the RustSec audit, the release build and its size budget, and the
 mutants gate. A failure or a finding
@@ -882,7 +882,7 @@ data, and adding or editing a recipe's own table is an ordinary change.
 
 ## Recipes and adapters: data the Rust suite witnesses
 
-`recipes/`, `bundles/`, `agents/` and `adapters/` are data. A change to
+`recipes/`, `agents/` and `adapters/` are data. A change to
 any of them is JSON and Markdown, not Rust: there is no clippy run over
 a policy table, no MSRV question for a role charter, and the coverage
 gate reads `crates/` source, so a new recipe adds no uncovered lines to
@@ -904,8 +904,9 @@ should not need a Rust edit. What a data change faces:
 2. **The witness table.** A recipe's identity is the SHA-256 of its
    canonical manifest, which covers every file in it — the policy table,
    the charters, the driver command names — and the adapter declarations
-   its seats consult. Every bundle under `recipes/` and `bundles/` has
-   that digest pinned under `bundles` in
+   its seats consult. Every bundle under `recipes/` has that digest
+   pinned under `bundles`, and the policy table it resolves to under
+   `tables`, in
    [`crates/brokkr-runtime/tests/witnesses.json`](../../crates/brokkr-runtime/tests/witnesses.json),
    and every charter under `agents/charters/` is pinned under
    `charters`; a new recipe is a new row, and a row dropped from the

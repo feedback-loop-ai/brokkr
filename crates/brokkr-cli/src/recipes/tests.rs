@@ -182,7 +182,7 @@ fn root_discovery_listing_and_existing_destination_cover_refusals() {
 #[test]
 fn a_gate_bearing_recipe_installs_against_the_workspaces_adapters() {
     let library = tempfile::tempdir().unwrap();
-    let source = workspace().join("bundles/verify");
+    let source = workspace().join("recipes/verify");
     add(
         &workspace(),
         source.to_str().unwrap(),
@@ -197,6 +197,211 @@ fn a_gate_bearing_recipe_installs_against_the_workspaces_adapters() {
     // …and the listing that follows reads the same tree, so the recipe
     // it just accepted is not reported broken one command later.
     list(&workspace(), library.path()).unwrap();
+}
+
+fn installed(library: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(library)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// A derived recipe resolves its bases from the library it is installed
+/// into, so `add` brings each base the library lacks beside it — the
+/// documented `brokkr recipes add <brokkr>/recipes/node` into a fresh
+/// library — and stops at the first base the library already holds.
+#[test]
+fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
+    let fresh = tempfile::tempdir().unwrap();
+    let node = workspace().join("recipes/node");
+    add(&workspace(), node.to_str().unwrap(), "node", fresh.path())
+        .expect("node installs into a library that holds nothing");
+    assert_eq!(installed(fresh.path()), ["fast", "node"]);
+
+    let holding = tempfile::tempdir().unwrap();
+    let fast = workspace().join("recipes/fast");
+    copy_dir(&fast, &holding.path().join("fast")).unwrap();
+    let charter = holding.path().join("fast/roles/implementer.md");
+    let ours = std::fs::read_to_string(&charter).unwrap() + "\nThe library's own.\n";
+    std::fs::write(&charter, &ours).unwrap();
+    let own = workspace().join("recipes/self");
+    add(&workspace(), own.to_str().unwrap(), "own", holding.path())
+        .expect("self installs over the library's own fast");
+    assert_eq!(installed(holding.path()), ["fast", "own", "panel-review"]);
+    assert_eq!(std::fs::read_to_string(&charter).unwrap(), ours);
+
+    // A leaf standing apart from its bases installs alone and composes
+    // with the library's.
+    let apart = tempfile::tempdir().unwrap();
+    copy_dir(&node, &apart.path().join("node")).unwrap();
+    let alone = apart.path().join("node");
+    add(
+        &workspace(),
+        alone.to_str().unwrap(),
+        "node",
+        holding.path(),
+    )
+    .expect("a lone leaf composes with the library's base");
+    assert_eq!(
+        installed(holding.path()),
+        ["fast", "node", "own", "panel-review"]
+    );
+}
+
+/// The chain is walked against the target a layer at a time: a source
+/// holding `self` and `panel-review` but not `fast` installs both over the
+/// library's own `fast`, where resolving the source's whole chain first
+/// refused it.
+#[test]
+fn a_partial_chain_installs_over_the_librarys_own_base() {
+    let source = tempfile::tempdir().unwrap();
+    for recipe in ["self", "panel-review"] {
+        let from = workspace().join("recipes").join(recipe);
+        copy_dir(&from, &source.path().join(recipe)).unwrap();
+    }
+    let library = tempfile::tempdir().unwrap();
+    copy_dir(
+        &workspace().join("recipes/fast"),
+        &library.path().join("fast"),
+    )
+    .unwrap();
+    let own = source.path().join("self");
+    add(&workspace(), own.to_str().unwrap(), "own", library.path())
+        .expect("self composes from its source's panel-review and the library's fast");
+    assert_eq!(installed(library.path()), ["fast", "own", "panel-review"]);
+}
+
+/// A base that is not one plain name, or that the source's library holds
+/// only as a symlink, is never read from or copied to outside the library;
+/// the leaf is copied alone for the compile to refuse.
+#[test]
+fn a_base_outside_the_library_is_never_copied() {
+    let source = tempfile::tempdir().unwrap();
+    let outside = source.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::create_dir_all(source.path().join("lib")).unwrap();
+    std::os::unix::fs::symlink(&outside, source.path().join("lib/linked")).unwrap();
+    for base in ["../outside", "linked"] {
+        let leaf = source.path().join("lib/leaf");
+        std::fs::create_dir_all(&leaf).unwrap();
+        let document = serde_json::json!({"name": "leaf", "extends": base});
+        std::fs::write(leaf.join("bundle.json"), document.to_string()).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let library = target.path().join("lib");
+        std::fs::create_dir(&library).unwrap();
+        let installing = install(&leaf, "leaf", &library).unwrap();
+        let names: Vec<&str> = installing.0.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["leaf"], "{base}");
+        assert!(!target.path().join("outside").exists(), "{base}");
+    }
+}
+
+/// A refused compile removes the leaf AND every base copied with it.
+#[test]
+fn a_refused_derived_recipe_leaves_the_library_as_it_found_it() {
+    let bare = tempfile::tempdir().unwrap();
+    let library = tempfile::tempdir().unwrap();
+    let node = workspace().join("recipes/node");
+    let refusal = add(bare.path(), node.to_str().unwrap(), "node", library.path()).unwrap_err();
+    let refused = refusal
+        .downcast_ref::<Refused>()
+        .expect("a compile refusal");
+    assert_eq!(refused.recipe, "node");
+    assert!(
+        matches!(
+            refused.cause.downcast_ref::<brokkr_runtime::CompileError>(),
+            Some(brokkr_runtime::CompileError::Invalid(_))
+        ),
+        "{:?}",
+        refused.cause
+    );
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "recipe 'node' does not compile (removed): {}",
+            refused.cause
+        )
+    );
+    assert_eq!(installed(library.path()), Vec::<String>::new());
+}
+
+/// Two `add`s into one library never interleave. The first is stood in for
+/// by a held library with its `fast` copy in place, about to be refused and
+/// removed: the second waits rather than stop its walk at that copy, so it
+/// never keeps a `review-first` whose base the first then removes.
+#[test]
+fn a_second_add_waits_for_the_library_another_holds() {
+    let library = tempfile::tempdir().unwrap();
+    let held = hold(library.path()).unwrap();
+    let in_flight = library.path().join("fast");
+    copy_dir(&workspace().join("recipes/fast"), &in_flight).unwrap();
+    let dir = library.path().to_path_buf();
+    let second = std::thread::spawn(move || {
+        let review_first = workspace().join("recipes/review-first");
+        add(
+            &workspace(),
+            review_first.to_str().unwrap(),
+            "review-first",
+            &dir,
+        )
+    });
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert!(
+        !second.is_finished(),
+        "the second add ran in a held library"
+    );
+    std::fs::remove_dir_all(&in_flight).unwrap();
+    drop(held);
+    second
+        .join()
+        .unwrap()
+        .expect("the second add installs once the library is released");
+    assert_eq!(installed(library.path()), ["fast", "review-first"]);
+}
+
+/// An entry the library already holds is never removed by an install that
+/// did not make it, a dangling link included: as the leaf it is refused
+/// before any copy, as a base it ends the walk, and a copy that meets it
+/// fails without registering it.
+#[test]
+fn a_dangling_link_in_the_library_is_never_removed() {
+    let missing = tempfile::tempdir().unwrap().path().join("missing");
+    let node = workspace().join("recipes/node");
+    let linked = |name: &str| {
+        let library = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(&missing, library.path().join(name)).unwrap();
+        library
+    };
+    let kept = |library: &Path, name: &str| {
+        assert_eq!(std::fs::read_link(library.join(name)).unwrap(), missing);
+        assert_eq!(installed(library), [name]);
+    };
+
+    let base = linked("fast");
+    let refusal = add(&workspace(), node.to_str().unwrap(), "node", base.path()).unwrap_err();
+    assert_eq!(refusal.downcast_ref::<Refused>().unwrap().recipe, "node");
+    kept(base.path(), "fast");
+
+    let leaf = linked("node");
+    let refusal = add(&workspace(), node.to_str().unwrap(), "node", leaf.path()).unwrap_err();
+    let dest = leaf.path().join("node");
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "recipe 'node' already exists at {}; remove it first",
+            dest.display()
+        )
+    );
+    kept(leaf.path(), "node");
+
+    let refusal = install(&node, "node", leaf.path()).err().unwrap();
+    assert_eq!(
+        refusal.downcast_ref::<std::io::Error>().map(|e| e.kind()),
+        Some(std::io::ErrorKind::AlreadyExists)
+    );
+    kept(leaf.path(), "node");
 }
 
 #[test]

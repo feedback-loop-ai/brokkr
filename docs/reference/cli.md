@@ -21,7 +21,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr rerun`](#brokkr-rerun): Re-run a past run's feature as a NEW run under another bundle or recipe, so outcomes can be compared by run id. No stored linkage
 - [`brokkr compare`](#brokkr-compare): Compare two runs' aligned outcomes: decision trails, first divergence, phases visited, per-seat costs. Read-only
 - [`brokkr recipes`](#brokkr-recipes): The recipe library: bundle directories as named, swappable delivery strategies
-- [`brokkr recipes list`](#brokkr-recipes-list): List recipes under --dir plus the built-in bundles; broken ones print a warning line, never abort the listing
+- [`brokkr recipes list`](#brokkr-recipes-list): List recipes under --dir; broken ones print a warning line, never abort the listing
 - [`brokkr recipes add`](#brokkr-recipes-add): Install a recipe from a local path or a git URL into &lt;dir&gt;/&lt;name&gt;
 - [`brokkr recipes show`](#brokkr-recipes-show): Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from (decision 0017)
 - [`brokkr agents`](#brokkr-agents): The agent library (decision 0016): one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
@@ -315,7 +315,7 @@ Usage: brokkr recipes <COMMAND>
 
 ## brokkr recipes list
 
-List recipes under --dir plus the built-in bundles; broken ones print a warning line, never abort the listing
+List recipes under --dir; broken ones print a warning line, never abort the listing
 
 ```text
 Usage: brokkr recipes list [OPTIONS]

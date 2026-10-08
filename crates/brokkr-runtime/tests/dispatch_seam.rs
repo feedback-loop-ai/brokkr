@@ -124,8 +124,8 @@ fn envelope(bundle_sha256: &str) -> DispatchEnvelopeV2 {
 #[test]
 fn every_shipped_manifest_round_trips_losslessly_or_is_refused_loudly() {
     for relative in [
-        "bundles/self",
-        "bundles/verify",
+        "recipes/self",
+        "recipes/verify",
         "recipes/fast",
         "recipes/triage",
         "recipes/night-shift",
@@ -155,7 +155,7 @@ fn every_shipped_manifest_round_trips_losslessly_or_is_refused_loudly() {
 
 /// The two known witnesses land as the refusals the lineage names for
 /// them today — `recipes/fast` seats gates whose authorising adapters
-/// are pinned under `drivers`, and `bundles/self` adopts agents. The
+/// are pinned under `drivers`, and `recipes/self` adopts agents. The
 /// refusal is the honest reading of decision 0021's witness meeting
 /// decision 0016's frozen v2 contract; a jointly agreed v2-lineage
 /// version that carries the pins lifts it.
@@ -204,8 +204,8 @@ fn the_gate_witness_and_the_agent_pin_are_refused_by_name() {
         ))
     );
 
-    let own = compile("bundles/self").manifest;
-    assert!(own.get("agents").is_some(), "bundles/self adopts agents");
+    let own = compile("recipes/self").manifest;
+    assert!(own.get("agents").is_some(), "recipes/self adopts agents");
     let sha = canonical::sha256_hex(&own);
     assert_eq!(
         build_run_manifest_v2(&own, envelope(&sha)),

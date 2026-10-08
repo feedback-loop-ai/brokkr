@@ -124,8 +124,8 @@ fn a_queued_launch_keeps_every_fact_its_request_is_rebuilt_from() {
     // Each relative path comes back anchored to the workspace, `/work`.
     let bundles = [
         (
-            BundleSource::Dir("bundles/self".into()),
-            BundleSource::Dir("/work/bundles/self".into()),
+            BundleSource::Dir("recipes/self".into()),
+            BundleSource::Dir("/work/recipes/self".into()),
         ),
         (
             recipe(),

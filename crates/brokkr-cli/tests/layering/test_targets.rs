@@ -516,12 +516,11 @@ fn declarations() -> BTreeMap<String, Declared> {
 /// The tracked files whose commands are run: by CI, by a recipe's or a
 /// bundle's seat, by a measuring script, or by an operator following a
 /// guide.
-const RUN_COMMANDS: [&str; 10] = [
+const RUN_COMMANDS: [&str; 9] = [
     ".github",
     "ARCHITECTURE.md",
     "CONTRIBUTING.md",
     "README.md",
-    "bundles",
     "docs",
     "packaging",
     "quality",

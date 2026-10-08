@@ -260,8 +260,8 @@ amendment for the operator, and no design note may widen a ruling
 addendum, ruling 1).
 
 #### Scenario: The shipped verifier under open is admitted
-- **WHEN** `bundles/self`, whose verify seat is `["{brokkr}","driver","exec","--","bash","./scripts/verify-seat.sh","{prompt_file}"]` with hands, compiles under `open`
-- **THEN** it is admitted, because `bundles/self/scripts/verify-seat.sh` is a file the bundle's own manifest walk pins
+- **WHEN** `recipes/self`, whose verify seat, inherited from `recipes/fast`, is `["{brokkr}","driver","exec","--","bash","./scripts/verify-seat.sh","{prompt_file}"]` with hands, compiles under `open`
+- **THEN** it is admitted, because `recipes/fast/scripts/verify-seat.sh` is a file the declaring layer's own manifest walk pins
 
 #### Scenario: A work-class exec site with hands is judged on the gate's ground
 - **WHEN** an exec site with hands and `class: work` whose command is `["{brokkr}","driver","exec","--","bash","./scripts/lint.sh"]` naming a file the bundle's walk pins compiles under `open`, and a sibling whose command is `["{brokkr}","driver","exec","--","true"]` compiles beside it
@@ -347,7 +347,7 @@ with a measured door; `recipes/triage` and `recipes/night-shift`, the
 two with dialect steps, refuse under `harness` on a second ground until
 a decision admits the step (design DD8), and the implementation SHALL
 report that unmet part of the promise beside the measurement. Every
-bundle under `recipes/` and `bundles/` without a dialect step SHALL
+bundle under `recipes/` without a dialect step SHALL
 compile under `harness` on that condition. If the measurement finds a
 claude mode that cannot be declared as a fragment, the refusal SHALL
 name the adapter, the member and the site, and the implementation SHALL
@@ -372,16 +372,16 @@ decision).
 
 #### Scenario: The shipped bundles compile under harness
 - **GIVEN** an adapter library in which the codex and claude adapters declare both `hands.harness` members as fragments — the shipped files once the measurement lands, a scratch copy with the members planted until then
-- **WHEN** every bundle under `recipes/` and `bundles/` compiles under `harness` against it, in a realm that declares the openspec dialect
+- **WHEN** every bundle under `recipes/` compiles under `harness` against it, in a realm that declares the openspec dialect
 - **THEN** each bundle without a dialect step compiles — eleven of the thirteen — with each hands site's manifest `boundary` entry reading `harness`, and `recipes/triage` and `recipes/night-shift` refuse naming the `analyze` sequence's `check` step — the first dialect step the compiler reaches, phases compiling in name order — and decision 0046 ruling 4
 
 #### Scenario: The measurement is not reachable from the implementing seat
-- **WHEN** the shipped adapters are loaded as they stand, `adapters/claude.json` declaring no `hands.harness` member because no claude the implementing seat may run was reachable, and every bundle under `recipes/` and `bundles/` compiles under `harness` in a realm that declares the openspec dialect
-- **THEN** exactly four bundles refuse, each naming the ground the compiler reaches first: `bundles/self` at `review`, whose reviewer chains `sol`, `fable`, `opus`, and `recipes/panel-review` at `review:correctness`, whose judge chains `sol`, `opus`, each naming `claude`, `hands.harness.gate` and the site; and `recipes/triage` and `recipes/night-shift`, which inherits the seat, naming the `analyze` sequence's `check` step, decision 0046 ruling 4 and decision 0042 ruling 4 — the compiler walks phases in name order (`serde_json::Map` is a `BTreeMap` in this tree; `preserve_order` is off), so `analyze` compiles first and its first step is the dialect check, reached before any claude link, and the claude ground stands behind that refusal unreached; the pin names `claude` for those two only if a decision admits the dialect step before the measurement lands; every other shipped bundle compiles; and the implementation completes and commits every other task, reports nothing blocked, and names the measurement in its completion note as the operator's with the recipe, the candidates and the version
+- **WHEN** the shipped adapters are loaded as they stand, `adapters/claude.json` declaring no `hands.harness` member because no claude the implementing seat may run was reachable, and every bundle under `recipes/` compiles under `harness` in a realm that declares the openspec dialect
+- **THEN** exactly four bundles refuse, each naming the ground the compiler reaches first: `recipes/self` at `review`, whose reviewer chains `sol`, `fable`, `opus`, and `recipes/panel-review` at `review:correctness`, whose judge chains `sol`, `opus`, each naming `claude`, `hands.harness.gate` and the site; and `recipes/triage` and `recipes/night-shift`, which inherits the seat, naming the `analyze` sequence's `check` step, decision 0046 ruling 4 and decision 0042 ruling 4 — the compiler walks phases in name order (`serde_json::Map` is a `BTreeMap` in this tree; `preserve_order` is off), so `analyze` compiles first and its first step is the dialect check, reached before any claude link, and the claude ground stands behind that refusal unreached; the pin names `claude` for those two only if a decision admits the dialect step before the measurement lands; every other shipped bundle compiles; and the implementation completes and commits every other task, reports nothing blocked, and names the measurement in its completion note as the operator's with the recipe, the candidates and the version
 
 #### Scenario: A measured gap is reported, not papered over
 - **WHEN** the measurement declares claude's `work` member unsupported
-- **THEN** a fixture bundle that seats the chief architect as a work seat with hands refuses under `harness` naming `claude`, `hands.harness.work` and the site; `recipes/triage` and `recipes/night-shift` — every shipped bundle under `recipes/` and `bundles/` that seats the chief architect — refuse under `harness`; every other shipped bundle still compiles; and the implementation reports the unmet promise instead of amending the adapter, the roster or the rule
+- **THEN** a fixture bundle that seats the chief architect as a work seat with hands refuses under `harness` naming `claude`, `hands.harness.work` and the site; `recipes/triage` and `recipes/night-shift` — every shipped bundle under `recipes/` that seats the chief architect — refuse under `harness`; every other shipped bundle still compiles; and the implementation reports the unmet promise instead of amending the adapter, the roster or the rule
 
 ### Requirement: The argv of a site with hands follows the boundary and the class
 At run time the engine SHALL compose the argv of every site with hands
@@ -458,8 +458,8 @@ reaches composition either (decision 0046 rulings 1 and 4; decision
 - **THEN** its manifest `hands` entry still says `network` false, its argv carries no network switch of Brokkr's, and the run is rendered *unboxed*
 
 #### Scenario: The shipped verify seat under harness on Linux with the probe passing
-- **WHEN** `bundles/self`'s verify seat, compiled in this repository so that `{brokkr}` is `<brokkr>` and `./scripts/verify-seat.sh` is `<repo>/bundles/self/scripts/verify-seat.sh`, is composed under `harness` on Linux with the probe passing and the engine's ids `<uid>` and `<gid>`
-- **THEN** its argv is exactly, token by token: `unshare`, `--map-root-user`, `--net`, `--`, `sh`, `-c`, `ip link set lo up && exec unshare --map-user=<uid> --map-group=<gid> -- "$@"`, `sh`, `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/bundles/self/scripts/verify-seat.sh`, `{prompt_file}` — no `hands` verb, no `/runtime/bundle` path, and the literal `{prompt_file}` left for the exec driver
+- **WHEN** `recipes/self`'s verify seat, compiled in this repository so that `{brokkr}` is `<brokkr>` and `./scripts/verify-seat.sh` is `<repo>/recipes/fast/scripts/verify-seat.sh`, is composed under `harness` on Linux with the probe passing and the engine's ids `<uid>` and `<gid>`
+- **THEN** its argv is exactly, token by token: `unshare`, `--map-root-user`, `--net`, `--`, `sh`, `-c`, `ip link set lo up && exec unshare --map-user=<uid> --map-group=<gid> -- "$@"`, `sh`, `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/recipes/fast/scripts/verify-seat.sh`, `{prompt_file}` — no `hands` verb, no `/runtime/bundle` path, and the literal `{prompt_file}` left for the exec driver
 
 #### Scenario: The script argument and the spawn pin have separate spellings
 - **WHEN** an exec script is composed on Windows from a canonical verbatim drive or UNC layer root
@@ -470,7 +470,7 @@ reaches composition either (decision 0046 rulings 1 and 4; decision
 
 #### Scenario: The same seat with the probe failing, and off Linux
 - **WHEN** the same seat is composed under `harness` on Linux with the probe failing, and again on macOS and on Windows
-- **THEN** its argv is exactly `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/bundles/self/scripts/verify-seat.sh`, `{prompt_file}`, with the Windows script path spelled for its interpreter as above, spawned in the fixed environment with the network on — and the same holds under `open`
+- **THEN** its argv is exactly `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/recipes/fast/scripts/verify-seat.sh`, `{prompt_file}`, with the Windows script path spelled for its interpreter as above, spawned in the fixed environment with the network on — and the same holds under `open`
 
 #### Scenario: The probe is the prefix around true
 - **WHEN** the probe runs
@@ -529,8 +529,8 @@ from which the table is taken).
 
 #### Scenario: The shipped verify gate under harness on a rustup machine
 - **GIVEN** an engine environment of `HOME=/home/op`, `PATH=/home/op/.cargo/bin:/usr/bin:/bin`, `GH_TOKEN=secret`, `ANTHROPIC_API_KEY=secret`, `SSH_AUTH_SOCK=/run/agent` and no `CARGO_HOME`
-- **WHEN** `bundles/self`'s verify seat, whose binds declare `~/.cargo` and `~/.rustup`, is composed under `harness`
-- **THEN** the environment holds `PATH` verbatim, `HOME` and `TMPDIR` as the attempt's private directories, `CARGO_HOME=/home/op/.cargo` and `RUSTUP_HOME=/home/op/.rustup` from the declared binds, `LANG` and `LC_ALL` `C.UTF-8`, `CI` `true`, the two switches, the gpgsign triple and the bundle's git identity, and no `GH_TOKEN`, `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `NPM_CONFIG_CACHE` or `BROKKR_HANDS_BOX`; the command is the compiled dispatch `<brokkr> driver exec -- bash <repo>/bundles/self/scripts/verify-seat.sh {prompt_file}`, behind the network prefix when the probe passes, spawned in the worktree, so rustup's cargo proxy under `~/.cargo/bin` resolves the toolchain through the operator's `~/.rustup`
+- **WHEN** `recipes/self`'s verify seat, whose binds declare `~/.cargo` and `~/.rustup`, is composed under `harness`
+- **THEN** the environment holds `PATH` verbatim, `HOME` and `TMPDIR` as the attempt's private directories, `CARGO_HOME=/home/op/.cargo` and `RUSTUP_HOME=/home/op/.rustup` from the declared binds, `LANG` and `LC_ALL` `C.UTF-8`, `CI` `true`, the two switches, the gpgsign triple and the bundle's git identity, and no `GH_TOKEN`, `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `NPM_CONFIG_CACHE` or `BROKKR_HANDS_BOX`; the command is the compiled dispatch `<brokkr> driver exec -- bash <repo>/recipes/fast/scripts/verify-seat.sh {prompt_file}`, behind the network prefix when the probe passes, spawned in the worktree, so rustup's cargo proxy under `~/.cargo/bin` resolves the toolchain through the operator's `~/.rustup`
 
 #### Scenario: A planted secret is not handed over through the environment
 - **GIVEN** an engine `HOME` under which `.ssh/id` and `.cargo/credentials.toml` are planted, and a site whose binds declare `~/.cargo`

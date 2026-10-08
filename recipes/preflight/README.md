@@ -35,23 +35,23 @@ rebuilds the workspace instrumented; `review` gets 3600, as elsewhere.
 Both allow two attempts — the bound is on a driver that fails or hangs,
 not on retrying until something passes.
 
-## Where it differs from `bundles/verify`
+## Where it differs from `recipes/verify`
 
-`bundles/verify` has the same two phases and the same result
+`recipes/verify` has the same two phases and the same result
 vocabularies, and this recipe deliberately keeps its rules rule for
 rule. What differs is what the seats are pointed at:
 
-| | `bundles/verify` | `recipes/preflight` |
+| | `recipes/verify` | `recipes/preflight` |
 |---|---|---|
 | The change is | already delivered, named by merge commit or diff range (`git show <sha>`) | unmerged, found by diffing the branch against its base (`git diff main...HEAD`) |
 | Run by | the operator, after a slice lands | a contributor, before a pull request exists |
 | Driver tools | includes `gh pr view` / `gh run view` | no `gh` — there is nothing open to read |
-| `verify` runs | the suite plus the two bundle compiles | the nine commands above |
+| `verify` runs | `fast`'s verifier: format, the non-Rust lints, clippy, the suite and the `recipes/self` compile | the nine commands above |
 
 It is a standalone recipe with its own `policy.json`, not an `extends`
-of `bundles/verify`: `extends` names a recipe in the library, and the
-library is `recipes/`, so the `bundles/` boundary is not crossable that
-way.
+of `recipes/verify`, though both are in one library since #359: every
+rule's reason, the description and both seats differ, so an overlay
+would restate the whole table and gain nothing.
 
 ## Why both seats declare `class: "gate"`
 

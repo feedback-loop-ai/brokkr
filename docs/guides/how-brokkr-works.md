@@ -47,9 +47,9 @@ brokkr compare <a> <b>                              # journal-backed A/B
   always park; every evaluation input is engine-computed or
   seat-declared — everything else is dropped before it reaches the
   table or the record.
-- **Self-hosting**: Brokkr forges its own changes (`bundles/self`)
+- **Self-hosting**: Brokkr forges its own changes (`recipes/self`)
   and verifies every delivered slice with its own adversarial agents
-  (`bundles/verify`) — which have hard-stopped their author's work on
+  (`recipes/verify`) — which have hard-stopped their author's work on
   real security findings, twice. The operator keeps push and merge
   authority.
 

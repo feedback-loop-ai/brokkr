@@ -539,8 +539,11 @@ fn a_shipped_recipe_is_refused_once_its_adapter_tail_names_a_model() {
             Boundary::Namespace,
         );
         match compiled {
+            // panel-review composes fast (#359), so its refusal carries
+            // the composed bundle's `bundle: ` wrapper and chain note.
             Err(CompileError::Invalid(message)) => {
-                assert!(message.starts_with(&refusal), "{recipe}: {message}");
+                let unwrapped = message.strip_prefix("bundle: ").unwrap_or(&message);
+                assert!(unwrapped.starts_with(&refusal), "{recipe}: {message}");
             }
             other => panic!("expected {recipe} refused, got {other:?}"),
         }
@@ -951,7 +954,6 @@ fn shipped_compiles(adapters: &Path) -> Vec<(String, Result<(), String>)> {
         entries.map(move |entry| (kind, entry.unwrap().path()))
     };
     let mut compiled: Vec<_> = listed("recipes")
-        .chain(listed("bundles"))
         .filter(|(_, dir)| dir.join("bundle.json").is_file())
         .map(|(kind, dir)| {
             let name = dir.file_name().unwrap().to_string_lossy().to_string();

@@ -81,12 +81,18 @@ impl Fixture {
         )
         .unwrap();
 
+        // The recipe extends `fast` (#359), which its library holds beside it.
         copy_tree(&workspace().join("recipes/node"), &root.join("bundle"));
+        copy_tree(&workspace().join("recipes/fast"), &root.join("fast"));
         let path = root.join("bundle/bundle.json");
         let mut config: Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).expect("the recipe is JSON");
         let mut shipped: Vec<String> = Vec::new();
         for (seat, body) in config["seats"].as_object_mut().expect("seats") {
+            // `ship` overrides only its limits; its exec dispatch is fast's.
+            if seat == "ship" {
+                continue;
+            }
             let command = body["driver"]["command"]
                 .as_array_mut()
                 .unwrap_or_else(|| panic!("seat '{seat}' drives inline"));

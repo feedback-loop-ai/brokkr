@@ -22,6 +22,7 @@ mod landing_shape;
 mod library_data;
 mod node_recipe_gates;
 mod preflight_shape;
+mod recipe_library;
 mod recovery;
 mod release_shape;
 mod roster;

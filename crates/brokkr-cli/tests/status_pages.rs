@@ -1874,12 +1874,14 @@ fn no_living_doc_says_a_tool_list_bounds_an_unboxed_seat() {
         );
     }
     // A gate script's comments and a recipe's data say the class too.
-    let data: Vec<String> =
-        tracked_files::tracked(&root, &["*.sh", "recipes/*.json", "bundles/*.json"])
-            .into_iter()
-            .filter(|path| !is_record(path))
-            .collect();
-    for path in ["scripts/verify-seat.sh", "recipes/research/policy.json"] {
+    let data: Vec<String> = tracked_files::tracked(&root, &["*.sh", "recipes/*.json"])
+        .into_iter()
+        .filter(|path| !is_record(path))
+        .collect();
+    for path in [
+        "recipes/fast/scripts/verify-seat.sh",
+        "recipes/research/policy.json",
+    ] {
         assert!(data.iter().any(|p| p == path), "{path} is not scanned");
     }
     let texts = pages.iter().chain(&sources).chain(&data).flat_map(|path| {

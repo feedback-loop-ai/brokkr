@@ -1,14 +1,12 @@
 # Panel review
 
 This recipe adds independent correctness and security judges to the
-delivery loop. Its shipper is the same exec gate as `fast`'s.
-
-Its verifier is its own copy of `fast`'s from before #427: it runs
-`cargo test --workspace` and the `bundles/self` compile only, not
-`cargo fmt`, clippy with `-D warnings` or `scripts/lint-non-rust.sh`.
-The recipe does not extend `fast`, so it did not inherit them, and its
-judges are the change here, not the verifier; the pull request's
-required checks still run them before a merge.
+delivery loop. It extends `fast` (#359): an intake phase entered first,
+the library's implementer, and the review panel; its verifier and
+shipper are `fast`'s own exec gates, inherited, so it runs every check
+`fast`'s verifier runs. Seven of `fast`'s rules are restated to carry
+this table's own reason wording until the operator rules which wording
+stands.
 
 The verifier tells Cargo to stay offline, so it reads only the bound
 registry cache; an uncached dependency fails verification closed, and the

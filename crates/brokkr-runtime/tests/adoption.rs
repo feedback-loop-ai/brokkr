@@ -262,7 +262,7 @@ fn triage_cases_resolve_to_the_roster() {
 
 #[test]
 fn self_resolves_to_what_it_used_to_inline() {
-    assert_adopted("bundles/self", SELF);
+    assert_adopted("recipes/self", SELF);
 }
 
 /// Triage's boxed validator now comes from the realm dialect. It remains a
@@ -291,7 +291,7 @@ fn the_design_validator_is_supplied_by_the_dialect() {
 #[test]
 fn adopting_review_seats_declare_only_the_findings_their_tables_can_read() {
     for (relative, expected) in [
-        ("bundles/self", vec!["max_residual_severity"]),
+        ("recipes/self", vec!["max_residual_severity"]),
         (
             "recipes/panel-review",
             vec!["has_security_residual", "max_residual_severity"],
@@ -327,7 +327,7 @@ fn adoption_did_not_change_any_seats_limits() {
     ]
     .into_iter()
     .collect();
-    for relative in ["bundles/self", "recipes/panel-review"] {
+    for relative in ["recipes/self", "recipes/panel-review"] {
         let bundle = compile(relative);
         for (phase, (attempts, seconds)) in &expected {
             let limits = bundle.seats[*phase].limits;

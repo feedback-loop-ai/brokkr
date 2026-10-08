@@ -1047,7 +1047,7 @@ fn retiring_confine_leaves_plain_seat_member_and_step_argv_untouched() {
     }
 }
 
-/// The dispatch `bundles/self`'s verify seat becomes under `harness` on
+/// The dispatch `recipes/fast`'s verify seat, self's too, becomes under `harness` on
 /// Linux with the probe passing, token for token; with an empty prefix,
 /// the compiled command alone under both `harness` and `open`. These are
 /// composition assertions: no interpreter starts, so they cannot prove
@@ -1061,7 +1061,7 @@ fn the_unboxed_exec_dispatch_composes_the_expected_argv_and_rewalk_directory() {
         .parent()
         .unwrap()
         .to_path_buf();
-    let bundle_dir = root.join("bundles/self");
+    let bundle_dir = root.join("recipes/fast");
     let bundle = Bundle::compile_under(
         &bundle_dir,
         &root.join("agents"),
@@ -4240,7 +4240,7 @@ fn a_plain_attempt_emits_the_original_started_payload() {
 fn the_shipped_verify_input_and_prompt_name_no_workspace_tool_under_any_built_boundary() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let compiled = Bundle::compile_with(
-        &root.join("bundles/self"),
+        &root.join("recipes/self"),
         &root.join("agents"),
         &root.join("adapters"),
     )

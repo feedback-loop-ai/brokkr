@@ -5579,9 +5579,8 @@ fn a_codex_that_could_not_switch_search_off_is_unseatable_boxed_and_unboxed() {
 #[test]
 fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_denied() {
     let root = workspace();
-    let mut dirs: Vec<PathBuf> = ["bundles", "recipes"]
-        .iter()
-        .flat_map(|parent| std::fs::read_dir(root.join(parent)).unwrap())
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root.join("recipes"))
+        .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|dir| dir.join("bundle.json").is_file())
         .collect();
@@ -5799,7 +5798,7 @@ fn shipped_claude_final(list: &str) -> Vec<&str> {
 }
 
 /// Rebuild unit 7 (task 7.1; operator ruling of 2026-09-25, "narrow"):
-/// `bundles/verify`'s inline Claude reviewer and the three inline Codex
+/// `recipes/verify`'s inline Claude reviewer and the three inline Codex
 /// seats of `recipes/standby` and `recipes/review-first` author no
 /// capability flag. Each is compiled from the shipped directory in a realm
 /// that grants nothing, then composed, sealed and launched by the engine's
@@ -5852,7 +5851,7 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
     };
     let mut observed = serde_json::Map::new();
 
-    let verify = compiled("bundles/verify");
+    let verify = compiled("recipes/verify");
     let (spawn, input) = sealed(&verify, "review", 0);
     let record = &input["launch_record"];
     observed.insert(
@@ -6104,12 +6103,10 @@ fn no_shipped_driver_command_authors_a_capability_bearing_option() {
         }
     }
     let mut observed = std::collections::BTreeMap::new();
-    for dir in ["recipes", "bundles", "agents"] {
+    for dir in ["recipes", "agents"] {
         sweep(&workspace().join(dir), &mut observed);
     }
     let mut expected: std::collections::BTreeMap<String, Vec<String>> = [
-        "bundles/self",
-        "bundles/verify",
         "recipes/fast",
         "recipes/gpt-flash",
         "recipes/landing",
@@ -6121,8 +6118,10 @@ fn no_shipped_driver_command_authors_a_capability_bearing_option() {
         "recipes/research",
         "recipes/research-dsh",
         "recipes/review-first",
+        "recipes/self",
         "recipes/standby",
         "recipes/triage",
+        "recipes/verify",
         "recipes/wager-harness",
         "recipes/wager-harness-dsh",
         "recipes/wager-harness-muse",

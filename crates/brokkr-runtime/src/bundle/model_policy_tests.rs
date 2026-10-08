@@ -2721,29 +2721,28 @@ fn an_unboxed_exec_site_with_hands_is_admitted_only_when_it_names_a_pinned_scrip
 /// verify and ship seats compile under `harness` and `open` — the
 /// `{brokkr}` among the ship seat's arguments names no command — and
 /// `recipes/wager-harness`, which inherits both from `fast`, is judged
-/// against the layer that wrote them. `bundles/self` carries the same
-/// two seats but chains claude at its review gate, so under `open` it
-/// refuses there, before either exec seat is reached (seats compile in
+/// against the layer that wrote them. `recipes/self` inherits the same
+/// two seats (#359) but chains claude at its review gate, so under `open`
+/// it refuses there, before either exec seat is reached (seats compile in
 /// name order).
 #[test]
 fn the_shipped_exec_gates_compile_unboxed_when_they_name_their_own_pinned_scripts() {
     let root = workspace();
-    let self_dir = root.join("bundles/self");
-    let self_config: Value =
-        serde_json::from_slice(&std::fs::read(self_dir.join("bundle.json")).unwrap()).unwrap();
+    let resolved = super::compose::resolve(&root.join("recipes/self")).unwrap();
+    let self_dir = &resolved.roots[resolved.seat_origin["verify"]];
     for boundary in [Boundary::Harness, Boundary::Open] {
         enforce_hands_boundary(
             "verify",
-            &self_config["seats"]["verify"],
+            &resolved.seats["verify"],
             &[],
             SiteLaw {
                 boundary,
-                dir: &self_dir,
+                dir: self_dir,
                 agent_hands: None,
             },
             None,
         )
-        .expect("self's verifier is its own pinned script");
+        .expect("self's verifier is its layer's own pinned script");
         let fast = Bundle::compile_under(
             &root.join("recipes/fast"),
             &root.join("agents"),
@@ -2783,12 +2782,12 @@ fn the_shipped_exec_gates_compile_unboxed_when_they_name_their_own_pinned_script
     assert_eq!(wager.manifest["boundary"]["verify"], "harness");
 
     let refusal = Bundle::compile_under(
-        &root.join("bundles/self"),
+        &root.join("recipes/self"),
         &root.join("agents"),
         &root.join("adapters"),
         Boundary::Open,
     )
-    .expect_err("bundles/self seats a model gate with hands")
+    .expect_err("recipes/self seats a model gate with hands")
     .to_string();
     assert!(
         refusal.contains("seat 'review' is a gate with hands under the `open` boundary"),
@@ -3747,20 +3746,15 @@ fn the_re_walk_of_a_leaf_layer_names_the_first_pinned_key_that_moved() {
 
 // ------------------- decision 0046 ruling 6: every shipped bundle under harness
 
-/// Every bundle directory under `recipes/` and `bundles/`, in name order
-/// — the thirteen the tree ships.
+/// Every bundle directory under `recipes/`, the one library since #359,
+/// in name order.
 fn shipped_bundles() -> Vec<PathBuf> {
-    let root = workspace();
-    let mut dirs = Vec::new();
-    for parent in ["recipes", "bundles"] {
-        let mut children: Vec<PathBuf> = std::fs::read_dir(root.join(parent))
-            .unwrap()
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| path.join("bundle.json").is_file())
-            .collect();
-        children.sort();
-        dirs.append(&mut children);
-    }
+    let library = std::fs::read_dir(workspace().join("recipes")).unwrap();
+    let mut dirs: Vec<PathBuf> = library
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.join("bundle.json").is_file())
+        .collect();
+    dirs.sort();
     dirs
 }
 
@@ -3841,7 +3835,7 @@ fn assert_refused_at_the_dialect_step(relative: &str, refusal: &str) {
 ///
 /// Second half: against the shipped adapters as they stand, claude
 /// declaring no member, exactly six refuse, each naming the ground the
-/// compiler reaches first — `bundles/self` at `review` and
+/// compiler reaches first — `recipes/self` at `review` and
 /// `recipes/panel-review` at `review:correctness` naming `claude`,
 /// `hands.harness.gate` and the site; the three dialect bundles at
 /// `analyze:check` — and every other compiles. This half is a pin that
@@ -3967,7 +3961,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             Err(error) => {
                 let refusal = error.to_string();
                 match name.as_str() {
-                    "bundles/self" => {
+                    "recipes/self" => {
                         assert!(
                             refusal.contains(
                                 "seat 'review' gate link 2 resolves to provider 'claude', which \
@@ -3998,7 +3992,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             }
         }
     }
-    // Recipes first, then bundles, each in name order — the walk's order.
+    // In name order — the walk's order.
     assert_eq!(
         refused,
         [
@@ -4006,8 +4000,8 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             "recipes/night-shift",
             "recipes/panel-review",
             "recipes/release",
+            "recipes/self",
             "recipes/triage",
-            "bundles/self",
         ]
     );
 }

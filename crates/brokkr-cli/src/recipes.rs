@@ -24,10 +24,6 @@ use brokkr_runtime::{Bundle, SeatBody};
 
 use crate::compile_in;
 
-/// The two bundles shipped in-repo, always listed alongside `--dir`.
-/// Paths are as written, relative to the workspace.
-const BUILTINS: [&str; 2] = ["bundles/self", "bundles/verify"];
-
 /// The run/resume bundle from the exactly-one-of `--bundle` / `--recipe`
 /// pair (clap's arg group enforces the arity). The launch resolves it,
 /// where each verb always did ([`BundleSource::resolve`]).
@@ -136,15 +132,7 @@ pub(crate) fn list(workspace: &Path, dir: &Path) -> Result<()> {
                 candidates.push((name, sub));
             }
         }
-        Err(e) => println!(
-            "warning: recipes dir {}: {e}; listing built-ins only",
-            dir.display()
-        ),
-    }
-    for builtin in BUILTINS {
-        let path = workspace.join(builtin);
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        candidates.push((name, path));
+        Err(e) => println!("warning: recipes dir {}: {e}", dir.display()),
     }
     for (name, path) in candidates {
         match compile_in(workspace, &path, world.as_ref()) {
@@ -221,22 +209,127 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Copy into `dest`, removing the partial copy if anything fails —
-/// otherwise an aborted install would squat on the name and make every
-/// retry fail with "already exists".
-fn copy_into(from: &Path, dest: &Path) -> Result<()> {
-    copy_dir(from, dest).inspect_err(|_| {
-        let _ = std::fs::remove_dir_all(dest);
-    })
+/// The recipes one `add` copied into the library, by name, removed
+/// together when dropped unless kept — so an install refused at any step
+/// leaves no partial copy squatting on a name and making every retry fail
+/// with "already exists".
+struct Installing(Vec<(String, PathBuf)>);
+
+impl Installing {
+    /// The destination is created here, before it is registered, so an
+    /// entry this install did not make — a dangling link included — fails
+    /// the copy and is never removed with the copies that are.
+    fn copy(&mut self, from: &Path, name: &str, dest: PathBuf) -> Result<()> {
+        std::fs::create_dir(&dest)?;
+        self.0.push((name.to_string(), dest.clone()));
+        copy_dir(from, &dest)
+    }
+
+    fn keep(mut self) -> Vec<(String, PathBuf)> {
+        std::mem::take(&mut self.0)
+    }
 }
 
-/// Install a recipe: clone or copy into `<dir>/<name>`, then
-/// compile-verify the copy. A copy that fails to compile is removed —
-/// the library only ever holds recipes the compiler accepted or nothing.
+impl Drop for Installing {
+    fn drop(&mut self) {
+        for (_, dest) in &self.0 {
+            let _ = std::fs::remove_dir_all(dest);
+        }
+    }
+}
+
+/// The base a recipe directory's `bundle.json` names in `extends`, when it
+/// names a single plain path component, so no base is read from or copied
+/// to anywhere but its library. This only plans the copies: the compile
+/// that follows reads the chain strictly (decision 0017) and names why a
+/// layer this skips does not compose.
+fn base_of(layer: &Path) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct Layer {
+        extends: Option<String>,
+    }
+    let text = std::fs::read_to_string(layer.join("bundle.json")).ok()?;
+    let base = serde_json::from_str::<Layer>(&text).ok()?.extends?;
+    let mut parts = Path::new(&base).components();
+    matches!(
+        (parts.next(), parts.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    )
+    .then_some(base)
+}
+
+/// Copy the recipe at `root` into `<dir>/<name>`, and with it each base
+/// its `extends` chain reaches (decision 0017) that the library does not
+/// already hold, under the name it is extended by: a base resolves from
+/// the library the leaf sits in, so a derived recipe copied alone would
+/// never compile there. The chain is walked a layer at a time against the
+/// target, so it stops at the first base the library holds, whose own
+/// chain is the library's, wherever the source's chain would end. A base
+/// that neither the library nor the source's directory holds as a plain
+/// directory ends the walk too, and the compile that follows names why
+/// the install does not compose. The library holds a base it has any
+/// entry for, a dangling link included, read as the source side is.
+fn install(root: &Path, name: &str, dir: &Path) -> Result<Installing> {
+    let mut installing = Installing(Vec::new());
+    installing.copy(root, name, dir.join(name))?;
+    let mut layer = root.canonicalize()?;
+    while let Some(base) = base_of(&layer) {
+        let dest = dir.join(&base);
+        let source = layer.with_file_name(&base);
+        let plain = std::fs::symlink_metadata(&source).is_ok_and(|meta| meta.is_dir());
+        if std::fs::symlink_metadata(&dest).is_ok() || !plain {
+            break;
+        }
+        installing.copy(&source, &base, dest)?;
+        layer = source;
+    }
+    Ok(installing)
+}
+
+/// Hold the library exclusively, by a lock on its own directory, until the
+/// handle drops; a second holder waits. An install exposes each base it
+/// copies at its library name before its compile is accepted, and removes
+/// it when refused, so another `add` that ran meanwhile could stop its walk
+/// at that copy and keep a leaf whose base is then removed. One `add` at a
+/// time keeps "every copy kept or none" true across invocations.
+fn hold(dir: &Path) -> Result<rustix::fd::OwnedFd> {
+    use rustix::fs::{flock, open, FlockOperation, Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+    let library = open(dir, flags, Mode::empty())?;
+    flock(&library, FlockOperation::LockExclusive)?;
+    Ok(library)
+}
+
+/// A copy `add` made that the compiler refused, after every copy was
+/// removed: the recipe and the compile refusal itself, so a caller matches
+/// those and never the text (decision 0071 ruling 8).
+#[derive(Debug)]
+struct Refused {
+    recipe: String,
+    cause: anyhow::Error,
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Refused { recipe, cause } = self;
+        write!(
+            formatter,
+            "recipe '{recipe}' does not compile (removed): {cause}"
+        )
+    }
+}
+
+impl std::error::Error for Refused {}
+
+/// Install a recipe: clone or copy into `<dir>/<name>`, with the bases it
+/// extends that the library lacks, then compile-verify every copy. If any
+/// fails to compile all are removed — the library only ever holds recipes
+/// the compiler accepted or nothing. The library is held from the first
+/// copy to the last compile ([`hold`]); a clone happens before, unheld.
 pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Result<()> {
     let world = World::discover(workspace, None)?;
     let dest = dir.join(name);
-    if dest.exists() {
+    if std::fs::symlink_metadata(&dest).is_ok() {
         bail!(
             "recipe '{name}' already exists at {}; remove it first",
             dest.display()
@@ -244,8 +337,9 @@ pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Res
     }
     std::fs::create_dir_all(dir)?;
 
-    if is_git_source(source) {
-        let tmp = tempfile::tempdir().context("creating temp dir for clone")?;
+    let tmp;
+    let root = if is_git_source(source) {
+        tmp = tempfile::tempdir().context("creating temp dir for clone")?;
         let clone = tmp.path().join("clone");
         // `--` stops option injection; `protocol.ext.allow=never` stops
         // the ext transport, which would otherwise execute an arbitrary
@@ -263,28 +357,31 @@ pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Res
                 String::from_utf8_lossy(&out.stderr).trim()
             );
         }
-        let root = bundle_root(&clone)?;
-        copy_into(&root, &dest)?;
+        bundle_root(&clone)?
     } else {
         let src = Path::new(source);
         anyhow::ensure!(src.is_dir(), "source {source} is not a directory");
-        copy_into(src, &dest)?;
-    }
+        src.to_path_buf()
+    };
+    // Declared before the copies, so they are kept or removed while it is
+    // still held.
+    let _library = hold(dir)?;
+    let installing = install(&root, name, dir)?;
 
-    match compile_in(workspace, &dest, world.as_ref()) {
-        Ok(bundle) => {
-            eprintln!(
-                "added recipe '{name}' ({}) at {}",
-                &bundle.manifest_digest()[..12],
-                dest.display()
-            );
-            Ok(())
-        }
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&dest);
-            bail!("recipe '{name}' does not compile (removed): {e}");
+    let mut digests = Vec::new();
+    for (recipe, path) in &installing.0 {
+        match compile_in(workspace, path, world.as_ref()) {
+            Ok(bundle) => digests.push(bundle.manifest_digest()[..12].to_string()),
+            Err(cause) => {
+                let recipe = recipe.clone();
+                return Err(Refused { recipe, cause }.into());
+            }
         }
     }
+    for ((recipe, path), digest) in installing.keep().iter().zip(digests) {
+        eprintln!("added recipe '{recipe}' ({digest}) at {}", path.display());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

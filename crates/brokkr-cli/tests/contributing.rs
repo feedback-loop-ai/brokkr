@@ -50,6 +50,12 @@ fn guide_rows(guide: &str) -> Vec<(String, String, String, String)> {
         .collect()
 }
 
+/// Brokkr's own bundles, in the library since #359 and listed there, but
+/// the operator's tools rather than a contributor's choice: `self`
+/// delivers this repository (decision 0005) and `verify` judges a slice
+/// already delivered.
+const OPERATORS_OWN: [&str; 2] = ["self", "verify"];
+
 #[test]
 fn the_sixty_second_table_is_the_recipe_library() {
     let root = workspace();
@@ -104,9 +110,14 @@ fn the_sixty_second_table_is_the_recipe_library() {
         .collect();
     dirs.sort();
     for dir in dirs {
-        let raw = std::fs::read_to_string(dir.join("bundle.json")).unwrap();
-        let bundle: Value = serde_json::from_str(&raw).unwrap();
+        // Read as composed (#359): an overlay inherits its base's cost.
+        let bundle = brokkr_runtime::bundle::compose::resolve(&dir)
+            .unwrap()
+            .document;
         let name = bundle["name"].as_str().unwrap();
+        if OPERATORS_OWN.contains(&name) {
+            continue;
+        }
         let description = bundle["description"].as_str().unwrap();
         let cost = bundle["cost"].as_str().unwrap();
         assert!(
@@ -1152,7 +1163,7 @@ const JOB_LINES: [(&str, &str); 11] = [
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ steps.nightly.outputs.toolchain }}
-          components: llvm-tools-preview
+          components: llvm-tools-preview, rustfmt, clippy
       - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
           tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
@@ -1817,7 +1828,7 @@ fn the_boundary_guides_keep_every_section_and_gained_the_rows() {
             &[
                 "`\"boundary\": \"harness\"`",
                 "renders such a run *unboxed*",
-                "`bundles/self` and `recipes/panel-review`",
+                "`recipes/self` and `recipes/panel-review`",
                 "`recipes/triage` and `recipes/night-shift`",
                 "crates/brokkr-runtime/src/bundle/model_policy_tests.rs",
                 "The rerun compiles the new recipe in the discovered realm",
@@ -1952,7 +1963,7 @@ fn every_original_guide_section_and_table_row_remains_available() {
         ("docs/guides/quickstart.md", "# Quickstart — one spine, and everything else is a diff over it\n## The spine\n### Step 1 — install\n### Step 2 — `brokkr init .`\n### Step 3 — `brokkr run`\n### Step 4 — read the journal\n## Per-stack cards\n## Flow 2 — deliver\n## Flow 3 — adopt\n## After the spine\n### Where the run wrote things\n### The escape hatches\n#### Operator commands — `retry`, `stop` and `supersede`\n#### Resume\n#### Conclude — closing a run whose bundle no longer compiles\n#### Re-run under another strategy\n### What it cost\n### What the budgets do not cover\n### Limits worth knowing\n## Compact first-run tour\n## Next", "\n---\n1\n2\n3\n4\nChannel\ntarball\ncargo\nnix\napt\ndnf\nbrew\nFlag\n`--repo <path>`\n`--db <path>`\n`--realms <file>`\n`--recipes-dir <path>`\n`--secrets-file <path>`\n`--dispatch <file>`\nCard\n[node](cards/node.md)\n[bun](cards/bun.md)\n[rust](cards/rust.md)\n[go](cards/go.md)\n[python](cards/python.md)", ""),
         ("docs/guides/journal-and-verification.md", "# The journal and verification\n#   <run>.redacted.ndjson — paths and usernames as stable placeholders, hashes\n#   verify only on the verbatim pair, and the manifest says so", "", ""),
         ("docs/guides/read-surfaces.md", "# The read surfaces\n### `brokkr realms` — the world\n### `brokkr runs` — the fleet\n### `brokkr inspect` — one run, explained\n### `brokkr watch` — the same, live\n### `brokkr tui` — the readouts made explorable\n### `brokkr ui` — the browser console\n### `brokkr muninn` — the fleet, read and advised on", "", ""),
-        ("docs/guides/repository-layout.md", "# Repo layout", "Path\n---\n[`ARCHITECTURE.md`](../../ARCHITECTURE.md)\n[`CONTRIBUTING.md`](../../CONTRIBUTING.md)\n`crates/`\n`contracts/`\n`realms.json`\n`docs/house-rules.md`\n`bundles/`\n`recipes/`\n`agents/`\n`dialects/`\n`adapters/`\n`fixtures/`\n`policy/phase-machine.json`\n[`docs/decisions/`](../decisions/)\n[`docs/lore/`](../lore/)\n`assets/`\n`reference/`\n`scripts/coverage-exact.sh`", ""),
+        ("docs/guides/repository-layout.md", "# Repo layout", "Path\n---\n[`ARCHITECTURE.md`](../../ARCHITECTURE.md)\n[`CONTRIBUTING.md`](../../CONTRIBUTING.md)\n`crates/`\n`contracts/`\n`realms.json`\n`docs/house-rules.md`\n`recipes/`\n`agents/`\n`dialects/`\n`adapters/`\n`fixtures/`\n`policy/phase-machine.json`\n[`docs/decisions/`](../decisions/)\n[`docs/lore/`](../lore/)\n`assets/`\n`reference/`\n`scripts/coverage-exact.sh`", ""),
         ("docs/guides/driver-authoring.md", "# Driver authoring — the `forge-driver/v1` wire contract\n## Transport\n## The message family\n## The exchange, in order\n## What the engine actually sends\n## `resume` — rejoining the session you opened\n## `accepted` is the load-bearing message\n## Checkpoints\n## Results\n## The result-file contract\n## Deadlines and kills\n## A minimal driver, in prose\n## The conformance suite is the acceptance test\n## Wiring it into a bundle\n## See also", "Message\n---\n`hello`\n`capabilities`\n`start`\n`accepted`\n`checkpoint`\n`result`\n`resume`\n`cancel`\n`cancelled`\n`shutdown`\nWhat happened\nYour process exits **without** `accepted` and without a result\nYour process exits **after** `accepted` and without a result\nYou send `result` with `status: \"failed\"`\nYou violate the protocol\nField\n`input_tokens`\n`output_tokens`\n`cache_read_tokens`\n`reasoning_output_tokens`\n`cache_write_tokens`\nKey\n`inputs`\n`notes`\n`model`\n`effort`", ""),
         ("ARCHITECTURE.md", "# Architecture\n## The shape\n## The journal is the run\n## Every effect, in order\n## Policy is data\n## A bundle, resolved\n## Drivers\n## Verification, in layers\n## The operating surface", "Layer\n---\nDifferential corpus\nMachine proof\nSelf-delivery\nBrokkr verification", "**Status**: the system as implemented. The blueprint it grew from is"),
         ("docs/extension-model.md", "# Extension model — nodes, seats, and what may never be unplugged\n## Layer 1 — Phases (nodes of the outer machine)\n## Layer 2 — Seats (agents inside a phase)\n## Layer 3 — Profiles (the stack-specific bundle)\n## Resolved\n## Open questions for discussion", "Field\n---\n`role`\n`class`\n`trust`\n`result_schema`\n`driver`", "**Status**: partially accepted. Decisions 0002 and 0003 lock the outer-machine,"),

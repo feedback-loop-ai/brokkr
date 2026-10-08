@@ -776,7 +776,7 @@ fn mentions_agent(value: &Value) -> bool {
 /// reference resolves through it, and decision 0021's refusals read a
 /// driver's tier and grant out of it — so a gate-class site or a
 /// declared secret binding needs it too, even in a bundle that names no
-/// agent at all (`bundles/verify` and `recipes/fast` are exactly that).
+/// agent at all (`recipes/verify` and `recipes/fast` are exactly that).
 /// A bundle with none of the three has nothing to check and still
 /// compiles with no `adapters/` directory in sight. A typed `tools`
 /// declaration (decision 0065 slice one, design D5.2) is judged against

@@ -107,11 +107,14 @@ ruling and not a scaffold's.)
 
 ```
 $ brokkr recipes add ~/src/brokkr/recipes/node --name node
-added recipe 'node' (66a30b26ed1c) at recipes/node
+added recipe 'node' (9159de5a5947) at recipes/node
+added recipe 'fast' (507571b56eb5) at recipes/fast
 ```
 
-`recipes add` compiles what it copied and removes it again if it does
-not compile, so a recipe that lands is a recipe that runs — which is
+`node` extends `fast`, and a base resolves from the library its recipe
+sits in, so `recipes add` copies `fast` beside it unless your library
+already holds a `fast`. It compiles what it copied and removes all of it
+again if any does not compile, so a recipe that lands is a recipe that runs — which is
 exactly why the adapters go first. Run it the other way around and you
 get a refusal and no recipe:
 
@@ -181,10 +184,6 @@ Two `doctor` lines are worth knowing before you run the spine's check:
   adopts no agent from the shared library (decision 0016): its seats
   carry an inline `role` and `driver`, so there is no `agents/` tree for
   your repo to have. A warning is an optional capability, not a refusal.
-- **`brokkr recipes list` will warn** that `./bundles/self` and
-  `./bundles/verify` are missing. Those are *this* repository's own
-  bundles, looked for by default; your repo has no reason to carry them.
-
 `brokkr doctor --bundle recipes/node` compiles the recipe as part of the
 check, which is worth the extra flag here.
 

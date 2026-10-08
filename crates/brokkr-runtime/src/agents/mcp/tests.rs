@@ -817,7 +817,7 @@ const EDITS: [(&str, &str); 5] = [
 /// U1d and U1e (SI1): an adapter's identity is its whole file. One byte of
 /// one declaration's evidence moves that adapter's digest alone, the
 /// adapter digest of a resolution that consults it, and the identity of
-/// a shipped bundle that consults it; `bundles/self` consults no
+/// a shipped bundle that consults it; `recipes/self` consults no
 /// LaneTally or dsh office, so its identity does not move for those
 /// files. Exec serves no model, so no office resolves to it.
 #[test]
@@ -855,7 +855,7 @@ fn a_declaration_byte_moves_its_adapter_resolution_and_bundle_identity() {
             resolution.unwrap().record["adapter_digest"].clone()
         });
         let own = workspace.join("agents");
-        let bundle = crate::Bundle::compile_with(&workspace.join("bundles/self"), &own, &adapters);
+        let bundle = crate::Bundle::compile_with(&workspace.join("recipes/self"), &own, &adapters);
         let digests = EDITS.map(|(provider, _)| loaded.digest(provider).unwrap().to_string());
         (digests, resolved, bundle.unwrap().manifest_digest())
     };

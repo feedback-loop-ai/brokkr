@@ -166,7 +166,7 @@ bundle with no hands site SHALL print a manifest with neither key
 (decision 0046 ruling 1's enforcement binding; decision 0013).
 
 #### Scenario: A boxed bundle prints its sites' boundary
-- **WHEN** `brokkr compile --bundle bundles/self` runs in this repository
+- **WHEN** `brokkr compile --bundle recipes/self` runs in this repository
 - **THEN** the printed JSON's `manifest.boundary` carries the value `namespace` for every key of `manifest.hands` and no other key, and the printed JSON carries no `boundary` outside the manifest
 
 #### Scenario: A plain bundle prints none

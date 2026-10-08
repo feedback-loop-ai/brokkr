@@ -257,7 +257,7 @@ check can read.
   model and the operator's own Claude Code permission settings, less
   `WebSearch` and `WebFetch`, and the operator's MCP servers reach it
   ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
-  The `bundles/verify` review seat is the same: unboxed, `acceptEdits`,
+  The `recipes/verify` review seat is the same: unboxed, `acceptEdits`,
   with `cargo`, `git`, `ls`, `rg`, `gh pr view` and `gh run view`
   pre-approved. So are `recipes/fast`'s own inline implement and review
   seats, with the five `Bash` prefixes `cargo`, `git`, `ls`, `rg` and

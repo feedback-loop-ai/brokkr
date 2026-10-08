@@ -340,8 +340,8 @@ enum KeepRefsCmd {
 
 #[derive(Subcommand)]
 enum RecipesCmd {
-    /// List recipes under --dir plus the built-in bundles; broken ones
-    /// print a warning line, never abort the listing.
+    /// List recipes under --dir; broken ones print a warning line, never
+    /// abort the listing.
     List {
         /// The recipe library directory.
         #[arg(long, default_value = "recipes")]

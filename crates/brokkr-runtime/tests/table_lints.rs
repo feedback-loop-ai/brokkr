@@ -72,21 +72,16 @@ fn table(label: &str, json: Value) -> Table {
     }
 }
 
-/// Every table a run can be pinned to: the frozen heritage table, the two
-/// bundles, and every recipe — composed through the real `resolve`, so a
-/// derived recipe is read as the flat table the engine sees.
+/// Every table a run can be pinned to: the frozen heritage table and
+/// every recipe, Brokkr's own included — composed through the real
+/// `resolve`, so a derived recipe is read as the flat table the engine
+/// sees.
 fn shipped_tables() -> Vec<Table> {
     let root = workspace();
     let mut tables = vec![table(
         "policy/phase-machine.json",
         read_json(&root.join("policy/phase-machine.json")),
     )];
-    for bundle in ["self", "verify"] {
-        tables.push(table(
-            &format!("bundles/{bundle}"),
-            read_json(&root.join(format!("bundles/{bundle}/policy.json"))),
-        ));
-    }
     let mut recipes: Vec<PathBuf> = std::fs::read_dir(root.join("recipes"))
         .unwrap()
         .flatten()
@@ -245,7 +240,7 @@ fn presence_refuses_exactly_the_three_v1_tables() {
             ],
         ),
         (
-            "bundles/verify",
+            "recipes/verify",
             vec!["REVIEW-RESIDUAL-OK lets the run go on without reading [\"has_security_residual\", \"max_residual_severity\"]"],
         ),
         (
@@ -275,8 +270,8 @@ fn presence_refuses_exactly_the_three_v1_tables() {
 fn the_unruled_valuations_are_pinned_per_table() {
     let expected: BTreeMap<&str, (usize, usize)> = BTreeMap::from([
         ("policy/phase-machine.json", (57, 0)),
-        ("bundles/self", (47, 4)),
-        ("bundles/verify", (16, 0)),
+        ("recipes/self", (47, 4)),
+        ("recipes/verify", (16, 0)),
         ("recipes/fast", (46, 4)),
         ("recipes/landing", (48, 4)),
         ("recipes/night-shift", (1072, 128)),
@@ -415,7 +410,9 @@ fn the_stated_properties_hold_on_every_shipped_table() {
 }
 
 fn self_table() -> Value {
-    read_json(&workspace().join("bundles/self/policy.json"))
+    resolve(&workspace().join("recipes/self"))
+        .expect("recipes/self resolves")
+        .table
 }
 
 fn position(table: &Value, id: &str) -> usize {

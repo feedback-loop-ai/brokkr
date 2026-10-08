@@ -739,7 +739,7 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     );
     let root = workspace_root();
     let out = Command::new(brokkr_bin())
-        .args(["compile", "--bundle", "bundles/self"])
+        .args(["compile", "--bundle", "recipes/self"])
         .current_dir(&root)
         .output()
         .unwrap();

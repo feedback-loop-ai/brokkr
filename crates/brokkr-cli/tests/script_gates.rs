@@ -774,7 +774,7 @@ fn a_lint_tool_the_box_cannot_reach_is_named_and_the_rest_decide() {
     let (result, _) = fast_verify(&repo, "");
     assert_eq!(
         result,
-        r#"{"result": "pass", "notes": "cargo fmt --all -- --check: clean; cargo clippy --workspace --all-targets --all-features --locked -- -D warnings: clean\nlint-non-rust: not run: git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline (zizmor on PATH reports zizmor 0.1.0, not the pinned 3.0.0)\nlint-non-rust: not run: git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress (lychee is not on PATH)\nlint-non-rust: 4 of 6 lints ran clean\ncargo test --workspace: 1 successful test-suite summaries, 0 failed; cargo run -p brokkr-cli -- compile --bundle bundles/self: 1 bundle compiled, 0 failed (offline from the bound Cargo registry cache)"}
+        r#"{"result": "pass", "notes": "cargo fmt --all -- --check: clean; cargo clippy --workspace --all-targets --all-features --locked -- -D warnings: clean\nlint-non-rust: not run: git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline (zizmor on PATH reports zizmor 0.1.0, not the pinned 3.0.0)\nlint-non-rust: not run: git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress (lychee is not on PATH)\nlint-non-rust: 4 of 6 lints ran clean\ncargo test --workspace: 1 successful test-suite summaries, 0 failed; cargo run -p brokkr-cli -- compile --bundle recipes/self: 1 bundle compiled, 0 failed (offline from the bound Cargo registry cache)"}
 "#
     );
 }

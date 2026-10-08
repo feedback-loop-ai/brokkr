@@ -108,7 +108,7 @@ and residuals, never instruct a gate to pass.
 
 #### Scenario: The required quality evidence is available or explicitly pending
 - **WHEN** implementation completion is assessed
-- **THEN** the evidence covers formatting, clippy with warnings denied, every crate's suite separately, `cargo test --workspace`, compilation of `bundles/self`, strict OpenSpec validation, and literal 100% exact coverage including every added production line
+- **THEN** the evidence covers formatting, clippy with warnings denied, every crate's suite separately, `cargo test --workspace`, compilation of `recipes/self`, strict OpenSpec validation, and literal 100% exact coverage including every added production line
 - **AND** unavailable execution, namespace skips or a missing external exact-coverage result are recorded as pending evidence, never as a pass or a lower threshold
 - **AND** tests use canonical temporary roots on Linux and macOS, add no Windows obligations under decision 0063, and write no frozen fixture or contract bytes
 

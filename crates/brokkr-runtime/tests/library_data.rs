@@ -738,7 +738,7 @@ fn migration_library(root: &std::path::Path) -> Library {
 /// Tasks 5.1 and 5.2: a typed allowance written in the migration names
 /// lowers, on both harnesses, to exactly the inline `--allowedTools` value
 /// the shipped recipe it replaces carries at this head — `recipes/node`'s
-/// implement and review seats and `bundles/verify`'s reviewer — after the
+/// implement and review seats and `recipes/verify`'s reviewer — after the
 /// adapter's own `--permission-mode acceptEdits` template. Nothing else
 /// is composed: no native include, allow or deny list and no notice, so
 /// the local names add no capability.

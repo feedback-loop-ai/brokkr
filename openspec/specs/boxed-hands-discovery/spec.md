@@ -230,7 +230,7 @@ SHALL NOT count. Every mutation SHALL be restored before the final checks.
 
 #### Scenario: Completion names the checks actually performed
 - **WHEN** implementation is reported complete
-- **THEN** the evidence records `cargo test --workspace` (the all-features locked form satisfies it), `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, compilation of `bundles/self`, strict OpenSpec validation and the exact-coverage gate result
+- **THEN** the evidence records `cargo test --workspace` (the all-features locked form satisfies it), `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, compilation of `recipes/self`, strict OpenSpec validation and the exact-coverage gate result
 - **AND** if namespace restrictions prevent exact coverage inside the workspace box, host/CI execution remains explicitly pending until its actual result exists; the gate is neither weakened nor reported clean from skipped boundary proof
 - **AND** the checks and new tests cover supported Linux/macOS behavior without new native-Windows obligations under decision 0063
 - **AND** no live provider call, resume qualification, workflow-runner invocation or push is required or claimed by this capability

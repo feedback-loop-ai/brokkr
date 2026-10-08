@@ -44,8 +44,8 @@ jobs:
       - run: cargo test --workspace --all-features --locked
       - name: producer and frozen-contract release verification
         run: |
-          cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
-          cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
+          cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
+          cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
           cargo test --locked -p brokkr-bridge
           cargo test --locked -p brokkr-cli --test driver_conformance
       # The same digest-pinned cargo-audit CI installs; without it
@@ -73,7 +73,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ steps.nightly.outputs.toolchain }}
-          components: llvm-tools-preview
+          components: llvm-tools-preview, rustfmt, clippy
       - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
           tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}

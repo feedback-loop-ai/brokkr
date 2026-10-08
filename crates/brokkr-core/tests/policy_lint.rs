@@ -225,7 +225,7 @@ fn a_dead_end_is_refused() {
 }
 
 /// Presence refuses a v2 table only: the v1 tables (the frozen heritage
-/// table, `bundles/verify`, `recipes/preflight`) load as they did.
+/// table, `recipes/verify`, `recipes/preflight`) load as they did.
 #[test]
 fn a_v2_table_with_an_unread_hard_input_is_refused_and_the_same_v1_table_loads() {
     let arms = || {

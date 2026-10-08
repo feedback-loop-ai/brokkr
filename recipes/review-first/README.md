@@ -8,18 +8,15 @@ realm's boundary is `namespace`.
 
 It is fast's constitution entered at `verify` instead of `implement`: the
 same v2 rules, the same bounds (three implement visits, then stop), the
-same protected review gate. The only table differences from `fast` are
-the entry phase and the description, so the lint sweep reads identically.
+same protected review gate. It extends `fast` (#359), and its table
+overrides only the entry phase and the description, so the lint sweep
+reads identically.
 
 Use it when the branch is already written — by hand, by a stopped run, or
 by a wager arm — and what remains is judgment, proof, and shipment.
 
-Its verifier is its own copy of `fast`'s from before #427: it runs
-`cargo test --workspace` and the `bundles/self` compile only, not
-`cargo fmt`, clippy with `-D warnings` or `scripts/lint-non-rust.sh`.
-The recipe does not extend `fast`, so it did not inherit them, and
-landing, not this recipe, is the shop-work road #427 brought up to CI;
-the pull request's required checks still run them before a merge.
+Its verifier and shipper are `fast`'s, inherited, so it runs every check
+`fast`'s verifier runs; landing remains the shop-work road.
 
 Proposed by decision 0060: the verify entry and the forced Muse/Astra
 crew are the 0041 ruling 7 exception for the reason a wager forces its

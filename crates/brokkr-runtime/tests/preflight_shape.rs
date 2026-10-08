@@ -59,7 +59,7 @@ fn the_table_ends_after_review_and_names_no_working_phase() {
 
     // Nothing ships out of a preflight, so no phase is shippable from.
     // An empty list here is the honest statement of that, not an
-    // oversight: `bundles/verify` names `review` because its ruling
+    // oversight: `recipes/verify` names `review` because its ruling
     // feeds one, and this recipe's does not.
     assert!(
         machine.shippable_from.is_empty(),

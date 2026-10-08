@@ -1,9 +1,23 @@
 {
   "name": "node",
   "description": "Node and TypeScript repositories using JavaScript-specific seats and tools.",
-  "cost": "medium",
+  "extends": "fast",
   "policy": "policy.json",
-  "protected_phase": "review",
+  "override": {
+    "bundle": ["description"],
+    "table": ["description"],
+    "rules": [
+      "IMPL-BROKEN-TWICE",
+      "IMPL-BROKEN-RETRY",
+      "IMPL-BLOCKED",
+      "IMPL-OK-DOCS-RETURN",
+      "IMPL-OK",
+      "VERIFY-FAIL-EXHAUSTED",
+      "VERIFY-FAIL"
+    ],
+    "seats": ["implement", "verify", "review"],
+    "limits": ["ship"]
+  },
   "seats": {
     "implement": {
       "role": "roles/implementer.md",
@@ -108,28 +122,10 @@
       }
     },
     "ship": {
-      "results": [
-        "ready",
-        "shipped"
-      ],
-      "class": "gate",
       "limits": {
         "max_attempts": 2,
         "timeout_seconds": 1200
-      },
-      "driver": {
-        "command": [
-          "{brokkr}",
-          "driver",
-          "exec",
-          "--",
-          "bash",
-          "./scripts/ship-seat.sh",
-          "{prompt_file}",
-          "{brokkr}"
-        ]
-      },
-      "hands": {"kind": "workspace", "network": false, "binds": []}
+      }
     }
   }
 }

@@ -571,7 +571,7 @@ fn ruling(machine: &Machine, phase: &str, result: &str, inputs: Value) -> (Strin
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_finding_edge_and_bound_has_a_table_arm() {
-    let machine = shipped_machine("../../bundles/self/policy.json");
+    let machine = shipped_machine("../../recipes/fast/policy.json");
 
     assert_eq!(
         ruling(&machine, "verify", "fail", json!({"visits_implement": 2})),
