@@ -537,15 +537,18 @@ fn wanted_launches() -> BTreeMap<String, Vec<String>> {
              {after}--allowedTools WebSearch --disallowedTools WebFetch"
         )
     };
-    let agent = line("--permission-mode acceptEdits ", OPUS, "");
+    // U1g2: every cold launch is served the measured empty set, and the
+    // actual rejoin, whose replacement shape is unmeasured, as before.
+    let cold = |line: String| [&[line.as_str()][..], crate::ISOLATED].concat().join(" ");
+    let agent = cold(line("--permission-mode acceptEdits ", OPUS, ""));
     let inline = line("", OPUS, "");
-    let unpersisted = line("", OPUS, "--no-session-persistence ");
+    let unpersisted = cold(line("", OPUS, "--no-session-persistence "));
     let mut launches = BTreeMap::from([
         (
             "agent",
             vec![
                 agent.clone(),
-                line("--permission-mode acceptEdits ", "claude-missing", ""),
+                cold(line("--permission-mode acceptEdits ", "claude-missing", "")),
                 agent.clone(),
                 agent.clone(),
                 agent,
@@ -553,12 +556,15 @@ fn wanted_launches() -> BTreeMap<String, Vec<String>> {
         ),
         (
             "resumed",
-            vec![inline.clone(), format!("{inline} --resume resumed-root-0")],
+            vec![
+                cold(inline.clone()),
+                format!("{inline} --resume resumed-root-0"),
+            ],
         ),
         ("replaced", vec![unpersisted.clone(), unpersisted]),
     ]);
     for tag in ["inline", "member", "first", "review"] {
-        launches.insert(tag, vec![inline.clone()]);
+        launches.insert(tag, vec![cold(inline.clone())]);
     }
     launches
         .into_iter()

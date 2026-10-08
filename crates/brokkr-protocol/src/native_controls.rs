@@ -1050,7 +1050,7 @@ fn tagged<'a>(
     value: &'a Value,
     path: &str,
     kinds: &[&'static str],
-    members: impl Fn(&str) -> &'static [&'static str],
+    members: impl Fn(&str) -> Members,
 ) -> Result<(&'static str, &'a Value), Fault> {
     if !value.is_object() {
         return Err((path.to_string(), "is not an object"));
@@ -1065,6 +1065,15 @@ fn tagged<'a>(
     closed(value, path, &expected)?;
     Ok((kind, value))
 }
+
+/// The members of a [`tagged`] object: `members` where its kind is `with`,
+/// and none for any other kind.
+fn only(with: &'static str, members: Members) -> impl Fn(&str) -> Members {
+    move |kind| if kind == with { members } else { &[] }
+}
+
+/// A tagged object's member names.
+type Members = &'static [&'static str];
 
 #[expect(
     clippy::too_many_lines,
@@ -1095,40 +1104,18 @@ fn decode_record(record: Option<&Value>) -> Result<LaunchRecord, Fault> {
         });
     }
     let expected = member(record, "expected", "record")?;
-    closed(
-        expected,
-        "record.expected",
-        &["identity", "native", "local", "hands", "template"],
-    )?;
-    let identity = &expected["identity"];
-    closed(
-        identity,
-        "record.expected.identity",
-        &["provider", "harness", "model"],
-    )?;
-    let (kind, model) = tagged(
-        &identity["model"],
-        "record.expected.identity.model",
-        &["named", "none"],
-        |kind| match kind {
-            "named" => &["name"],
-            _ => &[],
-        },
-    )?;
+    let members = ["identity", "native", "local", "hands", "template"];
+    closed(expected, "record.expected", &members)?;
+    let (identity, at) = (&expected["identity"], "record.expected.identity");
+    closed(identity, at, &["provider", "harness", "model"])?;
+    let field = |key: &str| string(&identity[key], format!("{at}.{key}"));
+    let (model, named) = (format!("{at}.model"), only("named", &["name"]));
+    let (kind, named) = tagged(&identity["model"], &model, &["named", "none"], named)?;
     let identity = Identity {
-        provider: string(
-            &identity["provider"],
-            "record.expected.identity.provider".into(),
-        )?,
-        harness: string(
-            &identity["harness"],
-            "record.expected.identity.harness".into(),
-        )?,
+        provider: field("provider")?,
+        harness: field("harness")?,
         model: match kind {
-            "named" => Some(string(
-                &model["name"],
-                "record.expected.identity.model.name".into(),
-            )?),
+            "named" => Some(string(&named["name"], format!("{model}.name"))?),
             _ => None,
         },
     };
@@ -1170,84 +1157,45 @@ fn decode_record(record: Option<&Value>) -> Result<LaunchRecord, Fault> {
             format!("{native_path}.reason"),
         )?),
     };
-    let local_path = "record.expected.local";
-    let local = &expected["local"];
-    closed(local, local_path, &["allow", "sandbox", "application"])?;
+    let (local, at) = (&expected["local"], "record.expected.local");
+    closed(local, at, &["allow", "sandbox", "application"])?;
+    let (allowed, listed) = (format!("{at}.allow"), only("listed", &["names"]));
     let (kind, allow) = tagged(
         &local["allow"],
-        "record.expected.local.allow",
+        &allowed,
         &["unspecified", "listed"],
-        |kind| match kind {
-            "listed" => &["names"],
-            _ => &[],
-        },
+        listed,
     )?;
     let allow = match kind {
-        "listed" => AllowIntent::Listed(string_list(
-            &allow["names"],
-            "record.expected.local.allow.names".into(),
-        )?),
+        "listed" => AllowIntent::Listed(string_list(&allow["names"], format!("{allowed}.names"))?),
         _ => AllowIntent::Unspecified,
     };
-    let (kind, _) = tagged(
-        &local["sandbox"],
-        "record.expected.local.sandbox",
-        &[
-            "unspecified",
-            "read-only",
-            "workspace-write",
-            "danger-full-access",
-        ],
-        |_| &[],
-    )?;
-    let sandbox = match kind {
-        "read-only" => SandboxIntent::ReadOnly,
-        "workspace-write" => SandboxIntent::WorkspaceWrite,
-        "danger-full-access" => SandboxIntent::DangerFullAccess,
-        _ => SandboxIntent::Unspecified,
-    };
-    let (kind, application) = tagged(
-        &local["application"],
-        "record.expected.local.application",
-        &["unrestricted", "direct", "dormant"],
-        |kind| match kind {
-            "direct" => &["limits"],
-            _ => &[],
-        },
-    )?;
+    let sandboxes = [[SandboxIntent::Unspecified].as_slice(), &CLASSES].concat();
+    let words: Vec<&str> = sandboxes.iter().map(|class| class.word()).collect();
+    let (kind, _) = tagged(&local["sandbox"], &format!("{at}.sandbox"), &words, |_| &[])?;
+    let sandbox = sandboxes[words.iter().position(|word| *word == kind).unwrap_or(0)];
+    let (applied, direct) = (format!("{at}.application"), only("direct", &["limits"]));
+    let kinds = ["unrestricted", "direct", "dormant"];
+    let (kind, application) = tagged(&local["application"], &applied, &kinds, direct)?;
+    let limits = format!("{applied}.limits");
     let application = match kind {
-        "direct" => Application::Direct(string_list(
-            &application["limits"],
-            "record.expected.local.application.limits".into(),
-        )?),
+        "direct" => Application::Direct(string_list(&application["limits"], limits)?),
         "dormant" => Application::Dormant,
         _ => Application::Unrestricted,
     };
-    let (kind, _) = tagged(
-        &expected["hands"],
-        "record.expected.hands",
-        &["none", "required"],
-        |_| &[],
-    )?;
+    let (at, kinds) = ("record.expected.hands", ["none", "required"]);
+    let (kind, _) = tagged(&expected["hands"], at, &kinds, |_| &[])?;
     let hands = match kind {
         "required" => HandsIntent::Required,
         _ => HandsIntent::None,
     };
     // A declared template is never empty: `declared []` would be `none`
     // spelled a second way, and a closed record has one spelling per state.
-    let template_path = "record.expected.template";
-    let (kind, template) = tagged(
-        &expected["template"],
-        template_path,
-        &["none", "declared"],
-        |kind| match kind {
-            "declared" => &["argv"],
-            _ => &[],
-        },
-    )?;
+    let (at, declared) = ("record.expected.template", only("declared", &["argv"]));
+    let (kind, template) = tagged(&expected["template"], at, &["none", "declared"], declared)?;
     let template = match kind {
         "declared" => {
-            let path = format!("{template_path}.argv");
+            let path = format!("{at}.argv");
             let argv = string_list(&template["argv"], path.clone())?;
             if argv.is_empty() {
                 return Err((path, "is empty"));
@@ -1292,6 +1240,55 @@ pub struct SealedServing {
     pub pins: Vec<String>,
     /// The typed hands declaration, `None` where the site has none.
     pub spec: Option<crate::hands::HandsSpec>,
+    /// The engine's MCP isolation intent for the launch (U1g2).
+    pub isolation: SealedIsolation,
+}
+
+/// The engine's MCP isolation intent for one launch (decision 0065 slice
+/// two, U1g2; SI2): its site's server set, each shape's assessment from
+/// validated adapter evidence (a resume shape's by name, unmeasured where
+/// absent) and the MCP compile fence it was dispatched under. The default,
+/// the empty set measured on no shape under the fence, serves as before.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SealedIsolation {
+    pub servers: SealedServers,
+    pub cold: SealedAssessment,
+    pub replacement: SealedAssessment,
+    pub resume: BTreeMap<String, SealedAssessment>,
+    pub fence: SealedFence,
+}
+
+/// The server set a launch's site intends: the no-broker plan has no other,
+/// and exec, which serves no model, intends none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SealedServers {
+    #[default]
+    Empty,
+    Hands,
+    NoModelSurface,
+}
+
+/// One shape's ambient MCP exclusion: measured, measured unsupported with
+/// its reason, or never measured.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum SealedAssessment {
+    Measured,
+    Unsupported(String),
+    #[default]
+    Unmeasured,
+}
+
+/// U1g1's MCP compile fence: while it stands a shape SI2 does not admit is
+/// served as before, and only U9b lifts it (operator ruling of 2026-10-07).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SealedFence {
+    #[default]
+    Standing,
+    Lifted,
 }
 
 /// An adapter's declared values one serving command is composed from, each
@@ -1328,10 +1325,15 @@ pub enum SealedBoundary {
 }
 
 impl SealedBoundary {
-    /// The boundary `word` names, `None` for any other word.
-    pub fn named(word: &str) -> Option<SealedBoundary> {
+    /// The five, in the order decision 0046 ruling 1 lists them.
+    const ALL: [SealedBoundary; 5] = {
         use SealedBoundary::*;
         [Namespace, Seatbelt, Container, Harness, Open]
+    };
+
+    /// The boundary `word` names, `None` for any other word.
+    pub fn named(word: &str) -> Option<SealedBoundary> {
+        Self::ALL
             .into_iter()
             .find(|boundary| boundary.word() == word)
     }
@@ -1374,6 +1376,7 @@ impl SealedServing {
             },
             "pins": self.pins,
             "spec": spec,
+            "isolation": self.isolation,
         })
     }
 
@@ -1401,77 +1404,36 @@ fn decode_serving(inputs: Option<&Value>) -> Result<SealedServing, Fault> {
         Some(Value::Null) => return Err((root.to_string(), "is null")),
         Some(inputs) => inputs,
     };
-    closed(inputs, root, &["dialect", "pins", "spec"])?;
-    let dialect = &inputs["dialect"];
-    closed(
-        dialect,
-        "serving.dialect",
-        &["permissions", "sandbox", "hands", "boundary", "stands"],
-    )?;
-    let (stands, _) = tagged(
-        &dialect["stands"],
-        "serving.dialect.stands",
-        &[
-            "none",
-            "namespace",
-            "seatbelt",
-            "container",
-            "harness",
-            "open",
-        ],
-        |_| &[],
-    )?;
+    closed(inputs, root, &["dialect", "pins", "spec", "isolation"])?;
+    let unread = (
+        "serving.isolation".to_string(),
+        "is not an MCP isolation intent",
+    );
+    let isolation = serde::Deserialize::deserialize(&inputs["isolation"]).map_err(|_| unread)?;
+    let (dialect, at) = (&inputs["dialect"], "serving.dialect");
+    let members = ["permissions", "sandbox", "hands", "boundary", "stands"];
+    closed(dialect, at, &members)?;
+    let kinds = [
+        &["none"][..],
+        &SealedBoundary::ALL.map(SealedBoundary::word),
+    ]
+    .concat();
+    let (stands, _) = tagged(&dialect["stands"], &format!("{at}.stands"), &kinds, |_| &[])?;
     let stands = SealedBoundary::named(stands);
-    let (kind, permissions) = tagged(
-        &dialect["permissions"],
-        "serving.dialect.permissions",
-        &["none", "flag"],
-        |kind| match kind {
-            "flag" => &["flag", "separator"],
-            _ => &[],
-        },
-    )?;
+    let (listed, flag) = (
+        format!("{at}.permissions"),
+        only("flag", &["flag", "separator"]),
+    );
+    let (kind, permissions) = tagged(&dialect["permissions"], &listed, &["none", "flag"], flag)?;
+    let field = |key: &str| string(&permissions[key], format!("{listed}.{key}"));
     let permissions = match kind {
         "flag" => Some(ListFlag {
-            flag: string(
-                &permissions["flag"],
-                "serving.dialect.permissions.flag".into(),
-            )?,
-            separator: string(
-                &permissions["separator"],
-                "serving.dialect.permissions.separator".into(),
-            )?,
+            flag: field("flag")?,
+            separator: field("separator")?,
         }),
         _ => None,
     };
-    let (kind, spec) = tagged(
-        &inputs["spec"],
-        "serving.spec",
-        &["none", "typed"],
-        |kind| match kind {
-            "typed" => &["declaration"],
-            _ => &[],
-        },
-    )?;
-    // The declaration's own reader is lenient — `"workspace"` and omitted
-    // members default — so a sealed one must also be exactly the form the
-    // engine writes, one spelling per declaration.
-    let spec = match kind {
-        "typed" => {
-            let declaration = &spec["declaration"];
-            let path = "serving.spec.declaration";
-            let parsed = crate::hands::HandsSpec::parse(declaration)
-                .map_err(|_| (path.to_string(), "is not a hands declaration"))?;
-            if parsed.to_value() != *declaration {
-                return Err((
-                    path.to_string(),
-                    "is not a hands declaration's canonical form",
-                ));
-            }
-            Some(parsed)
-        }
-        _ => None,
-    };
+    let spec = decode_spec(&inputs["spec"])?;
     Ok(SealedServing {
         dialect: SealedDialect {
             permissions,
@@ -1482,7 +1444,28 @@ fn decode_serving(inputs: Option<&Value>) -> Result<SealedServing, Fault> {
         },
         pins: string_list(&inputs["pins"], "serving.pins".into())?,
         spec,
+        isolation,
     })
+}
+
+/// The sealed serving's hands declaration. The declaration's own reader is
+/// lenient — `"workspace"` and omitted members default — so a sealed one
+/// must also be exactly the form the engine writes, one spelling per
+/// declaration.
+fn decode_spec(spec: &Value) -> Result<Option<crate::hands::HandsSpec>, Fault> {
+    let typed = only("typed", &["declaration"]);
+    let (kind, spec) = tagged(spec, "serving.spec", &["none", "typed"], typed)?;
+    if kind != "typed" {
+        return Ok(None);
+    }
+    let (declaration, path) = (&spec["declaration"], "serving.spec.declaration");
+    let parsed = crate::hands::HandsSpec::parse(declaration)
+        .map_err(|_| (path.to_string(), "is not a hands declaration"))?;
+    if parsed.to_value() != *declaration {
+        let cause = "is not a hands declaration's canonical form";
+        return Err((path.to_string(), cause));
+    }
+    Ok(Some(parsed))
 }
 
 /// Prove that `segments` reassemble exactly the `argv` supplied: every
@@ -1622,13 +1605,16 @@ impl State {
 /// follow its template; the result path it owns; the session it rejoins;
 /// the one overlay a DSH driver staged and whether it qualified its stream
 /// reading; the prompt a DSH command carries as data (rebuild unit 13-fix,
-/// F5); and what it binds the box's hands to (rebuild unit 13-fix-b, R1).
+/// F5); what it binds the box's hands to (rebuild unit 13-fix-b, R1); and
+/// the isolated MCP configuration its intent built, which follows the
+/// composition (U1g2).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Serving<'a> {
     pub program: &'a str,
     pub workdir: &'a str,
     pub authored: &'a [String],
     pub pins: &'a [String],
+    pub mcp: &'a [String],
     pub output: Option<&'a str>,
     pub session: Option<&'a str>,
     pub overlay: Option<&'a str>,
@@ -1913,7 +1899,8 @@ pub fn check_final(
         ])
     })?;
     let (authored, fragment) = sealed_inputs(table, controls, expected, dialect, serving)?;
-    let composed = compose_for_provider(harness, &authored, &fragment, controls)?;
+    let mut composed = compose_for_provider(harness, &authored, &fragment, controls)?;
+    composed.extra.extend_from_slice(serving.mcp);
     let recomposed = table
         .parse(&[composed.extra.clone(), composed.managed.clone()].concat())
         .map_err(|problem| {
@@ -2853,12 +2840,7 @@ pub fn declared_values(harness: &str, node: &grammar::Node) -> Result<(), String
             Ok(())
         }
         Effect::Control(grammar::Power::Permission) if !node.values.is_empty() => {
-            let classes = [
-                SandboxIntent::ReadOnly,
-                SandboxIntent::WorkspaceWrite,
-                SandboxIntent::DangerFullAccess,
-            ]
-            .map(SandboxIntent::word);
+            let classes = CLASSES.map(SandboxIntent::word);
             match (harness, node.name()) {
                 ("codex", "--sandbox") if classes.contains(&node.values[0].as_str()) => Ok(()),
                 ("codex", "--sandbox") => Err(format!(

@@ -19,8 +19,9 @@ use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::native_controls::{
     flatten, pin_fault, reassemble, AllowIntent, Application, Expected, HandsIntent, LaunchRecord,
-    LocalExpectation, Origin, SandboxIntent, SealedBoundary, SealedDialect, SealedServing, Segment,
-    TemplateExpectation, Transport, SERVING_INPUTS,
+    LocalExpectation, Origin, SandboxIntent, SealedAssessment, SealedBoundary, SealedDialect,
+    SealedFence, SealedIsolation, SealedServers, SealedServing, Segment, TemplateExpectation,
+    Transport, SERVING_INPUTS,
 };
 use brokkr_protocol::process::{DriverProcess, SpawnEnv};
 use brokkr_protocol::AttemptOutcome;
@@ -29,11 +30,11 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::agents::{Candidate, Lowering, ResultDoor};
+use crate::agents::{Candidate, Lowering, McpAxis, McpInvocation, ResultDoor};
 use crate::bundle::{
     charters_as_started, charters_intact, layer_drift, site_charter_text, Aggregate, Bundle,
-    CharterPin, ExecutableBody, HandsState, PanelMember, Seat, SeatBody, SeatClass, SiteFacts,
-    StepBody, ENGINE_VERSION, REALM_FACTS,
+    CharterPin, ExecutableBody, HandsState, McpIntent, PanelMember, Seat, SeatBody, SeatClass,
+    SiteFacts, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 // The test modules reach this through `use super::*`.
 #[cfg(test)]
@@ -1613,16 +1614,12 @@ impl Engine {
         let Some(outcome) = outcome else {
             return;
         };
-        let sealed = expected_state(outcome, link, facts)
-            .and_then(|expected| {
-                let serving = serving_inputs(link, facts, spawn.class, self.boundary)?;
-                Ok((expected, serving))
-            })
-            .and_then(|(expected, serving)| {
-                spawn.seal(expected)?;
-                spawn.serving = Some(serving);
-                Ok(())
-            });
+        let sealed = expected_state(outcome, link, facts).and_then(|expected| {
+            let serving = serving_inputs(link, facts, spawn.class, self.boundary)?;
+            spawn.seal(expected)?;
+            spawn.serving = Some(serving);
+            Ok(())
+        });
         match sealed {
             Ok(()) => {
                 input[LAUNCH_RECORD] = spawn.launch_record();
@@ -1861,21 +1858,6 @@ impl Engine {
                 unboxed.as_ref(),
             )
         }
-    }
-
-    /// [`Self::compose_at`] over argv no compiled site owns: the boundary
-    /// tests' door, which composes a command for the boundary alone.
-    #[cfg(test)]
-    fn compose(
-        &mut self,
-        attempt_id: &str,
-        gate: bool,
-        command: Vec<String>,
-        hands: Option<&HandsSpec>,
-        link: Option<&Candidate>,
-        result_path: &str,
-    ) -> SiteSpawn {
-        self.compose_at(None, attempt_id, gate, command, hands, link, result_path)
     }
 
     /// What an unboxed exec dispatch starts in (design DD10, DD15): the
@@ -3434,13 +3416,7 @@ impl SiteSpawn {
     /// none, and a recorded class there is refused.
     fn local_sandbox_agrees(&self, expected: &Expected) -> Result<(), String> {
         let recorded = local_class(expected);
-        let local = flatten(
-            &self
-                .extras()
-                .into_iter()
-                .filter(|segment| segment.origin == Origin::Local)
-                .collect::<Vec<_>>(),
-        );
+        let local = self.extras_of(Origin::Local);
         let grammar = brokkr_protocol::native_controls::grammar::grammar(
             &expected.identity.harness,
         )
@@ -3525,14 +3501,16 @@ impl SiteSpawn {
                     .cloned()
                     .collect()
             }
-            _ => flatten(
-                &self
-                    .extras()
-                    .into_iter()
-                    .filter(|segment| segment.origin == Origin::Template)
-                    .collect::<Vec<_>>(),
-            ),
+            _ => self.extras_of(Origin::Template),
         }
+    }
+
+    /// The arguments of every segment of the driver's extras `origin`
+    /// supplied, in order.
+    fn extras_of(&self, origin: Origin) -> Vec<String> {
+        let extras = self.extras().into_iter();
+        let extras: Vec<_> = extras.filter(|segment| segment.origin == origin).collect();
+        flatten(&extras)
     }
 
     /// The sealed record as the driver input carries it, `null` where none.
@@ -3635,10 +3613,8 @@ pub fn serving_inputs(
     let stands = facts
         .filter(|facts| matches!(facts.hands, HandsState::Hands(_)))
         .and_then(|_| SealedBoundary::named(boundary.word()));
-    let carried = match link {
-        Some(link) => composed(link).map(|composition| (*composition.serving).clone()),
-        None => facts.and_then(SiteFacts::inline_serving),
-    };
+    let serving = |link| composed(link).map(|composition| (*composition.serving).clone());
+    let carried = link.map_or_else(|| facts.and_then(SiteFacts::inline_serving), serving);
     let crate::agents::ServingInputs {
         dialect,
         pins,
@@ -3671,7 +3647,63 @@ pub fn serving_inputs(
         },
         pins,
         spec,
+        isolation: isolation_intent(link, facts).map_err(|error| error.to_string())?,
     })
+}
+
+/// The compile never recorded the site's MCP server set (U1g2).
+#[derive(Debug, Error)]
+#[error(
+    "dispatch refused: the site's MCP server set was never recorded, so no isolation intent is \
+     sealed beside its launch (decision 0065 slice two, U1g2)"
+)]
+struct UnrecordedServers;
+
+/// The MCP isolation intent sealed with a site's serving inputs (decision
+/// 0065 slice two, U1g2): the set the compile composed the selected serving
+/// with ([`McpIntent::of_candidate`], or an inline site's own), each shape's
+/// SI2 record beside that serving's own outcome, a resume shape's by name,
+/// and the MCP fence this engine stands under; a shape unrecorded is unmeasured.
+fn isolation_intent(
+    link: Option<&Candidate>,
+    facts: Option<&SiteFacts>,
+) -> Result<SealedIsolation, UnrecordedServers> {
+    let inline = facts.and_then(|facts| facts.inline_mcp);
+    let intent = link.map_or(inline, McpIntent::of_candidate);
+    let servers = match intent.ok_or(UnrecordedServers)? {
+        McpIntent::Empty => SealedServers::Empty,
+        McpIntent::Hands => SealedServers::Hands,
+        McpIntent::NoModelSurface => SealedServers::NoModelSurface,
+    };
+    let site = facts.and_then(|facts| facts.capabilities.as_ref());
+    let record = site.and_then(|site| {
+        let outcome = site.serving(link.map(|link| (&*link.provider, &*link.model)))?;
+        let at = (site.outcomes.iter()).position(|each| std::ptr::eq(each, outcome))?;
+        site.strict.get(at)
+    });
+    let fence = match crate::capabilities::McpFence::current() {
+        crate::capabilities::McpFence::Standing => SealedFence::Standing,
+        #[cfg(test)]
+        crate::capabilities::McpFence::Lifted => SealedFence::Lifted,
+    };
+    let mut sealed = SealedIsolation {
+        servers,
+        fence,
+        ..SealedIsolation::default()
+    };
+    for (shape, axis) in record.into_iter().flatten() {
+        let assessed = match axis {
+            McpAxis::Measured { .. } => SealedAssessment::Measured,
+            McpAxis::Unsupported { reason } => SealedAssessment::Unsupported(reason.clone()),
+            McpAxis::Unmeasured(_) | McpAxis::Inapplicable { .. } => SealedAssessment::Unmeasured,
+        };
+        match &shape.invocation {
+            McpInvocation::Cold => sealed.cold = assessed,
+            McpInvocation::Replacement => sealed.replacement = assessed,
+            McpInvocation::Resume(name) => drop(sealed.resume.insert(name.clone(), assessed)),
+        }
+    }
+    Ok(sealed)
 }
 
 /// Rebuild unit 5d-fix-b (chief F1, F2, F4 and F5; decision 0046 ruling 4;
@@ -3973,13 +4005,6 @@ fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
     })
 }
 
-/// [`exec_segments`] over one authored segment: the argv the tests
-/// compose an exec dispatch from.
-#[cfg(test)]
-fn exec_spawn(command: Vec<String>, roots: &[PathBuf]) -> SiteSpawn {
-    exec_segments(vec![Segment::new(Origin::Authored, &command)], roots)
-}
-
 /// The pin and the interpreter argument have different jobs (0048): the
 /// canonical script directory is what the spawn re-walks, and the argv
 /// stays exactly as compile spelled it, each segment keeping its origin.
@@ -4076,11 +4101,71 @@ pub fn compose_site(
     result_path: &str,
     unboxed: Option<&Unboxed>,
 ) -> SiteSpawn {
+    compose_site_at(
+        None,
+        boundary,
+        class,
+        command,
+        hands,
+        candidate,
+        workdir,
+        roots,
+        result_path,
+        unboxed,
+    )
+}
+
+/// [`compose_site`] at a compiled site, with its facts: an inline site
+/// whose typed allow the compiler lowered (rebuild unit 5b; design D5.3,
+/// D5.7) is composed from its authored command and, behind it, the
+/// adapter's declared permission template as the engine's own `template`
+/// segment where the adapter declares one (rebuild unit 5c), then the
+/// engine's own `local` segment — the order an agent's composition gives
+/// them — each carried as the compiler recorded it and never recognised in
+/// the argv. Rebuild unit 5d: an inline Codex seat's lowered sandbox class
+/// is the engine's own `local` segment in the same place, the result path
+/// filled into it as it is into a harness fragment. Rebuild unit 14a4a
+/// (operator ruling (B) of 2026-09-27): an inline site with hands is served
+/// like an agent — its recorded `hands.workspace` fragment follows every
+/// other segment as the engine's own `hands` segment, as `agents::compose`
+/// appends an agent's last, and [`hands_command`] expands its tokens. Every
+/// other site is composed from its supplied segments alone.
+#[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
+pub fn compose_site_at(
+    facts: Option<&SiteFacts>,
+    boundary: BuiltBoundary,
+    class: SeatClass,
+    command: Vec<String>,
+    hands: Option<&HandsSpec>,
+    candidate: Option<&Candidate>,
+    workdir: &Path,
+    roots: &[PathBuf],
+    result_path: &str,
+    unboxed: Option<&Unboxed>,
+) -> SiteSpawn {
+    let lowered = facts.and_then(|facts| facts.inline_local.as_ref());
+    let sandboxed = facts.and_then(|facts| facts.inline_sandbox.as_ref());
+    let handed = facts.and_then(|facts| facts.inline_hands.as_ref());
+    let fill = |token: &String| token.replace("{result_path}", result_path);
+    let filled = sandboxed.map(|sandboxed| Segment {
+        origin: sandboxed.segment.origin,
+        argv: sandboxed.segment.argv.iter().map(fill).collect(),
+    });
     // Every arm carries these segments through its own composition, so the
     // spawn says who supplied each token it will launch (design D5.7). A
     // command that is not the selected candidate's composition keeps its
     // argv, all of it authored, and is refused at the door.
+    let recorded = [lowered.is_some(), filled.is_some(), handed.is_some()];
     let (segments, refusal) = match supplied(&command, candidate) {
+        Ok(_) if candidate.is_none() && recorded.contains(&true) => (
+            std::iter::once(Segment::new(Origin::Authored, &command))
+                .chain(facts.and_then(|facts| facts.inline_template.clone()))
+                .chain(lowered.map(|lowered| lowered.segment.clone()))
+                .chain(filled)
+                .chain(handed.cloned())
+                .collect(),
+            None,
+        ),
         Ok(segments) => (segments, None),
         Err(reason) => (vec![Segment::new(Origin::Authored, &command)], Some(reason)),
     };
@@ -4098,81 +4183,6 @@ pub fn compose_site(
     spawn.refusal = spawn.refusal.or(refusal);
     spawn.class = Some(class);
     spawn
-}
-
-/// [`compose_site`] at a compiled site, with its facts: an inline site
-/// whose typed allow the compiler lowered (rebuild unit 5b; design D5.3,
-/// D5.7) is composed from its authored command and, behind it, the
-/// adapter's declared permission template as the engine's own `template`
-/// segment where the adapter declares one (rebuild unit 5c), then the
-/// engine's own `local` segment — the order an agent's composition gives
-/// them — each carried as the compiler recorded it and never recognised in
-/// the argv. Rebuild unit 5d: an inline Codex seat's lowered sandbox class
-/// is the engine's own `local` segment in the same place, the result path
-/// filled into it as it is into a harness fragment. Rebuild unit 14a4a
-/// (operator ruling (B) of 2026-09-27): an inline site with hands is served
-/// like an agent — its recorded `hands.workspace` fragment follows every
-/// other segment as the engine's own `hands` segment, as `agents::compose`
-/// appends an agent's last, and [`hands_command`] expands its tokens. Every
-/// other site is [`compose_site`] exactly.
-#[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
-pub fn compose_site_at(
-    facts: Option<&SiteFacts>,
-    boundary: BuiltBoundary,
-    class: SeatClass,
-    command: Vec<String>,
-    hands: Option<&HandsSpec>,
-    candidate: Option<&Candidate>,
-    workdir: &Path,
-    roots: &[PathBuf],
-    result_path: &str,
-    unboxed: Option<&Unboxed>,
-) -> SiteSpawn {
-    let lowered = facts.and_then(|facts| facts.inline_local.as_ref());
-    let sandboxed = facts.and_then(|facts| facts.inline_sandbox.as_ref());
-    let handed = facts.and_then(|facts| facts.inline_hands.as_ref());
-    match candidate {
-        None if lowered.is_some() || sandboxed.is_some() || handed.is_some() => SiteSpawn {
-            class: Some(class),
-            ..compose_segments(
-                boundary,
-                class,
-                std::iter::once(Segment::new(Origin::Authored, &command))
-                    .chain(facts.and_then(|facts| facts.inline_template.clone()))
-                    .chain(lowered.map(|lowered| lowered.segment.clone()))
-                    .chain(sandboxed.map(|sandboxed| {
-                        Segment {
-                            origin: sandboxed.segment.origin,
-                            argv: sandboxed
-                                .segment
-                                .argv
-                                .iter()
-                                .map(|token| token.replace("{result_path}", result_path))
-                                .collect(),
-                        }
-                    }))
-                    .chain(handed.cloned())
-                    .collect(),
-                hands,
-                None,
-                workdir,
-                roots,
-                result_path,
-                unboxed,
-            )
-        },
-        _ => compose_site(
-            boundary,
-            class,
-            command,
-            hands,
-            candidate,
-            workdir,
-            roots,
-            result_path,
-            unboxed,
-        ),
-    }
 }
 
 #[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
@@ -4824,36 +4834,25 @@ pub(crate) mod resume;
 
 #[cfg(test)]
 mod agent_tests;
-
 #[cfg(test)]
 mod artifact_gate_tests;
-
-#[cfg(test)]
-mod capability_tests;
-
-#[cfg(test)]
-mod cleanup_tests;
-
-#[cfg(test)]
-mod conclude_tests;
-
-#[cfg(test)]
-mod operator_tests;
-
-#[cfg(test)]
-mod notice_tests;
-
 #[cfg(test)]
 mod boundary_tests;
-
+#[cfg(test)]
+mod capability_tests;
+#[cfg(test)]
+mod cleanup_tests;
+#[cfg(test)]
+mod conclude_tests;
 #[cfg(test)]
 mod contention_tests;
-
+#[cfg(test)]
+mod notice_tests;
+#[cfg(test)]
+mod operator_tests;
 #[cfg(test)]
 mod resume_tests;
-
 #[cfg(test)]
 mod secret_threading_tests;
-
 #[cfg(test)]
 pub(crate) mod tests;

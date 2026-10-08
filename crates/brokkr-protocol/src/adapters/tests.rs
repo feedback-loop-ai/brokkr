@@ -14699,6 +14699,7 @@ impl Seal {
         self.runs
             .push((crate::native_controls::Origin::Hands, hands.len()));
         self.dialect.hands = fragment;
+        self.dialect.stands = Some(crate::native_controls::SealedBoundary::Namespace);
         self.spec = Some(spec);
         hands
     }
@@ -14725,7 +14726,7 @@ const CODEX_SERVER: [&str; 6] = [
 pub(super) fn sealed_pair(mut input: Value, extra: &[String], seal: Seal) -> Value {
     use crate::native_controls::{
         Expected, HandsIntent, HeldPower, Identity, Inventory, LaunchRecord, NativeExpectation,
-        SealedServing, Segment, SERVING_INPUTS,
+        Segment, SERVING_INPUTS,
     };
     let controls = crate::native_controls::managed(&input)
         .expect("a readable plan")
@@ -14778,12 +14779,7 @@ pub(super) fn sealed_pair(mut input: Value, extra: &[String], seal: Seal) -> Val
         },
     };
     input["launch_record"] = record.value();
-    input[SERVING_INPUTS] = SealedServing {
-        dialect: seal.dialect,
-        pins: seal.pins,
-        spec: seal.spec,
-    }
-    .value();
+    input[SERVING_INPUTS] = super::mcp::tests::dispatched(seal.dialect, seal.pins, seal.spec);
     input
 }
 
@@ -17342,8 +17338,8 @@ fn inline_codex_input(
             },
             ..Default::default()
         },
-        pins: Vec::new(),
         spec: required.then(crate::hands::HandsSpec::default),
+        ..Default::default()
     };
     let extra = [authored.clone(), local.clone()].concat();
     let mut input = engine_input(base, plan, &extra, local.len());
@@ -18066,15 +18062,9 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
     );
     let mut unreadable = input.clone();
     unreadable[SERVING_INPUTS] = json!("x\nsecret");
-    assert_eq!(
-        rejoin(&unreadable).map(|plan| plan.command),
-        Err(
-            "refusing the sealed serving inputs: 'serving' is not an object; the inputs \
-             a final command is rebuilt from are never repaired into empty or default ones, nor \
-             recovered from its argv (rebuild unit 14a2; design D5.7, D6)"
-                .to_string()
-        )
-    );
+    // Inputs that cannot be read seal no intent to serve by (U1g2).
+    let unread = super::mcp::McpRefusal::Unreadable.at_launch();
+    assert_eq!(rejoin(&unreadable).map(|plan| plan.command), Err(unread));
     let mut unpaired = input.clone();
     unpaired.as_object_mut().unwrap().remove(SERVING_INPUTS);
     assert_eq!(

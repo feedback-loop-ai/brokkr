@@ -15,6 +15,28 @@ use crate::realms::World;
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_protocol::hands::network_prefix;
 
+impl Engine {
+    /// [`Self::compose_at`] over argv no compiled site owns: the boundary
+    /// tests' door, which composes a command for the boundary alone.
+    fn compose(
+        &mut self,
+        attempt_id: &str,
+        gate: bool,
+        command: Vec<String>,
+        hands: Option<&HandsSpec>,
+        link: Option<&Candidate>,
+        result_path: &str,
+    ) -> SiteSpawn {
+        self.compose_at(None, attempt_id, gate, command, hands, link, result_path)
+    }
+}
+
+/// [`exec_segments`] over one authored segment: the argv these tests
+/// compose an exec dispatch from.
+fn exec_spawn(command: Vec<String>, roots: &[PathBuf]) -> SiteSpawn {
+    exec_segments(vec![Segment::new(Origin::Authored, &command)], roots)
+}
+
 fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -> Candidate {
     let template: Vec<String> = ["{brokkr}", "driver", provider, "--", "--model", "m-1"]
         .iter()
@@ -3912,38 +3934,8 @@ fn a_resume_under_another_word_is_refused_naming_boundary() {
     assert!(error.contains("boundary differs"), "{error}");
 }
 
-// ────────────────────────────── the judge's door: the last message
-
-/// Under `harness` with a `last-message` door the seat's final message
-/// reaches the engine as the result file the harness writes; a final
-/// message that is not the bare object is a missing result exactly as a
-/// malformed file is. The driver reads the file as today under both
-/// doors, which the codex driver's own tests prove; here the composed
-/// argv names the path and the input names the door.
-#[test]
-fn a_harness_gate_on_a_last_message_door_names_its_result_path() {
-    let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
-    engine.boundary = Boundary::Harness;
-    super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
-    let codex = candidate("codex", CODEX_FRAGMENT.to_vec(), codex_harness());
-    let spawn = engine.compose(
-        "attempt",
-        true,
-        codex.argv.clone(),
-        Some(&HandsSpec::default()),
-        Some(&codex),
-        "/r/p.json",
-    );
-    assert_eq!(
-        &spawn.argv[spawn.argv.len() - 2..],
-        ["--output-last-message", "/r/p.json"]
-    );
-    assert_eq!(spawn.env, SpawnEnv::Inherit);
-    let mut input = json!({"result_path": "/r/p.json"});
-    engine.mark_hands("work", &mut input);
-    engine.marks().door("work", true, Some(&codex), &mut input);
-    assert_eq!(input["result_delivery"], "last-message");
-}
+/// The judge's door: the last message (moved to a child module by U1g2).
+mod door_tests;
 
 #[test]
 fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {

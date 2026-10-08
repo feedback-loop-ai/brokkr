@@ -477,6 +477,25 @@ fn marked(engine: &Engine, link: &Candidate, input: Value) -> (SiteSpawn, Value)
     (spawn, input)
 }
 
+/// A single-seat engine whose `work` site carries [`two_candidates`].
+fn two_candidate_engine() -> (tempfile::TempDir, Engine) {
+    let (dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
+    let site = engine.bundle.sites.entry("work".into()).or_default();
+    site.capabilities = Some(two_candidates());
+    (dir, engine)
+}
+
+/// `site` as the compiler records an inline site that lowered no allow:
+/// no local restriction, an empty dialect and the server set `mcp`.
+fn inline_site(site: &mut crate::bundle::SiteFacts, mcp: crate::bundle::McpIntent) {
+    site.local = Some(crate::agents::LocalTools {
+        allow: None,
+        sandbox: None,
+    });
+    site.inline_dialect = Some(Default::default());
+    site.inline_mcp = Some(mcp);
+}
+
 /// Unit 4 (design D5.7): the record a spawn is sealed with is the SELECTED
 /// link's own — its segments from the driver's extras on, by who supplied
 /// them, beside the expected state of the outcome that serves it and its
@@ -485,13 +504,7 @@ fn marked(engine: &Engine, link: &Candidate, input: Value) -> (SiteSpawn, Value)
 /// own, never its primary's.
 #[test]
 fn a_spawn_is_sealed_with_the_selected_links_own_segments_and_expected_state() {
-    let (_dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .sites
-        .entry("work".into())
-        .or_default()
-        .capabilities = Some(two_candidates());
+    let (_dir, engine) = two_candidate_engine();
 
     let (spawn, input) = marked(&engine, &codex_primary(), json!({}));
     assert_eq!(
@@ -560,13 +573,7 @@ fn a_spawn_is_sealed_with_the_selected_links_own_segments_and_expected_state() {
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn the_dispatch_door_admits_only_the_record_sealed_for_its_spawn() {
-    let (_dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .sites
-        .entry("work".into())
-        .or_default()
-        .capabilities = Some(two_candidates());
+    let (_dir, mut engine) = two_candidate_engine();
     let (spawn, sealed) = marked(&engine, &codex_primary(), json!({}));
     let not_sealed = "dispatch refused: the private launch record handed over is not the one the \
                       engine sealed for this spawn; a record whose segments, origins or expected \
@@ -706,303 +713,6 @@ fn the_dispatch_door_admits_only_the_record_sealed_for_its_spawn() {
     }
 }
 
-/// Rebuild unit 14a2: the typed serving inputs the final check rebuilds a
-/// command from are sealed beside the record from the selected link's own
-/// composition — or the inline site's recorded dialect and hands — with the
-/// boundary fragment its class selects, written into the input, and
-/// admitted by the dispatch door exactly as sealed. A missing, malformed or
-/// altered copy, one planted before sealing and one handed where none was
-/// sealed each refuse with the whole reason; a site whose inputs were never
-/// recorded, and a spawn no composition classed, seal nothing.
-#[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
-fn the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed() {
-    use crate::agents::{BoundaryFragments, DeclaredDialect, ServingInputs};
-    let (_dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .sites
-        .entry("work".into())
-        .or_default()
-        .capabilities = Some(two_candidates());
-    let spec = HandsSpec::parse(&json!({"kind": "workspace", "network": true,
-        "binds": [{"path": "~/.cargo", "mode": "ro", "mask": ["credentials.toml"]}]}))
-    .unwrap();
-    let carrying = |mut link: Candidate, serving: ServingInputs| {
-        if let Lowering::Composed(composition) = &mut link.lowering {
-            *composition.serving = serving;
-        }
-        link
-    };
-    let flag = |flag: &str| {
-        Some(brokkr_protocol::native_controls::ListFlag {
-            flag: flag.into(),
-            separator: ",".into(),
-        })
-    };
-
-    // The Codex primary's boxed hands: its workspace fragment unexpanded,
-    // its pin and its typed hands.
-    let primary = carrying(
-        codex_primary(),
-        ServingInputs {
-            dialect: DeclaredDialect {
-                hands: strings(&["-c", "mcp_servers.brokkr.args={hands_args_toml}"]),
-                ..DeclaredDialect::default()
-            },
-            pins: strings(&["--model", "gpt-6-astra"]),
-            spec: Some(spec.clone()),
-        },
-    );
-    let (spawn, sealed) = marked(&engine, &primary, json!({}));
-    assert_eq!(spawn.refusal, None);
-    assert_eq!(
-        sealed[SERVING_INPUTS],
-        json!({
-            "dialect": {
-                "permissions": {"kind": "none"},
-                "sandbox": [],
-                "hands": ["-c", "mcp_servers.brokkr.args={hands_args_toml}"],
-                "boundary": [],
-                "stands": {"kind": "none"},
-            },
-            "pins": ["--model", "gpt-6-astra"],
-            "spec": {"kind": "typed", "declaration": {"kind": "workspace", "network": true,
-                "binds": [{"path": "~/.cargo", "mode": "ro", "mask": ["credentials.toml"]}]}},
-        })
-    );
-    assert_eq!(
-        spawn.serving,
-        Some(SealedServing {
-            dialect: SealedDialect {
-                hands: strings(&["-c", "mcp_servers.brokkr.args={hands_args_toml}"]),
-                ..SealedDialect::default()
-            },
-            pins: strings(&["--model", "gpt-6-astra"]),
-            spec: Some(spec.clone()),
-        })
-    );
-    assert_eq!(verify_record(&spawn, &sealed), Ok(()));
-
-    // The DSH fallback carries its own: its permission flag, both boundary
-    // fragments, and no hands. The spawn's class selects the one sealed.
-    let fallback = carrying(
-        dsh_fallback(),
-        ServingInputs {
-            dialect: DeclaredDialect {
-                permissions: flag("--allowedTools"),
-                boundary: BoundaryFragments {
-                    gate: strings(&["--gate", "{result_path}"]),
-                    work: strings(&["--work", "{brokkr}"]),
-                },
-                ..DeclaredDialect::default()
-            },
-            pins: strings(&["--model", "flash"]),
-            spec: None,
-        },
-    );
-    let fallback_serving = |boundary: &[&str]| {
-        json!({
-            "dialect": {
-                "permissions": {"kind": "flag", "flag": "--allowedTools", "separator": ","},
-                "sandbox": [],
-                "hands": [],
-                "boundary": boundary,
-                "stands": {"kind": "none"},
-            },
-            "pins": ["--model", "flash"],
-            "spec": {"kind": "none"},
-        })
-    };
-    let (fallen, input) = marked(&engine, &fallback, json!({}));
-    assert_eq!(
-        input[SERVING_INPUTS],
-        fallback_serving(&["--work", "{brokkr}"])
-    );
-    assert_eq!(verify_record(&fallen, &input), Ok(()));
-    let mut gate = compose_site(
-        BuiltBoundary::Open,
-        SeatClass::Gate,
-        fallback.argv.clone(),
-        None,
-        Some(&fallback),
-        Path::new("/w"),
-        &[],
-        "/w/result.json",
-        None,
-    );
-    let mut gated = json!({});
-    engine.mark_capabilities("work", Some(&fallback), Some(&mut gate), &mut gated);
-    assert_eq!(
-        gated[SERVING_INPUTS],
-        fallback_serving(&["--gate", "{result_path}"])
-    );
-    assert_eq!(verify_record(&gate, &gated), Ok(()));
-    // The other class's fragment is another input.
-    let mut exchanged = input.clone();
-    exchanged[SERVING_INPUTS]["dialect"]["boundary"] = json!(["--gate", "{result_path}"]);
-    let not_sealed = "dispatch refused: the serving inputs handed over are not the ones the \
-                      engine sealed beside this spawn's record; a dialect, pin or hands \
-                      declaration that differs is never trusted by its shape (rebuild unit 14a2; \
-                      design D5.7, D6)";
-    assert_eq!(
-        verify_record(&fallen, &exchanged),
-        Err(not_sealed.to_string())
-    );
-    // A spawn no composition classed selects no fragment and seals nothing.
-    let mut unclassed = SiteSpawn::inherit(fallback.argv.clone());
-    let mut input = json!({});
-    engine.mark_capabilities("work", Some(&fallback), Some(&mut unclassed), &mut input);
-    assert_eq!(
-        unclassed.refusal.as_deref(),
-        Some(
-            "dispatch refused: the spawn was composed for no seat class, so none of the boundary \
-             fragments its serving inputs carry can be selected and sealed; a fragment is never \
-             chosen by default (decision 0046 ruling 4; rebuild unit 14a2)"
-        )
-    );
-    assert_eq!((&unclassed.record, &unclassed.serving), (&None, &None));
-    assert_eq!(
-        (input.get(LAUNCH_RECORD), input.get(SERVING_INPUTS)),
-        (None, None)
-    );
-    // Nor is one whose inputs carry no fragment to select (unit 26c): every
-    // composition classes its spawn, so a classless one is never sealed.
-    let mut bare = SiteSpawn::inherit(primary.argv.clone());
-    engine.mark_capabilities("work", Some(&primary), Some(&mut bare), &mut json!({}));
-    assert_eq!(
-        (&bare.refusal, &bare.record, &bare.serving),
-        (&unclassed.refusal, &None, &None)
-    );
-
-    // Missing, then malformed: the strict reader's own whole causes.
-    let decoded = |path: &str, problem: &str| {
-        Err(format!(
-            "refusing the sealed serving inputs: '{path}' {problem}; the inputs a final command \
-             is rebuilt from are never repaired into empty or default ones, nor recovered from \
-             its argv (rebuild unit 14a2; design D5.7, D6)"
-        ))
-    };
-    let mut missing = sealed.clone();
-    missing.as_object_mut().unwrap().remove(SERVING_INPUTS);
-    assert_eq!(
-        verify_record(&spawn, &missing),
-        decoded("serving", "is missing")
-    );
-    let mut malformed = sealed.clone();
-    malformed[SERVING_INPUTS]["spec"]["declaration"] = json!("workspace");
-    assert_eq!(
-        verify_record(&spawn, &malformed),
-        decoded(
-            "serving.spec.declaration",
-            "is not a hands declaration's canonical form"
-        )
-    );
-    // Well-formed but altered: a pin, the hands and the typed declaration.
-    for (pointer, value) in [
-        ("/pins/1", json!("gpt-6-luna")),
-        ("/dialect/hands/1", json!("mcp_servers.brokkr.args=[]")),
-        ("/spec/declaration/network", json!(false)),
-    ] {
-        let mut altered = sealed.clone();
-        *altered[SERVING_INPUTS].pointer_mut(pointer).unwrap() = value;
-        assert_eq!(
-            verify_record(&spawn, &altered),
-            Err(not_sealed.to_string()),
-            "{pointer}"
-        );
-    }
-
-    // Planted before sealing — even as the very inputs the engine seals —
-    // refuses the spawn, and the engine's own are still what is written.
-    let planted = json!({SERVING_INPUTS: sealed[SERVING_INPUTS].clone()});
-    let (overridden, input) = marked(&engine, &primary, planted);
-    assert_eq!(
-        overridden.refusal.as_deref(),
-        Some(
-            "dispatch refused: the input arrived carrying sealed serving inputs \
-             ('serving_inputs') before the engine sealed any; a recipe, a result or a context \
-             cannot supply them, even ones equal to the engine's (rebuild unit 14a2; design D5.7)"
-        )
-    );
-    assert_eq!(input[SERVING_INPUTS], sealed[SERVING_INPUTS]);
-
-    // Handed where nothing was sealed.
-    let unsealed = SiteSpawn::inherit(strings(&["/bin/brokkr", "driver", "exec", "--"]));
-    assert_eq!(
-        verify_record(&unsealed, &json!({SERVING_INPUTS: Value::Null})),
-        Err(
-            "dispatch refused: the input carries sealed serving inputs ('serving_inputs') the \
-             engine sealed none for, and they are never accepted from anything but the dispatch \
-             that sealed them (rebuild unit 14a2; design D5.7)"
-                .to_string()
-        )
-    );
-
-    // An inline site: its recorded dialect, no pins, and no hands.
-    lowered_inline(&mut engine, "work", "cargo");
-    engine.bundle.sites.get_mut("work").unwrap().inline_dialect = Some(DeclaredDialect {
-        permissions: flag("--allowedTools"),
-        ..DeclaredDialect::default()
-    });
-    let inline = |engine: &Engine| {
-        compose_site_at(
-            engine.bundle.sites.get("work"),
-            BuiltBoundary::Open,
-            SeatClass::Work,
-            strings(&["/bin/brokkr", "driver", "dsh", "--"]),
-            None,
-            None,
-            Path::new("/w"),
-            &[],
-            "/w/result.json",
-            None,
-        )
-    };
-    let mut spawn = inline(&engine);
-    assert_eq!(spawn.class, Some(SeatClass::Work));
-    let mut input = json!({});
-    engine.mark_capabilities("work", None, Some(&mut spawn), &mut input);
-    assert_eq!(spawn.refusal, None);
-    assert_eq!(
-        input[SERVING_INPUTS],
-        json!({
-            "dialect": {
-                "permissions": {"kind": "flag", "flag": "--allowedTools", "separator": ","},
-                "sandbox": [],
-                "hands": [],
-                "boundary": [],
-                "stands": {"kind": "none"},
-            },
-            "pins": [],
-            "spec": {"kind": "none"},
-        })
-    );
-    assert_eq!(verify_record(&spawn, &input), Ok(()));
-
-    // An inline site whose dialect was never recorded seals nothing.
-    engine.bundle.sites.get_mut("work").unwrap().inline_dialect = None;
-    let mut spawn = inline(&engine);
-    let mut input = json!({});
-    engine.mark_capabilities("work", None, Some(&mut spawn), &mut input);
-    assert_eq!(
-        spawn.refusal.as_deref(),
-        Some(
-            "dispatch refused: the site's typed serving inputs were never recorded, so none can \
-             be sealed beside its launch record; they are carried from the composition and never \
-             recovered from its argv (rebuild unit 14a2; design D5.7, D6)"
-        )
-    );
-    assert_eq!((spawn.record, spawn.serving), (None, None));
-    assert_eq!(
-        (input.get(LAUNCH_RECORD), input.get(SERVING_INPUTS)),
-        (None, None)
-    );
-}
-
 /// Unit 4: a refused record stops the launch at the dispatch door, before
 /// any driver — and so any provider — is started.
 #[test]
@@ -1011,13 +721,7 @@ fn a_refused_record_stops_the_launch_before_the_driver_starts() {
     let captured = std::fs::canonicalize(captures.path())
         .unwrap()
         .join("start.json");
-    let (_dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .sites
-        .entry("work".into())
-        .or_default()
-        .capabilities = Some(two_candidates());
+    let (_dir, mut engine) = two_candidate_engine();
     let driver = templated(Candidate {
         argv: capturing_driver_command(
             "effect",
@@ -1059,14 +763,9 @@ fn a_refused_record_stops_the_launch_before_the_driver_starts() {
 /// reassembles the record against those extras alone.
 #[test]
 fn a_prefixed_dispatch_is_sealed_with_the_drivers_extras_alone() {
-    let (_dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
-    let site = engine.bundle.sites.entry("work".into()).or_default();
-    site.capabilities = Some(two_candidates());
-    site.local = Some(crate::agents::LocalTools {
-        allow: None,
-        sandbox: None,
-    });
-    site.inline_dialect = Some(Default::default());
+    let (_dir, mut engine) = two_candidate_engine();
+    let site = engine.bundle.sites.get_mut("work").unwrap();
+    inline_site(site, crate::bundle::McpIntent::NoModelSurface);
     site.hands = crate::bundle::HandsState::Hands(HandsSpec::default());
     let prefix = strings(&[
         "unshare",
@@ -1105,6 +804,9 @@ fn a_prefixed_dispatch_is_sealed_with_the_drivers_extras_alone() {
     let mut input = json!({});
     engine.mark_capabilities("work", None, Some(&mut spawn), &mut input);
     assert_eq!(spawn.refusal, None);
+    // U1g2: exec serves no model, and its intent says so.
+    let servers = &input[SERVING_INPUTS]["isolation"]["servers"];
+    assert_eq!(servers, &json!("no-model-surface"));
     assert_eq!(
         input[LAUNCH_RECORD],
         json!({
@@ -1162,6 +864,7 @@ fn lowered_inline(engine: &mut Engine, label: &str, name: &str) {
     // none, and emits none.
     site.declared_template = Some(TemplateExpectation::None);
     site.inline_dialect = Some(Default::default());
+    site.inline_mcp = Some(crate::bundle::McpIntent::Empty);
 }
 
 /// A capturing driver that also records the argv it was spawned with: every
@@ -1787,11 +1490,7 @@ fn chartered(
     ));
     if let Some(served) = served {
         site.capabilities = Some(served);
-        site.local = Some(crate::agents::LocalTools {
-            allow: None,
-            sandbox: None,
-        });
-        site.inline_dialect = Some(Default::default());
+        inline_site(site, crate::bundle::McpIntent::Empty);
     }
     path
 }
@@ -2216,3 +1915,4 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
 }
 mod call_tests;
 mod resume_tests;
+mod serving_tests;

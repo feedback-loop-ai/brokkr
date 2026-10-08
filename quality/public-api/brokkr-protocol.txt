@@ -523,6 +523,10 @@ pub brokkr_protocol::native_controls::SandboxIntent::DangerFullAccess
 pub brokkr_protocol::native_controls::SandboxIntent::ReadOnly
 pub brokkr_protocol::native_controls::SandboxIntent::Unspecified
 pub brokkr_protocol::native_controls::SandboxIntent::WorkspaceWrite
+pub enum brokkr_protocol::native_controls::SealedAssessment
+pub brokkr_protocol::native_controls::SealedAssessment::Measured
+pub brokkr_protocol::native_controls::SealedAssessment::Unmeasured
+pub brokkr_protocol::native_controls::SealedAssessment::Unsupported(alloc::string::String)
 pub enum brokkr_protocol::native_controls::SealedBoundary
 pub brokkr_protocol::native_controls::SealedBoundary::Container
 pub brokkr_protocol::native_controls::SealedBoundary::Harness
@@ -530,7 +534,16 @@ pub brokkr_protocol::native_controls::SealedBoundary::Namespace
 pub brokkr_protocol::native_controls::SealedBoundary::Open
 pub brokkr_protocol::native_controls::SealedBoundary::Seatbelt
 impl brokkr_protocol::native_controls::SealedBoundary
+pub fn brokkr_protocol::native_controls::SealedBoundary::boxes(self) -> bool
+impl brokkr_protocol::native_controls::SealedBoundary
 pub fn brokkr_protocol::native_controls::SealedBoundary::named(&str) -> core::option::Option<brokkr_protocol::native_controls::SealedBoundary>
+pub enum brokkr_protocol::native_controls::SealedFence
+pub brokkr_protocol::native_controls::SealedFence::Lifted
+pub brokkr_protocol::native_controls::SealedFence::Standing
+pub enum brokkr_protocol::native_controls::SealedServers
+pub brokkr_protocol::native_controls::SealedServers::Empty
+pub brokkr_protocol::native_controls::SealedServers::Hands
+pub brokkr_protocol::native_controls::SealedServers::NoModelSurface
 pub enum brokkr_protocol::native_controls::TemplateExpectation
 pub brokkr_protocol::native_controls::TemplateExpectation::Declared(alloc::vec::Vec<alloc::string::String>)
 pub brokkr_protocol::native_controls::TemplateExpectation::None
@@ -625,8 +638,15 @@ pub brokkr_protocol::native_controls::SealedDialect::hands: alloc::vec::Vec<allo
 pub brokkr_protocol::native_controls::SealedDialect::permissions: core::option::Option<brokkr_protocol::native_controls::ListFlag>
 pub brokkr_protocol::native_controls::SealedDialect::sandbox: alloc::vec::Vec<alloc::string::String>
 pub brokkr_protocol::native_controls::SealedDialect::stands: core::option::Option<brokkr_protocol::native_controls::SealedBoundary>
+pub struct brokkr_protocol::native_controls::SealedIsolation
+pub brokkr_protocol::native_controls::SealedIsolation::cold: brokkr_protocol::native_controls::SealedAssessment
+pub brokkr_protocol::native_controls::SealedIsolation::fence: brokkr_protocol::native_controls::SealedFence
+pub brokkr_protocol::native_controls::SealedIsolation::replacement: brokkr_protocol::native_controls::SealedAssessment
+pub brokkr_protocol::native_controls::SealedIsolation::resume: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_protocol::native_controls::SealedAssessment>
+pub brokkr_protocol::native_controls::SealedIsolation::servers: brokkr_protocol::native_controls::SealedServers
 pub struct brokkr_protocol::native_controls::SealedServing
 pub brokkr_protocol::native_controls::SealedServing::dialect: brokkr_protocol::native_controls::SealedDialect
+pub brokkr_protocol::native_controls::SealedServing::isolation: brokkr_protocol::native_controls::SealedIsolation
 pub brokkr_protocol::native_controls::SealedServing::pins: alloc::vec::Vec<alloc::string::String>
 pub brokkr_protocol::native_controls::SealedServing::spec: core::option::Option<brokkr_protocol::hands::HandsSpec>
 impl brokkr_protocol::native_controls::SealedServing
@@ -645,6 +665,7 @@ pub brokkr_protocol::native_controls::Selection::include: alloc::vec::Vec<alloc:
 pub struct brokkr_protocol::native_controls::Serving<'a>
 pub brokkr_protocol::native_controls::Serving::authored: &'a [alloc::string::String]
 pub brokkr_protocol::native_controls::Serving::hands: core::option::Option<brokkr_protocol::native_controls::Transport<'a>>
+pub brokkr_protocol::native_controls::Serving::mcp: &'a [alloc::string::String]
 pub brokkr_protocol::native_controls::Serving::output: core::option::Option<&'a str>
 pub brokkr_protocol::native_controls::Serving::overlay: core::option::Option<&'a str>
 pub brokkr_protocol::native_controls::Serving::pins: &'a [alloc::string::String]
