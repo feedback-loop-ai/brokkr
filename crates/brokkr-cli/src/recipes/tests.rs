@@ -290,6 +290,7 @@ fn a_base_outside_the_library_is_never_copied() {
         std::fs::write(leaf.join("bundle.json"), document.to_string()).unwrap();
         let target = tempfile::tempdir().unwrap();
         let library = target.path().join("lib");
+        std::fs::create_dir(&library).unwrap();
         let installing = install(&leaf, "leaf", &library).unwrap();
         let names: Vec<&str> = installing.0.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, ["leaf"], "{base}");
@@ -303,14 +304,70 @@ fn a_refused_derived_recipe_leaves_the_library_as_it_found_it() {
     let bare = tempfile::tempdir().unwrap();
     let library = tempfile::tempdir().unwrap();
     let node = workspace().join("recipes/node");
-    let refusal = add(bare.path(), node.to_str().unwrap(), "node", library.path())
-        .unwrap_err()
-        .to_string();
+    let refusal = add(bare.path(), node.to_str().unwrap(), "node", library.path()).unwrap_err();
+    let refused = refusal
+        .downcast_ref::<Refused>()
+        .expect("a compile refusal");
+    assert_eq!(refused.recipe, "node");
     assert!(
-        refusal.starts_with("recipe 'node' does not compile (removed): "),
-        "{refusal}"
+        matches!(
+            refused.cause.downcast_ref::<brokkr_runtime::CompileError>(),
+            Some(brokkr_runtime::CompileError::Invalid(_))
+        ),
+        "{:?}",
+        refused.cause
+    );
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "recipe 'node' does not compile (removed): {}",
+            refused.cause
+        )
     );
     assert_eq!(installed(library.path()), Vec::<String>::new());
+}
+
+/// An entry the library already holds is never removed by an install that
+/// did not make it, a dangling link included: as the leaf it is refused
+/// before any copy, as a base it ends the walk, and a copy that meets it
+/// fails without registering it.
+#[test]
+fn a_dangling_link_in_the_library_is_never_removed() {
+    let missing = tempfile::tempdir().unwrap().path().join("missing");
+    let node = workspace().join("recipes/node");
+    let linked = |name: &str| {
+        let library = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(&missing, library.path().join(name)).unwrap();
+        library
+    };
+    let kept = |library: &Path, name: &str| {
+        assert_eq!(std::fs::read_link(library.join(name)).unwrap(), missing);
+        assert_eq!(installed(library), [name]);
+    };
+
+    let base = linked("fast");
+    let refusal = add(&workspace(), node.to_str().unwrap(), "node", base.path()).unwrap_err();
+    assert_eq!(refusal.downcast_ref::<Refused>().unwrap().recipe, "node");
+    kept(base.path(), "fast");
+
+    let leaf = linked("node");
+    let refusal = add(&workspace(), node.to_str().unwrap(), "node", leaf.path()).unwrap_err();
+    let dest = leaf.path().join("node");
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "recipe 'node' already exists at {}; remove it first",
+            dest.display()
+        )
+    );
+    kept(leaf.path(), "node");
+
+    let refusal = install(&node, "node", leaf.path()).err().unwrap();
+    assert_eq!(
+        refusal.downcast_ref::<std::io::Error>().map(|e| e.kind()),
+        Some(std::io::ErrorKind::AlreadyExists)
+    );
+    kept(leaf.path(), "node");
 }
 
 #[test]

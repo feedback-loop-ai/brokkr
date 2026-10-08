@@ -216,7 +216,11 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 struct Installing(Vec<(String, PathBuf)>);
 
 impl Installing {
+    /// The destination is created here, before it is registered, so an
+    /// entry this install did not make — a dangling link included — fails
+    /// the copy and is never removed with the copies that are.
     fn copy(&mut self, from: &Path, name: &str, dest: PathBuf) -> Result<()> {
+        std::fs::create_dir(&dest)?;
         self.0.push((name.to_string(), dest.clone()));
         copy_dir(from, &dest)
     }
@@ -263,7 +267,8 @@ fn base_of(layer: &Path) -> Option<String> {
 /// chain is the library's, wherever the source's chain would end. A base
 /// that neither the library nor the source's directory holds as a plain
 /// directory ends the walk too, and the compile that follows names why
-/// the install does not compose.
+/// the install does not compose. The library holds a base it has any
+/// entry for, a dangling link included, read as the source side is.
 fn install(root: &Path, name: &str, dir: &Path) -> Result<Installing> {
     let mut installing = Installing(Vec::new());
     installing.copy(root, name, dir.join(name))?;
@@ -272,7 +277,7 @@ fn install(root: &Path, name: &str, dir: &Path) -> Result<Installing> {
         let dest = dir.join(&base);
         let source = layer.with_file_name(&base);
         let plain = std::fs::symlink_metadata(&source).is_ok_and(|meta| meta.is_dir());
-        if dest.exists() || !plain {
+        if std::fs::symlink_metadata(&dest).is_ok() || !plain {
             break;
         }
         installing.copy(&source, &base, dest)?;
@@ -281,6 +286,27 @@ fn install(root: &Path, name: &str, dir: &Path) -> Result<Installing> {
     Ok(installing)
 }
 
+/// A copy `add` made that the compiler refused, after every copy was
+/// removed: the recipe and the compile refusal itself, so a caller matches
+/// those and never the text (decision 0071 ruling 8).
+#[derive(Debug)]
+struct Refused {
+    recipe: String,
+    cause: anyhow::Error,
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Refused { recipe, cause } = self;
+        write!(
+            formatter,
+            "recipe '{recipe}' does not compile (removed): {cause}"
+        )
+    }
+}
+
+impl std::error::Error for Refused {}
+
 /// Install a recipe: clone or copy into `<dir>/<name>`, with the bases it
 /// extends that the library lacks, then compile-verify every copy. If any
 /// fails to compile all are removed — the library only ever holds recipes
@@ -288,7 +314,7 @@ fn install(root: &Path, name: &str, dir: &Path) -> Result<Installing> {
 pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Result<()> {
     let world = World::discover(workspace, None)?;
     let dest = dir.join(name);
-    if dest.exists() {
+    if std::fs::symlink_metadata(&dest).is_ok() {
         bail!(
             "recipe '{name}' already exists at {}; remove it first",
             dest.display()
@@ -326,7 +352,10 @@ pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Res
     for (recipe, path) in &installing.0 {
         match compile_in(workspace, path, world.as_ref()) {
             Ok(bundle) => digests.push(bundle.manifest_digest()[..12].to_string()),
-            Err(e) => bail!("recipe '{recipe}' does not compile (removed): {e}"),
+            Err(cause) => {
+                let recipe = recipe.clone();
+                return Err(Refused { recipe, cause }.into());
+            }
         }
     }
     for ((recipe, path), digest) in installing.keep().iter().zip(digests) {
