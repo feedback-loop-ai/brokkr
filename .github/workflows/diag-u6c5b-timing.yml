@@ -1,0 +1,59 @@
+name: diag-u6c5b-timing
+# TEMPORARY diagnostic for decision 0065 slice two U6c5b (PR #581): how long
+# one broker admission takes on the hosted runner under the coverage build.
+# Not for merge; the PR is closed and this branch deleted after one run.
+on:
+  pull_request:
+    paths: [.github/workflows/diag-u6c5b-timing.yml]
+permissions:
+  contents: read
+jobs:
+  timing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: toolchains
+        id: nightly
+        run: |
+          echo "toolchain=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_OUTPUT"
+          echo "cargo_llvm_cov=$(tr -d '[:space:]' < cargo-llvm-cov-version.txt)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: ${{ steps.nightly.outputs.toolchain }}
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
+          fallback: none
+      - name: bubblewrap, protected system set
+        uses: ./.github/actions/setup-bubblewrap
+        with:
+          protect-system-tree: 'true'
+      - name: system set size
+        run: |
+          for d in /usr/bin /usr/lib /usr/share /usr/local /usr/libexec /usr/include; do echo "$d $(sudo find $d -xdev 2>/dev/null | wc -l)"; done | awk '{s+=$2; print} END {print "TOTAL", s}'
+          nproc
+      - name: plain build, the test alone
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.nightly.outputs.toolchain }}
+          TMPDIR: /var/tmp
+        run: |
+          cargo test -q --locked -p brokkr-cli --test it --no-run
+          /usr/bin/time -v cargo test -q --locked -p brokkr-cli --test it -- --exact capability_broker::the_program_tree_is_mb3s_layout_of_the_executable --nocapture 2>&1 | grep -E "test result|Elapsed|FAILED|panicked|left:|right:"
+      - name: coverage build, the test alone
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.nightly.outputs.toolchain }}
+          TMPDIR: /var/tmp
+        run: |
+          cargo llvm-cov --no-report --locked -p brokkr-cli --test it --no-run 2>&1 | tail -1 || true
+          /usr/bin/time -v cargo llvm-cov --no-report --locked -p brokkr-cli --test it -- --exact capability_broker::the_program_tree_is_mb3s_layout_of_the_executable --nocapture 2>&1 | grep -E "test result|Elapsed|FAILED|panicked|left:|right:"
+      - name: coverage build, the whole broker module in parallel
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.nightly.outputs.toolchain }}
+          TMPDIR: /var/tmp
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+        run: |
+          /usr/bin/time -v cargo llvm-cov --no-report --locked -p brokkr-cli --test it -- capability_broker:: 2>&1 | grep -E "test result|Elapsed|FAILED|panicked|left:|right:" | head -20
