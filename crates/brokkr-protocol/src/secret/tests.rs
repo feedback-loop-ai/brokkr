@@ -683,6 +683,105 @@ fn a_missing_name_is_classified_without_rereading_the_store() {
     ));
 }
 
+/// A FIFO at `mode` under a canonical temporary root, via mkfifo(1).
+fn fifo_at(dir: &Path, mode: &str) -> std::path::PathBuf {
+    let path = dir.canonicalize().unwrap().join("secrets.env");
+    let made = std::process::Command::new("mkfifo")
+        .args(["-m", mode])
+        .arg(&path)
+        .status();
+    assert!(made.unwrap().success());
+    path
+}
+
+/// `work`'s answer if it comes within five seconds; otherwise `None`,
+/// after releasing any open still blocked on `fifo` so its thread ends.
+fn within_bound<T: Send + 'static>(
+    fifo: &Path,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let (sent, answer) = std::sync::mpsc::channel();
+    std::thread::spawn(move || sent.send(work()));
+    let outcome = answer.recv_timeout(std::time::Duration::from_secs(5)).ok();
+    if outcome.is_none() {
+        for write in [true, false] {
+            let _ = std::fs::OpenOptions::new()
+                .read(!write)
+                .write(write)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(fifo);
+        }
+    }
+    outcome
+}
+
+/// The legacy path refuses a broad mode before it opens anything, as the
+/// pre-extraction reader did: a writerless FIFO does not block the open,
+/// and an owner-unreadable file refuses on its mode, not on the open.
+#[test]
+fn a_broad_store_path_refuses_on_its_mode_before_any_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let unreadable = store_at(dir.path(), "unreadable.env", b"TOKEN=abcd\n", 0o040);
+    assert_eq!(
+        store_names(&unreadable),
+        Err(format!(
+            "refusing secrets store {}: permissions 040 are broader than 0600",
+            unreadable.display()
+        ))
+    );
+    let fifo = fifo_at(dir.path(), "644");
+    let at = fifo.clone();
+    assert_eq!(
+        within_bound(&fifo, move || store_names(&at)),
+        Some(Err(format!(
+            "refusing secrets store {}: permissions 644 are broader than 0600",
+            fifo.display()
+        )))
+    );
+}
+
+/// `resolve_bindings` classifies a miss from its one read: the store is a
+/// FIFO written once, so a second open would wait for a writer that never
+/// comes.
+#[test]
+fn resolve_bindings_classifies_a_miss_from_its_one_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let fifo = fifo_at(dir.path(), "600");
+    let writer = fifo.clone();
+    std::thread::spawn(move || {
+        std::io::Write::write_all(&mut std::fs::File::create(writer)?, b"PRESENT=somevalue\n")
+    });
+    let at = fifo.clone();
+    let names = vec!["PRESENT".to_string(), "ABSENT".to_string()];
+    let resolved = within_bound(&fifo, move || {
+        resolve_bindings(&at, &names).map(|bindings| bindings.len())
+    });
+    assert_eq!(
+        resolved,
+        Some(Err(format!(
+            "secret 'ABSENT' is not in the store at {} (brokkr secrets set ABSENT)",
+            fifo.display()
+        )))
+    );
+}
+
+/// A store size the allocator refuses is the `out of memory` I/O cause,
+/// never an abort.
+#[test]
+fn an_unallocatable_store_size_is_the_out_of_memory_cause() {
+    let error = store::store_buffer(u64::MAX).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::OutOfMemory);
+    let cause = store::StoreError::Io {
+        path: "/store/secrets.env".into(),
+        source: error,
+    };
+    assert_eq!(
+        cause.to_string(),
+        "cannot read secrets store /store/secrets.env: out of memory"
+    );
+}
+
 /// A declared name the store lacks refuses even when the process's own
 /// environment carries it: there is no ambient fallback.
 #[test]

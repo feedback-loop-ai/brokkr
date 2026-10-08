@@ -52,6 +52,19 @@ pub(super) fn read_store_file(
         source,
     };
     let meta = file.metadata().map_err(io)?;
+    check_mode(&meta, path)?;
+    // Sized from the same handle, so a store that does not grow after its
+    // metadata is read fills without a reallocation. Best effort only: one
+    // that grows meanwhile reallocates, and the abandoned copy is not wiped.
+    let mut buf = store_buffer(meta.len()).map_err(io)?;
+    let read = file.read_to_end(&mut buf).map_err(io);
+    let parsed = read.and_then(|_| parse_store(&buf, path));
+    wipe(&mut buf);
+    parsed
+}
+
+/// The 0600 ceiling on `meta`'s mode, from a handle or from the path.
+pub(super) fn check_mode(meta: &std::fs::Metadata, path: &Path) -> Result<(), StoreError> {
     let mode = meta.permissions().mode() & 0o777;
     if mode & 0o077 != 0 {
         return Err(StoreError::BroadMode {
@@ -59,13 +72,17 @@ pub(super) fn read_store_file(
             mode,
         });
     }
-    // Sized from the same handle, so the buffer is not reallocated (and
-    // an unwiped copy left behind) while it fills.
-    let mut buf = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
-    let read = file.read_to_end(&mut buf).map_err(io);
-    let parsed = read.and_then(|_| parse_store(&buf, path));
-    wipe(&mut buf);
-    parsed
+    Ok(())
+}
+
+/// An empty buffer with room for `len` bytes, reserved fallibly: a size
+/// the allocator refuses is the `out of memory` I/O cause `fs::read`
+/// gave, never an abort.
+pub(super) fn store_buffer(len: u64) -> std::io::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    buf.try_reserve_exact(usize::try_from(len).unwrap_or(0))
+        .map_err(|_| std::io::ErrorKind::OutOfMemory)?;
+    Ok(buf)
 }
 
 /// The env format: `NAME=value` lines split at the first `=`, CRLF

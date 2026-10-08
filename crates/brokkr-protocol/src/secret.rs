@@ -274,11 +274,16 @@ fn read_store(path: &Path) -> Result<Vec<(String, Secret)>, String> {
     open_store(path).map_err(|error| error.to_string())
 }
 
+/// The path's mode refuses before any open, as it always has, so a broad
+/// FIFO cannot block the open and a broad unreadable file refuses on its
+/// mode. The reader then checks the opened handle's own mode again.
 fn open_store(path: &Path) -> Result<Vec<(String, Secret)>, store::StoreError> {
-    let file = std::fs::File::open(path).map_err(|source| store::StoreError::Io {
+    let io = |source| store::StoreError::Io {
         path: path.to_path_buf(),
         source,
-    })?;
+    };
+    store::check_mode(&std::fs::metadata(path).map_err(io)?, path)?;
+    let file = std::fs::File::open(path).map_err(io)?;
     store::read_store_file(file, path)
 }
 
