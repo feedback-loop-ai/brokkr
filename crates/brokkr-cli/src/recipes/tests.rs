@@ -327,6 +327,40 @@ fn a_refused_derived_recipe_leaves_the_library_as_it_found_it() {
     assert_eq!(installed(library.path()), Vec::<String>::new());
 }
 
+/// Two `add`s into one library never interleave. The first is stood in for
+/// by a held library with its `fast` copy in place, about to be refused and
+/// removed: the second waits rather than stop its walk at that copy, so it
+/// never keeps a `review-first` whose base the first then removes.
+#[test]
+fn a_second_add_waits_for_the_library_another_holds() {
+    let library = tempfile::tempdir().unwrap();
+    let held = hold(library.path()).unwrap();
+    let in_flight = library.path().join("fast");
+    copy_dir(&workspace().join("recipes/fast"), &in_flight).unwrap();
+    let dir = library.path().to_path_buf();
+    let second = std::thread::spawn(move || {
+        let review_first = workspace().join("recipes/review-first");
+        add(
+            &workspace(),
+            review_first.to_str().unwrap(),
+            "review-first",
+            &dir,
+        )
+    });
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert!(
+        !second.is_finished(),
+        "the second add ran in a held library"
+    );
+    std::fs::remove_dir_all(&in_flight).unwrap();
+    drop(held);
+    second
+        .join()
+        .unwrap()
+        .expect("the second add installs once the library is released");
+    assert_eq!(installed(library.path()), ["fast", "review-first"]);
+}
+
 /// An entry the library already holds is never removed by an install that
 /// did not make it, a dangling link included: as the leaf it is refused
 /// before any copy, as a base it ends the walk, and a copy that meets it

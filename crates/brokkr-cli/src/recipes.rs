@@ -286,6 +286,20 @@ fn install(root: &Path, name: &str, dir: &Path) -> Result<Installing> {
     Ok(installing)
 }
 
+/// Hold the library exclusively, by a lock on its own directory, until the
+/// handle drops; a second holder waits. An install exposes each base it
+/// copies at its library name before its compile is accepted, and removes
+/// it when refused, so another `add` that ran meanwhile could stop its walk
+/// at that copy and keep a leaf whose base is then removed. One `add` at a
+/// time keeps "every copy kept or none" true across invocations.
+fn hold(dir: &Path) -> Result<rustix::fd::OwnedFd> {
+    use rustix::fs::{flock, open, FlockOperation, Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+    let library = open(dir, flags, Mode::empty())?;
+    flock(&library, FlockOperation::LockExclusive)?;
+    Ok(library)
+}
+
 /// A copy `add` made that the compiler refused, after every copy was
 /// removed: the recipe and the compile refusal itself, so a caller matches
 /// those and never the text (decision 0071 ruling 8).
@@ -310,7 +324,8 @@ impl std::error::Error for Refused {}
 /// Install a recipe: clone or copy into `<dir>/<name>`, with the bases it
 /// extends that the library lacks, then compile-verify every copy. If any
 /// fails to compile all are removed — the library only ever holds recipes
-/// the compiler accepted or nothing.
+/// the compiler accepted or nothing. The library is held from the first
+/// copy to the last compile ([`hold`]); a clone happens before, unheld.
 pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Result<()> {
     let world = World::discover(workspace, None)?;
     let dest = dir.join(name);
@@ -322,8 +337,9 @@ pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Res
     }
     std::fs::create_dir_all(dir)?;
 
-    let installing = if is_git_source(source) {
-        let tmp = tempfile::tempdir().context("creating temp dir for clone")?;
+    let tmp;
+    let root = if is_git_source(source) {
+        tmp = tempfile::tempdir().context("creating temp dir for clone")?;
         let clone = tmp.path().join("clone");
         // `--` stops option injection; `protocol.ext.allow=never` stops
         // the ext transport, which would otherwise execute an arbitrary
@@ -341,12 +357,16 @@ pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Res
                 String::from_utf8_lossy(&out.stderr).trim()
             );
         }
-        install(&bundle_root(&clone)?, name, dir)?
+        bundle_root(&clone)?
     } else {
         let src = Path::new(source);
         anyhow::ensure!(src.is_dir(), "source {source} is not a directory");
-        install(src, name, dir)?
+        src.to_path_buf()
     };
+    // Declared before the copies, so they are kept or removed while it is
+    // still held.
+    let _library = hold(dir)?;
+    let installing = install(&root, name, dir)?;
 
     let mut digests = Vec::new();
     for (recipe, path) in &installing.0 {
