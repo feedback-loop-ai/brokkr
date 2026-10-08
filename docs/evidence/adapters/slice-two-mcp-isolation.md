@@ -861,3 +861,34 @@ log for `home` or `profile` was written in any K-a or K-b cell.
   reported: 6 each in K11, K11r, K11s and K12, and 4 in K11t before it completed.
   In total there were 12 keyed invocations: 8 completed (K02, K03, K05, K06, K08, K09,
   K11t, K12r) and 4 failed upstream. They made 16 completed agent requests.
+
+### U0c addendum: the `spark` route (2026-10-07)
+
+U0 measured the engine-only `DSH_HOME` only on the `spark-glm` route, so the
+earlier attribution of `spark` to U0 D03 and D04 was the controller's error.
+These three cells measure `spark` (provider `spark`, model `qwen3.8-flash`,
+the operator's headless provider entry verbatim) with the same kit, homes,
+sentinels, task and credential handling as K01 to K12r. Measured on
+2026-10-07 from 11:34:51Z to 11:35:27Z, on the same Linux host. The route's
+model server, SGLang on `spark:30000`, refused every connection during the
+measurement, while `spark-glm`'s vLLM on `spark:8888` answered.
+
+| Cell | Config | home-level | profile-level | engine | Model call | Request tool list (MCP) | Exit |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S01 | K-b | not started | not started | listed | refused before any provider request: `MISSING_CREDENTIAL` for route `spark` (`SPARK_API_KEY`) | `mcp__engine__u0_engine_probe` (26 tools) | 1 |
+| S02 | K-a, `spark.env` sourced | not started | not started | listed | failed: `TRANSPORT: Connection error` after 6 attempts (5 retries) | `mcp__engine__u0_engine_probe` (26) | 1 |
+| S03 | PC, `spark.env` sourced | listed | listed | none | failed: `TRANSPORT: Connection error` after 6 attempts | both ambient (27) | 1 |
+
+**Verdict: partial.** Under the engine-only home no ambient sentinel started
+(S01, S02) while the default home loads both (S03), and the key reaches dsh
+only from the environment (S01 refuses without it; S02 passes credential
+resolution and fails only at transport). The engine's tool call was not
+observed, because the route's model server was down. By operator ruling
+(2026-10-07) the `spark` route is therefore not qualified for serving: dsh
+refuses tool servers on it until a cell observes the engine's tool call.
+`spark-glm` stays qualified by U0 D03 and D04.
+
+Credential handling as for K01 to K12r: `spark.env` was sourced only into
+the scrubbed child environment; no value was copied, put on argv or
+printed. A key-shape scan of the three cells' results and transcripts found
+no `sk-` string.

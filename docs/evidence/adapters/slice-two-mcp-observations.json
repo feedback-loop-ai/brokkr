@@ -2933,6 +2933,74 @@
         "binary": "1: the dsh node-addon-require-builtin prebuilt addon cached into TMPDIR, byte-identical to the shipped file",
         "verdict": "no key-shaped string is a credential; no key value is present"
       }
+    },
+    "spark_addendum": {
+      "measured": {
+        "from": "2026-10-07T11:34:51Z",
+        "to": "2026-10-07T11:35:27Z"
+      },
+      "cells": [
+        {
+          "cell": "S01",
+          "family": "spark",
+          "route": {
+            "provider": "spark",
+            "model": "qwen3.8-flash"
+          },
+          "config": "K-b",
+          "sentinels": {
+            "home": "not started",
+            "profile": "not started",
+            "engine": "listed"
+          },
+          "model_call": "refused before any provider request: MISSING_CREDENTIAL (SPARK_API_KEY)",
+          "request_mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "exit": 1
+        },
+        {
+          "cell": "S02",
+          "family": "spark",
+          "route": {
+            "provider": "spark",
+            "model": "qwen3.8-flash"
+          },
+          "config": "K-a",
+          "sentinels": {
+            "home": "not started",
+            "profile": "not started",
+            "engine": "listed"
+          },
+          "model_call": "failed: TRANSPORT Connection error after 6 attempts (5 retries); spark:30000 refused connections",
+          "request_mcp_tools": [
+            "mcp__engine__u0_engine_probe"
+          ],
+          "exit": 1
+        },
+        {
+          "cell": "S03",
+          "family": "spark",
+          "route": {
+            "provider": "spark",
+            "model": "qwen3.8-flash"
+          },
+          "config": "PC",
+          "sentinels": {
+            "home": "listed",
+            "profile": "listed",
+            "engine": "none"
+          },
+          "model_call": "failed: TRANSPORT Connection error after 6 attempts",
+          "request_mcp_tools": [
+            "mcp__amb_home__u0_home_probe",
+            "mcp__amb_profile__u0_profile_probe"
+          ],
+          "exit": 1
+        }
+      ],
+      "verdict": "partial: ambient excluded and key from the environment only; the engine's tool call not observed because the route's model server (SGLang on spark:30000) refused connections; not qualified for serving by operator ruling 2026-10-07",
+      "corrects": "the controller's earlier attribution of the spark route to U0 D03 and D04, which measured spark-glm only"
     }
   }
 }
