@@ -928,10 +928,13 @@ fn dsh_declares_only_its_own_cold_shape_and_inherits_nothing() {
     let McpAxis::Measured { evidence } = dsh.mcp.isolation(&cold).ambient else {
         unreachable!("pinned above");
     };
+    // U0 measured spark-glm alone; spark was measured only partially and
+    // is named as not qualified (U0c S01 to S03, operator ruling 2026-10-07).
     let routes = [
-        "spark, spark-glm",
+        "spark-glm",
         "deepseek-official, dashscope, meta, meta-contributor",
     ];
+    assert!(evidence.contains("spark is not qualified"), "{evidence}");
     let unnamed: Vec<&str> = routes
         .into_iter()
         .filter(|routes| !evidence.contains(&format!("({routes})")))
