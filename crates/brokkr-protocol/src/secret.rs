@@ -268,75 +268,18 @@ fn store_io<T>(result: std::io::Result<T>, context: String) -> Result<T, String>
     }
 }
 
-/// Parse the store. Refuses (naming the path, never the contents) a
-/// store whose permissions are broader than 0600 — ssh's posture; a
-/// silent read of a world-readable file would make the create-time
-/// mode meaningless. Unix-only check; recorded as a portability caveat.
+/// Parse the store at `path` through the one handle the typed reader
+/// checks and reads. The typed cause becomes text only here.
 fn read_store(path: &Path) -> Result<Vec<(String, Secret)>, String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let meta = store_io(
-            std::fs::metadata(path),
-            format!("cannot read secrets store {}", path.display()),
-        )?;
-        let mode = meta.permissions().mode() & 0o777;
-        if mode & 0o077 != 0 {
-            return Err(format!(
-                "refusing secrets store {}: permissions {mode:03o} are broader \
-                 than 0600",
-                path.display()
-            ));
-        }
-    }
-    let mut buf = store_io(
-        std::fs::read(path),
-        format!("cannot read secrets store {}", path.display()),
-    )?;
-    let mut entries: Vec<(String, Secret)> = Vec::new();
-    let mut parse_error = None;
-    for (index, line) in buf.split(|b| *b == b'\n').enumerate() {
-        let line = line.strip_suffix(b"\r").unwrap_or(line);
-        if line.is_empty() || line.first() == Some(&b'#') {
-            continue;
-        }
-        let Some(eq) = line.iter().position(|b| *b == b'=') else {
-            parse_error = Some(format!(
-                "secrets store {} line {} is not NAME=value",
-                path.display(),
-                index + 1
-            ));
-            break;
-        };
-        let Ok(name) = std::str::from_utf8(&line[..eq]) else {
-            parse_error = Some(format!(
-                "secrets store {} line {} has a non-UTF-8 name",
-                path.display(),
-                index + 1
-            ));
-            break;
-        };
-        if !valid_name(name) {
-            parse_error = Some(format!(
-                "secrets store {} line {} has an ill-formed name",
-                path.display(),
-                index + 1
-            ));
-            break;
-        }
-        let value = Secret::new(line[eq + 1..].to_vec());
-        // Env-format convention: a later assignment overrides.
-        if let Some(existing) = entries.iter_mut().find(|(n, _)| n == name) {
-            existing.1 = value;
-        } else {
-            entries.push((name.to_string(), value));
-        }
-    }
-    wipe(&mut buf);
-    match parse_error {
-        Some(error) => Err(error),
-        None => Ok(entries),
-    }
+    open_store(path).map_err(|error| error.to_string())
+}
+
+fn open_store(path: &Path) -> Result<Vec<(String, Secret)>, store::StoreError> {
+    let file = std::fs::File::open(path).map_err(|source| store::StoreError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    store::read_store_file(file, path)
 }
 
 /// Atomic write: temp file in the same directory, 0600 before content,
@@ -472,19 +415,9 @@ pub fn resolve_bindings(path: &Path, names: &[String]) -> Result<Vec<BoundSecret
     if names.is_empty() {
         return Ok(Vec::new());
     }
-    let mut entries = read_store(path)?;
-    let mut bindings = Vec::with_capacity(names.len());
-    for name in names {
-        let index = entries.iter().position(|(n, _)| n == name).ok_or_else(|| {
-            format!(
-                "secret '{name}' is not in the store at {} (brokkr secrets set {name})",
-                path.display()
-            )
-        })?;
-        let (name, secret) = entries.swap_remove(index);
-        bindings.push(BoundSecret { name, secret });
-    }
-    Ok(bindings)
+    open_store(path)
+        .and_then(|entries| store::bind_names(entries, names, path))
+        .map_err(|error| error.to_string())
 }
 
 // ---------------------------------------------------------------------
@@ -701,6 +634,8 @@ pub fn mask_json(value: &mut serde_json::Value, bindings: &[BoundSecret]) {
 fn mask_text(text: &str, bindings: &[BoundSecret]) -> String {
     String::from_utf8_lossy(&mask_bytes(text.as_bytes(), bindings)).into_owned()
 }
+
+mod store;
 
 #[cfg(test)]
 mod tests;

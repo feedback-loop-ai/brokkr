@@ -506,3 +506,195 @@ fn mask_json_masks_object_keys_and_leaves_numbers_as_numbers() {
         })
     );
 }
+
+// ------------------------------------------- layer 2: store reader
+
+/// A store file under a canonical temporary root, at `mode`.
+fn store_at(dir: &Path, name: &str, bytes: &[u8], mode: u32) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir.canonicalize().unwrap().join(name);
+    std::fs::write(&path, bytes).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+    path
+}
+
+fn read_handle(path: &Path) -> Result<Vec<(String, Secret)>, store::StoreError> {
+    store::read_store_file(std::fs::File::open(path).unwrap(), path)
+}
+
+/// The operator's text, pinned once: every cause renders at the legacy
+/// `String` edge exactly as the pre-extraction reader wrote it.
+#[test]
+fn store_causes_render_the_legacy_text_at_the_string_edge() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let absent = root.join("absent.env");
+    assert_eq!(store_names(&absent), Ok(Vec::<String>::new()));
+    assert_eq!(
+        resolve_bindings(&absent, &["TOKEN".into()]).unwrap_err(),
+        format!(
+            "cannot read secrets store {}: No such file or directory (os error 2)",
+            absent.display()
+        )
+    );
+    let broad = store_at(&root, "broad.env", b"TOKEN=abcd1234\n", 0o644);
+    assert_eq!(
+        store_names(&broad),
+        Err(format!(
+            "refusing secrets store {}: permissions 644 are broader than 0600",
+            broad.display()
+        ))
+    );
+    for (name, bytes, cause) in [
+        (
+            "garbage.env",
+            &b"# c\nTOKEN=abcd\nno equals\n"[..],
+            "line 3 is not NAME=value",
+        ),
+        (
+            "non-utf8.env",
+            b"\xff=abcd\n",
+            "line 1 has a non-UTF-8 name",
+        ),
+        (
+            "ill-formed.env",
+            b"\nlower=abcd\n",
+            "line 2 has an ill-formed name",
+        ),
+    ] {
+        let path = store_at(&root, name, bytes, 0o600);
+        assert_eq!(
+            store_remove(&path, "TOKEN"),
+            Err(format!("secrets store {} {cause}", path.display()))
+        );
+    }
+    let present = store_at(&root, "present.env", b"PRESENT=somevalue\n", 0o600);
+    assert_eq!(
+        resolve_bindings(&present, &["PRESENT".into(), "ABSENT".into()]).unwrap_err(),
+        format!(
+            "secret 'ABSENT' is not in the store at {} (brokkr secrets set ABSENT)",
+            present.display()
+        )
+    );
+}
+
+/// The descriptor reader's typed causes, each with its path and line.
+#[test]
+fn the_descriptor_reader_returns_typed_causes() {
+    use store::StoreError;
+    let dir = tempfile::tempdir().unwrap();
+    let broad = store_at(dir.path(), "broad.env", b"TOKEN=abcd1234\n", 0o640);
+    assert!(matches!(
+        read_handle(&broad),
+        Err(StoreError::BroadMode { path, mode: 0o640 }) if path == broad
+    ));
+    type Cause = fn(&StoreError) -> Option<(&Path, usize)>;
+    let cases: [(&str, &[u8], Cause); 3] = [
+        ("garbage.env", b"A=b\r\nno equals\n", |e| match e {
+            StoreError::NotAssignment { path, line } => Some((path, *line)),
+            _ => None,
+        }),
+        ("non-utf8.env", b"A=b\n\xfe=c\n", |e| match e {
+            StoreError::NonUtf8Name { path, line } => Some((path, *line)),
+            _ => None,
+        }),
+        ("ill-formed.env", b"A=b\n9A=c\n", |e| match e {
+            StoreError::IllFormedName { path, line } => Some((path, *line)),
+            _ => None,
+        }),
+    ];
+    for (name, bytes, cause) in cases {
+        let path = store_at(dir.path(), name, bytes, 0o600);
+        let error = read_handle(&path).unwrap_err();
+        assert_eq!(
+            cause(&error),
+            Some((path.as_path(), 2)),
+            "{name}: {error:?}"
+        );
+    }
+    let directory = dir.path().canonicalize().unwrap().join("directory");
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::set_permissions(
+        &directory,
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .unwrap();
+    let opened = std::fs::File::open(&directory).unwrap();
+    assert!(matches!(
+        store::read_store_file(opened, &directory),
+        Err(StoreError::Io { path, source })
+            if path == directory && source.kind() == std::io::ErrorKind::IsADirectory
+    ));
+}
+
+/// Comments, blank lines and CRLF are skipped, a line splits at its first
+/// `=`, a later assignment overrides, and a value keeps its raw bytes,
+/// which the injector, not the reader, refuses as non-UTF-8.
+#[test]
+fn the_descriptor_reader_parses_the_env_format_once_into_raw_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = store_at(
+        dir.path(),
+        "secrets.env",
+        b"# comment\r\n\r\nURL=a=b\r\nRAW=\xff\xfe\nURL=later=c\n",
+        0o600,
+    );
+    let entries = read_handle(&path).unwrap();
+    let values: Vec<(&str, &[u8])> = entries
+        .iter()
+        .map(|(name, secret)| (name.as_str(), secret.expose_for_spawn()))
+        .collect();
+    assert_eq!(values, [("URL", &b"later=c"[..]), ("RAW", b"\xff\xfe")]);
+    let bindings = store::bind_names(entries, &["RAW".into()], &path).unwrap();
+    assert_eq!(
+        bind_environment(&mut std::process::Command::new("true"), &bindings),
+        Err(BindError::NotUtf8("RAW".into()))
+    );
+}
+
+/// The mode check and the read both go through the supplied handle: a
+/// path replaced after the open reaches neither.
+#[test]
+fn the_descriptor_reader_checks_and_reads_the_handle_not_the_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = store_at(dir.path(), "secrets.env", b"ADMITTED=first-value\n", 0o600);
+    let admitted = std::fs::File::open(&path).unwrap();
+    let swapped = store_at(dir.path(), "swapped.env", b"SWAPPED=other-value\n", 0o644);
+    std::fs::rename(&swapped, &path).unwrap();
+    let entries = store::read_store_file(admitted, &path).unwrap();
+    let names: Vec<&str> = entries.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["ADMITTED"]);
+    assert_eq!(entries[0].1.expose_for_spawn(), b"first-value");
+}
+
+/// A missing name is classified from the one parse: with the store gone
+/// after its read, the cause is still the missing name, not an I/O
+/// failure from a second look.
+#[test]
+fn a_missing_name_is_classified_without_rereading_the_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = store_at(dir.path(), "secrets.env", b"PRESENT=somevalue\n", 0o600);
+    let entries = read_handle(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let names = ["PRESENT".to_string(), "ABSENT".to_string()];
+    assert!(matches!(
+        store::bind_names(entries, &names, &path),
+        Err(store::StoreError::MissingName { name, path: at }) if name == "ABSENT" && at == path
+    ));
+}
+
+/// A declared name the store lacks refuses even when the process's own
+/// environment carries it: there is no ambient fallback.
+#[test]
+fn a_missing_binding_never_falls_back_to_the_ambient_environment() {
+    let ambient = std::env::vars_os()
+        .filter_map(|(name, _)| name.into_string().ok())
+        .find(|name| valid_name(name) && !denylisted(name))
+        .expect("the test process carries an upper-case environment name");
+    let dir = tempfile::tempdir().unwrap();
+    let path = store_at(dir.path(), "secrets.env", b"PRESENT=somevalue\n", 0o600);
+    assert!(matches!(
+        store::bind_names(read_handle(&path).unwrap(), std::slice::from_ref(&ambient), &path),
+        Err(store::StoreError::MissingName { name, .. }) if name == ambient
+    ));
+}
