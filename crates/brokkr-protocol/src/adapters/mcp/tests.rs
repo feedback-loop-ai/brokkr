@@ -30,6 +30,21 @@ const EMPTY: [&str; 3] = [
 const CODEX_REASON: &str = "project, system and managed MCP configuration cannot be excluded";
 const PROJECT_REASON: &str = "project MCP configuration cannot be excluded";
 
+/// SI2's two site causes, as a launch refusal carries them.
+fn unsupported_cause(provider: &str, reason: &str) -> McpRefusal {
+    McpRefusal::Strict(StrictCause::Unsupported {
+        provider: provider.into(),
+        reason: reason.into(),
+    })
+}
+
+fn unmeasured_cause(provider: &str, shape: &str) -> McpRefusal {
+    McpRefusal::Strict(StrictCause::Unmeasured {
+        provider: provider.into(),
+        shape: shape.into(),
+    })
+}
+
 /// `input` carrying the engine's isolation intent for `servers`, its cold,
 /// replacement and resume assessments in that order.
 fn intended(mut input: Value, servers: &str, [cold, replacement, resume]: [Value; 3]) -> Value {
@@ -162,24 +177,17 @@ fn a_rejoin_keeps_the_isolation_only_where_its_resume_shape_is_measured() {
             Err(refusal.at_launch())
         );
     };
-    let unmeasured = |shape: &str| McpRefusal::Unmeasured {
-        provider: "claude",
-        shape: shape.into(),
-    };
     refused(
         Some(session),
         json!("unmeasured"),
-        unmeasured("replacement"),
+        unmeasured_cause("claude", "replacement"),
     );
     refused(
         Some(session),
         json!({"unsupported": PROJECT_REASON}),
-        McpRefusal::Unsupported {
-            provider: "claude",
-            reason: PROJECT_REASON.into(),
-        },
+        unsupported_cause("claude", PROJECT_REASON),
     );
-    refused(None, json!("measured"), unmeasured("cold"));
+    refused(None, json!("measured"), unmeasured_cause("claude", "cold"));
 }
 
 /// Every launch builder reads the intent before any provider work: a
@@ -203,38 +211,26 @@ fn each_unqualified_shape_refuses_with_its_exact_cause() {
             _ => claude_launch("claude", &extra, None, &input, CLAUDE_SHAPE, None).map(drop),
         }
     };
-    let unmeasured = |provider| McpRefusal::Unmeasured {
-        provider,
-        shape: "cold".into(),
-    };
+    let unmeasured = |provider| unmeasured_cause(provider, "cold");
     for (provider, cold, refusal) in [
         (
             "claude",
             unsupported(PROJECT_REASON),
-            McpRefusal::Unsupported {
-                provider: "claude",
-                reason: PROJECT_REASON.into(),
-            },
+            unsupported_cause("claude", PROJECT_REASON),
         ),
         ("claude", json!("unmeasured"), unmeasured("claude")),
         ("lanetally", json!("unmeasured"), unmeasured("lanetally")),
         (
             "codex",
             unsupported(CODEX_REASON),
-            McpRefusal::Unsupported {
-                provider: "codex",
-                reason: CODEX_REASON.into(),
-            },
+            unsupported_cause("codex", CODEX_REASON),
         ),
         ("codex", json!("measured"), unmeasured("codex")),
         ("dsh", json!("unmeasured"), unmeasured("dsh")),
         (
             "dsh",
             unsupported(PROJECT_REASON),
-            McpRefusal::Unsupported {
-                provider: "dsh",
-                reason: PROJECT_REASON.into(),
-            },
+            unsupported_cause("dsh", PROJECT_REASON),
         ),
     ] {
         assert_eq!(
@@ -256,28 +252,15 @@ fn each_unqualified_shape_refuses_with_its_exact_cause() {
     );
     assert_eq!(
         codex_command("codex", &extra, "/w", Some("019c"), &codex).map(drop),
-        Err(McpRefusal::Unsupported {
-            provider: "codex",
-            reason: CODEX_REASON.into(),
-        }
-        .at_launch())
+        Err(unsupported_cause("codex", CODEX_REASON).at_launch())
     );
     // Through the launch itself: the refusal precedes the composite, the
     // route claim, the home's staging and any probe.
     for (replacement, refusal) in [
-        (
-            json!("unmeasured"),
-            McpRefusal::Unmeasured {
-                provider: "dsh",
-                shape: "replacement".into(),
-            },
-        ),
+        (json!("unmeasured"), unmeasured_cause("dsh", "replacement")),
         (
             unsupported(PROJECT_REASON),
-            McpRefusal::Unsupported {
-                provider: "dsh",
-                reason: PROJECT_REASON.into(),
-            },
+            unsupported_cause("dsh", PROJECT_REASON),
         ),
     ] {
         let dsh = by_hand(
@@ -469,10 +452,32 @@ fn a_sealed_empty_set_is_refused_by_the_final_check_until_it_is_sealed() {
     );
 }
 
-/// The module's operator text, pinned once for every refusal.
+/// The module's operator text, pinned once for every refusal. SI2's two
+/// site causes read the same alone, as the compile pass states them, and
+/// after the driver's prefix.
 #[test]
 fn each_refusal_reads_as_the_operator_sees_it() {
     let lead = "refusing to invoke the agent CLI: ";
+    for (cause, text) in [
+        (
+            crate::adapters::StrictCause::Unsupported {
+                provider: "codex".into(),
+                reason: CODEX_REASON.into(),
+            },
+            "provider 'codex' cannot exclude ambient MCP configuration (project, system and \
+             managed MCP configuration cannot be excluded)",
+        ),
+        (
+            crate::adapters::StrictCause::Unmeasured {
+                provider: "claude".into(),
+                shape: "boxed-workspace".into(),
+            },
+            "provider 'claude' has no measured strict MCP configuration for 'boxed-workspace'",
+        ),
+    ] {
+        assert_eq!(cause.to_string(), text);
+        assert_eq!(McpRefusal::from(cause).at_launch(), format!("{lead}{text}"));
+    }
     for (refusal, text) in [
         (
             McpRefusal::Unreadable,
@@ -482,21 +487,6 @@ fn each_refusal_reads_as_the_operator_sees_it() {
         (
             McpRefusal::UnboundedReason,
             "the engine's MCP isolation intent carries a reason that is not one bounded line",
-        ),
-        (
-            McpRefusal::Unsupported {
-                provider: "codex",
-                reason: CODEX_REASON.into(),
-            },
-            "provider 'codex' cannot exclude ambient MCP configuration (project, system and \
-             managed MCP configuration cannot be excluded)",
-        ),
-        (
-            McpRefusal::Unmeasured {
-                provider: "claude",
-                shape: "boxed-workspace".into(),
-            },
-            "provider 'claude' has no measured strict MCP configuration for 'boxed-workspace'",
         ),
         (
             McpRefusal::NotSealed {

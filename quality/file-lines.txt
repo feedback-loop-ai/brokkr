@@ -53,11 +53,11 @@
    677 crates/brokkr-core/src/policy.rs
    477 crates/brokkr-core/src/policy/audit.rs
    808 crates/brokkr-core/src/realms.rs
-  7116 crates/brokkr-protocol/src/adapters.rs
+  7117 crates/brokkr-protocol/src/adapters.rs
    180 crates/brokkr-protocol/src/adapters/capability_calls.rs
   4666 crates/brokkr-protocol/src/adapters/composite.rs
    476 crates/brokkr-protocol/src/adapters/composite/image.rs
-   556 crates/brokkr-protocol/src/adapters/mcp.rs
+   563 crates/brokkr-protocol/src/adapters/mcp.rs
    607 crates/brokkr-protocol/src/adapters/route_overlay.rs
     27 crates/brokkr-protocol/src/adapters/start.rs
    293 crates/brokkr-protocol/src/broker.rs
@@ -222,7 +222,7 @@
    836 crates/brokkr-protocol/src/adapters/composite/image/tests.rs
  20009 crates/brokkr-protocol/src/adapters/composite/tests.rs
   2458 crates/brokkr-protocol/src/adapters/composite/tests/native_matrix.rs
-   543 crates/brokkr-protocol/src/adapters/mcp/tests.rs
+   533 crates/brokkr-protocol/src/adapters/mcp/tests.rs
    724 crates/brokkr-protocol/src/adapters/mcp/tests/dsh_home.rs
    302 crates/brokkr-protocol/src/adapters/notice_tests.rs
    623 crates/brokkr-protocol/src/adapters/route_overlay/tests.rs
