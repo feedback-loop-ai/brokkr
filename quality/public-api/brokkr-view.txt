@@ -237,6 +237,7 @@ pub brokkr_view::Decision::residual: core::option::Option<brokkr_core::policy::S
 pub brokkr_view::Decision::result: core::option::Option<alloc::string::String>
 pub brokkr_view::Decision::rule: alloc::string::String
 pub brokkr_view::Decision::severity: core::option::Option<brokkr_view::RuleSeverity>
+pub struct brokkr_view::FirstDivergence
 pub struct brokkr_view::FleetView
 pub brokkr_view::FleetView::count: usize
 pub brokkr_view::FleetView::realms: alloc::vec::Vec<brokkr_view::RealmRuns>
@@ -301,6 +302,9 @@ pub brokkr_view::Participant::turns_cell: brokkr_view::Cell
 pub brokkr_view::Participant::usage: core::option::Option<brokkr_view::TokenUsage>
 pub brokkr_view::Participant::usage_aggregated: bool
 pub brokkr_view::Participant::usage_cell: brokkr_view::Cell
+pub brokkr_view::Participant::working: bool
+impl brokkr_view::Participant
+pub fn brokkr_view::Participant::legacy_provenance(&self) -> brokkr_view::transcript::LegacyProvenance
 pub struct brokkr_view::Phase
 pub brokkr_view::Phase::columns: alloc::vec::Vec<brokkr_view::Column>
 pub brokkr_view::Phase::current: bool
@@ -335,6 +339,7 @@ pub brokkr_view::ResidualFinding::run_id: alloc::string::String
 pub brokkr_view::ResidualFinding::seq: u64
 pub brokkr_view::ResidualFinding::superseded: core::option::Option<brokkr_view::Superseded>
 pub brokkr_view::ResidualFinding::value: alloc::string::String
+pub struct brokkr_view::Resolution
 pub struct brokkr_view::Ruling
 pub brokkr_view::Ruling::from: alloc::string::String
 pub brokkr_view::Ruling::inputs: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
@@ -390,6 +395,19 @@ pub struct brokkr_view::RunsView
 pub brokkr_view::RunsView::count: usize
 pub brokkr_view::RunsView::runs: alloc::vec::Vec<brokkr_view::RunRow>
 pub brokkr_view::RunsView::view_version: u32
+pub struct brokkr_view::SeatCost
+pub struct brokkr_view::Sides<T>
+pub struct brokkr_view::Subject
+pub brokkr_view::Subject::key: alloc::string::String
+pub brokkr_view::Subject::legacy_id: core::option::Option<alloc::string::String>
+pub brokkr_view::Subject::provenance: brokkr_view::transcript::LegacyProvenance
+pub brokkr_view::Subject::realm: core::option::Option<alloc::string::String>
+pub brokkr_view::Subject::reference: core::option::Option<brokkr_view::Transcript>
+pub brokkr_view::Subject::run: alloc::string::String
+pub brokkr_view::Subject::tab: usize
+pub brokkr_view::Subject::working: bool
+impl brokkr_view::Subject
+pub fn brokkr_view::Subject::of(usize, core::option::Option<alloc::string::String>, alloc::string::String, &brokkr_view::Participant) -> brokkr_view::Subject
 pub struct brokkr_view::Summary
 pub brokkr_view::Summary::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_view::Summary::cursor: alloc::string::String
@@ -443,8 +461,6 @@ pub brokkr_view::What::problem: core::option::Option<alloc::string::String>
 pub brokkr_view::What::text: alloc::string::String
 pub const brokkr_view::ABSENT: &str
 pub const brokkr_view::NO_BOUNDARY: &str
-pub const brokkr_view::RESIDUAL_PHASES: [&str; 2]
-pub const brokkr_view::SUPERSEDE: &str
 pub const brokkr_view::TITLE_COLUMNS: usize
 pub const brokkr_view::VERDICT_COLUMNS: usize
 pub const brokkr_view::VIEW_VERSION: u32
@@ -452,6 +468,7 @@ pub fn brokkr_view::age(&str, &str) -> core::option::Option<alloc::string::Strin
 pub fn brokkr_view::at_work<'a>(&'a brokkr_view::RunRow, &str) -> core::option::Option<&'a brokkr_view::Hire>
 pub fn brokkr_view::cited(&brokkr_view::SupersededBy) -> alloc::string::String
 pub fn brokkr_view::clamp(&str, usize) -> alloc::string::String
+pub fn brokkr_view::first_divergence(&[alloc::string::String], &[alloc::string::String]) -> core::option::Option<brokkr_view::FirstDivergence>
 pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>]) -> brokkr_view::FleetView
 pub fn brokkr_view::fmt_dur(&str, &str) -> core::option::Option<alloc::string::String>
 pub fn brokkr_view::need(&brokkr_view::RunRow, &str) -> core::option::Option<brokkr_view::Need>
@@ -459,11 +476,14 @@ pub fn brokkr_view::operator_commands(&brokkr_core::fold::RunState) -> alloc::ve
 pub fn brokkr_view::quarantine_finding(&str, u64, &str) -> brokkr_view::ResidualFinding
 pub fn brokkr_view::reported_cost(&serde_json::value::Value) -> core::option::Option<f64>
 pub fn brokkr_view::residual_findings(&str, &[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_view::ResidualFinding>
+pub fn brokkr_view::resolution_divergence<T: core::clone::Clone + core::cmp::PartialEq>(&alloc::collections::btree::map::BTreeMap<alloc::string::String, T>, &alloc::collections::btree::map::BTreeMap<alloc::string::String, T>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Sides<T>>
+pub fn brokkr_view::resolutions(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>
 pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>]) -> brokkr_view::RunsView
 pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView
+pub fn brokkr_view::seat_costs(&[brokkr_core::envelope::EventEnvelope]) -> (alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::SeatCost>, f64)
 pub fn brokkr_view::sections<'a>(&'a [brokkr_view::RunRow], &str) -> alloc::vec::Vec<(brokkr_view::Section, alloc::vec::Vec<&'a brokkr_view::RunRow>)>
 pub fn brokkr_view::short_target(&str) -> alloc::string::String
-pub fn brokkr_view::status_str(&brokkr_core::fold::Status) -> &'static str
+pub fn brokkr_view::summary(&brokkr_core::fold::RunState) -> brokkr_view::Summary
 pub fn brokkr_view::title(&str) -> alloc::string::String
 pub fn brokkr_view::title_within(&str, usize) -> alloc::string::String
 pub fn brokkr_view::working_checkpoints<'a>(&'a brokkr_view::RunView, &str) -> alloc::vec::Vec<(&'a str, &'a brokkr_view::CheckpointRow)>

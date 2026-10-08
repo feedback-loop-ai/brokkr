@@ -94,7 +94,6 @@ fn tui_sources() -> Vec<(String, String)> {
 fn no_rust_readout_reads_the_model_cell_outside_the_pair_helper() {
     let render = source("crates/brokkr-cli/src/render.rs");
     let text_face = body_lines(&render, "pub(crate) fn served_text(");
-    let json_face = body_lines(&render, "pub(crate) fn served_json(");
     let readouts = [
         (
             "crates/brokkr-cli/src/render.rs".to_string(),
@@ -110,8 +109,7 @@ fn no_rust_readout_reads_the_model_cell_outside_the_pair_helper() {
             if is_comment(line) {
                 continue;
             }
-            let exempt = name.ends_with("render.rs")
-                && (text_face.contains(&index) || json_face.contains(&index));
+            let exempt = name.ends_with("render.rs") && text_face.contains(&index);
             if exempt {
                 continue;
             }
@@ -129,11 +127,11 @@ fn no_rust_readout_reads_the_model_cell_outside_the_pair_helper() {
             }
         }
     }
-    // The faces themselves are where the reads live.
+    // The face itself is where the reads live.
     let faces: String = render
         .lines()
         .enumerate()
-        .filter(|(index, _)| text_face.contains(index) || json_face.contains(index))
+        .filter(|(index, _)| text_face.contains(index))
         .map(|(_, line)| line)
         .collect::<Vec<_>>()
         .join("\n");
@@ -144,17 +142,17 @@ fn no_rust_readout_reads_the_model_cell_outside_the_pair_helper() {
 /// A seat-costs record that names `model` names `boundary` beside it.
 #[test]
 fn the_seat_costs_record_emits_the_boundary_beside_the_model() {
-    let compare = source("crates/brokkr-cli/src/compare.rs");
+    let compare = source("crates/brokkr-view/src/compare.rs");
     let model_at = compare
-        .find("(\"model\".to_string(), Value::from(model))")
+        .find("model: reduce(accounting.models, \"not reported\"),")
         .expect("the seat-costs record names its model");
     let after = &compare[model_at..];
     let boundary_at = after
-        .find("(\"boundary\".to_string(), Value::from(boundary))")
+        .find("boundary: reduce(accounting.boundaries, \"not recorded\"),")
         .expect("the seat-costs record names its boundary");
     assert!(
         boundary_at < 200,
-        "crates/brokkr-cli/src/compare.rs emits the `model` key of a seat-costs record \
+        "crates/brokkr-view/src/compare.rs emits the `model` key of a seat-costs record \
          without `boundary` beside it"
     );
 }

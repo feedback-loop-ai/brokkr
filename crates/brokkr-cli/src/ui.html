@@ -1103,7 +1103,7 @@ function participantSubject(runId, part) {
     reference: part.transcript ?? null,
     sessionId: typeof part.session_id === 'string' ? part.session_id : null,
     provider: part.provenance ? part.provenance.provider : null,
-    working: part.status === 'working',
+    working: part.working === true,
   };
 }
 

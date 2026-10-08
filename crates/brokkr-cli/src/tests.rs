@@ -2,7 +2,7 @@ use super::*;
 use brokkr_bridge::BridgeError;
 use brokkr_core::canonical::{sha256_hex, ZERO_HASH};
 use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2};
-use brokkr_core::fold::Cursor;
+use brokkr_core::fold::{Cursor, Status};
 use brokkr_core::EventType;
 use brokkr_store::test_support::plant_broken_link;
 use std::io::{Read, Write};
@@ -404,7 +404,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     running_store(&db, "r1");
 
     let state = fold(&Store::open(&db).unwrap().load("r1").unwrap()).unwrap();
-    assert_eq!(status_str(&Status::Running), "running");
+    assert_eq!(Status::Running.as_str(), "running");
     assert_eq!(finish(&state), ExitCode::from(1));
     running_store(&db, "ops");
     assert!(run(cli(operator("ops", "widen", "not allowed", &db))).is_err());

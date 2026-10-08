@@ -5,6 +5,7 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{fold, Status};
+use brokkr_core::residual::{residuals, SUPERSEDE};
 use brokkr_core::EventEnvelope;
 use brokkr_store::Store;
 use serde_json::json;
@@ -81,7 +82,7 @@ pub(in crate::engine) fn operator_supersede_racing(
             "run '{run_id}' is {}, not completed or stopped; on a run that is still \
              going the fold would hold this as a PENDING command and the \
              operator/accepted that disposes of it would be refused as unknown",
-            brokkr_view::status_str(&state.status)
+            state.status.as_str()
         )));
     }
     if ask.by_run == run_id {
@@ -96,9 +97,9 @@ pub(in crate::engine) fn operator_supersede_racing(
              name the seq of every ruling whose residual is closed"
         )));
     }
-    let derived = brokkr_view::residual_findings(run_id, &events);
+    let derived = residuals(&events);
     for finding in ask.findings {
-        if !derived.iter().any(|known| known.seq == *finding) {
+        if !derived.iter().any(|known| known.ruling.seq == *finding) {
             return Err(refused(format!(
                 "seq {finding} is not a residual finding of run '{run_id}'; \
                  brokkr inspect --run {run_id} lists the rulings that carry one"
@@ -125,7 +126,7 @@ pub(in crate::engine) fn operator_supersede_racing(
     let head = Head::tip(&events);
     let payload = json!({
         "command_id": Uuid::new_v4().to_string(),
-        "command": brokkr_view::SUPERSEDE,
+        "command": SUPERSEDE,
         "operator": ask.operator,
         "args": {
             "findings": ask.findings,

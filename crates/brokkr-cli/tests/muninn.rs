@@ -336,19 +336,24 @@ impl Workspace {
 fn staged() -> (Workspace, String, u64) {
     let ws = Workspace::new();
     let run_id = ws.run_once("prove the overseer reads it");
-    let store = brokkr_store::Store::open_read_only(&ws.db()).unwrap();
-    let events = store.load(&run_id).unwrap();
+    let seq = residual_seq(&ws.db(), &run_id);
+    (ws, run_id, seq)
+}
+
+/// The sequence of the one ruling `run_id`'s one high residual was read
+/// from, once the run stopped on it.
+fn residual_seq(db: &Path, run_id: &str) -> u64 {
+    let store = brokkr_store::Store::open_read_only(db).unwrap();
+    let events = store.load(run_id).unwrap();
     let state = brokkr_core::fold(&events).unwrap();
     assert_eq!(
-        brokkr_view::status_str(&state.status),
+        state.status.as_str(),
         "stopped",
         "the staged run reaches a hard stop on its residual"
     );
-    let findings = brokkr_view::residual_findings(&run_id, &events);
+    let findings = brokkr_view::residual_findings(run_id, &events);
     assert_eq!(findings.len(), 1, "one high residual, from one ruling");
-    let seq = findings[0].seq;
-    drop(store);
-    (ws, run_id, seq)
+    findings[0].seq
 }
 
 #[test]
@@ -716,17 +721,8 @@ fn git_repo(root: &Path, name: &str) -> String {
 /// was read from.
 fn staged_in(ws: &Workspace, feature: &str, db: &str, repo: &str) -> (String, u64) {
     let run_id = ws.run_once_in_repo(feature, db, repo);
-    let store = brokkr_store::Store::open_read_only(&ws.path().join(db)).unwrap();
-    let events = store.load(&run_id).unwrap();
-    let state = brokkr_core::fold(&events).unwrap();
-    assert_eq!(
-        brokkr_view::status_str(&state.status),
-        "stopped",
-        "the staged run reaches a hard stop on its residual"
-    );
-    let findings = brokkr_view::residual_findings(&run_id, &events);
-    assert_eq!(findings.len(), 1, "one high residual, from one ruling");
-    (run_id, findings[0].seq)
+    let seq = residual_seq(&ws.path().join(db), &run_id);
+    (run_id, seq)
 }
 
 /// The heads a run recorded, read back out of the journal it wrote them

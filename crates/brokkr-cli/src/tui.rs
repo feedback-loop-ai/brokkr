@@ -64,7 +64,7 @@ use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Table
 use ratatui::{Frame, Terminal};
 
 use crate::render::{self, Safe, Tone};
-use brokkr_view::transcript::{BlockKind, LegacyProvenance, TranscriptRead, Turn, Unavailable};
+use brokkr_view::transcript::{BlockKind, TranscriptRead, Turn, Unavailable};
 
 /// Below this the frame cannot hold its panes, and a drawn frame would
 /// be a corrupted one.

@@ -206,16 +206,6 @@ pub(crate) fn served_text(served: &ModelAtBoundary) -> ServedText {
     }
 }
 
-/// The pair helper's JSON face, for `compare`'s `resolution` map: the
-/// two rendered texts as data, `model` and `boundary` as siblings, so a
-/// structural comparison of two maps diverges on either.
-pub(crate) fn served_json(served: &ModelAtBoundary) -> serde_json::Value {
-    serde_json::json!({
-        "model": served.model.text,
-        "boundary": served.boundary.text,
-    })
-}
-
 // ----------------------------------------------------------- brokkr runs
 
 /// One clamped line per run, newest first: id, status, phase, seq, age,

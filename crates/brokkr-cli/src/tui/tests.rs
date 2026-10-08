@@ -1455,6 +1455,7 @@ fn the_shell_watches_a_transcript_only_while_its_seat_is_working() {
     let mut live = views_with("intake");
     for part in &mut live.run.as_mut().unwrap().participants {
         part.status = "working".to_string();
+        part.working = true;
     }
     assert!(subject_of(&tui, &live).unwrap().working);
 
@@ -3486,7 +3487,7 @@ fn a_pre_0032_journal_keeps_the_provider_guard_on_the_legacy_reference() {
         let part = participant(&views, "eff-i").expect("the seat is present");
         let read = crate::ui::read_local(
             part.transcript.as_ref(),
-            legacy_provenance(part),
+            part.legacy_provenance(),
             part.session_id.as_deref(),
         );
         assert_eq!(
@@ -5237,7 +5238,7 @@ fn subject_of_kind(kind: &str, locator: &str, home: &str, working: bool) -> Subj
             locator: locator.to_string(),
             home: home.to_string(),
         }),
-        provenance: LegacyProvenance::Other,
+        provenance: brokkr_view::transcript::LegacyProvenance::Other,
         legacy_id: None,
         working,
     }
@@ -5924,7 +5925,7 @@ fn a_valid_65_to_80_character_codex_id_resolves_without_a_claude_guard() {
                 locator: id.clone(),
                 home: home.clone(),
             }),
-            LegacyProvenance::Other,
+            brokkr_view::transcript::LegacyProvenance::Other,
             None,
         );
         assert!(read.is_readable(), "{length}: {:?}", read.unavailable);
@@ -5963,7 +5964,7 @@ fn the_shipped_claude_fixture_counts_survive_selection() {
 
     let read = crate::ui::read_local(
         Some(&claude_reference("abcd-1234", &projects)),
-        LegacyProvenance::Claude,
+        brokkr_view::transcript::LegacyProvenance::Claude,
         None,
     );
     assert!(read.is_readable(), "{:?}", read.unavailable);

@@ -27,6 +27,18 @@ pub enum Status {
     Stopped,
 }
 
+impl Status {
+    /// The word every readout and refusal names this status by.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Status::Running => "running",
+            Status::AwaitingOperator => "awaiting_operator",
+            Status::Completed => "completed",
+            Status::Stopped => "stopped",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cursor {
     /// Run started; the engine must enter the policy's initial phase.

@@ -246,6 +246,16 @@ fn the_acceptance_rule_names_each_condition_and_pins_its_word() {
     );
 }
 
+/// A status reads as one word on every surface, and in every refusal
+/// that names it (#351).
+#[test]
+fn a_status_reads_as_its_one_word() {
+    assert_eq!(Status::Running.as_str(), "running");
+    assert_eq!(Status::AwaitingOperator.as_str(), "awaiting_operator");
+    assert_eq!(Status::Completed.as_str(), "completed");
+    assert_eq!(Status::Stopped.as_str(), "stopped");
+}
+
 /// Every refusal names the position it refused at. A fleet read cites
 /// that number as the quarantined run's one stated fact, so a reader —
 /// or the operator's aide — can go to the journal and check it.
