@@ -78,7 +78,8 @@
    599 crates/brokkr-protocol/src/process/attempts.rs
    295 crates/brokkr-protocol/src/process/table.rs
    331 crates/brokkr-protocol/src/process/tree.rs
-   706 crates/brokkr-protocol/src/secret.rs
+   646 crates/brokkr-protocol/src/secret.rs
+   150 crates/brokkr-protocol/src/secret/store.rs
    682 crates/brokkr-protocol/src/transcript.rs
   1671 crates/brokkr-runtime/src/agents.rs
    369 crates/brokkr-runtime/src/agents/charter_data.rs
@@ -241,7 +242,7 @@
    560 crates/brokkr-protocol/src/process/attempts/tests.rs
    307 crates/brokkr-protocol/src/process/table/tests.rs
   1712 crates/brokkr-protocol/src/process/tests.rs
-   508 crates/brokkr-protocol/src/secret/tests.rs
+   799 crates/brokkr-protocol/src/secret/tests.rs
    138 crates/brokkr-protocol/tests/hands_exits.rs
     73 crates/brokkr-protocol/tests/secret_drop.rs
    433 crates/brokkr-runtime/src/agents/charter_data/tests.rs
