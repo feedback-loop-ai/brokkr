@@ -591,13 +591,15 @@ pub struct ServerProfile<'a> {
 pub struct ServerBox {
     intent: Namespace,
     _scratch: Session,
-    _handles: Vec<(PathBuf, OwnedFd)>,
-    _sources: Sources,
+    handles: Vec<(PathBuf, OwnedFd)>,
+    sources: Sources,
+    writers: Option<Vec<u32>>,
 }
 
 /// What the observer gives a prepared box: each observed source's handle
-/// by the host path that named it, and the facts a plan seals of the set.
-type Observed = (Vec<(PathBuf, OwnedFd)>, Sources);
+/// by the host path that named it, the facts a plan seals of the set, and
+/// the managed writers' uids where their privilege is confined.
+type Observed = (Vec<(PathBuf, OwnedFd)>, Sources, Option<Vec<u32>>);
 
 impl ServerBox {
     /// The box `program` runs in under `profile`, or the first of MB3's
@@ -672,7 +674,7 @@ impl ServerBox {
         // made: a cause MB3 puts before identity, a linked program or
         // bootstrap file, still wins.
         let observed = observe(&namespace, made.as_deref());
-        let ((scratch, _), (mut handles, sources)) = match (identity, observed) {
+        let ((scratch, _), (mut handles, sources, writers)) = match (identity, observed) {
             (Ok(identity), Ok(observed)) => (identity, observed),
             (Err(made), Err(observed)) => return Err(made.min(observed)),
             (Err(cause), Ok(_)) | (Ok(_), Err(cause)) => return Err(cause),
@@ -686,8 +688,9 @@ impl ServerBox {
         Ok(ServerBox {
             intent: namespace,
             _scratch: scratch,
-            _handles: handles,
-            _sources: sources,
+            handles,
+            sources,
+            writers,
         })
     }
 
@@ -696,19 +699,25 @@ impl ServerBox {
         self.intent.paths.iter().map(PathBuf::as_path)
     }
 
-    /// The observed source set: its entries, mount records and digest.
-    /// Read by tests until admission compares it with the plan's sealed
+    /// The observed source set: its entries, the mount records it stood
+    /// on and its digest, which admission compares with the plan's sealed
     /// sources (U6c5b).
-    #[cfg(all(test, target_os = "linux"))]
-    pub(super) fn sources(&self) -> &Sources {
-        &self._sources
+    pub fn sources(&self) -> &Sources {
+        &self.sources
     }
 
-    /// Each held handle and the host path that named it. Read by tests
-    /// until the launch passes them to bubblewrap.
-    #[cfg(all(test, target_os = "linux"))]
-    pub(super) fn handles(&self) -> impl Iterator<Item = (&Path, &OwnedFd)> {
-        self._handles.iter().map(|(path, fd)| (path.as_path(), fd))
+    /// The managed writers' uids the observation held its write-exclusion
+    /// proof against, none where their privilege was not proved confined:
+    /// admission compares them with the plan's sealed writers (U6c5b).
+    pub fn writers(&self) -> Option<&[u32]> {
+        self.writers.as_deref()
+    }
+
+    /// Each held handle and the host path that named it: the descriptors
+    /// the broker's observer hands back, so the launch mounts the very
+    /// objects it checked (U6c5b).
+    pub fn handles(&self) -> impl Iterator<Item = (&Path, &OwnedFd)> {
+        self.handles.iter().map(|(path, fd)| (path.as_path(), fd))
     }
 
     /// The bubblewrap argv that builds the box. Read by tests until the

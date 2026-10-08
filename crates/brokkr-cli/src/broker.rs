@@ -7,7 +7,9 @@
 //!
 //! The [`session`] binds the plan to the attempt and checks every plan
 //! field and the box intent in MB3's refusal order, before any secret is
-//! looked up or anything is started. The serving protections are later
+//! looked up or anything is started; its private `observe` verb is the
+//! observer `serve` runs to prepare the box (U6c5b), and holds nothing
+//! `serve` does not. The serving protections are later
 //! units' (slice two U6c3–U6f), so an admitted plan is still refused with
 //! SD3's incomplete-serving cause, and decision 0065's compile fence still
 //! refuses every MCP grant.
@@ -81,12 +83,19 @@ pub(crate) fn plan_digest(text: &str) -> Result<String, BrokerError> {
 }
 
 /// Serve the plan `command` names, or refuse before looking up a secret
-/// or starting anything.
+/// or starting anything; or, as `serve`'s private observer, observe it and
+/// hand back what was checked.
 pub(crate) fn run(command: BrokerCmd) -> anyhow::Result<ExitCode> {
     match command {
         BrokerCmd::Serve(BrokerServeArgs { plan, plan_digest }) => {
-            session::admit(&plan, &plan_digest)?;
+            // The checked handles stay held until the refusal ends the
+            // broker: the later launch mounts these very objects.
+            let _admitted = session::admit(&plan, &plan_digest)?;
             Err(Refusal::ServingIncomplete.into())
+        }
+        BrokerCmd::Observe(BrokerServeArgs { plan, plan_digest }) => {
+            session::observe(&plan, &plan_digest)?;
+            Ok(ExitCode::SUCCESS)
         }
     }
 }

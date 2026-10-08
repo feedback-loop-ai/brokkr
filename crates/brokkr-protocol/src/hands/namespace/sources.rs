@@ -304,7 +304,7 @@ type At<'a> = (BorrowedFd<'a>, &'a Path, &'a OsStr);
 
 /// One preparation's observation in progress: the seat's reach roots as
 /// spelled and as they resolve, MB3's first cause met, the objects counted
-/// and whether a bound was passed, the digest, the mount records read,
+/// and whether a bound was passed, the digest, the mount records used,
 /// each mount stood on, each source root's place and mount, each object
 /// walked in a role from the mount its walk began on, and the mount of the
 /// walk under way.
@@ -641,8 +641,8 @@ impl<'o> Observer<'o> {
     }
 
     /// The mount table, parsed within its bound, and every mount the walk
-    /// stood on proved against it and digested in the order of its place,
-    /// root and device, never the table's own.
+    /// stood on proved against it, counted, and digested in the order of
+    /// its place, root and device, never the table's own.
     fn mounts(&mut self) {
         let Some(mut table) = (self.host.mountinfo)() else {
             return self.fault(Refusal::Identity);
@@ -653,7 +653,6 @@ impl<'o> Observer<'o> {
         let Some(records) = self.charged(parsed) else {
             return;
         };
-        self.records = records.len() as u64;
         if !mapped(&records, &self.seen, &self.placed, &self.reach) {
             self.fault(Refusal::Identity);
         }
@@ -661,6 +660,9 @@ impl<'o> Observer<'o> {
             .iter()
             .filter(|record| self.seen.keys().any(|(id, _)| *id == record.id))
             .collect();
+        // Only the records the walk stood on are counted, so a mount made
+        // or removed elsewhere on the host moves no sealed fact.
+        self.records = used.len() as u64;
         used.sort_unstable_by_key(|record| (&record.point, &record.root, record.dev));
         for record in used {
             let dev = words::<16>(&[record.dev.0, record.dev.1].map(u64::from));
@@ -715,7 +717,8 @@ const DESCRIPTOR_MOUNTS: (u32, u32, u32) = (0, 5, 0);
 /// the identity generated in `made`, where it could be, as generated files,
 /// the rest required program files) and the launcher as support; the
 /// launch must still name the executable, and the launcher mount
-/// descriptors.
+/// descriptors. The writers' uids are kept only where their privilege is
+/// confined.
 pub(super) fn served(
     namespace: &Namespace,
     made: Option<&Path>,
@@ -766,7 +769,13 @@ pub(super) fn served(
     mounts.then_some(()).ok_or(Refusal::Unavailable)?;
     let held = list.iter().zip(observation.held);
     let handles = held.filter_map(|(source, held)| Some((source.path.to_path_buf(), held?.0)));
-    Ok((handles.collect(), observation.sources))
+    let writers = confined_writers(&host.credentials);
+    Ok((handles.collect(), observation.sources, writers))
+}
+
+/// The writers' uids, where their privilege is proved confined.
+pub(in crate::hands) fn confined_writers(writers: &host::Credentials) -> Option<Vec<u32>> {
+    (writers.confinement == host::Confinement::Proved).then(|| writers.uids.clone())
 }
 
 /// `target` read from a link in `dir`, as a path, `..` taken lexically.

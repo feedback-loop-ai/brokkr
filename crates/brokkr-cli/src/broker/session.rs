@@ -11,20 +11,28 @@
 //! Then every plan field is checked in MB3's refusal order, and the box
 //! intent against the server box the hands' server profile prepares from
 //! it (U6c4), before any secret is looked up or anything is started. The
-//! plan and where it lies stay here; only the shared protocol types leave.
+//! box is prepared by a private observer, `broker observe`, in a process
+//! group of its own under the absolute startup deadline (U6c5b): it rebinds
+//! the same plan, and hands back a closed record and the checked handles
+//! over a private socket, and the sources and writers it observed must be
+//! the ones the plan sealed. Cancellation or the deadline kills its group
+//! and reaps it. The plan and where it lies stay here; only the shared
+//! protocol types leave.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::io::Read;
 use std::os::fd::OwnedFd;
 use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use brokkr_core::canonical;
-use brokkr_protocol::broker::{BoxIntent, Inventory, Owner, Plan, Refusal, Tree};
+use brokkr_protocol::broker::{BoxIntent, Inventory, Owner, Plan, Privilege, Refusal, Tree};
 use brokkr_protocol::hands::{ServerBox, ServerProfile, ServerProgram};
 use brokkr_protocol::native_controls::bounded_line;
 use brokkr_protocol::{hands, secret};
 use rustix::fs::{fstat, openat, FileType, Mode, OFlags, Stat, CWD};
+use serde::{Deserialize, Serialize};
 
 /// The protected root's components below the host HOME (D6).
 const PROTECTED_ROOT: [&str; 4] = [".local", "state", "brokkr", "capabilities"];
@@ -35,19 +43,53 @@ const INVENTORY: &str = "inventory.json";
 /// The most bytes an inventory or a plan may hold: MB3's request bound.
 const PLAN_BYTES_MAX: u64 = 1 << 20;
 
-/// MB3's bounds on one source observation: entries and mount records.
-const SOURCE_ENTRIES_MAX: u64 = 1_000_000;
-const MOUNT_RECORDS_MAX: u64 = 65_536;
-
 /// Uids that prove no owner: the kernel's overflow uid and the invalid -1.
 const UNMAPPED_UIDS: [u32; 2] = [65_534, u32::MAX];
 
+/// MB3's absolute startup deadline, which admission's observation shares
+/// and never extends.
+const STARTUP: Duration = Duration::from_secs(30);
+
 /// The plan `locator` names, bound to this attempt at `digest` and checked
-/// in MB3's refusal order, or the first refusal. Nothing is looked up or
-/// started.
-pub(super) fn admit(locator: &Path, digest: &str) -> Result<(), Refusal> {
+/// in MB3's refusal order, its box's sources observed afresh by the
+/// private observer within the startup deadline and compared with what
+/// the plan sealed; or the first refusal. Nothing is looked up or started.
+pub(super) fn admit(locator: &Path, digest: &str) -> Result<Admitted, Refusal> {
+    let deadline = Instant::now() + STARTUP;
     let (layout, plan) = bound(locator, digest)?;
-    checked(&layout, &plan)
+    screened(&layout, &plan)?;
+    let (record, handles) = observed(&layout, &plan, (locator, digest), deadline)?;
+    compared(&plan.intent, record, handles)
+}
+
+/// `serve`'s private observer: the plan `locator` names rebound at
+/// `digest`, screened, its box prepared and checked, and the record handed
+/// back with the checked handles over the private socket on stdout.
+/// Whatever cannot be handed back leaves identity unprotected.
+#[cfg(target_os = "linux")]
+pub(super) fn observe(locator: &Path, digest: &str) -> Result<(), Refusal> {
+    helper::tethered()?;
+    let observed = bound(locator, digest).and_then(|(layout, plan)| {
+        screened(&layout, &plan)?;
+        recorded(&layout, &plan)
+    });
+    let (record, server) = match observed {
+        Ok(observed) => observed,
+        Err(refusal) => (Record::Refused(Cause::of(&refusal)?), None),
+    };
+    helper::handed(&record, server.as_ref())
+}
+
+/// Off Linux no box stands, so there is nothing to observe.
+#[cfg(not(target_os = "linux"))]
+pub(super) fn observe(_: &Path, _: &str) -> Result<(), Refusal> {
+    Err(Refusal::Unavailable)
+}
+
+/// What admission hands serving: each checked source's handle, by the
+/// host path that named it, held until the launch mounts it.
+pub(super) struct Admitted {
+    _handles: Vec<(PathBuf, OwnedFd)>,
 }
 
 /// `holds`, or `refusal`.
@@ -222,16 +264,14 @@ fn owns(layout: &Layout<'_>, owner: &Owner) -> bool {
     (named == owned) & owner.attempt.bytes().all(portable)
 }
 
-/// Check every field of a bound plan in MB3's refusal order: its own
-/// shape, the binding names, the program tree, the seat's reach, the
-/// identity facts and the store's exclusion. The program and the box are
-/// the hands' server profile's to prepare, and the plan must have sealed
-/// what it prepares. Nothing is looked up or started. An invalid binding
-/// name refuses with decision 0012's cause through the one bounded sink:
-/// the plan wrote the name, so a control character in it is escaped
+/// The fields of a bound plan that need no source observed, in MB3's
+/// refusal order: its own shape, the binding names and the fixed keys.
+/// The broker screens them itself before its observer starts, so a
+/// binding name's cause never has to cross back from it. An invalid
+/// binding name refuses with decision 0012's cause through the one bounded
+/// sink: the plan wrote the name, so a control character in it is escaped
 /// rather than ending the line, NUL as `\u{0}`, and a long one is cut.
-fn checked(layout: &Layout<'_>, plan: &Plan) -> Result<(), Refusal> {
-    let intent = &plan.intent;
+fn screened(layout: &Layout<'_>, plan: &Plan) -> Result<(), Refusal> {
     ensure(well_formed(layout, plan), Refusal::Unbound)?;
     plan.secrets
         .iter()
@@ -241,7 +281,15 @@ fn checked(layout: &Layout<'_>, plan: &Plan) -> Result<(), Refusal> {
         .secrets
         .iter()
         .any(|name| hands::server_environment().any(|fixed| fixed == name));
-    ensure(!reserved, Refusal::StartupInputs)?;
+    ensure(!reserved, Refusal::StartupInputs)
+}
+
+/// The box of a screened plan, in MB3's refusal order: the program tree,
+/// the seat's reach and every source the observer reads. The program and
+/// the box are the hands' server profile's to prepare, and the plan must
+/// have sealed the program it resolves. Nothing is looked up or started.
+fn prepared(layout: &Layout<'_>, plan: &Plan) -> Result<ServerBox, Refusal> {
+    let intent = &plan.intent;
     let program = ServerProgram::resolve(&plan.connection.argv[0], &layout.home)?;
     ensure(sealed(intent, &program), Refusal::ProgramTree)?;
     let profile = ServerProfile {
@@ -250,8 +298,13 @@ fn checked(layout: &Layout<'_>, plan: &Plan) -> Result<(), Refusal> {
         bootstrap: &intent.bootstrap.path,
         arguments: &plan.connection.argv[1..],
     };
-    let server = ServerBox::prepare(&program, &profile)?;
-    identity(intent, &server)?;
+    ServerBox::prepare(&program, &profile)
+}
+
+/// The checks after a box stands, in MB3's order: the identity facts,
+/// then the store's exclusion from the seat's reach and from the box.
+fn after(intent: &BoxIntent, server: &ServerBox) -> Result<(), Refusal> {
+    identity(intent, server)?;
     let store = intent.excluded.store.as_path();
     let reachable = roots(intent).any(|root| overlaps(store, root));
     ensure(!reachable, Refusal::StoreReachable)?;
@@ -363,15 +416,370 @@ fn overlaps(one: &Path, other: &Path) -> bool {
 }
 
 /// The identity facts the plan seals: at least one managed writer, each
-/// with a mapped uid; a source observation within MB3's bounds; and the
-/// control roots outside the seat's reach and every path the box mounts.
+/// with a mapped uid, and the control roots outside the seat's reach and
+/// every path the box mounts. The sealed sources are bounded by being the
+/// observed ones, which the observer's own bounds hold ([`compared`]).
 fn identity(intent: &BoxIntent, server: &ServerBox) -> Result<(), Refusal> {
     let uids = &intent.writers.uids;
     let mapped = !uids.is_empty() & !uids.iter().any(|uid| UNMAPPED_UIDS.contains(uid));
-    let sources = &intent.sources;
-    let bounded = (sources.entries <= SOURCE_ENTRIES_MAX) & (sources.mounts <= MOUNT_RECORDS_MAX);
     let control = &intent.excluded.control;
     let mut exposed = roots(intent).chain(server.paths());
     let shared = exposed.any(|path| control.iter().any(|root| overlaps(root, path)));
-    ensure(mapped & bounded & !shared, Refusal::Identity)
+    ensure(mapped & !shared, Refusal::Identity)
+}
+
+/// A cause the observer hands back, by its name on the socket: every
+/// refusal it can meet once the broker has screened the plan. A binding
+/// name's is the broker's own, and the serving cause comes after
+/// admission, so neither has one; a name not here is no record.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum Cause {
+    Unbound,
+    StartupInputs,
+    ProgramTree,
+    LaunchInReach,
+    BindOverlapsReach,
+    Linked,
+    Identity,
+    Unavailable,
+    StoreReachable,
+    StoreInBox,
+}
+
+impl Cause {
+    /// Every cause, in MB3's order.
+    const ALL: [Cause; 10] = [
+        Cause::Unbound,
+        Cause::StartupInputs,
+        Cause::ProgramTree,
+        Cause::LaunchInReach,
+        Cause::BindOverlapsReach,
+        Cause::Linked,
+        Cause::Identity,
+        Cause::Unavailable,
+        Cause::StoreReachable,
+        Cause::StoreInBox,
+    ];
+
+    /// The refusal this cause names.
+    fn refusal(self) -> Refusal {
+        match self {
+            Cause::Unbound => Refusal::Unbound,
+            Cause::StartupInputs => Refusal::StartupInputs,
+            Cause::ProgramTree => Refusal::ProgramTree,
+            Cause::LaunchInReach => Refusal::LaunchInReach,
+            Cause::BindOverlapsReach => Refusal::BindOverlapsReach,
+            Cause::Linked => Refusal::Linked,
+            Cause::Identity => Refusal::Identity,
+            Cause::Unavailable => Refusal::Unavailable,
+            Cause::StoreReachable => Refusal::StoreReachable,
+            Cause::StoreInBox => Refusal::StoreInBox,
+        }
+    }
+
+    /// `refusal`'s cause; one with none cannot be handed back, which
+    /// leaves identity unprotected.
+    fn of(refusal: &Refusal) -> Result<Cause, Refusal> {
+        let named = Cause::ALL
+            .into_iter()
+            .find(|cause| cause.refusal() == *refusal);
+        named.ok_or(Refusal::Identity)
+    }
+}
+
+/// The observer's closed record (U6c5b): refused before a box stood, with
+/// its cause, or what the box observed.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "lowercase")]
+enum Record {
+    Refused(Cause),
+    Observed(Observation),
+}
+
+/// What a standing box observed: its source set, the managed writers' uids
+/// where their privilege was proved confined, the cause a check after the
+/// box refused with, none where it was admitted, and the host path of each
+/// handle handed back with it, in the order they travel.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Observation {
+    entries: u64,
+    mounts: u64,
+    digest: String,
+    writers: Option<Vec<u32>>,
+    refused: Option<Cause>,
+    handles: Vec<PathBuf>,
+}
+
+/// The record of a screened plan, and its box where it is admitted.
+fn recorded(layout: &Layout<'_>, plan: &Plan) -> Result<(Record, Option<ServerBox>), Refusal> {
+    let server = match prepared(layout, plan) {
+        Ok(server) => server,
+        Err(refusal) => return Ok((Record::Refused(Cause::of(&refusal)?), None)),
+    };
+    let refused = after(&plan.intent, &server).err();
+    let sources = server.sources();
+    let handles = match refused {
+        Some(_) => Vec::new(),
+        None => server
+            .handles()
+            .map(|(path, _)| path.to_path_buf())
+            .collect(),
+    };
+    let observation = Observation {
+        entries: sources.entries,
+        mounts: sources.mounts,
+        digest: sources.digest.clone(),
+        writers: server.writers().map(<[u32]>::to_vec),
+        refused: refused.as_ref().map(Cause::of).transpose()?,
+        handles,
+    };
+    let admitted = observation.refused.is_none().then_some(server);
+    Ok((Record::Observed(observation), admitted))
+}
+
+/// The observer's `record` against what `intent` sealed, with the
+/// `handles` it handed back: its own refusal; identity unprotected where
+/// the observed sources or writers are not the sealed ones, which comes
+/// before any cause after it in MB3's order, or where the handles are not
+/// those it names; else the cause after the box, or the admitted handles.
+/// The sealed facts were bound with the plan, so a difference here is the
+/// filesystem's, never the plan's (SC1).
+fn compared(
+    intent: &BoxIntent,
+    record: Record,
+    handles: Vec<OwnedFd>,
+) -> Result<Admitted, Refusal> {
+    let observation = match record {
+        Record::Refused(cause) => return Err(cause.refusal()),
+        Record::Observed(observation) => observation,
+    };
+    let sealed = &intent.sources;
+    let observed = (observation.entries, observation.mounts, &observation.digest);
+    let sources = observed == (sealed.entries, sealed.mounts, &sealed.digest);
+    let writers = match intent.writers.privilege {
+        Privilege::Confined => observation.writers.as_ref().is_some_and(|uids| {
+            let set = |uids: &[u32]| uids.iter().copied().collect::<BTreeSet<u32>>();
+            set(uids) == set(&intent.writers.uids)
+        }),
+    };
+    ensure(sources & writers, Refusal::Identity)?;
+    if let Some(cause) = observation.refused {
+        return Err(cause.refusal());
+    }
+    let named = observation.handles.len() == handles.len();
+    ensure(named, Refusal::Identity)?;
+    let handles = observation.handles.into_iter().zip(handles).collect();
+    Ok(Admitted { _handles: handles })
+}
+
+/// The observer's record of the plan `named` (its locator and digest) and
+/// the handles it handed back: the private observer run in its own process
+/// group, received before `deadline` unless the attempt is cancelled, which
+/// ends the broker's own starter, and its whole group killed and reaped
+/// either way. A blocked source operation holds only the observer, so
+/// nothing of admission outlives it.
+#[cfg(target_os = "linux")]
+fn observed(
+    _: &Layout<'_>,
+    _: &Plan,
+    named: (&Path, &str),
+    deadline: Instant,
+) -> Result<(Record, Vec<OwnedFd>), Refusal> {
+    let parent = rustix::process::getppid();
+    helper::supervised(named, deadline, &|| rustix::process::getppid() != parent)
+}
+
+/// Off Linux no box stands and no source is read: the record is taken
+/// here, refused before any box.
+#[cfg(not(target_os = "linux"))]
+fn observed(
+    layout: &Layout<'_>,
+    plan: &Plan,
+    _: (&Path, &str),
+    _: Instant,
+) -> Result<(Record, Vec<OwnedFd>), Refusal> {
+    let (record, _) = recorded(layout, plan)?;
+    Ok((record, Vec::new()))
+}
+
+/// The private observer's process and its socket (U6c5b; MB3): a
+/// sequenced-packet pair, so one record is one message, read whole or not
+/// at all, with the checked handles riding it as `SCM_RIGHTS`.
+#[cfg(target_os = "linux")]
+mod helper {
+    use std::io::{IoSlice, IoSliceMut};
+    use std::mem::MaybeUninit;
+    use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+    use std::os::unix::process::CommandExt;
+    use std::path::Path;
+    use std::process::{Child, Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    use brokkr_protocol::broker::Refusal;
+    use brokkr_protocol::hands::ServerBox;
+    use rustix::io::Errno;
+    use rustix::net::sockopt::{self, Timeout};
+    use rustix::net::{
+        recv, recvmsg, sendmsg, socketpair, AddressFamily, RecvAncillaryBuffer,
+        RecvAncillaryMessage, RecvFlags, ReturnFlags, SendAncillaryBuffer, SendAncillaryMessage,
+        SendFlags, SocketFlags, SocketType,
+    };
+    use rustix::process::{getppid, kill_current_process_group, kill_process_group, Pid, Signal};
+
+    use super::{ensure, Record};
+
+    /// The most bytes one record may hold.
+    const RECORD_MAX: usize = 128 << 10;
+
+    /// The most handles one record hands back: a server box holds one for
+    /// each source it mounts, its system set's aliases included, and its
+    /// launcher.
+    const HANDLES_MAX: usize = 64;
+
+    /// The longest one wait on the socket lasts before the deadline and
+    /// cancellation are read again.
+    const SLICE: Duration = Duration::from_millis(100);
+
+    /// The observer of `named` run, and its record received before
+    /// `deadline` unless `cancelled`; its process group, whatever it
+    /// started included, then killed and reaped.
+    pub(super) fn supervised(
+        named: (&Path, &str),
+        deadline: Instant,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<(Record, Vec<OwnedFd>), Refusal> {
+        let (unix, packets) = (AddressFamily::UNIX, SocketType::SEQPACKET);
+        let pair = socketpair(unix, packets, SocketFlags::CLOEXEC, None);
+        let (ours, theirs) = pair.ok().ok_or(Refusal::Identity)?;
+        let mut helper = spawned(named, theirs)?;
+        let received = received(&ours, deadline, cancelled);
+        ended(&mut helper);
+        received
+    }
+
+    /// This binary as `broker observe` of `named`, a process group of its
+    /// own, `channel` its stdout and nothing else inherited. The command,
+    /// and the broker's copy of `channel` with it, is gone once it starts,
+    /// so the observer's end closing is the socket's end.
+    fn spawned((locator, digest): (&Path, &str), channel: OwnedFd) -> Result<Child, Refusal> {
+        let this = std::env::current_exe().ok().ok_or(Refusal::Identity)?;
+        let started = Command::new(this)
+            .args(["broker", "observe", "--plan"])
+            .arg(locator)
+            .args(["--plan-digest", digest])
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(channel))
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn();
+        started.ok().ok_or(Refusal::Identity)
+    }
+
+    /// Kill the observer's whole group and reap the observer: a member
+    /// blocked in a filesystem call is woken by the kill.
+    fn ended(helper: &mut Child) {
+        kill_process_group(Pid::from_child(helper), Signal::KILL).ok();
+        helper.wait().ok();
+    }
+
+    /// The one record on `socket` with the handles riding it, and then the
+    /// observer's end, which closes the socket only once it has exited:
+    /// both before `deadline` unless `cancelled`. Nothing, or anything
+    /// more, is no record.
+    fn received(
+        socket: &OwnedFd,
+        deadline: Instant,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<(Record, Vec<OwnedFd>), Refusal> {
+        let (record, handles) = message(socket, deadline, cancelled)?;
+        let (after, more) = message(socket, deadline, cancelled)?;
+        let one = !record.is_empty() & after.is_empty() & more.is_empty();
+        ensure(one, Refusal::Identity)?;
+        let record = serde_json::from_slice(&record);
+        Ok((record.ok().ok_or(Refusal::Identity)?, handles))
+    }
+
+    /// The next whole message on `socket` and the handles riding it, read
+    /// before `deadline` unless `cancelled`, in waits of at most [`SLICE`]:
+    /// empty at the socket's end.
+    fn message(
+        socket: &OwnedFd,
+        deadline: Instant,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<(Vec<u8>, Vec<OwnedFd>), Refusal> {
+        let mut bytes = vec![0; RECORD_MAX];
+        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(HANDLES_MAX))];
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            ensure(!left.is_zero() & !cancelled(), Refusal::Identity)?;
+            let wait = left.clamp(Duration::from_millis(1), SLICE);
+            let timed = sockopt::set_socket_timeout(socket, Timeout::Recv, Some(wait));
+            timed.ok().ok_or(Refusal::Identity)?;
+            let mut control = RecvAncillaryBuffer::new(&mut space);
+            let mut iov = [IoSliceMut::new(&mut bytes)];
+            let message = match recvmsg(socket, &mut iov, &mut control, RecvFlags::CMSG_CLOEXEC) {
+                Err(Errno::AGAIN | Errno::INTR) => continue,
+                answered => answered.ok().ok_or(Refusal::Identity)?,
+            };
+            // The observer's handles ride its record as the one control
+            // message; a message without one, as the socket's end is,
+            // carries none. Any other is closed with the buffer, unread.
+            let handles = match control.drain().next() {
+                Some(RecvAncillaryMessage::ScmRights(fds)) => fds.collect(),
+                _ => Vec::new(),
+            };
+            let truncated = message
+                .flags
+                .intersects(ReturnFlags::TRUNC | ReturnFlags::CTRUNC);
+            ensure(!truncated, Refusal::Identity)?;
+            bytes.truncate(message.bytes);
+            return Ok((bytes, handles));
+        }
+    }
+
+    /// Tie this observer's life, and its whole group's, to the broker that
+    /// started it: not begun where that broker has already ended, as the
+    /// socket's creator is then no longer its parent, and otherwise
+    /// watched. The broker sends nothing and its end of the socket is its
+    /// alone, so a read of it returns only when the broker has ended, by
+    /// whatever means, or closed it after killing the group itself: the
+    /// watcher then kills the group, whatever the observer started
+    /// included. A parent-death signal would kill the observer alone, and
+    /// could do so before the watcher ran.
+    pub(super) fn tethered() -> Result<(), Refusal> {
+        let peer = sockopt::socket_peercred(std::io::stdout().as_fd());
+        let peer = peer.ok().ok_or(Refusal::Identity)?;
+        ensure(getppid() == Some(peer.pid), Refusal::Identity)?;
+        let socket = std::io::stdout().as_fd().try_clone_to_owned();
+        let socket = socket.ok().ok_or(Refusal::Identity)?;
+        let watcher = std::thread::Builder::new().spawn(move || {
+            recv(&socket, &mut [0; 1], RecvFlags::empty()).ok();
+            kill_current_process_group(Signal::KILL).ok();
+        });
+        watcher.ok().ok_or(Refusal::Identity).map(drop)
+    }
+
+    /// Hand `record` back over stdout as one message, with the handles of
+    /// `server`, where it is admitted, riding it in the record's order:
+    /// within [`HANDLES_MAX`], they take one control message, and none.
+    pub(super) fn handed(record: &Record, server: Option<&ServerBox>) -> Result<(), Refusal> {
+        let bytes = serde_json::to_vec(record).ok().ok_or(Refusal::Identity)?;
+        let handles: Vec<BorrowedFd<'_>> = server
+            .into_iter()
+            .flat_map(ServerBox::handles)
+            .map(|(_, fd)| fd.as_fd())
+            .collect();
+        let bounded = (bytes.len() <= RECORD_MAX) & (handles.len() <= HANDLES_MAX);
+        ensure(bounded, Refusal::Identity)?;
+        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(HANDLES_MAX))];
+        let mut control = SendAncillaryBuffer::new(&mut space);
+        let mut messages = handles.chunks(HANDLES_MAX);
+        let carried = messages.all(|fds| control.push(SendAncillaryMessage::ScmRights(fds)));
+        ensure(carried, Refusal::Identity)?;
+        let iov = [IoSlice::new(&bytes)];
+        let sent = sendmsg(std::io::stdout(), &iov, &mut control, SendFlags::NOSIGNAL);
+        ensure(sent == Ok(bytes.len()), Refusal::Identity)
+    }
 }

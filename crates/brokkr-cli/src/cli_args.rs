@@ -615,13 +615,20 @@ pub(super) enum LibraryCmd {
     },
 }
 
-/// The MCP capability broker's one verb (decision 0077).
+/// The MCP capability broker's one verb (decision 0077), and its private
+/// observer.
 #[derive(clap::Subcommand)]
 pub(super) enum BrokerCmd {
     /// Serve one held MCP capability on stdio from the engine's plan
     /// bound to this attempt. The locator and digest name a plan; they
     /// confer no authority, and an unbound plan is refused.
     Serve(BrokerServeArgs),
+    /// `serve`'s own observer (U6c5b): rebind the same plan, observe its
+    /// server box's sources, and hand the record and the checked handles
+    /// back over the private socket `serve` gave it as stdout. It holds no
+    /// authority `serve` does not.
+    #[command(hide = true)]
+    Observe(BrokerServeArgs),
 }
 
 #[derive(clap::Args)]
