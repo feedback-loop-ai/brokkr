@@ -132,14 +132,14 @@ reading `not recorded` when no record carries one, an explicit absence
 and never a default; and `compare` SHALL report a boundary difference
 between two runs as a first-class divergence, the way it reports a
 model difference. `compare` also names each participant's model a
-second time, from the view, in the `resolution` map `resolution_of`
-builds and `resolution_divergence` compares; that map SHALL carry
-`boundary` beside `model` per participant, read through the pair
-helper's JSON face, and the divergence SHALL report a boundary
+second time, from the view, in the `resolution` map the view's
+`resolutions` derives and `resolution_divergence` compares; that map
+SHALL carry `boundary` beside `model` per participant, read from the
+served pair whole, and the divergence SHALL report a boundary
 difference as it reports a model difference. A roster-style pin test
 SHALL read every readout source and fail, naming the source, where
-`served.model` is read outside the one pair helper — a text face for
-the renderers, a JSON face for `compare`'s `resolution` map — or where
+`served.model` is read outside the one pair helper — the text face
+the renderers place — or where
 the `model` key of a seat-costs record is rendered without the boundary
 beside it. The web console is a page and not a Rust source: `ui.html`
 reads the flattened wire, where `model` and `boundary` are siblings on

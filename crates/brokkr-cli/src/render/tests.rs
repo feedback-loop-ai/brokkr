@@ -1091,27 +1091,18 @@ fn the_seats_block_is_the_one_inspect_prints() {
     });
 }
 
-/// The pair helper's two faces: the text face carries both cells
-/// sanitized and whether a model was named; the JSON face carries the
-/// two texts as siblings for `compare`'s resolution map.
+/// The pair helper's text face carries both cells sanitized and whether
+/// a model was named.
 #[test]
-fn the_pair_helper_has_a_text_face_and_a_json_face() {
+fn the_pair_helper_has_a_text_face() {
     let boxed = boxed_view("seatbelt", true);
     let served = served_text(&boxed.participants[0].served);
     assert_eq!(served.model.as_str(), "claude-fable-5-1");
     assert_eq!(served.boundary.as_str(), "seatbelt");
     assert!(served.named);
-    assert_eq!(
-        served_json(&boxed.participants[0].served),
-        json!({"model": "claude-fable-5-1", "boundary": "seatbelt"})
-    );
     let absent = served_text(&view(None).participants[0].served);
     assert!(!absent.named);
     assert_eq!(absent.boundary.as_str(), brokkr_view::ABSENT);
-    assert_eq!(
-        served_json(&view(None).participants[0].served),
-        json!({"model": brokkr_view::ABSENT, "boundary": brokkr_view::ABSENT})
-    );
 }
 
 /// The transcript text face: identity, source, notices, one-based turn

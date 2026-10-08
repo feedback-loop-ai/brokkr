@@ -339,6 +339,7 @@ pub brokkr_view::ResidualFinding::run_id: alloc::string::String
 pub brokkr_view::ResidualFinding::seq: u64
 pub brokkr_view::ResidualFinding::superseded: core::option::Option<brokkr_view::Superseded>
 pub brokkr_view::ResidualFinding::value: alloc::string::String
+pub struct brokkr_view::Resolution
 pub struct brokkr_view::Ruling
 pub brokkr_view::Ruling::from: alloc::string::String
 pub brokkr_view::Ruling::inputs: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
@@ -476,6 +477,7 @@ pub fn brokkr_view::quarantine_finding(&str, u64, &str) -> brokkr_view::Residual
 pub fn brokkr_view::reported_cost(&serde_json::value::Value) -> core::option::Option<f64>
 pub fn brokkr_view::residual_findings(&str, &[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_view::ResidualFinding>
 pub fn brokkr_view::resolution_divergence<T: core::clone::Clone + core::cmp::PartialEq>(&alloc::collections::btree::map::BTreeMap<alloc::string::String, T>, &alloc::collections::btree::map::BTreeMap<alloc::string::String, T>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Sides<T>>
+pub fn brokkr_view::resolutions(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>
 pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>]) -> brokkr_view::RunsView
 pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView
 pub fn brokkr_view::seat_costs(&[brokkr_core::envelope::EventEnvelope]) -> (alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::SeatCost>, f64)

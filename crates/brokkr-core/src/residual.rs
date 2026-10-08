@@ -6,10 +6,7 @@
 use serde_json::Value;
 
 use crate::envelope::{EventEnvelope, EventType};
-use crate::policy::SEVERITY_ORDER;
-
-/// The phases whose rulings carry residual findings.
-const RESIDUAL_PHASES: [&str; 2] = ["verify", "review"];
+use crate::policy::Severity;
 
 /// The command word of the operator annotation that closes a residual
 /// finding (decision 0047 ruling 1). Deliberately NOT an
@@ -18,38 +15,92 @@ const RESIDUAL_PHASES: [&str; 2] = ["verify", "review"];
 /// one.
 pub const SUPERSEDE: &str = "supersede";
 
-/// One residual claim a ruling carries: the input that carries it, by its
-/// exact name in the evaluator's closed vocabulary, and its value.
+/// The phases whose rulings carry residual findings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ResidualPhase {
+    Verify,
+    Review,
+}
+
+impl ResidualPhase {
+    /// The phase a ruling's `from` names, or `None` for a phase that
+    /// carries no residuals.
+    fn named(from: &str) -> Option<ResidualPhase> {
+        match from {
+            "verify" => Some(ResidualPhase::Verify),
+            "review" => Some(ResidualPhase::Review),
+            _ => None,
+        }
+    }
+
+    /// The phase name the table and every surface write for it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ResidualPhase::Verify => "verify",
+            ResidualPhase::Review => "review",
+        }
+    }
+}
+
+/// What a residual claim states, one variant per evaluator input that
+/// can carry one: the severity above `none`, or one of the two flags
+/// set true.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Claim {
+    MaxSeverity(Severity),
+    SecurityResidual,
+    HighRiskUncovered,
+}
+
+impl Claim {
+    /// The claim the evaluator input `key` carries with `value`. A
+    /// severity of `none`, a false flag, an unranked severity name and
+    /// any key outside the vocabulary all carry no finding.
+    fn of(key: &str, value: &Value) -> Option<Claim> {
+        match key {
+            "max_residual_severity" => value
+                .as_str()
+                .and_then(Severity::named)
+                .filter(|severity| *severity != Severity::None)
+                .map(Claim::MaxSeverity),
+            "has_security_residual" => {
+                (value.as_bool() == Some(true)).then_some(Claim::SecurityResidual)
+            }
+            "high_risk_uncovered" => {
+                (value.as_bool() == Some(true)).then_some(Claim::HighRiskUncovered)
+            }
+            _ => None,
+        }
+    }
+
+    /// The input that carries it, by its exact name in the evaluator's
+    /// closed vocabulary.
+    pub fn input(self) -> &'static str {
+        match self {
+            Claim::MaxSeverity(_) => "max_residual_severity",
+            Claim::SecurityResidual => "has_security_residual",
+            Claim::HighRiskUncovered => "high_risk_uncovered",
+        }
+    }
+
+    /// Its value as the journal wrote it: the severity's name, or `true`
+    /// for a flag.
+    pub fn value(self) -> &'static str {
+        match self {
+            Claim::MaxSeverity(severity) => severity.name(),
+            Claim::SecurityResidual | Claim::HighRiskUncovered => "true",
+        }
+    }
+}
+
+/// One residual claim a ruling carries.
 pub struct Residual<'a> {
     /// The `transition/decided` it was read from. Its sequence number is
     /// the citation a reader can go and check.
     pub ruling: &'a EventEnvelope,
-    /// The phase that ruled: `verify` or `review`.
-    pub phase: &'a str,
-    pub input: &'a str,
-    pub value: String,
-}
-
-/// The one severity input and the two boolean inputs that carry a
-/// residual claim, read through the evaluator's own closed vocabulary.
-/// A severity of `none`, a false flag, an unranked severity name and any
-/// key outside the vocabulary all carry no finding.
-fn residual_value(key: &str, value: &Value) -> Option<String> {
-    match key {
-        "max_residual_severity" => {
-            let name = value.as_str()?;
-            let rank = SEVERITY_ORDER.iter().position(|known| *known == name)?;
-            match rank {
-                0 => None,
-                _ => Some(name.to_string()),
-            }
-        }
-        "has_security_residual" | "high_risk_uncovered" => match value.as_bool() {
-            Some(true) => Some("true".to_string()),
-            _ => None,
-        },
-        _ => None,
-    }
+    /// The phase that ruled.
+    pub phase: ResidualPhase,
+    pub claim: Claim,
 }
 
 /// Every residual claim in a run's journal, in journal order and then in
@@ -67,7 +118,7 @@ pub fn residuals(events: &[EventEnvelope]) -> Vec<Residual<'_>> {
         let Some(phase) = payload
             .get("from")
             .and_then(Value::as_str)
-            .filter(|from| RESIDUAL_PHASES.contains(from))
+            .and_then(ResidualPhase::named)
         else {
             continue;
         };
@@ -75,12 +126,11 @@ pub fn residuals(events: &[EventEnvelope]) -> Vec<Residual<'_>> {
             continue;
         };
         for (input, raw) in inputs {
-            if let Some(value) = residual_value(input, raw) {
+            if let Some(claim) = Claim::of(input, raw) {
                 out.push(Residual {
                     ruling: event,
                     phase,
-                    input,
-                    value,
+                    claim,
                 });
             }
         }

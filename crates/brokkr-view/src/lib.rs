@@ -35,7 +35,8 @@ mod participant;
 pub mod transcript;
 
 pub use compare::{
-    first_divergence, resolution_divergence, seat_costs, FirstDivergence, SeatCost, Sides,
+    first_divergence, resolution_divergence, resolutions, seat_costs, FirstDivergence, Resolution,
+    SeatCost, Sides,
 };
 use dashboard::dashboard;
 pub use dashboard::{
@@ -838,9 +839,9 @@ pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<Residual
             let Residual {
                 ruling,
                 phase,
-                input,
-                value,
+                claim,
             } = claim;
+            let (phase, input, value) = (phase.as_str(), claim.input(), claim.value());
             let seq = ruling.seq;
             let rule_id = display_or_mark(ruling.payload.get("rule_id"));
             let superseded = marks.get(&seq).cloned();
@@ -855,7 +856,7 @@ pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<Residual
                 line: format!("{run_id} seq {seq} · {phase} · {rule_id} · {input}: {value}{mark}"),
                 rule_id,
                 input: input.to_string(),
-                value,
+                value: value.to_string(),
                 superseded,
             }
         })

@@ -14,12 +14,12 @@ fn ruled(seq: u64, from: &str, inputs: Value) -> EventEnvelope {
     )
 }
 
-/// Each claim as `(seq, phase, input, value)`, the facts the engine
-/// admits a supersede by and the view renders.
-fn claims(events: &[EventEnvelope]) -> Vec<(u64, &str, &str, String)> {
+/// Each claim as `(seq, phase, claim)`, the facts the engine admits a
+/// supersede by and the view renders.
+fn claims(events: &[EventEnvelope]) -> Vec<(u64, ResidualPhase, Claim)> {
     residuals(events)
         .into_iter()
-        .map(|claim| (claim.ruling.seq, claim.phase, claim.input, claim.value))
+        .map(|residual| (residual.ruling.seq, residual.phase, residual.claim))
         .collect()
 }
 
@@ -37,10 +37,33 @@ fn the_rulings_of_verify_and_review_carry_the_claims_in_their_closed_vocabulary(
     assert_eq!(
         claims(&events),
         vec![
-            (1, "verify", "has_security_residual", "true".to_string()),
-            (1, "verify", "high_risk_uncovered", "true".to_string()),
-            (1, "verify", "max_residual_severity", "high".to_string()),
-            (2, "review", "max_residual_severity", "low".to_string()),
+            (1, ResidualPhase::Verify, Claim::SecurityResidual),
+            (1, ResidualPhase::Verify, Claim::HighRiskUncovered),
+            (1, ResidualPhase::Verify, Claim::MaxSeverity(Severity::High)),
+            (2, ResidualPhase::Review, Claim::MaxSeverity(Severity::Low)),
+        ]
+    );
+}
+
+/// The words each claim renders to are the journal's own: the phase as
+/// `from` named it, the input by its evaluator name, and the value as it
+/// was written.
+#[test]
+fn a_claim_renders_to_the_words_the_journal_wrote() {
+    let words = |phase: ResidualPhase, claim: Claim| (phase.as_str(), claim.input(), claim.value());
+    assert_eq!(
+        [
+            words(ResidualPhase::Verify, Claim::SecurityResidual),
+            words(ResidualPhase::Review, Claim::HighRiskUncovered),
+            words(
+                ResidualPhase::Review,
+                Claim::MaxSeverity(Severity::Critical)
+            ),
+        ],
+        [
+            ("verify", "has_security_residual", "true"),
+            ("review", "high_risk_uncovered", "true"),
+            ("review", "max_residual_severity", "critical"),
         ]
     );
 }

@@ -9,7 +9,7 @@ use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::reported_cost;
+use crate::{reported_cost, run_view, Participant};
 
 /// The token counters one record can carry, by the seat-record names.
 const USAGE_KEYS: [&str; 5] = [
@@ -314,6 +314,55 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (BTreeMap<String, SeatCost>, f64)
         .map(|(seat, accounting)| (seat, SeatCost::of(accounting)))
         .collect();
     (report, total)
+}
+
+/// What one invocation site resolved to: the served pair as siblings
+/// (decision 0046 ruling 3; design DD12) and the agent selection that
+/// chose it, null where the journal names none. Compared whole, so a
+/// boundary difference diverges exactly as a model difference does.
+#[derive(Serialize, Clone, PartialEq)]
+pub struct Resolution {
+    model: String,
+    boundary: String,
+    selected: Option<Selected>,
+}
+
+/// The distinct agent-selection provenance a site's resolution carries.
+#[derive(Serialize, Clone, PartialEq)]
+struct Selected {
+    agent: String,
+    model: String,
+    provider: String,
+    chain_index: u64,
+    fallback: bool,
+}
+
+impl Resolution {
+    fn of(part: Participant) -> Resolution {
+        Resolution {
+            model: part.served.model.text,
+            boundary: part.served.boundary.text,
+            selected: part.provenance.map(|provenance| Selected {
+                agent: provenance.agent,
+                model: provenance.model,
+                provider: provenance.provider,
+                chain_index: provenance.chain_index,
+                fallback: provenance.fallback,
+            }),
+        }
+    }
+}
+
+/// What each run's invocation sites resolved to, keyed by participant
+/// label so a panel member and a sequence step line up across runs. Read
+/// off the run view's participants, so `compare` cannot describe a
+/// fallback differently from every other readout.
+pub fn resolutions(events: &[EventEnvelope]) -> BTreeMap<String, Resolution> {
+    run_view(events, None)
+        .participants
+        .into_iter()
+        .map(|part| (part.label.clone(), Resolution::of(part)))
+        .collect()
 }
 
 /// One site's two sides where two runs resolved it differently; a side

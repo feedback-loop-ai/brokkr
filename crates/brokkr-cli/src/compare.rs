@@ -12,9 +12,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use brokkr_core::fold::fold;
-use brokkr_core::{EventEnvelope, EventType};
+use brokkr_core::EventType;
 use brokkr_store::Store;
-use brokkr_view::{first_divergence, resolution_divergence, seat_costs};
+use brokkr_view::{first_divergence, resolution_divergence, resolutions, seat_costs, Resolution};
 use serde_json::{json, Map, Value};
 
 /// `brokkr costs`: the run's per-seat report under the id `--run`
@@ -44,32 +44,7 @@ struct RunFacts {
     /// Computed by CALLING the `brokkr-view` derivation rather than
     /// re-deriving here, so `compare` cannot describe a fallback
     /// differently from every other readout.
-    resolution: BTreeMap<String, Value>,
-}
-
-/// What each run's invocation sites resolved to, keyed by participant
-/// label so a panel member and a sequence step line up across runs.
-/// The served pair comes through the pair helper's JSON face (decision
-/// 0046 ruling 3; design DD12): `model` and `boundary` as siblings.
-fn resolution_of(events: &[EventEnvelope]) -> BTreeMap<String, Value> {
-    brokkr_view::run_view(events, None)
-        .participants
-        .into_iter()
-        .map(|part| {
-            let selected = part.provenance.map(|provenance| {
-                json!({
-                    "agent": provenance.agent,
-                    "model": provenance.model,
-                    "provider": provenance.provider,
-                    "chain_index": provenance.chain_index,
-                    "fallback": provenance.fallback,
-                })
-            });
-            let mut entry = crate::render::served_json(&part.served);
-            entry["selected"] = selected.unwrap_or(Value::Null);
-            (part.label, entry)
-        })
-        .collect()
+    resolution: BTreeMap<String, Resolution>,
 }
 
 fn run_facts(store: &Store, run_id: &str) -> Result<RunFacts> {
@@ -131,7 +106,7 @@ fn run_facts(store: &Store, run_id: &str) -> Result<RunFacts> {
     }
 
     let (seats, total_cost) = seat_costs(&events);
-    let resolution = resolution_of(&events);
+    let resolution = resolutions(&events);
     let status = state.status.as_str();
     let summary = json!({
         "feature": feature,

@@ -5,8 +5,13 @@ mod seat_journal;
 use seat_journal::boxed_seat;
 
 /// The view's divergence as `brokkr compare` prints it.
-fn printed_divergence(a: &BTreeMap<String, Value>, b: &BTreeMap<String, Value>) -> Value {
+fn printed_divergence(a: &BTreeMap<String, Resolution>, b: &BTreeMap<String, Resolution>) -> Value {
     serde_json::to_value(resolution_divergence(a, b)).unwrap()
+}
+
+/// A run's resolution map as `brokkr compare` prints it.
+fn printed(resolution: &BTreeMap<String, Resolution>) -> Value {
+    serde_json::to_value(resolution).unwrap()
 }
 
 #[test]
@@ -101,16 +106,18 @@ fn costs_resolve_latest_and_agree_with_the_view_on_a_retried_seat() {
     assert_eq!(part.cost_cell.text, "$0.7500 over 2 attempts");
 }
 
-/// `compare`'s resolution map carries the pair per participant through
-/// the helper's JSON face, and the structural divergence names a
-/// boundary difference exactly as it names a model difference.
+/// `compare`'s resolution map carries the pair per participant as
+/// siblings, and the structural divergence names a boundary difference
+/// exactly as it names a model difference.
 #[test]
 fn the_resolution_map_carries_the_pair_and_diverges_on_the_boundary() {
-    let harness = resolution_of(&boxed_seat("verify", "harness"));
-    let namespace = resolution_of(&boxed_seat("verify", "namespace"));
-    assert_eq!(harness["verify"]["model"], "claude-fable-5-1");
-    assert_eq!(harness["verify"]["boundary"], "harness");
-    assert_eq!(harness["verify"]["selected"], Value::Null);
+    let harness = resolutions(&boxed_seat("verify", "harness"));
+    let namespace = resolutions(&boxed_seat("verify", "namespace"));
+    assert_eq!(
+        printed(&harness),
+        json!({"verify": {"model": "claude-fable-5-1", "boundary": "harness",
+                          "selected": null}})
+    );
     let divergence = printed_divergence(&harness, &namespace);
     assert_eq!(divergence["verify"]["a"]["boundary"], "harness");
     assert_eq!(divergence["verify"]["b"]["boundary"], "namespace");
@@ -122,8 +129,8 @@ fn the_resolution_map_carries_the_pair_and_diverges_on_the_boundary() {
     old[1].payload.as_object_mut().unwrap().remove("boundary");
     old[2].payload["checkpoint"]["boundary"] = Value::Null;
     old[3].payload["result"]["boundary"] = Value::Null;
-    let old = resolution_of(&old);
-    assert_eq!(old["verify"]["boundary"], brokkr_view::ABSENT);
+    let old = resolutions(&old);
+    assert_eq!(printed(&old)["verify"]["boundary"], brokkr_view::ABSENT);
     assert_eq!(
         printed_divergence(&namespace, &old)["verify"]["b"]["boundary"],
         brokkr_view::ABSENT
