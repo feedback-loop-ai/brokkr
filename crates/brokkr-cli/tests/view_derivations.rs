@@ -24,8 +24,8 @@ const RESTATED: [(&str, &str); 10] = [
         "=> LegacyProvenance::LaneTally",
         "Participant::legacy_provenance",
     ),
-    ("status == \"working\"", "Participant::working"),
-    ("status === 'working'", "Participant::working"),
+    ("status == \"working\"", "the served Participant.working"),
+    ("status === 'working'", "the served Participant.working"),
     ("legacy_id: part.session_id", "brokkr_view::Subject::of"),
 ];
 
@@ -67,15 +67,24 @@ fn the_surfaces_restate_no_derivation_the_view_exports() {
 
 /// The scan bites: each restatement it exists to refuse, planted, is
 /// named with its home, and a file it cannot read is refused by name.
+/// The planted lines and the diagnostics are written out, not read from
+/// `RESTATED`, so an entry dropped from the table fails here.
 #[test]
 fn the_scan_names_every_restatement_and_every_file_it_cannot_read() {
     let dir = tempfile::tempdir().unwrap();
     let nested = dir.path().join("tui");
     std::fs::create_dir(&nested).unwrap();
-    let planted: String = RESTATED
-        .iter()
-        .map(|(line, _)| format!("{line}\n"))
-        .collect();
+    let planted = r#"fn seat_costs(events: &[Event]) {}
+fn first_divergence(a: &[Event], b: &[Event]) {}
+fn resolution_divergence(a: &Value, b: &Value) {}
+fn status_str(status: Status) {}
+    Status::Stopped => "stopped",
+let cursor = format!("{:?}", state.cursor);
+    "lanetally" => LegacyProvenance::LaneTally,
+let working = part.status == "working";
+const working = part.status === 'working';
+Subject { legacy_id: part.session_id }
+"#;
     std::fs::write(nested.join("state.rs"), planted).unwrap();
     std::fs::write(dir.path().join("ui.html"), b"\xff\xfe").unwrap();
     std::fs::write(
@@ -83,15 +92,21 @@ fn the_scan_names_every_restatement_and_every_file_it_cannot_read() {
         "brokkr_view::seat_costs(&events)",
     )
     .unwrap();
-    let mut expected: Vec<String> = RESTATED
-        .iter()
-        .map(|(line, home)| format!("tui/state.rs: restates `{line}`; call {home}"))
-        .collect();
-    expected.push("ui.html: not readable as text (stream did not contain valid UTF-8)".into());
-    expected.sort();
     // A call through the view is no restatement.
-    assert_eq!(restatements(dir.path()), expected);
-    assert!(
-        expected.contains(&"tui/state.rs: restates `fn status_str`; call Status::as_str".into())
+    assert_eq!(
+        restatements(dir.path()),
+        [
+            "tui/state.rs: restates `=> LegacyProvenance::LaneTally`; call Participant::legacy_provenance",
+            r#"tui/state.rs: restates `Status::Stopped => "stopped"`; call Status::as_str"#,
+            "tui/state.rs: restates `fn first_divergence`; call brokkr_view::first_divergence",
+            "tui/state.rs: restates `fn resolution_divergence`; call brokkr_view::resolution_divergence",
+            "tui/state.rs: restates `fn seat_costs`; call brokkr_view::seat_costs",
+            "tui/state.rs: restates `fn status_str`; call Status::as_str",
+            r#"tui/state.rs: restates `format!("{:?}", state.cursor)`; call brokkr_view::summary"#,
+            "tui/state.rs: restates `legacy_id: part.session_id`; call brokkr_view::Subject::of",
+            r#"tui/state.rs: restates `status == "working"`; call the served Participant.working"#,
+            "tui/state.rs: restates `status === 'working'`; call the served Participant.working",
+            "ui.html: not readable as text (stream did not contain valid UTF-8)",
+        ]
     );
 }
