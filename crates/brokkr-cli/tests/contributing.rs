@@ -1163,7 +1163,7 @@ const JOB_LINES: [(&str, &str); 11] = [
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ steps.nightly.outputs.toolchain }}
-          components: llvm-tools-preview
+          components: llvm-tools-preview, rustfmt, clippy
       - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
           tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
