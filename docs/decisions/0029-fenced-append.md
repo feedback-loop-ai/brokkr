@@ -153,9 +153,9 @@ and `CommandWord` and `FencedCommand` into brokkr-runtime's, in the
 same ruling. The fence's `Head` stays private to brokkr-runtime's
 `engine/operator.rs`.
 
-## Addendum — 2026-09-28, proposed: a peer's lock in flight settles the attempt within a bound (#394)
+## Addendum — 2026-09-28: a peer's lock in flight settles the attempt within a bound (#394)
 
-Status: proposed; only the operator accepts this addendum.
+Status: accepted — operator ruled 2026-09-28: the bounded settlement stands (three settling patiences, three for a terminal event, three in the lawful end, the 16 MiB hold); the spill went to #433.
 
 Ruling 3 says a stale fold refuses and is never retried. A peer that only
 holds the journal's write lock is a different accident:
@@ -192,9 +192,9 @@ nothing is writable, and was ruled out of scope. A spill file and an
 attempt-wide bound are #433's; the remaining refinements are #464's. No
 contract, event type or frozen byte moves.
 
-## Addendum — 2026-10-07, proposed: the held rows are retried on a timer, drained as one chain, and counted when a refusal keeps them out (#464)
+## Addendum — 2026-10-07: the held rows are retried on a timer, drained as one chain, and counted when a refusal keeps them out (#464)
 
-Status: proposed; only the operator accepts this addendum.
+Status: accepted — operator ruled 2026-10-07 on PR #582, with its consequence under decision 0034 ruling 6 (a panel whose member is refused parks once another member checkpoints after the refusal).
 
 This refines the #394 addendum's first and third rules. The bound it
 states (16 MiB held, three settling patiences, three for a terminal
