@@ -53,6 +53,13 @@ pub brokkr_protocol::adapters::StartRefusal::Override(brokkr_protocol::overrides
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter::error: alloc::string::String
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter::path: alloc::string::String
+pub enum brokkr_protocol::adapters::StrictCause
+pub brokkr_protocol::adapters::StrictCause::Unmeasured
+pub brokkr_protocol::adapters::StrictCause::Unmeasured::provider: alloc::string::String
+pub brokkr_protocol::adapters::StrictCause::Unmeasured::shape: alloc::string::String
+pub brokkr_protocol::adapters::StrictCause::Unsupported
+pub brokkr_protocol::adapters::StrictCause::Unsupported::provider: alloc::string::String
+pub brokkr_protocol::adapters::StrictCause::Unsupported::reason: alloc::string::String
 pub struct brokkr_protocol::adapters::DshComposite
 impl brokkr_protocol::adapters::DshComposite
 pub fn brokkr_protocol::adapters::DshComposite::canonical(&self) -> &str
@@ -292,8 +299,11 @@ impl core::fmt::Display for brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::Reaped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_protocol::hands::ServerBox
 impl brokkr_protocol::hands::ServerBox
+pub fn brokkr_protocol::hands::ServerBox::handles(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&std::path::Path, &std::os::fd::owned::OwnedFd)>
 pub fn brokkr_protocol::hands::ServerBox::paths(&self) -> impl core::iter::traits::iterator::Iterator<Item = &std::path::Path>
 pub fn brokkr_protocol::hands::ServerBox::prepare(&brokkr_protocol::hands::ServerProgram, &brokkr_protocol::hands::ServerProfile<'_>) -> core::result::Result<brokkr_protocol::hands::ServerBox, brokkr_protocol::broker::Refusal>
+pub fn brokkr_protocol::hands::ServerBox::sources(&self) -> &brokkr_protocol::broker::Sources
+pub fn brokkr_protocol::hands::ServerBox::writers(&self) -> core::option::Option<&[u32]>
 pub struct brokkr_protocol::hands::ServerProfile<'a>
 pub brokkr_protocol::hands::ServerProfile::arguments: &'a [alloc::string::String]
 pub brokkr_protocol::hands::ServerProfile::bootstrap: &'a std::path::Path

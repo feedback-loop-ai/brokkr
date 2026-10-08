@@ -25,7 +25,7 @@ flowchart TB
     view["brokkr-view — PURE<br/>one display derivation"]
     bridge["brokkr-bridge<br/>dispatch bridge over verified journals"]
     cli --> runtime & view & bridge
-    runtime --> core & store & protocol & view
+    runtime --> core & store & protocol
     view --> core
     bridge --> store & runtime
     store --> core

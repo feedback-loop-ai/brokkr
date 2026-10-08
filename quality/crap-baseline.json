@@ -16228,14 +16228,6 @@
     },
     {
       "file": "./crates/brokkr-store/src/lib.rs",
-      "function": "Store::append_next_without_waiting",
-      "line": 581,
-      "cyclomatic": 3.0,
-      "coverage": 100.0,
-      "crap": 3.0
-    },
-    {
-      "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::create_run",
       "line": 448,
       "cyclomatic": 1.0,

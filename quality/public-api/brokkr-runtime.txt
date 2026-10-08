@@ -857,6 +857,7 @@ pub fn brokkr_runtime::capabilities::SiteAsks::at(brokkr_runtime::bundle::SeatCl
 pub struct brokkr_runtime::capabilities::SiteCapabilities
 pub brokkr_runtime::capabilities::SiteCapabilities::asks: brokkr_runtime::capabilities::SiteAsks
 pub brokkr_runtime::capabilities::SiteCapabilities::outcomes: alloc::vec::Vec<brokkr_runtime::capabilities::Outcome>
+pub brokkr_runtime::capabilities::SiteCapabilities::strict: alloc::vec::Vec<alloc::vec::Vec<(brokkr_runtime::agents::McpShape, brokkr_runtime::agents::McpAxis)>>
 impl brokkr_runtime::capabilities::SiteCapabilities
 pub fn brokkr_runtime::capabilities::SiteCapabilities::manifest(&self) -> serde_json::value::Value
 impl brokkr_runtime::capabilities::SiteCapabilities

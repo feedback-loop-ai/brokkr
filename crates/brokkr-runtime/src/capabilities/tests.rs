@@ -1795,10 +1795,7 @@ fn a_site_records_each_candidate_apart_and_serves_the_selected_one() {
             },
         )
         .unwrap();
-    let recorded = SiteCapabilities {
-        asks: site,
-        outcomes: vec![primary.clone(), fallback.clone()],
-    };
+    let recorded = SiteCapabilities::unjudged(site, vec![primary.clone(), fallback.clone()]);
     // The fallback never borrows the primary's holding.
     assert_eq!(
         recorded.serving(Some(("test-native", "tn-1"))),
@@ -1893,10 +1890,7 @@ fn two_links_sharing_a_provider_and_model_carry_equal_outcomes() {
     assert_eq!(outcomes[0], outcomes[1]);
     assert_eq!(outcomes[1], outcomes[2]);
     assert_eq!(outcomes[0].held["web-search"].dialect, "search-native");
-    let recorded = SiteCapabilities {
-        asks: site.clone(),
-        outcomes,
-    };
+    let recorded = SiteCapabilities::unjudged(site.clone(), outcomes);
     assert_eq!(
         recorded.serving(Some(("test-native", "tn-1"))),
         Some(&recorded.outcomes[1])
@@ -2048,5 +2042,6 @@ fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
 mod attribution;
 mod binding;
 mod dialect_policy;
+mod fence;
 mod gate_class;
 mod manifest;

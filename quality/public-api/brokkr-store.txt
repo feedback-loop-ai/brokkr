@@ -111,6 +111,9 @@ pub brokkr_store::Arrival::imported_from: alloc::string::String
 pub struct brokkr_store::Attribution<'a>
 pub brokkr_store::Attribution::operator: &'a str
 pub brokkr_store::Attribution::reason: &'a str
+pub struct brokkr_store::Chain
+pub brokkr_store::Chain::appended: alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>
+pub brokkr_store::Chain::refused: core::option::Option<brokkr_store::SeatRecordError>
 pub struct brokkr_store::EntryId(pub i64)
 impl core::fmt::Display for brokkr_store::EntryId
 pub fn brokkr_store::EntryId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -140,6 +143,9 @@ impl brokkr_store::Redactor
 pub fn brokkr_store::Redactor::document(&mut self, &serde_json::value::Value) -> serde_json::value::Value
 pub fn brokkr_store::Redactor::journal(&mut self, &str) -> core::result::Result<alloc::string::String, serde_json::error::Error>
 pub fn brokkr_store::Redactor::learn(&[&str]) -> brokkr_store::Redactor
+pub struct brokkr_store::Rows<'a, T>
+pub brokkr_store::Rows::payload: &'a dyn core::ops::function::Fn(&T) -> serde_json::value::Value
+pub brokkr_store::Rows::rows: &'a [T]
 pub struct brokkr_store::SeatRecordError
 pub brokkr_store::SeatRecordError::contract: &'static str
 pub brokkr_store::SeatRecordError::path: alloc::string::String
@@ -147,9 +153,11 @@ pub brokkr_store::SeatRecordError::seq: u64
 pub struct brokkr_store::Seen
 pub struct brokkr_store::Store
 impl brokkr_store::Store
+pub fn brokkr_store::Store::append_chain<T>(&mut self, &str, brokkr_core::envelope::EventType, brokkr_store::Rows<'_, T>, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_store::Chain, brokkr_store::StoreError>
+pub fn brokkr_store::Store::append_chain_without_waiting<T>(&mut self, &str, brokkr_core::envelope::EventType, brokkr_store::Rows<'_, T>, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_store::Chain, brokkr_store::StoreError>
+impl brokkr_store::Store
 pub fn brokkr_store::Store::append_next(&mut self, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_next_if_head(&mut self, &str, u64, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
-pub fn brokkr_store::Store::append_next_without_waiting(&mut self, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub fn brokkr_store::Store::create_run(&mut self, &str, &str, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::export_ndjson(&self, &str) -> core::result::Result<alloc::string::String, brokkr_store::StoreError>
 pub fn brokkr_store::Store::head_hash(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::StoreError>

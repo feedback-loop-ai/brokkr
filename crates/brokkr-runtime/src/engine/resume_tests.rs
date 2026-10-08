@@ -363,10 +363,7 @@ fn dsh_served(bundle: &mut Bundle, label: &str, link: &Candidate) -> PathBuf {
         path.clone(),
         &bound,
     ));
-    site.capabilities = Some(SiteCapabilities {
-        asks,
-        outcomes: vec![outcome],
-    });
+    site.capabilities = Some(SiteCapabilities::unjudged(asks, vec![outcome]));
     path
 }
 

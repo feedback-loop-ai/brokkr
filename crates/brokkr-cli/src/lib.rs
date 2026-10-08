@@ -44,7 +44,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use brokkr_core::fold::{fold, RunState, Status};
+use brokkr_core::fold::{fold, RunState};
 use brokkr_runtime::realms::{Hearth, World, WorldError};
 use brokkr_runtime::{Bundle, DriveEnd, EngineError};
 use brokkr_store::Store;
@@ -460,28 +460,8 @@ fn compiled_view(bundle: &Bundle, world: Option<&World>) -> Value {
     view
 }
 
-fn status_str(status: &Status) -> &'static str {
-    match status {
-        Status::Running => "running",
-        Status::AwaitingOperator => "awaiting_operator",
-        Status::Completed => "completed",
-        Status::Stopped => "stopped",
-    }
-}
-
 fn summarize(state: &RunState) -> Value {
-    json!({
-        "run_id": state.run_id,
-        "seq": state.seq,
-        "status": status_str(&state.status),
-        "phase": state.phase,
-        "cursor": format!("{:?}", state.cursor),
-        "park_reason": state.park_reason,
-        "consecutive_failures": state.consecutive_failures,
-        "last_decision": state.last_decision,
-        "feature": state.feature,
-        "strategy": state.strategy,
-    })
+    json!(brokkr_view::summary(state))
 }
 
 /// Drive a started run to its ending. The start first reaps the scratch
@@ -1016,16 +996,12 @@ fn refreshed_subject(prior: &tui::Subject, view: &brokkr_view::RunView) -> Optio
         .participants
         .iter()
         .find(|part| part.key == prior.key)?;
-    Some(tui::Subject {
-        tab: prior.tab,
-        realm: prior.realm.clone(),
-        run: prior.run.clone(),
-        key: part.key.clone(),
-        reference: part.transcript.clone(),
-        provenance: participant_legacy_provenance(part),
-        legacy_id: part.session_id.clone(),
-        working: part.status == "working",
-    })
+    Some(tui::Subject::of(
+        prior.tab,
+        prior.realm.clone(),
+        prior.run.clone(),
+        part,
+    ))
 }
 
 /// One refresh for `brokkr tui`: the only place a store is opened on that
@@ -1318,22 +1294,6 @@ fn run(cli: Cli) -> Result<ExitCode> {
     )
 }
 
-/// Map a participant's provenance to the legacy-synthesis rule: only
-/// Claude, LaneTally and an inline seat with no provenance may fall back
-/// to a local Claude id. Codex and DSH provenance refuses synthesis.
-fn participant_legacy_provenance(participant: &brokkr_view::Participant) -> LegacyProvenance {
-    match participant
-        .provenance
-        .as_ref()
-        .map(|provenance| provenance.provider.as_str())
-    {
-        None => LegacyProvenance::Absent,
-        Some("claude") => LegacyProvenance::Claude,
-        Some("lanetally") => LegacyProvenance::LaneTally,
-        Some(_) => LegacyProvenance::Other,
-    }
-}
-
 /// An exact participant key wins; otherwise an exact label selects only
 /// when unique. Prefixes and fuzzy labels never match, and an ambiguous
 /// label names every matching key so the operator can choose.
@@ -1456,7 +1416,7 @@ fn transcript_command(
     let participant = select_transcript_participant(&view, &seat)?;
     let read = ui::read_local(
         participant.transcript.as_ref(),
-        participant_legacy_provenance(participant),
+        participant.legacy_provenance(),
         participant.session_id.as_deref(),
     );
     let read = ui::mask_secrets(read, &ui::store_beside(&hearths[hearth].journal));

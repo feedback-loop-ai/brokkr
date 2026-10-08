@@ -71,6 +71,7 @@ use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+mod chain;
 mod import;
 mod origin;
 mod queue;
@@ -81,6 +82,7 @@ mod seat_record;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
+pub use chain::{Chain, Rows};
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
 pub use queue::{
     Attribution, EntryId, EntryState, Latch, NewEntry, NotAWait, QueueCommand, QueueEntry,
@@ -90,6 +92,7 @@ pub use redact::{redact_export, Redactor};
 pub use schema::DATABASE_SCHEMA;
 pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
 
+use chain::{fence, seal_and_insert};
 use schema::{ensure_wal, schema_supported, RECORDED_SCHEMA};
 
 /// How long any statement waits for a peer's write lock before giving
@@ -312,54 +315,18 @@ fn append_once(
             });
         }
     }
-    // The seat-record fence (decision 0034, ruling 6): a checkpoint or a
-    // successful result that violates the contract is refused HERE, at
-    // the seq it would have taken, before it is sealed into the chain.
-    // The journal is append-only, so a nonconforming record that landed
-    // could never be corrected — only discovered at export, when the run
-    // was already wanted as evidence, and by then every verb that makes
-    // evidence of it (export, anchor, offline verify) refuses the whole
-    // run forever. Dropping the transaction rolls it back: a refused
-    // record writes nothing, like a fence that fails.
-    if let Some(record) = seat_record::record_of(event_type, &payload) {
-        // Which contract this run writes under is settled once, at
-        // `run/started`, and `runs.manifest` is immutable by trigger —
-        // so the engine named there is the same answer the export and
-        // verify sweeps reach through the journal, read here inside the
-        // same transaction the row would be sealed in. SQLite extracts
-        // the one string, so the manifest is not parsed whole under the
-        // lock on every record (#354).
-        let engine: Option<String> = tx
-            .query_row(ENGINE_OF_RUN, params![run_id], |r| r.get(0))
-            .optional()?
-            .flatten();
-        let version = SeatRecordVersion::of_manifest(engine.as_deref());
-        seat_record::validate_seat_record(record, last_seq + 1, version)?;
-    }
-    let envelope = EventEnvelope {
-        run_id: run_id.to_string(),
-        seq: last_seq + 1,
-        event_id: uuid::Uuid::new_v4().to_string(),
-        event_schema_version: 1,
+    // Dropping the transaction rolls it back: a refused record writes
+    // nothing, like a fence that fails.
+    fence(&tx, run_id, event_type, &payload, last_seq + 1)??;
+    let envelope = seal_and_insert(
+        &tx,
+        run_id,
+        (last_seq, previous_hash),
         event_type,
         payload,
         causation_id,
-        correlation_id: run_id.to_string(),
         attempt_id,
-        recorded_at: now_rfc3339(),
-        previous_hash,
-        event_hash: String::new(),
-    }
-    .sealed();
-    let serialized = serde_json::to_string(&envelope)?;
-    let inserted = tx.execute(
-        "INSERT OR IGNORE INTO events (run_id, seq, event_hash, envelope)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![run_id, envelope.seq as i64, envelope.event_hash, serialized],
     )?;
-    if inserted == 0 {
-        return Err(StoreError::AppendConflict { seq: envelope.seq });
-    }
     tx.commit()?;
     Ok(envelope)
 }
@@ -580,25 +547,6 @@ impl Store {
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, StoreError> {
         self.append(run_id, None, event_type, payload, causation_id, attempt_id)
-    }
-
-    /// [`Store::append_next`], spending none of this store's patience: a
-    /// peer that holds the write lock returns [`StoreError::Contended`] at
-    /// once, and nothing was written. For a writer that keeps the row and
-    /// offers it again later, so a peer's lock costs it no wait (#394).
-    pub fn append_next_without_waiting(
-        &mut self,
-        run_id: &str,
-        event_type: EventType,
-        payload: Value,
-        causation_id: Option<String>,
-        attempt_id: Option<String>,
-    ) -> Result<EventEnvelope, StoreError> {
-        let patience = self.patience;
-        self.set_patience(std::time::Duration::ZERO)?;
-        let appended = self.append_next(run_id, event_type, payload, causation_id, attempt_id);
-        self.set_patience(patience)?;
-        appended
     }
 
     /// Append, but only onto the head the caller decided against —

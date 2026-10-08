@@ -52,33 +52,9 @@ impl Views {
 /// not moved, keep the frame you have".
 pub(crate) type Refreshed = Option<Views>;
 
-/// The selected transcript subject: realm/journal identity, the full run
-/// id, the participant key and the complete effective reference. The
-/// shell re-resolves exactly this participant and no other, so no surface
-/// gates the pane on a Claude session id or any other single kind.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub(crate) struct Subject {
-    /// The active hearth, so a stamp taken in one realm never speaks for
-    /// the same run or participant name in another.
-    pub tab: usize,
-    /// The realm name when the world has tabs; the tab index alone is the
-    /// journal identity in a one-hearth world.
-    pub realm: Option<String>,
-    /// The full run id, not a selector.
-    pub run: String,
-    /// The exact participant key.
-    pub key: String,
-    /// The complete recorded common reference, echoed even when it cannot
-    /// be validated — a present reference always wins.
-    pub reference: Option<brokkr_view::Transcript>,
-    /// How an absent common reference may synthesize a legacy Claude one.
-    pub provenance: LegacyProvenance,
-    /// The compatibility flat id a legacy synthesis may use.
-    pub legacy_id: Option<String>,
-    /// Whether the participant can still gain prose: the reader watches
-    /// the source only while this holds.
-    pub working: bool,
-}
+/// The selected transcript subject, as the view derives it once for every
+/// surface (#351).
+pub(crate) use brokkr_view::Subject;
 
 /// What the shell asks the journal for. Selection reaches a store only
 /// through this struct — the TUI itself never holds one.
@@ -466,44 +442,20 @@ pub(super) fn seat_of<'a>(tui: &Tui, views: &'a Views) -> Option<&'a Participant
     tui.seat.as_deref().and_then(|key| participant(views, key))
 }
 
-/// Map a participant's provenance to the legacy-synthesis rule. The same
-/// rule `transcript_command` applies, kept here so the TUI can build a
-/// subject without reaching into the command's private helper: only
-/// Claude, LaneTally and an inline seat with no provenance may fall back
-/// to a local Claude id.
-pub(super) fn legacy_provenance(part: &Participant) -> LegacyProvenance {
-    match part
-        .provenance
-        .as_ref()
-        .map(|provenance| provenance.provider.as_str())
-    {
-        None => LegacyProvenance::Absent,
-        Some("claude") => LegacyProvenance::Claude,
-        Some("lanetally") => LegacyProvenance::LaneTally,
-        Some(_) => LegacyProvenance::Other,
-    }
-}
-
 /// The subject the shell re-resolves: exactly the selected participant at
-/// the participant level, with every fact the shared reader needs. No
-/// field asks which kind it is, so a Codex thread or DSH session reaches
-/// the same read path as a Claude one.
+/// the participant level, in the active hearth.
 pub(super) fn subject_of(tui: &Tui, views: &Views) -> Option<Subject> {
     if tui.level != Level::Participant {
         return None;
     }
     let part = seat_of(tui, views)?;
     let run = tui.run.clone()?;
-    Some(Subject {
-        tab: tui.tab,
-        realm: tui.tabs.get(tui.tab).cloned(),
+    Some(Subject::of(
+        tui.tab,
+        tui.tabs.get(tui.tab).cloned(),
         run,
-        key: part.key.clone(),
-        reference: part.transcript.clone(),
-        provenance: legacy_provenance(part),
-        legacy_id: part.session_id.clone(),
-        working: part.status == "working",
-    })
+        part,
+    ))
 }
 
 /// Whether a refreshed read replaces the previously displayed turns. A

@@ -6178,7 +6178,7 @@ fn a_panel_members_refused_checkpoint_fails_that_member_alone() {
             result: json!({"result":"pass"}),
         },
     );
-    let clean = driver_command(
+    let clean = super::contention_tests::quiet_command(
         "effect",
         "attempt",
         AttemptOutcome::Succeeded {

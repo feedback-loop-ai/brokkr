@@ -55,6 +55,16 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # The hosted image's preinstalled SDKs make the server's system set
+        # ~708,000 entries (420,000 under /usr/local), and one broker
+        # admission walks it in ~11 s, so the full suite's contention pushes
+        # some past the fixed 30 s deadline (diagnostic #587). No test uses
+        # them; removing them leaves an ordinary host's set (operator ruling
+        # 2026-10-08). The broker's real cost on such hosts stays a finding
+        # for task 28.17.
+        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/share/powershell \
+          /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/julia* /usr/local/.ghcup \
+          /usr/share/swift /usr/local/aws-cli /usr/local/aws-sam-cli /usr/lib/jvm
         for d in /usr/bin /usr/sbin /usr/lib /usr/lib64 /usr/include /usr/share /usr/local \
                  /usr/libexec /bin /sbin /lib /lib64 /etc/ssl/certs /etc/ca-certificates /etc/alternatives \
                  /etc/ld.so.cache /etc/ld.so.conf /etc/ld.so.conf.d; do
@@ -63,3 +73,4 @@ runs:
           sudo find "$d" -xdev ! -user root -exec chown -h root {} +
           sudo find "$d" -xdev ! -type l -perm /022 -exec chmod go-w {} +
         done
+        echo "server system set: $(sudo find /usr/bin /usr/lib /usr/share /usr/local /usr/libexec /usr/include -xdev 2>/dev/null | wc -l) entries"

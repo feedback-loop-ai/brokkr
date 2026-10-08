@@ -390,8 +390,9 @@ fn compare_reports_a_resolution_divergence_even_when_the_recipe_matches() {
     );
     // Each run's own section names what served it, too.
     assert_eq!(
-        report["runs"][&fallen_back]["resolution"]["implement"]["selected"]["provider"],
-        "fake"
+        report["runs"][&fallen_back]["resolution"]["implement"]["selected"],
+        json!({"agent": "worker", "model": "second", "provider": "fake",
+               "chain_index": 1, "fallback": true})
     );
 
     // Two runs that resolved identically report an EMPTY divergence

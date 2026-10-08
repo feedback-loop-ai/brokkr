@@ -39,7 +39,6 @@ name = "queued_launch"
 brokkr-core = { workspace = true }
 brokkr-store = { workspace = true }
 brokkr-protocol = { workspace = true }
-brokkr-view = { workspace = true }
 # Decision 0065: a realm's restriction keys are judged against the schema
 # its tool dialect embeds, in production. The same locked package
 # brokkr-store already validates seat records with, default features off
@@ -54,6 +53,9 @@ time = { workspace = true }
 
 [dev-dependencies]
 brokkr-store = { workspace = true, features = ["test-support"] }
+# The engine admits nothing by a display-crate function (decision 0071
+# ruling 7; #351): its tests read the view to prove what a surface shows.
+brokkr-view = { workspace = true }
 tempfile = { workspace = true }
 rusqlite = { workspace = true }
 # Decision 0014's dependency ruling of 2026-09-26 (#342): report-only token

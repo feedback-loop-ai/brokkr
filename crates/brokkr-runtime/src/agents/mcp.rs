@@ -23,7 +23,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use brokkr_protocol::adapters::AdapterKind;
+use brokkr_protocol::adapters::{AdapterKind, StrictCause};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -53,9 +53,21 @@ pub enum McpHands {
     NoHands,
 }
 
+impl McpInvocation {
+    /// The bare word SI2's unmeasured cause names a shape by, as a launch
+    /// names it: `cold`, `replacement`, or the resume shape's own name.
+    fn word(&self) -> &str {
+        match self {
+            McpInvocation::Cold => "cold",
+            McpInvocation::Replacement => "replacement",
+            McpInvocation::Resume(name) => name,
+        }
+    }
+}
+
 impl McpHands {
     /// The word a `resume` shape's `hands` and the wire both write.
-    fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             McpHands::Boxed => "boxed",
             McpHands::Harness => "harness",
@@ -122,6 +134,27 @@ pub enum McpAxis {
     Inapplicable { reason: String },
 }
 
+impl McpAxis {
+    /// SI2's verdict on `shape` of a serving by `provider` whose ambient
+    /// exclusion this axis measures (U1g1): `None` where it is measured, or
+    /// where the exec harness declares no model MCP surface, and otherwise
+    /// one of SI2's two exact causes. A legacy, absent or declared
+    /// unmeasured fact is never a measurement.
+    pub(crate) fn strict(&self, provider: &str, shape: &McpShape) -> Option<StrictCause> {
+        match self {
+            McpAxis::Measured { .. } | McpAxis::Inapplicable { .. } => None,
+            McpAxis::Unsupported { reason } => Some(StrictCause::Unsupported {
+                provider: provider.to_string(),
+                reason: reason.clone(),
+            }),
+            McpAxis::Unmeasured(_) => Some(StrictCause::Unmeasured {
+                provider: provider.to_string(),
+                shape: shape.invocation.word().to_string(),
+            }),
+        }
+    }
+}
+
 /// One shape's four isolation axes, each its own measurement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpIsolation {
@@ -158,9 +191,8 @@ pub enum McpSupport {
 }
 
 impl McpSupport {
-    /// Whether this provider can load an engine-written MCP server. Read
-    /// by tests until a broker consumes it.
-    #[cfg(test)]
+    /// Whether this provider can load an engine-written MCP server: what a
+    /// legacy or inapplicable declaration reads as on every isolation axis.
     fn carriage(&self) -> McpAxis {
         match self {
             McpSupport::Legacy { .. } => McpAxis::Unmeasured(McpUnmeasured::Legacy),
@@ -173,9 +205,8 @@ impl McpSupport {
 
     /// What is known of one shape. A shape no entry names reads
     /// `Unmeasured(Absent)` on every axis: never another shape's result.
-    /// Read by tests until a broker consumes it.
-    #[cfg(test)]
-    fn isolation(&self, shape: &McpShape) -> McpIsolation {
+    /// The compile pass reads each site's shapes here (U1g1).
+    pub(crate) fn isolation(&self, shape: &McpShape) -> McpIsolation {
         let every = |axis: McpAxis| McpIsolation {
             ambient: axis.clone(),
             native_write: axis.clone(),

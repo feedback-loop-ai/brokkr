@@ -4,10 +4,10 @@
    128 crates/brokkr-cli/src/agents.rs
      8 crates/brokkr-cli/src/bin/brokkr.rs
     78 crates/brokkr-cli/src/boundary.rs
-    92 crates/brokkr-cli/src/broker.rs
-   377 crates/brokkr-cli/src/broker/session.rs
+   101 crates/brokkr-cli/src/broker.rs
+   785 crates/brokkr-cli/src/broker/session.rs
     51 crates/brokkr-cli/src/budget_frame.rs
-   699 crates/brokkr-cli/src/cli_args.rs
+   761 crates/brokkr-cli/src/cli_args.rs
    519 crates/brokkr-cli/src/compare.rs
   1572 crates/brokkr-cli/src/doctor.rs
    109 crates/brokkr-cli/src/exit.rs
@@ -53,19 +53,19 @@
    677 crates/brokkr-core/src/policy.rs
    477 crates/brokkr-core/src/policy/audit.rs
    808 crates/brokkr-core/src/realms.rs
-  7116 crates/brokkr-protocol/src/adapters.rs
+  7117 crates/brokkr-protocol/src/adapters.rs
    180 crates/brokkr-protocol/src/adapters/capability_calls.rs
   4666 crates/brokkr-protocol/src/adapters/composite.rs
    476 crates/brokkr-protocol/src/adapters/composite/image.rs
-   556 crates/brokkr-protocol/src/adapters/mcp.rs
+   563 crates/brokkr-protocol/src/adapters/mcp.rs
    607 crates/brokkr-protocol/src/adapters/route_overlay.rs
     27 crates/brokkr-protocol/src/adapters/start.rs
    293 crates/brokkr-protocol/src/broker.rs
   1543 crates/brokkr-protocol/src/dsh_sandbox.rs
    218 crates/brokkr-protocol/src/fake.rs
   1170 crates/brokkr-protocol/src/hands.rs
-   768 crates/brokkr-protocol/src/hands/namespace.rs
-   783 crates/brokkr-protocol/src/hands/namespace/sources.rs
+   777 crates/brokkr-protocol/src/hands/namespace.rs
+   797 crates/brokkr-protocol/src/hands/namespace/sources.rs
    646 crates/brokkr-protocol/src/hands/namespace/sources/host.rs
    296 crates/brokkr-protocol/src/hands/session.rs
    219 crates/brokkr-protocol/src/lib.rs
@@ -83,13 +83,13 @@
   1671 crates/brokkr-runtime/src/agents.rs
    369 crates/brokkr-runtime/src/agents/charter_data.rs
   1335 crates/brokkr-runtime/src/agents/load.rs
-   549 crates/brokkr-runtime/src/agents/mcp.rs
+   580 crates/brokkr-runtime/src/agents/mcp.rs
    285 crates/brokkr-runtime/src/anchor.rs
    168 crates/brokkr-runtime/src/boundary.rs
   7576 crates/brokkr-runtime/src/bundle.rs
    136 crates/brokkr-runtime/src/bundle/charters.rs
   1258 crates/brokkr-runtime/src/bundle/compose.rs
-   290 crates/brokkr-runtime/src/bundle/mcp.rs
+   440 crates/brokkr-runtime/src/bundle/mcp.rs
   1995 crates/brokkr-runtime/src/capabilities.rs
    132 crates/brokkr-runtime/src/capabilities/attribution.rs
    321 crates/brokkr-runtime/src/capabilities/binding.rs
@@ -161,7 +161,8 @@
    407 crates/brokkr-cli/tests/boundary_readouts.rs
    802 crates/brokkr-cli/tests/boundary_verbs.rs
     61 crates/brokkr-cli/tests/budget_frame.rs
-  1400 crates/brokkr-cli/tests/capability_broker.rs
+  1499 crates/brokkr-cli/tests/capability_broker.rs
+   532 crates/brokkr-cli/tests/capability_broker/observer.rs
    720 crates/brokkr-cli/tests/capability_verbs.rs
   1862 crates/brokkr-cli/tests/contributing.rs
    195 crates/brokkr-cli/tests/contributing/inline_copies.rs
@@ -178,8 +179,8 @@
     10 crates/brokkr-cli/tests/heap_dsh.rs
    470 crates/brokkr-cli/tests/hosts.rs
    514 crates/brokkr-cli/tests/house_prose.rs
-  1137 crates/brokkr-cli/tests/init_doctor.rs
-  1269 crates/brokkr-cli/tests/init_stacks.rs
+  1263 crates/brokkr-cli/tests/init_doctor.rs
+  1275 crates/brokkr-cli/tests/init_stacks.rs
   1127 crates/brokkr-cli/tests/layering/main.rs
   1440 crates/brokkr-cli/tests/layering/scan.rs
   3479 crates/brokkr-cli/tests/machine_proof.rs
@@ -222,7 +223,7 @@
    836 crates/brokkr-protocol/src/adapters/composite/image/tests.rs
  20009 crates/brokkr-protocol/src/adapters/composite/tests.rs
   2458 crates/brokkr-protocol/src/adapters/composite/tests/native_matrix.rs
-   543 crates/brokkr-protocol/src/adapters/mcp/tests.rs
+   533 crates/brokkr-protocol/src/adapters/mcp/tests.rs
    724 crates/brokkr-protocol/src/adapters/mcp/tests/dsh_home.rs
    302 crates/brokkr-protocol/src/adapters/notice_tests.rs
    623 crates/brokkr-protocol/src/adapters/route_overlay/tests.rs
@@ -232,7 +233,7 @@
    303 crates/brokkr-protocol/src/hands/session/tests.rs
   1634 crates/brokkr-protocol/src/hands/tests.rs
    822 crates/brokkr-protocol/src/hands/tests/server.rs
-  1715 crates/brokkr-protocol/src/hands/tests/sources.rs
+  1810 crates/brokkr-protocol/src/hands/tests/sources.rs
  13152 crates/brokkr-protocol/src/native_controls/tests.rs
    194 crates/brokkr-protocol/src/oneshot/tests.rs
    137 crates/brokkr-protocol/src/overrides/tests.rs
@@ -249,15 +250,16 @@
   6676 crates/brokkr-runtime/src/bundle/agent_tests.rs
    407 crates/brokkr-runtime/src/bundle/agent_tests/charter_tests.rs
    562 crates/brokkr-runtime/src/bundle/agent_tests/gate_tests.rs
-   474 crates/brokkr-runtime/src/bundle/agent_tests/mcp_tests.rs
+  1097 crates/brokkr-runtime/src/bundle/agent_tests/mcp_tests.rs
   4136 crates/brokkr-runtime/src/bundle/compose_tests.rs
   4644 crates/brokkr-runtime/src/bundle/model_policy_tests.rs
    196 crates/brokkr-runtime/src/bundle/secret_binding_tests.rs
   1963 crates/brokkr-runtime/src/bundle/tests.rs
-  2052 crates/brokkr-runtime/src/capabilities/tests.rs
+  2047 crates/brokkr-runtime/src/capabilities/tests.rs
    281 crates/brokkr-runtime/src/capabilities/tests/attribution.rs
    249 crates/brokkr-runtime/src/capabilities/tests/binding.rs
   1023 crates/brokkr-runtime/src/capabilities/tests/dialect_policy.rs
+    45 crates/brokkr-runtime/src/capabilities/tests/fence.rs
    295 crates/brokkr-runtime/src/capabilities/tests/gate_class.rs
    352 crates/brokkr-runtime/src/capabilities/tests/manifest.rs
    481 crates/brokkr-runtime/src/dialect/tests.rs
@@ -275,7 +277,7 @@
     46 crates/brokkr-runtime/src/engine/operator_tests.rs
     85 crates/brokkr-runtime/src/engine/replay/tests.rs
    225 crates/brokkr-runtime/src/engine/resume/tests.rs
-  4073 crates/brokkr-runtime/src/engine/resume_tests.rs
+  4070 crates/brokkr-runtime/src/engine/resume_tests.rs
    121 crates/brokkr-runtime/src/engine/secret_threading_tests.rs
   6676 crates/brokkr-runtime/src/engine/tests.rs
    427 crates/brokkr-runtime/src/keep_refs/tests.rs

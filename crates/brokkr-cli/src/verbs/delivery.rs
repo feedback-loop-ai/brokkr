@@ -160,7 +160,7 @@ pub(crate) fn operator(
         by_realm.is_some(),
     ]
     .contains(&true);
-    if command == brokkr_view::SUPERSEDE {
+    if command == brokkr_core::residual::SUPERSEDE {
         return supersede(
             workspace,
             &run,
