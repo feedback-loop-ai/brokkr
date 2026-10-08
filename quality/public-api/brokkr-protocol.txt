@@ -53,6 +53,13 @@ pub brokkr_protocol::adapters::StartRefusal::Override(brokkr_protocol::overrides
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter::error: alloc::string::String
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter::path: alloc::string::String
+pub enum brokkr_protocol::adapters::StrictCause
+pub brokkr_protocol::adapters::StrictCause::Unmeasured
+pub brokkr_protocol::adapters::StrictCause::Unmeasured::provider: alloc::string::String
+pub brokkr_protocol::adapters::StrictCause::Unmeasured::shape: alloc::string::String
+pub brokkr_protocol::adapters::StrictCause::Unsupported
+pub brokkr_protocol::adapters::StrictCause::Unsupported::provider: alloc::string::String
+pub brokkr_protocol::adapters::StrictCause::Unsupported::reason: alloc::string::String
 pub struct brokkr_protocol::adapters::DshComposite
 impl brokkr_protocol::adapters::DshComposite
 pub fn brokkr_protocol::adapters::DshComposite::canonical(&self) -> &str

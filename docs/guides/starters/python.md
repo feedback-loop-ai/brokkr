@@ -28,7 +28,8 @@ $ brokkr init my-bundle
 
 ```text
 initialized reviewable bundle at my-bundle (digest 789009a981d943e0d5c767b4699b97ec3ece87cd8052f55aea536747575928ae)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
 ```
 
 Fixture:
@@ -111,7 +112,8 @@ $ brokkr init my-bundle
 
 ```text
 initialized reviewable bundle at my-bundle (digest 1c8ec1e31338e23d35bfddef29d5874e48b01ae627bff9dbdde37305179e11ae)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings and MCP servers
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
 ```
 
 `agents/charters/implementer.md` and `scripts/verify-seat.sh`, the

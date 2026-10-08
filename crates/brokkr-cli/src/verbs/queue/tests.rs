@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use brokkr_runtime::launch::MapSource;
 use brokkr_store::{EntryId, NewEntry, Store};
 use clap::Parser;
 use serde_json::json;
@@ -26,16 +27,21 @@ fn queue_in(workspace: &Path, db: &Path, words: &[&str]) -> Result<ExitCode> {
     queue(workspace, command)
 }
 
-/// The listing as the handler reads it: each entry and its launch.
-fn listed(db: &Path) -> Vec<(QueueEntry, QueuedLaunch)> {
-    let store = Store::open(db).unwrap();
-    let entries = store.queue_list().unwrap().into_iter();
-    entries
-        .map(|entry| {
-            let launch = QueuedLaunch::decode(&entry.payload).unwrap();
-            (entry, launch)
-        })
-        .collect()
+/// How `brokkr queue <words>`, refused, leaves: its failure line and exit.
+fn refused_in(workspace: &Path, db: &Path, words: &[&str]) -> (String, ExitCode) {
+    let error = queue_in(workspace, db, words).unwrap_err();
+    (failure_line(&error), report(&error))
+}
+
+/// A refusal that says `line` and leaves as failed.
+fn failed(line: &str) -> (String, ExitCode) {
+    (line.to_string(), ExitCode::from(Exit::Failed))
+}
+
+/// The listing as the handler reads it: each entry, its launch and
+/// admission's verdict.
+fn listed(db: &Path) -> Vec<Judged> {
+    admission::pass(&Store::open(db).unwrap()).unwrap()
 }
 
 #[test]
@@ -99,16 +105,18 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
     let (b, recipes) = (ws.join("b"), ws.join("recipes"));
     let shown = b.display().to_string();
     let w = shown.len();
+    let dropped = "waits on 1:completed, which can never hold: entry 1 was dropped";
     assert_eq!(
         table(&rows(&entries)),
         format!(
-            "PLACE  ENTRY  STATE    PRIORITY  AFTER        RUN    {:w$}  FEATURE\n\
-             1      2      held     -2        1:completed  -      {:w$}  second[2J\n\
-             -      3      claimed  0         -            run-3  {shown}  third\n",
+            "PLACE  ENTRY  STATE    PRIORITY  AFTER        RUN    {:w$}  FEATURE    ADMISSION\n\
+             1      2      held     -2        1:completed  -      {:w$}  second[2J  held: held by \
+             the operator | {dropped}\n\
+             -      3      claimed  0         -            run-3  {shown}  third      -\n",
             "BUNDLE", "recipe story"
         )
     );
-    let stamp = |n: usize| entries[n].0.added_at.clone();
+    let stamp = |n: usize| entries[n].entry.added_at.clone();
     let launch = |bundle, feature| {
         json!({"encoding": "queued-launch/v1", "workspace": ws, "bundle": bundle,
                "repo": null, "secrets": null, "feature": feature, "map": "unmapped",
@@ -120,9 +128,13 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
         json!([
             {"place": 1, "entry": 2, "state": "held", "run": null, "priority": -2,
              "waits": [{"entry": 1, "on": "completed"}], "added_at": stamp(0),
-             "launch": launch(recipe, "second\x1b[2J")},
+             "launch": launch(recipe, "second\x1b[2J"),
+             "admission": {"standing": "held", "reasons": [
+                 {"kind": "operator_hold", "says": "held by the operator"},
+                 {"kind": "dropped", "says": dropped}]}},
             {"place": null, "entry": 3, "state": "claimed", "run": "run-3", "priority": 0,
-             "waits": [], "added_at": stamp(1), "launch": launch(json!({"dir": b}), "third")},
+             "waits": [], "added_at": stamp(1), "launch": launch(json!({"dir": b}), "third"),
+             "admission": null},
         ])
     );
     for json in [&["list"][..], &["list", "--json"]] {
@@ -137,7 +149,84 @@ fn an_entry_names_the_workspace_it_was_queued_in_absolutely() {
     let words = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];
     queue_in(Path::new("."), &db, &words).unwrap();
     let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    assert_eq!(listed(&db)[0].1.workspace, here);
+    assert_eq!(listed(&db)[0].launch.workspace, here);
+}
+
+/// The operator's release of an entry held because its realm changed
+/// since it was queued: `judge` latches the hold, which outlives the map
+/// put back as it was queued, and `repin`, journaled, takes only the map
+/// judged, after which it is admissible.
+#[test]
+fn an_entry_held_for_a_changed_realm_is_released_by_repin() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ws, db) = (dir.path(), dir.path().join("forge.db"));
+    let map = |boundary: &str| {
+        let map = json!({"schema": "forge.realms/v4", "journal": "forge.db",
+            "realms": [{"name": "here", "path": ".", "default_branch": "main",
+                        "boundary": boundary}]});
+        std::fs::write(ws.join("realms.json"), map.to_string()).unwrap();
+    };
+    map("open");
+    let add = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];
+    queue_in(ws, &db, &add).unwrap();
+    map("harness");
+    let admission = || {
+        let entries = listed(&db);
+        let verdict = entries[0].verdict.clone().unwrap();
+        AdmissionRow::of(&verdict).cell()
+    };
+    assert_eq!(
+        admission(),
+        "held: realm here changed since queued: boundary open → harness"
+    );
+    let refused = |words: &[&str]| refused_in(ws, &db, words);
+    let repin = ["repin", "1", "--reason", "harness is right"];
+    assert_eq!(
+        refused(&repin),
+        failed(
+            "error: queue entry 1 holds no latched realm drift to release; `brokkr queue judge` \
+             latches what it finds"
+        )
+    );
+    let judge = ["judge", "--reason", "before the dispatcher"];
+    assert_eq!(queue_in(ws, &db, &judge).unwrap(), completed());
+    // The map put back as it was queued: still held, and not taken unseen.
+    map("open");
+    assert_eq!(
+        admission(),
+        "held: realm here changed since queued, latched until the operator re-pins, re-queues \
+         or drops it: boundary open → harness; the map on disk has changed since, and `brokkr \
+         queue judge` latches what it finds now"
+    );
+    assert_eq!(
+        refused(&repin),
+        failed(
+            "error: the realms map on disk is not the one queue entry 1's latched hold found; \
+             `brokkr queue judge` shows and latches what differs now"
+        )
+    );
+    map("harness");
+    assert_eq!(queue_in(ws, &db, &repin).unwrap(), completed());
+    assert_eq!(admission(), "admissible");
+    let store = Store::open(&db).unwrap();
+    let MapSource::Ambient(_) =
+        QueuedLaunch::decode(&store.queue_entry(EntryId(1)).unwrap().payload)
+            .unwrap()
+            .map
+    else {
+        panic!("not the ambient map it was queued under")
+    };
+
+    // An entry queued under no map, with none since, has nothing latched.
+    std::fs::remove_file(ws.join("realms.json")).unwrap();
+    queue_in(ws, &db, &add).unwrap();
+    assert_eq!(
+        refused(&["repin", "2", "--reason", "r"]),
+        failed(
+            "error: queue entry 2 holds no latched realm drift to release; `brokkr queue judge` \
+             latches what it finds"
+        )
+    );
 }
 
 /// `brokkr queue` reaches its handler through the CLI's own dispatch,
@@ -165,11 +254,7 @@ fn each_refusal_leaves_with_its_own_words() {
     let add = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];
     queue_in(ws, &db, &add).unwrap();
     queue_in(ws, &db, &["hold", "1", "--reason", "r"]).unwrap();
-    let refused = |words: &[&str]| {
-        let error = queue_in(ws, &db, words).unwrap_err();
-        (failure_line(&error), report(&error))
-    };
-    let failed = |line: &str| (line.to_string(), ExitCode::from(Exit::Failed));
+    let refused = |words: &[&str]| refused_in(ws, &db, words);
     assert_eq!(
         refused(&["hold", "1", "--reason", "r"]),
         failed("error: queue entry 1 is already held")

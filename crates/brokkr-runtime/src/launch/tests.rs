@@ -218,14 +218,25 @@ fn an_unboxable_bundle_is_refused_at_every_entry_point_before_a_row_is_written()
     assert_eq!(rows(&unboxable.journal), before);
 }
 
+/// The two-repository world in `dir` with `orders.api` drawn across it,
+/// and a request operating `beta`: the published file, its pin and the
+/// request.
+fn across_a_crossing(dir: &Path) -> (PathBuf, String, LaunchRequest) {
+    let (published, pin) = published_by_alpha(dir, "{\"title\": \"orders\"}\n");
+    std::fs::write(dir.join("realms.json"), crossing_map(&pin)).unwrap();
+    let bundle = bundle_at(dir, false);
+    (
+        published,
+        pin,
+        request(dir, &bundle, &dir.join("beta"), dir),
+    )
+}
+
 #[test]
 fn a_moved_crossing_is_refused_at_every_entry_point_before_a_row_is_written() {
     let (dir, _, _) = two_repositories();
-    let (published, pin) = published_by_alpha(dir.path(), "{\"title\": \"orders\"}\n");
-    std::fs::write(dir.path().join("realms.json"), crossing_map(&pin)).unwrap();
+    let (published, _, asked) = across_a_crossing(dir.path());
     let world = || World::discover(dir.path(), None).unwrap();
-    let bundle = bundle_at(dir.path(), false);
-    let asked = request(dir.path(), &bundle, &dir.path().join("beta"), dir.path());
     let engine = start(asked.clone(), new_run(world()), &mut silent).unwrap();
     let run = engine.run_id.clone();
     drop(engine);
@@ -259,6 +270,42 @@ fn a_moved_crossing_is_refused_at_every_entry_point_before_a_row_is_written() {
     let refusal = resume(asked.clone(), &run).err().expect("refused");
     assert_eq!(refusal.to_string(), moved);
     assert_eq!(rows(&asked.journal), before);
+}
+
+/// A run started from a queue entry pins the crossings its world stood
+/// on at admission, exactly as a run started directly pins them at load
+/// (#430's C1): the entry's world is replayed from its pin, which
+/// resolves none, and is stood on the disk when it is rebuilt.
+#[test]
+fn a_run_started_from_the_queue_pins_the_crossings_a_direct_start_pins() {
+    let (dir, _, _) = two_repositories();
+    let (published, pin, asked) = across_a_crossing(dir.path());
+    let world = || World::discover(dir.path(), None).unwrap();
+    let direct = start(asked.clone(), new_run(world()), &mut silent).unwrap();
+    let entry = QueuedLaunch::of(&asked, &new_run(world())).unwrap();
+    let rebuilt = || {
+        QueuedLaunch::decode(&entry.encode().unwrap())
+            .unwrap()
+            .rebuild(asked.journal.clone(), asked.host_path.clone())
+    };
+    let (request, run) = rebuilt().unwrap();
+    let queued = start(request, run, &mut silent).unwrap();
+    let store = Store::open(&asked.journal).unwrap();
+    let crossings = |run: &str| store.manifest(run).unwrap()["crossings"].clone();
+    let stood_on = crossings(&direct.run_id);
+    assert_eq!(stood_on["alpha"]["orders.api"]["sha256"], json!(pin));
+    assert_eq!(crossings(&queued.run_id), stood_on);
+
+    // A crossing that moved since is refused at rebuild, as at a fence.
+    let loaded = world().unwrap();
+    std::fs::write(&published, "{\"title\": \"Orders\"}\n").unwrap();
+    let moved = loaded.verify_crossings(dir.path()).unwrap_err().to_string();
+    let refusal = rebuilt().expect_err("refused");
+    assert!(matches!(
+        refusal,
+        LaunchError::World(WorldError::CrossingMoved(_))
+    ));
+    assert_eq!(refusal.to_string(), moved);
 }
 
 #[test]

@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod admission;
 pub mod agents;
 pub mod anchor;
 pub mod boundary;

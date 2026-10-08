@@ -231,6 +231,18 @@ enum Invocation<'a> {
     Resume(&'a str),
 }
 
+/// Why a site's provider cannot be served strict MCP isolation for one
+/// invocation shape: SI2's two exact site causes, which the compile pass
+/// and the serving edge state alike. `reason` is the bounded measured
+/// reason of validated adapter evidence.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum StrictCause {
+    #[error("provider '{provider}' cannot exclude ambient MCP configuration ({reason})")]
+    Unsupported { provider: String, reason: String },
+    #[error("provider '{provider}' has no measured strict MCP configuration for '{shape}'")]
+    Unmeasured { provider: String, shape: String },
+}
+
 /// Why no isolated configuration is served (requirement SI2). Each renders
 /// as the cause after the driver's prefix ([`McpRefusal::at_launch`]).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -241,16 +253,8 @@ pub(super) enum McpRefusal {
     Unreadable,
     #[error("the engine's MCP isolation intent carries a reason that is not one bounded line")]
     UnboundedReason,
-    #[error("provider '{provider}' cannot exclude ambient MCP configuration ({reason})")]
-    Unsupported {
-        provider: &'static str,
-        reason: String,
-    },
-    #[error("provider '{provider}' has no measured strict MCP configuration for '{shape}'")]
-    Unmeasured {
-        provider: &'static str,
-        shape: String,
-    },
+    #[error(transparent)]
+    Strict(#[from] StrictCause),
     #[error("provider '{provider}' final MCP configuration is not the engine's sealed server set")]
     NotSealed { provider: &'static str },
     #[error(
@@ -299,10 +303,11 @@ impl RouteRow {
 
 /// The routes, by the provider segment of the seat's model pin, on which
 /// an engine-only dsh home was measured to exclude ambient MCP and serve
-/// the engine's server: `spark` and `spark-glm` by U0 (D03 and D04), the
-/// four keyed families by U0c, and nothing else.
-const DSH_ROUTES: [(&str, RouteRow); 6] = [
-    ("spark", RouteRow::Overlay),
+/// the engine's server: `spark-glm` by U0 (D03 and D04), the four keyed
+/// families by U0c, and nothing else. U0c's `spark` cells are partial, no
+/// tool call observed, so `spark` is unmeasured (operator ruling
+/// 2026-10-07).
+const DSH_ROUTES: [(&str, RouteRow); 5] = [
     ("spark-glm", RouteRow::Overlay),
     ("deepseek-official", RouteRow::Shipped),
     ("dashscope", RouteRow::Overlay),
@@ -374,16 +379,18 @@ impl Isolation {
             Invocation::Replacement => (&self.replacement, "replacement"),
             Invocation::Resume(shape) => (&self.resume, shape),
         };
-        let unmeasured = || McpRefusal::Unmeasured {
-            provider,
-            shape: shape.to_string(),
+        let unmeasured = || {
+            McpRefusal::Strict(StrictCause::Unmeasured {
+                provider: provider.into(),
+                shape: shape.to_string(),
+            })
         };
         match assessment {
             Assessment::Unsupported(reason) => {
-                return Err(McpRefusal::Unsupported {
-                    provider,
+                return Err(McpRefusal::Strict(StrictCause::Unsupported {
+                    provider: provider.into(),
                     reason: reason.clone(),
-                })
+                }))
             }
             Assessment::Unmeasured => return Err(unmeasured()),
             Assessment::Measured => {}
@@ -528,10 +535,10 @@ pub(super) fn isolated(
     let dsh = ServingShape::of(provider) == Some(ServingShape::Dsh);
     let argv = match (hands, dsh) {
         (true, true) => {
-            return Err(McpRefusal::Unmeasured {
-                provider,
+            return Err(McpRefusal::Strict(StrictCause::Unmeasured {
+                provider: provider.into(),
                 shape: "hands".into(),
-            })
+            }))
         }
         (true, false) | (false, true) => extra.to_vec(),
         (false, false) => {
