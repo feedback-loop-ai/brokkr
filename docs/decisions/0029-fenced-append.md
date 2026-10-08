@@ -191,3 +191,48 @@ Its acceptance criterion "never an unsettled attempt" cannot be met while
 nothing is writable, and was ruled out of scope. A spill file and an
 attempt-wide bound are #433's; the remaining refinements are #464's. No
 contract, event type or frozen byte moves.
+
+## Addendum — 2026-10-07, proposed: the held rows are retried on a timer, drained as one chain, and counted when a refusal keeps them out (#464)
+
+Status: proposed; only the operator accepts this addendum.
+
+This refines the #394 addendum's first and third rules. The bound it
+states (16 MiB held, three settling patiences, three for a terminal
+event, three in the lawful end) and the seat-record fence are unchanged.
+
+1. A working seat's held checkpoints are retried, still without waiting
+   on the lock, each time any site hands over another checkpoint and
+   whenever the seat stays quiet for one second (`RETRY_INTERVAL`). This
+   holds after a refusal has latched too: what was held before a refused
+   call still lands while the seats work, not only at settlement.
+2. What is held drains in one transaction, each row caused by the one
+   before it. The fence still judges every row at the seq it would take.
+   The rows before a refused row commit, nothing after it is written, and
+   any other error rolls the whole chain back. Each row's event payload is
+   built only once that transaction holds the lock, so an attempt the lock
+   refuses copies nothing of the hold.
+3. After the fence or the engine refuses one site's checkpoint, no later
+   checkpoint is journaled. Every one of another site's checkpoints that
+   is held behind the refused row, or offered after it, is counted against
+   that site, which settles `effect/indeterminate` with the count named.
+   It is never read as its driver's success. The refused site fails on the
+   refusal, as decision 0034 ruling 6 rules. The first refusal keeps its
+   site: a held row of another site that the fence refuses after it is
+   counted as kept out, and that later verdict's own text is not reported.
+4. Only a checkpoint that joins a non-empty hold is serialized to be
+   measured against the bound, so an uncontended append costs no extra
+   serialization. A checkpoint that finds the hold empty is held whatever
+   its size, as it was under #394, so the hold can pass 16 MiB by that one
+   row. The driver protocol's reader caps no single line, so nothing else
+   bounds that row today.
+5. A driver, or a panel's members, hand checkpoints to the sink over a
+   handoff of 64. A sink that falls behind makes the driver wait, and so
+   the seat's pipe and the seat, as the reader did before #464. What the
+   sink has not yet taken never grows beside the bounded hold.
+
+Rule 3 has a consequence for panels that the operator should rule on
+under decision 0034 ruling 6. Once one member is refused, any other
+member that checkpoints afterwards settles indeterminate. So the panel
+parks for the operator instead of failing retryable on the refused
+member alone. A ticket on the lock file to order contending writers was
+considered and not built. No contract, event type or frozen byte moves.

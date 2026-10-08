@@ -2071,29 +2071,31 @@ impl Engine {
             Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
             Ok(started) => started,
         };
-        // A checkpoint the journal refused under the seat-record fence
-        // (decision 0034, ruling 6) does not stop the driver — nothing
-        // here can, and killing it would only lose its stderr — but the
-        // attempt is already lost: no later checkpoint is journaled, and
-        // the refusal becomes the attempt's outcome once the process ends.
-        let run_id = self.run_id.clone();
+        // A checkpoint the seat-record fence refuses (decision 0034, ruling
+        // 6) does not stop the driver, which would only lose its stderr,
+        // but the attempt is already lost: no later checkpoint is journaled,
+        // and the refusal becomes its outcome once the process ends.
         let attempt = checkpoints::Attempt {
-            run_id: &run_id,
+            run_id: &self.run_id,
             effect_id,
             attempt_id,
         };
         let facts = self.bundle.sites.get(driver_seat);
         let mut calls = Calls::of(facts, spawn, attempt_id, stamp.as_ref());
-        let mut sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
-        let mut report = process.run_attempt_resuming(
-            ENGINE_VERSION,
-            effect_id,
-            attempt_id,
-            driver_seat,
-            input,
-            session_ref,
-            |data| {
-                let mut checkpoint = data.clone();
+        let sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
+        let report = sink.drive(
+            |forward| {
+                process.run_attempt_resuming(
+                    ENGINE_VERSION,
+                    effect_id,
+                    attempt_id,
+                    driver_seat,
+                    input,
+                    session_ref,
+                    forward,
+                )
+            },
+            |sink, mut checkpoint| {
                 let call = calls.consume(&mut checkpoint);
                 let checkpoint = match member_tag {
                     None => checkpoint,
@@ -2112,8 +2114,7 @@ impl Engine {
                 };
                 sink.offer("", checkpoint, call);
             },
-        );
-        sink.settle()?.carry("", &mut report);
+        )?;
         Ok(DriverRun::Ran(report))
     }
 
@@ -2323,9 +2324,8 @@ impl Engine {
         // Split the borrows: member threads run drivers, while the
         // main-thread receive loop below needs the store and causal cursor.
         let bundle = &self.bundle;
-        let run_id = self.run_id.clone();
         let attempt = checkpoints::Attempt {
-            run_id: &run_id,
+            run_id: &self.run_id,
             effect_id,
             attempt_id,
         };
@@ -2343,7 +2343,7 @@ impl Engine {
         // report alone.
         let mut sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let reports: Vec<(String, AttemptReport)> = std::thread::scope(|scope| {
-            let (sender, receiver) = std::sync::mpsc::channel::<(String, Value)>();
+            let (sender, receiver) = checkpoints::arrivals::<(String, Value)>();
             let handles: Vec<_> = runs
                 .iter()
                 .map(|run| {
@@ -2405,7 +2405,7 @@ impl Engine {
             // latches on an append error and the loop keeps draining — an
             // abandoned channel must not deadlock the members.
             drop(sender);
-            for (member, mut checkpoint) in receiver {
+            sink.take(&receiver, |sink, (member, mut checkpoint)| {
                 let at = runs
                     .iter()
                     .position(|run| format!("{tag_prefix}{}", run.name) == member);
@@ -2420,7 +2420,7 @@ impl Engine {
                     None => resume::unstamped(checkpoint),
                 };
                 sink.offer(&member, checkpoint, call);
-            }
+            });
             handles
                 .into_iter()
                 .map(|h| h.join().expect("panel member thread"))
