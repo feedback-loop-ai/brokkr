@@ -132,6 +132,67 @@ fn json_at(path: &std::path::Path) -> serde_json::Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
+/// Every executable site's SI2 record as the compile kept it under the
+/// standing fence (U1g1), one line per outcome: each shape it is served as,
+/// by bare invocation and hands, with what its adapter measured there.
+pub(crate) fn strict_records(compiled: &brokkr_runtime::Bundle) -> Vec<(String, Vec<String>)> {
+    use brokkr_runtime::agents::{McpAxis, McpHands, McpInvocation, McpUnmeasured};
+    let word = |(shape, ambient): &(brokkr_runtime::agents::McpShape, McpAxis)| {
+        let invocation = match &shape.invocation {
+            McpInvocation::Cold => "cold",
+            McpInvocation::Replacement => "replacement",
+            McpInvocation::Resume(name) => name,
+        };
+        let hands = match shape.hands {
+            McpHands::Boxed => "boxed",
+            McpHands::Harness => "harness",
+            McpHands::NoHands => "none",
+        };
+        let verdict = match ambient {
+            McpAxis::Measured { .. } => "measured",
+            McpAxis::Unsupported { .. } => "unsupported",
+            McpAxis::Unmeasured(McpUnmeasured::Absent) => "absent",
+            other => panic!("a scaffold declares no other fact: {other:?}"),
+        };
+        format!("{invocation} {hands} {verdict}")
+    };
+    let mut records = Vec::new();
+    for (label, facts) in &compiled.sites {
+        let Some(site) = facts.capabilities.as_ref() else {
+            continue;
+        };
+        assert_eq!(site.strict.len(), site.outcomes.len(), "{label}");
+        for (outcome, record) in site.outcomes.iter().zip(&site.strict) {
+            let shapes: Vec<String> = record.iter().map(word).collect();
+            records.push((format!("{label} {}", outcome.provider), shapes));
+        }
+    }
+    records
+}
+
+/// What a scaffold's adapters measured on this host: U0 measured on Linux
+/// alone, so on macOS every shape a scaffold declares is absent.
+pub(crate) fn on_this_host(linux: &str) -> String {
+    match cfg!(target_os = "macos") {
+        true => linux
+            .replace("measured", "absent")
+            .replace("unsupported", "absent"),
+        false => linux.to_string(),
+    }
+}
+
+/// `rows` as [`strict_records`] reads them on this host.
+pub(crate) fn expected_records(rows: &[(&str, &[&str])]) -> Vec<(String, Vec<String>)> {
+    let rows = rows.iter();
+    rows.map(|(site, shapes)| {
+        (
+            site.to_string(),
+            shapes.iter().map(|s| on_this_host(s)).collect(),
+        )
+    })
+    .collect()
+}
+
 /// What a scaffold tells its operator about MCP, on stderr and in its
 /// README, pinned here once (SI2): the ruling, and that it is not yet
 /// enforced.
@@ -209,17 +270,77 @@ pub(crate) fn assert_shipped_mcp_facts(bundle: &std::path::Path, provider: &str)
     );
 }
 
+/// A hands-less work seat's SI2 record: judged cold and as its replacement,
+/// which U0 never measured; no generated declaration names a hands-less
+/// resume shape. A gate, never offered a session, is judged cold alone.
+const BARE_WORK: &[&str] = &["cold none measured", "replacement none absent"];
+const BARE_GATE: &[&str] = &["cold none measured"];
+/// A Codex seat's, boxed: Codex cannot exclude ambient MCP (U0).
+const BOXED_WORK: &[&str] = &["cold boxed unsupported", "replacement boxed absent"];
+const BOXED_GATE: &[&str] = &["cold boxed unsupported"];
+/// Exec serves no model and records no shape.
+const EXEC: &[&str] = &[];
+
+/// The SI2 records a Claude roster's compile keeps, site by outcome.
+pub(crate) const CLAUDE_RECORDS: [(&str, &[&str]); 8] = [
+    ("implement claude", BARE_WORK),
+    ("implement claude", BARE_WORK),
+    ("intake claude", BARE_WORK),
+    ("intake claude", BARE_WORK),
+    ("review claude", BARE_GATE),
+    ("review claude", BARE_GATE),
+    ("ship exec", EXEC),
+    ("verify exec", EXEC),
+];
+
+/// A Codex roster's, its one reviewer link included.
+const CODEX_RECORDS: [(&str, &[&str]); 7] = [
+    ("implement codex", BOXED_WORK),
+    ("implement codex", BOXED_WORK),
+    ("intake codex", BOXED_WORK),
+    ("intake codex", BOXED_WORK),
+    ("review codex", BOXED_GATE),
+    ("ship exec", EXEC),
+    ("verify exec", EXEC),
+];
+
+/// A dsh roster's, its review gate hired from Claude.
+const DSH_RECORDS: [(&str, &[&str]); 8] = [
+    ("implement dsh", BARE_WORK),
+    ("implement dsh", BARE_WORK),
+    ("intake dsh", BARE_WORK),
+    ("intake dsh", BARE_WORK),
+    ("review claude", BARE_GATE),
+    ("review claude", BARE_GATE),
+    ("ship exec", EXEC),
+    ("verify exec", EXEC),
+];
+
 /// SI2 before strict admission activates (U1f2): each roster writes the
 /// declarations it hires, each carrying its shipped MCP facts, and both
 /// init's own compile and the compile from inside the workspace pass on
 /// them with nothing granted and every native power still OFF — dsh's
-/// review gate on claude included. This certifies no strictness.
+/// review gate on claude included. This certifies no strictness. With the
+/// fence standing (U1g1) each compile keeps every site's SI2 record, the
+/// shapes a lifted fence would refuse included: Codex's measured
+/// unsupported exclusion, and every replacement and resume shape U0 never
+/// measured; exec records no shape.
 #[test]
 fn each_rosters_declarations_carry_their_shipped_mcp_facts_and_still_compile() {
-    for (present, written, reviewer) in [
-        ("claude", &["claude", "exec"][..], "claude"),
-        ("codex", &["codex", "exec"][..], "codex"),
-        ("dsh", &["claude", "dsh", "exec"][..], "claude"),
+    for (present, written, reviewer, records) in [
+        (
+            "claude",
+            &["claude", "exec"][..],
+            "claude",
+            &CLAUDE_RECORDS[..],
+        ),
+        ("codex", &["codex", "exec"][..], "codex", &CODEX_RECORDS[..]),
+        (
+            "dsh",
+            &["claude", "dsh", "exec"][..],
+            "claude",
+            &DSH_RECORDS[..],
+        ),
     ] {
         let (_dir, bundle, _) = init_with_only(&[present]);
         let mut declared: Vec<String> = std::fs::read_dir(bundle.join("adapters"))
@@ -282,6 +403,11 @@ fn each_rosters_declarations_carry_their_shipped_mcp_facts_and_still_compile() {
             served.into_iter().collect::<Vec<_>>(),
             written,
             "{present}: every declaration written serves a site"
+        );
+        assert_eq!(
+            strict_records(&compiled),
+            expected_records(records),
+            "{present}"
         );
     }
 }

@@ -26,7 +26,7 @@ fn contract(version: &str) -> jsonschema::Validator {
 fn manifest(authority: &Authority, site: SiteAsks, outcomes: Vec<Outcome>) -> Value {
     let mut capabilities = authority.manifest(&[]);
     capabilities["sites"] =
-        json!({"research": SiteCapabilities { asks: site, outcomes }.manifest()});
+        json!({"research": SiteCapabilities::unjudged(site, outcomes).manifest()});
     json!({"engine": "0.12.0", "event_schema": 1, "database_schema": 1, "driver_protocol": 1,
            "bundle_name": "fast", "files": {}, "capabilities": capabilities})
 }

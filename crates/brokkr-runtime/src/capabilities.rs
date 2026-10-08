@@ -1034,12 +1034,13 @@ impl Outcome {
     }
 }
 
-/// One executable site's sealed capability facts: what it asks, and one
-/// outcome per provider candidate — never their union.
+/// One executable site's sealed capability facts: what it asks, one outcome
+/// per provider candidate — never their union — and beside each its SI2 record.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SiteCapabilities {
     pub asks: SiteAsks,
     pub outcomes: Vec<Outcome>,
+    pub strict: Vec<Vec<(crate::agents::McpShape, crate::agents::McpAxis)>>,
 }
 
 impl SiteCapabilities {
@@ -1092,8 +1093,8 @@ pub fn restriction_names(prefix: &str, restrictions: &Map<String, Value>) -> Vec
     names
 }
 
-/// Everything a compile authorises against, loaded and validated ONCE:
-/// the context, every definition, and the dialect each grant selected.
+/// Everything a compile authorises against, loaded and validated ONCE: the
+/// context, every definition, the dialect each grant selected, and the fence.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Authority {
     pub context: CapabilityContext,
@@ -1102,15 +1103,16 @@ pub struct Authority {
     pub dialects: BTreeMap<String, ToolDialect>,
     /// The bundle's binding minimum an `mcp` dialect's egress meets (MB4).
     minimum: crate::agents::EgressClass,
-    /// Private, so only [`Authority::load`] and [`Authority::nothing`]
-    /// construct one: a struct literal elsewhere skips load's checks.
-    loaded: Loaded,
+    pub(crate) fence: McpFence,
 }
 
-/// The mark only this module's loaders can write; `#[non_exhaustive]`
-/// would fence other crates and leave this one's other modules open.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Loaded;
+/// The MCP compile fence (SC5), as [`McpFence::current`] reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum McpFence {
+    Standing,
+    #[cfg(test)]
+    Lifted,
+}
 
 /// The serving provider's own native capability `adapter_key`, where its
 /// inventory is known and that entry serves `capability`; else why not.
@@ -1145,8 +1147,8 @@ impl Authority {
     /// dialect loads, serves the capability and agrees on its classes, the
     /// tool subset is a subset, the restriction keys pass the dialect's
     /// schema. Then the two realm-wide refusals, which hold whether or not
-    /// any seat asks: an `mcp` grant, and a `hands` grant. None of these
-    /// can become an optional drop.
+    /// any seat asks: an `mcp` grant, the compile fence's (`McpFence`), and
+    /// a `hands` grant. None of these can become an optional drop.
     pub fn load(context: CapabilityContext) -> Result<Authority, String> {
         let realm = &context.realm;
         let definitions = Definitions::load(&context.root)?;
@@ -1212,8 +1214,6 @@ impl Authority {
             })?;
             dialects.insert(capability.clone(), dialect);
         }
-        // The compile fence (SC5): until slice two's enabling unit, every
-        // grant binds a native provider, used by a seat or not.
         for (capability, dialect) in &dialects {
             binding::native(realm, capability, dialect).map_err(|unbound| unbound.to_string())?;
         }
@@ -1222,7 +1222,7 @@ impl Authority {
             definitions,
             dialects,
             minimum: ABSENT_EGRESS_MINIMUM,
-            loaded: Loaded,
+            fence: McpFence::current(),
         })
     }
 
@@ -1236,13 +1236,13 @@ impl Authority {
             definitions: Definitions::default(),
             dialects: BTreeMap::new(),
             minimum: ABSENT_EGRESS_MINIMUM,
-            loaded: Loaded,
+            fence: McpFence::current(),
         }
     }
 
     /// The site every capability refusal and notice opens with, typed so
     /// that no author's label is ever spelled raw (rebuild unit 12-fix-f).
-    fn who<'a>(&'a self, site: &'a SiteAsks) -> brokkr_protocol::native_controls::Site<'a> {
+    pub(crate) fn who<'a>(&'a self, site: &'a SiteAsks) -> launch::Site<'a> {
         brokkr_protocol::native_controls::Site {
             seat: &site.label,
             office: &site.office,
