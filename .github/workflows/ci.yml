@@ -275,7 +275,11 @@ jobs:
   coverage:
     name: exact coverage gate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30, not the usual 20 (operator ruling 2026-10-07): the broker's
+    # boundary proofs each wait out its fixed 30 s startup deadline, which
+    # the design forbids shortening for tests, so the instrumented run
+    # outgrows 20 minutes.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
