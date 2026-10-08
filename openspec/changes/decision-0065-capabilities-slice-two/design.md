@@ -1174,13 +1174,13 @@ At each PR recheck these paths and baseline counts against main.
 
 | File / baseline lines where oversized | Units | Coordination |
 | --- | --- | --- |
-| `crates/brokkr-protocol/src/native_controls.rs` (4539) | U1a, U1g, U7a | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-protocol/src/native_controls.rs` (4539) | U1a, U1g2, U7a | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-protocol/src/native_controls/mcp.rs` | U1a, U1c, U7a, U7d, U8a | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/agents.rs` (1671) | U1b, U1f, U3b, U7b | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/load.rs` (1334) | U1b, U3b | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-runtime/src/agents/mcp.rs` | U1b, U7b | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U1c2, U4c, U4f2, U6a, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1c2, U1g, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-runtime/src/agents/mcp.rs` | U1b, U7b, U1g1 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U1c2, U1g0, U4c, U4f2, U6a, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1c2, U1g0, U1g2, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters/composite.rs` (4666) | U1c2 | #226 dsh composite identity; its declared-home seam must keep one owner |
 | `crates/brokkr-protocol/src/transcript.rs` | U1c2 | dsh home resolution; the transcript fold and the persistence check must read the same home |
 | `adapters/claude.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
@@ -1189,12 +1189,12 @@ At each PR recheck these paths and baseline counts against main.
 | `adapters/dsh.json` | U1e | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `adapters/exec.json` | U1e | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/bundle.rs` (7815) | U1f, U3a, U3c, U4d, U5a2 | Recheck concurrent main edits and module registration before the row |
-| `crates/brokkr-runtime/src/bundle/mcp.rs` | U1f, U7b, U9b | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-runtime/src/bundle/mcp.rs` | U1f, U7b, U9b, U1g1 | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/init.rs` (1895) | U1f2 | Generated adapters and agents/README; keep copied strictness metadata bound to shipped declarations by parity proof |
 | `crates/brokkr-cli/src/init/adapters.rs` | U1f2 | Consumed extraction from init.rs; registration included in that parent |
 | `crates/brokkr-cli/src/verbs/setup.rs` | U1f2 | Printed scaffold instructions and matching guide transcripts |
-| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g, U4a2, U4e, U4f, U7c, U8a2, U8c, U8e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b | 0065 follow-up refactors; identity and gate ordering must survive |
+| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2, U8c, U8e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b, U1g1 | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/capabilities/gates.rs` | U3a | 0065 follow-up refactors; identity and gate ordering must survive |
@@ -1241,7 +1241,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-protocol/src/secret/store.rs` | U6c7 | Count registration and same-unit consumers; recheck size and concurrent main edits |
 | `crates/brokkr-protocol/src/broker.rs` | U6c, U6c5a, U6d | Shared consumed protocol edge; registration counts in lib.rs |
 Also coordinate `crates/brokkr-cli/tests/init_doctor.rs` and
-`crates/brokkr-cli/tests/init_stacks.rs` (U1f2/U1g),
+`crates/brokkr-cli/tests/init_stacks.rs` (U1f2/U1g1),
 `crates/brokkr-runtime/tests/witness_digests.rs`,
 `crates/brokkr-runtime/src/bundle/compose_tests.rs` (every identity-changing
 row), `crates/brokkr-runtime/tests/frozen_contracts.rs` (U4b/U5c/U5f/U10a),
@@ -1309,7 +1309,9 @@ witness/compose pins accompany only rows that change their inputs.
 | U1e | U1d, U1c2 | Record dsh and exec declarations; 6.1–6.2 | `adapters/dsh.json`; `adapters/exec.json` |
 | U1f | U1e | Thread independent strict intent; 7.1–7.2 | `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/bundle.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U1f2 | U1f | Migrate generated declarations and instructions; 7.3–7.4 | `crates/brokkr-cli/src/init.rs`; `crates/brokkr-cli/src/init/adapters.rs`; `crates/brokkr-cli/src/verbs/setup.rs`; `crates/brokkr-cli/src/init/claims.rs` |
-| U1g | U1f2 | Seal and enforce every launch; 8.1–8.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs` |
+| U1g0 | U1f2 | Qualify only measured dsh routes and type the strict causes; 8.1 | `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-protocol/src/adapters.rs` (one `pub use` line) |
+| U1g1 | U1g0 | Decide strict admission at compile, refusing only after enablement; 8.1–8.2 | `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/agents/mcp.rs` |
+| U1g2 | U1g1 | Seal every launch's isolation at dispatch; 8.1–8.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs` |
 | U2 | Independent | Remove both native-binding panics; 9.1–9.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-cli/src/doctor.rs` |
 | U3a | Independent | Apply gate classes; 10.1–10.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/gates.rs`; `crates/brokkr-runtime/src/bundle.rs` |
 | U3b | U3a | Check loaded office charters; 11.1–11.2 | `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/agents/load.rs`; `crates/brokkr-runtime/src/agents/charter_data.rs` |
@@ -1341,7 +1343,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U6d | U6c8 | Establish durable ledger records before calls; 29.1–29.2 | `crates/brokkr-protocol/src/broker.rs`; `crates/brokkr-protocol/src/broker/ledger.rs`; `crates/brokkr-cli/src/broker/session.rs` |
 | U6e | U6d | Serve the filtered protocol; 30.1–30.2 | `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/broker/rpc.rs` |
 | U6f | U6e | Mask output and prove complete session cleanup; 31.1–32.2 | `crates/brokkr-cli/src/broker/rpc.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/broker/output.rs` |
-| U7a | U1g, U5f, U6f | Represent the complete server set; 33.1–33.2 | `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs`; `crates/brokkr-protocol/src/hands.rs` |
+| U7a | U1g2, U5f, U6f | Represent the complete server set; 33.1–33.2 | `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs`; `crates/brokkr-protocol/src/hands.rs` |
 | U7b | U7a | Consume adapter carriage and selected holdings; 34.1–34.2 | `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/agents/mcp.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U7c | U7b | Provision protected per-attempt plans; 35.1–35.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/marks.rs` |
 | U7d | U7c | Deliver checked configurations and selected discovery; 36.1–37.2 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
@@ -1471,14 +1473,32 @@ Documents/evidence: `docs/guides/quickstart.md`,
 `docs/guides/starters/node.md`, `docs/guides/starters/python.md`,
 `docs/guides/starters/rust.md` (matching generated instruction transcripts).
 
-### U1g — Seal and enforce every launch
+### U1g0 — Qualify only measured dsh routes and type the strict causes
 
-Bind U1f facts at dispatch and consume the final checked isolated configuration at all serving builders. Mandatory strict admission activates only after U1f2 migrates every generated declaration/instruction, including no-ask sites. Shrink engine composition by using existing extracted helpers.
+Remove `spark` from adapters/mcp.rs's qualified dsh routes and name spark-glm alone for U0 D03/D04 in the doc comment: U0 measured spark-glm only, and U0c's spark cells are partial (operator ruling 2026-10-07), so a dsh launch on `spark` refuses tool servers as unmeasured. Export SI2's two exact site causes as one public typed cause that U1g1's compile pass consumes. adapters/mcp.rs, plus the one `pub use mcp::StrictCause;` line adapters.rs needs because it declares `mod mcp` privately (operator rulings 2026-10-07).
 
-Closes tasks 8.1 and 8.2; requirements [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md).
-Proof: All SI2 shapes and final isolation removal fail exactly; every shipped and fresh-scaffold compile either passes measured support or reports its exact unsupported/unmeasured refusal, never a filename exemption. Repeat U1f2's init_doctor/init_stacks matrix with strict admission active.
+Closes part of task 8.1 with U1g1 and U1g2; requirements [SI2](specs/strict-mcp-isolation/spec.md).
+Proof: An exact unmeasured-route refusal for `spark` with a compiling removal; spark-glm and the U0c routes still qualify; the typed cause renders SI2's two exact texts.
 
-Owning tests: `crates/brokkr-protocol/src/adapters/tests.rs`, `crates/brokkr-protocol/src/native_controls/tests.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`, `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-cli/tests/init_stacks.rs`.
+Owning tests: `crates/brokkr-protocol/src/adapters/mcp/tests.rs`, `crates/brokkr-protocol/src/adapters/tests.rs`.
+
+### U1g1 — Decide strict admission at compile, refusing only after enablement
+
+Decide SI2's strict-isolation admission for every model candidate and inline site in the compile pass (bundle/mcp.rs's candidate and inline capabilities into the capability resolver), from the adapter's validated measured shapes, so agents/mcp.rs's isolation reader gains its production consumer; never a filename or harness-name exemption. By operator ruling (2026-10-07) the refusal stays behind the switch U9b flips: until then each site's verdict is recorded for U9a's doctor to report which seats would refuse, and compilation proceeds; after it, SI2's exact causes refuse. Migrate test fixtures whose adapters carry legacy or `unsupported` MCP declarations.
+
+Closes tasks 8.1 and 8.2 with U1g0 and U1g2; requirements [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md).
+Proof: Per site and shape the recorded verdict equals the measured support; with the switch on (in tests), both SI2 causes refuse exactly, including init's "scaffolded bundle failed to compile" wrapper; with it off, every shipped and fresh-scaffold compile succeeds and records its verdict. Repeat U1f2's init_doctor/init_stacks matrix in both states. No filename exemption.
+
+Owning tests: `crates/brokkr-runtime/src/bundle/agent_tests/mcp_tests.rs`, `crates/brokkr-runtime/src/capabilities/tests.rs`, `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-cli/tests/init_stacks.rs`.
+
+### U1g2 — Seal every launch's isolation at dispatch
+
+Bind U1f facts at dispatch: write each selected candidate's isolation intent from its recorded set and consume the final checked isolated configuration at all serving builders; the final check refuses an absent or altered intent before spawn. Settle the empty-set-with-sealed-hands case in adapters/mcp.rs. Refusing a candidate for unsupported or unmeasured strictness follows U1g1's switch; tampering with a sealed mechanism refuses now. Shrink engine composition by using existing extracted helpers.
+
+Closes tasks 8.1 and 8.2 with U1g0 and U1g1; requirements [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md).
+Proof: All SI2 shapes and final isolation removal fail exactly at the serving boundary; an altered or absent intent refuses before spawn; the empty-set-with-sealed-hands case has its exact outcome.
+
+Owning tests: `crates/brokkr-protocol/src/adapters/tests.rs`, `crates/brokkr-protocol/src/native_controls/tests.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`.
 
 ### U2 — Remove both native-binding panics
 
@@ -1956,7 +1976,7 @@ Owning tests: `crates/brokkr-view/src/tests.rs`, `crates/brokkr-cli/tests/capabi
 
 ### U9a — Prepare whole-plan MCP doctor reporting
 
-Extract capability reporting into the named module and use the shared complete planner for native/MCP metadata; preserve pre-U9 public compile refusal until U9b. Doctor also reports each MCP grant's dialect egress against the bundle's binding minimum, as U5a2 judges it at compile (operator ruling, 2026-10-04).
+Extract capability reporting into the named module and use the shared complete planner for native/MCP metadata; preserve pre-U9 public compile refusal until U9b. Doctor also reports each MCP grant's dialect egress against the bundle's binding minimum, as U5a2 judges it at compile (operator ruling, 2026-10-04). It reports each seat U1g1's strict-isolation admission would refuse once switched on.
 
 Reuse U5a2's below-minimum comparison and requires/wants causes. Report static box eligibility and conservative installation requirements separately from unmeasured host source/readiness facts; doctor does not launch a box/server, read secret values or claim readiness. Linux availability and macOS refusal remain honest.
 
@@ -1967,7 +1987,7 @@ Owning tests: `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 
 ### U9b — Enable the proved namespace path with guides
 
-Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, box admission/readiness, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination.
+Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, box admission/readiness, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination. It also switches on U1g1's strict-isolation refusal (operator ruling 2026-10-07), once macOS shapes are measured and Codex's place in the roster is settled.
 
 The enabling matrix also traverses all boxed-server seams: singleton system and user-installed package entries with ordinary protected system hard links intact, SD4's measured host budgets, every reach mode and containment direction, resolution ancestors, hard links and bind aliases, store exclusion including empty/missing stores, bounded observation/readiness/handoff, and actual kernel shebang execution. Pin all pre-secret refusals to zero lookups/starts and distinguish later delivery/exec failures. A success-reporting harness cannot hide any zero-call box failure. Real Linux proof includes private tmpfs per server, local/shared network with hands still network-false, safe host loader environment, allowed loading bindings and cancellation at every startup window. macOS proves its existing refusal; no successful box is claimed there.
 Repeat MB3's two-worktree lifetime matrix and MB4's complete-frame/EOF

@@ -18,10 +18,9 @@ use crate::transcript::{DshHome, DshHomeError};
 use sha2::Digest;
 use std::path::PathBuf;
 
-/// The six routes U0 and U0c qualified, each pinned as the roster pins it,
+/// The five routes U0 and U0c qualified, each pinned as the roster pins it,
 /// and whether its validated provider entry rides the seat's overlay.
-const ROUTES: [(&str, &str, bool); 6] = [
-    ("spark", "spark/qwen3.8-flash", true),
+const ROUTES: [(&str, &str, bool); 5] = [
     ("spark-glm", "spark-glm/GLM-5.3-Flash-EXL3", true),
     ("deepseek-official", "deepseek-flash", false),
     ("dashscope", "dashscope/qwen3.8-flash", true),
@@ -447,10 +446,7 @@ fn missing_evidence_and_a_worktree_credential_file_refuse_before_staging() {
         )
     };
     let refused = |pinned: &str, input: &Value, offered| launch(pinned, input, offered).map(drop);
-    let unmeasured = |shape: &str| McpRefusal::Unmeasured {
-        provider: "dsh",
-        shape: shape.into(),
-    };
+    let unmeasured = |shape: &str| unmeasured_cause("dsh", shape);
     let mut changed = empty_set(base.clone(), "unmeasured");
     changed[MCP_ISOLATION]["cold"] = json!("inherited");
     let cold = [json!("unmeasured"), json!("measured"), json!("measured")];
@@ -558,11 +554,19 @@ fn dsh_is_admitted_only_on_a_route_u0_or_u0c_measured() {
         served(&["--model", "deepseek-flash"], &resumable),
         Ok(DshIsolation::Engine { rejoins: true })
     );
+    // U0c's `spark` cells observed no tool call, so `spark` is unmeasured
+    // even with its overlay (operator ruling 2026-10-07).
     for (extra, refusal) in [
         (
             &["--model", "deepseek/deepseek-v4-flash"][..],
             McpRefusal::UnmeasuredRoute {
                 route: "deepseek".into(),
+            },
+        ),
+        (
+            &["--model", "spark/qwen3.8-flash", "--patch", "route.yml"][..],
+            McpRefusal::UnmeasuredRoute {
+                route: "spark".into(),
             },
         ),
         (&[][..], McpRefusal::Unpinned),
@@ -580,11 +584,7 @@ fn dsh_is_admitted_only_on_a_route_u0_or_u0c_measured() {
     );
     assert_eq!(
         served(&["--model", "openai/gpt-6"], &unmeasured),
-        Err(McpRefusal::Unmeasured {
-            provider: "dsh",
-            shape: "cold".into(),
-        }
-        .at_launch())
+        Err(unmeasured_cause("dsh", "cold").at_launch())
     );
 }
 
