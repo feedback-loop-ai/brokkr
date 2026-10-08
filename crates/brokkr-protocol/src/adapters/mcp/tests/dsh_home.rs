@@ -448,7 +448,7 @@ fn missing_evidence_and_a_worktree_credential_file_refuse_before_staging() {
     let refused = |pinned: &str, input: &Value, offered| launch(pinned, input, offered).map(drop);
     let unmeasured = |shape: &str| unmeasured_cause("dsh", shape);
     let mut changed = empty_set(base.clone(), "unmeasured");
-    changed[MCP_ISOLATION]["cold"] = json!("inherited");
+    changed[SERVING_INPUTS]["isolation"]["cold"] = json!("inherited");
     let cold = [json!("unmeasured"), json!("measured"), json!("measured")];
     let replacement = [json!("measured"), json!("unmeasured"), json!("measured")];
     for (pinned, input, offered, refusal) in [
@@ -487,12 +487,9 @@ fn missing_evidence_and_a_worktree_credential_file_refuse_before_staging() {
         );
     }
     // Sealed hands do not make a hands set dsh can serve.
-    let mut boxed = intended(base.clone(), "hands", cold_only());
-    boxed[SERVING_INPUTS] = SealedServing {
-        spec: Some(crate::hands::HandsSpec::default()),
-        ..Default::default()
-    }
-    .value();
+    let mut boxed = base.clone();
+    boxed[SERVING_INPUTS] = boxed_inputs();
+    let boxed = intended(boxed, "hands", cold_only());
     assert_eq!(
         isolated("dsh", &Edge::new(&boxed), &[], false).map(|isolated| isolated.argv),
         Err(unmeasured("hands"))

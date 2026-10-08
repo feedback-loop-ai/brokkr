@@ -15,23 +15,29 @@
 //! measured. Codex has no passing candidate, so an intent for it refuses
 //! rather than borrowing another harness's result or falling back to
 //! ambient configuration. Exec has no model MCP surface (SI2), so its launch
-//! reads no intent. A launch whose input carries no intent is served as
-//! before: mandatory strict admission activates only at U1g.
+//! reads no intent.
+//!
+//! Dispatch seals the intent inside the serving inputs of every launch it
+//! seals (U1g2), so a sealed launch cannot lose it, and a driver run by
+//! hand, which carries none, is served as before. The server set and the
+//! configuration built from it are checked whichever way the MCP compile
+//! fence stands; a shape SI2 does not admit refuses only past the fence the
+//! intent names, and until U9b lifts it is served as before (operator
+//! ruling of 2026-10-07).
 //!
 //! [`Serving`]: crate::native_controls::Serving
 
 use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
 use serde_json::Value;
 
 use super::{claude_restriction_control, last_message_door, placed, ResumeGate, ServingShape};
-use crate::native_controls::{SealedServing, Transport, SERVING_INPUTS};
+use crate::native_controls::{
+    SealedAssessment, SealedBoundary, SealedFence, SealedIsolation, SealedServers, SealedServing,
+    Transport, SERVING_INPUTS,
+};
 use crate::transcript::{DshHome, DshHomeError};
-
-/// The driver-input key the engine's isolation intent rides under.
-const MCP_ISOLATION: &str = "mcp_isolation";
 
 /// The MCP document of the empty server set, exactly as U0 measured it
 /// (cell C03).
@@ -62,10 +68,13 @@ const UNSEALED: &str =
 /// One launch's driver input as the private serving edge reads it: the
 /// typed serving inputs sealed beside it are decoded at most once, on first
 /// use, and that one value is shared by the isolation intent's comparison
-/// ([`isolated`]) and the final check ([`served`]).
+/// ([`isolated`]) and the final check ([`served`]). Beside it, the isolated
+/// configuration [`isolated`] built behind the launch's arguments, which
+/// the final check rebuilds and requires.
 pub(super) struct Edge<'a> {
     input: &'a Value,
     sealed: OnceCell<Result<SealedServing, String>>,
+    built: OnceCell<Vec<String>>,
 }
 
 impl<'a> Edge<'a> {
@@ -73,6 +82,7 @@ impl<'a> Edge<'a> {
         Edge {
             input,
             sealed: OnceCell::new(),
+            built: OnceCell::new(),
         }
     }
 
@@ -128,10 +138,15 @@ fn hands_transport<'a>(
 /// plan with neither sealed input refuses (rebuild unit 15-fix-b), and so
 /// does one half of the sealed pair without the other, or without its plan.
 ///
+/// Before the check, a sealed launch's MCP options must be exactly those of
+/// the configuration its intent built and of its sealed server set
+/// ([`final_set`]), or it refuses with SI2's exact cause; the check then
+/// rebuilds that configuration behind the composition (U1g2).
+///
 /// [`check_final`]: crate::native_controls::check_final
 /// [`Checked::into_argv`]: crate::native_controls::Checked::into_argv
 pub(super) fn served(
-    harness: &str,
+    harness: &'static str,
     command: Vec<String>,
     handed: &[String],
     edge: &Edge<'_>,
@@ -162,6 +177,10 @@ pub(super) fn served(
         .flat_map(|segment| segment.argv.iter().cloned())
         .collect();
     let brokkr = engine_executable();
+    let hands = hands_transport(sealed, &brokkr, chosen.workdir);
+    let built = edge.built.get().map_or(&[][..], Vec::as_slice);
+    let server = hands.filter(|_| sealed_servers(sealed) == SealedServers::Hands);
+    final_set(harness, &command, built, server.as_ref()).map_err(|refusal| refusal.at_launch())?;
     let dialect = &sealed.dialect;
     check_final(
         harness,
@@ -178,48 +197,15 @@ pub(super) fn served(
         crate::native_controls::Serving {
             authored: &authored,
             pins: &sealed.pins,
+            mcp: built,
             output: last_message_door(input)
                 .then(|| input["result_path"].as_str().unwrap_or_default()),
-            hands: hands_transport(sealed, &brokkr, chosen.workdir),
+            hands,
             ..chosen
         },
     )
     .map(crate::native_controls::Checked::into_argv)
     .map_err(|refusal| refusal.at_launch(input))
-}
-
-/// The server set the engine composed for one launch: the current no-broker
-/// plan has no other.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-enum ServerSet {
-    Empty,
-    Hands,
-}
-
-/// One invocation shape's isolation, as the engine read it from validated
-/// adapter evidence: measured, measured unsupported with its reason, or
-/// never measured.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-enum Assessment {
-    Measured,
-    Unsupported(String),
-    Unmeasured,
-}
-
-/// The engine's isolation intent for one launch: its server set and the
-/// assessment of each shape it can be served as. The cold replacement of a
-/// declined or rejected rejoin is measured on its own (U1b's
-/// `McpInvocation::Replacement`) and judged by `replacement`, never by
-/// `cold` or `resume`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Isolation {
-    servers: ServerSet,
-    cold: Assessment,
-    replacement: Assessment,
-    resume: Assessment,
 }
 
 /// The shape a launch is about to be served as: cold, the cold replacement
@@ -323,11 +309,12 @@ impl McpRefusal {
 }
 
 /// A launch's composed arguments with its isolated configuration in them,
-/// and the intent they were built from, `None` where the input carried none.
+/// and the intent they were built from, `None` where the input carried none
+/// or the standing fence serves its shape as before.
 #[derive(Debug)]
 pub(super) struct Isolated {
     pub(super) argv: Vec<String>,
-    isolation: Option<Isolation>,
+    isolation: Option<SealedIsolation>,
 }
 
 impl Isolated {
@@ -342,32 +329,62 @@ impl Isolated {
     }
 }
 
-impl Isolation {
-    /// The engine's intent in `input`, `None` where it carries none, read
-    /// closed: an unknown key or word, an absent member and a reason that is
-    /// not one bounded line each refuse.
-    fn read(input: &Value) -> Result<Option<Isolation>, McpRefusal> {
-        let Some(value) = input.get(MCP_ISOLATION) else {
-            return Ok(None);
-        };
-        let isolation = Isolation::deserialize(value).map_err(|_| McpRefusal::Unreadable)?;
-        let bounded = |reason: &str| {
-            !reason.is_empty()
-                && reason.chars().count() <= REASON_LIMIT
-                && !reason.chars().any(char::is_control)
-        };
-        let readable = [&isolation.cold, &isolation.replacement, &isolation.resume]
-            .into_iter()
-            .all(|assessment| match assessment {
-                Assessment::Unsupported(reason) => bounded(reason),
-                Assessment::Measured | Assessment::Unmeasured => true,
-            });
-        match readable {
-            true => Ok(Some(isolation)),
-            false => Err(McpRefusal::UnboundedReason),
+/// The serving inputs sealed beside `edge`'s launch and the engine's intent
+/// sealed in them, `None` where the input carries none: a driver run by
+/// hand. Inputs that cannot be read, an intent absent from them among
+/// their faults, carry no intent to serve by, and a measured reason must be
+/// one bounded line.
+fn intent<'e>(
+    edge: &'e Edge<'_>,
+) -> Result<Option<(&'e SealedServing, &'e SealedIsolation)>, McpRefusal> {
+    let Some(sealed) = edge.sealed() else {
+        return Ok(None);
+    };
+    let sealed = sealed.as_ref().map_err(|_| McpRefusal::Unreadable)?;
+    let isolation = &sealed.isolation;
+    let bounded = |reason: &str| {
+        !reason.is_empty()
+            && reason.chars().count() <= REASON_LIMIT
+            && !reason.chars().any(char::is_control)
+    };
+    let readable = [&isolation.cold, &isolation.replacement]
+        .into_iter()
+        .chain(isolation.resume.values())
+        .all(|assessment| match assessment {
+            SealedAssessment::Unsupported(reason) => bounded(reason),
+            SealedAssessment::Measured | SealedAssessment::Unmeasured => true,
+        });
+    match readable {
+        true => Ok(Some((sealed, isolation))),
+        false => Err(McpRefusal::UnboundedReason),
+    }
+}
+
+impl SealedBoundary {
+    /// Whether Brokkr builds this boundary's box, as core's
+    /// `Boundary::is_boxed` rules it: this crate reads no core type, so the
+    /// copy is held to it by the runtime's
+    /// `a_sealed_boundary_boxes_exactly_where_core_rules_it`.
+    pub fn boxes(self) -> bool {
+        use SealedBoundary::{Container, Harness, Namespace, Open, Seatbelt};
+        match self {
+            Namespace | Seatbelt | Container => true,
+            Harness | Open => false,
         }
     }
+}
 
+impl SealedFence {
+    /// `refusal` past the lifted fence; nothing while it stands.
+    fn refuses(self, refusal: McpRefusal) -> Result<(), McpRefusal> {
+        match self {
+            SealedFence::Standing => Ok(()),
+            SealedFence::Lifted => Err(refusal),
+        }
+    }
+}
+
+impl SealedIsolation {
     /// Whether `provider` may be served as `invocation`: its assessment
     /// must be measured, and the engine must build a qualified mechanism
     /// for its harness. A measured claim for a harness with none is missing
@@ -377,7 +394,12 @@ impl Isolation {
         let (assessment, shape) = match invocation {
             Invocation::Cold => (&self.cold, "cold"),
             Invocation::Replacement => (&self.replacement, "replacement"),
-            Invocation::Resume(shape) => (&self.resume, shape),
+            Invocation::Resume(shape) => (
+                self.resume
+                    .get(shape)
+                    .unwrap_or(&SealedAssessment::Unmeasured),
+                shape,
+            ),
         };
         let unmeasured = || {
             McpRefusal::Strict(StrictCause::Unmeasured {
@@ -386,14 +408,14 @@ impl Isolation {
             })
         };
         match assessment {
-            Assessment::Unsupported(reason) => {
+            SealedAssessment::Unsupported(reason) => {
                 return Err(McpRefusal::Strict(StrictCause::Unsupported {
                     provider: provider.into(),
                     reason: reason.clone(),
                 }))
             }
-            Assessment::Unmeasured => return Err(unmeasured()),
-            Assessment::Measured => {}
+            SealedAssessment::Unmeasured => return Err(unmeasured()),
+            SealedAssessment::Measured => {}
         }
         match ServingShape::of(provider) {
             Some(ServingShape::Claude | ServingShape::Dsh) => Ok(()),
@@ -416,30 +438,40 @@ impl Isolated {
     /// is read to the provider segment it names, its route, and whether
     /// the seat carries a route overlay: a route U0 or U0c did not measure,
     /// a seat that pins none and an overlay that is not the measured
-    /// route's each refuse before any route is claimed or home staged.
+    /// route's each refuse before any route is claimed or home staged past
+    /// the fence, and while it stands are served from the operator's home.
     pub(super) fn dsh(
         &self,
         route: Option<&str>,
         routed: bool,
     ) -> Result<DshIsolation, McpRefusal> {
-        if self.isolation.is_none() {
+        let Some(isolation) = &self.isolation else {
             return Ok(DshIsolation::Operator);
+        };
+        match Isolated::route(route, routed) {
+            Ok(()) => Ok(DshIsolation::Engine {
+                rejoins: self.resumes("dsh", super::DSH_SHAPE),
+            }),
+            Err(refusal) => (isolation.fence.refuses(refusal)).map(|()| DshIsolation::Operator),
         }
+    }
+
+    /// Whether `route`, with or without a route overlay, is one U0 or U0c
+    /// measured an engine-only home on.
+    fn route(route: Option<&str>, routed: bool) -> Result<(), McpRefusal> {
         let route = route.ok_or(McpRefusal::Unpinned)?;
         let Some((_, row)) = DSH_ROUTES.iter().find(|(name, _)| *name == route) else {
             return Err(McpRefusal::UnmeasuredRoute {
                 route: route.to_string(),
             });
         };
-        if routed != (*row == RouteRow::Overlay) {
-            return Err(McpRefusal::RouteEntry {
+        match routed == (*row == RouteRow::Overlay) {
+            true => Ok(()),
+            false => Err(McpRefusal::RouteEntry {
                 route: route.to_string(),
                 row: *row,
-            });
+            }),
         }
-        Ok(DshIsolation::Engine {
-            rejoins: self.resumes("dsh", super::DSH_SHAPE),
-        })
     }
 }
 
@@ -468,13 +500,62 @@ impl DshIsolation {
     }
 }
 
-/// Whether the typed inputs sealed beside `input` declare the box's hands.
-/// Absent inputs declare none; inputs that cannot be read declare nothing
-/// the intent can be compared with.
-fn sealed_hands(edge: &Edge<'_>) -> Option<bool> {
-    match edge.sealed() {
-        None => Some(false),
-        Some(sealed) => sealed.as_ref().ok().map(|sealed| sealed.spec.is_some()),
+/// The server set `sealed` inputs declare (U1g2): the box's hands server
+/// where they seal typed hands under a boundary that boxes them, and the
+/// empty set otherwise. Under `harness` the harness's own sandbox carries an
+/// office's hands and under `open` nothing does, so hands sealed under
+/// either are served the empty set, as the compile intended it.
+fn sealed_servers(sealed: &SealedServing) -> SealedServers {
+    let boxed = sealed.dialect.stands.is_some_and(SealedBoundary::boxes);
+    match sealed.spec.is_some() && boxed {
+        true => SealedServers::Hands,
+        false => SealedServers::Empty,
+    }
+}
+
+/// SI2's final configuration check (U1g2): the MCP options a sealed
+/// Claude-grammar command carries must be exactly those of the
+/// configuration its intent `built` and, where its sealed set holds it, of
+/// the box's hands `server`. A strict flag removed, another document
+/// appended or the built one changed refuses before any server or model
+/// starts. A command that cannot be read whole is the final check's own
+/// refusal. Codex builds no isolated configuration, its hands' bindings
+/// being the final check's, and dsh carries its set in its engine-only
+/// home, not its argv.
+fn final_set(
+    provider: &'static str,
+    command: &[String],
+    built: &[String],
+    server: Option<&Transport<'_>>,
+) -> Result<(), McpRefusal> {
+    use crate::native_controls::grammar::{parse_final, Command};
+    if ServingShape::of(provider) != Some(ServingShape::Claude) {
+        return Ok(());
+    }
+    let Some(Ok(carried)) = command
+        .get(1..)
+        .and_then(|argv| parse_final(provider, argv))
+    else {
+        return Ok(());
+    };
+    let options = |command: &Command| {
+        let mut options: Vec<(String, Vec<String>)> = (command.nodes.iter())
+            .filter(|node| matches!(node.name(), "--strict-mcp-config" | "--mcp-config"))
+            .map(|node| (node.name().to_string(), node.values.clone()))
+            .collect();
+        options.sort();
+        options
+    };
+    let mut owed = placed(provider, built).map_or_else(Vec::new, |built| options(&built));
+    if let Some(server) = server {
+        let document = crate::hands::mcp_config(server.brokkr, server.workdir, server.spec);
+        owed.push(("--strict-mcp-config".into(), Vec::new()));
+        owed.push(("--mcp-config".into(), vec![document.to_string()]));
+        owed.sort();
+    }
+    match options(&carried.command) == owed {
+        true => Ok(()),
+        false => Err(McpRefusal::NotSealed { provider }),
     }
 }
 
@@ -497,67 +578,72 @@ fn with_empty_set(
 
 /// `extra`, a launch's composed arguments for `provider`, with the isolated
 /// configuration of the engine's intent in them, or the refusal that stops
-/// the launch before any provider work. The intent's server set must be the
-/// one the sealed inputs declare: the hands set rides the adapter's measured
-/// workspace fragment, whose strict flag and document the final check
-/// proves, and the empty set gains the strict flag and the empty document
-/// here, beside no other MCP configuration. dsh's empty set is its
-/// engine-only home with no server row in its overlay, so its arguments are
-/// unchanged, and dsh holds no hands (its adapter's measured fact), so a
-/// hands set is never measured for it. A launch offered no rejoin is
-/// admitted cold; one `offered` a rejoin can always end as its cold
-/// replacement, so that shape is admitted for it, and the rejoin itself
-/// separately ([`Isolated::resumes`]).
+/// the launch before any provider work. Whichever way the fence stands, the
+/// intent's server set must be the one the sealed inputs declare, and the
+/// empty set is served beside no other MCP configuration: the hands set
+/// rides the adapter's measured workspace fragment, whose strict flag and
+/// document the final check proves, and the empty set gains the strict
+/// flag and the empty document here. dsh's empty set is its engine-only
+/// home with no server row in its overlay, so its arguments are unchanged,
+/// and dsh holds no hands (its adapter's measured fact), so a hands set is
+/// never measured for it. A launch offered no rejoin is admitted cold; one
+/// `offered` a rejoin can always end as its cold replacement, so that shape
+/// is admitted for it, and the rejoin itself separately
+/// ([`Isolated::resumes`]). A shape not admitted refuses past the fence and,
+/// while it stands, is served as before.
 pub(super) fn isolated(
     provider: &'static str,
     edge: &Edge<'_>,
     extra: &[String],
     offered: bool,
 ) -> Result<Isolated, McpRefusal> {
-    let Some(isolation) = Isolation::read(edge.input)? else {
-        return Ok(Isolated {
-            argv: extra.to_vec(),
-            isolation: None,
-        });
+    let unbuilt = Isolated {
+        argv: extra.to_vec(),
+        isolation: None,
     };
-    isolation.admit(
-        provider,
-        match offered {
-            true => Invocation::Replacement,
-            false => Invocation::Cold,
-        },
-    )?;
+    let Some((sealed, isolation)) = intent(edge)? else {
+        return Ok(unbuilt);
+    };
     let not_sealed = McpRefusal::NotSealed { provider };
-    let hands = isolation.servers == ServerSet::Hands;
-    if sealed_hands(edge) != Some(hands) {
+    if sealed_servers(sealed) != isolation.servers {
         return Err(not_sealed);
     }
-    let dsh = ServingShape::of(provider) == Some(ServingShape::Dsh);
-    let argv = match (hands, dsh) {
-        (true, true) => {
-            return Err(McpRefusal::Strict(StrictCause::Unmeasured {
+    let hands = isolation.servers == SealedServers::Hands;
+    let shape = ServingShape::of(provider);
+    let empty = !hands && shape == Some(ServingShape::Claude);
+    let configured = extra.iter().any(|part| {
+        claude_restriction_control(part)
+            .is_some_and(|(control, _)| matches!(control, "--strict-mcp-config" | "--mcp-config"))
+    });
+    if empty && configured {
+        return Err(not_sealed);
+    }
+    let invocation = match offered {
+        true => Invocation::Replacement,
+        false => Invocation::Cold,
+    };
+    let admitted = isolation.admit(provider, invocation).and_then(|()| {
+        match hands && shape == Some(ServingShape::Dsh) {
+            true => Err(McpRefusal::Strict(StrictCause::Unmeasured {
                 provider: provider.into(),
                 shape: "hands".into(),
-            }))
+            })),
+            false => Ok(()),
         }
-        (true, false) | (false, true) => extra.to_vec(),
-        (false, false) => {
-            let configured = extra.iter().any(|part| {
-                claude_restriction_control(part).is_some_and(|(control, _)| {
-                    matches!(control, "--strict-mcp-config" | "--mcp-config")
-                })
-            });
-            if configured {
-                return Err(not_sealed);
-            }
-            with_empty_set(provider, extra.to_vec())?
-        }
+    });
+    if let Err(refusal) = admitted {
+        return isolation.fence.refuses(refusal).map(|()| unbuilt);
+    }
+    let argv = match empty {
+        true => with_empty_set(provider, extra.to_vec())?,
+        false => extra.to_vec(),
     };
+    edge.built.get_or_init(|| argv[extra.len()..].to_vec());
     Ok(Isolated {
         argv,
-        isolation: Some(isolation),
+        isolation: Some(isolation.clone()),
     })
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

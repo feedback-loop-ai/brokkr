@@ -1233,7 +1233,7 @@ fn a_compiled_cold_command_is_served_only_as_its_final_check_returns_it() {
             "work",
             0,
             Box::new(|_, _| {}),
-            claude(&[], &[], &deny),
+            claude(&[], &[], &[&deny[..], ISOLATED].concat()),
         ),
         (
             "boxed claude as sealed",
@@ -1614,30 +1614,22 @@ fn an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the
              carry a value (operator ruling 1 of 2026-09-23; rebuild unit 5c-fix-b)"
         )
     };
+    // A legitimate seat: sealed, no template, launched with `pins`.
+    let legitimate = |pins: &[&str]| {
+        let launched = launched_as(&[pins, &["--disallowedTools", "WebFetch,WebSearch"]]);
+        format!(
+            "{:?} {} {launched}",
+            Ok::<(), String>(()),
+            json!({"kind": "none"})
+        )
+    };
     type Edit = Box<dyn Fn(&mut Value)>;
     let rows: Vec<(&str, &str, Edit, String)> = vec![
         (
             "the legitimate pins",
             "high",
             Box::new(|_| {}),
-            format!(
-                "{:?} {} launched {:?}",
-                Ok::<(), String>(()),
-                json!({"kind": "none"}),
-                [
-                    "claude",
-                    "-p",
-                    "--output-format",
-                    "stream-json",
-                    "--verbose",
-                    "--model",
-                    "claude-opus-5-5",
-                    "--effort",
-                    "high",
-                    "--disallowedTools",
-                    "WebFetch,WebSearch"
-                ]
-            ),
+            legitimate(&["--model", "claude-opus-5-5", "--effort", "high"]),
         ),
         (
             "model_flag a permission mode, the model bypassPermissions",
@@ -1696,22 +1688,7 @@ fn an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the
             "the legitimate model pin with no effort pinned",
             "",
             Box::new(|_| {}),
-            format!(
-                "{:?} {} launched {:?}",
-                Ok::<(), String>(()),
-                json!({"kind": "none"}),
-                [
-                    "claude",
-                    "-p",
-                    "--output-format",
-                    "stream-json",
-                    "--verbose",
-                    "--model",
-                    "route/claude-opus-5-5",
-                    "--disallowedTools",
-                    "WebFetch,WebSearch"
-                ]
-            ),
+            legitimate(&["--model", "route/claude-opus-5-5"]),
         ),
         (
             "a dormant effort_flag: additional directories",
@@ -2179,13 +2156,8 @@ fn an_agent_backed_claude_seat_seals_its_declared_template_and_refuses_a_contrad
     let acceptance = strings(&["--permission-mode", "acceptEdits"]);
     let bypass = strings(&["--permission-mode", "bypassPermissions"]);
     assert_eq!(
-        launch(&bundle, "work", 0),
-        [
-            "claude",
-            "-p",
-            "--output-format",
-            "stream-json",
-            "--verbose",
+        format!("launched {:?}", launch(&bundle, "work", 0)),
+        launched_as(&[&[
             "--permission-mode",
             "acceptEdits",
             "--model",
@@ -2194,7 +2166,7 @@ fn an_agent_backed_claude_seat_seals_its_declared_template_and_refuses_a_contrad
             "high",
             "--disallowedTools",
             "WebFetch,WebSearch"
-        ]
+        ]])
     );
     // The compiled spawn's driver segment: the verb, then the template.
     let (compiled, _) = sealing(&bundle, "work", 0, site);
@@ -2379,26 +2351,18 @@ fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_l
                 "template": {"kind": "declared",
                              "argv": ["--permission-mode", "acceptEdits"]},
             },
-            "final": format!(
-                "launched {:?}",
-                [
-                    "claude",
-                    "-p",
-                    "--output-format",
-                    "stream-json",
-                    "--verbose",
-                    "--model",
-                    "claude-opus-5-5",
-                    "--effort",
-                    "high",
-                    "--permission-mode",
-                    "acceptEdits",
-                    "--allowedTools",
-                    "Bash(gh pr view:*),Bash(cargo:*)",
-                    "--disallowedTools",
-                    "WebFetch,WebSearch"
-                ]
-            ),
+            "final": launched_as(&[&[
+                "--model",
+                "claude-opus-5-5",
+                "--effort",
+                "high",
+                "--permission-mode",
+                "acceptEdits",
+                "--allowedTools",
+                "Bash(gh pr view:*),Bash(cargo:*)",
+                "--disallowedTools",
+                "WebFetch,WebSearch"
+            ]]),
         })
     );
 }
@@ -2449,24 +2413,16 @@ fn an_inline_claude_seat_whose_adapter_declares_no_template_gets_none() {
                 {"origin": "local", "argv": ["--allowedTools", "Bash(cargo:*)"]},
             ],
             "template": {"kind": "none"},
-            "final": format!(
-                "launched {:?}",
-                [
-                    "claude",
-                    "-p",
-                    "--output-format",
-                    "stream-json",
-                    "--verbose",
-                    "--model",
-                    "claude-opus-5-5",
-                    "--effort",
-                    "high",
-                    "--allowedTools",
-                    "Bash(cargo:*)",
-                    "--disallowedTools",
-                    "WebFetch,WebSearch"
-                ]
-            ),
+            "final": launched_as(&[&[
+                "--model",
+                "claude-opus-5-5",
+                "--effort",
+                "high",
+                "--allowedTools",
+                "Bash(cargo:*)",
+                "--disallowedTools",
+                "WebFetch,WebSearch"
+            ]]),
         })
     );
 }
@@ -3030,7 +2986,10 @@ fn an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_with
             "Bash(git:*),Bash(gh pr view:*)",
             "--disallowedTools",
             "WebFetch,WebSearch",
-        ],
+        ]
+        .into_iter()
+        .chain(ISOLATED.iter().copied())
+        .collect::<Vec<_>>(),
         "the driver said: {said}"
     );
 }
@@ -4802,7 +4761,8 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
         Result<Vec<String>, String>,
     );
     let untouched = || -> Tamper { Box::new(|_| {}) };
-    let rows: Vec<Row> = vec![
+    let rows: Vec<Row> =
+        vec![
         (
             "codex inline, denied",
             &denied,
@@ -4859,12 +4819,10 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
             0,
             ["not applicable", "none"],
             Box::new(|input| input["serving_inputs"]["dialect"]["sandbox"] = json!("x\nsecret")),
-            Err(
-                "refusing the sealed serving inputs: 'serving.dialect.sandbox' is not an array; the \
-                 inputs a final command is rebuilt from are never repaired into empty or \
-                 default ones, nor recovered from its argv (rebuild unit 14a2; design D5.7, D6)"
-                    .to_string(),
-            ),
+            // U1g2: inputs that cannot be read seal no intent to serve by.
+            Err("refusing to invoke the agent CLI: the engine's MCP isolation intent cannot be \
+                 read, so no strict MCP configuration is built"
+                .to_string()),
         ),
         (
             "codex agent, its engine segment counterfeited as the recipe's",
@@ -5811,14 +5769,33 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
                           "application": {"kind": "direct", "limits": limits}},
                 "native": {"kind": "known", "held": [], "denied": ["web-fetch", "web-search"]},
                 "template": {"kind": "declared", "argv": ["--permission-mode", "acceptEdits"]},
-                "final": {"Ok": ["claude", "-p", "--output-format", "stream-json", "--verbose",
-                                 "--model", "claude-fable-5-1", "--effort", "high",
-                                 "--permission-mode", "acceptEdits", "--allowedTools", list,
-                                 "--disallowedTools", "WebFetch,WebSearch"]},
+                "final": {"Ok": shipped_claude_final(list)},
             }),
         );
     }
     assert_eq!(Value::Object(observed), Value::Object(expected));
+}
+
+/// The whole cold command a shipped Claude recipe seat on Fable launches
+/// with its typed allow lowered to `list`.
+fn shipped_claude_final(list: &str) -> Vec<&str> {
+    let head = [
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+    ];
+    let pins = ["--model", "claude-fable-5-1", "--effort", "high"];
+    let local = ["--permission-mode", "acceptEdits", "--allowedTools", list];
+    [
+        &head[..],
+        &pins,
+        &local,
+        &["--disallowedTools", "WebFetch,WebSearch"],
+        ISOLATED,
+    ]
+    .concat()
 }
 
 /// Rebuild unit 7 (task 7.1; operator ruling of 2026-09-25, "narrow"):
@@ -5982,10 +5959,7 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
                                       "limits": list.split(',').collect::<Vec<_>>()}},
             "native": {"kind": "known", "held": [], "denied": ["web-fetch", "web-search"]},
             "template": {"kind": "declared", "argv": ["--permission-mode", "acceptEdits"]},
-            "final": {"Ok": ["claude", "-p", "--output-format", "stream-json", "--verbose",
-                             "--model", "claude-fable-5-1", "--effort", "high",
-                             "--permission-mode", "acceptEdits", "--allowedTools", list,
-                             "--disallowedTools", "WebFetch,WebSearch"]},
+            "final": {"Ok": shipped_claude_final(list)},
         },
         "standby/implement": codex(&["--sandbox", "workspace-write"], "workspace-write", "file"),
         "standby/review": codex(&gate, "read-only", "last-message"),
@@ -7089,15 +7063,12 @@ fn an_authored_capability_option_refuses_the_compile_under_every_grant_state() {
             }
             let launched = try_launch(&bundle, "work", 0)
                 .unwrap_or_else(|refusal| panic!("{harness} in {realm}: {refusal}"));
-            let denial: &[&str] = match *harness {
-                "codex" => &OFF,
-                _ => &["--disallowedTools", "WebFetch,WebSearch"],
+            let denial = match *harness {
+                "codex" => OFF.to_vec(),
+                _ => [&["--disallowedTools", "WebFetch,WebSearch"][..], ISOLATED].concat(),
             };
-            assert_eq!(
-                &launched[launched.len() - 2..],
-                denial,
-                "{harness} in {realm}: {launched:?}"
-            );
+            let tail = &launched[launched.len() - denial.len()..];
+            assert_eq!(tail, denial, "{harness} in {realm}: {launched:?}");
         }
     }
 }
@@ -7159,22 +7130,14 @@ fn a_native_control_declared_as_argv_reaches_the_final_claude_command() {
     // the inline seat declares no typed allow, so no template is emitted.
     assert_eq!(
         solo(&operator, mixed.path(), &context),
-        format!(
-            "launched {:?}",
-            [
-                "claude",
-                "-p",
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--model",
-                "claude-opus-5",
-                "--effort",
-                "high",
-                "--disallowedTools",
-                "WebFetch,WebSearch"
-            ]
-        )
+        launched_as(&[&[
+            "--model",
+            "claude-opus-5",
+            "--effort",
+            "high",
+            "--disallowedTools",
+            "WebFetch,WebSearch"
+        ]])
     );
     // Codex takes no tool selection: a bare invocation dispatches no modelled
     // grammar, so it loads (rebuild unit 11) and the inline launch refuses it.
@@ -7240,7 +7203,7 @@ fn an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant() {
         "--effort",
         "high",
     ];
-    let launched = |tail: &[&str]| format!("launched {:?}", [&head[..], tail].concat());
+    let launched = |tail: &[&str]| format!("launched {:?}", [&head[..], tail, ISOLATED].concat());
     let refused = |limit: &str| {
         format!(
             "bundle: seat 'work' (office 'work') in realm 'private': the capability plan's \
@@ -7792,18 +7755,16 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
          'web-fetch'; an explicit tool list is a hard limit that nothing widens, so the conflict \
          is refused whole rather than unioned (design D6)"
     );
-    let wants = launched_as(&[&[
-        "--permission-mode",
-        "acceptEdits",
-        "--model",
-        "claude-opus-5-5",
-        "--effort",
-        "high",
-        "--tools",
-        "",
-        "--disallowedTools",
-        "WebFetch,WebSearch",
-    ]]);
+    // U1g2: hands under `harness` intend the empty set, whose shape no
+    // shipped Claude evidence measures, so it is served as before.
+    let wants = launched_with(
+        &[
+            &["--permission-mode", "acceptEdits"],
+            &["--model", "claude-opus-5-5", "--effort", "high"],
+            &["--tools", "", "--disallowedTools", "WebFetch,WebSearch"],
+        ],
+        &[],
+    );
     assert_eq!(handed("wants"), wants);
     // The same launch checked whole, as rebuild unit 14 serves it: under
     // `harness` the seat's hands are the managed fragment alone, with no
@@ -8526,8 +8487,14 @@ fn a_compiled_tool_both_admitted_and_denied_is_refused_by_its_bounded_identity()
     }
 }
 
-/// `launched […]` for the Claude head followed by `parts`, concatenated.
+/// `launched […]` for the Claude head followed by `parts`, concatenated, and
+/// the cold empty set's [`ISOLATED`] configuration.
 fn launched_as(parts: &[&[&str]]) -> String {
+    launched_with(parts, ISOLATED)
+}
+
+/// [`launched_as`] with `isolated` as the MCP configuration behind `parts`.
+fn launched_with(parts: &[&[&str]], isolated: &[&str]) -> String {
     let head: &[&str] = &[
         "claude",
         "-p",
@@ -8535,13 +8502,34 @@ fn launched_as(parts: &[&[&str]]) -> String {
         "stream-json",
         "--verbose",
     ];
-    format!(
-        "launched {:?}",
-        std::iter::once(head)
-            .chain(parts.iter().copied())
-            .flatten()
-            .collect::<Vec<_>>()
-    )
+    let whole = [&[head][..], parts, &[isolated]].concat();
+    format!("launched {:?}", whole.concat())
+}
+
+/// The empty set's strict configuration a cold Claude-grammar seat with no
+/// hands is served (decision 0065 slice two, U1g2): the shipped Claude and
+/// LaneTally adapters measured that shape on Linux alone, so on macOS it is
+/// unmeasured and, while the MCP compile fence stands, served as before.
+#[cfg(not(target_os = "macos"))]
+const ISOLATED: &[&str] = &[
+    "--strict-mcp-config",
+    "--mcp-config",
+    r#"{"mcpServers":{}}"#,
+];
+#[cfg(target_os = "macos")]
+const ISOLATED: &[&str] = &[];
+
+/// `argv`, a cold seat of `provider`, with what it is served behind it
+/// (U1g2): a Claude-grammar seat the measured empty set, any other nothing.
+/// An offered seat's unmeasured replacement is served as before.
+fn served_cold(provider: &str, argv: Vec<String>) -> Vec<String> {
+    let isolated: &[&str] = match provider {
+        "claude" | "lanetally" => ISOLATED,
+        _ => &[],
+    };
+    argv.into_iter()
+        .chain(isolated.iter().map(|word| word.to_string()))
+        .collect()
 }
 
 // ------------------------------------------------- rebuild unit 20
@@ -9336,8 +9324,7 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
     let resumed = ["exec", "resume", "--json"];
     let rejoined_class = ["-c", "sandbox_mode=\"workspace-write\""];
     let at = [THREAD, "-"];
-    let lanetally_bin = root.join("lanetally-harness");
-    let dsh_bin = root.join("dsh-harness");
+    let (lanetally_bin, dsh_bin) = (root.join("lanetally-harness"), root.join("dsh-harness"));
     let (lanetally_bin, dsh_bin) = (lanetally_bin.to_str().unwrap(), dsh_bin.to_str().unwrap());
     let (claude_shim, codex_shim) = (claude.to_str().unwrap(), codex.to_str().unwrap());
 
@@ -9423,10 +9410,11 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
         };
         for (candidate, provider) in providers.iter().enumerate() {
             let cold_on = |program: &str| cold(carrier, label, provider, program, &told);
-            let served: Result<Vec<String>, String> = Ok(cold_on(match *provider {
+            let plain = cold_on(match *provider {
                 "claude" => "claude",
                 _ => "codex",
-            }));
+            });
+            let served: Result<Vec<String>, String> = Ok(served_cold(provider, plain.clone()));
             // A Codex work site under its typed class, or with hands under
             // `harness`, is rejoined; every other work site is declined and
             // served cold on the binary it was offered on.
@@ -9438,7 +9426,7 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
                 ))),
                 (_, "codex") => Some(Ok(cold_on(codex_shim))),
                 (_, "claude") => Some(Ok(cold_on(claude_shim))),
-                _ => Some(served.clone()),
+                _ => Some(Ok(plain)),
             };
             rows.push((
                 label.clone(),
@@ -10150,19 +10138,18 @@ fn a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_
             }
             let (record, digest) = undigested(&site.manifest());
             digests.push((format!("{case}, {form}"), digest));
-            let command = |program: &str, resumed: bool| {
-                let mut argv = [
+            // The whole command on `program`, its last words `last`: the
+            // cold empty set's (U1g2), a rejoin's selector, or none.
+            let command = |program: &str, last: &[&str]| {
+                [
                     vec![program.to_string()],
                     words(&["-p", "--output-format", "stream-json", "--verbose"]),
                     words(template),
                     words(&["--model", "claude-opus-5-5", "--effort", "high"]),
                     words(tail),
+                    words(last),
                 ]
-                .concat();
-                if resumed {
-                    argv.extend(words(&["--resume", session]));
-                }
-                argv
+                .concat()
             };
             let shim = claude.to_str().unwrap();
             let observed = json!({
@@ -10188,9 +10175,9 @@ fn a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_
                              "flags": {"allow": {"flag": "--allowedTools", "separator": ","},
                                        "deny": {"flag": "--disallowedTools", "separator": ","},
                                        "include": {"flag": "--tools", "separator": ","}}}},
-                "cold": format!("{:?}", Ok::<_, String>(command("claude", false))),
-                "rejoined": format!("{:?}", Ok::<_, String>(command(shim, true))),
-                "declined": format!("{:?}", Ok::<_, String>(command(shim, false))),
+                "cold": format!("{:?}", Ok::<_, String>(command("claude", ISOLATED))),
+                "rejoined": format!("{:?}", Ok::<_, String>(command(shim, &["--resume", session]))),
+                "declined": format!("{:?}", Ok::<_, String>(command(shim, &[]))),
             });
             if observed != expected {
                 failures.push(format!(
@@ -10259,8 +10246,7 @@ fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_invent
     let session = "019c4b7e-0000-7000-8000-000000000121";
     let context = CapabilityContext::no_grants("private", operator.root());
     let adapters = claude_search_off(Some(&json!(["--tools", "Read"])));
-    let words =
-        |parts: &[&str]| -> Vec<String> { parts.iter().map(|part| part.to_string()).collect() };
+    let words = |parts: &[&str]| -> Vec<String> { parts.iter().map(ToString::to_string).collect() };
     let mut failures = Vec::new();
     let mut check = |case: &str, observed: String, expected: String| {
         if observed != expected {
@@ -10271,7 +10257,7 @@ fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_invent
     // The joined prompt value, served cold and on an actual rejoin.
     claude_work_seat(&operator, false, &["--append-system-prompt=--tools Read"]);
     let bundle = solo_bundle(&operator, adapters.path(), &context).unwrap();
-    let command = |program: &str| {
+    let command = |program: &str, last: &[&str]| {
         [
             vec![program.to_string()],
             words(&[
@@ -10289,6 +10275,7 @@ fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_invent
                 "--disallowedTools",
                 "WebFetch",
             ]),
+            words(last),
         ]
         .concat()
     };
@@ -10304,14 +10291,13 @@ fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_invent
             "{:?}",
             served_as(&bundle, "work", 0, brokkr_runtime::SeatClass::Work, None)
         ),
-        format!("{:?}", Ok::<_, String>(command("claude"))),
+        format!("{:?}", Ok::<_, String>(command("claude", ISOLATED))),
     );
-    let mut rejoined = command(claude.to_str().unwrap());
-    rejoined.extend(words(&["--resume", session]));
+    let rejoined = Ok::<_, String>(command(claude.to_str().unwrap(), &["--resume", session]));
     check(
         "the joined prompt value, rejoined",
         format!("{:?}", claude_rejoined(&bundle, "work", &claude, session)),
-        format!("{:?}", Ok::<_, String>(rejoined)),
+        format!("{rejoined:?}"),
     );
 
     // What the recipe writes and the compile refuses.
@@ -10428,6 +10414,7 @@ fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_invent
                         "--effort",
                         "high",
                     ]),
+                    words(ISOLATED),
                 ]
                 .concat()
             )
@@ -11080,18 +11067,12 @@ fn a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape() {
             let office = seated.is_err();
             let site = bundle.sites[label].capabilities.as_ref().unwrap();
             let outcome = &site.outcomes[candidate];
-            let served = |program: &str, resumed: bool| -> Result<Vec<String>, String> {
+            let served = |program: &str, last: &[&str]| -> Result<Vec<String>, String> {
                 if label == "claude-typed" {
                     return Err(typed.clone());
                 }
-                let mut argv = match office {
-                    true => words(&[&[program], &lead, &template, &pins, &limited]),
-                    false => words(&[&[program], &lead, &pins, &limited]),
-                };
-                if resumed {
-                    argv.extend(words(&[&["--resume", session]]));
-                }
-                Ok(argv)
+                let template: &[&str] = if office { &template } else { &[] };
+                Ok(words(&[&[program], &lead, template, &pins, &limited, last]))
             };
             let mut record = json!({"held": {}, "not_held": not_held, "notices": [],
                 "native": {"inventory": "known", "off": ["web-fetch", "web-search"], "on": []},
@@ -11130,9 +11111,9 @@ fn a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape() {
                              "flags": {"allow": {"flag": "--allowedTools", "separator": ","},
                                        "deny": {"flag": "--disallowedTools", "separator": ","},
                                        "include": {"flag": "--tools", "separator": ","}}}},
-                "cold": format!("{:?}", served("claude", false)),
-                "rejoined": offered.then(|| format!("{:?}", served(shim, true))),
-                "declined": offered.then(|| format!("{:?}", served(shim, false))),
+                "cold": format!("{:?}", served("claude", ISOLATED)),
+                "rejoined": offered.then(|| format!("{:?}", served(shim, &["--resume", session]))),
+                "declined": offered.then(|| format!("{:?}", served(shim, &[]))),
             });
             if observed != expected {
                 failures.push(format!(

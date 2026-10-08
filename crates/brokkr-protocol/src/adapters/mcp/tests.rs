@@ -2,7 +2,8 @@ use super::super::tests::{
     claude_plan, enabled_input, executable, sealed_pair, version_preamble, Seal,
 };
 use super::super::{
-    claude_launch, codex_command, dsh_argv, dsh_launch_with, CLAUDE_SHAPE, LANETALLY_SHAPE,
+    claude_launch, codex_command, dsh_argv, dsh_launch_with, CLAUDE_SHAPE, DSH_SHAPE,
+    LANETALLY_SHAPE,
 };
 use super::*;
 use serde_json::json;
@@ -45,13 +46,60 @@ fn unmeasured_cause(provider: &str, shape: &str) -> McpRefusal {
     })
 }
 
-/// `input` carrying the engine's isolation intent for `servers`, its cold,
-/// replacement and resume assessments in that order.
-fn intended(mut input: Value, servers: &str, [cold, replacement, resume]: [Value; 3]) -> Value {
-    input[MCP_ISOLATION] = json!({
-        "servers": servers, "cold": cold, "replacement": replacement, "resume": resume
+/// `input` whose serving inputs, its own or the default ones, seal the
+/// engine's isolation intent for `servers`, its cold, replacement and resume
+/// assessments in that order, the last for each resume shape a launch here
+/// rejoins as, under the fence `fence` (U1g2).
+fn fenced(mut input: Value, servers: &str, assessments: [Value; 3], fence: &str) -> Value {
+    let [cold, replacement, resume] = assessments;
+    if input.get(SERVING_INPUTS).is_none() {
+        input[SERVING_INPUTS] = SealedServing::default().value();
+    }
+    let resume: serde_json::Map<String, Value> = [CLAUDE_SHAPE, LANETALLY_SHAPE, DSH_SHAPE]
+        .into_iter()
+        .map(|shape| (shape.to_string(), resume.clone()))
+        .collect();
+    input[SERVING_INPUTS]["isolation"] = json!({
+        "servers": servers, "cold": cold, "replacement": replacement, "resume": resume,
+        "fence": fence,
     });
     input
+}
+
+/// [`fenced`] past the lifted fence, where SI2 refuses.
+fn intended(input: Value, servers: &str, assessments: [Value; 3]) -> Value {
+    fenced(input, servers, assessments, "lifted")
+}
+
+/// The serving inputs dispatch seals for a fixture's `dialect`, `pins` and
+/// `spec` (U1g2): its intent names the set they declare, measured on no
+/// shape, under the standing fence, so the launch is served as before.
+pub(in crate::adapters) fn dispatched(
+    dialect: crate::native_controls::SealedDialect,
+    pins: Vec<String>,
+    spec: Option<crate::hands::HandsSpec>,
+) -> Value {
+    let mut sealed = SealedServing {
+        dialect,
+        pins,
+        spec,
+        isolation: SealedIsolation::default(),
+    };
+    sealed.isolation.servers = sealed_servers(&sealed);
+    sealed.value()
+}
+
+/// Sealed serving inputs declaring the default typed hands under `stands`.
+fn hands_under(stands: SealedBoundary) -> Value {
+    let dialect = crate::native_controls::SealedDialect {
+        stands: Some(stands),
+        ..Default::default()
+    };
+    dispatched(
+        dialect,
+        Vec::new(),
+        Some(crate::hands::HandsSpec::default()),
+    )
 }
 
 fn by_hand(servers: &str, assessments: [Value; 3]) -> Value {
@@ -102,12 +150,12 @@ fn the_empty_set_is_served_cold_with_exactly_the_strict_flag_and_the_empty_docum
         "low",
     ]);
     let input = by_hand("empty", cold_only());
-    for (bin, shape) in [("claude", CLAUDE_SHAPE), ("lanetally", LANETALLY_SHAPE)] {
-        let launch = claude_launch(bin, &extra, None, &input, shape, None).unwrap();
+    for provider in ["claude", "lanetally"] {
+        let isolated = isolated(provider, &Edge::new(&input), &extra, false).unwrap();
         assert_eq!(
-            (launch.command, launch.rejoining, launch.refusal),
-            (command(bin, &[extra.clone(), s(&EMPTY)]), None, None),
-            "{bin}"
+            (isolated.argv, isolated.isolation.is_some()),
+            ([extra.clone(), s(&EMPTY)].concat(), true),
+            "{provider}"
         );
     }
     let legacy = claude_launch(
@@ -135,8 +183,13 @@ fn the_empty_set_is_served_cold_with_exactly_the_strict_flag_and_the_empty_docum
 fn a_rejoin_keeps_the_isolation_only_where_its_resume_shape_is_measured() {
     let dir = tempfile::tempdir().unwrap();
     let bin = claude_shim(&dir.path().canonicalize().unwrap(), "2.1.287");
-    let enabled = enabled_input(CLAUDE_SHAPE, "2.1.287", Path::new("/w"));
-    let extra = s(&["--model", "haiku"]);
+    // A sealed launch, so its final check rebuilds the isolated command.
+    let mut enabled = sealed_claude(&[], 0, Seal::authored(0));
+    let assessment = enabled_input(CLAUDE_SHAPE, "2.1.287", Path::new("/w"));
+    for key in ["boundary", "hands", "resume_context"] {
+        enabled[key] = assessment[key].clone();
+    }
+    let (extra, denied) = (Vec::new(), s(&["--disallowedTools", "WebSearch,WebFetch"]));
     let session = "019c4b7e-0000-7000-8000-000000000001";
     let launch_offered = |offered: Option<&str>, replacement: Value, resume: Value| {
         let assessments = [json!("unmeasured"), replacement, resume];
@@ -148,7 +201,10 @@ fn a_rejoin_keeps_the_isolation_only_where_its_resume_shape_is_measured() {
     assert_eq!(
         (warm.command, warm.rejoining.as_deref(), warm.refusal),
         (
-            command(&bin, &[extra.clone(), s(&EMPTY), s(&["--resume", session])]),
+            command(
+                &bin,
+                &[denied.clone(), s(&EMPTY), s(&["--resume", session])]
+            ),
             Some(session),
             None
         )
@@ -163,7 +219,7 @@ fn a_rejoin_keeps_the_isolation_only_where_its_resume_shape_is_measured() {
                 cold.harness_version
             ),
             (
-                command(&bin, &[extra.clone(), s(&EMPTY)]),
+                command(&bin, &[denied.clone(), s(&EMPTY)]),
                 None,
                 Some("restrictions-unavailable"),
                 None
@@ -171,6 +227,25 @@ fn a_rejoin_keeps_the_isolation_only_where_its_resume_shape_is_measured() {
             "{resume}"
         );
     }
+    // A rejoin is judged by its own resume shape's entry: another shape
+    // recorded beside it neither declines a measured rejoin nor lends a
+    // declined one its measurement.
+    let mixed = |own: &str, other: &str| {
+        let assessments = [json!("unmeasured"), json!("measured"), json!("measured")];
+        let mut input = intended(enabled.clone(), "empty", assessments);
+        input[SERVING_INPUTS]["isolation"]["resume"] =
+            json!({"work-site": other, CLAUDE_SHAPE: own});
+        let plan = claude_launch(&bin, &extra, Some(session), &input, CLAUDE_SHAPE, None).unwrap();
+        (plan.rejoining, plan.refusal)
+    };
+    assert_eq!(
+        mixed("measured", "unmeasured"),
+        (Some(session.to_string()), None)
+    );
+    assert_eq!(
+        mixed("unmeasured", "measured"),
+        (None, Some("restrictions-unavailable"))
+    );
     let refused = |offered, replacement, refusal: McpRefusal| {
         assert_eq!(
             launch_offered(offered, replacement, json!("measured")).map(|plan| plan.command),
@@ -276,39 +351,32 @@ fn each_unqualified_shape_refuses_with_its_exact_cause() {
 
 /// The intent's server set must be the one the sealed inputs declare, and
 /// the empty set is served beside no other MCP configuration: the hands set
-/// without sealed hands, the empty set beside sealed hands or unreadable
-/// inputs, and an empty set whose arguments already carry a strict flag or
-/// a document each refuse. The sealed hands set is served exactly as the
-/// same launch without an intent, its document the adapter fragment's.
+/// without sealed hands, the empty set beside the box's sealed hands, and an
+/// empty set whose arguments already carry a strict flag or a document each
+/// refuse, whichever way the fence stands; inputs that cannot be read carry
+/// no intent at all. The sealed hands set is served exactly as the same
+/// launch dispatched under the standing fence, its document the adapter
+/// fragment's.
 #[test]
 fn a_server_set_its_sealed_inputs_do_not_declare_is_refused() {
     let isolated_as = |servers: &str, extra: &[&str], inputs: Option<Value>| {
-        let mut input = by_hand(servers, cold_only());
+        let mut base = json!({"workdir": "/w"});
         if let Some(inputs) = inputs {
-            input[SERVING_INPUTS] = inputs;
+            base[SERVING_INPUTS] = inputs;
         }
+        let input = intended(base, servers, cold_only());
         isolated("claude", &Edge::new(&input), &s(extra), false).map(|isolated| isolated.argv)
     };
-    let boxed = SealedServing {
-        spec: Some(crate::hands::HandsSpec::default()),
-        ..Default::default()
-    }
-    .value();
+    let boxed = hands_under(SealedBoundary::Namespace);
     let not_sealed = Err(McpRefusal::NotSealed { provider: "claude" });
+    let unreadable = json!({"workdir": "/w", SERVING_INPUTS: "garbage"});
+    assert_eq!(
+        isolated("claude", &Edge::new(&unreadable), &[], false).map(|isolated| isolated.argv),
+        Err(McpRefusal::Unreadable)
+    );
     for (case, servers, extra, inputs) in [
         ("hands, none sealed", "hands", &[][..], None),
-        (
-            "hands, unreadable",
-            "hands",
-            &[][..],
-            Some(json!("garbage")),
-        ),
-        (
-            "empty, unreadable",
-            "empty",
-            &[][..],
-            Some(json!("garbage")),
-        ),
+        ("no model surface", "no-model-surface", &[][..], None),
         ("empty, hands sealed", "empty", &[][..], Some(boxed.clone())),
         ("empty, strict", "empty", &["--strict-mcp-config"][..], None),
         (
@@ -378,43 +446,88 @@ fn a_server_set_its_sealed_inputs_do_not_declare_is_refused() {
         served.map(|argv| argv[HEAD.len() + 3..HEAD.len() + 6].to_vec()),
         Ok(mcp)
     );
+    // Tampering refuses under the standing fence as past the lifted one.
+    for (servers, inputs) in [("hands", None), ("empty", Some(boxed_inputs()))] {
+        let mut input = json!({"workdir": "/w"});
+        if let Some(inputs) = inputs {
+            input[SERVING_INPUTS] = inputs;
+        }
+        let standing = fenced(input, servers, cold_only(), "standing");
+        assert_eq!(
+            isolated("claude", &Edge::new(&standing), &[], false).map(|isolated| isolated.argv),
+            not_sealed,
+            "{servers}"
+        );
+    }
+}
+
+/// Sealed serving inputs declaring the box's hands, as dispatch seals a
+/// site with hands under `namespace`.
+pub(super) fn boxed_inputs() -> Value {
+    hands_under(SealedBoundary::Namespace)
 }
 
 /// The intent is read closed: an unknown member or word and an absent member
-/// are unreadable, and a measured reason must be one bounded line.
+/// are unreadable, and a measured reason must be one bounded line. Serving
+/// inputs that carry no intent are unreadable too, never served as before.
 #[test]
 fn the_intent_is_read_closed_and_its_reasons_are_bounded() {
-    let read = |intent: Value| {
-        let mut input = json!({});
-        input[MCP_ISOLATION] = intent;
-        Isolation::read(&input).map(|isolation| isolation.is_some())
+    let read = |intent: Option<Value>| {
+        let mut input = json!({SERVING_INPUTS: SealedServing::default().value()});
+        match intent {
+            Some(intent) => input[SERVING_INPUTS]["isolation"] = intent,
+            None => drop(
+                input[SERVING_INPUTS]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("isolation"),
+            ),
+        }
+        intent_of(&input).map(|isolation| isolation.is_some())
     };
     let with_reason = |at: &str, reason: String| {
         let mut intent = json!({
             "servers": "empty", "cold": "measured", "replacement": "measured",
-            "resume": "unmeasured"
+            "resume": {"work-site": "measured"}, "fence": "standing"
         });
-        intent[at] = json!({"unsupported": reason});
-        read(intent)
+        *intent.pointer_mut(at).unwrap() = json!({"unsupported": reason});
+        read(Some(intent))
     };
-    let all = |servers: &str, cold: Value| json!({"servers": servers, "cold": cold, "replacement": "measured", "resume": "measured"});
+    let all = |servers: &str, cold: Value| json!({"servers": servers, "cold": cold, "replacement": "measured", "resume": {"work-site": "measured"}, "fence": "lifted"});
     let mut extended = all("empty", json!("measured"));
     extended["brokers"] = json!([]);
+    let (mut unfenced, mut opened) = (all("empty", json!("measured")), all("empty", json!("x")));
+    unfenced.as_object_mut().unwrap().remove("fence");
+    opened["cold"] = json!("measured");
+    opened["fence"] = json!("open");
+    // A resume assessment names its shape: one unnamed, or a named one in
+    // an unknown word, is unreadable.
+    let (mut unnamed, mut inherited) = (opened.clone(), opened.clone());
+    for intent in [&mut unnamed, &mut inherited] {
+        intent["fence"] = json!("lifted");
+    }
+    unnamed["resume"] = json!("measured");
+    inherited["resume"]["work-site"] = json!("inherited");
+    assert_eq!(read(None), Err(McpRefusal::Unreadable));
     for intent in [
         extended,
         all("brokers", json!("measured")),
-        json!({"servers": "empty", "cold": "measured", "resume": "measured"}),
+        json!({"servers": "empty", "cold": "measured", "resume": {}, "fence": "lifted"}),
         all("empty", json!("inherited")),
         all("empty", json!({"measured": "x"})),
+        unfenced,
+        opened,
+        unnamed,
+        inherited,
     ] {
         assert_eq!(
-            read(intent.clone()),
+            read(Some(intent.clone())),
             Err(McpRefusal::Unreadable),
             "{intent}"
         );
     }
     // Each shape's reason is held to the bound on its own.
-    for at in ["cold", "replacement", "resume"] {
+    for at in ["/cold", "/replacement", "/resume/work-site"] {
         for reason in [String::new(), "r".repeat(401), "two\nlines".into()] {
             assert_eq!(
                 with_reason(at, reason.clone()),
@@ -424,32 +537,230 @@ fn the_intent_is_read_closed_and_its_reasons_are_bounded() {
         }
         assert_eq!(with_reason(at, "r".repeat(400)), Ok(true), "{at}");
     }
-    assert_eq!(Isolation::read(&json!({})), Ok(None));
+    assert_eq!(intent_of(&json!({})), Ok(None));
 }
 
-/// A sealed launch's final check recomposes its command from the sealed
-/// inputs alone, which do not yet carry the empty set (U1g threads it), so
-/// the empty configuration a driver adds is refused there rather than
-/// served unchecked; the same sealed launch without an intent is served.
+/// The intent [`intent`] reads from `input`, `None` where it seals none.
+fn intent_of(input: &Value) -> Result<Option<SealedIsolation>, McpRefusal> {
+    intent(&Edge::new(input)).map(|sealed| sealed.map(|(_, isolation)| isolation.clone()))
+}
+
+/// U1g2: a sealed launch is served the empty set its intent built, and its
+/// final check rebuilds that configuration behind the composition, cold and
+/// on a rejoin. A sealed launch whose inputs carry no intent refuses before
+/// any provider work, and a driver run by hand with none is served as before.
 #[test]
-fn a_sealed_empty_set_is_refused_by_the_final_check_until_it_is_sealed() {
-    let input = sealed_claude(&[], 0, Seal::authored(0));
-    let launch = |input: &Value| {
-        claude_launch("claude", &[], None, input, CLAUDE_SHAPE, None).map(|plan| plan.command)
-    };
+fn a_sealed_empty_set_is_served_as_its_final_check_rebuilds_it() {
+    let sealed = sealed_claude(&[], 0, Seal::authored(0));
     let denied = s(&["--disallowedTools", "WebSearch,WebFetch"]);
-    assert_eq!(launch(&input), Ok(command("claude", &[denied])));
+    let measured = [json!("measured"), json!("measured"), json!("measured")];
+    let input = intended(sealed.clone(), "empty", measured);
+    let launch = claude_launch("claude", &[], None, &input, CLAUDE_SHAPE, None);
     assert_eq!(
-        launch(&intended(input, "empty", cold_only())),
-        Err(
-            "refusing to invoke the agent CLI: the final command of harness 'claude' carries \
-             '--strict-mcp-config' its sealed plan does not compose, however its serving builder \
-             rebuilds it; a complete command is parsed back before its spawn and must express \
-             exactly the capability state its sealed plan records, so it is refused rather than \
-             spawned (operator ruling 2 of 2026-09-23; design D6)"
-                .to_string()
-        )
+        launch.map(|plan| plan.command),
+        Ok(command("claude", &[denied.clone(), s(&EMPTY)]))
     );
+    let session = "019c4b7e-0000-7000-8000-000000000001";
+    let edge = Edge::new(&input);
+    let rejoin = isolated("claude", &edge, &[], true).map(|isolated| isolated.argv);
+    assert_eq!(rejoin, Ok(s(&EMPTY)));
+    let chosen = crate::native_controls::Serving {
+        program: "claude",
+        workdir: "/w",
+        session: Some(session),
+        ..Default::default()
+    };
+    let rejoined = command("claude", &[denied, s(&EMPTY), s(&["--resume", session])]);
+    assert_eq!(
+        served("claude", rejoined.clone(), &[], &edge, chosen),
+        Ok(rejoined)
+    );
+    let mut absent = sealed;
+    absent[SERVING_INPUTS]
+        .as_object_mut()
+        .unwrap()
+        .remove("isolation");
+    let launch = claude_launch("claude", &[], None, &absent, CLAUDE_SHAPE, None);
+    assert_eq!(
+        launch.map(|plan| plan.command),
+        Err(McpRefusal::Unreadable.at_launch())
+    );
+    let by_hand = claude_launch("claude", &[], None, &json!({}), CLAUDE_SHAPE, None);
+    assert_eq!(by_hand.map(|plan| plan.command), Ok(command("claude", &[])));
+}
+
+/// SI2's final configuration check at the serving boundary (U1g2): a final
+/// command whose strict flag or document was removed, beside which another
+/// MCP source was appended, or whose built document changed refuses with
+/// SI2's exact cause before any server or model starts, for the empty set
+/// and for the box's hands set alike.
+#[test]
+fn a_final_command_whose_mcp_configuration_departs_from_the_built_one_refuses() {
+    let chosen = crate::native_controls::Serving {
+        program: "claude",
+        workdir: "/w",
+        ..Default::default()
+    };
+    let not_sealed = Err(McpRefusal::NotSealed { provider: "claude" }.at_launch());
+    let denied = s(&["--disallowedTools", "WebSearch,WebFetch"]);
+    let input = intended(
+        sealed_claude(&[], 0, Seal::authored(0)),
+        "empty",
+        cold_only(),
+    );
+    let edge = Edge::new(&input);
+    assert_eq!(
+        isolated("claude", &edge, &[], false).map(|i| i.argv),
+        Ok(s(&EMPTY))
+    );
+    let serve = |rest: &[&[&str]]| {
+        let rest: Vec<Vec<String>> = rest.iter().map(|part| s(part)).collect();
+        served(
+            "claude",
+            command("claude", &[denied.clone(), rest.concat()]),
+            &[],
+            &edge,
+            chosen,
+        )
+    };
+    let ambient = ["--mcp-config", "/home/operator/.claude.json"];
+    for (case, rest) in [
+        ("strict removed", &[&EMPTY[1..]][..]),
+        ("document removed", &[&EMPTY[..1]][..]),
+        ("all removed", &[][..]),
+        ("another source appended", &[&EMPTY[..], &ambient[..]][..]),
+        (
+            "document changed",
+            &[&EMPTY[..2], &[r#"{"mcpServers":{"x":{"command":"x"}}}"#]][..],
+        ),
+    ] {
+        assert_eq!(serve(rest), not_sealed, "{case}");
+    }
+    assert_eq!(
+        serve(&[&EMPTY]),
+        Ok(command("claude", &[denied.clone(), s(&EMPTY)]))
+    );
+    // The box's hands set: its strict flag and document are the adapter
+    // fragment's, which the same check requires.
+    let mut seal = Seal::authored(0);
+    let fragment = [
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "{hands_mcp_json}",
+        "--allowedTools",
+        "mcp__brokkr__workspace",
+    ];
+    let extra = seal.hands(&fragment);
+    let input = intended(
+        sealed_claude(&extra, extra.len(), seal),
+        "hands",
+        cold_only(),
+    );
+    let launch = claude_launch("claude", &extra, None, &input, CLAUDE_SHAPE, None);
+    let served_hands = launch.map(|plan| plan.command).unwrap();
+    let edge = Edge::new(&input);
+    isolated("claude", &edge, &extra, false).unwrap();
+    assert_eq!(
+        served("claude", served_hands.clone(), &extra, &edge, chosen),
+        Ok(served_hands.clone())
+    );
+    let mut stripped = served_hands.clone();
+    stripped.retain(|part| part != "--strict-mcp-config");
+    let mut appended = served_hands.clone();
+    appended.extend(s(&ambient));
+    for (case, command) in [("strict removed", stripped), ("appended", appended)] {
+        assert_eq!(
+            served("claude", command, &extra, &edge, chosen),
+            not_sealed,
+            "{case}"
+        );
+    }
+}
+
+/// Under `harness` the harness's own sandbox carries an office's hands and
+/// under `open` nothing does, so typed hands sealed under either are served
+/// the empty set, its strict flag and empty document, and a hands set there
+/// is not the sealed one (U1g2; the U1f council's carried case). Under a
+/// boundary that boxes them, the same hands are the hands set.
+#[test]
+fn hands_sealed_unboxed_are_served_the_empty_set() {
+    use SealedBoundary::{Container, Harness, Namespace, Open, Seatbelt};
+    let isolated_as = |stands: SealedBoundary, servers: &str| {
+        let input = json!({"workdir": "/w", SERVING_INPUTS: hands_under(stands)});
+        let input = intended(input, servers, cold_only());
+        isolated("claude", &Edge::new(&input), &s(&["--model", "m"]), false)
+            .map(|isolated| isolated.argv)
+    };
+    let not_sealed = Err(McpRefusal::NotSealed { provider: "claude" });
+    for stands in [Harness, Open] {
+        let empty = Ok([s(&["--model", "m"]), s(&EMPTY)].concat());
+        assert_eq!(isolated_as(stands, "empty"), empty, "{stands:?}");
+        assert_eq!(isolated_as(stands, "hands"), not_sealed, "{stands:?}");
+    }
+    for stands in [Namespace, Seatbelt, Container] {
+        assert_eq!(
+            isolated_as(stands, "hands"),
+            Ok(s(&["--model", "m"])),
+            "{stands:?}"
+        );
+        assert_eq!(isolated_as(stands, "empty"), not_sealed, "{stands:?}");
+    }
+}
+
+/// While the MCP compile fence stands (U1g1's switch, which U9b lifts), a
+/// shape SI2 does not admit is served as before rather than refused: no
+/// isolated configuration is built, a rejoin is offered as it was, and dsh
+/// is served from the operator's home. Past the lifted fence the same
+/// intents refuse with SI2's exact causes
+/// ([`each_unqualified_shape_refuses_with_its_exact_cause`]).
+#[test]
+fn a_standing_fence_serves_an_unadmitted_shape_as_before() {
+    let extra = s(&["--model", "m"]);
+    let unsupported = json!({"unsupported": PROJECT_REASON});
+    let standing = |cold: Value| {
+        let assessments = [cold, json!("unmeasured"), json!("unmeasured")];
+        fenced(json!({"workdir": "/w"}), "empty", assessments, "standing")
+    };
+    for (provider, cold) in [
+        ("claude", json!("unmeasured")),
+        ("claude", unsupported.clone()),
+        ("lanetally", json!("unmeasured")),
+        ("codex", json!("measured")),
+        ("codex", unsupported),
+        ("dsh", json!("unmeasured")),
+    ] {
+        let isolated = isolated(provider, &Edge::new(&standing(cold.clone())), &extra, false);
+        let isolated = isolated.unwrap();
+        assert_eq!(
+            (isolated.argv, isolated.isolation),
+            (extra.clone(), None),
+            "{provider}, {cold}"
+        );
+    }
+    // A rejoin offered under an unmeasured replacement is offered as before.
+    let input = standing(json!("measured"));
+    let offered = isolated("claude", &Edge::new(&input), &extra, true).unwrap();
+    assert_eq!(
+        (
+            offered.argv.clone(),
+            offered.resumes("claude", CLAUDE_SHAPE)
+        ),
+        (extra.clone(), true)
+    );
+    // An admitted dsh shape on an unmeasured route, or pinning none, is
+    // served from the operator's home while the fence stands.
+    let measured = [json!("measured"), json!("measured"), json!("measured")];
+    let input = fenced(json!({}), "empty", measured, "standing");
+    let built = isolated("dsh", &Edge::new(&input), &[], false).unwrap();
+    for route in [Some("spark"), None] {
+        assert_eq!(
+            built.dsh(route, false),
+            Ok(DshIsolation::Operator),
+            "{route:?}"
+        );
+    }
 }
 
 /// The module's operator text, pinned once for every refusal. SI2's two
