@@ -250,6 +250,53 @@ fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
     );
 }
 
+/// The chain is walked against the target a layer at a time: a source
+/// holding `self` and `panel-review` but not `fast` installs both over the
+/// library's own `fast`, where resolving the source's whole chain first
+/// refused it.
+#[test]
+fn a_partial_chain_installs_over_the_librarys_own_base() {
+    let source = tempfile::tempdir().unwrap();
+    for recipe in ["self", "panel-review"] {
+        let from = workspace().join("recipes").join(recipe);
+        copy_dir(&from, &source.path().join(recipe)).unwrap();
+    }
+    let library = tempfile::tempdir().unwrap();
+    copy_dir(
+        &workspace().join("recipes/fast"),
+        &library.path().join("fast"),
+    )
+    .unwrap();
+    let own = source.path().join("self");
+    add(&workspace(), own.to_str().unwrap(), "own", library.path())
+        .expect("self composes from its source's panel-review and the library's fast");
+    assert_eq!(installed(library.path()), ["fast", "own", "panel-review"]);
+}
+
+/// A base that is not one plain name, or that the source's library holds
+/// only as a symlink, is never read from or copied to outside the library;
+/// the leaf is copied alone for the compile to refuse.
+#[test]
+fn a_base_outside_the_library_is_never_copied() {
+    let source = tempfile::tempdir().unwrap();
+    let outside = source.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::create_dir_all(source.path().join("lib")).unwrap();
+    std::os::unix::fs::symlink(&outside, source.path().join("lib/linked")).unwrap();
+    for base in ["../outside", "linked"] {
+        let leaf = source.path().join("lib/leaf");
+        std::fs::create_dir_all(&leaf).unwrap();
+        let document = serde_json::json!({"name": "leaf", "extends": base});
+        std::fs::write(leaf.join("bundle.json"), document.to_string()).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let library = target.path().join("lib");
+        let installing = install(&leaf, "leaf", &library).unwrap();
+        let names: Vec<&str> = installing.0.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["leaf"], "{base}");
+        assert!(!target.path().join("outside").exists(), "{base}");
+    }
+}
+
 /// A refused compile removes the leaf AND every base copied with it.
 #[test]
 fn a_refused_derived_recipe_leaves_the_library_as_it_found_it() {

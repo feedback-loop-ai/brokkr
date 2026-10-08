@@ -234,27 +234,49 @@ impl Drop for Installing {
     }
 }
 
+/// The base a recipe directory's `bundle.json` names in `extends`, when it
+/// names a single plain path component, so no base is read from or copied
+/// to anywhere but its library. This only plans the copies: the compile
+/// that follows reads the chain strictly (decision 0017) and names why a
+/// layer this skips does not compose.
+fn base_of(layer: &Path) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct Layer {
+        extends: Option<String>,
+    }
+    let text = std::fs::read_to_string(layer.join("bundle.json")).ok()?;
+    let base = serde_json::from_str::<Layer>(&text).ok()?.extends?;
+    let mut parts = Path::new(&base).components();
+    matches!(
+        (parts.next(), parts.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    )
+    .then_some(base)
+}
+
 /// Copy the recipe at `root` into `<dir>/<name>`, and with it each base
 /// its `extends` chain reaches (decision 0017) that the library does not
 /// already hold, under the name it is extended by: a base resolves from
 /// the library the leaf sits in, so a derived recipe copied alone would
-/// never compile there. The walk stops at the first base the library
-/// holds, whose own chain is the library's. A chain that does not
-/// resolve where the source stands copies the leaf alone, and the compile
-/// that follows names why it does not compose.
+/// never compile there. The chain is walked a layer at a time against the
+/// target, so it stops at the first base the library holds, whose own
+/// chain is the library's, wherever the source's chain would end. A base
+/// that neither the library nor the source's directory holds as a plain
+/// directory ends the walk too, and the compile that follows names why
+/// the install does not compose.
 fn install(root: &Path, name: &str, dir: &Path) -> Result<Installing> {
     let mut installing = Installing(Vec::new());
     installing.copy(root, name, dir.join(name))?;
-    let Ok(resolved) = brokkr_runtime::bundle::compose::resolve(root) else {
-        return Ok(installing);
-    };
-    for ancestor in &resolved.chain {
-        let base = ancestor.reached_as.as_deref().unwrap_or(&ancestor.name);
-        let dest = dir.join(base);
-        if dest.exists() {
+    let mut layer = root.canonicalize()?;
+    while let Some(base) = base_of(&layer) {
+        let dest = dir.join(&base);
+        let source = layer.with_file_name(&base);
+        let plain = std::fs::symlink_metadata(&source).is_ok_and(|meta| meta.is_dir());
+        if dest.exists() || !plain {
             break;
         }
-        installing.copy(&ancestor.dir, base, dest)?;
+        installing.copy(&source, &base, dest)?;
+        layer = source;
     }
     Ok(installing)
 }
