@@ -1016,7 +1016,8 @@ fn an_unrecognized_stack_scaffolds_an_empty_map_and_a_readme_that_says_so() {
 /// `agents`; verify and ship are pinned separately under `drivers` and
 /// `hands` as deterministic exec sites. Whatever tools a stack maps, its
 /// claude and exec declarations carry their shipped MCP facts (SI2), and
-/// the compile still passes on them before strict admission activates.
+/// the compile still passes on them before strict admission activates,
+/// keeping each site's SI2 record as the Claude roster's (U1g1).
 #[test]
 fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
     let fixtures = RECOGNIZED
@@ -1038,6 +1039,11 @@ fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
         let (code, stdout, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
         assert_eq!(code, Some(0), "{fixture}: {stderr}");
         assert!(stdout.contains("\"starter\""), "{fixture}: {stdout}");
+        assert_eq!(
+            crate::init_doctor::strict_records(&compiles(&bundle)),
+            crate::init_doctor::expected_records(&crate::init_doctor::CLAUDE_RECORDS),
+            "{fixture}"
+        );
 
         let compiled: Value = serde_json::from_str(&stdout).unwrap();
         let records = compiled["manifest"]["agents"]

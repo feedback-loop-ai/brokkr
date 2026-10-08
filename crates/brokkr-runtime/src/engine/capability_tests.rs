@@ -33,7 +33,7 @@ fn two_candidates() -> SiteCapabilities {
             .resolve(&asks, &serve("dsh", "flash", &dsh))
             .unwrap(),
     ];
-    SiteCapabilities { asks, outcomes }
+    SiteCapabilities::unjudged(asks, outcomes)
 }
 
 /// Codex's measured native inventory: web search, on by default, switched
@@ -1751,7 +1751,7 @@ fn holdings(label: &str, office: Value, seat: Option<Value>) -> SiteCapabilities
                 .unwrap()
         })
         .collect();
-    SiteCapabilities { asks, outcomes }
+    SiteCapabilities::unjudged(asks, outcomes)
 }
 
 /// A site's charter as the compile binds an inline role (rebuild unit 17):

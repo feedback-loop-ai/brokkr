@@ -15,17 +15,132 @@
 //! stands in for a measurement. Authored bytes equal to an engine fragment
 //! stay authored: a serving whose intended set holds no hands server types
 //! none of its fragment as the box's hands.
+//!
+//! SI2's strict admission is decided here for every serving (U1g1): each
+//! shape it can be served as, with what its adapter's validated evidence
+//! measures of ambient exclusion there, is recorded beside its outcome for
+//! U9a's doctor, and refuses only once U9b lifts the MCP compile fence
+//! (operator rulings of 2026-10-07 and 2026-10-08).
 
 use brokkr_core::realms::Boundary;
-use brokkr_protocol::adapters::AdapterKind;
+use brokkr_protocol::adapters::{AdapterKind, StrictCause};
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::native_controls::{Application, HandsIntent, Provenance};
 
 use super::{dispatch_driver, CapabilityAdapters, CompileError, SeatClass, SiteFacts};
-use crate::agents::{Candidate, Composition, Lowering};
+use crate::agents::{Adapter, Candidate, Composition, Lowering};
+use crate::agents::{McpAxis, McpHands, McpHost, McpInvocation, McpShape, McpUnmeasured};
 use crate::capabilities::{
-    Authority, NativeInventory, Serving, SiteAsks, SiteCapabilities, OPAQUE_HARNESS,
+    Authority, McpFence, NativeInventory, Serving, SiteAsks, SiteCapabilities, OPAQUE_HARNESS,
 };
+
+/// The host this build serves on (decision 0063): a shape measured on the
+/// other qualifies nothing here.
+#[cfg(target_os = "macos")]
+const HOST: McpHost = McpHost::Macos;
+#[cfg(not(target_os = "macos"))]
+const HOST: McpHost = McpHost::Linux;
+
+impl McpFence {
+    /// The fence every load stands under (SC5): standing, `Authority::load`
+    /// refuses every `mcp` grant and a serving's SI2 record is kept but
+    /// never refused. Only U9b lifts it, and before then only a test does,
+    /// on its own thread ([`Lift`]); there is no runtime knob.
+    #[cfg(not(test))]
+    pub(crate) fn current() -> McpFence {
+        McpFence::Standing
+    }
+
+    /// The fence on this thread: standing unless a [`Lift`] is held.
+    #[cfg(test)]
+    pub(crate) fn current() -> McpFence {
+        FENCE.get()
+    }
+
+    /// The test-only override (operator ruling of 2026-10-08): the fence is
+    /// lifted on this thread until the returned [`Lift`] is dropped.
+    #[cfg(test)]
+    pub(crate) fn lift() -> Lift {
+        FENCE.set(McpFence::Lifted);
+        Lift(())
+    }
+
+    /// A serving's first SI2 cause, which refuses only past the fence.
+    fn admit(self, cause: Option<StrictCause>) -> Result<(), StrictCause> {
+        match (self, cause) {
+            (McpFence::Standing, _) => Ok(()),
+            #[cfg(test)]
+            (McpFence::Lifted, None) => Ok(()),
+            #[cfg(test)]
+            (McpFence::Lifted, Some(cause)) => Err(cause),
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static FENCE: std::cell::Cell<McpFence> = const { std::cell::Cell::new(McpFence::Standing) };
+}
+
+/// A held lift of the fence ([`McpFence::lift`]): standing again once
+/// dropped, unwinding included.
+#[cfg(test)]
+pub(crate) struct Lift(());
+
+#[cfg(test)]
+impl Drop for Lift {
+    fn drop(&mut self) {
+        FENCE.set(McpFence::Standing);
+    }
+}
+
+/// One serving's SI2 record: each shape it can be served as, with the
+/// ambient exclusion its adapter measures there, read by the adapter's own
+/// isolation reader and never from a name. Every serving is served cold; a
+/// work site, which may be offered a rejoin, also as the cold replacement
+/// and as each resume shape its adapter declares under the same hands,
+/// while a gate is never offered one. The hands are the intended set's: the
+/// box's where it holds the hands server, the harness's own sandbox where
+/// `harnessed` hands were composed, and none otherwise. Exec's set, which
+/// serves no model, and a candidate that composed nothing have no shape.
+fn strictness(
+    intent: Option<McpIntent>,
+    harnessed: bool,
+    class: SeatClass,
+    adapter: Option<&Adapter>,
+) -> Vec<(McpShape, McpAxis)> {
+    let hands = match intent {
+        Some(McpIntent::Hands) => McpHands::Boxed,
+        Some(McpIntent::Empty) if harnessed => McpHands::Harness,
+        Some(McpIntent::Empty) => McpHands::NoHands,
+        Some(McpIntent::NoModelSurface) | None => return Vec::new(),
+    };
+    let mut invocations = vec![McpInvocation::Cold];
+    match class {
+        SeatClass::Work => {
+            invocations.push(McpInvocation::Replacement);
+            let declared = adapter.into_iter().flat_map(|adapter| &adapter.resume.0);
+            let declared = declared.filter(|(_, shape)| shape.hands == hands.word());
+            invocations.extend(declared.map(|(name, _)| McpInvocation::Resume(name.clone())));
+        }
+        SeatClass::Gate => {}
+    }
+    invocations
+        .into_iter()
+        .map(|invocation| {
+            let shape = McpShape {
+                invocation,
+                hands,
+                host: HOST,
+            };
+            let ambient = match adapter {
+                Some(adapter) => adapter.mcp.isolation(&shape).ambient,
+                None => McpAxis::Unmeasured(McpUnmeasured::Absent),
+            };
+            (shape, ambient)
+        })
+        .collect()
+}
 
 /// The MCP server set the engine intends one serving to launch with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,16 +252,20 @@ impl<'a> InlineServing<'a> {
     }
 }
 
+/// The adapter serving `provider`, `None` where none answers for it.
+fn adapter<'a>(adapters: CapabilityAdapters<'a>, provider: &str) -> Option<&'a Adapter> {
+    adapters
+        .adapters
+        .and_then(|adapters| adapters.adapter(provider))
+}
+
 /// What the adapter serving `provider` declares of its native powers, with
 /// the digest that pins it; `None` where no adapter answers for it.
 fn native<'a>(
     adapters: CapabilityAdapters<'a>,
     provider: &str,
 ) -> Option<(&'a NativeInventory, &'a str)> {
-    adapters
-        .adapters
-        .and_then(|adapters| adapters.adapter(provider))
-        .map(|adapter| (&adapter.native, adapter.digest.as_str()))
+    adapter(adapters, provider).map(|adapter| (&adapter.native, adapter.digest.as_str()))
 }
 
 /// An agent-backed site's sealed capability facts (decision 0065 ruling 5):
@@ -238,7 +357,17 @@ pub(super) fn candidate_capabilities(
             }
         })
         .collect();
-    resolved(authority, asks, &servings)
+    // SI2 at each candidate, by its own composition and adapter: a fallback
+    // never borrows its primary's record.
+    let strict = chain
+        .iter()
+        .map(|candidate| {
+            let intent = McpIntent::of_candidate(candidate);
+            let adapter = adapter(adapters, &candidate.provider);
+            strictness(intent, class.is_some(), asks.class, adapter)
+        })
+        .collect();
+    resolved(authority, asks, &servings, strict)
 }
 
 /// An inline site's sealed capability facts: its asks resolved for the one
@@ -269,22 +398,43 @@ pub(super) fn inline_capabilities(
         provenance: &provenance,
         written: inline.argv,
     };
-    resolved(authority, asks, std::slice::from_ref(&serving))
+    // Inline hands are boxed or none: the hands law refuses an inline model
+    // harness's hands unboxed (decision 0046 ruling 4).
+    let strict = strictness(inline.intent, false, asks.class, adapter(adapters, harness));
+    resolved(
+        authority,
+        asks,
+        std::slice::from_ref(&serving),
+        vec![strict],
+    )
 }
 
-/// `asks` resolved against each serving in order, or the first refusal.
+/// `asks` resolved against each serving in order, each then judged by its
+/// SI2 record in `strict`, or the first refusal; the records are kept
+/// beside the outcomes, which way the fence stands.
 fn resolved(
     authority: &Authority,
     asks: SiteAsks,
     servings: &[Serving<'_>],
+    strict: Vec<Vec<(McpShape, McpAxis)>>,
 ) -> Result<SiteCapabilities, CompileError> {
     let mut outcomes = Vec::with_capacity(servings.len());
-    for serving in servings {
+    for (serving, record) in servings.iter().zip(&strict) {
         outcomes.push(
             authority
                 .resolve(&asks, serving)
                 .map_err(CompileError::Capability)?,
         );
+        let cause = record
+            .iter()
+            .find_map(|(shape, ambient)| ambient.strict(serving.provider, shape));
+        authority.fence.admit(cause).map_err(|cause| {
+            CompileError::Capability(format!("{}: {cause}", authority.who(&asks)))
+        })?;
     }
-    Ok(SiteCapabilities { asks, outcomes })
+    Ok(SiteCapabilities {
+        asks,
+        outcomes,
+        strict,
+    })
 }
