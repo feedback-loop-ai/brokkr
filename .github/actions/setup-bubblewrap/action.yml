@@ -13,6 +13,11 @@ description: >-
 # which leaves a new network namespace unable to raise its own loopback
 # ("loopback: Failed RTM_NEWADDR"). That is a runner setting, not a product
 # requirement: an operator's Linux box needs bubblewrap and nothing else.
+#
+# strace is test tooling, not a product requirement: the broker's
+# held-launcher proofs stop a fixture launcher at its exec, and where boundary
+# evidence is required a missing tracer fails them rather than skipping
+# (decision 0065 slice two, U6c5c).
 inputs:
   protect-system-tree:
     description: >-
@@ -30,7 +35,7 @@ runs:
         BWRAP_SHA256: 988fd6b232dafa04b8b8198723efeaccdb3c6aa9c1c7936219d5791a8b7a8646
       run: |
         set -euo pipefail
-        sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
+        sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils strace
         tarball="${RUNNER_TEMP}/bubblewrap-${BWRAP_VERSION}.tar.xz"
         curl -sSfL --retry 3 -o "$tarball" \
           "https://github.com/containers/bubblewrap/releases/download/v${BWRAP_VERSION}/bubblewrap-${BWRAP_VERSION}.tar.xz"
