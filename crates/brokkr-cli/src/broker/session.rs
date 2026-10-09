@@ -14,10 +14,13 @@
 //! box is prepared by a private observer, `broker observe`, in a process
 //! group of its own under the absolute startup deadline (U6c5b): it rebinds
 //! the same plan, and hands back a closed record and the checked handles
-//! over a private socket, and the sources and writers it observed must be
-//! the ones the plan sealed. Cancellation or the deadline kills its group
-//! and reaps it. The plan and where it lies stay here; only the shared
-//! protocol types leave.
+//! over a private socket, the store's admitted handle last (U6c5c). The
+//! sources it observed must be the ones the plan sealed, and every writer
+//! it observed one the plan sealed: it reports the writers it observed
+//! joined with the sealed ones, so that set equalling the sealed one proves
+//! the observed a subset of the sealed, never that the two are equal.
+//! Cancellation or the deadline kills its group and reaps it. The plan and
+//! where it lies stay here; only the shared protocol types leave.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -87,9 +90,11 @@ pub(super) fn observe(_: &Path, _: &str) -> Result<(), Refusal> {
 }
 
 /// What admission hands serving: each checked source's handle, by the
-/// host path that named it, held until the launch mounts it.
+/// host path that named it, held until the launch mounts it, and the
+/// store's admitted handle, held for its reader and never mounted (MB4).
 pub(super) struct Admitted {
     _handles: Vec<(PathBuf, OwnedFd)>,
+    _store: OwnedFd,
 }
 
 /// `holds`, or `refusal`.
@@ -297,19 +302,17 @@ fn prepared(layout: &Layout<'_>, plan: &Plan) -> Result<ServerBox, Refusal> {
         network: &intent.network,
         bootstrap: &intent.bootstrap.path,
         arguments: &plan.connection.argv[1..],
+        writers: &intent.writers.uids,
     };
     ServerBox::prepare(&program, &profile)
 }
 
 /// The checks after a box stands, in MB3's order: the identity facts,
-/// then the store's exclusion from the seat's reach and from the box.
-fn after(intent: &BoxIntent, server: &ServerBox) -> Result<(), Refusal> {
+/// then MB4's store identity against the seat's reach and the box (U6c5c),
+/// whose handle is the store's reader's.
+fn after(intent: &BoxIntent, server: &ServerBox) -> Result<OwnedFd, Refusal> {
     identity(intent, server)?;
-    let store = intent.excluded.store.as_path();
-    let reachable = roots(intent).any(|root| overlaps(store, root));
-    ensure(!reachable, Refusal::StoreReachable)?;
-    let mounted = server.paths().any(|path| overlaps(store, path));
-    ensure(!mounted, Refusal::StoreInBox)
+    server.store(&intent.excluded.store, &intent.reach)
 }
 
 /// NUL as a binding name's cause spells it: `\u{0}`, never `\0`.
@@ -512,13 +515,15 @@ struct Observation {
     handles: Vec<PathBuf>,
 }
 
-/// The record of a screened plan, and its box where it is admitted.
-fn recorded(layout: &Layout<'_>, plan: &Plan) -> Result<(Record, Option<ServerBox>), Refusal> {
+/// The record of a screened plan, and its box and store handle where it
+/// is admitted.
+fn recorded(layout: &Layout<'_>, plan: &Plan) -> Result<(Record, Option<Held>), Refusal> {
     let server = match prepared(layout, plan) {
         Ok(server) => server,
         Err(refusal) => return Ok((Record::Refused(Cause::of(&refusal)?), None)),
     };
-    let refused = after(&plan.intent, &server).err();
+    let after = after(&plan.intent, &server);
+    let refused = after.as_ref().err();
     let sources = server.sources();
     let handles = match refused {
         Some(_) => Vec::new(),
@@ -532,24 +537,29 @@ fn recorded(layout: &Layout<'_>, plan: &Plan) -> Result<(Record, Option<ServerBo
         mounts: sources.mounts,
         digest: sources.digest.clone(),
         writers: server.writers().map(<[u32]>::to_vec),
-        refused: refused.as_ref().map(Cause::of).transpose()?,
+        refused: refused.map(Cause::of).transpose()?,
         handles,
     };
-    let admitted = observation.refused.is_none().then_some(server);
+    let admitted = after.ok().map(|store| (server, store));
     Ok((Record::Observed(observation), admitted))
 }
 
+/// An admitted box and its store's handle.
+type Held = (ServerBox, OwnedFd);
+
 /// The observer's `record` against what `intent` sealed, with the
 /// `handles` it handed back: its own refusal; identity unprotected where
-/// the observed sources or writers are not the sealed ones, which comes
-/// before any cause after it in MB3's order, or where the handles are not
-/// those it names; else the cause after the box, or the admitted handles.
-/// The sealed facts were bound with the plan, so a difference here is the
-/// filesystem's, never the plan's (SC1).
+/// the observed sources are not the sealed ones or a writer it observed is
+/// not sealed (its writers, the observed joined with the sealed, are not
+/// exactly the sealed set), which comes before any cause after it in MB3's
+/// order, or where the handles are not
+/// those it names and then the store's; else the cause after the box, or
+/// the admitted handles. The sealed facts were bound with the plan, so a
+/// difference here is the filesystem's, never the plan's (SC1).
 fn compared(
     intent: &BoxIntent,
     record: Record,
-    handles: Vec<OwnedFd>,
+    mut handles: Vec<OwnedFd>,
 ) -> Result<Admitted, Refusal> {
     let observation = match record {
         Record::Refused(cause) => return Err(cause.refusal()),
@@ -568,10 +578,14 @@ fn compared(
     if let Some(cause) = observation.refused {
         return Err(cause.refusal());
     }
-    let named = observation.handles.len() == handles.len();
-    ensure(named, Refusal::Identity)?;
-    let handles = observation.handles.into_iter().zip(handles).collect();
-    Ok(Admitted { _handles: handles })
+    let store = handles
+        .pop()
+        .filter(|_| observation.handles.len() == handles.len());
+    let store = store.ok_or(Refusal::Identity)?;
+    Ok(Admitted {
+        _handles: observation.handles.into_iter().zip(handles).collect(),
+        _store: store,
+    })
 }
 
 /// The observer's record of the plan `named` (its locator and digest) and
@@ -618,7 +632,6 @@ mod helper {
     use std::time::{Duration, Instant};
 
     use brokkr_protocol::broker::Refusal;
-    use brokkr_protocol::hands::ServerBox;
     use rustix::io::Errno;
     use rustix::net::sockopt::{self, Timeout};
     use rustix::net::{
@@ -628,14 +641,14 @@ mod helper {
     };
     use rustix::process::{getppid, kill_current_process_group, kill_process_group, Pid, Signal};
 
-    use super::{ensure, Record};
+    use super::{ensure, Held, Record};
 
     /// The most bytes one record may hold.
     const RECORD_MAX: usize = 128 << 10;
 
     /// The most handles one record hands back: a server box holds one for
     /// each source it mounts, its system set's aliases included, and its
-    /// launcher.
+    /// launcher; the store's rides last.
     const HANDLES_MAX: usize = 64;
 
     /// The longest one wait on the socket lasts before the deadline and
@@ -762,14 +775,15 @@ mod helper {
     }
 
     /// Hand `record` back over stdout as one message, with the handles of
-    /// `server`, where it is admitted, riding it in the record's order:
-    /// within [`HANDLES_MAX`], they take one control message, and none.
-    pub(super) fn handed(record: &Record, server: Option<&ServerBox>) -> Result<(), Refusal> {
+    /// `held`'s box, where it is admitted, riding it in the record's order
+    /// and its store's last: within [`HANDLES_MAX`], they take one control
+    /// message, and none.
+    pub(super) fn handed(record: &Record, held: Option<&Held>) -> Result<(), Refusal> {
         let bytes = serde_json::to_vec(record).ok().ok_or(Refusal::Identity)?;
-        let handles: Vec<BorrowedFd<'_>> = server
+        let handles: Vec<BorrowedFd<'_>> = held
             .into_iter()
-            .flat_map(ServerBox::handles)
-            .map(|(_, fd)| fd.as_fd())
+            .flat_map(|(server, store)| server.handles().map(|(_, fd)| fd).chain([store]))
+            .map(AsFd::as_fd)
             .collect();
         let bounded = (bytes.len() <= RECORD_MAX) & (handles.len() <= HANDLES_MAX);
         ensure(bounded, Refusal::Identity)?;

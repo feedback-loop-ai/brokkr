@@ -568,13 +568,15 @@ impl Namespace {
 
 /// What a server box is built from beside its program (U6c4): the seat's
 /// reach it must stay clear of, the network the dialect's egress projects
-/// to, the trusted bootstrap it binds as one file, and the arguments the
-/// program runs with.
+/// to, the trusted bootstrap it binds as one file, the arguments the
+/// program runs with, and the managed writers' uids the plan sealed, whom
+/// its write-exclusion proof holds against beside those observed (U6c5c).
 pub struct ServerProfile<'a> {
     pub reach: &'a Reach,
     pub network: &'a Network,
     pub bootstrap: &'a Path,
     pub arguments: &'a [String],
+    pub writers: &'a [u32],
 }
 
 /// One MCP server's box, prepared and never started (U6c4; MB3, MB4): the
@@ -612,31 +614,28 @@ impl ServerBox {
     /// private directory, or a scratch that cannot hold the identity,
     /// leaves identity unprotected, after any linked program or bootstrap
     /// file. Last, a launcher that cannot mount a descriptor, which off
-    /// Linux none can.
+    /// Linux none can. The launcher is checked before it runs (U6c5c).
     pub fn prepare(
         program: &ServerProgram,
         profile: &ServerProfile<'_>,
     ) -> Result<ServerBox, Refusal> {
         #[cfg(target_os = "linux")]
-        let observe = |namespace: &Namespace, made: Option<&Path>| {
-            sources::served(namespace, made, program, profile, &sources::Host::live())
-        };
+        return ServerBox::prepare_with(program, profile, &sources::Host::live());
         #[cfg(not(target_os = "linux"))]
-        let observe = |_: &Namespace, _: Option<&Path>| -> Result<Observed, Refusal> {
-            Err(Refusal::Unavailable)
-        };
-        ServerBox::prepared(program, profile, observe)
+        ServerBox::prepared(program, profile, |_, _| Err(Refusal::Unavailable))
     }
 
     /// [`ServerBox::prepare`] with `host` standing for this host's facts.
-    #[cfg(all(test, target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     pub(super) fn prepare_with(
         program: &ServerProgram,
         profile: &ServerProfile<'_>,
         host: &sources::Host<'_>,
     ) -> Result<ServerBox, Refusal> {
         let observe = |namespace: &Namespace, made: Option<&Path>| {
-            sources::served(namespace, made, program, profile, host)
+            sources::launcher::launched(host, profile, |host| {
+                sources::served(namespace, made, program, profile, host)
+            })
         };
         ServerBox::prepared(program, profile, observe)
     }
@@ -718,6 +717,20 @@ impl ServerBox {
     /// objects it checked (U6c5b).
     pub fn handles(&self) -> impl Iterator<Item = (&Path, &OwnedFd)> {
         self.handles.iter().map(|(path, fd)| (path.as_path(), fd))
+    }
+
+    /// MB4's store identity at `store` against the seat's `reach` and every
+    /// source this box holds (U6c5c): a path handle for the store's reader,
+    /// which the box never mounts, or MB4's first cause.
+    pub fn store(&self, store: &Path, reach: &Reach) -> Result<OwnedFd, Refusal> {
+        let held = self.handles.iter().map(|(path, _)| path.as_path());
+        #[cfg(target_os = "linux")]
+        return sources::host::store::admitted(store, reach, held, &sources::Host::live());
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = (store, reach, held);
+            Err(Refusal::Unavailable)
+        }
     }
 
     /// The bubblewrap argv that builds the box. Read by tests until the

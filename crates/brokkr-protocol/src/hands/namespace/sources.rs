@@ -38,10 +38,11 @@ use super::{Namespace, Observed, Profile, ServerProfile, ServerProgram, RESOLV_C
 use crate::broker::{Reach, Refusal, Sources, Tree};
 
 pub(in crate::hands) mod host;
+pub(in crate::hands) mod launcher;
 
 pub(in crate::hands) use host::Host;
 use host::{acl, excluded, mapped, readable, records, resolve, route, target, untouchable};
-use host::{Hop, Owned, Record, Seen};
+use host::{Acl, Hop, Owned, Record, Seen};
 
 /// MB3's observation bounds for one preparation: objects observed (each
 /// walked source's root and every entry beneath it), directories below a
@@ -272,15 +273,27 @@ fn stat_at(dir: BorrowedFd<'_>, name: impl rustix::path::Arg) -> rustix::io::Res
     Facts::of(&held).ok_or(Errno::NOTSUP)
 }
 
-/// A handle on `name` in `dir` that is the object `facts` observed, of the
-/// kind observed, as the handle's own facts show.
-fn handle(dir: BorrowedFd<'_>, name: &OsStr, flags: OFlags, facts: &Facts) -> Option<OwnedFd> {
-    let flags = flags | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+/// A handle, and the facts it reports.
+type Opened = (OwnedFd, Facts);
+
+/// A handle on `name` in `dir` that is the object `seen` observed, of the
+/// kind observed, as the handle's own facts show, and those facts.
+fn handle(dir: BorrowedFd<'_>, name: &OsStr, how: OFlags, seen: &Facts) -> Option<Opened> {
+    let flags = how | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     let fd = rustix::fs::openat(dir, name, flags, Mode::empty()).ok()?;
     let held = stat_at(fd.as_fd(), c"").ok()?;
     let kind = |facts: &Facts| FileType::from_raw_mode(facts.mode);
-    let same = (held.identity(), kind(&held)) == (facts.identity(), kind(facts));
-    same.then_some(fd)
+    let same = (held.identity(), kind(&held)) == (seen.identity(), kind(seen));
+    same.then_some((fd, held))
+}
+
+/// Who may write the object `facts` describe, beside its `acl`.
+fn owned(facts: &Facts, acl: Acl) -> Owned {
+    Owned {
+        uid: facts.uid,
+        mode: facts.mode,
+        acl,
+    }
 }
 
 /// A directory found to descend into: its name, facts and place.
@@ -453,17 +466,16 @@ impl<'o> Observer<'o> {
     /// ([`readable`]), and the handle returned is that reader, where one
     /// opened. One that cannot be read is a program or bootstrap file's
     /// identity cause; a support file, linked or unreadable, is held to the
-    /// kernel write-exclusion proof, its ACL read through its handle, and
+    /// kernel write-exclusion proof by its handle's own facts and ACL, and
     /// unreadable it must be root's as well ([`untouchable`]).
     fn object(&mut self, at: At<'_>, facts: &Facts, role: Role) -> Option<OwnedFd> {
         let (dir, place, name) = at;
-        let linked = facts.nlink > 1;
         let program = match role {
             Role::Launch | Role::Program | Role::Generated => true,
             Role::Support => false,
         };
         let flags = match facts.kind() {
-            Kind::File if linked & program => {
+            Kind::File if (facts.nlink > 1) & program => {
                 self.fault(Refusal::Linked);
                 OFlags::PATH
             }
@@ -475,7 +487,7 @@ impl<'o> Observer<'o> {
             }
         };
         (self.host.opening)(place, name);
-        let Some(fd) = handle(dir, name, flags, facts) else {
+        let Some((fd, held)) = handle(dir, name, flags, facts) else {
             self.fault(Refusal::Identity);
             return None;
         };
@@ -487,12 +499,8 @@ impl<'o> Observer<'o> {
         if program & unread {
             self.fault(Refusal::Identity);
         }
-        if !program & (linked | unread) {
-            let owned = Owned {
-                uid: facts.uid,
-                mode: facts.mode,
-                acl: acl(fd.as_fd()),
-            };
+        if !program & ((held.nlink > 1) | unread) {
+            let owned = owned(&held, acl(fd.as_fd()));
             let writers = &self.host.credentials;
             let proved = match unread {
                 true => untouchable(&owned, writers),
@@ -715,10 +723,10 @@ const DESCRIPTOR_MOUNTS: (u32, u32, u32) = (0, 5, 0);
 /// launch name and the program tree as program files, every source
 /// `namespace` mounts (the system set and resolver as optional support,
 /// the identity generated in `made`, where it could be, as generated files,
-/// the rest required program files) and the launcher as support; the
-/// launch must still name the executable, and the launcher mount
-/// descriptors. The writers' uids are kept only where their privilege is
-/// confined.
+/// the rest required program files) and the launcher as support, by the
+/// route it was found by; the launch must still name the executable, and
+/// the launcher, run only then ([`launcher::ran`]), mount descriptors. The
+/// writers' uids are kept where they are confined.
 pub(super) fn served(
     namespace: &Namespace,
     made: Option<&Path>,
@@ -731,7 +739,6 @@ pub(super) fn served(
         role,
         presence,
     };
-    let launcher = (host.launcher)();
     let support: Vec<&Path> = Profile::Server
         .system()
         .chain([RESOLV_CONF])
@@ -750,10 +757,7 @@ pub(super) fn served(
             (false, false) => source(path, Role::Program, Presence::Required),
         }
     });
-    let launched = launcher
-        .iter()
-        .map(|(bwrap, _)| source(bwrap, Role::Support, Presence::Required));
-    for next in bound.chain(launched) {
+    for next in bound.chain(host.launcher.map(launcher::Checked::source)) {
         if !list.iter().any(|held| held.path == next.path) {
             list.push(next);
         }
@@ -762,15 +766,14 @@ pub(super) fn served(
     let launch = observation.held.first().and_then(Option::as_ref);
     let same = launch.is_some_and(|(_, place)| *place == program.executable);
     same.then_some(()).ok_or(Refusal::Identity)?;
-    let version = launcher
-        .as_ref()
-        .and_then(|(_, reported)| crate::hands::parse_version(reported));
-    let mounts = version.is_some_and(|version| version >= DESCRIPTOR_MOUNTS);
-    mounts.then_some(()).ok_or(Refusal::Unavailable)?;
     let held = list.iter().zip(observation.held);
     let handles = held.filter_map(|(source, held)| Some((source.path.to_path_buf(), held?.0)));
+    let handles: Vec<(PathBuf, OwnedFd)> = handles.collect();
+    let version = crate::hands::parse_version(&launcher::ran(host, &handles, profile.reach)?);
+    let mounts = version.is_some_and(|version| version >= DESCRIPTOR_MOUNTS);
+    mounts.then_some(()).ok_or(Refusal::Unavailable)?;
     let writers = confined_writers(&host.credentials);
-    Ok((handles.collect(), observation.sources, writers))
+    Ok((handles, observation.sources, writers))
 }
 
 /// The writers' uids, where their privilege is proved confined.
