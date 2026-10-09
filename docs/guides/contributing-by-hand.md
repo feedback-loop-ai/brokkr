@@ -601,14 +601,14 @@ the arm is in a transcript reader, prefer the routes in the order the change
 deterministic real filesystem change; and only then a scripted error, because
 no portable real fault exists for enumeration, identity and bounded read. A
 real change that must fall between two reader operations is timed through
-`brokkr_cli::ui::safe_fs::fault`, the unit-test-only reader fault seam, and a
+`brokkr_cli::local_transcript::safe_fs::fault`, the unit-test-only reader fault seam, and a
 scripted error fills the gaps the real routes cannot. Every entry a plan
 installs must fire, or its test fails. The seam exists only in the
 `brokkr-cli` unit-test build, so no release binary, package or integration-test
 build compiles it. The `fault` module is not a test module: it is counted code
-inside the production file `crates/brokkr-cli/src/ui/safe_fs.rs`, so the
-test-module placement rule below neither applies to it nor exempts it from the
-counter. Its own tests live in `ui/tests.rs`, the established harness.
+inside the production file `crates/brokkr-cli/src/local_transcript/safe_fs.rs`,
+so the test-module placement rule below neither applies to it nor exempts it
+from the counter. Its own tests live in `local_transcript/fault_tests.rs`.
 
 **A new function nothing calls.** Same shape, one level up, with one
 wrinkle: the fold identifies a source function by file and start line

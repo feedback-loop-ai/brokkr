@@ -18,6 +18,9 @@
     24 crates/brokkr-cli/src/init/effort.rs
    177 crates/brokkr-cli/src/ledger.rs
   1935 crates/brokkr-cli/src/lib.rs
+   515 crates/brokkr-cli/src/local_transcript/discover.rs
+   214 crates/brokkr-cli/src/local_transcript/mod.rs
+   585 crates/brokkr-cli/src/local_transcript/safe_fs.rs
   1042 crates/brokkr-cli/src/muninn.rs
     67 crates/brokkr-cli/src/muninn/record.rs
    355 crates/brokkr-cli/src/realms.rs
@@ -37,8 +40,7 @@
    467 crates/brokkr-cli/src/tui/state.rs
     94 crates/brokkr-cli/src/tui/style.rs
    291 crates/brokkr-cli/src/tui/terminal.rs
-  1314 crates/brokkr-cli/src/ui.rs
-   585 crates/brokkr-cli/src/ui/safe_fs.rs
+   576 crates/brokkr-cli/src/ui.rs
     19 crates/brokkr-cli/src/verbs.rs
    198 crates/brokkr-cli/src/verbs/delivery.rs
    227 crates/brokkr-cli/src/verbs/exchange.rs
@@ -139,6 +141,8 @@
     32 crates/brokkr-cli/src/hands/tests.rs
    432 crates/brokkr-cli/src/init/tests.rs
    172 crates/brokkr-cli/src/ledger/tests.rs
+   592 crates/brokkr-cli/src/local_transcript/fault_tests.rs
+  1637 crates/brokkr-cli/src/local_transcript/tests.rs
     42 crates/brokkr-cli/src/muninn/record/tests.rs
   1711 crates/brokkr-cli/src/muninn/tests.rs
    655 crates/brokkr-cli/src/realms/tests.rs
@@ -150,7 +154,7 @@
    423 crates/brokkr-cli/src/tui/snapshot_tests.rs
     55 crates/brokkr-cli/src/tui/source_tests.rs
   6981 crates/brokkr-cli/src/tui/tests.rs
-  4520 crates/brokkr-cli/src/ui/tests.rs
+  2313 crates/brokkr-cli/src/ui/tests.rs
    595 crates/brokkr-cli/src/ui/transcript_route_tests.rs
    108 crates/brokkr-cli/src/verbs/delivery/tests.rs
     25 crates/brokkr-cli/src/verbs/setup/tests.rs

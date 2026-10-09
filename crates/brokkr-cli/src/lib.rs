@@ -22,6 +22,7 @@ mod fleet;
 mod hands;
 mod init;
 mod ledger;
+mod local_transcript;
 mod muninn;
 mod realms;
 mod recipes;
@@ -38,7 +39,9 @@ mod verbs;
 #[doc(hidden)]
 pub use crate::{budget_frame::run_frame_for_budget, tui::transcript_surfaces_for_test};
 #[doc(hidden)]
-pub use ui::{handle, read_local, Response};
+pub use local_transcript::read_local;
+#[doc(hidden)]
+pub use ui::{handle, Response};
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -889,6 +892,19 @@ fn exec_bwrap(argv: &[String], signature: &str) -> ExitCode {
     Exit::RunnerFailed.into()
 }
 
+/// The local Claude projects root a legacy flat id is synthesized
+/// against, or `None` when there is no usable `HOME`. The shell resolves
+/// it once per read and hands it to [`local_transcript::read_local`],
+/// which reads no environment (#351).
+pub(crate) fn local_projects_home() -> Option<String> {
+    let home = std::env::var_os("HOME")?;
+    std::path::Path::new(&home)
+        .join(".claude")
+        .join("projects")
+        .to_str()
+        .map(str::to_string)
+}
+
 /// The in-memory stamp of the selected transcript source: the subject
 /// identity and the bounded result it last produced. It holds no mtime
 /// and no length — the same bytes are re-derived and compared, which is
@@ -946,17 +962,14 @@ fn resolve_subject(
     force: bool,
     seen: &mut Option<SourceStamp>,
     secrets: &std::path::Path,
+    projects_home: Option<&str>,
 ) -> (Option<TranscriptRead>, bool) {
     let identity_changed = seen
         .as_ref()
         .is_none_or(|stamp| !stamp.same_subject(subject));
     let fresh = if force || subject.working || identity_changed {
-        Some(ui::mask_secrets(
-            ui::read_local(
-                subject.reference.as_ref(),
-                subject.provenance,
-                subject.legacy_id.as_deref(),
-            ),
+        Some(local_transcript::mask_secrets(
+            local_transcript::read_local(subject, projects_home),
             secrets,
         ))
     } else {
@@ -980,12 +993,13 @@ fn resolve_transcript(
     ask: &tui::Ask,
     seen: &mut Option<SourceStamp>,
     secrets: &std::path::Path,
+    projects_home: Option<&str>,
 ) -> (Option<TranscriptRead>, bool) {
     let Some(subject) = ask.subject.as_ref() else {
         *seen = None;
         return (None, false);
     };
-    resolve_subject(subject, ask.force, seen, secrets)
+    resolve_subject(subject, ask.force, seen, secrets, projects_home)
 }
 
 /// Rebuild the selected subject from the freshly folded run, so authority
@@ -1063,8 +1077,11 @@ fn tui_views(
     // so the read is its own refresh reason.
     // The prose is masked against the secrets store beside this journal
     // before the stamp keeps it, so a refresh compares masked to masked.
-    let secrets = ui::store_beside(db);
-    let (transcript, transcript_changed) = resolve_transcript(&ask, seen, &secrets);
+    // The projects home is resolved once for both reads this frame makes.
+    let secrets = local_transcript::store_beside(db);
+    let home = local_projects_home();
+    let (transcript, transcript_changed) =
+        resolve_transcript(&ask, seen, &secrets, home.as_deref());
     let moved = current != *head;
     if !(ask.force || ask.fleet || moved || transcript_changed) {
         // Nothing has moved: the console keeps the frame it has, and
@@ -1091,7 +1108,9 @@ fn tui_views(
     // previous reference's prose.
     let transcript = match (ask.subject.as_ref(), run.as_ref()) {
         (Some(prior), Some(view)) => match refreshed_subject(prior, view) {
-            Some(fresh) if &fresh != prior => resolve_subject(&fresh, true, seen, &secrets).0,
+            Some(fresh) if &fresh != prior => {
+                resolve_subject(&fresh, true, seen, &secrets, home.as_deref()).0
+            }
             // An unchanged participant: the resolved read still speaks for
             // it.
             Some(_) => transcript,
@@ -1414,12 +1433,14 @@ fn transcript_command(
     let state = fold(&events)?;
     let view = brokkr_view::run_view(&events, Some(&state));
     let participant = select_transcript_participant(&view, &seat)?;
-    let read = ui::read_local(
-        participant.transcript.as_ref(),
-        participant.legacy_provenance(),
-        participant.session_id.as_deref(),
+    // Only the subject's reference, provenance and legacy id reach the
+    // reader; the hearth index keeps it the console's shape.
+    let subject = brokkr_view::Subject::of(hearth, None, run.clone(), participant);
+    let read = local_transcript::read_local(&subject, local_projects_home().as_deref());
+    let read = local_transcript::mask_secrets(
+        read,
+        &local_transcript::store_beside(&hearths[hearth].journal),
     );
-    let read = ui::mask_secrets(read, &ui::store_beside(&hearths[hearth].journal));
     let read = select_transcript_turn(read, turn);
     if json {
         println!(
