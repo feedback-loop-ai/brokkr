@@ -5675,8 +5675,9 @@ fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_de
     );
 }
 
-/// Rebuild unit 6 (task 6.1): the five inline Claude seats of the shipped
-/// `fast`, `node` and `preflight` recipes author no capability flag and
+/// Rebuild unit 6 (task 6.1): the three inline Claude seats of the shipped
+/// `node` and `preflight` recipes (fast's two hire library offices since
+/// #360) author no capability flag and
 /// declare a typed allow instead. Each one, compiled from the shipped
 /// directory in a realm that grants nothing and composed and sealed by the
 /// engine's own functions, holds nothing; the engine emits the adapter's
@@ -5690,10 +5691,6 @@ fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_de
 fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_limits() {
     let operator = Operator::new();
     let context = CapabilityContext::no_grants("private", operator.root());
-    let fast = (
-        ["cargo", "git", "ls", "rg", "mkdir"],
-        "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
-    );
     let node = (
         ["npm", "npx", "node", "git", "ls", "rg", "mkdir"],
         "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
@@ -5703,8 +5700,6 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
         "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*)",
     );
     let seats = [
-        ("fast", "implement", &fast.0[..], fast.1),
-        ("fast", "review", &fast.0[..], fast.1),
         ("node", "implement", &node.0[..], node.1),
         ("node", "review", &node.0[..], node.1),
         ("preflight", "review", preflight.0, preflight.1),

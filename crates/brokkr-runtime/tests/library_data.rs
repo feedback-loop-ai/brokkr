@@ -44,10 +44,14 @@ use witnesses::Witnesses;
 /// researcher: the one office that reads the field and holds the fetch
 /// grant, authored here like muninn and triage. #355 retires
 /// `intake-sdd`, which no recipe seated after `recipes/sdd` was retired.
-const AGENTS: [&str; 34] = [
+/// #360 seats `fast` on two overlays of the roster, `fast-implementer` and
+/// `fast-reviewer`.
+const AGENTS: [&str; 36] = [
     "analyst",
     "chief-architect",
     "clarifier",
+    "fast-implementer",
+    "fast-reviewer",
     "gpt-flash-analyst",
     "gpt-flash-chief-architect",
     "gpt-flash-clarifier",
@@ -145,12 +149,18 @@ fn the_library_holds_the_decision_0041_roster() {
     assert_eq!(implementer.charter, engine.charter);
     assert_eq!(implementer.charter_digest, engine.charter_digest);
     // 0007 declarations stay at their default: the phases' rule-referenced
-    // inputs already name exactly the right set for all of them.
+    // inputs already name exactly the right set for all of them. The one
+    // exception is fast's reviewer, which carries the two residual inputs
+    // fast's own review seat always declared (#360).
     for name in AGENTS {
-        assert!(
-            library.agent(name).unwrap().inputs.is_none(),
-            "{name} should not declare inputs"
-        );
+        let inputs = library.agent(name).unwrap().inputs.clone();
+        let expected = (name == "fast-reviewer").then(|| {
+            vec![
+                "has_security_residual".into(),
+                "max_residual_severity".into(),
+            ]
+        });
+        assert_eq!(inputs, expected, "{name} declares its inputs");
     }
     // Decision 0058: the forced crew's scoped offices are ordinary roster
     // entries, so a name that moves out of the roster fails here rather than

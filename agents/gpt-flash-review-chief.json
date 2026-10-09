@@ -1,30 +1,5 @@
 {
-  "description": "Review chief: checks the panel's findings and rules the protected phase without lowering its verdict.",
-  "charter": "charters/review-chief.md",
-  "models": [
-    "sol",
-    "astra"
-  ],
-  "efforts": {
-    "sol": "high",
-    "astra": "max"
-  },
-  "hands": {
-    "kind": "workspace",
-    "network": false,
-    "binds": [
-      {
-        "path": "~/.cargo",
-        "mode": "overlay",
-        "mask": [
-          "credentials.toml",
-          "credentials"
-        ]
-      },
-      {
-        "path": "~/.rustup",
-        "mode": "ro"
-      }
-    ]
-  }
+  "extends": "review-chief",
+  "models": ["sol", "astra"],
+  "efforts": {"sol": "high", "astra": "max"}
 }

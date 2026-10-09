@@ -197,15 +197,7 @@ fn drift_report(moved: &[Moved]) -> String {
 /// resolution record instead, so they do not belong in this inline-only
 /// list. In particular, all of Crucible's review offices are gates now.
 const INLINE_ADAPTERS: [(&str, &[(&str, &str)]); 4] = [
-    (
-        "recipes/fast",
-        &[
-            ("implement", "claude"),
-            ("review", "claude"),
-            ("ship", "exec"),
-            ("verify", "exec"),
-        ],
-    ),
+    ("recipes/fast", &[("ship", "exec"), ("verify", "exec")]),
     (
         "recipes/node",
         &[
@@ -221,12 +213,7 @@ const INLINE_ADAPTERS: [(&str, &[(&str, &str)]); 4] = [
     ),
     (
         "recipes/wager-harness",
-        &[
-            ("implement", "codex"),
-            ("review", "claude"),
-            ("ship", "exec"),
-            ("verify", "exec"),
-        ],
+        &[("implement", "codex"), ("ship", "exec"), ("verify", "exec")],
     ),
 ];
 

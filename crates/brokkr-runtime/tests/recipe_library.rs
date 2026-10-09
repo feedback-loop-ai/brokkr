@@ -92,10 +92,15 @@ fn no_two_recipes_carry_one_policy_table_written_twice() {
 /// The canonical source of each file a bundle directory carries for itself
 /// (decision 0048 pins a script's bytes in the directory that runs it): a
 /// file of this name anywhere in the library is a byte-for-byte copy of it.
+/// Fast's implementer role became the library's intakeless charter when
+/// fast moved onto library offices (#360); the inline smiths still read it.
 const CANONICAL: [(&str, &str); 3] = [
     ("verify-seat.sh", "recipes/fast/scripts/verify-seat.sh"),
     ("ship-seat.sh", "recipes/fast/scripts/ship-seat.sh"),
-    ("implementer.md", "recipes/fast/roles/implementer.md"),
+    (
+        "implementer.md",
+        "agents/charters/implementer-intakeless.md",
+    ),
 ];
 
 /// Files that share a canonical's name and are a different office, each

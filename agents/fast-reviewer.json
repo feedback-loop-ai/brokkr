@@ -1,0 +1,11 @@
+{
+  "extends": "reviewer",
+  "models": ["fable", "opus"],
+  "efforts": {"fable": "high", "opus": "high"},
+  "inputs": ["has_security_residual", "max_residual_severity"],
+  "tools": {"allow": ["cargo", "git", "ls", "rg", "mkdir"]},
+  "replaces": {
+    "hands": "fast's review runs its harness's own tools unboxed, as fast's own seat always has; the boxed single reviewer is triage's",
+    "tools": "the allow-list fast's own review seat always granted, in place of the box"
+  }
+}

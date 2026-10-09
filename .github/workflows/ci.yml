@@ -159,7 +159,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # 30, not the usual 20 (operator ruling 2026-10-09): decision 0065 slice
+    # two's broker boundary proofs grew the Linux run to 18-20 minutes, and a
+    # merge group that ran out of time with every test passed dropped #598
+    # from the queue.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:

@@ -895,7 +895,8 @@ fn a_shipped_recipe_is_refused_once_a_model_it_hires_turns_provisional() {
                 link: 1,
                 model: "fable".into(),
                 adapter: "claude".into(),
-                office: None,
+                // Fast's smith is a library office since #360.
+                office: Some("fast-implementer".into()),
             }
         ),
         other => panic!("expected a provisional refusal, got {other:?}"),
