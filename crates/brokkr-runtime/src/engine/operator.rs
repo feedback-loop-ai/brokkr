@@ -192,29 +192,42 @@ fn accepted(store: &Store, run_id: &str) -> Result<FencedCommandOutcome, EngineE
 /// Journal a refusal and report it. A rejection needs no fence of its
 /// own: `fold` reads `operator/rejected` back in every state there is,
 /// terminal included, which is exactly why refusing is always the safe
-/// answer to a race.
+/// answer to a race. The bridge's refusals carry an id a redelivery
+/// shares, so they land on the head their receipt lookup read instead
+/// ([`receipt::refuse_undisposed`]).
 fn refuse(
     store: &mut Store,
     run_id: &str,
-    command_id: &str,
-    operator: &str,
-    refusal: Refusal,
-    cause: &str,
+    rejection: Rejection,
 ) -> Result<FencedCommandOutcome, EngineError> {
-    let reason = refusal.word();
-    store.append_next(
-        run_id,
-        EventType::OperatorRejected,
-        json!({"command_id": command_id, "operator": operator, "reason": reason}),
-        Some(cause.to_string()),
-        None,
-    )?;
-    let (head_seq, head_hash) = store.head_hash(run_id)?;
-    Ok(FencedCommandOutcome::Rejected {
-        reason: reason.into(),
-        head_seq,
-        head_hash,
-    })
+    let (payload, cause) = (rejection.payload(), Some(rejection.cause.to_string()));
+    let rejected = store.append_next(run_id, EventType::OperatorRejected, payload, cause, None)?;
+    Ok(rejection.landed(rejected))
+}
+
+/// A refusal as `operator/rejected` journals it: the command it disposes
+/// of, who asked, the refusal, and the event it is caused by.
+struct Rejection<'a> {
+    command_id: &'a str,
+    operator: &'a str,
+    refusal: Refusal,
+    cause: &'a str,
+}
+
+impl Rejection<'_> {
+    fn payload(&self) -> Value {
+        let (id, operator, reason) = (self.command_id, self.operator, self.refusal.word());
+        json!({"command_id": id, "operator": operator, "reason": reason})
+    }
+
+    /// The refusal reported at the rejection that just landed.
+    fn landed(&self, rejected: EventEnvelope) -> FencedCommandOutcome {
+        FencedCommandOutcome::Rejected {
+            reason: self.refusal.word().into(),
+            head_seq: rejected.seq,
+            head_hash: rejected.event_hash,
+        }
+    }
 }
 
 /// Append an operator command and its disposition (the CLI is the
@@ -323,13 +336,16 @@ pub(super) fn operator_command_racing(
     // as an uncovered line forever. Sharing the line makes the gate see
     // what is actually exercised.
     let refusal_of = |store: &mut Store, why: Refusal| {
+        let (command_id, cause) = (&command_id, &commanded.event_id);
         refuse(
             store,
             run_id,
-            &command_id,
-            operator,
-            why,
-            &commanded.event_id,
+            Rejection {
+                command_id,
+                operator,
+                refusal: why,
+                cause,
+            },
         )
     };
     let disposition = loop {
@@ -654,7 +670,15 @@ pub(super) fn apply_fenced_windows(
     between(store);
     let cause = &commanded.event_id;
     let disposition = match rejection {
-        Some(rejection) => refuse(store, run_id, command_id, operator, rejection, cause)?,
+        Some(refusal) => {
+            let rejection = Rejection {
+                command_id,
+                operator,
+                refusal,
+                cause,
+            };
+            receipt::refuse_undisposed(store, run_id, rejection)?
+        }
         None => fenced_acceptance(store, run_id, wire, &commanded)?,
     };
     // Prove the newly appended pair does not corrupt fold semantics before the
@@ -683,18 +707,21 @@ fn fenced_commanded(
 /// The refusal a fenced write that lost its head journals, caused by
 /// `cause` — unless what moved the head disposed of this same command id,
 /// a redelivery racing this one: that disposition is this delivery's
-/// receipt too, so it answers with it and writes nothing.
+/// receipt too, so it answers with it and writes nothing. The refusal
+/// lands only on the head that lookup read ([`receipt::refuse_undisposed`]).
 fn stale_refusal(
     store: &mut Store,
     run_id: &str,
     wire: &FencedCommand,
     cause: &str,
 ) -> Result<FencedCommandOutcome, EngineError> {
-    if let Some(receipt) = receipt::disposition(&store.load(run_id)?, wire.command_id) {
-        return Ok(receipt);
-    }
-    let stale = Refusal::StaleCursor;
-    refuse(store, run_id, wire.command_id, wire.operator, stale, cause)
+    let rejection = Rejection {
+        command_id: wire.command_id,
+        operator: wire.operator,
+        refusal: Refusal::StaleCursor,
+        cause,
+    };
+    receipt::refuse_undisposed(store, run_id, rejection)
 }
 
 /// The acceptance, written against the head the cursor check covers — the

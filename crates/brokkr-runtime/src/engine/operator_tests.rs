@@ -1,6 +1,41 @@
 //! The operator's verbs against the rule they now share with `fold`.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use super::*;
+
+/// A peer that writes to the store it is handed.
+type Peer = Box<dyn FnMut(&mut Store)>;
+
+thread_local! {
+    /// The peer a test puts between a bridge refusal's receipt lookup and
+    /// the write that lookup decided.
+    static BEFORE_REFUSAL: RefCell<Option<Peer>> = RefCell::new(None);
+}
+
+/// Run the peer a test put here, on every turn the refusal makes. It is
+/// taken out while it runs, so a delivery the peer makes itself passes
+/// the window unheld.
+pub(super) fn before_refusal(store: &mut Store) {
+    let Some(mut peer) = BEFORE_REFUSAL.with(|slot| slot.borrow_mut().take()) else {
+        return;
+    };
+    peer(store);
+    BEFORE_REFUSAL.with(|slot| *slot.borrow_mut() = Some(peer));
+}
+
+/// Put `peer` between each bridge refusal's receipt lookup and its write.
+fn between_lookup_and_refusal(peer: impl FnMut(&mut Store) + 'static) {
+    BEFORE_REFUSAL.with(|slot| *slot.borrow_mut() = Some(Box::new(peer)));
+}
+
+/// One event a peer journals on whatever head it finds.
+fn journal(store: &mut Store, run_id: &str, event_type: EventType, payload: Value) {
+    store
+        .append_next(run_id, event_type, payload, None, None)
+        .unwrap();
+}
 
 /// A selector with no strategy and no default parks a run at `Start`,
 /// before it entered any phase, and `fold` refuses a retry's acceptance
@@ -115,20 +150,137 @@ fn a_bridge_command_beaten_to_the_head_by_its_own_redelivery_answers_with_its_re
     };
     let second = super::operator::apply_fenced_windows(&mut store, "twice", &wire, peer, |_| {});
 
-    let events = store.load("twice").unwrap();
+    let receipt = accepted_once(&mut store, "twice", &wire);
+    assert_eq!((first, second.unwrap()), (Some(receipt.clone()), receipt));
+}
+
+/// The receipt of a parked run's one journaled command and its acceptance,
+/// the only two events after the park; a redelivery answers with it.
+fn accepted_once(store: &mut Store, run_id: &str, wire: &FencedCommand) -> FencedCommandOutcome {
+    let events = store.load(run_id).unwrap();
     let receipt = FencedCommandOutcome::Accepted {
         head_seq: 8,
         head_hash: events.last().unwrap().event_hash.clone(),
     };
-    assert_eq!(
-        (first, second.unwrap()),
-        (Some(receipt.clone()), receipt.clone())
-    );
     let tail: Vec<_> = events[6..].iter().map(|event| event.event_type).collect();
     assert_eq!(
         tail,
         [EventType::OperatorCommanded, EventType::OperatorAccepted]
     );
-    let redelivered = apply_fenced_operator_command(&mut store, "twice", &wire).unwrap();
+    let redelivered = apply_fenced_operator_command(store, run_id, wire).unwrap();
     assert_eq!(redelivered, receipt);
+    receipt
+}
+
+/// The window the receipt lookup left (decision 0029): the first delivery
+/// journals its command after the second folded, and its acceptance after
+/// the second looked the command up and found it undisposed. The second's
+/// stale refusal was decided on that lookup's head, so it lands nowhere;
+/// the lookup is made again and answers with the acceptance, where an
+/// unfenced refusal is a second disposition every redelivery contradicts.
+#[test]
+fn a_bridge_refusal_beaten_to_the_head_by_its_own_redelivery_answers_with_its_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = super::tests::parked_store(&dir.path().join("window.db"), "window");
+    let (seq, hash) = store.head_hash("window").unwrap();
+    let wire = super::tests::looper("looper-command", "retry", seq, &hash);
+
+    // The first delivery's two writes, each where its fence lands it.
+    let first_command = |store: &mut Store| {
+        let command = json!({"command_id": "looper-command", "command": "retry", "args": {}, "operator": "operator"});
+        journal(store, "window", EventType::OperatorCommanded, command);
+    };
+    between_lookup_and_refusal(|store| {
+        let acceptance =
+            json!({"command_id": "looper-command", "operator": "operator", "reason": "reason"});
+        journal(store, "window", EventType::OperatorAccepted, acceptance);
+    });
+    let second =
+        super::operator::apply_fenced_windows(&mut store, "window", &wire, first_command, |_| {});
+
+    assert_eq!(second.unwrap(), accepted_once(&mut store, "window", &wire));
+}
+
+/// Three deliveries of one stale command, each inside the last one's
+/// window: the first journals the command, the second finds it undisposed
+/// and refuses the incomplete replay, and the third does the same between
+/// the second's lookup and its write. The third's refusal is the
+/// command's one disposition, and the second and the first, whose own
+/// refusals were decided on heads the third took away, answer with it.
+#[test]
+fn every_delivery_of_one_command_reads_the_refusal_that_landed_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = super::tests::parked_store(&dir.path().join("thrice.db"), "thrice");
+    let (seq, hash) = store.head_hash("thrice").unwrap();
+    let stale = super::tests::looper("looper-command", "retry", seq - 1, &hash);
+
+    let answers = Rc::new(RefCell::new(Vec::new()));
+    let (third_hash, third_answers) = (hash.clone(), Rc::clone(&answers));
+    between_lookup_and_refusal(move |store| {
+        let wire = super::tests::looper("looper-command", "retry", seq - 1, &third_hash);
+        let third = apply_fenced_operator_command(store, "thrice", &wire).unwrap();
+        third_answers.borrow_mut().push(third);
+    });
+    let second = |store: &mut Store| {
+        let second = apply_fenced_operator_command(store, "thrice", &stale).unwrap();
+        answers.borrow_mut().push(second);
+    };
+    let first = super::operator::apply_fenced_racing(&mut store, "thrice", &stale, second);
+
+    let events = store.load("thrice").unwrap();
+    let receipt = FencedCommandOutcome::Rejected {
+        reason: Refusal::IncompleteCommandReplay.word().into(),
+        head_seq: 8,
+        head_hash: events.last().unwrap().event_hash.clone(),
+    };
+    let mut answered = answers.borrow().clone();
+    answered.push(first.unwrap());
+    assert_eq!(answered, [receipt.clone(), receipt.clone(), receipt]);
+    let tail: Vec<_> = events[6..].iter().map(|event| event.event_type).collect();
+    assert_eq!(
+        tail,
+        [EventType::OperatorCommanded, EventType::OperatorRejected]
+    );
+}
+
+/// A bridge refusal whose head moves on every turn is not re-decided
+/// forever: after `FENCE_ATTEMPTS` lost turns it refuses with the drift
+/// named, and nothing of the command is written.
+#[test]
+fn a_bridge_refusal_whose_head_never_holds_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = super::tests::parked_store(&dir.path().join("moving.db"), "moving");
+    let (seq, hash) = store.head_hash("moving").unwrap();
+    let wire = super::tests::looper("looper-command", "retry", seq, &hash);
+
+    let peer_command = |store: &mut Store, id: String| {
+        let command = json!({"command_id": id, "command": "stop", "args": {}, "operator": "peer"});
+        journal(store, "moving", EventType::OperatorCommanded, command);
+    };
+    let mut peers = 0;
+    between_lookup_and_refusal(move |store| {
+        peers += 1;
+        peer_command(store, format!("peer-{peers}"));
+    });
+    let moved = super::operator::apply_fenced_windows(
+        &mut store,
+        "moving",
+        &wire,
+        |store| peer_command(store, "peer-0".into()),
+        |_| {},
+    );
+
+    assert!(
+        matches!(
+            &moved,
+            Err(EngineError::JournalMoved { run_id, expected_seq: 11, found_seq: 12 })
+                if run_id == "moving"
+        ),
+        "{moved:?}"
+    );
+    let events = store.load("moving").unwrap();
+    assert_eq!(events.len(), 12);
+    assert!(events
+        .iter()
+        .all(|event| event.payload["command_id"] != "looper-command"));
 }
