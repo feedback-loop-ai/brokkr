@@ -604,9 +604,60 @@ fn fenced_refusal(state: &RunState, command: CommandWord, cursor_holds: bool) ->
     acceptance_refusal(state, command)
 }
 
-/// The answer to a command id the journal already holds: its recorded
-/// disposition, or — a command journaled with none after it — a refusal
-/// of the incomplete replay.
+/// The disposition journaled for `command_id`: after its command, or
+/// anywhere when it was refused before its command could be journaled.
+fn recorded(
+    events: &[EventEnvelope],
+    commanded: Option<&EventEnvelope>,
+    command_id: &str,
+) -> Option<FencedCommandOutcome> {
+    let disposition = events.iter().find(|event| {
+        commanded.is_none_or(|commanded| event.seq > commanded.seq)
+            && matches!(
+                event.event_type,
+                EventType::OperatorAccepted | EventType::OperatorRejected
+            )
+            && command_id_of(event) == Some(command_id)
+    })?;
+    Some(if disposition.event_type == EventType::OperatorAccepted {
+        FencedCommandOutcome::Accepted {
+            head_seq: disposition.seq,
+            head_hash: disposition.event_hash.clone(),
+        }
+    } else {
+        FencedCommandOutcome::Rejected {
+            reason: disposition
+                .payload
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or(Refusal::PreviouslyRejected.word())
+                .to_string(),
+            head_seq: disposition.seq,
+            head_hash: disposition.event_hash.clone(),
+        }
+    })
+}
+
+/// The receipt a command id already holds, if any: a journaled command
+/// replays, and one refused stale before it was journaled answers with
+/// that refusal, its only record, so a redelivery reads the same.
+fn journaled(
+    store: &mut Store,
+    run_id: &str,
+    events: &[EventEnvelope],
+    command_id: &str,
+    operator: &str,
+) -> Result<Option<FencedCommandOutcome>, EngineError> {
+    match events.iter().find(|event| {
+        event.event_type == EventType::OperatorCommanded && command_id_of(event) == Some(command_id)
+    }) {
+        Some(commanded) => replay(store, run_id, events, commanded, command_id, operator).map(Some),
+        None => Ok(recorded(events, None, command_id)),
+    }
+}
+
+/// A journaled command's recorded disposition, or — none after it — a
+/// refusal of the incomplete replay.
 fn replay(
     store: &mut Store,
     run_id: &str,
@@ -615,31 +666,8 @@ fn replay(
     command_id: &str,
     operator: &str,
 ) -> Result<FencedCommandOutcome, EngineError> {
-    if let Some(disposition) = events.iter().find(|event| {
-        event.seq > commanded.seq
-            && matches!(
-                event.event_type,
-                EventType::OperatorAccepted | EventType::OperatorRejected
-            )
-            && command_id_of(event) == Some(command_id)
-    }) {
-        return Ok(if disposition.event_type == EventType::OperatorAccepted {
-            FencedCommandOutcome::Accepted {
-                head_seq: disposition.seq,
-                head_hash: disposition.event_hash.clone(),
-            }
-        } else {
-            FencedCommandOutcome::Rejected {
-                reason: disposition
-                    .payload
-                    .get("reason")
-                    .and_then(Value::as_str)
-                    .unwrap_or(Refusal::PreviouslyRejected.word())
-                    .to_string(),
-                head_seq: disposition.seq,
-                head_hash: disposition.event_hash.clone(),
-            }
-        });
+    if let Some(receipt) = recorded(events, Some(commanded), command_id) {
+        return Ok(receipt);
     }
     let incomplete = Refusal::IncompleteCommandReplay.word();
     let rejected = store.append_next(
@@ -696,10 +724,8 @@ pub(super) fn apply_fenced_windows(
         expected_hash,
     } = *wire;
     let events = store.load(run_id)?;
-    if let Some(commanded) = events.iter().find(|event| {
-        event.event_type == EventType::OperatorCommanded && command_id_of(event) == Some(command_id)
-    }) {
-        return replay(store, run_id, &events, commanded, command_id, operator);
+    if let Some(receipt) = journaled(store, run_id, &events, command_id, operator)? {
+        return Ok(receipt);
     }
     let state = fold(&events)?;
     // The head this fold read: the one the wire's cursor is checked

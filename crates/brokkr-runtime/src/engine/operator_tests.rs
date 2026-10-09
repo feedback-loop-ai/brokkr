@@ -80,4 +80,18 @@ fn a_bridge_command_beaten_to_the_head_by_a_peer_is_refused_stale() {
     assert_eq!(rejected.payload["command_id"], "looper-command");
     assert_eq!(events[6].payload["operator"], "peer");
     assert_eq!(fold(&events).unwrap().status, Status::Running);
+
+    // The refusal is the command's only record, so a redelivery of the
+    // same wire answers with it and writes nothing.
+    let redelivered = apply_fenced_operator_command(&mut store, "beaten", &wire).unwrap();
+    let receipt = FencedCommandOutcome::Rejected {
+        reason: Refusal::StaleCursor.word().into(),
+        head_seq: 9,
+        head_hash: rejected.event_hash.clone(),
+    };
+    assert_eq!(redelivered, receipt);
+    assert_eq!(
+        store.head_hash("beaten").unwrap(),
+        (9, rejected.event_hash.clone())
+    );
 }
