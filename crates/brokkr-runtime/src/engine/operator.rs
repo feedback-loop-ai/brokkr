@@ -189,6 +189,17 @@ fn accepted(store: &Store, run_id: &str) -> Result<FencedCommandOutcome, EngineE
     })
 }
 
+/// An acceptance reported at the event that journaled it, not at whatever
+/// head a later read finds: the one derivation of a bridge command's
+/// accepted receipt, so the delivery that wrote it and every redelivery
+/// read the same seq and hash.
+fn accepted_at(acceptance: &EventEnvelope) -> FencedCommandOutcome {
+    FencedCommandOutcome::Accepted {
+        head_seq: acceptance.seq,
+        head_hash: acceptance.event_hash.clone(),
+    }
+}
+
 /// Journal a refusal and report it. A rejection needs no fence of its
 /// own: `fold` reads `operator/rejected` back in every state there is,
 /// terminal included, which is exactly why refusing is always the safe
@@ -740,7 +751,11 @@ fn fenced_acceptance(
     let payload =
         json!({"command_id": wire.command_id, "operator": wire.operator, "reason": wire.reason});
     match fenced_append(store, run_id, &head, cause, kind, payload, None) {
-        Ok(_) => accepted(store, run_id),
+        Ok(acceptance) => {
+            #[cfg(test)]
+            super::operator_tests::after_acceptance(store);
+            Ok(accepted_at(&acceptance))
+        }
         Err(StoreError::HeadMoved { .. }) => stale_refusal(store, run_id, wire, cause),
         Err(error) => Err(error.into()),
     }

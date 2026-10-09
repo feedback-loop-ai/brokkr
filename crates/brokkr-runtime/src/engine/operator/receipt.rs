@@ -10,8 +10,8 @@ use brokkr_store::{Store, StoreError};
 use serde_json::Value;
 
 use super::{
-    command_id_of, fenced_append, read_back, EngineError, FencedCommandOutcome, Head, Rejection,
-    FENCE_ATTEMPTS,
+    accepted_at, command_id_of, fenced_append, read_back, EngineError, FencedCommandOutcome, Head,
+    Rejection, FENCE_ATTEMPTS,
 };
 
 /// The `operator/commanded` journaled for `command_id`, if any.
@@ -37,10 +37,7 @@ fn recorded(
             && command_id_of(event) == Some(command_id)
     })?;
     Some(if disposition.event_type == EventType::OperatorAccepted {
-        FencedCommandOutcome::Accepted {
-            head_seq: disposition.seq,
-            head_hash: disposition.event_hash.clone(),
-        }
+        accepted_at(disposition)
     } else {
         FencedCommandOutcome::Rejected {
             reason: disposition

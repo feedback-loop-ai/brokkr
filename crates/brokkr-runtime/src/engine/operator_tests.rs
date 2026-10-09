@@ -12,17 +12,30 @@ thread_local! {
     /// The peer a test puts between a bridge refusal's receipt lookup and
     /// the write that lookup decided.
     static BEFORE_REFUSAL: RefCell<Option<Peer>> = RefCell::new(None);
+    /// The peer a test puts between a bridge acceptance's commit and the
+    /// receipt it reports.
+    static AFTER_ACCEPTANCE: RefCell<Option<Peer>> = RefCell::new(None);
 }
 
-/// Run the peer a test put here, on every turn the refusal makes. It is
+/// Run the peer a test put in `held`, each time the window opens. It is
 /// taken out while it runs, so a delivery the peer makes itself passes
 /// the window unheld.
-pub(super) fn before_refusal(store: &mut Store) {
-    let Some(mut peer) = BEFORE_REFUSAL.with(|slot| slot.borrow_mut().take()) else {
+fn run_held(held: &'static std::thread::LocalKey<RefCell<Option<Peer>>>, store: &mut Store) {
+    let Some(mut peer) = held.with(|slot| slot.borrow_mut().take()) else {
         return;
     };
     peer(store);
-    BEFORE_REFUSAL.with(|slot| *slot.borrow_mut() = Some(peer));
+    held.with(|slot| *slot.borrow_mut() = Some(peer));
+}
+
+/// The window on every turn a bridge refusal makes.
+pub(super) fn before_refusal(store: &mut Store) {
+    run_held(&BEFORE_REFUSAL, store);
+}
+
+/// The window after a bridge acceptance commits.
+pub(super) fn after_acceptance(store: &mut Store) {
+    run_held(&AFTER_ACCEPTANCE, store);
 }
 
 /// Put `peer` between each bridge refusal's receipt lookup and its write.
@@ -199,6 +212,39 @@ fn a_bridge_refusal_beaten_to_the_head_by_its_own_redelivery_answers_with_its_re
         super::operator::apply_fenced_windows(&mut store, "window", &wire, first_command, |_| {});
 
     assert_eq!(second.unwrap(), accepted_once(&mut store, "window", &wire));
+}
+
+/// A peer journals between the bridge's acceptance committing and its
+/// receipt being reported. The receipt is the acceptance's own seq and
+/// hash, the one every redelivery reads, where a head read after the
+/// commit reports the peer's event as this command's.
+#[test]
+fn a_bridge_acceptance_reports_the_event_it_committed_whatever_lands_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = super::tests::parked_store(&dir.path().join("after.db"), "after");
+    let (seq, hash) = store.head_hash("after").unwrap();
+    let wire = super::tests::looper("looper-command", "retry", seq, &hash);
+
+    AFTER_ACCEPTANCE.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(|store: &mut Store| {
+            let command =
+                json!({"command_id": "peer", "command": "stop", "args": {}, "operator": "peer"});
+            journal(store, "after", EventType::OperatorCommanded, command);
+        }));
+    });
+    let first = apply_fenced_operator_command(&mut store, "after", &wire).unwrap();
+
+    let events = store.load("after").unwrap();
+    let acceptance = &events[7];
+    assert_eq!(acceptance.event_type, EventType::OperatorAccepted);
+    let receipt = FencedCommandOutcome::Accepted {
+        head_seq: 8,
+        head_hash: acceptance.event_hash.clone(),
+    };
+    assert_eq!(first, receipt);
+    assert_eq!(store.head_hash("after").unwrap().0, 9);
+    let redelivered = apply_fenced_operator_command(&mut store, "after", &wire).unwrap();
+    assert_eq!(redelivered, receipt);
 }
 
 /// Three deliveries of one stale command, each inside the last one's
