@@ -59,6 +59,19 @@ pub(super) fn effective(root: &Path, what: &str, source: Value) -> Result<Value,
         return Ok(source);
     }
     only_keys(overlay, &OVERLAY_KEYS, what)?;
+    let base_name = extended(overlay, what)?;
+    let mut merged = base(root, what, &base_name)?;
+    merge_chain(&mut merged, overlay);
+    let reasons = replaces(overlay, what)?;
+    for power in Power::ALL {
+        merge_power(&mut merged, overlay, &reasons, power, what, &base_name)?;
+    }
+    Ok(Value::Object(merged))
+}
+
+/// The base an overlay names under `extends`: a valid agent name, and only
+/// beside the `models` every overlay states.
+fn extended(overlay: &Map<String, Value>, what: &str) -> Result<String, LibraryError> {
     let base_name = string(overlay, "extends", what)?;
     if !valid_name(&base_name) {
         return invalid(format!(
@@ -71,7 +84,12 @@ pub(super) fn effective(root: &Path, what: &str, source: Value) -> Result<Value,
              chain it hires"
         ));
     }
-    let mut merged = base(root, what, &base_name)?;
+    Ok(base_name)
+}
+
+/// `models` and `efforts` replace the base's whole; `charter` and `inputs`
+/// replace it only when the overlay writes them.
+fn merge_chain(merged: &mut Map<String, Value>, overlay: &Map<String, Value>) {
     for key in ["models", "efforts"] {
         match overlay.get(key) {
             Some(value) => merged.insert(key.to_string(), value.clone()),
@@ -83,30 +101,38 @@ pub(super) fn effective(root: &Path, what: &str, source: Value) -> Result<Value,
             merged.insert(key.to_string(), value.clone());
         }
     }
-    let reasons = replaces(overlay, what)?;
-    for power in Power::ALL {
-        let key = power.key();
-        let reason = reasons.get(key);
-        match (overlay.get(key), reason) {
-            (None, None) => {}
-            (Some(_), None) => {
+}
+
+/// One power: kept when the overlay is silent, replaced or dropped only
+/// under a reason, and a reason for nothing is refused.
+fn merge_power(
+    merged: &mut Map<String, Value>,
+    overlay: &Map<String, Value>,
+    reasons: &Map<String, Value>,
+    power: Power,
+    what: &str,
+    base_name: &str,
+) -> Result<(), LibraryError> {
+    let key = power.key();
+    match (overlay.get(key), reasons.get(key)) {
+        (None, None) => {}
+        (Some(_), None) => {
+            return invalid(format!(
+                "{what} writes '{key}' over '{base_name}' without a reason; an overlay \
+                 that changes an office's {key} names it under 'replaces' with why"
+            ))
+        }
+        (Some(value), Some(_)) => _ = merged.insert(key.to_string(), value.clone()),
+        (None, Some(_)) => {
+            if merged.remove(key).is_none() {
                 return invalid(format!(
-                    "{what} writes '{key}' over '{base_name}' without a reason; an overlay \
-                     that changes an office's {key} names it under 'replaces' with why"
-                ))
-            }
-            (Some(value), Some(_)) => _ = merged.insert(key.to_string(), value.clone()),
-            (None, Some(_)) => {
-                if merged.remove(key).is_none() {
-                    return invalid(format!(
-                        "{what} 'replaces' gives a reason for '{key}', which neither it \
-                         writes nor '{base_name}' declares"
-                    ));
-                }
+                    "{what} 'replaces' gives a reason for '{key}', which neither it \
+                     writes nor '{base_name}' declares"
+                ));
             }
         }
     }
-    Ok(Value::Object(merged))
+    Ok(())
 }
 
 /// The base office's own definition, read as strictly as any definition.
