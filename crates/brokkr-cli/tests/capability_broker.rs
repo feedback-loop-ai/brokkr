@@ -349,6 +349,80 @@ fn no_server_argv_grant_or_secret_value_is_an_option() {
     );
 }
 
+/// The binary's waiting bootstrap started as a box starts it (U6c6a):
+/// `frame` arrives on an anonymous pipe at descriptor 3, stdin is
+/// closed, and `ready` redirects descriptor 4, the ready channel; `$2` is
+/// a marker file beside the frame.
+fn bootstrapped(root: &Root, frame: &[u8], ready: &str) -> Ran {
+    let framed = root.path.join("frame");
+    std::fs::write(&framed, frame).unwrap();
+    let script = format!(
+        "cat \"$1\" | \"$0\" broker bootstrap --control 3 --ready 4 3<&0 0</dev/null {ready}"
+    );
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", &script]).arg(brokkr()).arg(&framed);
+    command
+        .arg(root.path.join("marker"))
+        .current_dir(&root.path);
+    root.ran(command)
+}
+
+/// A sealed intent for an isolated box, as one control frame.
+fn intent_frame() -> Vec<u8> {
+    let host = json!({"mnt": 1, "pid": 2, "net": 3, "ipc": 4, "uts": 5});
+    let intent = json!({
+        "plan": DIGEST, "sources": DIGEST, "network": "isolated", "host": host, "mounts": [],
+    });
+    let body = intent.to_string().into_bytes();
+    let length = u32::try_from(body.len()).unwrap().to_be_bytes();
+    [&length[..], &body].concat()
+}
+
+#[test]
+fn the_bootstrap_without_its_private_control_context_is_not_established() {
+    let root = Root::new();
+    let cases: [&[&str]; 12] = [
+        &[],
+        &["--control", "3"],
+        &["--ready", "4"],
+        &["--control", "x", "--ready", "4"],
+        &["--control", "1", "--ready", "2"],
+        &["--control", "7", "--ready", "8"],
+        &["--control", "-1", "--ready", "4"],
+        &["--control", "3", "--ready", "-1"],
+        &["--control"],
+        &["--ready"],
+        &["--control", "--ready", "4"],
+        &["--control=", "--ready", "4"],
+    ];
+    for args in cases {
+        let ran = root.brokkr(&[&["broker", "bootstrap"], args].concat());
+        let answer = ((ran.code, ran.stderr), ran.stdout);
+        let established = (refused(Refusal::Establishment), String::new());
+        assert_eq!((args, answer), (args, established));
+    }
+}
+
+/// A host is no box, and neither stdout nor a marker file is a ready
+/// channel: each refuses before any ready byte. No plan, store or grant
+/// is an option, so nothing is looked up or started.
+#[test]
+fn neither_a_host_nor_stdout_nor_a_marker_carries_readiness() {
+    let root = Root::new();
+    for ready in ["4>&1 1>&2", "4>&1", "4>\"$2\""] {
+        let ran = bootstrapped(&root, &intent_frame(), ready);
+        let answer = ((ran.code, ran.stderr), ran.stdout);
+        let established = (refused(Refusal::Establishment), String::new());
+        assert_eq!((ready, answer), (ready, established));
+    }
+    assert_eq!(std::fs::read(root.path.join("marker")).unwrap(), b"");
+    for option in ["--plan", "--store", "--grant", "--exec"] {
+        let ran = root.brokkr(&["broker", "bootstrap", option, "/x"]);
+        let expected = format!("error: unexpected argument '{option}' found");
+        assert_eq!(usage(&ran), (Some(2), expected.as_str()));
+    }
+}
+
 #[test]
 fn the_grouped_library_verbs_still_dispatch() {
     let root = Root::new();
@@ -442,6 +516,10 @@ fn each_refusal_reads_in_mb3_and_mb4s_words() {
         (
             Refusal::StoreInBox,
             "MCP secret store would be mounted in the server box",
+        ),
+        (
+            Refusal::Establishment,
+            "MCP server box could not be established",
         ),
         (
             Refusal::ServingIncomplete,

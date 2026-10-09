@@ -121,6 +121,7 @@ pub enum brokkr_protocol::broker::Privilege
 pub brokkr_protocol::broker::Privilege::Confined
 pub enum brokkr_protocol::broker::Refusal
 pub brokkr_protocol::broker::Refusal::BindOverlapsReach
+pub brokkr_protocol::broker::Refusal::Establishment
 pub brokkr_protocol::broker::Refusal::Identity
 pub brokkr_protocol::broker::Refusal::LaunchInReach
 pub brokkr_protocol::broker::Refusal::Linked
