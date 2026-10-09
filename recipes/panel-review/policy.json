@@ -18,64 +18,6 @@
       "result": "resolved",
       "next": "implement",
       "reason": "Task framed against the repo and recorded."
-    },
-    {
-      "id": "IMPL-BROKEN-TWICE",
-      "from": "implement",
-      "result": "broken",
-      "when": {
-        "consecutive_failures_gte": 2
-      },
-      "next": "stop",
-      "severity": "hard",
-      "reason": "Two consecutive broken implement runs; stop and report rather than thrash."
-    },
-    {
-      "id": "IMPL-BROKEN-RETRY",
-      "from": "implement",
-      "result": "broken",
-      "next": "implement",
-      "reason": "First broken run; one re-run with the specific gap named is permitted."
-    },
-    {
-      "id": "IMPL-BLOCKED",
-      "from": "implement",
-      "result": "blocked",
-      "next": "stop",
-      "severity": "hard",
-      "reason": "Implementer blocked; report the blocker, never silently continue."
-    },
-    {
-      "id": "IMPL-OK-DOCS-RETURN",
-      "from": "implement",
-      "result": "complete",
-      "when": { "fixes_docs_only": true },
-      "next": "review",
-      "reason": "A returned implement changed only declared docs; review the answer without rerunning code verification (decision 0041)."
-    },
-    {
-      "id": "IMPL-OK",
-      "from": "implement",
-      "result": "complete",
-      "next": "verify",
-      "reason": "Implementation complete and committed."
-    },
-    {
-      "id": "VERIFY-FAIL-EXHAUSTED",
-      "from": "verify",
-      "result": "fail",
-      "when": { "visits_implement_gte": 3 },
-      "next": "stop",
-      "severity": "hard",
-      "reason": "Verification is still red after three implement visits; stop at the bound."
-    },
-    {
-      "id": "VERIFY-FAIL",
-      "from": "verify",
-      "result": "fail",
-      "next": "implement",
-      "severity": "flagged",
-      "reason": "Return the failing output to the implementer (decision 0041)."
     }
   ]
 }

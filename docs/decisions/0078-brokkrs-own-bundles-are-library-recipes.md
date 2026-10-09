@@ -1,6 +1,6 @@
 # 0078 — Brokkr's own bundles are library recipes
 
-Status: proposed
+Status: accepted — operator ruled 2026-10-08 (PR #590). The same day the operator ruled that fast's wording stands for the three rule reasons node's and panel-review's copies had drifted on, so both overlays now inherit fast's rules whole.
 Date: 2026-10-08
 
 Built: built

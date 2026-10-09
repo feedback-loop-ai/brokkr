@@ -7,15 +7,6 @@
   "override": {
     "bundle": ["description", "cost"],
     "table": ["description", "phases", "initial"],
-    "rules": [
-      "IMPL-BROKEN-TWICE",
-      "IMPL-BROKEN-RETRY",
-      "IMPL-BLOCKED",
-      "IMPL-OK-DOCS-RETURN",
-      "IMPL-OK",
-      "VERIFY-FAIL-EXHAUSTED",
-      "VERIFY-FAIL"
-    ],
     "seats": ["implement", "review"]
   },
   "seats": {
