@@ -11,15 +11,16 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use super::super::namespace::sources::host::*;
 use super::super::namespace::sources::*;
 use super::super::*;
+use super::launcher::{bubblewrap, launcher};
 use super::server::{build_dir, installed, server_system, unservable, Host as Fixture};
 use crate::broker::{Network, Reach, Refusal, Tree};
 
-fn table() -> Vec<u8> {
+pub(super) fn table() -> Vec<u8> {
     std::fs::read("/proc/self/mountinfo").unwrap()
 }
 
 /// A mount table that reads as `text`.
-fn serving(text: &[u8]) -> Option<Box<dyn Read>> {
+pub(super) fn serving(text: &[u8]) -> Option<Box<dyn Read>> {
     Some(Box::new(std::io::Cursor::new(text.to_vec())))
 }
 
@@ -48,10 +49,6 @@ fn nothing() {}
 
 fn untouched(_: &Path, _: &OsStr) {}
 
-fn no_launcher() -> Option<(PathBuf, String)> {
-    None
-}
-
 /// A uid that is neither this process's nor the overflow uid.
 fn stranger() -> u32 {
     let euid = rustix::process::geteuid().as_raw();
@@ -59,7 +56,7 @@ fn stranger() -> u32 {
 }
 
 /// Credentials of one confined writer that owns nothing here.
-fn strangers() -> Credentials {
+pub(super) fn strangers() -> Credentials {
     Credentials {
         uids: vec![stranger()],
         overflow: 65534,
@@ -68,7 +65,7 @@ fn strangers() -> Credentials {
 }
 
 /// Credentials of this process alone, confined.
-fn ours() -> Credentials {
+pub(super) fn ours() -> Credentials {
     Credentials {
         uids: vec![rustix::process::geteuid().as_raw()],
         ..strangers()
@@ -91,7 +88,7 @@ pub(super) fn confined() -> Host<'static> {
         .flat_map(|line| [line, "\n"])
         .collect();
     let overflow = std::fs::read_to_string("/proc/sys/fs/overflowuid").unwrap();
-    let credentials = credited(Some(&overflow), Some(&fenced));
+    let credentials = credited(Some(&overflow), &[Some(&fenced)]);
     assert_eq!(credentials.confinement, Confinement::Proved);
     Host {
         credentials,
@@ -101,12 +98,12 @@ pub(super) fn confined() -> Host<'static> {
 
 /// A host for the observer: `credentials`, the live mount table and
 /// nothing between the resolutions, unless a test gives its own.
-fn host<'h>(credentials: Credentials, mountinfo: Table<'h>) -> Host<'h> {
+pub(super) fn host<'h>(credentials: Credentials, mountinfo: Table<'h>) -> Host<'h> {
     sources_host(credentials, mountinfo, &nothing)
 }
 
 /// What a host reads its mount table from.
-type Table<'h> = &'h dyn Fn() -> Option<Box<dyn Read>>;
+pub(super) type Table<'h> = &'h dyn Fn() -> Option<Box<dyn Read>>;
 
 fn sources_host<'h>(
     credentials: Credentials,
@@ -114,16 +111,16 @@ fn sources_host<'h>(
     between: &'h dyn Fn(),
 ) -> Host<'h> {
     Host {
-        limits: LIMITS,
         credentials,
         mountinfo,
-        launcher: &no_launcher,
+        found: &|| None,
         between,
         opening: &untouched,
+        ..Host::live()
     }
 }
 
-fn source(path: &Path, role: Role) -> Source<'_> {
+pub(super) fn source(path: &Path, role: Role) -> Source<'_> {
     Source {
         path,
         role,
@@ -131,7 +128,7 @@ fn source(path: &Path, role: Role) -> Source<'_> {
     }
 }
 
-fn reach(writable: &[PathBuf], readable: &[PathBuf]) -> Reach {
+pub(super) fn reach(writable: &[PathBuf], readable: &[PathBuf]) -> Reach {
     Reach {
         writable: writable.to_vec(),
         readable: readable.to_vec(),
@@ -238,7 +235,7 @@ fn a_writer_is_confined_only_where_no_exec_or_uid_can_gain_privilege() {
         overflow: 65534,
         confinement: Confinement::Proved,
     };
-    assert_eq!(credited(Some("65534\n"), Some(CONFINED)), proved);
+    assert_eq!(credited(Some("65534\n"), &[Some(CONFINED)]), proved);
     // A root uid beside the others, an ownership capability, `no_new_privs` clear,
     // unread or read twice, no uid line, and no status at all: each alone
     // leaves the writer unconfined.
@@ -251,10 +248,10 @@ fn a_writer_is_confined_only_where_no_exec_or_uid_can_gain_privilege() {
         CONFINED.replace("Uid:", "Gid:"),
     ];
     for status in unconfined {
-        let confinement = credited(Some("65534\n"), Some(&status)).confinement;
+        let confinement = credited(Some("65534\n"), &[Some(&status)]).confinement;
         assert_eq!((&status, confinement), (&status, Confinement::Unproved));
     }
-    let unread = credited(Some("65534\n"), None);
+    let unread = credited(Some("65534\n"), &[None]);
     assert_eq!(unread.confinement, Confinement::Unproved);
     // An unread or unterminated overflow uid, or a uid line of other than
     // four uids, leaves no writer known at all.
@@ -263,7 +260,7 @@ fn a_writer_is_confined_only_where_no_exec_or_uid_can_gain_privilege() {
         .into_iter()
         .chain([(Some("65534\n"), three.as_str())])
     {
-        let unknown = credited(overflow, Some(status));
+        let unknown = credited(overflow, &[Some(status)]);
         let facts = (unknown.uids, unknown.overflow);
         assert_eq!((status, facts), (status, (Vec::new(), u32::MAX)));
     }
@@ -286,7 +283,7 @@ fn a_writer_holding_any_capability_is_unconfined_whatever_no_new_privs_says() {
         for set in ["CapPrm", "CapEff", "CapAmb"] {
             let status = CONFINED.replace(&format!("{set}:\t0\n"), &format!("{set}:\t{bit:x}\n"));
             assert_ne!(status, CONFINED);
-            let confinement = credited(Some("65534\n"), Some(&status)).confinement;
+            let confinement = credited(Some("65534\n"), &[Some(&status)]).confinement;
             assert_eq!((name, set, confinement), (name, set, Confinement::Unproved));
         }
     }
@@ -670,7 +667,7 @@ fn an_unreadable_file_passes_only_as_support_root_owns_and_no_writer_can_write()
     ] {
         let file = fixture.file(relative, 0o644);
         if relative.starts_with("sys/granted") {
-            grant(&file);
+            grant(&file, (6, 4));
         }
         chmod(&file, mode);
     }
@@ -794,16 +791,18 @@ fn an_object_inside_a_tree_replaced_before_it_opens_refuses() {
 }
 
 /// Set `file`'s mode.
-fn chmod(file: &Path, mode: u32) {
+pub(super) fn chmod(file: &Path, mode: u32) {
     std::fs::set_permissions(file, std::fs::Permissions::from_mode(mode)).unwrap();
 }
 
 /// An extended access ACL naming this process's own uid beside the
-/// owner's, group's and other's own entries, its mask read-only so the
-/// mode's group bits stay read-only: only the ACL itself differs. The uid
-/// is mapped in any user namespace this runs in, where an unmapped one
-/// such as `stranger()` is no valid ACL entry (EINVAL).
-fn grant(file: &Path) {
+/// owner's, group's and other's own entries, the owner's permissions
+/// `owner` and every other entry's, the mask's included, `rest`, which
+/// grants no write, so the mode's bits stay what they were: only the ACL
+/// itself differs. The uid is mapped in any user namespace this runs in,
+/// where an unmapped one such as `stranger()` is no valid ACL entry
+/// (EINVAL).
+pub(super) fn grant(file: &Path, (owner, rest): (u16, u16)) {
     let entry = |tag: u16, perm: u16, id: u32| {
         [
             &tag.to_le_bytes()[..],
@@ -814,11 +813,11 @@ fn grant(file: &Path) {
     };
     let acl = [
         2u32.to_le_bytes().to_vec(),
-        entry(0x01, 6, u32::MAX),
-        entry(0x02, 4, rustix::process::geteuid().as_raw()),
-        entry(0x04, 4, u32::MAX),
-        entry(0x10, 4, u32::MAX),
-        entry(0x20, 4, u32::MAX),
+        entry(0x01, owner, u32::MAX),
+        entry(0x02, rest, rustix::process::geteuid().as_raw()),
+        entry(0x04, rest, u32::MAX),
+        entry(0x10, rest, u32::MAX),
+        entry(0x20, rest, u32::MAX),
     ]
     .concat();
     let fd = std::fs::File::open(file).unwrap();
@@ -826,12 +825,19 @@ fn grant(file: &Path) {
     rustix::fs::fsetxattr(fd.as_fd(), name, &acl, rustix::fs::XattrFlags::empty()).unwrap();
 }
 
-#[test]
-fn a_linked_support_file_passes_only_with_the_whole_write_exclusion_proof() {
+/// A fresh fixture with a support library, `sys/lib/libx.so`, linked again
+/// beside its directory: the fixture, the directory and the file.
+pub(super) fn linked_library() -> (Fixture, PathBuf, PathBuf) {
     let fixture = Fixture::new();
     let lib = fixture.path("sys/lib");
     let file = fixture.file("sys/lib/libx.so", 0o644);
     std::fs::hard_link(&file, fixture.path("sys/other")).unwrap();
+    (fixture, lib, file)
+}
+
+#[test]
+fn a_linked_support_file_passes_only_with_the_whole_write_exclusion_proof() {
+    let (fixture, lib, file) = linked_library();
     let mountinfo = live;
     let seat = reach(&[], &[]);
     let support = [source(&lib, Role::Support)];
@@ -867,7 +873,7 @@ fn a_linked_support_file_passes_only_with_the_whole_write_exclusion_proof() {
     }
     chmod(&file, 0o644);
     assert_eq!(with(strangers()), Ok(()));
-    grant(&file);
+    grant(&file, (6, 4));
     let mode = std::fs::metadata(&file).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o644);
     assert_eq!(with(strangers()), Err(Refusal::Identity));
@@ -1361,7 +1367,7 @@ fn the_root_every_resolution_starts_from_is_closed_on_exec() {
 
 /// `text` with the line of mount `id` rewritten by `edit`, or dropped
 /// where `edit` empties it.
-fn edited(text: &[u8], id: u64, edit: impl Fn(&mut Vec<String>)) -> Vec<u8> {
+pub(super) fn edited(text: &[u8], id: u64, edit: impl Fn(&mut Vec<String>)) -> Vec<u8> {
     let text = String::from_utf8(text.to_vec()).unwrap();
     let lines: Vec<String> = text
         .lines()
@@ -1377,7 +1383,7 @@ fn edited(text: &[u8], id: u64, edit: impl Fn(&mut Vec<String>)) -> Vec<u8> {
 }
 
 /// A mount table path, escaped as the kernel writes it.
-fn escaped(path: &Path) -> String {
+pub(super) fn escaped(path: &Path) -> String {
     path.display()
         .to_string()
         .replace('\\', "\\134")
@@ -1431,18 +1437,26 @@ fn a_mount_alias_or_an_unproved_filesystem_refuses() {
         Err(Refusal::Identity)
     );
     // Its own mount on an unproved filesystem, of another device, or gone.
-    let filesystem = |fields: &mut Vec<String>| {
-        let at = fields.iter().position(|field| field == "-").unwrap();
-        fields[at + 1] = "overlay".to_string();
-    };
-    assert_eq!(with(edited(&text, id, filesystem)), Err(Refusal::Identity));
-    let device = |fields: &mut Vec<String>| fields[2] = "4095:4095".to_string();
-    assert_eq!(with(edited(&text, id, device)), Err(Refusal::Identity));
+    for edit in [overlay, moved] {
+        let table = edited(&text, id, |fields| edit(fields));
+        assert_eq!(with(table), Err(Refusal::Identity));
+    }
     assert_eq!(with(edited(&text, id, Vec::clear)), Err(Refusal::Identity));
 }
 
+/// A mount line's `fields` made an overlay's, a filesystem never proved.
+pub(super) fn overlay(fields: &mut [String]) {
+    let at = fields.iter().position(|field| field == "-").unwrap();
+    fields[at + 1] = "overlay".to_string();
+}
+
+/// A mount line's `fields` given another device.
+pub(super) fn moved(fields: &mut [String]) {
+    fields[2] = "4095:4095".to_string();
+}
+
 /// The box `program` is prepared in on `host`, its bootstrap `bootstrap`.
-fn prepared_on(
+pub(super) fn prepared_on(
     program: &ServerProgram,
     bootstrap: &Path,
     host: &Host<'_>,
@@ -1453,6 +1467,7 @@ fn prepared_on(
         network: &Network::Isolated,
         bootstrap,
         arguments: &[],
+        writers: &[],
     };
     ServerBox::prepare_with(program, &profile, host)
 }
@@ -1463,55 +1478,64 @@ fn a_launcher_that_cannot_mount_a_descriptor_leaves_the_box_unavailable() {
     let entry = fixture.plant("opt/docs/bin/docs-mcp");
     let docs = ServerProgram::resolve(entry.to_str().unwrap(), &fixture.home).unwrap();
     let bootstrap = std::env::current_exe().unwrap();
-    let bwrap = fixture.plant("launcher/bwrap");
-    let reporting = |reported: &'static str| {
-        let bwrap = bwrap.clone();
-        move || Some((bwrap.clone(), reported.to_string()))
+    // A stand-in for the launcher's run reports each version; the writers
+    // here are strangers, or this process's own.
+    let image = launcher(&fixture, "image/bwrap");
+    let answer = |found: &dyn Fn() -> Option<PathBuf>, credentials: Credentials, report: &str| {
+        let run = move |_: std::os::fd::BorrowedFd<'_>| report.to_string();
+        let host = Host {
+            found,
+            credentials,
+            run: &run,
+            ..Host::live()
+        };
+        prepared_on(&docs, &bootstrap, &host).map(|_| ())
     };
-    let (old, floor, garbled) = (
-        reporting("bubblewrap 0.4.1"),
-        reporting("bubblewrap 0.5.0"),
-        reporting("bubblewrap"),
-    );
     // Filesystem causes come first: a linked package file on a launcher
-    // that could not mount it anyway, whoever the writers are.
+    // refused before it runs, outside the system set, whoever the writers
+    // are.
     let module = fixture.file("opt/docs/lib/a.py", 0o644);
     std::fs::hard_link(&module, fixture.path("opt/docs/lib/b.py")).unwrap();
-    let strange = Host {
-        launcher: &old,
-        credentials: strangers(),
-        ..Host::live()
-    };
-    let linked = prepared_on(&docs, &bootstrap, &strange).map(|_| ());
-    assert_eq!(linked, Err(Refusal::Linked));
+    let floor = "bubblewrap 0.5.0";
+    assert_eq!(
+        answer(&named(&image), strangers(), floor),
+        Err(Refusal::Linked)
+    );
+    assert_eq!(answer(&named(&image), ours(), floor), Err(Refusal::Linked));
     std::fs::remove_file(fixture.path("opt/docs/lib/b.py")).unwrap();
     if unservable() {
         return;
     }
-    let answer = |launcher: &dyn Fn() -> Option<(PathBuf, String)>| {
-        let host = Host {
-            launcher,
-            ..confined()
-        };
-        prepared_on(&docs, &bootstrap, &host).map(|_| ())
+    let Some(bwrap) = bubblewrap() else {
+        return;
     };
-    assert_eq!(answer(&floor), Ok(()));
-    type Launcher<'l> = &'l dyn Fn() -> Option<(PathBuf, String)>;
-    let unable: [Launcher<'_>; 3] = [&old, &garbled, &no_launcher];
-    for launcher in unable {
-        assert_eq!(answer(launcher), Err(Refusal::Unavailable));
+    // The host's own bubblewrap: a version that mounts descriptors admits.
+    let found = named(&bwrap);
+    assert_eq!(answer(&found, strangers(), floor), Ok(()));
+    for report in ["bubblewrap 0.4.1", "bubblewrap"] {
+        let unable = answer(&found, strangers(), report);
+        assert_eq!((report, unable), (report, Err(Refusal::Unavailable)));
     }
-    // A launcher linked from elsewhere that a writer owns.
-    std::fs::hard_link(&bwrap, fixture.path("launcher/again")).unwrap();
-    let owned = Host {
-        launcher: &floor,
-        credentials: ours(),
-        ..Host::live()
-    };
     assert_eq!(
-        prepared_on(&docs, &bootstrap, &owned).map(|_| ()),
+        answer(&|| None, strangers(), floor),
+        Err(Refusal::Unavailable)
+    );
+    // A launcher outside the system set, or one a writer could write.
+    assert_eq!(
+        answer(&named(&image), strangers(), floor),
         Err(Refusal::Identity)
     );
+    let rooted = Credentials {
+        uids: vec![0],
+        ..strangers()
+    };
+    assert_eq!(answer(&found, rooted, floor), Err(Refusal::Identity));
+}
+
+/// What finds `path`, without running it.
+pub(super) fn named(path: &Path) -> impl Fn() -> Option<PathBuf> {
+    let path = path.to_path_buf();
+    move || Some(path.clone())
 }
 
 #[test]

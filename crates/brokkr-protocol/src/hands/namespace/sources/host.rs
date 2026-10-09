@@ -2,9 +2,11 @@
 //! (decision 0065 slice two, U6c5a): each source's whole resolution chain
 //! through descriptors, a file's own facts read through its descriptor,
 //! the mount table and its alias mapping, the managed writers' credentials
-//! and the kernel write-exclusion predicate, and the box launcher. The
-//! observer's memory is bounded by its counts alone (MB3, operator ruling
-//! 2026-10-07): entries, depth, links per resolution and mount records.
+//! and the kernel write-exclusion predicate, and where the box launcher
+//! lies, found without running it; [`super::launcher`] checks and runs it
+//! (U6c5c). The observer's memory is bounded by its counts alone (MB3,
+//! operator ruling 2026-10-07): entries, depth, links per resolution and
+//! mount records.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{OsStr, OsString};
@@ -16,8 +18,15 @@ use std::path::{Component, Path, PathBuf};
 use rustix::fs::{Mode, OFlags};
 use rustix::io::Errno;
 
-use super::{handle, stat_at, Facts, Identity, Kind, Limits, LIMITS};
+use super::launcher::{version, Checked};
+use super::{handle, owned, stat_at, Facts, Identity, Kind, Limits, LIMITS};
 use crate::broker::Refusal;
+
+/// MB4's store identity, beside the resolution and alias facts it reads
+/// (U6c5c). It lies beside this file, a child of the observer's: declared
+/// here, as sources.rs stands at its 800-line ceiling.
+#[path = "store.rs"]
+pub(in crate::hands) mod store;
 
 /// How a regular file is opened to be read: never blocking on a writer
 /// and never taking a terminal.
@@ -72,6 +81,19 @@ pub(in crate::hands) struct Credentials {
     pub(in crate::hands) confinement: Confinement,
 }
 
+impl Credentials {
+    /// These writers and the `sealed` ones the plan names, each uid once:
+    /// confined as the observed writers are, the plan having sealed its
+    /// own writers confined.
+    pub(in crate::hands) fn sealed(&self, sealed: &[u32]) -> Credentials {
+        let mut all = self.clone();
+        all.uids.extend(sealed);
+        all.uids.sort_unstable();
+        all.uids.dedup();
+        all
+    }
+}
+
 /// Whether no writer is root or holds any capability, nor can gain either
 /// at exec (`no_new_privs`); an unread fact leaves it unproved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,8 +111,8 @@ pub(in crate::hands) enum Acl {
 }
 
 /// The write facts of a support file that is multiply linked or that this
-/// process cannot read.
-#[derive(Debug, Clone, Copy)]
+/// process cannot read, or of a hop on a route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::hands) struct Owned {
     pub(in crate::hands) uid: u32,
     pub(in crate::hands) mode: u32,
@@ -261,24 +283,48 @@ fn unescaped(text: &[u8]) -> Option<PathBuf> {
 /// Every place outside the mount `own` where the object at `inside` on
 /// `dev` is mounted too, or part of it is, as a record's point and the
 /// rest of the way below it: another record of that device whose root
-/// holds `inside` shows it at that point plus the rest, and one whose root
-/// lies inside it shows that part at its point. Neither a mount id nor a
-/// canonical spelling hides one, and none is built as a path.
+/// holds `inside` shows it at that point plus the rest ([`holding`]), and
+/// one whose root lies inside it shows that part at its point. Neither a
+/// mount id nor a canonical spelling hides one, and none is built as a
+/// path.
 pub(in crate::hands) fn aliases<'r>(
     records: &'r [Record],
     own: u64,
     dev: (u32, u32),
     inside: &'r Path,
 ) -> impl Iterator<Item = (&'r Path, &'r Path)> + 'r {
-    let other = move |record: &&Record| (record.id != own) & (record.dev == dev);
-    let alias = move |record: &'r Record| match inside.strip_prefix(&record.root) {
-        Ok(rest) => Some((record.point.as_path(), rest)),
-        Err(_) => record
-            .root
-            .starts_with(inside)
-            .then_some((record.point.as_path(), Path::new(""))),
+    let below = move |record: &'r Record| {
+        let part = record.root.starts_with(inside);
+        part.then_some((record.point.as_path(), Path::new("")))
     };
-    records.iter().filter(other).filter_map(alias)
+    let alias = move |record: &'r Record| held(record, inside).or_else(|| below(record));
+    others(records, own, dev).filter_map(alias)
+}
+
+/// The places of [`aliases`] another mount's root holding `inside` gives,
+/// alone: all a route's hop needs. A mount whose root lies below a hop
+/// shows only part of it, which the route passes through only where that
+/// part is a later hop, whose own holding mounts show it.
+pub(in crate::hands) fn holding<'r>(
+    records: &'r [Record],
+    own: u64,
+    dev: (u32, u32),
+    inside: &'r Path,
+) -> impl Iterator<Item = (&'r Path, &'r Path)> + 'r {
+    others(records, own, dev).filter_map(move |record| held(record, inside))
+}
+
+/// Every record of the device `dev` but the mount `own`.
+fn others(records: &[Record], own: u64, dev: (u32, u32)) -> impl Iterator<Item = &Record> {
+    records
+        .iter()
+        .filter(move |record| (record.id != own) & (record.dev == dev))
+}
+
+/// Where `record` shows the object at `inside`, where its root holds it.
+fn held<'r>(record: &'r Record, inside: &'r Path) -> Option<(&'r Path, &'r Path)> {
+    let rest = inside.strip_prefix(&record.root).ok()?;
+    Some((record.point.as_path(), rest))
 }
 
 /// Whether the path `head` then `tail` lies within `root` or holds it:
@@ -324,31 +370,46 @@ pub(in crate::hands) fn mapped(
 }
 
 /// What the observer reads beside its sources: its bounds, the writers'
-/// credentials, the mount table, the box launcher and its reported
-/// version, a step run between the two resolutions of every source, and
-/// one run with the directory and name of each object an observation is
-/// about to open.
+/// credentials, the mount table, the box launcher as
+/// [`super::launcher::launched`] checked it, where the launcher lies,
+/// found without running it, the loader's preload file and cache, how the
+/// checked launcher is run for its version, a step run between the two
+/// resolutions of every source and between the launcher's admission and
+/// its run, and one run with the directory and name of each object an
+/// observation is about to open; in a test alone, the places a launcher
+/// is granted the system set's membership at.
 pub(in crate::hands) struct Host<'h> {
     pub(in crate::hands) limits: Limits,
     pub(in crate::hands) credentials: Credentials,
     pub(in crate::hands) mountinfo: &'h dyn Fn() -> Option<Box<dyn Read>>,
-    pub(in crate::hands) launcher: &'h dyn Fn() -> Option<(PathBuf, String)>,
+    pub(in crate::hands) launcher: Option<&'h Checked>,
+    pub(in crate::hands) found: &'h dyn Fn() -> Option<PathBuf>,
+    pub(in crate::hands) loader: [&'h Path; 2],
+    pub(in crate::hands) run: &'h dyn Fn(BorrowedFd<'_>) -> String,
     pub(in crate::hands) between: &'h dyn Fn(),
     pub(in crate::hands) opening: &'h dyn Fn(&Path, &OsStr),
+    #[cfg(test)]
+    pub(in crate::hands) admitted: &'h dyn Fn(&Path) -> bool,
 }
 
 impl Host<'static> {
-    /// This host: MB3's bounds, this process's credentials standing for
-    /// every managed writer it launches, `/proc/self/mountinfo`, and the
-    /// bubblewrap `PATH` finds.
+    /// This host: MB3's bounds, the managed writers this process observes
+    /// ([`credentials`]), `/proc/self/mountinfo`, the bubblewrap `PATH`
+    /// names, glibc's loader files, the launcher run through its handle
+    /// ([`version`]), and no launcher until one is checked.
     pub(in crate::hands) fn live() -> Host<'static> {
         Host {
             limits: LIMITS,
             credentials: credentials(),
             mountinfo: &mount_table,
-            launcher: &launcher,
+            launcher: None,
+            found: &|| crate::hands::require_bwrap().ok(),
+            loader: ["/etc/ld.so.preload", "/etc/ld.so.cache"].map(Path::new),
+            run: &version,
             between: &|| {},
             opening: &|_, _| {},
+            #[cfg(test)]
+            admitted: &|_| false,
         }
     }
 }
@@ -358,53 +419,97 @@ fn mount_table() -> Option<Box<dyn Read>> {
     Some(Box::new(std::fs::File::open("/proc/self/mountinfo").ok()?))
 }
 
-/// The bubblewrap `PATH` finds and the version it reports.
-fn launcher() -> Option<(PathBuf, String)> {
-    let bwrap = crate::hands::require_bwrap().ok()?;
-    let out = std::process::Command::new(&bwrap).arg("--version").output();
-    let reported = String::from_utf8(out.ok()?.stdout).ok()?;
-    Some((bwrap, reported.trim().to_string()))
+/// `path` resolved on `host`, its object opened as a path handle that must
+/// be the object resolved: the resolution, the handle and the facts it
+/// reports; identity unprotected where it is absent or another object.
+pub(super) fn opened(path: &Path, host: &Host<'_>) -> Result<(Resolved, OwnedFd, Facts), Refusal> {
+    let resolved = resolve(path, host)?.ok_or(Refusal::Identity)?;
+    let (dir, name) = (resolved.dir.as_fd(), &resolved.name);
+    (host.opening)(resolved.place.parent().unwrap_or(&resolved.place), name);
+    let held = handle(dir, name, OFlags::PATH, &resolved.facts);
+    let (fd, facts) = held.ok_or(Refusal::Identity)?;
+    Ok((resolved, fd, facts))
 }
 
-/// This process's credentials: the kernel's overflow uid and its
-/// `/proc/self/status`.
+/// The managed writers this observer reads: itself, the broker that
+/// started it and that broker's harness, each from its
+/// `/proc/<pid>/status` beside the kernel's overflow uid. A parent counts
+/// only where it was still the parent once its status was read: one that
+/// ended may have left its pid to another process.
 fn credentials() -> Credentials {
     let overflow = std::fs::read_to_string("/proc/sys/fs/overflowuid").ok();
-    let status = std::fs::read_to_string("/proc/self/status").ok();
-    credited(overflow.as_deref(), status.as_deref())
+    let own = status("self");
+    let broker = parent("self", &status);
+    let harness = broker.as_ref().and_then(|(pid, _)| parent(pid, &status));
+    let statuses = [own, broker.map(|held| held.1), harness.map(|held| held.1)];
+    let read = statuses.each_ref().map(Option::as_deref);
+    credited(overflow.as_deref(), &read)
 }
 
-/// The credentials of a writer from the kernel's `overflow` uid file and
-/// its `status` text: every uid it holds (real, effective, saved and
-/// filesystem), any of which it may act as. A fact that does not read
-/// leaves no writer known, so no linked support file passes. Its privilege
-/// is confined only where every path to more is closed and observed: no
-/// uid is root, its permitted, effective and ambient capability sets are
-/// all empty, and `no_new_privs` is set, so no exec gains a setuid owner's
-/// identity or a file's capabilities. `no_new_privs` removes no capability
-/// already held, and no held one is proved unable to write a file (a
-/// module, raw I/O, another process's memory, a device node, BPF), so any
-/// at all, like anything else unread or not, leaves it unconfined.
-pub(in crate::hands) fn credited(overflow: Option<&str>, status: Option<&str>) -> Credentials {
-    let overflow = overflow.and_then(|text| text.strip_suffix('\n')?.parse().ok());
-    let held = status.and_then(capabilities);
-    let ids = status.and_then(uids);
-    let fenced = status.and_then(|status| field(status, "NoNewPrivs:")) == Some("1");
-    let rootless = ids.as_ref().is_some_and(|ids| !ids.contains(&0));
-    let capless = held == Some(0);
-    let confinement = match capless & rootless & fenced {
+/// The `/proc/<pid>/status` text of `pid`.
+fn status(pid: &str) -> Option<String> {
+    std::fs::read_to_string(format!("/proc/{pid}/status")).ok()
+}
+
+/// The pid of `pid`'s parent and its status, each read by `status`, while
+/// it stayed that parent: `pid`'s own status names the same parent before
+/// and after.
+pub(in crate::hands) fn parent(
+    pid: &str,
+    status: &dyn Fn(&str) -> Option<String>,
+) -> Option<(String, String)> {
+    let ppid = || Some(field(&status(pid)?, "PPid:")?.to_string());
+    let parent = ppid()?;
+    let held = status(&parent)?;
+    (ppid()? == parent).then_some((parent, held))
+}
+
+/// The credentials of the writers whose `statuses` were read, from the
+/// kernel's `overflow` uid file: every uid each holds (real, effective,
+/// saved and filesystem), any of which it may act as. A fact that does not
+/// read leaves no writer known, so no linked support file passes. Their
+/// privilege is confined only where each one's every path to more is
+/// closed and observed: no uid is root, its permitted, effective and
+/// ambient capability sets are all empty, and `no_new_privs` is set, so no
+/// exec gains a setuid owner's identity or a file's capabilities.
+/// `no_new_privs` removes no capability already held, and no held one is
+/// proved unable to write a file (a module, raw I/O, another process's
+/// memory, a device node, BPF), so any at all, like anything else unread or
+/// not, leaves them unconfined.
+pub(in crate::hands) fn credited(overflow: Option<&str>, statuses: &[Option<&str>]) -> Credentials {
+    let overflow: Option<u32> = overflow.and_then(|text| text.strip_suffix('\n')?.parse().ok());
+    let writers: Option<Vec<(Vec<u32>, bool)>> = statuses
+        .iter()
+        .map(|status| status.and_then(writer))
+        .collect();
+    let (Some(writers), Some(overflow)) = (writers.filter(|all| !all.is_empty()), overflow) else {
+        return Credentials {
+            uids: Vec::new(),
+            overflow: u32::MAX,
+            confinement: Confinement::Unproved,
+        };
+    };
+    let confinement = match writers.iter().all(|(_, confined)| *confined) {
         true => Confinement::Proved,
         false => Confinement::Unproved,
     };
-    let (uids, overflow) = match (ids, overflow) {
-        (Some(ids), Some(overflow)) => (ids, overflow),
-        (None, _) | (_, None) => (Vec::new(), u32::MAX),
-    };
+    let held = writers.into_iter().flat_map(|(ids, _)| ids);
+    let uids: std::collections::BTreeSet<u32> = held.collect();
     Credentials {
-        uids,
+        uids: uids.into_iter().collect(),
         overflow,
         confinement,
     }
+}
+
+/// One writer's uids from its `status`, and whether its privilege is
+/// confined; none where its uids do not read.
+fn writer(status: &str) -> Option<(Vec<u32>, bool)> {
+    let ids = uids(status)?;
+    let capless = capabilities(status) == Some(0);
+    let fenced = field(status, "NoNewPrivs:") == Some("1");
+    let confined = capless & !ids.contains(&0) & fenced;
+    Some((ids, confined))
 }
 
 /// The value of the one line of a `/proc/<pid>/status` text that `key`
@@ -435,12 +540,16 @@ pub(in crate::hands) fn capabilities(status: &str) -> Option<u64> {
 }
 
 /// One step a resolution took: a directory it entered, a link it read or
-/// the object it ended on, where it lay and what it was.
+/// the object it ended on, where it lay and what it was, who may change it
+/// (a directory's facts and ACL read through its own handle) and the
+/// mount it lies on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::hands) struct Hop {
     pub(in crate::hands) place: PathBuf,
     pub(in crate::hands) identity: Identity,
     pub(in crate::hands) link: Option<Vec<u8>>,
+    pub(in crate::hands) owned: Owned,
+    pub(in crate::hands) mount: u64,
 }
 
 /// The hops of `chain` before the object itself.
@@ -505,10 +614,11 @@ struct Walk {
 }
 
 /// What one step took: a link to follow and its target, a directory it
-/// entered, or the regular file the resolution ends on.
+/// entered and who may write it, as its handle reports, or the regular
+/// file the resolution ends on.
 enum Taken {
     Link(Vec<u8>),
-    Dir(OwnedFd),
+    Dir(OwnedFd, Owned),
     File,
 }
 
@@ -530,16 +640,18 @@ impl Walk {
         let Some(taken) = taken else {
             return Ok(false);
         };
-        let (link, entered) = match taken {
-            Taken::Link(link) => (Some(link), None),
-            Taken::Dir(fd) => (None, Some(fd)),
-            Taken::File => (None, None),
+        let (link, entered, owned) = match taken {
+            Taken::Link(link) => (Some(link), None, owned(&facts, Acl::Absent)),
+            Taken::Dir(fd, held) => (None, Some(fd), held),
+            Taken::File => (None, None, owned(&facts, Acl::Absent)),
         };
         let target = link.clone();
         let hop = Hop {
             place,
             identity: facts.identity(),
             link,
+            owned,
+            mount: facts.mount,
         };
         self.chain.push(hop);
         match (entered, target) {
@@ -608,10 +720,14 @@ fn take(
     match (facts.kind(), last) {
         (Kind::Link, _) if spent => Err(Refusal::Identity),
         (Kind::Link, _) => {
-            let link = target(open(OFlags::PATH)?.as_fd(), facts.size)?;
+            let link = target(open(OFlags::PATH)?.0.as_fd(), facts.size)?;
             Ok(Some(Taken::Link(link)))
         }
-        (Kind::Dir, _) => Ok(Some(Taken::Dir(open(OFlags::PATH | OFlags::DIRECTORY)?))),
+        (Kind::Dir, _) => {
+            let (fd, held) = open(OFlags::PATH | OFlags::DIRECTORY)?;
+            let owned = owned(&held, acl(fd.as_fd()));
+            Ok(Some(Taken::Dir(fd, owned)))
+        }
         (Kind::File, true) => Ok(Some(Taken::File)),
         (Kind::Special, true) => Err(Refusal::Identity),
         (Kind::File | Kind::Special, false) => Ok(None),

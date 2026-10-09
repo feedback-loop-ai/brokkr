@@ -59,9 +59,14 @@ pub(super) fn build_dir() -> PathBuf {
 
 impl Host {
     pub(super) fn new() -> Host {
+        Host::under(&build_dir())
+    }
+
+    /// The root made under `parent` instead.
+    pub(super) fn under(parent: &Path) -> Host {
         let dir = tempfile::Builder::new()
             .prefix("brokkr-u6c5a-")
-            .tempdir_in(build_dir())
+            .tempdir_in(parent)
             .unwrap();
         let root = dir.path().canonicalize().unwrap();
         let home = root.join("home");
@@ -442,6 +447,7 @@ fn prepared(
         network,
         bootstrap: &bootstrap,
         arguments,
+        writers: &[],
     };
     #[cfg(target_os = "linux")]
     return ServerBox::prepare_with(program, &profile, &super::sources::confined());
@@ -782,6 +788,7 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
         network: &Network::Isolated,
         bootstrap: &bootstrap,
         arguments: &arguments,
+        writers: &[],
     };
     let server = ServerBox::prepare_with(&sh, &profile, &super::sources::confined()).unwrap();
     // The scenario is a private TLS sibling that exists and cannot be

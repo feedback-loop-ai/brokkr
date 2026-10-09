@@ -61,3 +61,31 @@ U1g's run found SI2's compile admission lives in the bundle compiler and capabil
 ## Addendum, 2026-10-08: U1g1 proves switch-on in-crate; the CLI switch-on matrix moves to U9b
 
 The CLI suites drive the real binary, and the strict-isolation switch is the MCP compile fence that U9b lifts, so a CLI test can turn it on only through a runtime knob, which the 2026-10-07 ruling forbids. Ruled: U1g1 proves the switched-on refusals in the runtime's own tests (a test-only override of the fence value, including a full in-crate compile of a fresh-scaffold-shaped bundle) and the switched-off success in the CLI suites; the CLI switch-on matrix and init's wrapper move to U9b.
+
+## Addendum, 2026-10-08: U6c5c takes sources.rs to order the launcher check
+
+U6c5c's council held the unit because the launcher's `--version` ran before its source, route and mount admission, so an unproved launcher could execute outside any box before refusal; the run that executes it is ordered in `sources.rs`, outside the row. Ruled: U6c5c's row gains `crates/brokkr-protocol/src/hands/namespace/sources.rs` for that ordering, so the retained launcher handle runs only after its complete admission.
+
+## Addendum, 2026-10-08: the host-side launcher is a protected ELF, read before it runs
+
+U6c5c's second council held the unit again. The box launcher runs on the host, outside any box, so whatever it executes runs with the observer's host access. A script launcher's interpreter, or an ELF launcher's program interpreter or embedded library search path in managed-writable storage, would execute unboxed during `--version`. The launcher's originally discovered route was also discarded, so only its final inode was admitted. Ruled: the launcher is admitted only as an ELF executable inside the protected system set, never a script. Before it runs, its headers are read from the retained handle without executing it. Its program interpreter, every `DT_RUNPATH` and `DT_RPATH` entry (`$ORIGIN` expanded against the launcher's admitted directory) and any `DT_NEEDED` name holding a slash must each lie in the protected system set, as must the loader's own preload file and cache where they exist. A non-ELF or script launcher, a relative or unresolvable entry, an unreadable or malformed header and any other arrangement refuse before execution. The launcher's original route, chain, mounts and aliases are admitted beside its final inode. Each refusal has its own control proving the launcher never ran.
+
+## Addendum, 2026-10-09: U6c5c takes sources/launcher.rs for the launcher's checks
+
+Every production file in U6c5c's row is at its line ceiling. Ruled: the row gains `crates/brokkr-protocol/src/hands/namespace/sources/launcher.rs`, a consumed child of sources.rs that holds the launcher's checks under the 2026-10-08 rule: reading its ELF headers, and admitting its original route, chain, mounts and aliases beside its final inode. host.rs and sources.rs call it. Nothing that is not about the launcher moves into it.
+
+## Addendum, 2026-10-09: the launcher's acceptable ELF layout is a closed list
+
+U6c5c's fourth council held the unit because the header reader still admitted layouts whose inspection need not describe what the kernel and loader map: no dynamic segment, a missing string-table tag, an unmapped program-header table, and conflicting or duplicate PT_PHDR records. Ruled: the launcher is admitted only when its headers, read from the retained handle without executing it, satisfy every item below. Anything else, including any layout the list does not name, refuses with a typed cause before execution, and each item has its own zero-run control.
+
+1. The ELF identity: the magic, ELFCLASS64, this host's byte order, EI_VERSION 1, this host's e_machine, e_type ET_EXEC or ET_DYN, e_phentsize the size of one Elf64 program header, and 1 ≤ e_phnum ≤ 64.
+2. The program-header table lies wholly within the file.
+3. Exactly one PT_PHDR. It precedes every PT_LOAD; its p_offset is e_phoff and its p_filesz is e_phnum × e_phentsize; and it lies wholly inside one PT_LOAD's file-backed range with a consistent translation (p_vaddr − load.p_vaddr = p_offset − load.p_offset).
+4. At least one PT_LOAD. Every PT_LOAD lies wholly within the file, has p_filesz ≤ p_memsz and, where p_align > 1, p_offset ≡ p_vaddr modulo p_align. The PT_LOADs are in ascending p_vaddr order, and neither their virtual ranges nor their file ranges overlap.
+5. Exactly one PT_INTERP. It precedes every PT_LOAD, lies wholly within the file, is an absolute path whose only NUL is its last byte, and lies in the protected system set.
+6. Exactly one PT_DYNAMIC. It lies wholly inside one PT_LOAD's file-backed range with a consistent translation, its size is a whole number of Elf64 dynamic entries, and it holds a DT_NULL. Entries after the first DT_NULL are not read.
+7. Before that DT_NULL: exactly one DT_STRTAB and exactly one DT_STRSZ, duplicates refused even when equal; at most one DT_RUNPATH and at most one DT_RPATH; and no DT_AUDIT, DT_DEPAUDIT, DT_FILTER or DT_AUXILIARY. The whole string table [DT_STRTAB, DT_STRTAB + DT_STRSZ) lies inside one PT_LOAD's file-backed range and is read through that segment's translation. This is checked whatever entries name it.
+8. Every DT_NEEDED, DT_RUNPATH and DT_RPATH value is an offset below DT_STRSZ, and its string ends at a NUL inside the table. A `$` anywhere except a leading `$ORIGIN` or `${ORIGIN}` refuses, so `$LIB` and `$PLATFORM` are never expanded. Each RUNPATH and RPATH entry (`$ORIGIN` expanded against the launcher's admitted directory) and each DT_NEEDED holding a slash lies in the protected system set, as do the loader's preload file and cache where they exist.
+9. A static launcher (no PT_INTERP or no PT_DYNAMIC) refuses. Other segment types (PT_NOTE, PT_GNU_STACK, PT_GNU_RELRO, PT_GNU_EH_FRAME, PT_GNU_PROPERTY, PT_TLS and the like) are permitted and not read.
+
+Library selection by name through the default directories, and the loader's transitive inputs, remain the recorded limitation of the 2026-10-08 named-input scope.

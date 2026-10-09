@@ -65,6 +65,7 @@ fn brokkr() -> &'static Path {
         }
         let dir = tempfile::Builder::new().prefix(COPIES).tempdir_in(base());
         let dir = dir.unwrap().keep();
+        chmod(&dir, 0o700);
         // Locked before it takes the name a sweep looks for.
         let live = std::fs::File::create(dir.join("lock.new")).unwrap();
         assert!(lock(&live));
@@ -114,12 +115,43 @@ impl Root {
         path
     }
 
+    /// An empty owner-only store at `relative`, every directory it lies in
+    /// below the root writable by its owner alone whatever the umask, as
+    /// MB4 guards a store's route (U6c5c).
+    fn store(&self, relative: &str) -> PathBuf {
+        let path = self.write(relative, "");
+        chmod(&path, 0o600);
+        let dirs = path.ancestors().skip(1);
+        for dir in dirs.take_while(|dir| *dir != self.path) {
+            chmod(dir, 0o755);
+        }
+        path
+    }
+
     fn brokkr(&self, args: &[&str]) -> Ran {
         self.ran(self.command(args))
     }
 
     fn command(&self, args: &[&str]) -> Command {
         let mut command = confined();
+        command.args(args).current_dir(&self.path);
+        command
+    }
+
+    /// The binary under test run with `args` as a seat's harness starts
+    /// the broker: on Linux a shell under `no_new_privs` stands for the
+    /// harness, whose credentials the observer reads too (U6c5c), and the
+    /// broker is its child.
+    fn harnessed(&self, args: &[&str]) -> Command {
+        let mut command = match cfg!(target_os = "linux") {
+            true => {
+                let mut command = Command::new(setpriv());
+                command.args(["--no-new-privs", "/bin/sh", "-c", HARNESS]);
+                command.arg(brokkr());
+                command
+            }
+            false => Command::new(brokkr()),
+        };
         command.args(args).current_dir(&self.path);
         command
     }
@@ -147,6 +179,18 @@ fn confined() -> Command {
         }
         false => Command::new(brokkr()),
     }
+}
+
+/// The harness shell's script: run its arguments as a child, not in its
+/// own place, and exit as that child did.
+const HARNESS: &str = "\"$0\" \"$@\"; exit $?";
+
+/// `setpriv` where this process's `PATH` finds it, so that a broker's
+/// own `PATH` need not.
+fn setpriv() -> PathBuf {
+    let path = std::env::var_os("PATH").unwrap();
+    let mut found = std::env::split_paths(&path).map(|dir| dir.join("setpriv"));
+    found.find(|setpriv| setpriv.is_file()).unwrap()
 }
 
 /// The first line of a refusal clap printed, and the usage exit.
@@ -579,6 +623,9 @@ impl Sealed {
             ),
         );
         chmod(&server, 0o755);
+        // The operator's store, empty and owner-only, outside both reach
+        // sets: the secret-free control MB4 admits (U6c5c).
+        root.store("store/secrets.env");
         Sealed {
             locator: attempt.join("cap-library-docs.json"),
             root,
@@ -629,24 +676,7 @@ impl Sealed {
     /// stdout one end of a sequenced-packet pair this process made.
     #[cfg(target_os = "linux")]
     fn observation(&self, digest: &str) -> (Value, Vec<std::os::fd::OwnedFd>) {
-        let (ours, theirs) = observer::pair();
-        let locator = self.locator.to_str().unwrap();
-        let args = [
-            "broker",
-            "observe",
-            "--plan",
-            locator,
-            "--plan-digest",
-            digest,
-        ];
-        let mut command = self.root.command(&args);
-        command
-            .env("HOME", &self.home)
-            .stdin(std::process::Stdio::null());
-        command.stdout(theirs).stderr(std::process::Stdio::null());
-        command.status().unwrap();
-        drop(command);
-        observer::received(&ours)
+        observer::relayed(self, digest, observer::Harness::Confined)
     }
 
     /// Off Linux no box stands, so no observer hands anything back.
@@ -741,7 +771,7 @@ impl Sealed {
             "--plan-digest",
             digest,
         ];
-        let mut command = self.root.command(&args);
+        let mut command = self.root.harnessed(&args);
         environment(&mut command);
         let ran = self.root.ran(command);
         assert_eq!(ran.stdout, "");
@@ -758,17 +788,14 @@ impl Sealed {
     }
 
     /// The broker's answer for the plan sealed at `digest` where no box
-    /// can stand: first on its `PATH`, a bubblewrap older than descriptor
-    /// mounts (MB3), as off Linux no launcher mounts one at all.
+    /// can stand: no bubblewrap on its `PATH` (MB3), as off Linux no
+    /// launcher mounts a descriptor at all. A launcher this run could plant
+    /// would be a managed writer's, refused before it runs (U6c5c).
     fn serve_unboxed(&self, digest: &str) -> (Option<i32>, String) {
-        let old = self
-            .root
-            .write("old/bwrap", "#!/bin/sh\necho bubblewrap 0.4.0\n");
-        chmod(&old, 0o755);
-        let path = std::env::var("PATH").unwrap();
-        let path = format!("{}:{path}", self.path("old").display());
+        let empty = self.path("unboxed");
+        std::fs::create_dir_all(&empty).unwrap();
         self.serve_in(&self.locator, digest, |command| {
-            command.env("HOME", &self.home).env("PATH", path);
+            command.env("HOME", &self.home).env("PATH", &empty);
         })
     }
 
@@ -802,6 +829,8 @@ struct Store {
 impl Store {
     fn new(path: PathBuf) -> Store {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // In place of the fixture's empty store, where it lies there.
+        std::fs::remove_file(&path).ok();
         // Owner-only, as the store's own mode check requires.
         let made = Command::new("mkfifo")
             .args(["-m", "600"])
@@ -834,14 +863,30 @@ fn a_sealed_plan_is_admitted_and_still_refused_before_any_lookup_or_start() {
     if let Some(reason) = unservable() {
         return skip(&reason);
     }
+    // The protected empty store admits the plan, though it declares a
+    // binding no value of which the store holds: nothing is looked up, and
+    // nothing started (MB4).
     let sealed = Sealed::new();
+    assert_eq!(sealed.answer(|_| ()), admitted());
+    assert!(!sealed.path("started").exists());
+    // A store that is a FIFO has no identity, and is refused unopened.
     let store = Store::new(sealed.path("store/secrets.env"));
     let answer = sealed.answer(|_| ());
     let ended = Instant::now();
-    assert_eq!(answer, admitted());
-    // Zero lookups and zero starts.
+    assert_eq!(answer, past_prepare(Refusal::Identity));
     assert_eq!(store.lookups(ended), 0);
     assert!(!sealed.path("started").exists());
+    // Nor has one that is absent, which admission does not make, or one
+    // with a second link.
+    let path = sealed.path("store/secrets.env");
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(sealed.answer(|_| ()), past_prepare(Refusal::Identity));
+    assert!(!path.exists());
+    chmod(&sealed.root.write("store/secrets.env", ""), 0o600);
+    std::fs::hard_link(&path, sealed.path("store/again")).unwrap();
+    assert_eq!(sealed.answer(|_| ()), past_prepare(Refusal::Identity));
+    std::fs::remove_file(sealed.path("store/again")).unwrap();
+    assert_eq!(sealed.answer(|_| ()), admitted());
 }
 
 #[test]
@@ -1449,12 +1494,17 @@ fn unprovable_or_unobserved_writers_and_sources_and_exposed_control_roots_refuse
     // The plan's identity facts are checked once the box is prepared.
     let identity = past_prepare(Refusal::Identity);
     assert_eq!(sealed.answer(|_| ()), admitted());
-    // Writers unmapped, none, or another beside the one observed.
+    // Writers unmapped, none, or not the one observed (U6c5c: an observed
+    // writer the plan does not list).
     let unmapped = [json!([]), json!([euid(), 65534]), json!([4_294_967_295u32])];
-    for uids in unmapped.into_iter().chain([json!([euid(), euid() + 1])]) {
+    for uids in unmapped.into_iter().chain([json!([euid() + 1])]) {
         let answer = sealed.with("/box/writers/uids", uids.clone());
         assert_eq!((&uids, answer), (&uids, identity.clone()));
     }
+    // A sealed writer the observer cannot see joins the write-exclusion
+    // proof beside the observed ones.
+    let both = sealed.with("/box/writers/uids", json!([euid(), euid() + 1]));
+    assert_eq!(both, admitted());
     // Each sealed source fact must be the observed one; the observer's own
     // bounds hold what it observes (MB3).
     let observed = sealed.plan()["box"]["sources"].clone();
@@ -1489,11 +1539,47 @@ fn the_store_is_neither_in_reach_nor_in_the_box() {
         return skip(&reason);
     }
     let sealed = Sealed::new();
-    let store = |path: PathBuf| sealed.with("/box/excluded/store", json!(path));
+    // Each store an empty owner-only file, so only where it lies differs;
+    // the plan is sealed afresh with the sources it then observes.
+    let store = |relative: Option<&str>| {
+        let path = relative.map_or_else(bootstrap, |relative| sealed.root.store(relative));
+        sealed.answer(|plan| {
+            set(plan, "/box/excluded/store", json!(path));
+            *plan = sealed.observing(plan.take());
+        })
+    };
     let reachable = past_prepare(Refusal::StoreReachable);
-    assert_eq!(store(sealed.path("work/.forge/secrets.env")), reachable);
-    assert_eq!(store(sealed.path("cache/secrets.env")), reachable);
+    assert_eq!(store(Some("work/.forge/secrets.env")), reachable);
+    assert_eq!(store(Some("cache/secrets.env")), reachable);
     let mounted = past_prepare(Refusal::StoreInBox);
-    assert_eq!(store(sealed.path("opt/docs/secrets.env")), mounted);
-    assert_eq!(store(bootstrap()), mounted);
+    assert_eq!(store(Some("opt/docs/secrets.env")), mounted);
+    assert_eq!(store(None), mounted);
+    // A store whose route passes through the hands' reach is theirs to
+    // repoint, wherever it ends.
+    std::os::unix::fs::symlink(sealed.path("store"), sealed.path("cache/store")).unwrap();
+    assert_eq!(store(Some("cache/store/secrets.env")), reachable);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn every_managed_writer_is_observed_confined_and_sealed() {
+    if let Some(reason) = unservable() {
+        return skip(&reason);
+    }
+    let sealed = Sealed::new();
+    let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
+    assert_eq!(sealed.serve(&digest), admitted());
+    // The harness that starts the broker is a managed writer too: one not
+    // under `no_new_privs` leaves the writers unconfined, though the broker
+    // and its observer are.
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", HARNESS, "setpriv", "--no-new-privs"]);
+    command
+        .arg(brokkr())
+        .args(observer::serve_args(&sealed, &digest));
+    command
+        .env("HOME", &sealed.home)
+        .current_dir(&sealed.root.path);
+    let ran = sealed.root.ran(command);
+    assert_eq!((ran.code, ran.stderr), refused(Refusal::Identity));
 }
