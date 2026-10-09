@@ -590,11 +590,8 @@ fn dynamic(fd: BorrowedFd<'_>, segment: &Segment, loads: &[Segment]) -> Result<L
     mapped(segment, loads)
         .then_some(())
         .ok_or(Unfit::Malformed)?;
-    let entries = read(
-        fd,
-        segment.offset,
-        usize::try_from(size).map_err(|_| Unfit::Over)?,
-    )?;
+    let size = usize::try_from(size).map_err(|_| Unfit::Over)?;
+    let entries = read(fd, segment.offset, size)?;
     let entries: Vec<(u64, u64)> = entries
         .as_chunks::<16>()
         .0
@@ -662,10 +659,8 @@ fn read(fd: BorrowedFd<'_>, offset: u64, size: usize) -> Result<Vec<u8>, Unfit> 
     let mut at = 0;
     while at < size {
         let from = offset.checked_add(at as u64).ok_or(Unfit::Malformed)?;
-        match rustix::io::pread(fd, &mut bytes[at..], from).map_err(|_| Unfit::Unread)? {
-            0 => return Err(Unfit::Truncated),
-            read => at += read,
-        }
+        let read = rustix::io::pread(fd, &mut bytes[at..], from).map_err(|_| Unfit::Unread)?;
+        at += (read > 0).then_some(read).ok_or(Unfit::Truncated)?;
     }
     Ok(bytes)
 }

@@ -1371,3 +1371,19 @@ fn every_launcher_refusal_reads_as_the_operators_text() {
         assert_eq!(cause.to_string(), text);
     }
 }
+
+#[test]
+fn each_loader_input_names_itself_in_its_refusal() {
+    use Input::{Cache, Interpreter, Needed, Preload, SearchPath};
+    let causes = [Interpreter, SearchPath, Needed, Preload, Cache]
+        .map(|input| Unfit::Unprotected(input).to_string());
+    let named = [
+        "program interpreter",
+        "library search path",
+        "needed library",
+        "loader preload file",
+        "loader cache",
+    ]
+    .map(|input| format!("the box launcher's {input} is not in the protected system set"));
+    assert_eq!(causes, named);
+}

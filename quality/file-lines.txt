@@ -67,7 +67,7 @@
    790 crates/brokkr-protocol/src/hands/namespace.rs
    800 crates/brokkr-protocol/src/hands/namespace/sources.rs
    755 crates/brokkr-protocol/src/hands/namespace/sources/host.rs
-   691 crates/brokkr-protocol/src/hands/namespace/sources/launcher.rs
+   686 crates/brokkr-protocol/src/hands/namespace/sources/launcher.rs
    167 crates/brokkr-protocol/src/hands/namespace/sources/store.rs
    296 crates/brokkr-protocol/src/hands/session.rs
    219 crates/brokkr-protocol/src/lib.rs
@@ -236,7 +236,7 @@
    303 crates/brokkr-protocol/src/hands/session/tests.rs
   1733 crates/brokkr-protocol/src/hands/tests.rs
    525 crates/brokkr-protocol/src/hands/tests/checked.rs
-  1373 crates/brokkr-protocol/src/hands/tests/launcher.rs
+  1389 crates/brokkr-protocol/src/hands/tests/launcher.rs
    829 crates/brokkr-protocol/src/hands/tests/server.rs
   1834 crates/brokkr-protocol/src/hands/tests/sources.rs
  12845 crates/brokkr-protocol/src/native_controls/tests.rs
