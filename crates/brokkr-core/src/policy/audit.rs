@@ -322,7 +322,7 @@ impl Machine {
                 Outcome::Ruling { rule_id, .. } | Outcome::Park { rule_id, .. } => {
                     group.rules.iter().position(|rule| rule.id == rule_id)
                 }
-                Outcome::NoRule { .. } => {
+                Outcome::Unmatched | Outcome::Refused { .. } => {
                     unruled.push(Finding::Unruled {
                         phase: group.phase.to_string(),
                         result: group.result.to_string(),

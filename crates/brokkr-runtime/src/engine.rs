@@ -2645,6 +2645,11 @@ impl Engine {
             }
         }
 
+        // No ruling: the pair matched no rule, or the machine refused one.
+        let unruled = |problem: String| {
+            json!({"from": phase, "result": result, "rule_id": null, "next": null,
+                   "severity": null, "inputs": inputs, "problem": problem})
+        };
         let payload = match self.bundle.machine.evaluate(&phase, &result, &inputs) {
             Outcome::Ruling {
                 rule_id,
@@ -2709,15 +2714,8 @@ impl Engine {
                     &reason
                 },
             }),
-            Outcome::NoRule { problem } => json!({
-                "from": phase,
-                "result": result,
-                "rule_id": null,
-                "next": null,
-                "severity": null,
-                "inputs": inputs,
-                "problem": problem.unwrap_or_else(|| "no rule matched".to_string()),
-            }),
+            Outcome::Unmatched => unruled("no rule matched".to_string()),
+            Outcome::Refused { problem } => unruled(problem.to_string()),
         };
         self.append(EventType::TransitionDecided, payload, None)?;
         Ok(())

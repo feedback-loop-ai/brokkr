@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-use super::{is_name, older_than, RealmsError, SCHEMA_V8};
+use super::{is_name, older_than, SCHEMA_V8};
 
 /// The keys of a grant the engine owns under `forge.realms/v6` and `v7`;
 /// every other key is the dialect's.
@@ -92,14 +92,15 @@ impl CapabilityGrant {
 }
 
 /// Why a realm's written `capabilities` map is refused, in the map's own
-/// voice: each names the realm, the capability and the field.
+/// voice: each names the realm, the capability and the field. A value the
+/// realm wrote is carried as its JSON text.
 #[derive(Debug, Error, PartialEq, Eq)]
-pub(super) enum GrantError {
+pub enum GrantError {
     #[error(
         "realm '{realm}' writes capabilities as {written}; a capabilities map is an object \
          from capability name to grant, and a realm that grants nothing leaves the word out"
     )]
-    NotAMap { realm: String, written: Value },
+    NotAMap { realm: String, written: String },
     #[error(
         "realm '{realm}' grants a capability named '{capability}'; a capability name is \
          lowercase letters, digits, '.', '_' and '-', starting with a letter or digit"
@@ -112,7 +113,7 @@ pub(super) enum GrantError {
     NotAGrant {
         realm: String,
         capability: String,
-        grant: Value,
+        grant: String,
     },
     #[error(
         "realm '{realm}' grants capability '{capability}' without a tool dialect name; \
@@ -152,21 +153,8 @@ fn distinct_names(value: Option<&Value>) -> Option<Option<Vec<String>>> {
     Some(Some(names))
 }
 
-/// Judge one realm's written `capabilities` map under the map's `schema`,
-/// refusing as the map at `path`.
+/// Judge one realm's written `capabilities` map under the map's `schema`.
 pub(super) fn parse_grants(
-    path: &str,
-    realm: &str,
-    schema: &str,
-    written: &Value,
-) -> Result<BTreeMap<String, CapabilityGrant>, RealmsError> {
-    grants_of(realm, schema, written).map_err(|error| RealmsError::Invalid {
-        path: path.to_string(),
-        problem: error.to_string(),
-    })
-}
-
-fn grants_of(
     realm: &str,
     schema: &str,
     written: &Value,
@@ -174,7 +162,7 @@ fn grants_of(
     let Some(map) = written.as_object() else {
         return Err(GrantError::NotAMap {
             realm: realm.to_string(),
-            written: written.clone(),
+            written: written.to_string(),
         });
     };
     let reserving = !older_than(schema, SCHEMA_V8);
@@ -201,7 +189,7 @@ fn parse_grant(
         return Err(GrantError::NotAGrant {
             realm,
             capability,
-            grant: grant.clone(),
+            grant: grant.to_string(),
         });
     };
     let Some(dialect) = fields
