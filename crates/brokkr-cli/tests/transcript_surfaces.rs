@@ -14,9 +14,9 @@ use brokkr_store::Store;
 use brokkr_view::transcript::{LegacyProvenance, TranscriptRead};
 use serde_json::{json, Value};
 
-/// `HOME` is process-global and `read_local` reads it (for legacy
-/// synthesis) even when the selected reference carries its own home, so
-/// every test in this file holds the binary's environment guard.
+/// `HOME` is process-global and the in-process browser routes resolve it
+/// (for legacy synthesis) even when the selected reference carries its own
+/// home, so every test in this file holds the binary's environment guard.
 #[path = "../../../tests/support/env_guard.rs"]
 mod env_guard;
 use env_guard::EnvGuard;
@@ -148,6 +148,22 @@ fn journal(db: &Path, checkpoint: Value) {
             .append_next("r222", event_type, payload, None, None)
             .unwrap();
     }
+}
+
+/// The shared reader's result for `world`'s recorded reference. A
+/// recorded reference needs no projects home, so the shell passes none.
+fn shared_read(world: &World) -> TranscriptRead {
+    let subject = brokkr_view::Subject {
+        run: "r222".to_string(),
+        key: "eff1".to_string(),
+        reference: Some(world.reference.clone()),
+        provenance: LegacyProvenance::Absent,
+        legacy_id: None,
+        working: false,
+        tab: 0,
+        realm: None,
+    };
+    brokkr_cli::read_local(&subject, None)
 }
 
 fn command(world: &World, extra: &[&str]) -> std::process::Output {
@@ -550,7 +566,7 @@ fn one_derivation_reaches_every_surface() {
         // The in-process handler and the child process must agree on the
         // local projects root for the Claude drill.
         env.set("HOME", &world.home);
-        let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+        let read = shared_read(&world);
         assert!(read.is_readable(), "{kind}: {read:?}");
         assert_eq!(read.path.as_deref(), Some(world.path.as_str()));
         let selected = (read.turns.len() >= 2).then_some(1);
@@ -560,7 +576,7 @@ fn one_derivation_reaches_every_surface() {
     // A readable zero-turn source.
     let world = make_world("codex-thread", "0199zero", "{\"type\":\"turn_context\"}\n");
     env.set("HOME", &world.home);
-    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    let read = shared_read(&world);
     assert!(read.is_readable() && read.turns.is_empty());
     compare(&world, &read, None);
 
@@ -576,7 +592,7 @@ fn one_derivation_reaches_every_surface() {
     );
     let world = make_world("claude-session", "abcd-1234", &body);
     env.set("HOME", &world.home);
-    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    let read = shared_read(&world);
     assert!(read.truncated && read.unrecognized_records == 1, "{read:?}");
     compare(&world, &read, Some(1));
 
@@ -588,7 +604,7 @@ fn one_derivation_reaches_every_surface() {
          {\"type\":\"future/event\",\"ignorable\":true}\n",
     );
     env.set("HOME", &world.home);
-    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    let read = shared_read(&world);
     assert!(
         read.is_readable() && read.unrecognized_records == 1,
         "{read:?}"
@@ -605,7 +621,7 @@ fn one_derivation_reaches_every_surface() {
          {\"type\":\"user/message\",\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"hidden\"}]}}\n",
     );
     env.set("HOME", &world.home);
-    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    let read = shared_read(&world);
     assert_eq!(
         read.unavailable,
         Some(brokkr_view::transcript::Unavailable::UnsupportedFormat)
@@ -626,7 +642,7 @@ fn one_derivation_reaches_every_surface() {
         "{\"type\":\"session\",\"delegationDepth\":1,\"version\":0}\n",
     );
     env.set("HOME", &world.home);
-    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    let read = shared_read(&world);
     assert_eq!(
         read.unavailable,
         Some(brokkr_view::transcript::Unavailable::NotFound)
@@ -719,7 +735,7 @@ fn packed_dsh_coalescing_reaches_every_surface() {
         {\"type\":\"reasoning-chunks\",\"seq0\":20,\"time0\":2000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1],\"texts\":[\"Reason-Delta \",\"Reason-Echo\"]}}\n";
     let world = make_world("dsh-session", "sessions/one", body);
     env.set("HOME", &world.home);
-    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    let read = shared_read(&world);
     assert!(read.is_readable(), "{read:?}");
     assert_eq!(read.turns.len(), 2);
     assert_eq!(
@@ -747,7 +763,7 @@ fn structural_cap_notices_reach_every_surface() {
     }
     let world = make_world("dsh-session", "sessions/one", &body);
     env.set("HOME", &world.home);
-    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    let read = shared_read(&world);
     assert!(read.is_readable(), "{read:?}");
     assert_eq!(read.turns.len(), 7_797);
     assert!(read.truncated);
@@ -776,7 +792,7 @@ fn dsh_semantic_refusals_reach_the_tui_seam() {
          {\"type\":\"future/required\"}\n",
     );
     env.set("HOME", &world.home);
-    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    let read = shared_read(&world);
     assert_eq!(
         read.unavailable,
         Some(brokkr_view::transcript::Unavailable::UnsupportedFormat)
@@ -800,7 +816,7 @@ fn dsh_semantic_refusals_reach_the_tui_seam() {
     )
     .unwrap();
     env.set("HOME", &world.home);
-    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    let read = shared_read(&world);
     assert_eq!(
         read.unavailable,
         Some(brokkr_view::transcript::Unavailable::AmbiguousSource)
@@ -846,9 +862,9 @@ fn recorded_tool_identity_and_context_reach_every_surface() {
 
     for (kind, locator, body, needles) in cases {
         let world = make_world(kind, locator, body);
-        // The common reference needs no ambient HOME, but `read_local`
-        // still reads HOME, so this test holds the environment guard.
-        let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+        // The common reference needs no ambient HOME, but the in-process
+        // browser route still resolves it, so this test holds the guard.
+        let read = shared_read(&world);
         assert!(read.is_readable(), "{kind}: {read:?}");
         let texts: Vec<&str> = read
             .turns
@@ -935,9 +951,9 @@ fn r25_portable_hint_is_identical_across_every_surface() {
         ),
     ] {
         let world = make_world_named(kind, locator, body, hostile);
-        // The common reference needs no ambient HOME, but `read_local`
-        // still reads HOME, so this test holds the environment guard.
-        let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+        // The common reference needs no ambient HOME, but the in-process
+        // browser route still resolves it, so this test holds the guard.
+        let read = shared_read(&world);
         assert!(read.is_readable(), "{kind}: {read:?}");
         let hint = read
             .full_session

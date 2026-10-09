@@ -4,6 +4,7 @@
 
 use super::view_tests::console;
 use super::*;
+use crate::local_transcript::tests::reference_subject;
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use brokkr_core::fold::{Cursor, RunState, Status};
 use brokkr_core::{EventEnvelope, EventType};
@@ -1025,11 +1026,8 @@ fn a_shell_fragment_id_never_becomes_a_pasteable_command() {
         apply(&mut tui, &views, Key::Enter);
         apply(&mut tui, &views, Key::Enter);
         let subject = subject_of(&tui, &views).expect("the seat is selected");
-        let read = crate::ui::read_local(
-            subject.reference.as_ref(),
-            subject.provenance,
-            subject.legacy_id.as_deref(),
-        );
+        let read =
+            crate::local_transcript::read_local(&subject, crate::local_projects_home().as_deref());
         assert_eq!(
             read.unavailable,
             Some(brokkr_view::transcript::Unavailable::InvalidReference),
@@ -3485,10 +3483,9 @@ fn a_pre_0032_journal_keeps_the_provider_guard_on_the_legacy_reference() {
             note: None,
         };
         let part = participant(&views, "eff-i").expect("the seat is present");
-        let read = crate::ui::read_local(
-            part.transcript.as_ref(),
-            part.legacy_provenance(),
-            part.session_id.as_deref(),
+        let read = crate::local_transcript::read_local(
+            &brokkr_view::Subject::of(0, None, "run-7".to_string(), part),
+            crate::local_projects_home().as_deref(),
         );
         assert_eq!(
             read.full_session
@@ -5919,14 +5916,16 @@ fn a_valid_65_to_80_character_codex_id_resolves_without_a_claude_guard() {
             codex_message("assistant", "the ruling"),
         )
         .unwrap();
-        let read = crate::ui::read_local(
-            Some(&brokkr_view::Transcript {
-                kind: "codex-thread".to_string(),
-                locator: id.clone(),
-                home: home.clone(),
-            }),
-            brokkr_view::transcript::LegacyProvenance::Other,
-            None,
+        let read = crate::local_transcript::read_local(
+            &reference_subject(
+                Some(&brokkr_view::Transcript {
+                    kind: "codex-thread".to_string(),
+                    locator: id.clone(),
+                    home: home.clone(),
+                }),
+                brokkr_view::transcript::LegacyProvenance::Other,
+            ),
+            crate::local_projects_home().as_deref(),
         );
         assert!(read.is_readable(), "{length}: {:?}", read.unavailable);
         assert_eq!(read.turns.len(), 1, "{length}");
@@ -5962,10 +5961,12 @@ fn the_shipped_claude_fixture_counts_survive_selection() {
     );
     std::fs::write(real.join("abcd-1234.jsonl"), transcript).unwrap();
 
-    let read = crate::ui::read_local(
-        Some(&claude_reference("abcd-1234", &projects)),
-        brokkr_view::transcript::LegacyProvenance::Claude,
-        None,
+    let read = crate::local_transcript::read_local(
+        &reference_subject(
+            Some(&claude_reference("abcd-1234", &projects)),
+            brokkr_view::transcript::LegacyProvenance::Claude,
+        ),
+        crate::local_projects_home().as_deref(),
     );
     assert!(read.is_readable(), "{:?}", read.unavailable);
     assert_eq!(read.turns.len(), 2);
