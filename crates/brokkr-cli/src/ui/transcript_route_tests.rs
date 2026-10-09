@@ -205,7 +205,7 @@ fn the_session_drill_masks_a_bound_value_and_says_what_it_covered() {
     .unwrap();
     env.set("HOME", home.path());
     let (_dir, db, key) = participant_fixture(None, Some("claude"), Some("abcd-1234"));
-    let store = store_beside(&db);
+    let store = crate::local_transcript::store_beside(&db);
     brokkr_protocol::secret::store_set(&store, "GH_TOKEN", "ghp-bound-7f3a9c").unwrap();
     let drill = || serde_json::from_str::<Value>(&transcript_route(&db, &key).body).unwrap();
 
