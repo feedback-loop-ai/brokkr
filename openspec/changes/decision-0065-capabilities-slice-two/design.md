@@ -1220,10 +1220,11 @@ At each PR recheck these paths and baseline counts against main.
 | `contracts/run-manifest.v12.schema.json` | U5f | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/capabilities/manifest.rs` | U5f | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-protocol/src/secret.rs` (706 at this visit) | U6a, U6c7, U6c8 | 0012 single-injector proof; no second plaintext accessor |
-| `crates/brokkr-cli/src/cli_args.rs` (699 at this visit) | U6b, U6c5b, U6c6, U8g | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-cli/src/cli_args.rs` (699 at this visit) | U6b, U6c5b, U6c6a, U8g | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/lib.rs` (1918) | U6b | Recheck concurrent main edits and module registration before the row |
-| `crates/brokkr-cli/src/broker.rs` | U6b, U6c, U6c2, U6c5b, U6c6, U6e | New module; keep protocol types shared, no duplicate policy |
-| `crates/brokkr-cli/src/broker/session.rs` | U6c2, U6c4, U6c5b, U6c5c, U6c8, U6d, U6e, U6f, U8b | New module; keep protocol types shared, no duplicate policy |
+| `crates/brokkr-cli/src/broker.rs` | U6b, U6c, U6c2, U6c5b, U6c6a, U6e | New module; keep protocol types shared, no duplicate policy |
+| `crates/brokkr-cli/src/broker/session.rs` | U6c2, U6c4, U6c5b, U6c5c, U6c6b, U6c8, U6d, U6e, U6f, U8b | New module; keep protocol types shared, no duplicate policy |
+| `crates/brokkr-cli/src/broker/session/readiness.rs` | U6c6b | New consumed child of session.rs; the readiness receiver behind the incomplete-serving fence |
 | `crates/brokkr-protocol/src/broker/ledger.rs` | U6d, U8b | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/broker/rpc.rs` | U6e, U6f | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-cli/src/broker/output.rs` | U6f, U8b | New module; keep protocol types shared, no duplicate policy |
@@ -1234,14 +1235,15 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-runtime/src/engine/artifacts.rs` | U8c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-cli/src/verbs/readouts.rs` | U8g | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/doctor/capabilities.rs` | U9a | 0065 follow-up refactors; identity and gate ordering must survive |
-| `crates/brokkr-protocol/src/hands/namespace.rs` | U6c3, U6c4, U6c5a, U6c5b, U6c5c | Count registration and same-unit consumers; recheck size and concurrent main edits |
+| `crates/brokkr-protocol/src/hands/namespace.rs` | U6c3, U6c4, U6c5a, U6c5b, U6c5c, U6c6b | Count registration and same-unit consumers; recheck size and concurrent main edits |
+| `crates/brokkr-protocol/src/hands/namespace/entry.rs` | U6c6b | New consumed child of namespace.rs; the box launched on the bootstrap |
 | `crates/brokkr-protocol/src/hands/namespace/sources/host.rs` | U6c5a, U6c5c | The observer's host facts (mountinfo, writer credentials, ACL and write-exclusion proofs, the reopening of a file through its own handle) and each source's whole-chain resolution (`resolve`, `Walk`, `Hop`, `Resolved`); a consumed child of sources.rs, which keeps the bounds, directory walk, the one per-object observation with its link rules, digest and verdict |
 | `crates/brokkr-protocol/src/hands/namespace/sources/store.rs` | U6c5c | MB4 store identity beside the observer's resolution and alias facts; a consumed child of sources.rs |
 | `crates/brokkr-cli/Cargo.toml` | U6c5b | Only rustix's `net` feature, for the helper's descriptor hand-off (operator ruling 2026-10-07) |
 | `crates/brokkr-protocol/src/hands/namespace/sources.rs` | U6c5a, U6c5b | Includes system write-exclusion/credential observation and task 28.17 measurement; split before implementation if ceilings cannot hold |
-| `crates/brokkr-cli/src/broker/bootstrap.rs` | U6c6, U6c8 | Ready state, complete-frame EOF and close-on-exec status; count registration/consumers and recheck ceilings |
+| `crates/brokkr-cli/src/broker/bootstrap.rs` | U6c6a, U6c8 | Ready state, complete-frame EOF and close-on-exec status; count registration/consumers and recheck ceilings |
 | `crates/brokkr-protocol/src/secret/store.rs` | U6c7 | Count registration and same-unit consumers; recheck size and concurrent main edits |
-| `crates/brokkr-protocol/src/broker.rs` | U6c, U6c5a, U6d | Shared consumed protocol edge; registration counts in lib.rs |
+| `crates/brokkr-protocol/src/broker.rs` | U6c, U6c5a, U6c6a, U6d | Shared consumed protocol edge; registration counts in lib.rs |
 Also coordinate `crates/brokkr-cli/tests/init_doctor.rs` and
 `crates/brokkr-cli/tests/init_stacks.rs` (U1f2/U1g1),
 `crates/brokkr-runtime/tests/witness_digests.rs`,
@@ -1340,9 +1342,10 @@ witness/compose pins accompany only rows that change their inputs.
 | U6c5a | U6c4 | Register the source observer and its refusals; 28.9–28.10 | `crates/brokkr-protocol/src/broker.rs`; `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-protocol/src/hands/namespace/sources.rs`; `crates/brokkr-protocol/src/hands/namespace/sources/host.rs` |
 | U6c5b | U6c5a | Compare sealed sources at admission through a cancellable observer helper; 28.9–28.10, 28.17 | `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-protocol/src/hands/namespace/sources.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/broker.rs` |
 | U6c5c | U6c5b | Check store identity, the launcher and the real writer set; 28.9–28.10 | `crates/brokkr-protocol/src/hands/namespace/sources/host.rs`; `crates/brokkr-protocol/src/hands/namespace/sources/store.rs`; `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-protocol/src/hands/namespace/sources.rs`; `crates/brokkr-protocol/src/hands/namespace/sources/launcher.rs` |
-| U6c6 | U6c5c | Register the private waiting bootstrap; 28.11–28.12 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs` |
+| U6c6a | U6c5c | Register the private waiting bootstrap and its establishment cause; 28.11–28.12 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs`; `crates/brokkr-protocol/src/broker.rs` |
+| U6c6b | U6c6a | Launch the box on the bootstrap and receive its readiness behind the fence; 28.11–28.12 | `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-protocol/src/hands/namespace/entry.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/broker/session/readiness.rs` |
 | U6c7 | U6a | Extract the shared typed store reader; 28.13–28.14 | `crates/brokkr-protocol/src/secret.rs`; `crates/brokkr-protocol/src/secret/store.rs` |
-| U6c8 | U6c6, U6c7 | Wire the confined environment handoff; 28.15–28.16 | `crates/brokkr-protocol/src/secret.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs`; `crates/brokkr-cli/src/broker/session.rs` |
+| U6c8 | U6c6b, U6c7 | Wire the confined environment handoff; 28.15–28.16 | `crates/brokkr-protocol/src/secret.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs`; `crates/brokkr-cli/src/broker/session.rs` |
 | U6d | U6c8 | Establish durable ledger records before calls; 29.1–29.2 | `crates/brokkr-protocol/src/broker.rs`; `crates/brokkr-protocol/src/broker/ledger.rs`; `crates/brokkr-cli/src/broker/session.rs` |
 | U6e | U6d | Serve the filtered protocol; 30.1–30.2 | `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/broker/rpc.rs` |
 | U6f | U6e | Mask output and prove complete session cleanup; 31.1–32.2 | `crates/brokkr-cli/src/broker/rpc.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/broker/output.rs` |
@@ -1763,16 +1766,25 @@ Proof: Absent, aliased, multiply-linked and special store causes and the empty-s
 
 Owning tests: `crates/brokkr-protocol/src/hands/tests.rs` and its child modules, `crates/brokkr-cli/tests/capability_broker.rs`.
 
-### U6c6 — Register the private waiting bootstrap
+### U6c6a — Register the private waiting bootstrap and its establishment cause
 
-Add a private BrokerCmd variant and exhaustive handler in the existing binary, with registration in broker.rs. U6c5b introduces the private BrokerCmd seam for its observer helper; this row adds the bootstrap variant beside it, after U6c5c. The bootstrap consumes sealed nonsecret intent from inherited control descriptors, verifies the actual namespace/mount/tmpfs/network state and emits the bounded ready message. It accepts no store/grant locator as authority and no arbitrary unconfined exec. Absent or invalid private control context takes the box-establishment cause. Its complete waiting/verification handler is a production consumer; actual binding receipt is wired in U6c8, and incomplete serving still cannot start a dialect server.
+Add a private BrokerCmd variant and exhaustive handler in the existing binary, with registration in broker.rs. U6c5b introduces the private BrokerCmd seam for its observer helper; this row adds the bootstrap variant beside it, after U6c5c. The bootstrap consumes sealed nonsecret intent from an inherited control descriptor, verifies the actual namespace, mount, private tmpfs `HOME`/`TMPDIR` and network state, and writes one closed ready message of at most 4 KiB on a separate control descriptor. It accepts no store/grant locator as authority and no arbitrary unconfined exec. Absent or invalid private control context takes the box-establishment cause, which this row adds to the shared closed catalogue as `Refusal::Establishment` in `crates/brokkr-protocol/src/broker.rs`, after `StoreInBox` in MB3's precedence: one home for the fact U6d's ledger reads (decision 0071 ruling 5; public API +1, operator ruling 2026-10-09). Its complete waiting/verification handler is a production consumer; the box that runs it and the broker's receipt of its readiness are U6c6b's, actual binding receipt is wired in U6c8, and incomplete serving still cannot start a dialect server.
 
 Keep readiness distinct from the subsequent private binding and exec-status channels specified in D5. This row grants neither a public bootstrap API nor early exec; U6c8 supplies those channels with their consumers.
 
-Closes tasks 28.11 and 28.12; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [MB5](specs/mcp-capability-broker/spec.md), [SD3](specs/slice-two-delivery/spec.md).
-Proof: Real CLI invalid-context refusal, wrong-child/digest/namespace and duplicate/truncated/excess readiness controls, fixed absolute deadline, no marker-only or stdout readiness, safe host loader environment and pre-secret cancellation. Real Linux control-descriptor carriage must be measured; unavailable support refuses with zero lookups/starts.
+Closes tasks 28.11 and 28.12 with U6c6b; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [MB5](specs/mcp-capability-broker/spec.md), [SD3](specs/slice-two-delivery/spec.md).
+Proof: Real CLI invalid-context refusal with the establishment cause, the closed ready message's bound and shape, no marker-only or stdout readiness, and a safe host loader environment, each with an independent compiling removal.
 
 Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
+
+### U6c6b — Launch the box on the bootstrap and receive its readiness behind the fence
+
+Make the waiting bootstrap the server box's entry in `hands/namespace.rs`, carrying its control descriptors in and the child's host identity out (bubblewrap's `--info-fd`), with a production accessor for the box's argument vector; because namespace.rs is at its line ceiling, the launch lives in a consumed child, `hands/namespace/entry.rs`. The broker's receiver lives in a consumed child, `broker/session/readiness.rs`, registered from session.rs: it checks the child's identity, the plan and source digests, the namespace identities, the 4 KiB bound and duplicate, truncated or excess bytes, under the absolute startup deadline and cancellation. It is consumed behind the incomplete-serving fence, as U6c5b's observer is: admission launches the box on the bootstrap, receives and checks its readiness, then still refuses "broker serving protections are incomplete" before any secret lookup or dialect-server start. Carried from U6c5a's council (L3): namespace.rs's scratch and generated-identity failures take `Refusal::Establishment`, not `Identity`. Four production files, two of them new consumed children (operator ruling 2026-10-09).
+
+Closes tasks 28.11 and 28.12 with U6c6a; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [MB5](specs/mcp-capability-broker/spec.md), [SD3](specs/slice-two-delivery/spec.md).
+Proof: Valid readiness from a real owned Linux box; wrong-child, wrong-digest and wrong-namespace controls; duplicate, truncated and excess readiness controls; the fixed absolute deadline and pre-secret cancellation; real Linux control-descriptor carriage measured, unavailable support refusing with zero lookups/starts. Each with an independent compiling removal.
+
+Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`, `crates/brokkr-protocol/src/hands/tests.rs`.
 
 ### U6c7 — Extract the shared typed store reader
 

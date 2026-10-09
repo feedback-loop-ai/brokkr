@@ -286,6 +286,11 @@ pub enum Refusal {
     StoreReachable,
     #[error("MCP secret store would be mounted in the server box")]
     StoreInBox,
+    /// A box that stood but whose namespaces, mounts, private directories,
+    /// network or readiness its bootstrap could not show, or a bootstrap
+    /// without its private control context (U6c6a).
+    #[error("MCP server box could not be established")]
+    Establishment,
     /// SD3's temporary cause: an admitted plan before U6f completes the
     /// serving protections, removed with them.
     #[error("broker serving protections are incomplete")]

@@ -89,3 +89,7 @@ U6c5c's fourth council held the unit because the header reader still admitted la
 9. A static launcher (no PT_INTERP or no PT_DYNAMIC) refuses. Other segment types (PT_NOTE, PT_GNU_STACK, PT_GNU_RELRO, PT_GNU_EH_FRAME, PT_GNU_PROPERTY, PT_TLS and the like) are permitted and not read.
 
 Library selection by name through the default directories, and the loader's transitive inputs, remain the recorded limitation of the 2026-10-08 named-input scope.
+
+## Addendum, 2026-10-09: U6c6 splits into U6c6a and U6c6b
+
+U6c6's run stopped before editing, for three reasons. The box-establishment cause has no home in the shared refusal catalogue. No production seam starts the server box on the bootstrap or carries its control descriptors and child identity. And the broker's readiness receiver needs a consumer in session.rs, which is at its line ceiling. Ruled: U6c6a registers the private waiting bootstrap in its three files and adds `Refusal::Establishment` to `crates/brokkr-protocol/src/broker.rs` (public API +1, approved). U6c6b launches the box on the bootstrap in `hands/namespace.rs` and a consumed child `hands/namespace/entry.rs`, and receives its readiness in a consumed child `broker/session/readiness.rs` registered from session.rs. The receiver is consumed behind the incomplete-serving fence, as U6c5b's observer is: admission launches the box, receives and checks its readiness, then still refuses before any secret lookup or dialect-server start. U6c8 follows U6c6b.
