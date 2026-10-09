@@ -524,7 +524,7 @@ pub brokkr_core::realms::GrantError::Dialect::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::Dialect::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::List
 pub brokkr_core::realms::GrantError::List::capability: alloc::string::String
-pub brokkr_core::realms::GrantError::List::field: &'static str
+pub brokkr_core::realms::GrantError::List::list: brokkr_core::realms::GrantList
 pub brokkr_core::realms::GrantError::List::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::Name
 pub brokkr_core::realms::GrantError::Name::capability: alloc::string::String
@@ -539,6 +539,9 @@ pub brokkr_core::realms::GrantError::NotAMap::written: alloc::string::String
 pub brokkr_core::realms::GrantError::Retain
 pub brokkr_core::realms::GrantError::Retain::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::Retain::realm: alloc::string::String
+pub enum brokkr_core::realms::GrantList
+pub brokkr_core::realms::GrantList::Offices
+pub brokkr_core::realms::GrantList::Tools
 pub enum brokkr_core::realms::GrantRetention
 pub brokkr_core::realms::GrantRetention::Inherit
 pub brokkr_core::realms::GrantRetention::Unreserved

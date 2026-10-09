@@ -2571,7 +2571,7 @@ fn missing_artifact_fails_closed_and_no_subsequent_seat_runs() {
     let payload = implement_decision(&events)["payload"].clone();
     assert_eq!(
         payload["rule_id"], "IMPL-OK",
-        "the rule DID match; a gate block is not NoRule"
+        "the rule DID match; a gate block is not Unmatched"
     );
     assert_eq!(payload["result"], "complete");
     assert_eq!(payload["next"], Value::Null, "fails closed");

@@ -762,7 +762,7 @@ mod grants;
 mod provisional;
 mod unusable;
 
-pub use grants::{CapabilityGrant, GrantError, GrantRetention, GRANT_KEYS};
+pub use grants::{CapabilityGrant, GrantError, GrantList, GrantRetention, GRANT_KEYS};
 pub use unusable::{Unusable, Word};
 
 #[cfg(test)]

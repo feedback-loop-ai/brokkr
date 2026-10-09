@@ -2678,7 +2678,7 @@ impl Engine {
                     // Severity is a property of a taken transition; none
                     // is taken. rule_id stays: the rule DID match, and
                     // that identity distinguishes a gate block from
-                    // NoRule in the journal.
+                    // an unmatched pair in the journal.
                     json!({
                         "from": phase,
                         "result": result,

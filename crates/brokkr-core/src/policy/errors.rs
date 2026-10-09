@@ -89,7 +89,7 @@ impl RuleKey {
 }
 
 /// Where in a table a list was expected.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Place {
     /// A list the table itself holds: `phases`, `terminal`,
     /// `shippable_from` or `rules`.
@@ -122,7 +122,7 @@ fn declared(schema: &Option<String>) -> &str {
 
 /// Why a table's structure or closed vocabulary does not parse. A value
 /// the table wrote is carried as its JSON text.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Debug, PartialEq, Eq, Error)]
 pub enum Malformed {
     #[error("table must be an object")]
     NotAnObject,

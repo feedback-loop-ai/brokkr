@@ -91,6 +91,23 @@ impl CapabilityGrant {
     }
 }
 
+/// A list a grant may write to narrow itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrantList {
+    Tools,
+    Offices,
+}
+
+impl GrantList {
+    /// The field as a grant spells it.
+    pub(crate) fn field(self) -> &'static str {
+        match self {
+            GrantList::Tools => "tools",
+            GrantList::Offices => "offices",
+        }
+    }
+}
+
 /// Why a realm's written `capabilities` map is refused, in the map's own
 /// voice: each names the realm, the capability and the field. A value the
 /// realm wrote is carried as its JSON text.
@@ -121,14 +138,15 @@ pub enum GrantError {
     )]
     Dialect { realm: String, capability: String },
     #[error(
-        "realm '{realm}' grants capability '{capability}' with a malformed '{field}'; it \
+        "realm '{realm}' grants capability '{capability}' with a malformed '{}'; it \
          is a list of distinct non-empty strings, and leaving it out is how a \
-         grant says all"
+         grant says all",
+        .list.field()
     )]
     List {
         realm: String,
         capability: String,
-        field: &'static str,
+        list: GrantList,
     },
     #[error(
         "realm '{realm}' capability '{capability}': retain must be false when present; the \
@@ -200,15 +218,15 @@ fn parse_grant(
         return Err(GrantError::Dialect { realm, capability });
     };
     let mut lists = [None, None];
-    for (slot, field) in lists.iter_mut().zip(["tools", "offices"]) {
-        let Some(list) = distinct_names(fields.get(field)) else {
+    for (slot, list) in lists.iter_mut().zip([GrantList::Tools, GrantList::Offices]) {
+        let Some(names) = distinct_names(fields.get(list.field())) else {
             return Err(GrantError::List {
                 realm,
                 capability,
-                field,
+                list,
             });
         };
-        *slot = list;
+        *slot = names;
     }
     let [tools, offices] = lists;
     let retention = match (reserving, fields.get("retain")) {
