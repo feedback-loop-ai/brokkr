@@ -397,8 +397,8 @@ pub(super) fn operator_command_racing(
 /// still driving therefore refuses instead of being closed over: ANY
 /// movement of the head is evidence the run is not dead, and a
 /// conclusion is for a run believed dead. `resume`'s fresh-process
-/// branch still carries the unfenced hazard; decision 0029 (proposed)
-/// rules on fencing it. `brokkr runs` remains the way to look first.
+/// branch is fenced the same way, by the engine's own fold (decision
+/// 0029). `brokkr runs` remains the way to look first.
 pub fn conclude(
     store: &mut Store,
     run_id: &str,

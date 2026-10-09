@@ -1025,6 +1025,10 @@ pub brokkr_runtime::engine::EngineError::CharterMoved::key: alloc::string::Strin
 pub brokkr_runtime::engine::EngineError::CharterMoved::owner: alloc::string::String
 pub brokkr_runtime::engine::EngineError::Dispatch(brokkr_core::dispatch::DispatchError)
 pub brokkr_runtime::engine::EngineError::Fold(brokkr_core::fold::FoldError)
+pub brokkr_runtime::engine::EngineError::JournalMoved
+pub brokkr_runtime::engine::EngineError::JournalMoved::expected_seq: u64
+pub brokkr_runtime::engine::EngineError::JournalMoved::found_seq: u64
+pub brokkr_runtime::engine::EngineError::JournalMoved::run_id: alloc::string::String
 pub brokkr_runtime::engine::EngineError::ManifestMismatch
 pub brokkr_runtime::engine::EngineError::ManifestMismatch::detail: alloc::string::String
 pub brokkr_runtime::engine::EngineError::ManifestMismatch::run_id: alloc::string::String
@@ -1333,6 +1337,10 @@ pub brokkr_runtime::EngineError::CharterMoved::key: alloc::string::String
 pub brokkr_runtime::EngineError::CharterMoved::owner: alloc::string::String
 pub brokkr_runtime::EngineError::Dispatch(brokkr_core::dispatch::DispatchError)
 pub brokkr_runtime::EngineError::Fold(brokkr_core::fold::FoldError)
+pub brokkr_runtime::EngineError::JournalMoved
+pub brokkr_runtime::EngineError::JournalMoved::expected_seq: u64
+pub brokkr_runtime::EngineError::JournalMoved::found_seq: u64
+pub brokkr_runtime::EngineError::JournalMoved::run_id: alloc::string::String
 pub brokkr_runtime::EngineError::ManifestMismatch
 pub brokkr_runtime::EngineError::ManifestMismatch::detail: alloc::string::String
 pub brokkr_runtime::EngineError::ManifestMismatch::run_id: alloc::string::String
