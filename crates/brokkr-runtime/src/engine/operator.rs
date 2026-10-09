@@ -715,14 +715,7 @@ pub(super) fn apply_fenced_windows(
     mut before_command: impl FnMut(&mut Store),
     mut between: impl FnMut(&mut Store),
 ) -> Result<FencedCommandOutcome, EngineError> {
-    let FencedCommand {
-        command_id,
-        command,
-        operator,
-        reason,
-        expected_seq,
-        expected_hash,
-    } = *wire;
+    let (command_id, operator) = (wire.command_id, wire.operator);
     let events = store.load(run_id)?;
     if let Some(receipt) = journaled(store, run_id, &events, command_id, operator)? {
         return Ok(receipt);
@@ -731,70 +724,75 @@ pub(super) fn apply_fenced_windows(
     // The head this fold read: the one the wire's cursor is checked
     // against, and the one the command must still find (decision 0029).
     let head = Head::tip(&events);
-    let cursor_holds = head.seq == expected_seq && head.hash == expected_hash;
-    let rejection = fenced_refusal(&state, command, cursor_holds);
+    let cursor_holds = head.seq == wire.expected_seq && head.hash == wire.expected_hash;
+    let rejection = fenced_refusal(&state, wire.command, cursor_holds);
     before_command(store);
-    let payload = json!({
-        "command_id": command_id,
-        "command": command.as_str(),
-        "args": {},
-        "operator": operator,
-    });
-    let event_type = EventType::OperatorCommanded;
-    let commanded = match fenced_append(
-        store,
-        run_id,
-        &head,
-        &head.event_id,
-        event_type,
-        payload,
-        None,
-    ) {
-        Err(StoreError::HeadMoved { .. }) => None,
-        written => Some(written?),
-    };
     // A peer appended after the fold, so what was decided on it stands on
     // a head that is gone: nothing of the command is written, no winner is
     // picked, and the caller re-reads and re-issues.
-    let Some(commanded) = commanded else {
-        let stale = Refusal::StaleCursor;
-        let refused = refuse(store, run_id, command_id, operator, stale, &head.event_id)?;
+    let Some(commanded) = fenced_commanded(store, run_id, wire, &head)? else {
+        let refused = stale_refusal(store, run_id, wire, &head.event_id)?;
         read_back(store, run_id)?;
         return Ok(refused);
     };
     between(store);
     let cause = &commanded.event_id;
-    let disposition = if let Some(rejection) = rejection {
-        refuse(store, run_id, command_id, operator, rejection, cause)?
-    } else {
-        // The cursor was checked above, before `operator/commanded` was
-        // written; the acceptance is written against the head that check
-        // covers — the command itself — so a peer's append in between
-        // cannot slip underneath it. It cannot be re-decided here the way
-        // the unfenced path re-decides: this caller HOLDS a cursor, and
-        // deciding against a head they never saw is what the fence exists
-        // to prevent. They re-read and re-issue; the journal says why.
-        let head = Head::of(&commanded);
-        let payload = json!({"command_id": command_id, "operator": operator, "reason": reason});
-        match fenced_append(
-            store,
-            run_id,
-            &head,
-            cause,
-            EventType::OperatorAccepted,
-            payload,
-            None,
-        ) {
-            Ok(_) => accepted(store, run_id)?,
-            Err(StoreError::HeadMoved { .. }) => {
-                let stale = Refusal::StaleCursor;
-                refuse(store, run_id, command_id, operator, stale, cause)?
-            }
-            Err(error) => return Err(error.into()),
-        }
+    let disposition = match rejection {
+        Some(rejection) => refuse(store, run_id, command_id, operator, rejection, cause)?,
+        None => fenced_acceptance(store, run_id, wire, &commanded)?,
     };
     // Prove the newly appended pair does not corrupt fold semantics before the
     // bridge acknowledges it to Looper.
     read_back(store, run_id)?;
     Ok(disposition)
+}
+
+/// `operator/commanded` written on the head its deciding fold read, or
+/// `None` when a peer has moved that head and nothing was written.
+fn fenced_commanded(
+    store: &mut Store,
+    run_id: &str,
+    wire: &FencedCommand,
+    head: &Head,
+) -> Result<Option<EventEnvelope>, StoreError> {
+    let (id, word, operator) = (wire.command_id, wire.command.as_str(), wire.operator);
+    let payload = json!({"command_id": id, "command": word, "args": {}, "operator": operator});
+    let (cause, kind) = (&head.event_id, EventType::OperatorCommanded);
+    match fenced_append(store, run_id, head, cause, kind, payload, None) {
+        Err(StoreError::HeadMoved { .. }) => Ok(None),
+        written => written.map(Some),
+    }
+}
+
+/// The refusal a fenced write that lost its head journals, caused by `cause`.
+fn stale_refusal(
+    store: &mut Store,
+    run_id: &str,
+    wire: &FencedCommand,
+    cause: &str,
+) -> Result<FencedCommandOutcome, EngineError> {
+    let stale = Refusal::StaleCursor;
+    refuse(store, run_id, wire.command_id, wire.operator, stale, cause)
+}
+
+/// The acceptance, written against the head the cursor check covers — the
+/// command itself — so a peer's append in between cannot slip under it.
+/// It is not re-decided the way the unfenced path re-decides: this caller
+/// HOLDS a cursor, and deciding against a head they never saw is what the
+/// fence exists to prevent. They re-read and re-issue; the journal says why.
+fn fenced_acceptance(
+    store: &mut Store,
+    run_id: &str,
+    wire: &FencedCommand,
+    commanded: &EventEnvelope,
+) -> Result<FencedCommandOutcome, EngineError> {
+    let head = Head::of(commanded);
+    let (cause, kind) = (&commanded.event_id, EventType::OperatorAccepted);
+    let payload =
+        json!({"command_id": wire.command_id, "operator": wire.operator, "reason": wire.reason});
+    match fenced_append(store, run_id, &head, cause, kind, payload, None) {
+        Ok(_) => accepted(store, run_id),
+        Err(StoreError::HeadMoved { .. }) => stale_refusal(store, run_id, wire, cause),
+        Err(error) => Err(error.into()),
+    }
 }
