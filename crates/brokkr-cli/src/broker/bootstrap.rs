@@ -354,6 +354,7 @@ fn spaces() -> Option<Spaces> {
 
 /// The identity of what `path` names in the box, itself and not a link's
 /// target.
+#[cfg(target_os = "linux")]
 fn identity(path: &Path) -> Option<Identity> {
     let facts = std::fs::symlink_metadata(path).ok()?;
     let device = (
@@ -361,6 +362,13 @@ fn identity(path: &Path) -> Option<Identity> {
         rustix::fs::minor(facts.dev()),
     );
     Some((device, facts.ino()))
+}
+
+/// Off Linux no box stands, so nothing the bootstrap names has a box's
+/// identity, and it refuses as not established.
+#[cfg(not(target_os = "linux"))]
+fn identity(_: &Path) -> Option<Identity> {
+    None
 }
 
 /// The directory `path` names, itself and not a link's target, and
