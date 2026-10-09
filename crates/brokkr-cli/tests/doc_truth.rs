@@ -7,9 +7,11 @@
 //! blocks: a paragraph, list or table between blank lines, or a fenced
 //! block whole. Four rules hold them:
 //!
-//! - every repository path a code span names is in the tree, a `./` or
-//!   `../` spelling resolved against the doc's directory (lychee holds the
-//!   links);
+//! - every repository path a code span outside a fence names is in the
+//!   tree, a `./` or `../` spelling resolved against the doc's directory,
+//!   and a file named from no directory found under any (lychee holds the
+//!   links; a fenced sample is #365's snapshot ask, so this rule leaves it
+//!   as the version rule does not);
 //! - every version of Brokkr a doc states is the workspace's, unless its
 //!   block follows the [`ILLUSTRATIVE`] mark;
 //! - every decision a doc or a source comment calls proposed is proposed
@@ -18,8 +20,9 @@
 //!   outside the paths [`ALLOWED`] names with a reason.
 //!
 //! What a rule cannot read is refused, never skipped: a fence left open,
-//! a path written with a character no path here carries or climbing above
-//! the root, a version spelling followed by no version, a source whose
+//! a path written with a character no path here carries, a placeholder
+//! nothing closes or climbing above the root, a version spelling followed
+//! by no version, a source whose
 //! comment or literal never closes. A backtick nothing closes is literal
 //! text, as CommonMark renders it, not a span.
 
@@ -214,29 +217,88 @@ fn path_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || "._-/<>{}*…+@".contains(c)
 }
 
-/// The repository path a code span names, if it names one: one word that
-/// opens with `./` or `../`, or whose first segment is a top-level
-/// directory the tree tracks, its `:line` or `#anchor` suffix dropped. A
-/// word this cannot read as a path is an `Err`.
-fn named_path<'a>(span: &'a str, tops: &BTreeSet<String>) -> Option<Result<&'a str, String>> {
-    let (first, _) = span.split_once('/')?;
-    let relative = first == "." || first == "..";
-    if span.contains(char::is_whitespace) || !(relative || tops.contains(first)) {
+/// The kinds of file a name is read by when the doc leaves unsaid which
+/// directory holds it: `README.md`, `scripts/coverage-exact.sh`'s
+/// `coverage-exact.sh`, `layering/scan.rs`.
+const FILE_KINDS: [&str; 9] = [
+    "md", "rs", "json", "sh", "toml", "yml", "yaml", "txt", "lock",
+];
+
+/// Where a path that opens with neither `./`, `../` nor a top-level
+/// directory stands outside the repository, never read.
+const FOREIGN: [(&str, &str); 7] = [
+    ("/", "an absolute path names the host's tree"),
+    ("~", "a path under a home directory"),
+    ("$", "a path under an environment variable"),
+    ("<", "a leading placeholder names a root the reader fills"),
+    (".forge/", "a run's own working files, never tracked"),
+    ("target/", "cargo's build output"),
+    ("node_modules/", "a Node repository's installed packages"),
+];
+
+/// Where a path a code span names is read from.
+enum Named<'a> {
+    /// From the root or the doc's directory, as [`resolved`] reads it: it
+    /// opens with `./`, `../` or a top-level directory the tree tracks.
+    Placed(&'a str),
+    /// Under any directory: the name of a file of one of the
+    /// [`FILE_KINDS`], or a path ending in one, whose start the doc leaves
+    /// unsaid.
+    Within(&'a str),
+}
+
+/// The repository path a code span names, if it names one: one word,
+/// [`Named`] by how it opens, its `:line` or `#anchor` suffix dropped. A
+/// word this cannot read as a path is an `Err`: a character no path here
+/// carries, a suffix that is no line, or a placeholder nothing closes.
+fn named_path<'a>(span: &'a str, tops: &BTreeSet<String>) -> Option<Result<Named<'a>, String>> {
+    if span.contains(char::is_whitespace) {
         return None;
     }
     let path = span.split_once('#').map_or(span, |(path, _)| path);
-    let path = match path.split_once(':') {
-        None => path,
-        Some((path, at))
-            if !at.is_empty() && at.chars().all(|c| c.is_ascii_digit() || c == '-') =>
-        {
-            path
+    let (path, line) = path
+        .split_once(':')
+        .map_or((path, None), |(path, at)| (path, Some(at)));
+    let named = match path.split_once('/') {
+        Some((first, _)) if [".", ".."].contains(&first) || tops.contains(first) => {
+            Named::Placed(path)
         }
-        Some(_) => return Some(Err(format!("`{span}` reads as no path and line"))),
+        _ if FOREIGN.iter().any(|(root, _)| path.starts_with(root)) => return None,
+        _ => match path.rsplit('/').next()?.rsplit_once('.') {
+            Some((name, kind)) if !name.is_empty() && FILE_KINDS.contains(&kind) => {
+                Named::Within(path)
+            }
+            _ => return None,
+        },
     };
-    Some(match path.chars().find(|&c| !path_char(c)) {
-        Some(c) => Err(format!("`{span}` carries `{c}`, which no path here does")),
-        None => Ok(path),
+    let lined =
+        line.is_none_or(|at| !at.is_empty() && at.chars().all(|c| c.is_ascii_digit() || c == '-'));
+    Some(if !lined {
+        Err(format!("`{span}` reads as no path and line"))
+    } else if let Some(c) = path.chars().find(|&c| !path_char(c)) {
+        Err(format!("`{span}` carries `{c}`, which no path here does"))
+    } else if let Some(open) = unclosed(path) {
+        Err(format!(
+            "`{span}` opens a placeholder `{open}` nothing closes"
+        ))
+    } else {
+        Ok(named)
+    })
+}
+
+/// The first placeholder opener (`<`, `{`) in `path` that its segment
+/// never closes.
+fn unclosed(path: &str) -> Option<char> {
+    path.split('/').find_map(|segment| {
+        let mut open = None;
+        for c in segment.chars() {
+            match (open, c) {
+                (None, '<' | '{') => open = Some(c),
+                (Some('<'), '>') | (Some('{'), '}') => open = None,
+                _ => {}
+            }
+        }
+        open
     })
 }
 
@@ -297,30 +359,122 @@ impl Tree {
         Tree { entries, tops }
     }
 
-    /// Whether the tree holds `path`, a pattern filled by any entry.
-    fn holds(&self, path: &str) -> bool {
+    /// Whether the tree holds `path`, a pattern filled by any entry: from
+    /// the root when `anchored`, else as the end of an entry's path.
+    fn holds(&self, path: &str, anchored: bool) -> bool {
         let path = path.trim_end_matches('/');
         let wild = ['<', '{', '*', '…'].iter().any(|&c| path.contains(c)) || path.contains("...");
-        if !wild {
+        if !wild && anchored {
             return self.entries.contains(path);
         }
         let pattern: Vec<Vec<char>> = path.split('/').map(glob).collect();
         self.entries.iter().any(|entry| {
             let names: Vec<&str> = entry.split('/').collect();
-            names.len() == pattern.len()
+            let Some(start) = names.len().checked_sub(pattern.len()) else {
+                return false;
+            };
+            (start == 0 || !anchored)
                 && pattern
                     .iter()
-                    .zip(names)
+                    .zip(&names[start..])
                     .all(|(segment, name)| fills(segment, &name.chars().collect::<Vec<_>>()))
         })
     }
 }
 
 /// Paths a living doc names that this repository rightly does not hold:
-/// the doc (or the directory of docs), the path it names (or the start of
-/// it), and why. An allowance that covers nothing fails, so none outlives
-/// its text.
-const ABSENT: [(&str, &str, &str); 25] = [
+/// the doc (or the directory of docs, `""` for any), the path it names (or
+/// the start of it), and why. An allowance that covers nothing fails, so
+/// none outlives its text.
+const ABSENT: [(&str, &str, &str); 44] = [
+    (
+        "",
+        "credentials.toml",
+        "a credential file the box masks in a home directory",
+    ),
+    (
+        "",
+        "CLAUDE.md",
+        "Claude Code's memory file, the operator's own",
+    ),
+    (
+        "",
+        "tsconfig.json",
+        "a Node repository's compiler configuration",
+    ),
+    (
+        "",
+        "*-tests.rs",
+        "a test-file spelling the coverage gate reads, which no file here carries",
+    ),
+    (
+        "",
+        "alias/../",
+        "a library spelling refused for climbing out of its directory",
+    ),
+    ("", "scripts1/", "a sibling directory a scenario plants"),
+    ("", "scripts[1]/", "a directory a scenario plants"),
+    (
+        "",
+        ".\\",
+        "a Windows-separated script token a scenario refuses",
+    ),
+    (
+        "docs/research/github-peers/",
+        "",
+        "each page reads another project, whose files are its own",
+    ),
+    (
+        "crates/brokkr-cli/dialects/speckit/",
+        "specs/",
+        "spec-kit's layout in the operator's repository",
+    ),
+    (
+        "dialects/speckit/",
+        "specs/",
+        "spec-kit's layout in the operator's repository",
+    ),
+    (
+        "docs/guides/contributing-by-hand.md",
+        "coverage-",
+        "the coverage gate's reports under `target/coverage/`",
+    ),
+    (
+        "quality/README.md",
+        "src/",
+        "two files of an invented tree the example pairs",
+    ),
+    (
+        "docs/guides/provider-adapters.md",
+        "config.toml",
+        "codex's own configuration",
+    ),
+    (
+        "docs/guides/provider-adapters.md",
+        "index.lock",
+        "git's lock in a workspace's own `.git`",
+    ),
+    (
+        "openspec/changes/2026-09-09-226-session-resumption/specs/adapter-resume-safety/",
+        "cordis.yml",
+        "a file of dsh's profile",
+    ),
+    (
+        "openspec/changes/2026-09-09-226-session-resumption/specs/adapter-resume-safety/",
+        "pnpm-workspace.yaml",
+        "a file of dsh's profile",
+    ),
+    (
+        "openspec/changes/2026-09-09-226-session-resumption/specs/adapter-resume-safety/",
+        "dsh-pair-qualification-",
+        "the superseded qualification a scenario names",
+    ),
+    (
+        "openspec/changes/boundary-seatbelt-slice-ii/specs/",
+        "bundles/",
+        "an in-flight delta written before decision 0078; the specs it folds into read \
+         `recipes/`",
+    ),
     (
         "docs/guides/recipe-authoring.md",
         "../",
@@ -488,13 +642,18 @@ fn resolved(path: &str, here: Option<&str>) -> Result<Vec<String>, String> {
 }
 
 /// Why a code span in a doc in the directory `here` is false: it names a
-/// path the tree does not hold, read as [`resolved`] reads it, or it
-/// cannot be read. `None` when it names no path or a path the tree holds.
+/// path the tree does not hold, read as its [`Named`] says, or it cannot
+/// be read. `None` when it names no path or a path the tree holds.
 fn unheld(span: &str, tree: &Tree, here: Option<&str>) -> Option<String> {
-    let paths = named_path(span, &tree.tops)?.and_then(|path| resolved(path, here));
-    match paths {
-        Ok(paths) if paths.iter().any(|path| tree.holds(path)) => None,
-        Ok(_) => Some(format!("`{span}` names a path the tree does not hold")),
+    let held = named_path(span, &tree.tops)?.and_then(|named| match named {
+        Named::Placed(path) => {
+            resolved(path, here).map(|paths| paths.iter().any(|path| tree.holds(path, true)))
+        }
+        Named::Within(path) => Ok(tree.holds(path, false)),
+    });
+    match held {
+        Ok(true) => None,
+        Ok(false) => Some(format!("`{span}` names a path the tree does not hold")),
         Err(why) => Some(why),
     }
 }
@@ -578,9 +737,16 @@ fn a_path_the_tree_does_not_hold_is_refused() {
          \n\
          Relative: `./recipes/fast/bundle.json`, `./bundle.json`, `../fast/bundle.json`,\n\
          `../../scripts/coverage-exact.sh`, `./gone.md`, `../../scripts/gone.sh`,\n\
-         `../bundle.json`, `../../../x.md`, `./bad[1].sh`.\n",
+         `../bundle.json`, `../../../x.md`, `./bad[1].sh`.\n\
+         \n\
+         Unsaid: `quickstart.md`, `guides/quickstart.md`, `bundle.json:3`, `doc/guides/quickstart.md`,\n\
+         `README-missing.md`, `missing.rs:main`, `owner/model`, `CHANGELOG`.\n\
+         Unclosed: `docs/<guide/quickstart.md`, `recipes/{name/bundle.json`, `recipes/<name>/{x}.json`.\n\
+         Foreign: `~/.cargo/credentials.toml`, `$HOME/x.md`, `/usr/x.sh`, `<repo>/x.md`,\n\
+         `.forge/x.json`, `target/x.json`, `node_modules/x.json`.\n",
     )
     .unwrap();
+    let root = doc("README.md", "Not `scripts/verify-seat.sh` from the root.\n").unwrap();
     let absent = [
         ("recipes/fast/", "recipes/bun", "says no such recipe ships"),
         (
@@ -591,7 +757,7 @@ fn a_path_the_tree_does_not_hold_is_refused() {
         ("recipes/fast/", "./bad[", "a spelling refused on purpose"),
     ];
     assert_eq!(
-        missing_paths(&[planted], &tree, &absent),
+        missing_paths(&[planted, root], &tree, &absent),
         [
             "recipes/fast/README.md:5: `docs/target-architecture.md` names a path the tree does not hold",
             "recipes/fast/README.md:5: `recipes/<name>/policy.json` names a path the tree does not hold",
@@ -602,6 +768,12 @@ fn a_path_the_tree_does_not_hold_is_refused() {
             "recipes/fast/README.md:20: `../../scripts/gone.sh` names a path the tree does not hold",
             "recipes/fast/README.md:21: `../bundle.json` names a path the tree does not hold",
             "recipes/fast/README.md:21: `../../../x.md` climbs above the repository",
+            "recipes/fast/README.md:23: `doc/guides/quickstart.md` names a path the tree does not hold",
+            "recipes/fast/README.md:24: `README-missing.md` names a path the tree does not hold",
+            "recipes/fast/README.md:24: `missing.rs:main` reads as no path and line",
+            "recipes/fast/README.md:25: `docs/<guide/quickstart.md` opens a placeholder `<` nothing closes",
+            "recipes/fast/README.md:25: `recipes/{name/bundle.json` opens a placeholder `{` nothing closes",
+            "README.md:1: `scripts/verify-seat.sh` names a path the tree does not hold",
             "recipes/fast/README.md: allows `recipes/go`, which it no longer names",
         ]
     );
@@ -612,21 +784,40 @@ fn a_path_the_tree_does_not_hold_is_refused() {
 const ILLUSTRATIVE: &str = "<!-- illustrative version -->";
 
 /// A spelling that states Brokkr's own version: the text before the
-/// version, the characters that open it, each after any whitespace, and
-/// the text that closes it.
+/// version, whether a [`gap`] parts the two, the characters that open it,
+/// each after any whitespace, and the text that closes it.
 struct Spelling {
     before: &'static str,
+    gapped: bool,
     open: &'static str,
     close: &'static str,
 }
 
-/// A word a version follows: `brokkr 0.12.0`.
+/// A word a version follows past a [`gap`]: `brokkr 0.12.0`, `Brokkr
+/// **0.12.0**`, `Brokkr version 0.12.0`, the word ending one line and the
+/// version opening the next.
 const fn word(before: &'static str) -> Spelling {
     Spelling {
         before,
+        gapped: true,
         open: "",
         close: "",
     }
+}
+
+/// The text after the gap that parts a word from the version it names:
+/// whitespace, line breaks included, inline markup (`*`, `_`, `` ` ``) and
+/// a `version` word. `None` when nothing parts them.
+fn gap(text: &str) -> Option<&str> {
+    let parts = |c: char| c.is_whitespace() || "*_`".contains(c);
+    let rest = text.trim_start_matches(parts);
+    if rest.len() == text.len() {
+        return None;
+    }
+    Some(match rest.strip_prefix("version") {
+        Some(after) if after.starts_with(parts) => after.trim_start_matches(parts),
+        _ => rest,
+    })
 }
 
 /// The spellings that state Brokkr's own version. One with an opener is
@@ -634,18 +825,20 @@ const fn word(before: &'static str) -> Spelling {
 /// text and, when it has a closer, its closer follows that word. A spelling
 /// read but followed by no version this can read is refused.
 const VERSION_SPELLINGS: [Spelling; 5] = [
-    word("brokkr "),
-    word("Brokkr "),
-    word("engine "),
+    word("brokkr"),
+    word("Brokkr"),
+    word("engine"),
     // `"engine_version": "0.12.0"` and serde_json's compact form alike.
     Spelling {
         before: "\"engine_version\"",
+        gapped: false,
         open: ":\"",
         close: "\"",
     },
     // A link that headlines a release: "The [v0.12.0 release](…)".
     Spelling {
         before: "[v",
+        gapped: false,
         open: "",
         close: " release",
     },
@@ -702,6 +895,7 @@ fn versions_in(text: &str) -> Vec<(usize, Result<&str, &'static str>)> {
     let mut found = Vec::new();
     for Spelling {
         before,
+        gapped,
         open,
         close,
     } in VERSION_SPELLINGS
@@ -710,7 +904,12 @@ fn versions_in(text: &str) -> Vec<(usize, Result<&str, &'static str>)> {
             if text[..at].ends_with(|c: char| c.is_alphanumeric() || c == '-' || c == '_') {
                 continue;
             }
-            let Some(rest) = opened(&text[at + before.len()..], open) else {
+            let after = &text[at + before.len()..];
+            let Some(rest) = (match gapped {
+                true => gap(after),
+                false => Some(after),
+            })
+            .and_then(|after| opened(after, open)) else {
                 continue;
             };
             let numbered = rest
@@ -790,7 +989,11 @@ fn a_stale_version_is_refused_unless_marked_illustrative() {
          \n\
          brokkr 0.12 and engine 13/13 read as no version.\n\
          \n\
-         {\"engine_version\":\"0.8.0\"}, {\"engine_version\" : \"0.12\"}, the [v0.12 release](x).\n",
+         {\"engine_version\":\"0.8.0\"}, {\"engine_version\" : \"0.12\"}, the [v0.12 release](x).\n\
+         \n\
+         Released as Brokkr\n\
+         0.11.0 last week; brokkr  0.10.0, brokkr\t0.9.0,\n\
+         Brokkr **0.8.1** and Brokkr version 0.8.2; `brokkr_core 0.1.0` and brokkr-cli 0.1.0 are none.\n",
     )
     .unwrap();
     assert_eq!(
@@ -799,11 +1002,16 @@ fn a_stale_version_is_refused_unless_marked_illustrative() {
             "docs/guides/a.md:1: states Brokkr 0.11.0; the workspace is 0.12.0",
             "docs/guides/a.md:6: states Brokkr 0.8.0; the workspace is 0.12.0",
             "docs/guides/a.md:16: states Brokkr 0.7.0; the workspace is 0.12.0",
-            "docs/guides/a.md:20: `brokkr ` is followed by no version this can read",
-            "docs/guides/a.md:20: `engine ` is followed by no version this can read",
+            "docs/guides/a.md:20: `brokkr` is followed by no version this can read",
+            "docs/guides/a.md:20: `engine` is followed by no version this can read",
             "docs/guides/a.md:22: states Brokkr 0.8.0; the workspace is 0.12.0",
             "docs/guides/a.md:22: `\"engine_version\"` is followed by no version this can read",
             "docs/guides/a.md:22: `[v` is followed by no version this can read",
+            "docs/guides/a.md:25: states Brokkr 0.10.0; the workspace is 0.12.0",
+            "docs/guides/a.md:25: states Brokkr 0.9.0; the workspace is 0.12.0",
+            "docs/guides/a.md:24: states Brokkr 0.11.0; the workspace is 0.12.0",
+            "docs/guides/a.md:26: states Brokkr 0.8.1; the workspace is 0.12.0",
+            "docs/guides/a.md:26: states Brokkr 0.8.2; the workspace is 0.12.0",
         ]
     );
     assert_eq!(version("0.1.5-rc.1. More"), Some(("0.1.5-rc.1", ". More")));
@@ -857,8 +1065,9 @@ fn called_proposed(text: &str) -> Vec<u16> {
 }
 
 /// The comment a shell line carries: the text after the first `#` that
-/// opens a word, unless it is a shebang. A `#` inside quotes is read as a
-/// comment too, which can only read more.
+/// opens a word, unless it is a shebang. Quotes are not read, so a `#`
+/// opening a word inside them starts a comment too, which can only read
+/// more.
 fn shell_comment(line: &str) -> Option<&str> {
     let (at, _) = line.char_indices().find(|&(at, c)| {
         c == '#'
@@ -1049,8 +1258,10 @@ const NO_WINDOWS: &str = "decision 0063: the hosts are Linux and macOS";
 const NEVER_BUILT: &str = "never built (#364): the DeepSeek harness is the built-in dsh adapter";
 
 const RETIRED: [Retired; 8] = [
+    // Lowercase `windows` alone is a context window; opening a hyphenated
+    // word it is a runner label (`windows-latest`, `windows-2022`).
     Retired {
-        spellings: &["Windows", "WINDOWS"],
+        spellings: &["Windows", "WINDOWS", "windows-"],
         why: NO_WINDOWS,
         cite: Some("0063"),
     },
@@ -1237,7 +1448,9 @@ fn a_retired_term_is_refused_outside_its_citation_and_its_allowance() {
          \n\
          Context windows, a read surface, recipes/my-bundles/ and cordis.patch.yml are not.\n\
          \n\
-         WINDOWS hosts, Winget, WinGet, WINGET, Scoop and a Cordis hook.\n",
+         WINDOWS hosts, Winget, WinGet, WINGET, Scoop and a Cordis hook.\n\
+         \n\
+         runs-on: windows-latest; not context windows, context-windows-wide or 356-windows-is.\n",
     )
     .unwrap();
     let research = doc("docs/research/a.md", "CI runs on Windows.\n").unwrap();
@@ -1263,6 +1476,7 @@ fn a_retired_term_is_refused_outside_its_citation_and_its_allowance() {
             "docs/guides/a.md:10: names `WINGET`, retired: decision 0063: the hosts are Linux and macOS",
             "docs/guides/a.md:10: names `Scoop`, retired: decision 0063: the hosts are Linux and macOS",
             "docs/guides/a.md:10: names `Cordis`, retired: never built (#364): the DeepSeek harness is the built-in dsh adapter",
+            "docs/guides/a.md:12: names `windows-`, retired: decision 0063: the hosts are Linux and macOS",
             "docs/guides/b.md: allows `winget`, which it no longer names",
         ]
     );

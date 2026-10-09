@@ -17,7 +17,7 @@
 | `extensions/` | Decision 0009's extension boundary: language-neutral, repository-owned provider extension bytes (starting with the adapted `dsh-plugin-cli-session` under `extensions/dsh/plugin-cli-session/`, with `extensions/dsh/PROVENANCE.md`). No Brokkr crate builds, loads or executes them; deployment is an operator action. |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
 | `policy/phase-machine.json` | The heritage transition table the corpus derives from; stability is contract. |
-| [`docs/decisions/`](../decisions/) | The constitution: numbered operator rulings 0001–0019, indexed. |
+| [`docs/decisions/`](../decisions/) | The constitution: numbered operator rulings, indexed with their status in its README. |
 | [`docs/lore/`](../lore/) | The lore layer of [decision 0019](../decisions/0019-brokkr.md): [the Edda](../lore/edda.md) and the sagas. Commentary, never specification. |
 | `assets/` | The brand mark: [`logo.svg`](../../assets/logo.svg) (the anvil and the three rail nodes) and `social-preview.png`, the 1280×640 card the repository shows when it is linked. |
 | `reference/` | Read-only heritage documents: handoff-protocol lore, recorded schemas. |

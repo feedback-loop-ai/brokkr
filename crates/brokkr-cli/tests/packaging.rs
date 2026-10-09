@@ -1110,6 +1110,10 @@ fn the_packaging_readme_names_every_secret_a_workflow_reads() {
         .into_iter()
         .flat_map(|workflow| {
             let text = read(&workflow);
+            assert!(
+                !text.contains("secrets["),
+                "{workflow} reads a secret by index, which this does not read: write secrets.NAME"
+            );
             text.split("secrets.")
                 .skip(1)
                 .map(|rest| {
