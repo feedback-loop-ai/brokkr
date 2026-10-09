@@ -41,7 +41,8 @@ and change these, and only these:
 
 Both model seats hire library offices (#360): `node-implementer` and
 `node-reviewer`, overlays of `implementer` and `reviewer` with Node's
-charters, Fable at `high` alone as the seats always hired, and the npm
+charters, Fable then Opus at `high` as `fast`'s offices hire (the
+operator's ruling of 2026-10-09), and the npm
 tool list, each change of power stated under `replaces` with its reason.
 An office's tool list is typed data, not a flag. The engine lowers each
 name through the adapter's mapping to the `--allowedTools` entry the

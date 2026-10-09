@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use brokkr_protocol::hands::BindMode;
 use brokkr_runtime::{
-    resolve_agent, Adapters, Availability, Bundle, Library, Presence, SeatBody, SeatClass, StepBody,
+    resolve_agent, Adapters, Availability, Bundle, Candidate, Library, PanelMember, Presence,
+    SeatBody, SeatClass, StepBody,
 };
 use serde_json::Value;
 
@@ -179,12 +180,53 @@ fn an_inline_model_site_stands_only_in_a_recipe_that_declares_its_forced_crew() 
     }
 }
 
+/// The keys a recipe's seat may write without authoring its body: a seat
+/// that writes only these keeps the body it inherits. Any other key — a
+/// body form, or a key this list does not know — authors the body.
+const INHERITING_KEYS: [&str; 4] = ["inputs", "limits", "results", "secrets"];
+
+/// Every executable site a compiled seat body holds, with the chain its
+/// candidates hire: a single seat, each panel member, each sequence step
+/// and its members, and each select case and the default. An inline or
+/// deterministic site hires an empty chain.
+fn hired_chains<'a>(site: String, body: &'a SeatBody, chains: &mut Vec<(String, &'a [Candidate])>) {
+    let members = |site: &str, members: &'a [PanelMember], chains: &mut Vec<_>| {
+        for member in members {
+            chains.push((format!("{site}:{}", member.name), &member.candidates[..]));
+        }
+    };
+    match body {
+        SeatBody::Single { candidates, .. } => chains.push((site, candidates)),
+        SeatBody::Panel { members: panel, .. } => members(&site, panel, chains),
+        SeatBody::Sequence { steps } => {
+            for step in steps {
+                let site = format!("{site}:{}", step.name);
+                match &step.body {
+                    StepBody::Single { candidates, .. } => chains.push((site, candidates)),
+                    StepBody::Panel { members: panel, .. } => members(&site, panel, chains),
+                    StepBody::Dialect { .. } => {}
+                }
+            }
+        }
+        SeatBody::Select { cases, default, .. } => {
+            let default = default.iter().map(|body| ("default", body.as_ref()));
+            let cases = cases.iter().map(|(case, body)| (case.as_str(), body));
+            for (case, body) in cases.chain(default) {
+                hired_chains(format!("{site}:{case}"), body, chains);
+            }
+        }
+    }
+}
+
 /// A forced crew stays forced (the same addendum): a recipe that declares
-/// `forced_crew` names the decision, forces at least one seat it writes,
-/// and every model seat it writes either stands inline or hires an overlay
-/// whose chain holds exactly the forced model, with no fallback. A seat it
-/// inherits is not its forcing: a wager's arm judges with fast's review
-/// seat, which falls back (the operator's ruling of 2026-10-09).
+/// `forced_crew` names the decision, forces at least one site it writes,
+/// and every model site its own seats hold — a single seat, a panel
+/// member, a sequence step, a select case or default, read from the
+/// compiled body — either stands inline or hires an overlay whose chain
+/// holds exactly the forced model, with no fallback. A seat it inherits,
+/// or overlays only with the keys above, is not its forcing: a wager's arm
+/// judges with fast's review seat, which falls back (the operator's ruling
+/// of 2026-10-09).
 #[test]
 fn a_forced_crew_names_its_decision_and_hires_no_fallback() {
     let workspace = workspace();
@@ -199,19 +241,27 @@ fn a_forced_crew_names_its_decision_and_hires_no_fallback() {
         let bundle = compile(&workspace, &recipe);
         let mut forced = inline.len();
         for (phase, seat) in &root.seats {
-            if seat.get("agent").is_none() {
+            let inherits = seat.as_object().is_some_and(|keys| {
+                keys.keys()
+                    .all(|key| INHERITING_KEYS.contains(&key.as_str()))
+            });
+            if inherits {
                 continue;
             }
-            let SeatBody::Single { candidates, .. } = &bundle.seats[phase].body else {
-                panic!("{recipe}:{phase} is one seat");
-            };
-            let chain: Vec<&str> = candidates.iter().map(|link| link.model.as_str()).collect();
-            assert_eq!(
-                chain.len(),
-                1,
-                "{recipe} forces its crew, but {phase} hires the chain {chain:?}"
-            );
-            forced += 1;
+            let mut chains = Vec::new();
+            hired_chains(phase.clone(), &bundle.seats[phase].body, &mut chains);
+            for (site, candidates) in chains {
+                if candidates.is_empty() {
+                    continue;
+                }
+                let chain: Vec<&str> = candidates.iter().map(|link| link.model.as_str()).collect();
+                assert_eq!(
+                    chain.len(),
+                    1,
+                    "{recipe} forces its crew, but {site} hires the chain {chain:?}"
+                );
+                forced += 1;
+            }
         }
         assert_ne!(
             forced, 0,
@@ -242,6 +292,37 @@ const FAST_OFFICES: [(&str, &str, &[&str]); 2] = [
     ("review", "fast-reviewer", &["fable", "opus"]),
 ];
 
+/// `node`'s and `verify`'s offices and the chains they hire (the operator's
+/// ruling (b) of 2026-10-09 on #360): Fable, then Opus, at `high`, as the
+/// fast offices fall back.
+const NODE_AND_VERIFY_OFFICES: [(&str, &str, &str, &[&str]); 3] = [
+    ("node", "implement", "node-implementer", &["fable", "opus"]),
+    ("node", "review", "node-reviewer", &["fable", "opus"]),
+    ("verify", "review", "verify-reviewer", &["fable", "opus"]),
+];
+
+/// A compiled seat hires `office` on exactly `chain`, every link at `high`.
+fn assert_hires(bundle: &Bundle, recipe: &str, phase: &str, office: &str, chain: &[&str]) {
+    let SeatBody::Single { candidates, .. } = &bundle.seats[phase].body else {
+        panic!("{recipe}:{phase} is one seat");
+    };
+    let hired: Vec<(&str, &str, Option<&str>)> = candidates
+        .iter()
+        .map(|link| {
+            (
+                link.agent.as_str(),
+                link.model.as_str(),
+                link.effort.as_deref(),
+            )
+        })
+        .collect();
+    let expected: Vec<(&str, &str, Option<&str>)> = chain
+        .iter()
+        .map(|model| (office, *model, Some("high")))
+        .collect();
+    assert_eq!(hired, expected, "{recipe}:{phase}");
+}
+
 /// `fast` and `landing`, which inherits both of fast's model seats, hire
 /// the fast offices, so the default recipe falls back instead of parking
 /// when its first model is spent.
@@ -251,25 +332,18 @@ fn fast_and_landing_hire_offices_that_fall_back_from_fable() {
     for recipe in ["fast", "landing"] {
         let bundle = compile(&root, recipe);
         for (phase, office, chain) in FAST_OFFICES {
-            let SeatBody::Single { candidates, .. } = &bundle.seats[phase].body else {
-                panic!("{recipe}:{phase} is one seat");
-            };
-            let hired: Vec<(&str, &str, Option<&str>)> = candidates
-                .iter()
-                .map(|link| {
-                    (
-                        link.agent.as_str(),
-                        link.model.as_str(),
-                        link.effort.as_deref(),
-                    )
-                })
-                .collect();
-            let expected: Vec<(&str, &str, Option<&str>)> = chain
-                .iter()
-                .map(|model| (office, *model, Some("high")))
-                .collect();
-            assert_eq!(hired, expected, "{recipe}:{phase}");
+            assert_hires(&bundle, recipe, phase, office, chain);
         }
+    }
+}
+
+/// `node` and `verify` hire their offices, so neither parks when Fable's
+/// limit is spent (the 2026-10-09 ruling).
+#[test]
+fn node_and_verify_hire_offices_that_fall_back_from_fable() {
+    let root = workspace();
+    for (recipe, phase, office, chain) in NODE_AND_VERIFY_OFFICES {
+        assert_hires(&compile(&root, recipe), recipe, phase, office, chain);
     }
 }
 
@@ -279,6 +353,23 @@ fn fast_and_landing_hire_offices_that_fall_back_from_fable() {
 /// `high`, its next link.
 #[test]
 fn a_fast_office_whose_first_model_is_unavailable_selects_its_fallback() {
+    assert_falls_back_from_unavailable_fable(
+        &FAST_OFFICES.map(|(_, office, chain)| (office, chain)),
+    );
+}
+
+/// The 2026-10-09 ruling's proof, as fast's: with Fable unavailable,
+/// `node`'s and `verify`'s offices select Opus at `high`.
+#[test]
+fn a_node_or_verify_office_whose_first_model_is_unavailable_selects_its_fallback() {
+    assert_falls_back_from_unavailable_fable(
+        &NODE_AND_VERIFY_OFFICES.map(|(_, _, office, chain)| (office, chain)),
+    );
+}
+
+/// Each office, resolved with the provider that serves Fable unavailable,
+/// skips Fable and selects the rest of its chain at `high`.
+fn assert_falls_back_from_unavailable_fable(offices: &[(&str, &[&str])]) {
     let root = workspace();
     let adapters = tempfile::tempdir().unwrap();
     let mut claude = json(&root.join("adapters/claude.json"));
@@ -296,7 +387,7 @@ fn a_fast_office_whose_first_model_is_unavailable_selects_its_fallback() {
     let library = Library::load(&root.join("agents")).expect("the shipped library loads");
     let mut availability = Availability::unspecified();
     availability.record("claude-fable", Presence::Unavailable);
-    for (_, office, chain) in FAST_OFFICES {
+    for &(office, chain) in offices {
         let resolution = resolve_agent(&library, &adapters, &availability, office)
             .unwrap_or_else(|error| panic!("{office} resolves: {error}"));
         assert_eq!(resolution.record["chosen_index"], 1, "{office}");

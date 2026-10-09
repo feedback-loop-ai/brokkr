@@ -95,15 +95,12 @@ const AGENTS: [&str; 42] = [
 /// #360's second slice (decision 0041's addendum of 2026-10-07): the inline
 /// sites that moved onto overlays keep the one link each seat hired inline.
 /// A forced crew's office holds exactly its forced model — the dsh wager
-/// arms, review-first's Muse and night-shift's dsh lane — and `node`'s and
-/// `verify`'s offices keep the Fable link their seats always hired, whose
-/// fallback is a crew change for a ruling, not for this move.
-const SINGLE_LINK_OFFICES: [&str; 6] = [
+/// arms, review-first's Muse and night-shift's dsh lane. `node`'s and
+/// `verify`'s offices fall back from Fable to Opus, as `fast`'s do (the
+/// operator's ruling of 2026-10-09), so they are not here.
+const SINGLE_LINK_OFFICES: [&str; 3] = [
     "muse-implementer",
     "night-shift-implementer",
-    "node-implementer",
-    "node-reviewer",
-    "verify-reviewer",
     "wager-glm-flash-implementer",
 ];
 

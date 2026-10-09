@@ -1,8 +1,8 @@
 {
   "extends": "implementer",
   "charter": "charters/node-implementer.md",
-  "models": ["fable"],
-  "efforts": {"fable": "high"},
+  "models": ["fable", "opus"],
+  "efforts": {"fable": "high", "opus": "high"},
   "tools": {"allow": ["npm", "npx", "node", "git", "ls", "rg", "mkdir"]},
   "replaces": {"tools": "a Node repository builds with npm, npx and node in place of cargo, the list node's own seat always granted"}
 }

@@ -5754,7 +5754,7 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
 /// authors the pins and the engine appends the adapter's template and the
 /// list. As a library office (node's and verify's since #360), the
 /// resolver composes the template, the pins and the list into the authored
-/// command, in that order: the same flags and the same limits.
+/// command, in that order: the same flags and limits, and an Opus fallback.
 fn shipped_claude_record(names: &[&str], list: &str, office: bool) -> Value {
     let pins = ["--model", "claude-fable-5-1", "--effort", "high"];
     let template = ["--permission-mode", "acceptEdits"];
@@ -5794,7 +5794,7 @@ fn shipped_claude_record(names: &[&str], list: &str, office: bool) -> Value {
     );
     json!({
         "authored command": authored,
-        "held": [0],
+        "held": if office { json!([0, 0]) } else { json!([0]) },
         "spawn": spawn,
         "segments": segments,
         "local": {"allow": {"kind": "listed", "names": names},
