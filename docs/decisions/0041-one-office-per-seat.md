@@ -503,6 +503,13 @@ first (#360); the remaining inline sites move onto overlays in its
 follow-ups, and until each does, the roster test's inline exception
 still names it.
 
+The parity wagers' judge is the exception the operator ruled on
+2026-10-09 (#360): a wager's arms extend `fast` and judge with `fast`'s
+review seat, so the judge falls back from Fable as `fast`'s does, and an
+arm never parks for it. The referee may differ from Fable only when
+Fable's limit is spent, and both arms meet the same fallback. What a
+wager forces is its implement seat, the arm it measures.
+
 **Enforcement binding:** `crates/brokkr-runtime/src/agents/load/overlay.rs`
 merges an overlay into the definition it stands for, and its tests pin
 every refusal's text; `crates/brokkr-runtime/tests/roster.rs` drops
