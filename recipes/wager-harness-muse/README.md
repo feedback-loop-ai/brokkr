@@ -4,7 +4,7 @@
 asks to be: `fast` with the implement seat's driver swapped, and
 nothing else. The one line of experiment here is
 `{brokkr} driver dsh -- --model meta-contributor/meta/muse-spark-1.3-contributor --effort xhigh`.
-The charter is a byte-identical copy of `recipes/fast/roles/implementer.md`;
+The charter is a byte-identical copy of `agents/charters/implementer-intakeless.md`, fast's implementer charter;
 limits, results, class, the phase table, and every gate are `fast`'s,
 inherited.
 

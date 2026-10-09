@@ -12,7 +12,7 @@ route is effortless: dsh 0.1.5-rc.1 refuses a reasoning effort on it
 (measured 2026-09-16), so the arm pins no `--effort`, and its record
 reads effort `not applicable`, as the adapter's `effortless_routes`
 entry for `spark-glm` says. The charter is a
-byte-identical copy of `recipes/fast/roles/implementer.md`; limits,
+byte-identical copy of `agents/charters/implementer-intakeless.md`, fast's implementer charter; limits,
 results, class, the phase table, and every gate are `fast`'s, inherited.
 
 ## Parity, judged and recorded (2026-09-02)

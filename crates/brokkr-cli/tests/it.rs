@@ -35,6 +35,7 @@ mod contributing;
 mod decisions_index;
 mod delivered_by_brokkr;
 mod diagrams;
+mod doc_truth;
 mod doctor_dsh_selection;
 mod dsh_sandbox_runner;
 mod hands;

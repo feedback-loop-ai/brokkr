@@ -107,7 +107,7 @@ reaches the box.
 ## Typed tools, per harness
 
 A seat declares its tools as data, never as flags (decision 0065, slice
-one). `parse_tools` in `agents/load.rs` reads three keys and refuses any
+one). `parse_tools` in `crates/brokkr-runtime/src/agents/load.rs` reads three keys and refuses any
 other: `tools.allow`, an ordered list of names from the adapter's map;
 `tools.sandbox`, one of `read-only`, `workspace-write` and
 `danger-full-access`; and `tools.mcp`, which must be empty, because an

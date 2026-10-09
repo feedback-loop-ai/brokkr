@@ -650,8 +650,8 @@ const RECORDS: [&str; 7] = [
 /// Whether a path is a record: under one of [`RECORDS`], or one of an
 /// in-flight change's own records (its proposal, design, tasks, evidence
 /// and rulings), dated as they are written. A change's `specs/` deltas
-/// are living text, and the guard reads them.
-fn is_record(path: &str) -> bool {
+/// are living text, and the guard reads them, as `doc_truth` does (#365).
+pub(crate) fn is_record(path: &str) -> bool {
     RECORDS.iter().any(|record| path.starts_with(record))
         || path
             .strip_prefix("openspec/changes/")

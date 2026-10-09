@@ -15,9 +15,9 @@
     "recipes/standby": "2e2c52e0a2d8d761850e6e3f55dbba6871b3478a5c9f919fe30ead171d4a76ec",
     "recipes/triage": "87de2e10fa098d064c8fb4069acfe64d0d5c594953cac43908a0f02bd4345033",
     "recipes/verify": "7fa45bfb6fc56aa5b29e8b8b9d9d71bd93a5b5c37c65c958468c332f9fb0bc13",
-    "recipes/wager-harness": "64842aee791550cc98daf7bab25be183358c52d0fbbef70e8533e7d244bcf6cc",
-    "recipes/wager-harness-dsh": "41c909b56260fff476bcf1c88f60b0bc5207063d9a077ed944f8cbfb4e4e2971",
-    "recipes/wager-harness-muse": "4b39fe604cae28f428b2a4138f07f49b7ba0c413c5835b3a92eb55e71922d729"
+    "recipes/wager-harness": "6e2a46372fbc5b712a0efb2dee0bec08c6982632eebd189809992a5672f31fbf",
+    "recipes/wager-harness-dsh": "5d5c9d867667954abe774d8e0ec0fbbcde6a30e35a9a50b755bc86b0e413bd70",
+    "recipes/wager-harness-muse": "649feac963a4c1ea8125fde3099e04928d279250227a9b96f35c9d89b551989d"
   },
   "tables": {
     "recipes/fast": "b8426670da9cc9b67fce522a19967743a19e3151e069a2e6c287623ccc2ddfb5",
