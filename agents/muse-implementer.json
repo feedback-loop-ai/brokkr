@@ -1,0 +1,7 @@
+{
+  "extends": "implementer",
+  "charter": "charters/implementer-intakeless.md",
+  "models": ["muse-contributor"],
+  "efforts": {"muse-contributor": "xhigh"},
+  "replaces": {"tools": "Muse is served by dsh, which expresses no tool list, so this smith runs without the base's cargo and git allow-list"}
+}

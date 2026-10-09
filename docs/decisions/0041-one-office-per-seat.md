@@ -517,3 +517,20 @@ every refusal's text; `crates/brokkr-runtime/tests/roster.rs` drops
 chains, and that a `fast` office whose first model is unavailable
 selects its fallback; `crates/brokkr-runtime/tests/library_data.rs`
 names the two `fast` offices in the roster.
+
+*Enactment, #360 slice 2:* the inline exception is no longer a list of
+recipe names. A recipe that forces its crew declares it at its root as
+`"forced_crew": "<the decision that forces it>"`, which
+`crates/brokkr-runtime/src/bundle/compose/forced_crew.rs` admits only as
+a stated reason. `roster.rs` refuses an inline model site in a recipe
+that declares none, and holds every office a forced recipe hires itself
+to one link. The dsh wager arms, review-first's Muse and night-shift's
+dsh lane hire single-model overlays; `node`'s and `verify`'s seats hire
+overlays that keep their one Fable link. Six sites stay inline under a
+declared `forced_crew` until a feature lets an office carry them: the
+codex seats (the wager's Codex arm, standby's two, review-first's Sol
+judge), because an office may not carry a sandbox class without hands
+before decision 0065 slice one's lowering does; research-dsh's
+researcher, whose driver carries a `--patch` no office writes; and
+preflight's judge, whose role names repository paths no library charter
+may.

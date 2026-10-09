@@ -1,0 +1,12 @@
+{
+  "extends": "reviewer",
+  "charter": "charters/node-reviewer.md",
+  "models": ["fable"],
+  "efforts": {"fable": "high"},
+  "inputs": ["has_security_residual", "max_residual_severity"],
+  "tools": {"allow": ["npm", "npx", "node", "git", "ls", "rg", "mkdir"]},
+  "replaces": {
+    "hands": "node's review runs its harness's own tools unboxed, as node's own seat always has",
+    "tools": "the npm, npx and node list node's own review seat always granted, in place of the box"
+  }
+}

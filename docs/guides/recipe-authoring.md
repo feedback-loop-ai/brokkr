@@ -160,6 +160,7 @@ Two worked shapes are in the tree:
 | `name` | yes | The strategy's identity. For a composed recipe this is the leaf's name. |
 | `description` | shipped recipes | The one-line answer to "when should I use this?", rendered by `brokkr recipes list` and the contributing guide. |
 | `cost` | shipped recipes | A relative cost band for choosing a strategy, never a provider quote. |
+| `forced_crew` | a recipe whose crew must not fall back | The decision that forces its crew, as a non-empty string — a wager's arm, a vendor hedge. Its forced seats hire agent overlays whose chain holds exactly the forced models (decision [0041](../decisions/0041-one-office-per-seat.md)'s addendum of 2026-10-07); the roster test refuses an inline model site in a shipped recipe that declares none. |
 | `policy` | in the layer that supplies a table | Path to this layer's phase-machine file, relative to this layer's directory. A layer that declares no `policy` contributes no table. |
 | `protected_phase` | no | The phase every path to a non-`stop` terminal must pass through. Defaults to `"review"`. |
 | `egress_minimum` | no | The egress class a seat's route must meet before that seat may bind secrets (decision [0036](../decisions/0036-egress-is-a-property-of-the-route.md) ruling 4): `"local"`, `"contracted"` or `"uncontracted"`. Defaults to `"contracted"`. |

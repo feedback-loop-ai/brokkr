@@ -11,7 +11,6 @@
   },
   "seats": {
     "implement": {
-      "role": "roles/implementer.md",
       "results": [
         "complete",
         "broken",
@@ -23,29 +22,7 @@
         "max_attempts": 2,
         "timeout_seconds": 4800
       },
-      "tools": {
-        "allow": [
-          "npm",
-          "npx",
-          "node",
-          "git",
-          "ls",
-          "rg",
-          "mkdir"
-        ]
-      },
-      "driver": {
-        "command": [
-          "{brokkr}",
-          "driver",
-          "claude",
-          "--",
-          "--model",
-          "claude-fable-5-1",
-          "--effort",
-          "high"
-        ]
-      }
+      "agent": "node-implementer"
     },
     "verify": {
       "results": [
@@ -73,44 +50,17 @@
       ]}
     },
     "review": {
-      "role": "roles/reviewer.md",
       "results": [
         "clean",
         "residual",
         "security-hold"
       ],
       "class": "gate",
-      "inputs": [
-        "has_security_residual",
-        "max_residual_severity"
-      ],
       "limits": {
         "max_attempts": 2,
         "timeout_seconds": 3000
       },
-      "tools": {
-        "allow": [
-          "npm",
-          "npx",
-          "node",
-          "git",
-          "ls",
-          "rg",
-          "mkdir"
-        ]
-      },
-      "driver": {
-        "command": [
-          "{brokkr}",
-          "driver",
-          "claude",
-          "--",
-          "--model",
-          "claude-fable-5-1",
-          "--effort",
-          "high"
-        ]
-      }
+      "agent": "node-reviewer"
     },
     "ship": {
       "limits": {
