@@ -223,7 +223,7 @@ fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
     let holding = tempfile::tempdir().unwrap();
     let fast = workspace().join("recipes/fast");
     copy_dir(&fast, &holding.path().join("fast")).unwrap();
-    let charter = holding.path().join("fast/roles/implementer.md");
+    let charter = holding.path().join("fast/shipper.md");
     let ours = std::fs::read_to_string(&charter).unwrap() + "\nThe library's own.\n";
     std::fs::write(&charter, &ours).unwrap();
     let own = workspace().join("recipes/self");

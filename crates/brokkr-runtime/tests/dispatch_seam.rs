@@ -161,8 +161,17 @@ fn every_shipped_manifest_round_trips_losslessly_or_is_refused_loudly() {
 /// version that carries the pins lifts it.
 #[test]
 fn the_gate_witness_and_the_agent_pin_are_refused_by_name() {
-    let fast = compile("recipes/fast").manifest;
+    let mut fast = compile("recipes/fast").manifest;
     assert!(fast.get("drivers").is_some(), "recipes/fast seats gates");
+    // #360: fast's model seats hire library offices, so its manifest pins
+    // agents too, refused by name first; without that pin the gate
+    // witness's own refusals follow, as they always did.
+    let sha = canonical::sha256_hex(&fast);
+    assert_eq!(
+        build_run_manifest_v2(&fast, envelope(&sha)),
+        Err(DispatchError::AgentsUnsupportedByDispatchLineage)
+    );
+    fast.as_object_mut().unwrap().remove("agents");
     let sha = canonical::sha256_hex(&fast);
     // Decision 0046 ruling 1: `recipes/fast` boxes its exec gates, so its
     // manifest pins their boundary — the first key past the six, in

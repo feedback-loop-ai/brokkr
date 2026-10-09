@@ -242,27 +242,26 @@ pub(crate) fn stage_hands_free_fast(
 ) -> std::path::PathBuf {
     let from = workspace().join("recipes/fast");
     let to = workspace_dir.join(name);
-    std::fs::create_dir_all(to.join("roles")).unwrap();
+    std::fs::create_dir_all(&to).unwrap();
     for name in ["policy.json", "shipper.md"] {
         std::fs::copy(from.join(name), to.join(name)).unwrap();
-    }
-    for entry in std::fs::read_dir(from.join("roles")).unwrap() {
-        let entry = entry.unwrap();
-        std::fs::copy(entry.path(), to.join("roles").join(entry.file_name())).unwrap();
     }
     let mut manifest: Value =
         serde_json::from_slice(&std::fs::read(from.join("bundle.json")).unwrap()).unwrap();
     for (phase, seat) in manifest["seats"].as_object_mut().unwrap() {
-        if !(keep_review_gate && phase == "review") {
-            if seat.get("class").and_then(Value::as_str) == Some("gate") {
-                seat["class"] = json!("work");
-                seat.as_object_mut().unwrap().remove("hands");
-            }
-            if seat.get("role").is_none() {
-                seat["role"] = json!("shipper.md");
-            }
-            seat["driver"] = json!({"command": ["{brokkr}", "fake-driver"]});
-            seat.as_object_mut().unwrap().remove("tools");
+        let seat = seat.as_object_mut().unwrap();
+        seat.remove("agent"); // Fast hires library offices since #360; this copy seats inline.
+        seat.entry("role").or_insert(json!("shipper.md"));
+        let kept = keep_review_gate && phase == "review";
+        let command = match kept {
+            true => "{brokkr} driver claude -- --model claude-fable-5-1 --effort high",
+            false => "{brokkr} fake-driver",
+        };
+        let command: Vec<&str> = command.split(' ').collect();
+        seat.insert("driver".into(), json!({ "command": command }));
+        if !kept && seat.get("class").and_then(Value::as_str) == Some("gate") {
+            seat.insert("class".into(), json!("work"));
+            seat.remove("hands");
         }
     }
     std::fs::write(
@@ -3017,7 +3016,7 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
     stopped_mid_flight_run(&db, "unrecorded", &bundle.manifest);
     assert_eq!(
         resume("unrecorded").unwrap_err().to_string(),
-        "a charter of layer 'fast' moved since the compile (unrecorded: roles/implementer.md); \
+        "a charter of layer 'fast' moved since the compile (unrecorded: shipper.md); \
          a run is started or resumed only over the charters the bundle's identity names, so \
          restore it, or recompile and start a new run (decision 0066 ruling 5)"
     );

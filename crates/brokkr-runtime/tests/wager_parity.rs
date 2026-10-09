@@ -40,14 +40,16 @@ fn compile(relative: &str) -> Bundle {
 #[test]
 fn the_challenger_implements_under_the_incumbents_charter_byte_for_byte() {
     let root = workspace();
-    let incumbent = std::fs::read(root.join("recipes/fast/roles/implementer.md"))
+    // Fast's smith is the `fast-implementer` office since #360; its charter
+    // is the library's intakeless implementer, fast's old role byte for byte.
+    let incumbent = std::fs::read(root.join("agents/charters/implementer-intakeless.md"))
         .expect("fast's implementer charter");
     let challenger = std::fs::read(root.join("recipes/wager-harness/roles/implementer.md"))
         .expect("wager-harness's implementer charter");
     assert_eq!(
         challenger, incumbent,
         "recipes/wager-harness/roles/implementer.md has diverged from \
-         recipes/fast/roles/implementer.md; the wager measures the driver \
+         agents/charters/implementer-intakeless.md; the wager measures the driver \
          swap ONLY while the charter is identical (parity checklist item 4)"
     );
 }

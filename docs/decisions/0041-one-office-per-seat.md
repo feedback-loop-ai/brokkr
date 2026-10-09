@@ -458,3 +458,62 @@ recipe should retire into a library crew. That is its own slice.
 `recipes/standby` compiles and its seats keep `fast`'s result
 vocabularies and inputs, so the inherited policy table rules on them
 unchanged.
+
+## Addendum — 2026-10-07, operator ruled (#360): one forcing mechanism, the agent overlay
+
+Ruling 2 made the library the roster, and by #360's measurement it had
+more exceptions than conforming recipes: inline model pins in ten
+recipes, a test comment holding the exception list, and two ways to
+force a crew side by side — the inline pin (ruling 7, the standby
+addendum, decision 0060) and the scoped office (decision 0058). An
+inline pin cannot fall back, so when the Fable limit was spent the
+default recipe parked instead of falling back.
+
+The operator ruled on 2026-10-07, recorded on #360:
+
+1. **One forcing mechanism: the agent overlay.** An office may extend
+   another inside `agents/` — `{"extends": "implementer", "models": [...],
+   "efforts": {...}}` — and `resolve_agent` reads the definition the
+   overlay stands for. Ruling 2 is amended accordingly: the library is
+   the roster *and* the only place a variation of an office is written.
+   A variation is an overlay of its base, never a second file restating
+   it and never an inline pin in a recipe. Inline model pins in recipes
+   are retired. Any loss of `tools` or `hands` an overlay makes is an
+   explicit override that carries its reason: the overlay names the
+   field under `replaces` with why, and an overlay that changes either
+   without a reason does not load.
+2. **`fast`'s seats are library offices.** `fast-implementer` and
+   `fast-reviewer` are overlays of `implementer` and `reviewer` that hire
+   Fable at `high` first, the crew `fast` always seated inline, with a
+   fallback behind it, so `fast` and `landing`, which inherits both
+   seats, fall back instead of parking. Otherwise the resolved crew is
+   unchanged.
+3. **Adapter aliases are a catalogue.** An alias lists what a harness can
+   reach and may stand unhired; the provider-adapters guide says so, and
+   its alias catalogue lists the unhired ones. The expired
+   `flash-experiment` id is retired, and so is any pin to an id its
+   adapter does not declare (#264).
+
+A forced crew stays forced. Under ruling 1 a recipe that must not fall
+back — the parity wagers, the standby hedge, review-first's named firing
+(decision 0060), the dsh lanes where dsh expresses no tool list — seats
+an overlay whose chain holds exactly the forced models. The overlay
+mechanism, the `gpt-flash` crew as overlays and `fast`'s offices land
+first (#360); the remaining inline sites move onto overlays in its
+follow-ups, and until each does, the roster test's inline exception
+still names it.
+
+The parity wagers' judge is the exception the operator ruled on
+2026-10-09 (#360): a wager's arms extend `fast` and judge with `fast`'s
+review seat, so the judge falls back from Fable as `fast`'s does, and an
+arm never parks for it. The referee may differ from Fable only when
+Fable's limit is spent, and both arms meet the same fallback. What a
+wager forces is its implement seat, the arm it measures.
+
+**Enforcement binding:** `crates/brokkr-runtime/src/agents/load/overlay.rs`
+merges an overlay into the definition it stands for, and its tests pin
+every refusal's text; `crates/brokkr-runtime/tests/roster.rs` drops
+`fast` from the inline exception and proves `fast`'s and `landing`'s
+chains, and that a `fast` office whose first model is unavailable
+selects its fallback; `crates/brokkr-runtime/tests/library_data.rs`
+names the two `fast` offices in the roster.

@@ -54,6 +54,31 @@ Inline seats stay first-class. Dialect validators such as `recipes/triage`'s
 `validate` step are also model-free execs, but their checked argv comes from
 the realm's pinned dialect rather than from an agent definition.
 
+An office that varies another is an overlay of it, never a copy (the
+operator's ruling of 2026-10-07 on decisions 0041 and 0058, #360):
+
+```json
+{
+  "extends": "implementer",
+  "models": ["flash"],
+  "efforts": {"flash": "high"},
+  "replaces": {"tools": "flash is served by dsh, which expresses no tool list, so this smith runs without the base's cargo and git allow-list"}
+}
+```
+
+The loader merges the overlay into the definition it stands for and
+parses that exactly as it parses a base, so `brokkr agents show` prints
+the merged office and its digest is the merged definition's. `models`
+replaces the base's chain and `efforts` its efforts, whole; `charter` and
+`inputs` replace the base's when written; everything else is inherited.
+`tools` and `hands` are the office's power: an overlay that writes either,
+or drops one the base declares, names it under `replaces` with its reason,
+and one that changes either without a reason does not load. An overlay
+extends a base office, one level, never another overlay. This is the one
+way to force a crew: an office that must not fall back is an overlay whose
+chain holds exactly the forced models. `fast`'s two offices and the
+`gpt-flash-*` crew are overlays.
+
 The `release-manager` follows a portable release process. The realm's **Release
 configuration** supplies the version sources, documentation targets, checks and
 organization profiles; the [release recipe](../../recipes/release/README.md)

@@ -1,15 +1,5 @@
 {
-  "description": "Authors the dialect artifacts assigned to the chief and reconciles council positions during design.",
-  "charter": "charters/chief-architect.md",
-  "models": [
-    "sol"
-  ],
-  "efforts": {
-    "sol": "medium"
-  },
-  "hands": {
-    "kind": "workspace",
-    "network": false,
-    "binds": []
-  }
+  "extends": "chief-architect",
+  "models": ["sol"],
+  "efforts": {"sol": "medium"}
 }

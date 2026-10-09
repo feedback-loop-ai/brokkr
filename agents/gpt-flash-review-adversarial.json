@@ -1,28 +1,5 @@
 {
-  "description": "Review panel member: tries to break the delivered change with concrete adversarial cases.",
-  "charter": "charters/review-adversarial.md",
-  "models": [
-    "sol"
-  ],
-  "efforts": {
-    "sol": "medium"
-  },
-  "hands": {
-    "kind": "workspace",
-    "network": false,
-    "binds": [
-      {
-        "path": "~/.cargo",
-        "mode": "overlay",
-        "mask": [
-          "credentials.toml",
-          "credentials"
-        ]
-      },
-      {
-        "path": "~/.rustup",
-        "mode": "ro"
-      }
-    ]
-  }
+  "extends": "review-adversarial",
+  "models": ["sol"],
+  "efforts": {"sol": "medium"}
 }

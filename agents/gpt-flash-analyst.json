@@ -1,15 +1,5 @@
 {
-  "description": "SDD judge, read-only by charter: finds drift across the artifacts and the realm constitution.",
-  "charter": "charters/analyst.md",
-  "models": [
-    "sol"
-  ],
-  "efforts": {
-    "sol": "medium"
-  },
-  "hands": {
-    "kind": "workspace",
-    "network": false,
-    "binds": []
-  }
+  "extends": "analyst",
+  "models": ["sol"],
+  "efforts": {"sol": "medium"}
 }
