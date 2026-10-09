@@ -569,10 +569,11 @@ pub(super) fn riding_attempt(
 /// Apply a command received through the Looper producer bridge. The command id
 /// is supplied by Looper, the expected cursor/hash fences concurrent operator
 /// activity, and both acceptance and rejection become Brokkr journal evidence
-/// before any control-state effect is possible. The acceptance is written
-/// against the head the cursor check covered ([`Store::append_next_if_head`]),
-/// so an engine append between that check and the write loses the fence
-/// instead of slipping under it.
+/// before any control-state effect is possible. The command is written
+/// against the head the deciding fold read and the cursor check covered,
+/// and the acceptance against the command ([`Store::append_next_if_head`]),
+/// so an engine append between that check and either write loses the
+/// fence instead of slipping under it.
 ///
 /// The bridge parsed Looper's word into a [`CommandWord`] at its edge: a
 /// word outside the set is journaled as sent and refused as
@@ -582,7 +583,7 @@ pub fn apply_fenced_operator_command(
     run_id: &str,
     command: &FencedCommand,
 ) -> Result<FencedCommandOutcome, EngineError> {
-    apply_fenced_racing(store, run_id, command, |_| {})
+    apply_fenced_windows(store, run_id, command, |_| {}, |_| {})
 }
 
 /// The refusal a bridge command meets before it is journaled, if any, in
@@ -660,14 +661,30 @@ fn replay(
     })
 }
 
-/// [`apply_fenced_operator_command`] with the window held open: `between`
-/// runs after `operator/commanded` lands and before the acceptance is
-/// written against it — the instant [`Store::append_next_if_head`]'s
-/// fence exists for. Production passes a no-op; tests pass a peer.
+/// [`apply_fenced_operator_command`] with the acceptance's window held
+/// open: `between` runs after `operator/commanded` lands and before the
+/// acceptance is written against it.
+#[cfg(test)]
 pub(super) fn apply_fenced_racing(
     store: &mut Store,
     run_id: &str,
     wire: &FencedCommand,
+    between: impl FnMut(&mut Store),
+) -> Result<FencedCommandOutcome, EngineError> {
+    apply_fenced_windows(store, run_id, wire, |_| {}, between)
+}
+
+/// [`apply_fenced_operator_command`] with both windows held open — the
+/// instants [`Store::append_next_if_head`]'s fence exists for:
+/// `before_command` runs after the deciding fold and before
+/// `operator/commanded` is written on its head, and `between` after the
+/// command lands and before the acceptance is written against it.
+/// Production passes no-ops; tests pass a peer.
+pub(super) fn apply_fenced_windows(
+    store: &mut Store,
+    run_id: &str,
+    wire: &FencedCommand,
+    mut before_command: impl FnMut(&mut Store),
     mut between: impl FnMut(&mut Store),
 ) -> Result<FencedCommandOutcome, EngineError> {
     let FencedCommand {
@@ -685,22 +702,40 @@ pub(super) fn apply_fenced_racing(
         return replay(store, run_id, &events, commanded, command_id, operator);
     }
     let state = fold(&events)?;
-    let (head_seq, head_hash) = store.head_hash(run_id)?;
-    let cursor_holds = head_seq == expected_seq && head_hash == expected_hash;
+    // The head this fold read: the one the wire's cursor is checked
+    // against, and the one the command must still find (decision 0029).
+    let head = Head::tip(&events);
+    let cursor_holds = head.seq == expected_seq && head.hash == expected_hash;
     let rejection = fenced_refusal(&state, command, cursor_holds);
-    let cause = events.last().map(|event| event.event_id.clone());
-    let commanded = store.append_next(
+    before_command(store);
+    let payload = json!({
+        "command_id": command_id,
+        "command": command.as_str(),
+        "args": {},
+        "operator": operator,
+    });
+    let event_type = EventType::OperatorCommanded;
+    let commanded = match fenced_append(
+        store,
         run_id,
-        EventType::OperatorCommanded,
-        json!({
-            "command_id": command_id,
-            "command": command.as_str(),
-            "args": {},
-            "operator": operator,
-        }),
-        cause,
+        &head,
+        &head.event_id,
+        event_type,
+        payload,
         None,
-    )?;
+    ) {
+        Err(StoreError::HeadMoved { .. }) => None,
+        written => Some(written?),
+    };
+    // A peer appended after the fold, so what was decided on it stands on
+    // a head that is gone: nothing of the command is written, no winner is
+    // picked, and the caller re-reads and re-issues.
+    let Some(commanded) = commanded else {
+        let stale = Refusal::StaleCursor;
+        let refused = refuse(store, run_id, command_id, operator, stale, &head.event_id)?;
+        read_back(store, run_id)?;
+        return Ok(refused);
+    };
     between(store);
     let cause = &commanded.event_id;
     let disposition = if let Some(rejection) = rejection {

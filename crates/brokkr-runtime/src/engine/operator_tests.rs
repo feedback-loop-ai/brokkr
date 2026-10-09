@@ -44,3 +44,40 @@ fn a_retry_with_no_phase_to_return_to_is_refused_at_both_doors() {
         (Status::AwaitingOperator, None)
     );
 }
+
+/// The bridge's command is decided on a fold, so it lands only on the head
+/// that fold read (decision 0029). A peer at another terminal retries the
+/// parked run after the bridge folded and before it journals the command:
+/// the bridge's retry, accepted on that fold, would land on a running run
+/// where `fold` refuses it. It writes no command, refuses as a stale
+/// cursor, and the peer's retry stands.
+#[test]
+fn a_bridge_command_beaten_to_the_head_by_a_peer_is_refused_stale() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = super::tests::parked_store(&dir.path().join("beaten.db"), "beaten");
+    let (seq, hash) = store.head_hash("beaten").unwrap();
+    let wire = super::tests::looper("looper-command", "retry", seq, &hash);
+
+    let peer = |store: &mut Store| {
+        let retried = operator_command(store, "beaten", Retry, "peer", "again").unwrap();
+        assert!(matches!(retried, FencedCommandOutcome::Accepted { .. }));
+    };
+    let refused = super::operator::apply_fenced_windows(&mut store, "beaten", &wire, peer, |_| {});
+
+    let events = store.load("beaten").unwrap();
+    let rejected = events.last().unwrap();
+    assert_eq!(
+        refused.unwrap(),
+        FencedCommandOutcome::Rejected {
+            reason: Refusal::StaleCursor.word().into(),
+            head_seq: 9,
+            head_hash: rejected.event_hash.clone(),
+        }
+    );
+    let tail: Vec<_> = events[6..].iter().map(|event| event.event_type).collect();
+    let (commanded, accepted) = (EventType::OperatorCommanded, EventType::OperatorAccepted);
+    assert_eq!(tail, [commanded, accepted, EventType::OperatorRejected]);
+    assert_eq!(rejected.payload["command_id"], "looper-command");
+    assert_eq!(events[6].payload["operator"], "peer");
+    assert_eq!(fold(&events).unwrap().status, Status::Running);
+}
