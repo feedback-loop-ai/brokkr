@@ -1,10 +1,35 @@
 # Target architecture
 
+> **Historical.** This is the blueprint Brokkr grew from, kept as it was
+> last edited and no longer maintained (#364). The system as built is
+> [ARCHITECTURE.md](../../ARCHITECTURE.md); where this page disagrees with
+> it or with a [decision](../decisions/), this page is wrong. About 40% of
+> it landed. These parts were superseded:
+>
+> | Blueprint part | Superseded by |
+> |---|---|
+> | The Python oracle (Delivery sequence) | decision [0009](../decisions/0009-rust-only.md): Rust only |
+> | UI mutations and configuration editing (Local API and embedded UI) | decision [0014](../decisions/0014-interactive-tui.md): every readout is read-only; operator actions stay CLI verbs |
+> | `brokkr-api` (Rust workspace) | never built: `brokkr ui` serves the read-only console from `brokkr-cli` |
+> | TOML sources, profiles and topologies (Declarative bundles, Run manifest) | decisions [0016](../decisions/0016-agent-library.md) and [0017](../decisions/0017-composable-recipes.md): JSON agents, adapters and composed recipes |
+> | One dedicated writer thread | decision [0029](../decisions/0029-fenced-append.md): any writer, fenced on the head it folded |
+> | Trust-tier runners (Drivers and isolation) | decision [0046](../decisions/0046-the-boundary-is-named.md): the realm's named boundary |
+> | The fixed phase list (State and control status) | per-recipe policy tables under `recipes/` |
+> | Cordis and Surface drivers | the built-in `dsh` adapter; neither was built |
+> | The Windows service manager | decision [0063](../decisions/0063-windows-is-not-a-host.md): Linux and macOS only |
+>
+> Still wanted and not built: signed checkpoints (decision
+> [0008](../decisions/0008-second-wave-scope.md) defers signing), a
+> content-addressed artifact store, cost, stagnation and elapsed-time
+> budgets (decision [0067](../decisions/0067-the-plan-is-the-schedule.md)),
+> container and remote runners (0046's `container`, slice (iii)), and a
+> compile-time liveness proof.
+
 **Status**: implementation blueprint, accepted 2026-08-22 under
-[decision 0003](decisions/0003-native-rust-runtime.md).
+[decision 0003](../decisions/0003-native-rust-runtime.md).
 
 > **Name note** (2026-09-02): the product name in this living blueprint
-> follows [decision 0019](decisions/0019-brokkr.md). Wire
+> follows [decision 0019](../decisions/0019-brokkr.md). Wire
 > identifiers (`forge-driver/v1`, `forge.phase-machine/*`,
 > `forge-dispatch/v2`, `forge.*` schema ids, `.forge/`, `refs/forge/`)
 > never rename, by the same ruling.
