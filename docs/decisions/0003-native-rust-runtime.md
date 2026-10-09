@@ -97,4 +97,4 @@ installed product and its trusted computing base small and predictable.
 
 The detailed component boundaries, event contract, bundle shape, driver
 protocol, UI, and delivery sequence are specified in
-[the target architecture](../target-architecture.md).
+[the target architecture](../history/target-architecture.md).

@@ -1,5 +1,23 @@
 # Extension model — nodes, seats, and what may never be unplugged
 
+> **Historical.** This is the extension blueprint the recipe model grew
+> from, kept as it was last edited and no longer maintained (#364). What
+> stays true, the protected phase, stable seat ids and composition, is in
+> [recipe authoring](../guides/recipe-authoring.md#adding-a-phase-or-a-seat);
+> where this page disagrees with it or with a
+> [decision](../decisions/), this page is wrong. These parts were
+> superseded:
+>
+> | Blueprint part | Superseded by |
+> |---|---|
+> | A phase as a node of `policy/phase-machine.json` with a registered executor | per-recipe policy tables (decisions [0010](../decisions/0010-composable-recipes.md) and [0017](../decisions/0017-composable-recipes.md)); `policy/phase-machine.json` is the frozen v1 table |
+> | Seat classes `background`, `workhorse` and `frontier` | the site classes `work` and `gate` (decision [0021](../decisions/0021-model-policy.md)) |
+> | Seat `trust` tiers | adapter trust tiers (decision 0021) and the realm's boundary (decision [0046](../decisions/0046-the-boundary-is-named.md)) |
+> | `result_schema` | the seat's closed `results` vocabulary |
+> | `surface` and `cordis` drivers | the built-in adapters: claude, codex, dsh, lanetally and exec (decision [0009](../decisions/0009-rust-only.md)) |
+> | Sub-machines and inner topologies | seat bodies: single, panel, sequence and select |
+> | Profiles | recipes, the agent library (decision [0016](../decisions/0016-agent-library.md)) and the realm's house file |
+
 **Status**: partially accepted. Decisions 0002 and 0003 lock the outer-machine,
 runtime, and extension boundaries; the remaining deferred choices are listed
 below.
@@ -77,7 +95,7 @@ content with stable ids and content digests, not imported executable plugins.
 ## Resolved
 
 1. **Phases are a list, not a DAG** — ruled 2026-08-21, see
-   [decision 0002](decisions/0002-linear-outer-machine.md). The outer
+   [decision 0002](../decisions/0002-linear-outer-machine.md). The outer
    machine stays a linear FSM (constitutional). Concurrency exists in
    exactly two sanctioned forms: seat/sub-machine parallelism inside
    executors, and auxiliary tracks that join at barriers (default: ship,
@@ -87,7 +105,7 @@ content with stable ids and content digests, not imported executable plugins.
 
 2. **The production extension boundary is declarative data plus isolated
    drivers** — ruled 2026-08-22, see
-   [decision 0003](decisions/0003-native-rust-runtime.md). Brokkr ships as one
+   [decision 0003](../decisions/0003-native-rust-runtime.md). Brokkr ships as one
    native Rust executable. Third-party harness code speaks a versioned
    protocol out of process; containers are optional seat isolation.
 
