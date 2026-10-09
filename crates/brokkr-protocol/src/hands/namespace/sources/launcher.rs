@@ -287,6 +287,12 @@ pub(in crate::hands) fn elf(fd: BorrowedFd<'_>, dir: &Path, host: &Host<'_>) -> 
         let path = expanded(name, dir, Input::Needed)?;
         protected(Input::Needed, &path, false, host)?;
     }
+    loader(host)
+}
+
+/// Each of `host.loader`, the loader's preload file and its cache, that
+/// exists [`protected`] (item 8); unresolved where its place does not read.
+fn loader(host: &Host<'_>) -> Result<(), Unfit> {
     for (input, path) in [Input::Preload, Input::Cache].into_iter().zip(host.loader) {
         match resolve(path, host) {
             Ok(None) => {}
@@ -405,9 +411,8 @@ impl Segment {
 
 /// What the ELF headers of the file `fd` reads name for the loader, read
 /// by the operator's closed list of 2026-10-09 and refused by anything
-/// else: the identity ([`header`], item 1, its [`HEADERS`] bound
-/// included); the program-header table wholly within the file ([`within`],
-/// 2); exactly
+/// else: the identity ([`header`], item 1); the program-header table
+/// ([`segments`], items 1 and 2); exactly
 /// one `PT_PHDR`, before every `PT_LOAD`, that is the table and is mapped
 /// by one load's own translation (3); the loads whole and [`ordered`] (4);
 /// exactly one interpreter before every load ([`interpreter`], 5) and one
@@ -416,18 +421,8 @@ impl Segment {
 /// (4) is refused here before the table's own mapping, which needs one.
 pub(in crate::hands) fn headers(fd: BorrowedFd<'_>) -> Result<Loaded, Unfit> {
     let header = header(fd)?;
+    let (segments, at, span, length) = self::segments(fd, &header)?;
     let held = |held: bool| held.then_some(()).ok_or(Unfit::Malformed);
-    held(half(&header, 54) == 56)?;
-    let count = half(&header, 56);
-    (count <= HEADERS).then_some(()).ok_or(Unfit::Over)?;
-    held(count > 0)?;
-    let stat = rustix::fs::fstat(fd).map_err(|_| Unfit::Unread)?;
-    let length = u64::try_from(stat.st_size).map_err(|_| Unfit::Unread)?;
-    let (at, span) = (long(&header, 32), u64::from(count) * 56);
-    within(at, span, length)?;
-    let table = read(fd, at, usize::from(count) * 56)?;
-    let segments = table.as_chunks::<56>().0.iter().map(|at| Segment::of(at));
-    let segments: Vec<Segment> = segments.collect();
     let loads = loaded(&segments, length)?;
     let first = segments.iter().position(|segment| segment.kind == PT_LOAD);
     let first = first.ok_or(Unfit::Malformed)?;
@@ -444,6 +439,25 @@ pub(in crate::hands) fn headers(fd: BorrowedFd<'_>) -> Result<Loaded, Unfit> {
         interpreter,
         ..named
     })
+}
+
+/// The program-header table `header` names in the file `fd` reads: whole
+/// Elf64 entries, at least one and no more than [`HEADERS`] (item 1), lying
+/// wholly within the file ([`within`], item 2); with the table's offset,
+/// its span and the file's length.
+fn segments(fd: BorrowedFd<'_>, header: &[u8]) -> Result<(Vec<Segment>, u64, u64, u64), Unfit> {
+    let held = |held: bool| held.then_some(()).ok_or(Unfit::Malformed);
+    held(half(header, 54) == 56)?;
+    let count = half(header, 56);
+    (count <= HEADERS).then_some(()).ok_or(Unfit::Over)?;
+    held(count > 0)?;
+    let stat = rustix::fs::fstat(fd).map_err(|_| Unfit::Unread)?;
+    let length = u64::try_from(stat.st_size).map_err(|_| Unfit::Unread)?;
+    let (at, span) = (long(header, 32), u64::from(count) * 56);
+    within(at, span, length)?;
+    let table = read(fd, at, usize::from(count) * 56)?;
+    let segments = table.as_chunks::<56>().0.iter().map(|at| Segment::of(at));
+    Ok((segments.collect(), at, span, length))
 }
 
 /// The one segment of `kind` `segments` hold, with its place among them;
