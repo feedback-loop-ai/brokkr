@@ -11,12 +11,89 @@ use super::{
     TABLE_SCHEMA_V2, VISIT_PREFIX,
 };
 
+/// A key a table holds at its top level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableKey {
+    Phases,
+    Initial,
+    Terminal,
+    ShippableFrom,
+    Rules,
+}
+
+impl TableKey {
+    /// The four keys every table must hold.
+    pub(crate) const REQUIRED: [TableKey; 4] = [
+        TableKey::Phases,
+        TableKey::Initial,
+        TableKey::Terminal,
+        TableKey::Rules,
+    ];
+
+    /// The key as a table spells it.
+    pub(crate) fn field(self) -> &'static str {
+        match self {
+            TableKey::Phases => "phases",
+            TableKey::Initial => "initial",
+            TableKey::Terminal => "terminal",
+            TableKey::ShippableFrom => "shippable_from",
+            TableKey::Rules => "rules",
+        }
+    }
+}
+
+/// A key a rule may hold: the closed rule vocabulary of a `v2` table, as
+/// `contracts/phase-machine.v2.schema.json` declares it. A misspelt rule
+/// key would otherwise drop an artifact gate or a condition in silence.
+/// `v1` stays open: the frozen production table carries annotation keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleKey {
+    Id,
+    From,
+    Result,
+    Next,
+    Park,
+    Severity,
+    RequiresArtifacts,
+    Reason,
+    When,
+}
+
+impl RuleKey {
+    pub(crate) const ALL: [RuleKey; 9] = [
+        RuleKey::Id,
+        RuleKey::From,
+        RuleKey::Result,
+        RuleKey::Next,
+        RuleKey::Park,
+        RuleKey::Severity,
+        RuleKey::RequiresArtifacts,
+        RuleKey::Reason,
+        RuleKey::When,
+    ];
+
+    /// The key as a rule spells it.
+    pub(crate) fn field(self) -> &'static str {
+        match self {
+            RuleKey::Id => "id",
+            RuleKey::From => "from",
+            RuleKey::Result => "result",
+            RuleKey::Next => "next",
+            RuleKey::Park => "park",
+            RuleKey::Severity => "severity",
+            RuleKey::RequiresArtifacts => "requires_artifacts",
+            RuleKey::Reason => "reason",
+            RuleKey::When => "when",
+        }
+    }
+}
+
 /// Where in a table a list was expected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Place {
     /// A list the table itself holds: `phases`, `terminal`,
     /// `shippable_from` or `rules`.
-    Table(&'static str),
+    Table(TableKey),
     /// A rule's artifact gate.
     Artifacts { rule: String },
     /// The values of a rule's enumeration condition.
@@ -26,7 +103,7 @@ pub enum Place {
 impl fmt::Display for Place {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&match self {
-            Place::Table(key) => (*key).to_string(),
+            Place::Table(key) => key.field().to_string(),
             Place::Artifacts { rule } => format!("rule {rule} requires_artifacts"),
             Place::Condition { rule, key } => format!("rule {rule} condition '{key}'"),
         })
@@ -49,8 +126,8 @@ fn declared(schema: &Option<String>) -> &str {
 pub enum Malformed {
     #[error("table must be an object")]
     NotAnObject,
-    #[error("table missing '{0}'")]
-    MissingKey(&'static str),
+    #[error("table missing '{}'", .0.field())]
+    MissingKey(TableKey),
     #[error("{0} must be an array")]
     NotAnArray(Place),
     #[error("{0} entries must be strings")]
@@ -76,11 +153,8 @@ pub enum Malformed {
     },
     /// A rule without a required field; `rule` is `None` when the
     /// missing field is the id itself, or the id is not a string.
-    #[error("rule {} missing '{key}'", unnamed(.rule))]
-    MissingField {
-        rule: Option<String>,
-        key: &'static str,
-    },
+    #[error("rule {} missing '{}'", unnamed(.rule), .key.field())]
+    MissingField { rule: Option<String>, key: RuleKey },
     #[error("rule {rule} declares '{key}', which is not {TABLE_SCHEMA_V2} rule vocabulary")]
     UnknownRuleKey { rule: String, key: String },
     #[error(
@@ -99,10 +173,11 @@ pub enum Malformed {
         schema: Option<String>,
     },
     #[error(
-        "rule {rule} parks and declares '{key}'; a park takes no transition, so it has \
-         neither a ruling severity nor an artifact gate"
+        "rule {rule} parks and declares '{}'; a park takes no transition, so it has \
+         neither a ruling severity nor an artifact gate",
+        .key.field()
     )]
-    ParkDeclares { rule: String, key: &'static str },
+    ParkDeclares { rule: String, key: RuleKey },
     #[error("rule {0} references unknown phase")]
     UnknownPhase(String),
     #[error("rule {rule} leaves terminal phase '{phase}'")]

@@ -95,11 +95,17 @@ fn loader_refuses_unreachable_phase_and_required_field_defects() {
 
     let mut value = table(rule());
     value["rules"] = json!({});
-    assert_eq!(fault(&value), Malformed::NotAnArray(Place::Table("rules")));
+    assert_eq!(
+        fault(&value),
+        Malformed::NotAnArray(Place::Table(TableKey::Rules))
+    );
 
     let mut value = table(rule());
     value["phases"] = json!(["work", 2]);
-    assert_eq!(fault(&value), Malformed::NotStrings(Place::Table("phases")));
+    assert_eq!(
+        fault(&value),
+        Malformed::NotStrings(Place::Table(TableKey::Phases))
+    );
 
     let mut value = table(rule());
     value["rules"] = json!([2]);
@@ -122,7 +128,7 @@ fn loader_refuses_unreachable_phase_and_required_field_defects() {
         fault(&value),
         Malformed::MissingField {
             rule: Some("WORK-DONE".into()),
-            key: "reason",
+            key: RuleKey::Reason,
         }
     );
 
@@ -411,14 +417,17 @@ fn a_rule_may_rule_a_park_and_only_a_v2_table_may_hold_one() {
 
     // A park takes no transition, so it has neither a ruling severity
     // nor an artifact gate on one.
-    for forbidden in ["severity", "requires_artifacts"] {
+    for (written, key) in [
+        ("severity", RuleKey::Severity),
+        ("requires_artifacts", RuleKey::RequiresArtifacts),
+    ] {
         let mut rule = park();
-        rule[forbidden] = json!("hard");
+        rule[written] = json!("hard");
         assert_eq!(
             fault(&v2(rule)),
             Malformed::ParkDeclares {
                 rule: "WORK-PARK".into(),
-                key: forbidden,
+                key,
             }
         );
     }
@@ -1015,17 +1024,17 @@ fn table_faults() -> Vec<Faulty> {
         ),
         (
             with_top("rules", None),
-            Malformed::MissingKey("rules"),
+            Malformed::MissingKey(TableKey::Rules),
             "table missing 'rules'",
         ),
         (
             with_top("phases", Some(json!(2))),
-            Malformed::NotAnArray(Place::Table("phases")),
+            Malformed::NotAnArray(Place::Table(TableKey::Phases)),
             "phases must be an array",
         ),
         (
             with_top("terminal", Some(json!(["done", 2]))),
-            Malformed::NotStrings(Place::Table("terminal")),
+            Malformed::NotStrings(Place::Table(TableKey::Terminal)),
             "terminal entries must be strings",
         ),
         (
@@ -1045,7 +1054,7 @@ fn table_faults() -> Vec<Faulty> {
         ),
         (
             with_top("shippable_from", Some(json!({}))),
-            Malformed::NotAnArray(Place::Table("shippable_from")),
+            Malformed::NotAnArray(Place::Table(TableKey::ShippableFrom)),
             "shippable_from must be an array",
         ),
         (
@@ -1078,7 +1087,7 @@ fn rule_faults() -> Vec<Faulty> {
             with_rule("reason", None),
             Malformed::MissingField {
                 rule: Some(work_done()),
-                key: "reason",
+                key: RuleKey::Reason,
             },
             "rule WORK-DONE missing 'reason'",
         ),
@@ -1086,7 +1095,7 @@ fn rule_faults() -> Vec<Faulty> {
             with_rule("id", None),
             Malformed::MissingField {
                 rule: None,
-                key: "id",
+                key: RuleKey::Id,
             },
             "rule ? missing 'id'",
         ),
@@ -1135,7 +1144,7 @@ fn rule_faults() -> Vec<Faulty> {
             labelled(parked("requires_artifacts", json!([])), TABLE_SCHEMA_V2),
             Malformed::ParkDeclares {
                 rule: work_done(),
-                key: "requires_artifacts",
+                key: RuleKey::RequiresArtifacts,
             },
             "rule WORK-DONE parks and declares 'requires_artifacts'; a park takes no \
              transition, so it has neither a ruling severity nor an artifact gate",
@@ -1313,8 +1322,18 @@ fn every_malformed_table_reads_as_it_always_has() {
             error.to_string(),
             format!("malformed phase machine table: {text}")
         );
+        assert_eq!(chain(&error), error.to_string());
         assert_eq!(error.malformed(), expected);
     }
+}
+
+/// An error and its sources as the CLI's `{:#}` failure line joins them:
+/// the stderr bytes a refusal prints.
+fn chain(error: &(dyn std::error::Error + 'static)) -> String {
+    std::iter::successors(Some(error), |link| link.source())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(": ")
 }
 
 /// Every refusal to rule: the input that earns it, the variant it earns,

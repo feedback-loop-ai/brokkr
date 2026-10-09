@@ -69,22 +69,6 @@ pub const STRATEGIES: [&str; 5] = ["chore", "feature", "design", "engine", "esca
 pub const TABLE_SCHEMA_V1: &str = "forge.phase-machine/v1";
 pub const TABLE_SCHEMA_V2: &str = "forge.phase-machine/v2";
 
-/// The closed rule vocabulary of a `v2` table, as
-/// `contracts/phase-machine.v2.schema.json` declares it. A misspelt rule
-/// key would otherwise drop an artifact gate or a condition in silence.
-/// `v1` stays open: the frozen production table carries annotation keys.
-const RULE_KEYS_V2: [&str; 9] = [
-    "id",
-    "from",
-    "result",
-    "next",
-    "park",
-    "severity",
-    "requires_artifacts",
-    "reason",
-    "when",
-];
-
 /// Condition prefix of the phase-visit predicate (decision 0022):
 /// `visits_<phase>_gte` reads how many times the run has entered
 /// `<phase>`. Engine-owned like every other counter — the journal counts
@@ -163,11 +147,19 @@ pub fn is_identifier(value: &str) -> bool {
 pub enum PolicyError {
     /// The table's structure or closed vocabulary does not parse.
     #[error("malformed phase machine table: {0}")]
-    Malformed(#[from] Malformed),
+    Malformed(Malformed),
     /// The table parses, and holds a finding decision 0050 refuses at load
     /// (`Machine::refuse_findings`).
     #[error("malformed phase machine table: {0}")]
     Refused(audit::Refusal),
+}
+
+/// By hand, not `#[from]`: `#[from]` makes the fault the error's source,
+/// and a `{:#}` chain would print its text a second time on stderr.
+impl From<Malformed> for PolicyError {
+    fn from(fault: Malformed) -> Self {
+        PolicyError::Malformed(fault)
+    }
 }
 
 fn severity_rank(name: &str) -> Option<usize> {
@@ -245,12 +237,12 @@ impl Machine {
     fn parse(table: &Value) -> Result<Machine, PolicyError> {
         let obj = table.as_object().ok_or(Malformed::NotAnObject)?;
         let (phases, initial, terminal) = parse_header(obj)?;
-        let shippable_from = match obj.get("shippable_from") {
-            Some(v) => string_array(v, Place::Table("shippable_from"))?,
+        let shippable_from = match obj.get(TableKey::ShippableFrom.field()) {
+            Some(v) => string_array(v, Place::Table(TableKey::ShippableFrom))?,
             None => Vec::new(),
         };
         let schema = obj.get("schema").and_then(Value::as_str);
-        let rules = parse_rules(&obj["rules"], &phases, &terminal, schema)?;
+        let rules = parse_rules(&obj[TableKey::Rules.field()], &phases, &terminal, schema)?;
         Ok(Machine {
             phases,
             initial,
@@ -343,20 +335,26 @@ fn string_array(value: &Value, place: Place) -> Result<Vec<String>, Malformed> {
 /// A table's header: the four keys it must hold, its phases, the initial
 /// phase among them and its terminal phases among them.
 fn parse_header(obj: &Map<String, Value>) -> Result<(Vec<String>, String, Vec<String>), Malformed> {
-    for key in ["phases", "initial", "terminal", "rules"] {
-        if !obj.contains_key(key) {
+    for key in TableKey::REQUIRED {
+        if !obj.contains_key(key.field()) {
             return Err(Malformed::MissingKey(key));
         }
     }
-    let phases = string_array(&obj["phases"], Place::Table("phases"))?;
-    let initial = obj["initial"]
+    let phases = string_array(
+        &obj[TableKey::Phases.field()],
+        Place::Table(TableKey::Phases),
+    )?;
+    let initial = obj[TableKey::Initial.field()]
         .as_str()
         .ok_or(Malformed::InitialNotAString)?
         .to_string();
     if !phases.contains(&initial) {
         return Err(Malformed::InitialUnknown);
     }
-    let terminal = string_array(&obj["terminal"], Place::Table("terminal"))?;
+    let terminal = string_array(
+        &obj[TableKey::Terminal.field()],
+        Place::Table(TableKey::Terminal),
+    )?;
     for t in &terminal {
         if !phases.contains(t) {
             return Err(Malformed::TerminalUnknown(t.clone()));
@@ -375,7 +373,7 @@ fn parse_rules(
 ) -> Result<Vec<Rule>, Malformed> {
     let raw_rules = raw_rules
         .as_array()
-        .ok_or(Malformed::NotAnArray(Place::Table("rules")))?;
+        .ok_or(Malformed::NotAnArray(Place::Table(TableKey::Rules)))?;
     let mut rules = Vec::with_capacity(raw_rules.len());
     let mut seen_ids: Vec<String> = Vec::new();
     let mut ruled_unconditionally: Vec<(String, String)> = Vec::new();
@@ -409,21 +407,23 @@ fn parse_rule(
     schema: Option<&str>,
 ) -> Result<Rule, Malformed> {
     let obj = raw.as_object().ok_or(Malformed::RuleNotAnObject)?;
-    let field = |key: &'static str| -> Result<String, Malformed> {
-        obj.get(key)
+    let get = |key: RuleKey| obj.get(key.field());
+    let field = |key: RuleKey| -> Result<String, Malformed> {
+        get(key)
             .and_then(Value::as_str)
             .map(str::to_string)
             .ok_or_else(|| Malformed::MissingField {
-                rule: obj.get("id").and_then(Value::as_str).map(str::to_string),
+                rule: get(RuleKey::Id).and_then(Value::as_str).map(str::to_string),
                 key,
             })
     };
-    let id = field("id")?;
-    let from = field("from")?;
-    let result = field("result")?;
-    let reason = field("reason")?;
+    let id = field(RuleKey::Id)?;
+    let from = field(RuleKey::From)?;
+    let result = field(RuleKey::Result)?;
+    let reason = field(RuleKey::Reason)?;
     if schema == Some(TABLE_SCHEMA_V2) {
-        if let Some(key) = obj.keys().find(|key| !RULE_KEYS_V2.contains(&key.as_str())) {
+        let known = |key: &String| RuleKey::ALL.iter().any(|k| k.field() == key);
+        if let Some(key) = obj.keys().find(|key| !known(key)) {
             return Err(Malformed::UnknownRuleKey {
                 rule: id,
                 key: key.clone(),
@@ -434,7 +434,7 @@ fn parse_rule(
     // neither. `park` is v2 vocabulary and the table must declare it:
     // a park read out of a table calling itself v1 would be a ruling
     // nobody reviewed (decision 0022).
-    let parks = match obj.get("park") {
+    let parks = match get(RuleKey::Park) {
         None => false,
         Some(Value::Bool(true)) => true,
         Some(other) => {
@@ -444,8 +444,8 @@ fn parse_rule(
             })
         }
     };
-    let next = match (parks, obj.get("next")) {
-        (false, _) => Some(field("next")?),
+    let next = match (parks, get(RuleKey::Next)) {
+        (false, _) => Some(field(RuleKey::Next)?),
         (true, None) => None,
         (true, Some(_)) => return Err(Malformed::ParkAndNext(id)),
     };
@@ -456,8 +456,8 @@ fn parse_rule(
                 schema: schema.map(str::to_string),
             });
         }
-        for forbidden in ["severity", "requires_artifacts"] {
-            if obj.contains_key(forbidden) {
+        for forbidden in [RuleKey::Severity, RuleKey::RequiresArtifacts] {
+            if get(forbidden).is_some() {
                 return Err(Malformed::ParkDeclares {
                     rule: id,
                     key: forbidden,
@@ -474,7 +474,7 @@ fn parse_rule(
             phase: from,
         });
     }
-    let severity = match obj.get("severity") {
+    let severity = match get(RuleKey::Severity) {
         None => "normal".to_string(),
         Some(v) => {
             let s = v
@@ -489,11 +489,11 @@ fn parse_rule(
             s.to_string()
         }
     };
-    let requires_artifacts = match obj.get("requires_artifacts") {
+    let requires_artifacts = match get(RuleKey::RequiresArtifacts) {
         None => Vec::new(),
         Some(v) => string_array(v, Place::Artifacts { rule: id.clone() })?,
     };
-    let when = match obj.get("when") {
+    let when = match get(RuleKey::When) {
         None => Vec::new(),
         Some(v) => {
             let map = v
@@ -769,7 +769,7 @@ fn vocabulary(name: &str) -> &'static [&'static str] {
 pub mod audit;
 mod errors;
 
-pub use errors::{Malformed, Place, Unreadable};
+pub use errors::{Malformed, Place, RuleKey, TableKey, Unreadable};
 
 #[cfg(test)]
 mod tests;

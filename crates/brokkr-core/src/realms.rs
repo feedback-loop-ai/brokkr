@@ -724,8 +724,9 @@ impl RealmMap {
                 }
             }
         }
-        provisional::judge(&map, &content).map_err(invalid)?;
-        Ok((map, content))
+        provisional::judge(&map, &content)
+            .map(|()| (map, content))
+            .map_err(invalid)
     }
 
     /// The journal one realm's runs live in: its own when it names one,

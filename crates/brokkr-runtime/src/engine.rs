@@ -2663,11 +2663,7 @@ impl Engine {
                 // in the workdir, probed exactly once, here, at decide
                 // time. A miss fails closed through the park path — no
                 // seat is asked, no seat attests (decision 0001).
-                let failures = if requires_artifacts.is_empty() {
-                    Vec::new()
-                } else {
-                    artifact_failures(&self.workdir(), &requires_artifacts)
-                };
+                let failures = artifact_failures(&self.workdir(), &requires_artifacts);
                 if failures.is_empty() {
                     json!({
                         "from": phase,

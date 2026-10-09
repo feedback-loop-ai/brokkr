@@ -313,9 +313,9 @@ pub brokkr_core::policy::Malformed::LeavesTerminal
 pub brokkr_core::policy::Malformed::LeavesTerminal::phase: alloc::string::String
 pub brokkr_core::policy::Malformed::LeavesTerminal::rule: alloc::string::String
 pub brokkr_core::policy::Malformed::MissingField
-pub brokkr_core::policy::Malformed::MissingField::key: &'static str
+pub brokkr_core::policy::Malformed::MissingField::key: brokkr_core::policy::RuleKey
 pub brokkr_core::policy::Malformed::MissingField::rule: core::option::Option<alloc::string::String>
-pub brokkr_core::policy::Malformed::MissingKey(&'static str)
+pub brokkr_core::policy::Malformed::MissingKey(brokkr_core::policy::TableKey)
 pub brokkr_core::policy::Malformed::NoValues
 pub brokkr_core::policy::Malformed::NoValues::key: alloc::string::String
 pub brokkr_core::policy::Malformed::NoValues::rule: alloc::string::String
@@ -337,7 +337,7 @@ pub brokkr_core::policy::Malformed::OutsideVocabulary::value: alloc::string::Str
 pub brokkr_core::policy::Malformed::OutsideVocabulary::vocabulary: &'static [&'static str]
 pub brokkr_core::policy::Malformed::ParkAndNext(alloc::string::String)
 pub brokkr_core::policy::Malformed::ParkDeclares
-pub brokkr_core::policy::Malformed::ParkDeclares::key: &'static str
+pub brokkr_core::policy::Malformed::ParkDeclares::key: brokkr_core::policy::RuleKey
 pub brokkr_core::policy::Malformed::ParkDeclares::rule: alloc::string::String
 pub brokkr_core::policy::Malformed::ParkNotTrue
 pub brokkr_core::policy::Malformed::ParkNotTrue::rule: alloc::string::String
@@ -376,6 +376,8 @@ pub brokkr_core::policy::Malformed::Unreachable::from: alloc::string::String
 pub brokkr_core::policy::Malformed::Unreachable::result: alloc::string::String
 pub brokkr_core::policy::Malformed::Unreachable::rule: alloc::string::String
 pub brokkr_core::policy::Malformed::WhenNotAnObject(alloc::string::String)
+impl core::convert::From<brokkr_core::policy::Malformed> for brokkr_core::policy::PolicyError
+pub fn brokkr_core::policy::PolicyError::from(brokkr_core::policy::Malformed) -> Self
 pub enum brokkr_core::policy::Outcome
 pub brokkr_core::policy::Outcome::Park
 pub brokkr_core::policy::Outcome::Park::reason: alloc::string::String
@@ -395,12 +397,24 @@ pub brokkr_core::policy::Place::Artifacts::rule: alloc::string::String
 pub brokkr_core::policy::Place::Condition
 pub brokkr_core::policy::Place::Condition::key: alloc::string::String
 pub brokkr_core::policy::Place::Condition::rule: alloc::string::String
-pub brokkr_core::policy::Place::Table(&'static str)
+pub brokkr_core::policy::Place::Table(brokkr_core::policy::TableKey)
 impl core::fmt::Display for brokkr_core::policy::Place
 pub fn brokkr_core::policy::Place::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::policy::PolicyError
 pub brokkr_core::policy::PolicyError::Malformed(brokkr_core::policy::Malformed)
 pub brokkr_core::policy::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
+impl core::convert::From<brokkr_core::policy::Malformed> for brokkr_core::policy::PolicyError
+pub fn brokkr_core::policy::PolicyError::from(brokkr_core::policy::Malformed) -> Self
+pub enum brokkr_core::policy::RuleKey
+pub brokkr_core::policy::RuleKey::From
+pub brokkr_core::policy::RuleKey::Id
+pub brokkr_core::policy::RuleKey::Next
+pub brokkr_core::policy::RuleKey::Park
+pub brokkr_core::policy::RuleKey::Reason
+pub brokkr_core::policy::RuleKey::RequiresArtifacts
+pub brokkr_core::policy::RuleKey::Result
+pub brokkr_core::policy::RuleKey::Severity
+pub brokkr_core::policy::RuleKey::When
 pub enum brokkr_core::policy::Severity
 pub brokkr_core::policy::Severity::Critical
 pub brokkr_core::policy::Severity::High
@@ -411,6 +425,12 @@ pub brokkr_core::policy::Severity::None
 impl brokkr_core::policy::Severity
 pub fn brokkr_core::policy::Severity::name(self) -> &'static str
 pub fn brokkr_core::policy::Severity::named(&str) -> core::option::Option<brokkr_core::policy::Severity>
+pub enum brokkr_core::policy::TableKey
+pub brokkr_core::policy::TableKey::Initial
+pub brokkr_core::policy::TableKey::Phases
+pub brokkr_core::policy::TableKey::Rules
+pub brokkr_core::policy::TableKey::ShippableFrom
+pub brokkr_core::policy::TableKey::Terminal
 pub enum brokkr_core::policy::Unreadable
 pub brokkr_core::policy::Unreadable::NotABoolean
 pub brokkr_core::policy::Unreadable::NotABoolean::name: alloc::string::String
@@ -749,6 +769,8 @@ pub brokkr_core::Outcome::Unmatched
 pub enum brokkr_core::PolicyError
 pub brokkr_core::PolicyError::Malformed(brokkr_core::policy::Malformed)
 pub brokkr_core::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
+impl core::convert::From<brokkr_core::policy::Malformed> for brokkr_core::policy::PolicyError
+pub fn brokkr_core::policy::PolicyError::from(brokkr_core::policy::Malformed) -> Self
 pub enum brokkr_core::Status
 pub brokkr_core::Status::AwaitingOperator
 pub brokkr_core::Status::Completed
