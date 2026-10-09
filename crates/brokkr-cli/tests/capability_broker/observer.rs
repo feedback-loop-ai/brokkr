@@ -645,9 +645,11 @@ fn blocked(locator: &Path, block: &Block) -> i32 {
     panic!("no observer of {} blocked", locator.display());
 }
 
-/// Whether `pid` and every member of its group are gone within a while.
+/// Whether `pid` and every member of its group are gone within a while:
+/// a killed process closes its descriptors before it turns zombie, so one
+/// look can catch it mid-exit.
 fn ended(pid: i32) -> bool {
-    gone(pid) & members(pid).is_empty()
+    gone(pid) & within(|| members(pid).is_empty())
 }
 
 /// A sealed fixture, its plan sealed with the sources observed for it, and
@@ -728,7 +730,8 @@ fn the_admitted_launcher_runs_through_its_handle_with_no_environment() {
     // kernel's name for it, asked its version with an empty environment.
     let log = std::fs::read_to_string(&log).unwrap();
     let calls = log.lines().filter_map(|line| line.split_once(' '));
-    let calls: Vec<&str> = calls.map(|(_, call)| call).collect();
+    // strace pads a short pid to its column, so the call starts after it.
+    let calls: Vec<&str> = calls.map(|(_, call)| call.trim_start()).collect();
     let run = r#"execve("/proc/self/fd/0", ["/proc/self/fd/0", "--version"], []) = 0"#;
     assert_eq!(calls, [run]);
 }
@@ -798,7 +801,7 @@ fn a_cancelled_attempt_ends_a_blocked_observation_with_nothing_left_running() {
         assert_eq!((kind, stderr), (kind, refused(Refusal::Identity).1));
         assert!(taken < Duration::from_secs(5), "{kind:?}: {taken:?}");
         assert!(ended, "{kind:?}");
-        assert!(status(broker).is_none_or(|(state, _, _)| state == 'Z'));
+        assert!(gone(broker), "{kind:?}");
         assert_eq!((kind, store.lookups(ended_at)), (kind, 0));
         assert!(!sealed.path("started").exists());
     });
@@ -845,9 +848,14 @@ fn swept(pid: i32) -> bool {
 
 /// Whether `pid` is gone, or only a zombie, within a while.
 fn gone(pid: i32) -> bool {
+    within(|| status(pid).is_none_or(|(state, _, _)| state == 'Z'))
+}
+
+/// Whether `holds` comes true within five seconds.
+fn within(holds: impl Fn() -> bool) -> bool {
     let until = Instant::now() + Duration::from_secs(5);
     while Instant::now() < until {
-        if status(pid).is_none_or(|(state, _, _)| state == 'Z') {
+        if holds() {
             return true;
         }
         std::thread::sleep(Duration::from_millis(20));
