@@ -45,6 +45,7 @@ use serde::Serialize;
 
 mod capability_calls;
 mod checkpoints;
+mod fence;
 use capability_calls::Calls;
 use checkpoints::Checkpoints;
 mod marks;
@@ -169,6 +170,19 @@ pub enum EngineError {
     /// terminal and the journal stays exactly as it was.
     #[error("supersede refused, nothing was written: {0}")]
     SupersedeRefused(String),
+    /// Decision 0029: an event the engine decided on a fold met a head a
+    /// peer had moved. Nothing was written, and the engine ends here
+    /// rather than folding again: two writers believe they drive one run.
+    #[error(
+        "run '{run_id}': the journal moved beneath the fold this engine decided on (seq \
+         {expected_seq}, now {found_seq}), so something else may be driving the run; nothing \
+         was written — look with `brokkr runs` before resuming (decision 0029)"
+    )]
+    JournalMoved {
+        run_id: String,
+        expected_seq: u64,
+        found_seq: u64,
+    },
     #[error("engine: {0}")]
     Other(String),
     #[error("dispatch: {0}")]
@@ -358,6 +372,9 @@ pub struct Engine {
     /// The attempt's terminal event a peer's lock kept out, carried to
     /// the lawful end (#394). Never journaled as such.
     held_outcome: Option<checkpoints::HeldOutcome>,
+    /// The head the next append must still find, as [`fence::tip_of`]
+    /// took it (decision 0029); `None` while an attempt is in flight.
+    fence: Option<(u64, String)>,
 }
 
 pub(crate) fn verify_dispatch_bundle_bounds(
@@ -564,6 +581,7 @@ impl Engine {
             network_prefix: None,
             replay: Default::default(),
             held_outcome: None,
+            fence: None,
         })
     }
 
@@ -609,6 +627,7 @@ impl Engine {
             network_prefix: None,
             replay: Default::default(),
             held_outcome: None,
+            fence: None,
         })
     }
 
@@ -672,6 +691,7 @@ impl Engine {
             network_prefix: None,
             replay,
             held_outcome: None,
+            fence: None,
         })
     }
 
@@ -713,7 +733,7 @@ impl Engine {
         // Lent to the turn, and handed back only by a turn that ends well.
         let mut replay = std::mem::take(&mut self.replay);
         let state = replay.caught_up(&self.store, &self.run_id)?;
-        self.current_cause = replay.events.last().map(|e| e.event_id.clone());
+        (self.current_cause, self.fence) = fence::tip_of(&replay.events);
         match (&state.status, &state.cursor) {
             (Status::Completed | Status::Stopped, _) | (Status::AwaitingOperator, _) => {
                 // Best-effort tamper-evidence: anchor the journal head
@@ -796,7 +816,7 @@ impl Engine {
             ..
         } = state.cursor
         {
-            self.current_cause = self.replay.events.last().map(|e| e.event_id.clone());
+            (self.current_cause, self.fence) = fence::tip_of(&self.replay.events);
             if let Some(held) = held.filter(|held| held.attempt_id.as_ref() == Some(&attempt_id)) {
                 self.land_held_outcome(held, &effect_id)?;
                 return Ok(None);
@@ -812,7 +832,7 @@ impl Engine {
         ) {
             return Err(error);
         }
-        self.current_cause = self.replay.events.last().map(|e| e.event_id.clone());
+        (self.current_cause, self.fence) = fence::tip_of(&self.replay.events);
         let parked = json!({"reason": reason, "evidence": {}});
         self.append(EventType::RunParked, parked, None)?;
         let state = self.replay.caught_up(&self.store, &self.run_id)?;
@@ -1007,52 +1027,6 @@ impl Engine {
             attempt_id,
         )
         .map(Some)
-    }
-
-    /// Append one event. An attempt's settlement — its terminal event, and
-    /// the checkpoints the engine journals with it once the seat has
-    /// stopped — is given [`checkpoints::SETTLING_PATIENCES`] against a
-    /// peer's lock, so the attempt's real outcome lands when the lock lets
-    /// go in time; every other event gets one patience (#394). A terminal
-    /// event the lock outlasts is held for the lawful end.
-    fn append_raw(
-        &mut self,
-        event_type: EventType,
-        payload: Value,
-        attempt_id: Option<String>,
-    ) -> Result<EventEnvelope, EngineError> {
-        let terminal = matches!(
-            event_type,
-            EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
-        );
-        let patiences = if terminal || event_type == EventType::EffectCheckpointed {
-            checkpoints::SETTLING_PATIENCES
-        } else {
-            1
-        };
-        let appended = checkpoints::within_patiences(patiences, || {
-            self.store.append_next(
-                &self.run_id,
-                event_type,
-                payload.clone(),
-                self.current_cause.clone(),
-                attempt_id.clone(),
-            )
-        });
-        let envelope = match appended {
-            Ok(envelope) => envelope,
-            Err(contended) if terminal && contended.is_contention() => {
-                self.held_outcome = Some(checkpoints::HeldOutcome {
-                    event_type,
-                    payload,
-                    attempt_id,
-                });
-                return Err(contended.into());
-            }
-            Err(error) => return Err(error.into()),
-        };
-        self.current_cause = Some(envelope.event_id.clone());
-        Ok(envelope)
     }
 
     fn request_or_finish(&mut self, state: &RunState) -> Result<(), EngineError> {
