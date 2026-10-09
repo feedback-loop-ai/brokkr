@@ -15,6 +15,15 @@ one. Brokkr boxes both, with no network, where the realm's boundary is
 `namespace`; under `harness`, which `brokkr init` writes on macOS, each
 runs unboxed in a rebuilt environment and no network denial is reported.
 
+Its two model seats hire library offices (the operator's ruling of
+2026-10-07, #360). `implement` seats `fast-implementer`, an overlay of
+`implementer` on the intakeless implementer charter, and `review` seats
+`fast-reviewer`, an overlay of `reviewer`; both hire Fable at `high` first,
+then Opus at `high` (the smith then Sonnet), under the `cargo`, `git`, `ls`,
+`rg` and `mkdir` allow-list, unboxed. When Fable cannot start, its limit spent,
+a seat falls back to the next link instead of parking, and so do `landing`'s,
+which inherits both seats.
+
 A lint tool the verifier cannot reach, because it is not on the seat's
 `PATH` or does not report the version CI pins, is named in the verifier's
 notes as not run; the result is `pass` only if every check that did run

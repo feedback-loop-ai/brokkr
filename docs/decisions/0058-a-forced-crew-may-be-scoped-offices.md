@@ -139,3 +139,39 @@ the crew.
   a standard recipe, and whether the `gpt-flash-*` prefix remains the only
   scoped family. The operator may extend or retire the pattern later; this
   decision writes no general naming law.
+
+## Addendum — 2026-10-07, operator ruled (#360): a scoped office is an overlay, and the unruled point is ruled
+
+The fifteen scoped offices this decision landed were copies: fourteen of
+them restated a library office with only `models` and `efforts` swapped,
+and five of those also dropped the office's `tools` or `hands` without
+saying so, a security-relevant difference hidden inside a copy. The
+operator ruled on 2026-10-07, recorded on #360 and in decision 0041's
+addendum of the same date, that the agent overlay is the one forcing
+mechanism. For this decision that means:
+
+1. **A scoped office is an overlay of the office it scopes.** Ruling 1's
+   "ordinary `agents/` file reusing a library charter unchanged" is now
+   written as `{"extends": "<office>", "models": [...], "efforts": {...}}`,
+   about five lines, and the fourteen `gpt-flash-*` offices with a base
+   are rewritten so. A `tools` or `hands` loss is written under
+   `replaces` with its reason: both flash implementers name the cargo
+   and git allow-list dsh cannot express, and the flash engine smith,
+   security reviewer and spec-compliance reviewer name the workspace box
+   dsh's adapter cannot express. Each overlay resolves to exactly the
+   definition its copy held, so `recipes/gpt-flash`'s resolved crew is
+   unchanged. `gpt-flash-task-planner` has no base office and stays a
+   definition of its own.
+2. **The deliberately unruled point is ruled.** A scoped office may be
+   seated by a standard recipe: `fast`, the default, seats
+   `fast-implementer` and `fast-reviewer`. The `gpt-flash-*` prefix is
+   not the only scoped family: an overlay is named for the recipe or
+   crew it serves. What ruling 2 still holds is the forced case — a
+   scoped office that FORCES a crew pins exactly the forced models and no
+   fallback — while an overlay that only varies an office, as `fast`'s
+   do, keeps a fallback chain under decision 0041 ruling 2.
+
+**Enforcement binding:** `crates/brokkr-runtime/src/agents/load/overlay.rs`
+and its tests; `crates/brokkr-runtime/tests/gpt_flash_shape.rs` and
+`library_data.rs` hold the overlaid crew to the assignments rulings 2–4
+pin, unchanged.

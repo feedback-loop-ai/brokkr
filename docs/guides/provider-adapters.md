@@ -269,10 +269,15 @@ declares. A route no row names is `uncontracted` by silence.
 
 ### The alias catalogue
 
-Every alias an adapter maps is either hired by an agent under `agents/`
-or listed here: kept on offer for a recipe's inline seat or an
-operator's own, with no library office behind it (decision
-[0071](../decisions/0071-the-architectural-principles.md) ruling 6).
+Adapter aliases are a catalogue, not a roster (the operator's ruling of
+2026-10-07, #360): an alias lists what a harness can reach, and it may
+stand unhired. Every alias an adapter maps is either hired by an agent
+under `agents/` or listed here: kept on offer for a recipe's inline seat
+or an operator's own, with no library office behind it (decision
+[0071](../decisions/0071-the-architectural-principles.md) ruling 6). An
+alias the provider has withdrawn, such as the expired
+`flash-experiment`, is removed rather than catalogued, and no recipe pins
+an id its adapter does not declare (#264).
 `every_alias_is_hired_or_catalogued` in
 `crates/brokkr-runtime/tests/library_data.rs` holds this table to the
 adapter files and the library in both directions: an unhired alias

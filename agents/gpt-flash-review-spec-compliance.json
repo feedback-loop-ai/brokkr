@@ -1,10 +1,6 @@
 {
-  "description": "Review panel member: does the delivered change satisfy the committed spec's acceptance criteria?",
-  "charter": "charters/review-spec-compliance.md",
-  "models": [
-    "flash"
-  ],
-  "efforts": {
-    "flash": "high"
-  }
+  "extends": "review-spec-compliance",
+  "models": ["flash"],
+  "efforts": {"flash": "high"},
+  "replaces": {"hands": "flash is served by dsh, whose adapter cannot express the boxed hands tool, so this reviewer runs without the base's workspace box"}
 }

@@ -21,14 +21,19 @@ DeepSeek-V4.1-Flash. The beta id the recipe first pinned
 (`deepseek-v4.1-flash-expires-on-0910`) has expired, and the older
 `deepseek-v4-flash` is retired; DeepSeek serves both as `deepseek-flash`. No
 fallback lane is configured. The scoped `gpt-flash-*` offices are proposed by
-decision 0058: each reuses a library charter and pins exactly one model, so the
-mandated crew is forced and no fallback is hired. The one exception is the
-final review chief, which chains Sol at `high` and then Astra at `max`
-(decision 0045's addendum of 2026-09-30). Both are Codex models.
+decision 0058 and, since the operator's ruling of 2026-10-07 (#360), each is an
+overlay of the library office it scopes — `{"extends": "implementer",
+"models": ["flash"], "efforts": {"flash": "high"}}` — so it reuses that
+office's charter and pins exactly one model: the mandated crew is forced and no
+fallback is hired. The one exception is the final review chief, which chains
+Sol at `high` and then Astra at `max` (decision 0045's addendum of
+2026-09-30). Both are Codex models. `gpt-flash-task-planner` has no base office
+and is a definition of its own.
 
 DSH is an untrusted work provider: it cannot judge gates. Its adapter does not
-support workspace hands or named tool filtering; the Flash agents therefore
-declare neither. Seven of the nine GPT agents declare workspace hands, which
+support workspace hands or named tool filtering, so each Flash overlay names
+the base office's allow-list or workspace box it drops under `replaces`, with
+that reason, rather than losing it silently. Seven of the nine GPT agents declare workspace hands, which
 box their commands only under a `namespace` boundary; `gpt-flash-triage` and
 `gpt-flash-position-robustness` declare none, so Brokkr adds no box, sandbox
 fragment or tool flag to their command. Flash panel positions

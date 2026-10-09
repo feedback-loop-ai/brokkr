@@ -1,10 +1,6 @@
 {
-  "description": "Smith for spec-driven delivery: writes the breakdown, builds it, and closes out the dialect change.",
-  "charter": "charters/implementer-sdd.md",
-  "models": [
-    "flash"
-  ],
-  "efforts": {
-    "flash": "high"
-  }
+  "extends": "implementer-sdd",
+  "models": ["flash"],
+  "efforts": {"flash": "high"},
+  "replaces": {"tools": "flash is served by dsh, which expresses no tool list, so this smith runs without the base's cargo and git allow-list"}
 }

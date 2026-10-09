@@ -1,14 +1,6 @@
 {
-  "description": "Engine-class implementer: builds core, store, contract, and policy work selected by triage.",
-  "charter": "charters/implementer.md",
-  "models": [
-    "flash"
-  ],
-  "efforts": {
-    "flash": "high"
-  },
-  "limits": {
-    "max_attempts": 2,
-    "timeout_seconds": 7200
-  }
+  "extends": "implementer-engine",
+  "models": ["flash"],
+  "efforts": {"flash": "high"},
+  "replaces": {"hands": "flash is served by dsh, whose adapter cannot express the boxed hands tool, so this smith runs without the base's workspace box"}
 }

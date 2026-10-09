@@ -4,7 +4,9 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use brokkr_protocol::hands::BindMode;
-use brokkr_runtime::{Bundle, Library, SeatBody, SeatClass, StepBody};
+use brokkr_runtime::{
+    resolve_agent, Adapters, Availability, Bundle, Library, Presence, SeatBody, SeatClass, StepBody,
+};
 use serde_json::Value;
 
 fn workspace() -> PathBuf {
@@ -29,6 +31,10 @@ fn is_house_tool_grant(agent: &str, tool: &str) -> bool {
     matches!(
         (agent, tool),
         ("chief-architect", "git")
+            | (
+                "fast-implementer" | "fast-reviewer",
+                "cargo" | "git" | "ls" | "rg" | "mkdir"
+            )
             | ("implementer-sdd", "cargo" | "git")
             | ("implementer", "cargo" | "git")
             | ("intake", "git")
@@ -122,7 +128,7 @@ fn shipped_model_sites_name_the_library_outside_the_ruled_exceptions() {
                 return;
             }
             // Ruling 7 leaves inline model sites only where a recipe must
-            // force its crew: the parity wagers, fast's quickstart, the
+            // force its crew: the parity wagers, the
             // Node reference, preflight's explicit gates, night-shift's
             // dsh lane, and the research sweep's dsh lane (decision 0044
             // ruling 5: dsh expresses no tool list, so the grant is an
@@ -138,9 +144,10 @@ fn shipped_model_sites_name_the_library_outside_the_ruled_exceptions() {
             // (decision 0060, under decision 0041 ruling 7). `verify`'s
             // reviewer, inline as preflight's is, stood outside this walk
             // until #359 moved Brokkr's own bundles into the library; it
-            // is walked as it stands, not yet ruled onto the roster.
+            // is walked as it stands, not yet ruled onto the roster. `fast`
+            // hires library offices since #360 (the operator's ruling of
+            // 2026-10-07), so the default crew falls back instead of parking.
             let allowed = recipe.starts_with("wager-harness")
-                || recipe == "fast"
                 || recipe == "standby"
                 || recipe == "node"
                 || recipe == "preflight"
@@ -157,6 +164,104 @@ fn shipped_model_sites_name_the_library_outside_the_ruled_exceptions() {
     }
 }
 
+/// A shipped recipe, compiled against the shipped library and adapters.
+fn compile(root: &Path, recipe: &str) -> Bundle {
+    Bundle::compile_with(
+        &root.join("recipes").join(recipe),
+        &root.join("agents"),
+        &root.join("adapters"),
+    )
+    .unwrap_or_else(|error| panic!("{recipe} compiles: {error}"))
+}
+
+/// The fast offices and the chains they hire (#360, the operator's ruling 2
+/// of 2026-10-07): Fable at `high` first, the crew fast always seated
+/// inline, and a fallback behind it on every model seat.
+const FAST_OFFICES: [(&str, &str, &[&str]); 2] = [
+    (
+        "implement",
+        "fast-implementer",
+        &["fable", "opus", "sonnet"],
+    ),
+    ("review", "fast-reviewer", &["fable", "opus"]),
+];
+
+/// `fast` and `landing`, which inherits both of fast's model seats, hire
+/// the fast offices, so the default recipe falls back instead of parking
+/// when its first model is spent.
+#[test]
+fn fast_and_landing_hire_offices_that_fall_back_from_fable() {
+    let root = workspace();
+    for recipe in ["fast", "landing"] {
+        let bundle = compile(&root, recipe);
+        for (phase, office, chain) in FAST_OFFICES {
+            let SeatBody::Single { candidates, .. } = &bundle.seats[phase].body else {
+                panic!("{recipe}:{phase} is one seat");
+            };
+            let hired: Vec<(&str, &str, Option<&str>)> = candidates
+                .iter()
+                .map(|link| {
+                    (
+                        link.agent.as_str(),
+                        link.model.as_str(),
+                        link.effort.as_deref(),
+                    )
+                })
+                .collect();
+            let expected: Vec<(&str, &str, Option<&str>)> = chain
+                .iter()
+                .map(|model| (office, *model, Some("high")))
+                .collect();
+            assert_eq!(hired, expected, "{recipe}:{phase}");
+        }
+    }
+}
+
+/// The same ruling's proof that the chain is a fallback: with the provider
+/// that serves Fable unavailable — the shipped claude adapter, split so
+/// Fable stands alone — each fast office skips Fable and selects Opus at
+/// `high`, its next link.
+#[test]
+fn a_fast_office_whose_first_model_is_unavailable_selects_its_fallback() {
+    let root = workspace();
+    let adapters = tempfile::tempdir().unwrap();
+    let mut claude = json(&root.join("adapters/claude.json"));
+    let mut fable = claude.clone();
+    fable["provider"] = "claude-fable".into();
+    fable["models"] = serde_json::json!({"fable": claude["models"]["fable"]});
+    fable["judges"] = serde_json::json!(["fable"]);
+    claude["models"].as_object_mut().unwrap().remove("fable");
+    claude["judges"] = serde_json::json!(["opus"]);
+    for (name, body) in [("claude", claude), ("claude-fable", fable)] {
+        let path = adapters.path().join(format!("{name}.json"));
+        std::fs::write(path, serde_json::to_vec_pretty(&body).unwrap()).unwrap();
+    }
+    let adapters = Adapters::load(adapters.path()).expect("the split adapters load");
+    let library = Library::load(&root.join("agents")).expect("the shipped library loads");
+    let mut availability = Availability::unspecified();
+    availability.record("claude-fable", Presence::Unavailable);
+    for (_, office, chain) in FAST_OFFICES {
+        let resolution = resolve_agent(&library, &adapters, &availability, office)
+            .unwrap_or_else(|error| panic!("{office} resolves: {error}"));
+        assert_eq!(resolution.record["chosen_index"], 1, "{office}");
+        assert_eq!(
+            resolution.record["skipped"],
+            serde_json::json!([{"model": "fable", "reason": "unavailable"}]),
+            "{office}"
+        );
+        let selected: Vec<(&str, Option<&str>)> = resolution
+            .candidates
+            .iter()
+            .map(|link| (link.model.as_str(), link.effort.as_deref()))
+            .collect();
+        let fallbacks: Vec<(&str, Option<&str>)> = chain[1..]
+            .iter()
+            .map(|model| (*model, Some("high")))
+            .collect();
+        assert_eq!(selected, fallbacks, "{office}");
+    }
+}
+
 #[test]
 fn tool_grants_keep_house_tools_explicit_and_effort_never_rises_on_fallback() {
     let root = workspace();
@@ -170,22 +275,17 @@ fn tool_grants_keep_house_tools_explicit_and_effort_never_rises_on_fallback() {
         "max" => 6,
         other => panic!("unknown effort {other}"),
     };
-    for entry in std::fs::read_dir(root.join("agents")).unwrap().flatten() {
-        if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-            continue;
-        }
-        let agent = json(&entry.path());
+    // The loaded library, not the files: an overlay (#360) states only its
+    // difference, and what is judged here is the office it stands for.
+    let library = Library::load(&root.join("agents")).expect("the shipped library loads");
+    for agent in library.agents() {
+        let name = &agent.name;
+        let allow = agent.allow.as_deref().unwrap_or_default();
         assert!(
-            !agent
-                .pointer("/tools/allow")
-                .and_then(Value::as_array)
-                .is_some_and(|tools| tools.iter().any(|tool| tool == "specify")),
-            "{} still grants the retired specify tool",
-            entry.path().display()
+            !allow.iter().any(|tool| tool == "specify"),
+            "{name} still grants the retired specify tool"
         );
-        let charter =
-            std::fs::read_to_string(root.join("agents").join(agent["charter"].as_str().unwrap()))
-                .unwrap();
+        let charter = std::fs::read_to_string(&agent.charter).unwrap();
         // A portable charter names only office tools. House tools are an
         // explicit property of the shipped agent, independent of whichever
         // realm happens to use that agent; a substring such as "commit" is
@@ -193,46 +293,35 @@ fn tool_grants_keep_house_tools_explicit_and_effort_never_rises_on_fallback() {
         // Decision 0043 ruling 2 makes `hands` replace the allow-list, so
         // ruling 5's historical grants live in the journal, not a dead
         // `tools` field beside `hands`.
-        if agent.get("hands").is_some() {
+        if agent.hands.is_some() {
             assert!(
-                agent.get("tools").is_none(),
-                "{} declares dead tools beside hands",
-                entry.path().display()
+                agent.allow.is_none() && agent.sandbox.is_none(),
+                "{name} declares dead tools beside hands"
             );
         }
-        if let Some(allow) = agent.pointer("/tools/allow").and_then(Value::as_array) {
-            let agent_path = entry.path();
-            let agent_name = agent_path.file_stem().unwrap().to_str().unwrap();
-            for tool in allow.iter().filter_map(Value::as_str) {
-                assert!(
-                    is_house_tool_grant(agent_name, tool) || names_word(&charter, tool),
-                    "{} grants an unaccounted tool {tool}",
-                    entry.path().display()
-                );
-            }
+        for tool in allow {
+            assert!(
+                is_house_tool_grant(name, tool) || names_word(&charter, tool),
+                "{name} grants an unaccounted tool {tool}"
+            );
         }
-        let models = agent["models"].as_array().unwrap();
-        let efforts = agent["efforts"].as_object().unwrap();
         // Sol's scale sits one step down (decision 0045's addendum of
         // 2026-09-30): its `high` is the level another model's `xhigh` is.
-        let rank_of =
-            |model: &str| rank(efforts[model].as_str().unwrap()) + i32::from(model == "sol");
-        let first = models[0].as_str().unwrap();
+        let rank_of = |model: &str| rank(&agent.efforts[model]) + i32::from(model == "sol");
+        let first = &agent.models[0];
         let first_rank = rank_of(first);
         // Triage's ruling-6 office is explicitly pinned fable/xhigh then
         // opus/max by the commission, the one deliberate rising fallback.
-        if entry.file_name() == "triage.json" {
+        if name == "triage" {
             continue;
         }
         // Astra at `max` as a chief's last fallback is the other one, by
         // the same addendum; `sol_is_capped_and_astra_is_a_chiefs_last_fallback`
         // pins where it may stand.
-        for later in models[1..].iter().filter(|model| *model != "astra") {
-            let later = later.as_str().unwrap();
+        for later in agent.models[1..].iter().filter(|model| *model != "astra") {
             assert!(
                 first_rank >= rank_of(later),
-                "{} hires {first} below fallback {later}",
-                entry.path().display()
+                "{name} hires {first} below fallback {later}"
             );
         }
     }
@@ -470,25 +559,21 @@ fn a_codex_lane_is_chained_only_into_boxed_or_toolless_offices() {
         .collect();
     assert!(lanes.contains("astra"), "the codex adapter maps astra");
     let mut chained = 0;
-    for entry in std::fs::read_dir(root.join("agents")).unwrap().flatten() {
-        if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-            continue;
-        }
-        let agent = json(&entry.path());
-        let names_codex = agent["models"]
-            .as_array()
-            .unwrap()
+    // The loaded library, so an overlay's inherited tools are judged (#360).
+    let library = Library::load(&root.join("agents")).expect("the shipped library loads");
+    for agent in library.agents() {
+        if !agent
+            .models
             .iter()
-            .filter_map(Value::as_str)
-            .any(|model| lanes.contains(model));
-        if !names_codex {
+            .any(|model| lanes.contains(model.as_str()))
+        {
             continue;
         }
         chained += 1;
         assert!(
-            agent.get("tools").is_none(),
+            agent.allow.is_none() && agent.sandbox.is_none(),
             "{} chains a codex lane beside a tool allow-list codex cannot map",
-            entry.path().display()
+            agent.name
         );
     }
     assert!(
@@ -690,12 +775,7 @@ fn the_dsh_implement_lanes_pin_glm_flash_with_no_effort() {
     assert_eq!(dsh["models"]["glm-flash"], "spark-glm/GLM-5.3-Flash-EXL3");
     assert!(dsh["effortless_routes"]["spark-glm"].is_string());
     for recipe in ["night-shift", "wager-harness-dsh"] {
-        let bundle = Bundle::compile_with(
-            &root.join("recipes").join(recipe),
-            &root.join("agents"),
-            &root.join("adapters"),
-        )
-        .unwrap_or_else(|error| panic!("{recipe} compiles: {error}"));
+        let bundle = compile(&root, recipe);
         let SeatBody::Single { command, .. } = &bundle.seats["implement"].body else {
             panic!("{recipe}'s implement seat is one inline session");
         };
@@ -1005,8 +1085,10 @@ fn every_shipped_adapter_declares_the_shape_its_gate_and_doctor_read() {
 /// are what an inline seat reads in place of a charter (issue #334). They
 /// defer to the house rules instead of restating them, and they carry the
 /// same principle text their charter does, so a recipe's seats and the
-/// library's offices cannot drift apart. The three reviewer roles that do
-/// not specialise are the reviewer charter's bytes and are held to them.
+/// library's offices cannot drift apart. The two reviewer roles that do
+/// not specialise are the reviewer charter's bytes and are held to them;
+/// fast's, the third, became the charter itself when fast moved onto the
+/// library (#360).
 #[test]
 fn recipe_roles_defer_to_the_house_and_carry_their_charters_principles() {
     let root = workspace();
@@ -1073,7 +1155,7 @@ fn recipe_roles_defer_to_the_house_and_carry_their_charters_principles() {
     }
     assert!(implementers > 0 && reviewers > 0, "the walk found no roles");
     let charter = std::fs::read(root.join("agents/charters/reviewer.md")).unwrap();
-    for recipe in ["fast", "review-first", "standby"] {
+    for recipe in ["review-first", "standby"] {
         let role = format!("recipes/{recipe}/roles/reviewer.md");
         assert_eq!(
             charter,

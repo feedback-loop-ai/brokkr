@@ -25,6 +25,7 @@ use super::{
 use crate::bundle::Limits;
 
 mod models;
+mod overlay;
 
 #[derive(Debug, Error)]
 pub enum LibraryError {
@@ -483,7 +484,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
     if !valid_name(name) {
         return invalid(format!("{what}: the file name must match {NAME_GRAMMAR}"));
     }
-    let source = read_request_source(path)?;
+    let source = overlay::effective(root, &what, read_request_source(path)?)?;
     let map = object(&source, &what)?;
     only_keys(
         map,
@@ -538,8 +539,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         }
     }
     let LocalTools { allow, sandbox } = parse_tools(map, &what)?;
-    // Decision 0043: one boxed tool instead of a list. Refused at the
-    // same place a malformed tool list is, naming the agent.
+    // Decision 0043: one boxed tool instead of a list, refused where a malformed list is.
     let hands = match map.get("hands") {
         None => None,
         Some(raw) => Some(
