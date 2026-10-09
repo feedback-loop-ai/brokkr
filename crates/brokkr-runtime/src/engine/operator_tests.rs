@@ -95,3 +95,40 @@ fn a_bridge_command_beaten_to_the_head_by_a_peer_is_refused_stale() {
         (9, rejected.event_hash.clone())
     );
 }
+
+/// Two deliveries of one command race the same parked head: the first
+/// journals the command and its acceptance after the second folded, so
+/// the second's command loses the fence. What moved the head disposed of
+/// the very command it carries, so it answers with that acceptance and
+/// writes nothing — the receipt every redelivery reads — where a stale
+/// refusal would be a receipt the journal contradicts.
+#[test]
+fn a_bridge_command_beaten_to_the_head_by_its_own_redelivery_answers_with_its_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = super::tests::parked_store(&dir.path().join("twice.db"), "twice");
+    let (seq, hash) = store.head_hash("twice").unwrap();
+    let wire = super::tests::looper("looper-command", "retry", seq, &hash);
+
+    let mut first = None;
+    let peer = |store: &mut Store| {
+        first = Some(apply_fenced_operator_command(store, "twice", &wire).unwrap());
+    };
+    let second = super::operator::apply_fenced_windows(&mut store, "twice", &wire, peer, |_| {});
+
+    let events = store.load("twice").unwrap();
+    let receipt = FencedCommandOutcome::Accepted {
+        head_seq: 8,
+        head_hash: events.last().unwrap().event_hash.clone(),
+    };
+    assert_eq!(
+        (first, second.unwrap()),
+        (Some(receipt.clone()), receipt.clone())
+    );
+    let tail: Vec<_> = events[6..].iter().map(|event| event.event_type).collect();
+    assert_eq!(
+        tail,
+        [EventType::OperatorCommanded, EventType::OperatorAccepted]
+    );
+    let redelivered = apply_fenced_operator_command(&mut store, "twice", &wire).unwrap();
+    assert_eq!(redelivered, receipt);
+}

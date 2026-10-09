@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use super::{EngineError, OPERATOR_STOP_RULE};
 
+mod receipt;
 mod supersede;
 #[cfg(test)]
 pub(super) use supersede::operator_supersede_racing;
@@ -604,91 +605,6 @@ fn fenced_refusal(state: &RunState, command: CommandWord, cursor_holds: bool) ->
     acceptance_refusal(state, command)
 }
 
-/// The disposition journaled for `command_id`: after its command, or
-/// anywhere when it was refused before its command could be journaled.
-fn recorded(
-    events: &[EventEnvelope],
-    commanded: Option<&EventEnvelope>,
-    command_id: &str,
-) -> Option<FencedCommandOutcome> {
-    let disposition = events.iter().find(|event| {
-        commanded.is_none_or(|commanded| event.seq > commanded.seq)
-            && matches!(
-                event.event_type,
-                EventType::OperatorAccepted | EventType::OperatorRejected
-            )
-            && command_id_of(event) == Some(command_id)
-    })?;
-    Some(if disposition.event_type == EventType::OperatorAccepted {
-        FencedCommandOutcome::Accepted {
-            head_seq: disposition.seq,
-            head_hash: disposition.event_hash.clone(),
-        }
-    } else {
-        FencedCommandOutcome::Rejected {
-            reason: disposition
-                .payload
-                .get("reason")
-                .and_then(Value::as_str)
-                .unwrap_or(Refusal::PreviouslyRejected.word())
-                .to_string(),
-            head_seq: disposition.seq,
-            head_hash: disposition.event_hash.clone(),
-        }
-    })
-}
-
-/// The receipt a command id already holds, if any: a journaled command
-/// replays, and one refused stale before it was journaled answers with
-/// that refusal, its only record, so a redelivery reads the same.
-fn journaled(
-    store: &mut Store,
-    run_id: &str,
-    events: &[EventEnvelope],
-    command_id: &str,
-    operator: &str,
-) -> Result<Option<FencedCommandOutcome>, EngineError> {
-    match events.iter().find(|event| {
-        event.event_type == EventType::OperatorCommanded && command_id_of(event) == Some(command_id)
-    }) {
-        Some(commanded) => replay(store, run_id, events, commanded, command_id, operator).map(Some),
-        None => Ok(recorded(events, None, command_id)),
-    }
-}
-
-/// A journaled command's recorded disposition, or — none after it — a
-/// refusal of the incomplete replay.
-fn replay(
-    store: &mut Store,
-    run_id: &str,
-    events: &[EventEnvelope],
-    commanded: &EventEnvelope,
-    command_id: &str,
-    operator: &str,
-) -> Result<FencedCommandOutcome, EngineError> {
-    if let Some(receipt) = recorded(events, Some(commanded), command_id) {
-        return Ok(receipt);
-    }
-    let incomplete = Refusal::IncompleteCommandReplay.word();
-    let rejected = store.append_next(
-        run_id,
-        EventType::OperatorRejected,
-        json!({
-            "command_id": command_id,
-            "operator": operator,
-            "reason": incomplete,
-        }),
-        Some(commanded.event_id.clone()),
-        None,
-    )?;
-    read_back(store, run_id)?;
-    Ok(FencedCommandOutcome::Rejected {
-        reason: incomplete.into(),
-        head_seq: rejected.seq,
-        head_hash: rejected.event_hash,
-    })
-}
-
 /// [`apply_fenced_operator_command`] with the acceptance's window held
 /// open: `between` runs after `operator/commanded` lands and before the
 /// acceptance is written against it.
@@ -717,7 +633,7 @@ pub(super) fn apply_fenced_windows(
 ) -> Result<FencedCommandOutcome, EngineError> {
     let (command_id, operator) = (wire.command_id, wire.operator);
     let events = store.load(run_id)?;
-    if let Some(receipt) = journaled(store, run_id, &events, command_id, operator)? {
+    if let Some(receipt) = receipt::journaled(store, run_id, &events, command_id, operator)? {
         return Ok(receipt);
     }
     let state = fold(&events)?;
@@ -764,13 +680,19 @@ fn fenced_commanded(
     }
 }
 
-/// The refusal a fenced write that lost its head journals, caused by `cause`.
+/// The refusal a fenced write that lost its head journals, caused by
+/// `cause` — unless what moved the head disposed of this same command id,
+/// a redelivery racing this one: that disposition is this delivery's
+/// receipt too, so it answers with it and writes nothing.
 fn stale_refusal(
     store: &mut Store,
     run_id: &str,
     wire: &FencedCommand,
     cause: &str,
 ) -> Result<FencedCommandOutcome, EngineError> {
+    if let Some(receipt) = receipt::disposition(&store.load(run_id)?, wire.command_id) {
+        return Ok(receipt);
+    }
     let stale = Refusal::StaleCursor;
     refuse(store, run_id, wire.command_id, wire.operator, stale, cause)
 }
