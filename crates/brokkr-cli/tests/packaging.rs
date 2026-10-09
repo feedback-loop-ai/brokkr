@@ -1070,18 +1070,46 @@ fn the_install_surfaces_carry_the_manager_matrix() {
     );
 }
 
+/// Secrets a workflow reads that no packaging step does, each with the
+/// workflow that reads it: the packaging README need not name them. One
+/// no workflow reads any longer fails, so none outlives its workflow.
+const NOT_PACKAGING: [(&str, &str); 4] = [
+    (
+        "DASHSCOPE_API_KEY",
+        "research-weekly.yml: the research sweep's model",
+    ),
+    (
+        "DEEPSEEK_API_KEY",
+        "research-weekly.yml: the research sweep's search",
+    ),
+    (
+        "RENOVATE_APP_ID",
+        "renovate.yml: the dependency bot's GitHub App",
+    ),
+    (
+        "RENOVATE_APP_PRIVATE_KEY",
+        "renovate.yml: the dependency bot's GitHub App",
+    ),
+];
+
 /// The packaging README is where the operator's steps live: every secret
-/// a workflow reads, but the token GitHub issues itself, is named there
-/// for the operator to provision, and no key material is. Which channels
-/// it calls out of scope is a reviewer's call since #365: the README is
-/// held to the workflows, not to an inventory of its own words.
+/// a workflow reads, but the token GitHub issues itself and the ones
+/// [`NOT_PACKAGING`] names, is named there for the operator to provision,
+/// and no key material is. Which channels it calls out of scope is a
+/// reviewer's call since #365: the README is held to the workflows, not to
+/// an inventory of its own words.
 #[test]
 fn the_packaging_readme_names_every_secret_a_workflow_reads() {
     let readme = read("packaging/README.md");
-    let mut secrets: Vec<String> = ["release.yml", "ci.yml", "mutants.yml"]
+    let workflows = crate::tracked_files::tracked(&workspace(), &[".github/workflows/*.yml"]);
+    assert!(
+        workflows.contains(&".github/workflows/release.yml".to_string()),
+        "the workflows were listed: {workflows:?}"
+    );
+    let mut secrets: Vec<String> = workflows
         .into_iter()
         .flat_map(|workflow| {
-            let text = read(&format!(".github/workflows/{workflow}"));
+            let text = read(&workflow);
             text.split("secrets.")
                 .skip(1)
                 .map(|rest| {
@@ -1095,6 +1123,13 @@ fn the_packaging_readme_names_every_secret_a_workflow_reads() {
         .collect();
     secrets.sort();
     secrets.dedup();
+    for (secret, read_by) in NOT_PACKAGING {
+        assert!(
+            secrets.iter().any(|read| read == secret),
+            "{secret} ({read_by}) is read by no workflow any longer"
+        );
+    }
+    secrets.retain(|secret| !NOT_PACKAGING.iter().any(|(other, _)| other == secret));
     assert_eq!(
         secrets,
         [

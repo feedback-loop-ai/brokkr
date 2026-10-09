@@ -7,8 +7,9 @@
 //! blocks: a paragraph, list or table between blank lines, or a fenced
 //! block whole. Four rules hold them:
 //!
-//! - every repository path a code span names is in the tree (lychee holds
-//!   the links);
+//! - every repository path a code span names is in the tree, a `./` or
+//!   `../` spelling resolved against the doc's directory (lychee holds the
+//!   links);
 //! - every version of Brokkr a doc states is the workspace's, unless its
 //!   block follows the [`ILLUSTRATIVE`] mark;
 //! - every decision a doc or a source comment calls proposed is proposed
@@ -17,10 +18,10 @@
 //!   outside the paths [`ALLOWED`] names with a reason.
 //!
 //! What a rule cannot read is refused, never skipped: a fence left open,
-//! a path written with a character no path here carries, a version word
-//! followed by a number that is no version, a source whose comment or
-//! literal never closes. A backtick nothing closes is literal text, as
-//! CommonMark renders it, not a span.
+//! a path written with a character no path here carries or climbing above
+//! the root, a version spelling followed by no version, a source whose
+//! comment or literal never closes. A backtick nothing closes is literal
+//! text, as CommonMark renders it, not a span.
 
 use std::collections::BTreeSet;
 
@@ -213,13 +214,14 @@ fn path_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || "._-/<>{}*…+@".contains(c)
 }
 
-/// The repository path a code span names, if it names one: one word whose
-/// first segment is a top-level directory the tree tracks, its `:line` or
-/// `#anchor` suffix dropped. A word this cannot read as a path is an
-/// `Err`.
+/// The repository path a code span names, if it names one: one word that
+/// opens with `./` or `../`, or whose first segment is a top-level
+/// directory the tree tracks, its `:line` or `#anchor` suffix dropped. A
+/// word this cannot read as a path is an `Err`.
 fn named_path<'a>(span: &'a str, tops: &BTreeSet<String>) -> Option<Result<&'a str, String>> {
     let (first, _) = span.split_once('/')?;
-    if span.contains(char::is_whitespace) || !tops.contains(first) {
+    let relative = first == "." || first == "..";
+    if span.contains(char::is_whitespace) || !(relative || tops.contains(first)) {
         return None;
     }
     let path = span.split_once('#').map_or(span, |(path, _)| path);
@@ -318,7 +320,39 @@ impl Tree {
 /// the doc (or the directory of docs), the path it names (or the start of
 /// it), and why. An allowance that covers nothing fails, so none outlives
 /// its text.
-const ABSENT: [(&str, &str, &str); 19] = [
+const ABSENT: [(&str, &str, &str); 25] = [
+    (
+        "docs/guides/recipe-authoring.md",
+        "../",
+        "the spellings a recipe refuses, which never become paths",
+    ),
+    (
+        "openspec/specs/gate-boundary-policy/spec.md",
+        "./",
+        "its scenarios spell a gate's script token, relative to the declaring layer, some \
+         unreadable on purpose",
+    ),
+    (
+        "openspec/changes/boundary-seatbelt-slice-ii/specs/gate-boundary-policy/spec.md",
+        "./",
+        "its scenarios spell a gate's script token, relative to the declaring layer, some \
+         unreadable on purpose",
+    ),
+    (
+        "openspec/specs/transcript-reading/spec.md",
+        "../other-seat",
+        "a traversal locator a scenario refuses",
+    ),
+    (
+        "openspec/changes/2026-09-09-226-session-resumption/specs/adapter-resume-safety/",
+        "./dsh",
+        "a program-name spelling the resolution matrix tests",
+    ),
+    (
+        "openspec/changes/2026-09-09-226-session-resumption/specs/adapter-resume-safety/",
+        "../dsh",
+        "a program-name spelling the resolution matrix tests",
+    ),
     (
         "docs/guides/",
         "scripts/verify-seat.sh",
@@ -423,38 +457,66 @@ const ABSENT: [(&str, &str, &str); 19] = [
 const BLUEPRINTS_MOVED: &str = "a baselined clone of its delta; the path moves with a \
                                 data-baseline refresh";
 
-/// Each code span in `docs` that names a path the tree does not hold from
-/// the root or from the doc's own directory, outside what `absent`, given
-/// [`ABSENT`], allows; each span that cannot be read; and each allowance
-/// that covered nothing.
+/// The paths from the root that `path`, named in a doc in the directory
+/// `here` (`None` at the root), may be: a path that climbs with `../` is
+/// resolved against `here`, and any other is read from the root and from
+/// `here`, a leading `./` dropped. A path that climbs above the root is an
+/// `Err`.
+fn resolved(path: &str, here: Option<&str>) -> Result<Vec<String>, String> {
+    let mut dir: Vec<&str> = here.map_or_else(Vec::new, |here| here.split('/').collect());
+    let mut rest = path;
+    let mut climbed = false;
+    loop {
+        if let Some(after) = rest.strip_prefix("./") {
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix("../") {
+            dir.pop()
+                .ok_or_else(|| format!("`{path}` climbs above the repository"))?;
+            (rest, climbed) = (after, true);
+        } else {
+            break;
+        }
+    }
+    let within = |dir: &[&str]| match dir {
+        [] => rest.to_string(),
+        dir => format!("{}/{rest}", dir.join("/")),
+    };
+    Ok(match climbed {
+        true => vec![within(&dir)],
+        false => vec![rest.to_string(), within(&dir)],
+    })
+}
+
+/// Why a code span in a doc in the directory `here` is false: it names a
+/// path the tree does not hold, read as [`resolved`] reads it, or it
+/// cannot be read. `None` when it names no path or a path the tree holds.
+fn unheld(span: &str, tree: &Tree, here: Option<&str>) -> Option<String> {
+    let paths = named_path(span, &tree.tops)?.and_then(|path| resolved(path, here));
+    match paths {
+        Ok(paths) if paths.iter().any(|path| tree.holds(path)) => None,
+        Ok(_) => Some(format!("`{span}` names a path the tree does not hold")),
+        Err(why) => Some(why),
+    }
+}
+
+/// Each code span in `docs` that names a path the tree does not hold, and
+/// each span that cannot be read, outside what `absent`, given [`ABSENT`],
+/// allows by the span's start; and each allowance that covered nothing.
 fn missing_paths(docs: &[Doc], tree: &Tree, absent: &[(&str, &str, &str)]) -> Vec<String> {
     let mut found = Vec::new();
     let mut used = vec![false; absent.len()];
     for doc in docs {
         let here = doc.path.rsplit_once('/').map(|(dir, _)| dir);
-        let held = |path: &str| {
-            tree.holds(path) || here.is_some_and(|dir| tree.holds(&format!("{dir}/{path}")))
-        };
         for block in doc.blocks.iter().filter(|block| !block.fenced) {
             for (at, span) in code_spans(&block.text) {
-                let line = block.line_of(at);
-                let path = match named_path(span, &tree.tops) {
-                    None => continue,
-                    Some(Ok(path)) if held(path) => continue,
-                    Some(Ok(path)) => path,
-                    Some(Err(why)) => {
-                        found.push(format!("{}:{line}: {why}", doc.path));
-                        continue;
-                    }
+                let Some(why) = unheld(span, tree, here) else {
+                    continue;
                 };
                 match absent.iter().position(|(page, named, _)| {
-                    doc.path.starts_with(page) && path.starts_with(named)
+                    doc.path.starts_with(page) && span.starts_with(named)
                 }) {
                     Some(index) => used[index] = true,
-                    None => found.push(format!(
-                        "{}:{line}: `{span}` names a path the tree does not hold",
-                        doc.path
-                    )),
+                    None => found.push(format!("{}:{}: {why}", doc.path, block.line_of(at))),
                 }
             }
         }
@@ -512,7 +574,11 @@ fn a_path_the_tree_does_not_hold_is_refused() {
          \n\
          Escaped \\`docs/y.md\\`, then `docs/b.md`, then one left open: `docs/x.md\n\
          \n\
-         There is no `recipes/bun`.\n",
+         There is no `recipes/bun`.\n\
+         \n\
+         Relative: `./recipes/fast/bundle.json`, `./bundle.json`, `../fast/bundle.json`,\n\
+         `../../scripts/coverage-exact.sh`, `./gone.md`, `../../scripts/gone.sh`,\n\
+         `../bundle.json`, `../../../x.md`, `./bad[1].sh`.\n",
     )
     .unwrap();
     let absent = [
@@ -522,6 +588,7 @@ fn a_path_the_tree_does_not_hold_is_refused() {
             "recipes/go",
             "says no such recipe ships",
         ),
+        ("recipes/fast/", "./bad[", "a spelling refused on purpose"),
     ];
     assert_eq!(
         missing_paths(&[planted], &tree, &absent),
@@ -531,6 +598,10 @@ fn a_path_the_tree_does_not_hold_is_refused() {
             "recipes/fast/README.md:9: `docs/guides/quick$start.md` carries `$`, which no path here does",
             "recipes/fast/README.md:9: `scripts/x.sh:main` reads as no path and line",
             "recipes/fast/README.md:15: `docs/b.md` names a path the tree does not hold",
+            "recipes/fast/README.md:20: `./gone.md` names a path the tree does not hold",
+            "recipes/fast/README.md:20: `../../scripts/gone.sh` names a path the tree does not hold",
+            "recipes/fast/README.md:21: `../bundle.json` names a path the tree does not hold",
+            "recipes/fast/README.md:21: `../../../x.md` climbs above the repository",
             "recipes/fast/README.md: allows `recipes/go`, which it no longer names",
         ]
     );
@@ -540,18 +611,52 @@ fn a_path_the_tree_does_not_hold_is_refused() {
 /// sample whose version is beside its point.
 const ILLUSTRATIVE: &str = "<!-- illustrative version -->";
 
-/// The spellings that state Brokkr's own version: the text before the
-/// version, and the text that must follow it for the spelling to be one.
-/// A spelling with nothing to follow it is followed by a version, or the
-/// block cannot be read.
-const VERSION_SPELLINGS: [(&str, &str); 5] = [
-    ("brokkr ", ""),
-    ("Brokkr ", ""),
-    ("engine ", ""),
-    ("\"engine_version\": \"", "\""),
+/// A spelling that states Brokkr's own version: the text before the
+/// version, the characters that open it, each after any whitespace, and
+/// the text that closes it.
+struct Spelling {
+    before: &'static str,
+    open: &'static str,
+    close: &'static str,
+}
+
+/// A word a version follows: `brokkr 0.12.0`.
+const fn word(before: &'static str) -> Spelling {
+    Spelling {
+        before,
+        open: "",
+        close: "",
+    }
+}
+
+/// The spellings that state Brokkr's own version. One with an opener is
+/// read once the opener is; one without is read when a number follows its
+/// text and, when it has a closer, its closer follows that word. A spelling
+/// read but followed by no version this can read is refused.
+const VERSION_SPELLINGS: [Spelling; 5] = [
+    word("brokkr "),
+    word("Brokkr "),
+    word("engine "),
+    // `"engine_version": "0.12.0"` and serde_json's compact form alike.
+    Spelling {
+        before: "\"engine_version\"",
+        open: ":\"",
+        close: "\"",
+    },
     // A link that headlines a release: "The [v0.12.0 release](…)".
-    ("[v", " release"),
+    Spelling {
+        before: "[v",
+        open: "",
+        close: " release",
+    },
 ];
+
+/// The text after `open` at the start of `text`, any whitespace before
+/// each of its characters skipped.
+fn opened<'a>(text: &'a str, open: &str) -> Option<&'a str> {
+    open.chars()
+        .try_fold(text, |rest, c| rest.trim_start().strip_prefix(c))
+}
 
 /// The version `text` opens with (`0.12.0`, `v0.12.0`, `0.1.5-rc.1`),
 /// without its `v`, and the text after it.
@@ -595,18 +700,27 @@ fn version(text: &str) -> Option<(&str, &str)> {
 /// version this can read follows.
 fn versions_in(text: &str) -> Vec<(usize, Result<&str, &'static str>)> {
     let mut found = Vec::new();
-    for (before, after) in VERSION_SPELLINGS {
+    for Spelling {
+        before,
+        open,
+        close,
+    } in VERSION_SPELLINGS
+    {
         for (at, _) in text.match_indices(before) {
             if text[..at].ends_with(|c: char| c.is_alphanumeric() || c == '-' || c == '_') {
                 continue;
             }
-            let rest = &text[at + before.len()..];
+            let Some(rest) = opened(&text[at + before.len()..], open) else {
+                continue;
+            };
             let numbered = rest
                 .trim_start_matches('v')
                 .starts_with(|c: char| c.is_ascii_digit());
+            let word = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            let read = !open.is_empty() || (numbered && rest[word..].starts_with(close));
             match version(rest) {
-                Some((stated, tail)) if tail.starts_with(after) => found.push((at, Ok(stated))),
-                _ if after.is_empty() && numbered => found.push((at, Err(before))),
+                Some((stated, tail)) if tail.starts_with(close) => found.push((at, Ok(stated))),
+                _ if read => found.push((at, Err(before))),
                 _ => {}
             }
         }
@@ -674,7 +788,9 @@ fn a_stale_version_is_refused_unless_marked_illustrative() {
          \n\
          Brokkr v0.12.0 ships; the dsh-engine 0.1.5 differs; brokkr init runs.\n\
          \n\
-         brokkr 0.12 and engine 13/13 read as no version.\n",
+         brokkr 0.12 and engine 13/13 read as no version.\n\
+         \n\
+         {\"engine_version\":\"0.8.0\"}, {\"engine_version\" : \"0.12\"}, the [v0.12 release](x).\n",
     )
     .unwrap();
     assert_eq!(
@@ -685,6 +801,9 @@ fn a_stale_version_is_refused_unless_marked_illustrative() {
             "docs/guides/a.md:16: states Brokkr 0.7.0; the workspace is 0.12.0",
             "docs/guides/a.md:20: `brokkr ` is followed by no version this can read",
             "docs/guides/a.md:20: `engine ` is followed by no version this can read",
+            "docs/guides/a.md:22: states Brokkr 0.8.0; the workspace is 0.12.0",
+            "docs/guides/a.md:22: `\"engine_version\"` is followed by no version this can read",
+            "docs/guides/a.md:22: `[v` is followed by no version this can read",
         ]
     );
     assert_eq!(version("0.1.5-rc.1. More"), Some(("0.1.5-rc.1", ". More")));
@@ -699,9 +818,11 @@ fn bare(word: &str) -> String {
         .to_lowercase()
 }
 
-/// A word that is a four-digit decision number, its punctuation dropped.
+/// A word that is a four-digit decision number, its punctuation and the
+/// target of a link it is the text of (`[0069](…)`) dropped.
 fn number(word: Option<&&str>) -> Option<u16> {
-    let word = bare(word?);
+    let word = word?;
+    let word = bare(word.split_once(']').map_or(*word, |(text, _)| text));
     (word.len() == 4 && word.chars().all(|c| c.is_ascii_digit()))
         .then(|| word.parse().expect("four digits"))
 }
@@ -735,9 +856,24 @@ fn called_proposed(text: &str) -> Vec<u16> {
     found
 }
 
+/// The comment a shell line carries: the text after the first `#` that
+/// opens a word, unless it is a shebang. A `#` inside quotes is read as a
+/// comment too, which can only read more.
+fn shell_comment(line: &str) -> Option<&str> {
+    let (at, _) = line.char_indices().find(|&(at, c)| {
+        c == '#'
+            && line[..at]
+                .chars()
+                .next_back()
+                .is_none_or(char::is_whitespace)
+    })?;
+    let comment = &line[at + 1..];
+    (!comment.starts_with('!')).then_some(comment)
+}
+
 /// The prose of a tracked file these rules hold: a doc's blocks, a Rust
-/// source's comments, a script's `#` lines, each a run of adjacent lines
-/// with the line it starts on.
+/// source's comments, a script's [`shell_comment`]s, each a run of adjacent
+/// lines with the line it starts on.
 fn prose(path: &str, text: &str) -> Result<Vec<(usize, String)>, String> {
     let lines: Vec<(usize, String)> = match path.rsplit_once('.').map(|(_, ext)| ext) {
         Some("md") => {
@@ -763,10 +899,7 @@ fn prose(path: &str, text: &str) -> Result<Vec<(usize, String)>, String> {
         _ => text
             .lines()
             .zip(1..)
-            .filter_map(|(line, at)| {
-                let comment = line.trim_start().strip_prefix('#')?;
-                (!comment.starts_with('!')).then(|| (at, comment.to_string()))
-            })
+            .filter_map(|(line, at)| Some((at, shell_comment(line)?.to_string())))
             .collect(),
     };
     let mut runs: Vec<(usize, String, usize)> = Vec::new();
@@ -866,11 +999,14 @@ fn a_decision_called_proposed_is_held_to_the_index() {
              \n\
              ```\n\
              (decision 0069, proposed)\n\
-             ```\n",
+             ```\n\
+             \n\
+             proposed decision [0069](0069-x.md); (decision [0069](x), proposed).\n",
         ),
         (
             "scripts/a.sh",
-            "#!/bin/bash\n# Proposed by decision 0069.\necho proposed decision 0069\n",
+            "#!/bin/bash\n# Proposed by decision 0069.\necho proposed decision 0069\n\
+             true # proposed decision 0069\necho \"#a\" proposed decision 0069 b#c\n",
         ),
         (
             "crates/a/src/open.rs",
@@ -888,16 +1024,20 @@ fn a_decision_called_proposed_is_held_to_the_index() {
             "crates/a/src/lib.rs:6: calls decision 0071 proposed; the index holds no such decision",
             "docs/a.md:1: calls decision 0069 proposed; the index rules it accepted",
             "docs/a.md:7: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:10: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:10: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:2: calls decision 0069 proposed; the index rules it accepted",
+            "scripts/a.sh:4: calls decision 0069 proposed; the index rules it accepted",
             "crates/a/src/open.rs: cannot be read: an unterminated string",
         ]
     );
 }
 
-/// A term the house retired, why, and the citation that lets a block name
-/// it: a block that cites what retired it says so, and is read true.
+/// A term the house retired, by each spelling it is written in, why, and
+/// the citation that lets a block name it: a block that cites what retired
+/// it says so, and is read true.
 struct Retired {
-    term: &'static str,
+    spellings: &'static [&'static str],
     why: &'static str,
     cite: Option<&'static str>,
 }
@@ -910,42 +1050,44 @@ const NEVER_BUILT: &str = "never built (#364): the DeepSeek harness is the built
 
 const RETIRED: [Retired; 8] = [
     Retired {
-        term: "Windows",
+        spellings: &["Windows", "WINDOWS"],
         why: NO_WINDOWS,
         cite: Some("0063"),
     },
     Retired {
-        term: "winget",
+        spellings: &["winget", "Winget", "WinGet", "WINGET"],
         why: NO_WINDOWS,
         cite: Some("0063"),
     },
     Retired {
-        term: "scoop",
+        spellings: &["scoop", "Scoop"],
         why: NO_WINDOWS,
         cite: Some("0063"),
     },
+    // The Cordis/DeepSeek harness; Cordis stays dsh's own framework, which
+    // [`ALLOWED`] lets the dsh extension and #226's change name.
     Retired {
-        term: "Cordis/DeepSeek",
+        spellings: &["Cordis"],
         why: NEVER_BUILT,
         cite: None,
     },
     Retired {
-        term: "Surface",
+        spellings: &["Surface"],
         why: NEVER_BUILT,
         cite: None,
     },
     Retired {
-        term: "brokkr-api",
+        spellings: &["brokkr-api"],
         why: "never built (#364): `brokkr ui` serves the console from brokkr-cli",
         cite: None,
     },
     Retired {
-        term: "policy/schemas",
+        spellings: &["policy/schemas"],
         why: "removed: `policy/` holds the production table alone",
         cite: None,
     },
     Retired {
-        term: "bundles/",
+        spellings: &["bundles/"],
         why: "decision 0078 moved Brokkr's own bundles into `recipes/` (#359)",
         cite: None,
     },
@@ -953,7 +1095,17 @@ const RETIRED: [Retired; 8] = [
 
 /// Living docs that may name a retired term, each with its reason. An
 /// allowance that covers nothing fails, so none outlives its text.
-const ALLOWED: [(&str, &str, &str); 7] = [
+const ALLOWED: [(&str, &str, &str); 9] = [
+    (
+        "extensions/dsh/",
+        "Cordis",
+        "dsh's own framework, which the vendored extension builds on",
+    ),
+    (
+        "openspec/changes/2026-09-09-226-session-resumption/",
+        "Cordis",
+        "#226's change names dsh's own framework, its patch and its hooks",
+    ),
     (
         "docs/research/",
         "Windows",
@@ -1016,15 +1168,22 @@ fn whole_word(text: &str, at: usize, term: &str) -> bool {
 /// why it was retired.
 fn retired_in(text: &str) -> Vec<(usize, &'static str, &'static str)> {
     let mut found = Vec::new();
-    for Retired { term, why, cite } in RETIRED {
+    for Retired {
+        spellings,
+        why,
+        cite,
+    } in RETIRED
+    {
         if cite.is_some_and(|cite| text.contains(cite)) {
             continue;
         }
-        found.extend(
-            text.match_indices(term)
-                .filter(|&(at, _)| whole_word(text, at, term))
-                .map(|(at, _)| (at, term, why)),
-        );
+        for &term in spellings {
+            found.extend(
+                text.match_indices(term)
+                    .filter(|&(at, _)| whole_word(text, at, term))
+                    .map(|(at, _)| (at, term, why)),
+            );
+        }
     }
     found
 }
@@ -1076,7 +1235,9 @@ fn a_retired_term_is_refused_outside_its_citation_and_its_allowance() {
          The `brokkr-api` crate, a Surface driver, the Cordis/DeepSeek harness,\n\
          `policy/schemas/` and `bundles/self` are gone; `<repo>/bundles/fast` too.\n\
          \n\
-         Context windows, a read surface, recipes/my-bundles/ and cordis.patch.yml are not.\n",
+         Context windows, a read surface, recipes/my-bundles/ and cordis.patch.yml are not.\n\
+         \n\
+         WINDOWS hosts, Winget, WinGet, WINGET, Scoop and a Cordis hook.\n",
     )
     .unwrap();
     let research = doc("docs/research/a.md", "CI runs on Windows.\n").unwrap();
@@ -1090,12 +1251,18 @@ fn a_retired_term_is_refused_outside_its_citation_and_its_allowance() {
             "docs/guides/a.md:3: names `Windows`, retired: decision 0063: the hosts are Linux and macOS",
             "docs/guides/a.md:3: names `winget`, retired: decision 0063: the hosts are Linux and macOS",
             "docs/guides/a.md:3: names `scoop`, retired: decision 0063: the hosts are Linux and macOS",
-            "docs/guides/a.md:5: names `Cordis/DeepSeek`, retired: never built (#364): the DeepSeek harness is the built-in dsh adapter",
+            "docs/guides/a.md:5: names `Cordis`, retired: never built (#364): the DeepSeek harness is the built-in dsh adapter",
             "docs/guides/a.md:5: names `Surface`, retired: never built (#364): the DeepSeek harness is the built-in dsh adapter",
             "docs/guides/a.md:5: names `brokkr-api`, retired: never built (#364): `brokkr ui` serves the console from brokkr-cli",
             "docs/guides/a.md:6: names `policy/schemas`, retired: removed: `policy/` holds the production table alone",
             "docs/guides/a.md:6: names `bundles/`, retired: decision 0078 moved Brokkr's own bundles into `recipes/` (#359)",
             "docs/guides/a.md:6: names `bundles/`, retired: decision 0078 moved Brokkr's own bundles into `recipes/` (#359)",
+            "docs/guides/a.md:10: names `WINDOWS`, retired: decision 0063: the hosts are Linux and macOS",
+            "docs/guides/a.md:10: names `Winget`, retired: decision 0063: the hosts are Linux and macOS",
+            "docs/guides/a.md:10: names `WinGet`, retired: decision 0063: the hosts are Linux and macOS",
+            "docs/guides/a.md:10: names `WINGET`, retired: decision 0063: the hosts are Linux and macOS",
+            "docs/guides/a.md:10: names `Scoop`, retired: decision 0063: the hosts are Linux and macOS",
+            "docs/guides/a.md:10: names `Cordis`, retired: never built (#364): the DeepSeek harness is the built-in dsh adapter",
             "docs/guides/b.md: allows `winget`, which it no longer names",
         ]
     );
