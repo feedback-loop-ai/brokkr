@@ -2352,7 +2352,7 @@ fn in_flight_store(path: &Path, run_id: &str) -> Store {
     store
 }
 
-fn parked_store(path: &Path, run_id: &str) -> Store {
+pub(super) fn parked_store(path: &Path, run_id: &str) -> Store {
     let mut store = in_flight_store(path, run_id);
     for (event_type, payload, attempt_id) in [
         (

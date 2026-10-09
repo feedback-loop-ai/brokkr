@@ -1,16 +1,9 @@
 # What it does
 
-You hand Brokkr a feature and a **recipe** (a delivery strategy:
-policy table, seats, charters, limits, drivers — reviewable text,
-identified by content digest). The engine drives real agent sessions
-through the recipe's phases — implement, verify, review, ship — ruling
-on each typed result with a pinned first-match-wins policy. Unknowns
-never advance: schema violations, unmatched results, exhausted retries,
-and security findings park or stop the run with raw evidence attached.
-The operator's judgment enters only as journal events. They are
-hash-chained, not signed: decision 0008 defers the signing service. The
-chain is unkeyed, so a verified chain detects an edit that left the
-hashes stale, not a rewrite that recomputed them, and not who wrote it.
+What Brokkr does opens [ARCHITECTURE.md](../../ARCHITECTURE.md): a
+feature and a recipe in, each typed result ruled by a pinned table, and
+the operator's judgment entered as hash-chained, unsigned journal
+events. This guide is the tour.
 
 ```
 brokkr run --recipe fast --repo . --feature "…"     # deliver
@@ -61,9 +54,6 @@ brokkr compare <a> <b>                              # journal-backed A/B
   candidate-bound evidence law before landing. The
   [adoption guide](adopting-a-node-repo.md) is the path
   that run took.
-
-[ARCHITECTURE.md](../../ARCHITECTURE.md) is the deep dive: crates, journal,
-effect discipline, verification layers. This guide stays the tour.
 
 ## Determinism laws
 

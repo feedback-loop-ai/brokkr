@@ -637,12 +637,13 @@ fn every_known_limitation_links_its_issue() {
 
 /// Records whose words are fixed when they are written, and so are not
 /// living docs.
-const RECORDS: [&str; 6] = [
+const RECORDS: [&str; 7] = [
     "docs/decisions/",
     "docs/releases/",
     "docs/lore/",
     "docs/essays/",
     "docs/evidence/",
+    "docs/history/",
     "openspec/changes/archive/",
 ];
 
