@@ -4,7 +4,7 @@
 
 /// Paths whose words are records, each with the reason it is not
 /// rewritten to today's rules.
-pub(crate) const RECORDS: [(&str, &str); 10] = [
+pub(crate) const RECORDS: [(&str, &str); 11] = [
     ("contracts/", "frozen contract bodies"),
     ("reference/", "frozen heritage"),
     ("fixtures/", "frozen fixtures"),
@@ -19,6 +19,10 @@ pub(crate) const RECORDS: [(&str, &str); 10] = [
         "an essay reports what happened, as it happened",
     ),
     ("docs/evidence/", "evidence records work as it happened"),
+    (
+        "docs/history/",
+        "a superseded blueprint is kept as it was last edited",
+    ),
     (
         "docs/research/",
         "a research entry reads an article as of its date",

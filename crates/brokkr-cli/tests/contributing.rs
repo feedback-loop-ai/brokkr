@@ -1870,12 +1870,12 @@ fn the_boundary_guides_keep_every_section_and_gained_the_rows() {
             &["the realm's **boundary** (decision 0046)", "0046 ruling 5"],
         ),
         (
-            "docs/extension-model.md",
+            "docs/history/extension-model.md",
             &["**Status**: partially accepted", "| `trust` |"],
             &["The wall itself is the realm's `boundary` (decision 0046"],
         ),
         (
-            "docs/target-architecture.md",
+            "docs/history/target-architecture.md",
             &[
                 "**Status**: implementation blueprint, accepted 2026-08-22",
                 "| `policy-confined` |",
@@ -1954,7 +1954,9 @@ fn the_boundary_guides_keep_every_section_and_gained_the_rows() {
 /// Section and table-label inventory from the committed pre-0046 guides.
 /// New sections are welcome; deleting existing guidance is not part of this slice.
 /// One row left by ruling, not by drift: decision 0063 retired the quickstart's
-/// `scoop` channel with the Windows host.
+/// `scoop` channel with the Windows host. The two blueprints left the
+/// inventory for `docs/history/` (#364): a record is not a guide.
+/// ARCHITECTURE's status line names no blueprint since.
 #[test]
 fn every_original_guide_section_and_table_row_remains_available() {
     let inventory = [
@@ -1965,9 +1967,7 @@ fn every_original_guide_section_and_table_row_remains_available() {
         ("docs/guides/read-surfaces.md", "# The read surfaces\n### `brokkr realms` — the world\n### `brokkr runs` — the fleet\n### `brokkr inspect` — one run, explained\n### `brokkr watch` — the same, live\n### `brokkr tui` — the readouts made explorable\n### `brokkr ui` — the browser console\n### `brokkr muninn` — the fleet, read and advised on", "", ""),
         ("docs/guides/repository-layout.md", "# Repo layout", "Path\n---\n[`ARCHITECTURE.md`](../../ARCHITECTURE.md)\n[`CONTRIBUTING.md`](../../CONTRIBUTING.md)\n`crates/`\n`contracts/`\n`realms.json`\n`docs/house-rules.md`\n`recipes/`\n`agents/`\n`dialects/`\n`adapters/`\n`fixtures/`\n`policy/phase-machine.json`\n[`docs/decisions/`](../decisions/)\n[`docs/lore/`](../lore/)\n`assets/`\n`reference/`\n`scripts/coverage-exact.sh`", ""),
         ("docs/guides/driver-authoring.md", "# Driver authoring — the `forge-driver/v1` wire contract\n## Transport\n## The message family\n## The exchange, in order\n## What the engine actually sends\n## `resume` — rejoining the session you opened\n## `accepted` is the load-bearing message\n## Checkpoints\n## Results\n## The result-file contract\n## Deadlines and kills\n## A minimal driver, in prose\n## The conformance suite is the acceptance test\n## Wiring it into a bundle\n## See also", "Message\n---\n`hello`\n`capabilities`\n`start`\n`accepted`\n`checkpoint`\n`result`\n`resume`\n`cancel`\n`cancelled`\n`shutdown`\nWhat happened\nYour process exits **without** `accepted` and without a result\nYour process exits **after** `accepted` and without a result\nYou send `result` with `status: \"failed\"`\nYou violate the protocol\nField\n`input_tokens`\n`output_tokens`\n`cache_read_tokens`\n`reasoning_output_tokens`\n`cache_write_tokens`\nKey\n`inputs`\n`notes`\n`model`\n`effort`", ""),
-        ("ARCHITECTURE.md", "# Architecture\n## The shape\n## The journal is the run\n## Every effect, in order\n## Policy is data\n## A bundle, resolved\n## Drivers\n## Verification, in layers\n## The operating surface", "Layer\n---\nDifferential corpus\nMachine proof\nSelf-delivery\nBrokkr verification", "**Status**: the system as implemented. The blueprint it grew from is"),
-        ("docs/extension-model.md", "# Extension model — nodes, seats, and what may never be unplugged\n## Layer 1 — Phases (nodes of the outer machine)\n## Layer 2 — Seats (agents inside a phase)\n## Layer 3 — Profiles (the stack-specific bundle)\n## Resolved\n## Open questions for discussion", "Field\n---\n`role`\n`class`\n`trust`\n`result_schema`\n`driver`", "**Status**: partially accepted. Decisions 0002 and 0003 lock the outer-machine,"),
-        ("docs/target-architecture.md", "# Target architecture\n## Product contract\n## System shape\n## Rust workspace and one shipped binary\n## State and control status\n## Event and effect protocol\n## SQLite and artifacts\n## Declarative bundles\n## Run manifest and versioning\n## Drivers and isolation\n## Cordis and other long-horizon harnesses\n## Local API and embedded UI\n## Audit and evaluation\n## Installation and operation\n## Delivery sequence\n## First-release acceptance criteria\n## Deferred choices\n## References", "Crate\n---\n`brokkr-core`\n`brokkr-store`\n`brokkr-runtime`\n`brokkr-protocol`\n`brokkr-api`\n`brokkr-cli`\nPrimitive\n`seat`\n`parallel`\n`join`\n`loop`\n`gate`\n`tool`\n`submachine`\n`emit-result`\nTrust\n`trusted`\n`policy-confined`\n`public-evidence-only`", "**Status**: implementation blueprint, accepted 2026-08-22 under"),
+        ("ARCHITECTURE.md", "# Architecture\n## The shape\n## The journal is the run\n## Every effect, in order\n## Policy is data\n## A bundle, resolved\n## Drivers\n## Verification, in layers\n## The operating surface", "Layer\n---\nDifferential corpus\nMachine proof\nSelf-delivery\nBrokkr verification", "**Status**: the system as implemented. Where this page and a numbered"),
     ];
     for (path, headings, labels, statuses) in inventory {
         let text = std::fs::read_to_string(workspace().join(path)).unwrap();

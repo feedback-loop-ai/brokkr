@@ -14,6 +14,7 @@ front of you.
 - [`bundle.json` anatomy](#bundlejson-anatomy)
 - [Seat bodies: single, panel, sequence, select](#seat-bodies-single-panel-sequence-select)
 - [Composition: `extends` and `override`](#composition-extends-and-override)
+- [Adding a phase or a seat](#adding-a-phase-or-a-seat)
 - [Digest identity](#digest-identity)
 - [The policy table](#the-policy-table)
 - [The condition vocabulary](#the-condition-vocabulary)
@@ -554,6 +555,33 @@ prints the resolved result plus a `composed_from` chain naming each
 ancestor and its digest, and that chain rides in the run manifest under
 the reserved `@compose/` prefix — so a run states not only what it ran
 but what it was composed from.
+
+## Adding a phase or a seat
+
+Two different things get called "adding an agent", and they extend at
+two different layers.
+
+**A phase is a table diff.** Name it in `phases`, splice its rules into
+the ordered list, and give it a seat. Removing one re-routes the rules
+around it. The engine hardcodes no phase sequence: it knows `initial`,
+`terminal` and the table, and a derived recipe makes either change
+through `extends` and its markers, never a copy.
+
+**The protected phase cannot be unplugged by a table edit.** The
+compiler walks the resolved table and refuses any path to a non-`stop`
+terminal that skips `protected_phase` ([anatomy](#bundlejson-anatomy)).
+A plausible-looking edit cannot disarm it; changing that law means
+changing the compiler, a second diff no single helpful edit produces.
+
+**A seat is data, not code**: a charter or an `agent` reference, a
+closed `results` vocabulary, a driver and limits. A reviewer added to a
+panel or a step added to a sequence is a bundle edit and no engine
+change.
+
+**A seat's id belongs to the pinned bundle.** Every seat has a stable id
+that the journal, the driver protocol's `start` and the cost ledger's
+joins share (`brokkr costs`). A cost ledger such as LaneTally owns cost
+truth, never orchestration identity.
 
 ## Digest identity
 

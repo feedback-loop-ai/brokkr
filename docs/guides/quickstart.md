@@ -626,10 +626,11 @@ exact head it folded, so a journal that moves beneath it — something
 still driving the run — makes `conclude` refuse with the look-first
 instruction rather than close over live work. A refusal is evidence,
 not an inconvenience: a moved head means the run is not dead, and
-`conclude` is for a run believed dead. `resume` still carries the
-unfenced hazard on its fresh-process branch; decision 0029 (proposed)
-rules on fencing that tail. Either way, `brokkr runs` is how you look
-before closing.
+`conclude` is for a run believed dead. `resume` is fenced the same way
+(decision 0029): what it decides on its fold, closing an attempt it
+finds open included, lands only on the head that fold read, and a
+moved journal ends it with the drift named. Either way, `brokkr runs`
+is how you look before closing.
 
 #### Re-run under another strategy
 

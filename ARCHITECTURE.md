@@ -1,15 +1,22 @@
 # Architecture
 
-**Status**: the system as implemented. The blueprint it grew from is
-[docs/target-architecture.md](docs/target-architecture.md); where this
-page and a numbered [decision](docs/decisions/) disagree, the decision
-wins.
+**Status**: the system as implemented. Where this page and a numbered
+[decision](docs/decisions/) disagree, the decision wins. The blueprints
+it grew from are kept, superseded, in [docs/history/](docs/history/).
 
 Brokkr is a deterministic process manager wrapped around stochastic,
-fallible effects. Agent sessions are leaves. Their outputs are typed
-results. Only a pinned policy table ever selects a transition, and
-every claim the system makes — done, verified, parked, stopped, paid —
-is a journaled fact that replays byte for byte.
+fallible effects. You hand it a feature and a **recipe**: a delivery
+strategy as reviewable data, identified by content digest. The engine
+drives agent sessions through the recipe's phases and rules on each
+typed result with a pinned first-match-wins table. Sessions are
+leaves; only the table selects a transition. Unknowns never advance:
+schema violations, unmatched results, exhausted retries and security
+findings park or stop the run with the raw evidence attached. Every
+claim — done, verified, parked, stopped, paid — is a journaled fact
+that replays byte for byte, and the operator's judgment enters only as
+journal events. They are hash-chained and unsigned (decision 0008
+defers signing): a verified chain detects an edit that left the hashes
+stale, not a rewrite that recomputed them, nor who wrote it.
 
 ## The shape
 
@@ -23,24 +30,24 @@ flowchart TB
     store[("brokkr-store<br/>SQLite journal, hash-chained")]
     protocol["brokkr-protocol<br/>forge-driver/v1 over stdio"]
     view["brokkr-view — PURE<br/>one display derivation"]
-    bridge["brokkr-bridge<br/>dispatch bridge over verified journals"]
-    cli --> runtime & view & bridge
+    bridge["brokkr-bridge<br/>Looper dispatch over verified journals"]
+    cli --> runtime & view & bridge & core & store & protocol
     runtime --> core & store & protocol
     view --> core
-    bridge --> store & runtime
+    bridge --> core & store & runtime
     store --> core
   end
-  protocol -- "NDJSON" --> harness([Claude Code · Codex · dsh · exec<br/>capability, as leaf effects])
+  protocol -- "NDJSON" --> harness([Claude Code · Codex · dsh · LaneTally · exec<br/>capability, as leaf effects])
   seatbelt-probe["brokkr-seatbelt-probe<br/>test-support"]
 ```
 
-Every edge is a real dependency and every crate is drawn, without transitive
-edges (decision 0037).
+Every edge is a declared dependency, every `[dependencies]` entry between
+workspace crates is an edge, and every crate is drawn (decision 0037).
 
 `brokkr-core` performs no I/O, clock reads, randomness or process execution,
 so state and ruling replay exactly; effects sit above, journaled.
 `brokkr-view`, equally pure, renders one answer, HTML or terminal text, from
-`brokkr-core`, `serde` and `serde_json` alone (decision 0013). Gates hold both
+`brokkr-core`, `serde`, `serde_json` and `unicode-width` alone (decision 0013). Gates hold both
 against mistakes, not adversaries (decision 0071 ruling 1): `clippy.toml`,
 `deny.toml` bans, `brokkr-cli/tests/layering/`.
 
@@ -89,13 +96,13 @@ stateDiagram-v2
   [*] --> requested: effect/requested committed
   requested --> started: effect/started durable, then the driver spawns
   started --> started: effect/checkpointed
-  started --> succeeded
-  started --> failed
-  started --> indeterminate: crash · driver vanished · in flight at restart
+  started --> succeeded: effect/succeeded
+  started --> failed: effect/failed
+  started --> indeterminate: effect/indeterminate · crash · driver vanished · in flight at restart
   succeeded --> [*]: typed result to the table
   failed --> requested: attempts < max_attempts
-  failed --> parked: attempts exhausted
-  indeterminate --> parked: never auto-retried
+  failed --> parked: run/parked · attempts exhausted
+  indeterminate --> parked: run/parked · never auto-retried
   parked --> [*]: awaiting_operator, raw evidence attached
 ```
 
@@ -124,7 +131,7 @@ completed run.
 ```mermaid
 flowchart LR
   result["typed result<br/>from the seat"] --> inputs
-  engine["engine-owned inputs<br/>consecutive_failures · drift · dirty · reviewed heads<br/>visits_‹phase› · realm_facts"] --> inputs
+  engine["engine-owned inputs<br/>consecutive_failures · drift_detected · dirty_worktrees · reviewed_heads<br/>strategy · fixes_docs_only · realm_facts · visits_‹phase›"] --> inputs
   declared["inputs the seat declared"] --> inputs
   other["anything else"] -- "dropped before the table or the record" --> bin["nothing"]
   inputs["evaluation inputs"] --> table{{"policy.json<br/>first match wins · closed vocabulary"}}
@@ -180,8 +187,9 @@ receives the result that sent it back as `context.returned_from`.
 The world is chosen at invocation (decision 0023): `realms.json` names
 the repositories a run may see and the journal they share, is pinned by
 content hash into the run manifest, and `resume` rehydrates it from that
-pin rather than from the disk. A realm publishes a file, another pins
-its bytes, and the loader verifies at world load (decision 0057).
+pin rather than from the disk. A **crossing** is a file one realm
+publishes and another pins by its bytes, verified at world load
+(decision 0057).
 
 ## A bundle, resolved
 
@@ -221,6 +229,21 @@ gets no gate authority merely by being local. Fallback is bounded to failure
 before acceptance; sessions cannot switch models midway. Authorising adapters
 are pinned, so a changed trust declaration changes bundle identity.
 
+## Triage, the council and the SDD route
+
+`recipes/triage` opens with a chief-grade **triage** gate that rules a
+closed delivery class: `chore`, `feature`, `design`, `engine` or
+`escalate`. The fold keeps it as the engine-owned `strategy`, and
+`select` bodies read it to seat the later offices (decision 0041).
+`design` and `engine` take the spec-driven route of decision 0042:
+specify, clarify, design, tasks and analyze, then implement. The
+**council** is Brokkr's: position seats argue as a panel and a chief
+architect drafts. The **dialect** is the realm's: `realms.json` names
+one, such as OpenSpec, whose validate and check tools Brokkr pins and
+runs as boxed exec gates; the dialect's own workflow never drives the
+machine. Returns are bounded by `visits_<phase>`: a spec defect goes
+back to specify, an oversized implementation back to triage.
+
 ## Drivers
 
 ```mermaid
@@ -230,6 +253,9 @@ sequenceDiagram
   participant H as harness
   E->>D: hello
   D-->>E: capabilities
+  opt the driver supports resume
+    E->>D: resume — the session it opened
+  end
   E->>D: start — seat prompt, result path, deadline
   D->>H: spawn on the host
   D-->>E: accepted
@@ -239,14 +265,19 @@ sequenceDiagram
   end
   H-->>D: exit, typed result file
   D-->>E: result
+  E->>D: shutdown
+  opt answered by the adapters, never sent · a deadline kills the process
+    E->>D: cancel
+    D-->>E: cancelled
+  end
   Note over E,D: unknown message types fail closed · a driver that vanishes after accepted leaves the attempt indeterminate
 ```
 
 Drivers speak `forge-driver/v1`
 ([contracts/driver-protocol.v1.schema.json](contracts/driver-protocol.v1.schema.json)):
 NDJSON over stdio, stdout protocol-only, stderr captured as an artifact.
-The adapters for Claude Code, Codex, dsh and any
-prompt-in/result-file-out harness are built into the binary as
+The adapters for Claude Code, Codex, dsh, LaneTally's Claude Code wrapper
+and any prompt-in/result-file-out harness (`exec`) are built in as
 `{brokkr} driver <kind>` (decision 0009), while the protocol stays
 language-neutral for third-party drivers. What stands around a seat's
 hands is the realm's **boundary** (decision 0046): `namespace`,
@@ -271,14 +302,9 @@ CLI, TUI and web readouts retain that fact.
 
 ## The operating surface
 
-```text
-brokkr init · doctor · compile · run · resume · operator · inspect · watch ·
-       replay · export · import · verify-run · runs · costs · anchor ·
-       ui · tui · muninn · driver
-```
-
-Verbs, flags and [exit codes](docs/reference/cli.md#exit-codes): the
-[CLI reference](docs/reference/cli.md).
+Every verb, flag and [exit code](docs/reference/cli.md#exit-codes) is
+in the [CLI reference](docs/reference/cli.md), rendered from the
+binary's own definitions.
 `brokkr ui`, `brokkr tui` and `brokkr inspect` are three renderers over
 the same `brokkr-view` models (decision 0014): read-only, no operator
 command, nothing written to the journal. `brokkr costs` reports per-seat

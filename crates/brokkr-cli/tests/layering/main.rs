@@ -117,6 +117,35 @@ fn metadata() -> &'static Metadata {
     })
 }
 
+/// The workspace's own packages.
+fn members(metadata: &Metadata) -> Vec<&Package> {
+    metadata
+        .packages
+        .iter()
+        .filter(|package| metadata.workspace_members.contains(&package.id))
+        .collect()
+}
+
+/// Every edge between two workspace crates that is not a dev edge, as
+/// `(parent, child)`: the graph the shipped crates link, which the crate
+/// diagram in `ARCHITECTURE.md` draws (#364). Cargo reads every table form,
+/// dotted, renamed and target-specific alike, so none is skipped.
+pub(crate) fn shipped_workspace_edges() -> BTreeSet<(String, String)> {
+    let members = members(metadata());
+    let names: BTreeSet<&str> = members.iter().map(|member| member.name.as_str()).collect();
+    members
+        .iter()
+        .flat_map(|package| {
+            package
+                .dependencies
+                .iter()
+                .filter(|dependency| dependency.kind != Some(Kind::Dev))
+                .filter(|dependency| names.contains(dependency.name.as_str()))
+                .map(|dependency| (package.name.clone(), dependency.name.clone()))
+        })
+        .collect()
+}
+
 /// The one registry every package outside the workspace comes from.
 const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
@@ -507,11 +536,7 @@ fn the_graph_refuses_every_edge_it_does_not_allow() {
 fn every_manifest_edge_is_in_the_allowed_graph() {
     let parents = allowed_parents(&read("deny.toml")).expect("deny.toml's [bans] reads");
     let metadata = metadata();
-    let members: Vec<&Package> = metadata
-        .packages
-        .iter()
-        .filter(|package| metadata.workspace_members.contains(&package.id))
-        .collect();
+    let members = members(metadata);
     let ungoverned: Vec<&str> = members
         .iter()
         .map(|package| package.name.as_str())
