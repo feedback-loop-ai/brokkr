@@ -598,7 +598,7 @@ fn bwrap_is_required_not_simulated() {
         Err("hands doing: boom".to_string())
     );
     assert_eq!(io_context(Ok(1), "doing"), Ok(1));
-    let session = Session::create("test").unwrap();
+    let session = Session::create_under(dir.path(), "test").unwrap();
     assert!(session.path().is_dir());
 }
 
@@ -873,7 +873,7 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
     let host_secret = dir.path().join("host-secret");
     std::fs::write(&host_secret, "never\n").unwrap();
     let spec = HandsSpec::default();
-    let owner = Session::create("test").unwrap();
+    let owner = Session::create_under(dir.path(), "test").unwrap();
     let session = owner.path().to_path_buf();
     let long = Duration::from_secs(30);
 
@@ -1136,7 +1136,7 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     assert_eq!(git_facts(dir.path()).common_dir, None);
 
     let spec = HandsSpec::default();
-    let owner = Session::create("git").unwrap();
+    let owner = Session::create_under(dir.path(), "git").unwrap();
     let session = owner.path().to_path_buf();
     let long = Duration::from_secs(30);
     let status = execute(

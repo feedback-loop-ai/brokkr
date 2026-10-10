@@ -282,6 +282,44 @@ fn a_hostile_tree_name_is_said_sanitized() {
     );
 }
 
+fn mode(path: &Path, bits: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(bits)).unwrap();
+}
+
+/// #620: a dead tree the start would reap but cannot remove is said on
+/// stderr, with the removal's error, and left whole.
+#[test]
+fn an_unremovable_dead_tree_is_said_at_the_start() {
+    let tmp = tempfile::tempdir().unwrap();
+    let uuid = "123e4567-e89b-12d3-a456-426614174000";
+    let tree = tmp
+        .path()
+        .join(format!("brokkr-hands-exec-{}-{uuid}", dead_pid()));
+    let sealed = tree.join("sealed");
+    std::fs::create_dir_all(&sealed).unwrap();
+    std::fs::write(sealed.join("call"), "").unwrap();
+    mode(&sealed, 0o500);
+
+    let bundle = reap_bundle(tmp.path());
+    let started = start_run(tmp.path(), &bundle);
+    mode(&sealed, 0o700);
+    let stderr = String::from_utf8_lossy(&started.stderr);
+
+    assert_eq!(
+        stderr.lines().nth(1),
+        Some(
+            format!(
+                "hands: kept {}: it cannot be removed: Permission denied (os error 13)",
+                tree.display()
+            )
+            .as_str()
+        ),
+        "{stderr}"
+    );
+    assert!(sealed.join("call").is_file(), "the tree is left whole");
+}
+
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn hands_exec_runs_the_command_whole_and_returns_its_code() {
