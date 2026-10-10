@@ -69,7 +69,7 @@
    218 crates/brokkr-protocol/src/fake.rs
   1170 crates/brokkr-protocol/src/hands.rs
    798 crates/brokkr-protocol/src/hands/namespace.rs
-   497 crates/brokkr-protocol/src/hands/namespace/entry.rs
+   495 crates/brokkr-protocol/src/hands/namespace/entry.rs
    800 crates/brokkr-protocol/src/hands/namespace/sources.rs
    755 crates/brokkr-protocol/src/hands/namespace/sources/host.rs
    700 crates/brokkr-protocol/src/hands/namespace/sources/launcher.rs
@@ -139,7 +139,7 @@
    266 crates/brokkr-cli/src/agents/tests.rs
    339 crates/brokkr-cli/src/boundary/tests.rs
    753 crates/brokkr-cli/src/broker/bootstrap/tests.rs
-   459 crates/brokkr-cli/src/broker/session/readiness/tests.rs
+   467 crates/brokkr-cli/src/broker/session/readiness/tests.rs
   1631 crates/brokkr-cli/src/cli_reference_tests.rs
    422 crates/brokkr-cli/src/compare/tests.rs
   1978 crates/brokkr-cli/src/doctor/capability_tests.rs

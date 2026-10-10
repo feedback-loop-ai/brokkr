@@ -313,10 +313,8 @@ impl ServerEntry {
     #[cfg(target_os = "linux")]
     fn mounts(&self) -> impl Iterator<Item = (usize, String)> + '_ {
         self.argv.windows(3).filter_map(|words| match words {
-            [Word::Text(flag), Word::Handle(place), Word::Text(target)]
-                if flag == DESCRIPTOR_MOUNT =>
-            {
-                Some((*place, target.clone()))
+            [Word::Text(flag), Word::Handle(place), Word::Text(target)] => {
+                (flag == DESCRIPTOR_MOUNT).then(|| (*place, target.clone()))
             }
             _ => None,
         })

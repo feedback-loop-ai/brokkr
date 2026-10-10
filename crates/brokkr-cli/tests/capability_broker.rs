@@ -1613,7 +1613,7 @@ fn unprovable_or_unobserved_writers_and_sources_and_exposed_control_roots_refuse
     let answer = sealed.serve_in(&sealed.locator, &digest, |command| {
         command.env("HOME", &sealed.home).env("TMPDIR", &file);
     });
-    assert_eq!(answer, refused(Refusal::Establishment));
+    assert_eq!(answer, past_prepare(Refusal::Establishment));
 }
 
 #[test]

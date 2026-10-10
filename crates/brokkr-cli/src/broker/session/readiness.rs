@@ -262,7 +262,7 @@ mod linux {
     }
 
     /// The network the bootstrap's intent names.
-    fn egress(network: &Network) -> Egress {
+    pub(super) fn egress(network: &Network) -> Egress {
         match network {
             Network::Isolated => Egress::Isolated,
             Network::Shared => Egress::Shared,

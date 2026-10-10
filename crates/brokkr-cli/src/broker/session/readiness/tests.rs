@@ -13,8 +13,8 @@ use serde_json::json;
 
 use super::super::helper::{handed, received};
 use super::linux::{
-    decided, first, framed, message, read, sent, Egress, Intent, Ready, Seen, Source, Spaces,
-    FRAME_MAX,
+    decided, egress, first, framed, message, read, sent, Egress, Intent, Ready, Seen, Source,
+    Spaces, FRAME_MAX,
 };
 use super::{compared, ready, Admitted, Record, Startup};
 
@@ -456,4 +456,12 @@ fn the_intent_is_one_frame_of_at_most_four_kibibytes() {
     assert_eq!(at.map(|frame| frame.len()), Ok(FRAME_MAX + 4));
     let over = framed(&intent(&"a".repeat(FRAME_MAX - fixed + 1)));
     assert_eq!(over, Err(Refusal::Establishment));
+}
+
+#[test]
+fn each_network_the_intent_names_reaches_the_bootstrap_by_its_own_word() {
+    use brokkr_protocol::broker::Network;
+    let words = [Network::Isolated, Network::Shared]
+        .map(|network| serde_json::to_value(egress(&network)).unwrap());
+    assert_eq!(words, [json!("isolated"), json!("shared")]);
 }
