@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/host.v1.json",
+  "title": "Forge host configuration v1",
+  "description": "One machine's capacity for runs the dispatcher admits (decision 0068 ruling 3 and ruling 5's data; the operator's ruling of 2026-10-10, option B). It belongs to the machine, never to a realm: one scratch disk, one set of provider accounts and its own local hardware, whichever realm a run operates. Brokkr reads it from $XDG_CONFIG_HOME/brokkr/host.json, else $HOME/.config/brokkr/host.json. Every ceiling is a positive integer no greater than 4294967295: zero, a negative and an overflowing value are refused, never read as unlimited. Every object is closed. Cool-down bounds are not part of v1.",
+  "type": "object",
+  "required": ["schema", "providers", "scratch", "boxed_builds"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "forge.host/v1" },
+    "providers": {
+      "type": "object",
+      "description": "Provider name, as an adapter's provider field names it (claude, codex, dsh, exec, ...), to its concurrency ceiling. A provider a queued run would seat that is not named here holds the run undeclared.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["ceiling"],
+        "additionalProperties": false,
+        "properties": {
+          "ceiling": { "$ref": "#/definitions/ceiling", "description": "The running runs that seat this provider, each counted once, below which another may start. A seat on a shared-local route of the provider is not counted here." },
+          "routes": {
+            "type": "object",
+            "description": "Route name, the route a seat's driver serves the concrete model id the adapter maps on: the id's prefix before its first / (decision 0036 ruling 2), else the driver's default route (dsh serves a bare id on deepseek-official), to its ceiling and class. A route a queued run would seat that is not named here holds the run undeclared.",
+            "additionalProperties": { "$ref": "#/definitions/route" }
+          }
+        }
+      }
+    },
+    "scratch": {
+      "type": "object",
+      "required": ["floor_bytes"],
+      "additionalProperties": false,
+      "properties": {
+        "floor_bytes": { "type": "integer", "minimum": 1, "maximum": 18446744073709551615, "description": "The free bytes the seat scratch filesystem must hold for another run to start." },
+        "path": { "type": "string", "pattern": "^/", "description": "The absolute path whose filesystem is measured, where it is not the scratch default: the .forge/scratch directory of the repository the queued run operates, where its seats' scratch trees are made. A path not made yet is measured on the filesystem that would hold it." }
+      }
+    },
+    "boxed_builds": {
+      "type": "object",
+      "required": ["ceiling"],
+      "additionalProperties": false,
+      "properties": {
+        "ceiling": { "$ref": "#/definitions/ceiling", "description": "The running runs that build behind a boxed boundary (namespace, seatbelt or container) below which another boxed run may start." }
+      }
+    }
+  },
+  "definitions": {
+    "ceiling": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+    "route": {
+      "type": "object",
+      "required": ["ceiling", "class"],
+      "additionalProperties": false,
+      "properties": {
+        "ceiling": { "$ref": "#/definitions/ceiling" },
+        "class": { "enum": ["cloud", "shared-local"], "description": "cloud: behind a provider account, counted against this ceiling and the provider's. shared-local: on local hardware the machine shares with other work (decision 0068 ruling 5), counted against this ceiling in place of the provider's." }
+      }
+    }
+  }
+}

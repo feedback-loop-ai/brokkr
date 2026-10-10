@@ -42,7 +42,7 @@ mod attribution;
 mod binding;
 mod dialect;
 mod gates;
-mod manifest;
+pub(crate) mod manifest;
 use crate::bundle::SeatClass;
 use binding::Unserved;
 pub(crate) use binding::ABSENT_EGRESS_MINIMUM;

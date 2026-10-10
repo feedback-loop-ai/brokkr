@@ -729,10 +729,8 @@ pub struct HarnessHands {
 /// claim it — a bare id keeps the adapter default's standing, and an
 /// unlisted prefix is an ordinary route that takes an effort.
 pub(crate) fn route_is_effortless(adapter: &Adapter, concrete: &str) -> bool {
-    match concrete.split_once('/') {
-        Some((route, _)) => adapter.effortless_routes.contains_key(route),
-        None => false,
-    }
+    crate::capabilities::manifest::route(concrete)
+        .is_some_and(|route| adapter.effortless_routes.contains_key(route))
 }
 
 /// One resolved invocation: the agent it serves, a model, the provider

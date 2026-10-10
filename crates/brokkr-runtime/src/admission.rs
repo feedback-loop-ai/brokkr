@@ -35,26 +35,35 @@
 //! change. A map that cannot be read is no finding, so its hold does not
 //! latch; it holds for as long as it cannot be read.
 //!
-//! Provider and route concurrency and cool-downs, the scratch-space floor
-//! and the boxed-build ceiling are not judged here yet: decision 0068
-//! declares them in the realm's host configuration, which the realms map
-//! does not carry yet.
+//! The machine's room for an entry nothing else stops is judged after
+//! these ([`pass_within`], [`judge_within`]; #430's third slice), from the
+//! machine's own host configuration (the operator's ruling of
+//! 2026-10-10): provider and route concurrency, the scratch-space floor
+//! and the boxed-build ceiling, in the order `admission/capacity.rs`
+//! documents.
+//! Cool-downs are not judged yet.
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use brokkr_core::fold::{fold, FoldError, Status};
-use brokkr_core::realms::{Boundary, CapabilityGrant, Realm};
+use brokkr_core::realms::Boundary;
 use brokkr_store::{
     Attribution, EntryId, EntryState, Latch, QueueEntry, QueueRefusal, Seen, Store, StoreError,
     Wait, WaitOn,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use thiserror::Error;
 
 use crate::launch::{HeldAndNow, LaunchError, QueuedLaunch};
-use crate::realms::{World, WorldError};
+use crate::realms::WorldError;
+
+mod capacity;
+mod governing;
+mod host;
+
+pub use capacity::{Capacity, Host, Shared, Unmeasurable};
+pub use host::{free_bytes, host_file, HostError, RouteClass};
 
 /// Why an entry may not start now.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,12 +93,15 @@ pub enum Reason {
     },
     /// The map on disk cannot be read, so the realm cannot be compared.
     MapUnreadable(String),
+    /// The machine has no room for it now.
+    Capacity(Capacity),
 }
 
 impl Reason {
     /// Does only the operator clear it?
     pub(crate) fn holds(&self) -> bool {
         match self {
+            Reason::Capacity(capacity) => capacity.holds(),
             Reason::NotStarted(_) | Reason::Unended { .. } => false,
             Reason::OperatorHold
             | Reason::Dropped(_)
@@ -111,6 +123,7 @@ impl Reason {
             Reason::RealmChanged { .. } => "realm_changed",
             Reason::RealmLatched { .. } => "realm_latched",
             Reason::MapUnreadable(_) => "map_unreadable",
+            Reason::Capacity(capacity) => capacity.kind(),
         }
     }
 }
@@ -170,6 +183,7 @@ impl fmt::Display for Reason {
                 f,
                 "the realms map it was queued under cannot be read now: {detail}"
             ),
+            Reason::Capacity(capacity) => write!(f, "{capacity}"),
         }
     }
 }
@@ -302,7 +316,8 @@ impl Standing {
 
 /// Admission's word on one waiting entry: every reason it may not start
 /// now, the operator's hold first, then its waits in order, then its
-/// realm. None, and it may.
+/// realm, and only when none of those stops it, the first capacity check
+/// the machine does not meet. None, and it may.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
     pub reasons: Vec<Reason>,
@@ -387,12 +402,32 @@ pub enum AdmissionError {
          what it found was not latched; `brokkr queue judge` measures it afresh"
     )]
     Unmeasured(EntryId),
+    /// A host configuration that cannot be found, or is read and invalid.
+    #[error(transparent)]
+    Host(#[from] HostError),
 }
 
 /// Judge the queue: every entry `brokkr queue list` lists, in its order,
 /// with a verdict for each one that still waits. Nothing is written.
 pub fn pass(store: &Store) -> Result<Vec<Judged>, AdmissionError> {
     Ok(read(store)?.into_iter().map(|(judged, _)| judged).collect())
+}
+
+/// [`pass`], and then, for each entry nothing in it stops, whether
+/// `host` has room for it now: the first capacity check it does not meet
+/// is its reason. Nothing is written.
+pub fn pass_within(store: &Store, host: &Host<'_>) -> Result<Vec<Judged>, AdmissionError> {
+    capacity::sized(store, host, pass(store)?)
+}
+
+/// [`judge`], and then the machine's room as [`pass_within`] judges it.
+pub fn judge_within(
+    store: &mut Store,
+    host: &Host<'_>,
+    by: Attribution<'_>,
+) -> Result<Vec<Judged>, AdmissionError> {
+    let judged = judge(store, by)?;
+    capacity::sized(store, host, judged)
 }
 
 /// Judge the queue as [`pass`] does, and first latch on each waiting
@@ -644,55 +679,6 @@ fn awaiting(wait: Wait, awaited: Awaited) -> Option<Reason> {
     }
 }
 
-/// The facts of the operated repository's realm that govern a run in it
-/// (the operator's realm-drift ruling, 2026-10-04): which realm it is, its
-/// boundary, its grants, its house rules and its dialect. Each is held
-/// WHOLE, so a fact a later map version adds to any of them, a grant key
-/// above all, is compared without this code naming it. A repository the
-/// map does not name, or one under no map at all, is governed as a run
-/// with no realm is: `namespace`, no grant, no house, no dialect.
-#[derive(Debug)]
-struct Governing {
-    realm: Option<String>,
-    boundary: Boundary,
-    grants: BTreeMap<String, CapabilityGrant>,
-    house: Value,
-    dialect: Value,
-}
-
-/// The facts that govern a run in `realm` of `world`, `None` where the
-/// world names the repository no realm, or under no map at all.
-fn governing(selected: Option<(&World, Option<&Realm>)>) -> Result<Governing, WorldError> {
-    let Some((world, realm)) = selected else {
-        return Ok(Governing {
-            realm: None,
-            boundary: Boundary::Namespace,
-            grants: BTreeMap::new(),
-            house: Value::Null,
-            dialect: Value::Null,
-        });
-    };
-    let pin = world.pin_of(realm)?;
-    Ok(Governing {
-        realm: realm.map(|realm| realm.name.clone()),
-        boundary: realm.map_or(Boundary::Namespace, Realm::boundary),
-        grants: realm.map(|realm| realm.grants.clone()).unwrap_or_default(),
-        house: unplaced(&pin, "house"),
-        dialect: unplaced(&pin, "dialect"),
-    })
-}
-
-/// A text a world pins, whole but for the path it was read from: the
-/// same text read from the same map is the same fact wherever the map is
-/// opened from. `null` when the realm names none.
-fn unplaced(pin: &Value, key: &str) -> Value {
-    let mut text = pin[key].clone();
-    if let Value::Object(fields) = &mut text {
-        fields.remove("source");
-    }
-    text
-}
-
 /// What admission sees of an entry's realm now.
 enum Sight {
     /// What differs from the world it was queued with.
@@ -720,13 +706,14 @@ fn sight(worlds: HeldAndNow) -> Sight {
 /// now is held only after the same realm of it was pinned
 /// (`QueuedLaunch::held_and_now`). Both are refused all the same.
 fn seen(worlds: HeldAndNow) -> Result<Finding, WorldError> {
+    use governing::governing;
     let held = governing(worlds.held.as_ref().map(|held| held.selection()))?;
     let disk = worlds.now?;
     let now = governing(disk.world.as_ref().map(|now| now.selection()))?;
     Ok(Finding {
         encoding: FindingEncoding::V1,
         realm: held.realm.clone().or(now.realm.clone()).unwrap_or_default(),
-        differences: differences(&held, &now),
+        differences: governing::differences(&held, &now),
         on_disk: disk.digest.clone(),
     })
 }
@@ -756,42 +743,6 @@ fn realm(latched: Option<Finding>, sight: Sight) -> (Vec<Reason>, Option<Finding
         }
         (Some(latched), Sight::Seen(seen)) => (vec![latched.latched(true)], Some(seen)),
     }
-}
-
-/// Every governing fact that is not the same, in the order the ruling
-/// names them. Grants compare as whole grants.
-fn differences(held: &Governing, now: &Governing) -> Vec<Difference> {
-    let mut found = Vec::new();
-    if held.realm != now.realm {
-        found.push(Difference::Realm {
-            was: held.realm.clone(),
-            now: now.realm.clone(),
-        });
-    }
-    let names: BTreeSet<&String> = held.grants.keys().chain(now.grants.keys()).collect();
-    for name in names {
-        match (held.grants.get(name), now.grants.get(name)) {
-            (Some(_), None) => found.push(Difference::GrantRemoved(name.clone())),
-            (None, Some(_)) => found.push(Difference::GrantAdded(name.clone())),
-            (Some(was), Some(is)) if was != is => {
-                found.push(Difference::GrantChanged(name.clone()))
-            }
-            (Some(_), Some(_)) | (None, None) => {}
-        }
-    }
-    if held.boundary != now.boundary {
-        found.push(Difference::Boundary {
-            was: held.boundary,
-            now: now.boundary,
-        });
-    }
-    if held.house != now.house {
-        found.push(Difference::House);
-    }
-    if held.dialect != now.dialect {
-        found.push(Difference::Dialect);
-    }
-    found
 }
 
 #[cfg(test)]

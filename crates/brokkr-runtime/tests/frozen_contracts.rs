@@ -24,7 +24,14 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 26] = [
+const FROZEN: [(&str, &str); 27] = [
+    // #430's capacity slice lands `run-manifest.v13` beside v12, which was
+    // the new file when decision 0065 slice two landed and is frozen from
+    // here.
+    (
+        "contracts/run-manifest.v12.schema.json",
+        "23d549c9fc072e5019931f074771c8774b29239abd91d28c3478d368236fc325",
+    ),
     // Decision 0065 slice two (SC3) lands `run-manifest.v12` beside v11,
     // which was the new file when slice one landed and is frozen from here.
     (
@@ -748,6 +755,30 @@ fn the_v7_realm_schema_adds_only_the_provisional_offices() {
     );
 }
 
+/// Decision 0068's capacity half lands `forge.host/v1` as its own first
+/// contract, beside the realms maps and not inside one (the operator's
+/// ruling of 2026-10-10, option B): no realms version moves.
+#[test]
+fn the_host_contract_lands_as_its_own_first_version() {
+    use serde_json::json;
+    assert_eq!(
+        titled("contracts/host.v1.schema.json"),
+        "Forge host configuration v1"
+    );
+    let validator = contract("contracts/host.v1.schema.json");
+    let host = json!({"schema": "forge.host/v1",
+        "providers": {"dsh": {"ceiling": 1, "routes": {"spark-glm": {"ceiling": 1,
+                                                                      "class": "shared-local"}}}},
+        "scratch": {"floor_bytes": 1}, "boxed_builds": {"ceiling": 1}});
+    assert!(validator.is_valid(&host), "a v1 host configuration");
+    let mut map = host.clone();
+    map["schema"] = json!("forge.realms/v8");
+    assert!(
+        !validator.is_valid(&map),
+        "a realms version under the host schema"
+    );
+}
+
 /// Decision 0065 slice two (SC2, CR1): v8 is v7 plus one reserved grant
 /// key, `retain`, whose only legal value is `false`. v7's bytes are pinned
 /// above; under v7 the same spelling, any value, stays a restriction.
@@ -1059,6 +1090,74 @@ fn native() -> serde_json::Value {
 
 fn inherited() -> serde_json::Value {
     serde_json::json!({"declared": false, "realm": "inherit", "effective": false})
+}
+
+/// #430's capacity slice: `run-manifest/v13` is v12 with each capability
+/// candidate closed over one more REQUIRED record, the model ids its
+/// compile pinned, and nothing else moved. A v12 candidate is not a v13
+/// one, so an old run is never read as pinning what it seats.
+#[test]
+fn the_v13_manifest_schema_adds_only_each_candidates_model_pins() {
+    use serde_json::json;
+    assert_eq!(
+        titled("contracts/run-manifest.v13.schema.json"),
+        "Forge run manifest v13"
+    );
+    let [schema, v12] = published(["run-manifest.v13", "run-manifest.v12"]);
+    let mut carried = schema.clone();
+    let candidate = carried
+        .pointer_mut("/definitions/capability_candidate")
+        .unwrap();
+    candidate["properties"]
+        .as_object_mut()
+        .unwrap()
+        .remove("model_pins");
+    let required = candidate["required"].as_array_mut().unwrap();
+    required.retain(|name| name != "model_pins");
+    let definitions = carried["definitions"].as_object_mut().unwrap();
+    definitions.remove("model_pins");
+    definitions.remove("served");
+    for key in ["$id", "title", "description"] {
+        carried[key] = v12[key].clone();
+    }
+    assert_eq!(carried, v12, "v13 moved a clause v12 defines");
+
+    let (v13, v12) = (contract("contracts/run-manifest.v13.schema.json"), v12);
+    let v12 = jsonschema::draft7::new(&v12).unwrap();
+    let pinned = |pins: serde_json::Value| {
+        let mut manifest = v12_manifest(json!({}));
+        manifest["capabilities"]["sites"]["research"]["candidates"][0]["model_pins"] = pins;
+        manifest
+    };
+    let unpinned = v12_manifest(json!({}));
+    assert!(v12.is_valid(&unpinned) && !v13.is_valid(&unpinned));
+    for admitted in [
+        json!({"read": [{"id": "spark-glm/GLM-5.3-Flash-EXL3", "route": "spark-glm"},
+                        {"id": "deepseek-flash", "route": "deepseek-official"},
+                        {"id": "opus-5"}]}),
+        json!({"read": []}),
+        json!({"unreadable": ["-m", "--model"]}),
+    ] {
+        let manifest = pinned(admitted);
+        assert!(
+            v13.is_valid(&manifest) && !v12.is_valid(&manifest),
+            "{manifest}"
+        );
+    }
+    for refused in [
+        json!(null),
+        json!(["spark-glm/x"]),
+        json!({"read": [{"id": "a"}], "unreadable": ["--model"]}),
+        json!({"read": ["spark-glm/x"]}),
+        json!({"read": [{"id": ""}]}),
+        json!({"read": [{"id": "a", "route": ""}]}),
+        json!({"read": [{"id": "a", "route": null}]}),
+        json!({"read": [{"route": "spark-glm"}]}),
+        json!({"read": [{"id": "a", "routes": ["spark-glm"]}]}),
+        json!({"route": "spark-glm"}),
+    ] {
+        assert!(!v13.is_valid(&pinned(refused.clone())), "{refused}");
+    }
 }
 
 /// v12's two records are closed: both `mcp` connection forms and all four
